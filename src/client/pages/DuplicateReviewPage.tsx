@@ -32,7 +32,7 @@ import { Link, Navigate, useParams } from "../router.js";
  *
  * Not a diff. Nothing here highlights what differs, because the fields that
  * differ are the ones that always differ — the payee the bank chose and the
- * category somebody picked — and colouring them says nothing a person reading
+ * category somebody picked — and coloring them says nothing a person reading
  * two transactions does not already see. What matters is being able to correct
  * either one and drop the copy that should not have existed.
  */
@@ -109,7 +109,7 @@ export default function DuplicateReviewPage() {
     onSuccess: async (deletedId) => {
       const wasSubject = review.data?.first.staged?.id === deletedId;
       // Read before the refetch, because the row is about to leave the queue and
-      // its neighbours are what say where to go next.
+      // its neighbors are what say where to go next.
       if (wasSubject && id) {
         setHandled({
           from: id,
@@ -243,7 +243,7 @@ export default function DuplicateReviewPage() {
       ) : !review.data ? null : !review.data.second ? (
         <EmptyState
           icon={<CheckCheck size={22} />}
-          title="Nothing repeats this any more"
+          title="Nothing repeats this anymore"
           body="Whatever it looked like a copy of has been changed, committed or dropped. This row is on its own now."
           action={
             // On to the next one where there is one: this row needs nothing

@@ -149,7 +149,7 @@ export function createProgressDecoder(): (chunk: string) => ProgressFrame[] {
 /**
  * One `event:`/`data:` pair, or nothing.
  *
- * Anything unrecognised is dropped rather than thrown on: a comment line is
+ * Anything unrecognized is dropped rather than thrown on: a comment line is
  * legal SSE and is what an intermediary sends to keep a connection warm, and a
  * frame type this build does not know is what a newer server would send to an
  * older page mid-upgrade. Neither is a reason to abandon a commit that is

@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull, like, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Actor } from "../../shared/domain.js";
 import { getDb } from "../db/client.js";
@@ -15,6 +15,7 @@ import {
 } from "../db/schema.js";
 import { notFound, validationError } from "./errors.js";
 import { log } from "../log.js";
+import { closeBillingForDeletion, hasLiveSubscription } from "./billing.js";
 
 /**
  * Deleting an account, and everything that was in it.
@@ -55,6 +56,17 @@ export type OwnDataSummary = {
   importBatches: number;
   payees: number;
   connectedAgents: number;
+  /**
+   * Whether a live subscription goes with the account.
+   *
+   * A count would be the wrong shape — somebody has one or none — and it is
+   * here for a different reason from the rest of this summary. Everything else
+   * is a number telling somebody how much they are about to lose; this is the
+   * one item that costs money and cannot be undone by re-entering it. Deleting
+   * the account cancels it at Stripe, immediately, and nothing restores a
+   * canceled subscription.
+   */
+  activeSubscription: boolean;
 };
 
 const countOf = async (query: Promise<{ count: number }[]>) => (await query)[0]?.count ?? 0;
@@ -141,6 +153,7 @@ export async function summarizeOwnData(actor: Actor): Promise<OwnDataSummary> {
     importBatches: batches,
     payees,
     connectedAgents,
+    activeSubscription: await hasLiveSubscription(actor),
   };
 }
 
@@ -165,14 +178,34 @@ export async function deleteOwnAccount(
     throw validationError("Type the email address on this account to confirm deleting it.");
   }
 
+  // Before anything is destroyed, and it refuses rather than warns. The
+  // `billing_customer` row cascades away with the user, so a subscription left
+  // running at Stripe afterward belongs to nobody: it goes on charging
+  // somebody who asked to be forgotten, and reconciliation cannot repair it
+  // because it compares Stripe against rows that no longer exist.
+  await closeBillingForDeletion(actor);
+
   const removed = await summarizeOwnData(actor);
 
   await db.transaction(async (tx) => {
-    // No user column on this one, so the cascade cannot see it. A pending
-    // password reset holds the user id in `value`.
+    // No user column on this one, so the cascade cannot see it, and three
+    // different flows land here holding the id three different ways: a pending
+    // password reset stores it bare, while an abandoned account link and an
+    // unfinished OAuth authorization store JSON with the id inside — and the
+    // link payload carries the address as well. Matching only the bare form
+    // left somebody's email behind after they asked to be forgotten.
+    //
+    // The quoted form is what both JSON shapes have in common, so one `like`
+    // beside the equality catches them without parsing a column that is not
+    // always JSON.
     await tx
       .delete(verification)
-      .where(and(eq(verification.value, actor.userId), isNotNull(verification.value)));
+      .where(
+        and(
+          isNotNull(verification.value),
+          or(eq(verification.value, actor.userId), like(verification.value, `%"${actor.userId}"%`)),
+        ),
+      );
     // Everything else goes with this row.
     await tx.delete(user).where(eq(user.id, actor.userId));
   });

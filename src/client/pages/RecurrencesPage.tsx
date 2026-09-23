@@ -130,7 +130,7 @@ export default function RecurrencesPage() {
       <PageHeader
         eyebrow="Ledger"
         title="Recurring"
-        description="Standing instructions that add a row to Staged transactions on a schedule. Nothing is posted until you commit it."
+        description="Rules that add a row to Staged transactions on a schedule. Nothing is posted until you commit it."
         actions={
           <Button type="button" onClick={() => setCreating(true)}>
             <Plus size={16} /> New recurrence

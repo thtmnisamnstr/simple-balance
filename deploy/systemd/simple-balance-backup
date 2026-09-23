@@ -1,0 +1,175 @@
+#!/bin/sh
+# A dump of the ledger, taken from the running deployment and written to
+# SB_BACKUP_DIR. Run by simple-balance-backup.timer, and safe to run by hand.
+#
+#   sudo /usr/local/bin/simple-balance-backup
+#
+# What this is not: a substitute for the database's own files surviving. A dump
+# is a copy of the data, not of the machine, and the useful question about
+# SB_BACKUP_DIR is whether it is on something that outlives the host.
+set -eu
+
+# Not bash, so no pipefail. Every pipeline below is therefore written so the
+# command that can fail is the last one, or its result is checked on its own.
+# This matters most for pg_dump: in `pg_dump | gzip`, a failed dump and a
+# successful gzip produce exit 0 and an empty archive, which is a backup that
+# reports success and restores nothing.
+
+: "${SB_COMPOSE_DIR:=/opt/simple-balance}"
+: "${SB_BACKUP_DIR:=/var/backups/simple-balance}"
+: "${SB_BACKUP_KEEP:=14}"
+# Only used where the database is not part of the deployment. Pinned rather than
+# floating: a pg_dump older than the server refuses outright, so the version this
+# reaches for should be a decision. 18 is what the profiles that own a database
+# deploy, and pg_dump 18 dumps every server this application supports. Its
+# pg_restore does not load straight into a 15 or 16 server — it opens with a
+# setting those do not have — so simple-balance-restore renders the dump to SQL
+# for an older server first, before it touches anything.
+: "${SB_PG_CLIENT_IMAGE:=postgres:18}"
+
+# Two profiles reach their database two different ways, and this is the one
+# script both use.
+#
+# `vps` has the database as a service in this same Compose project, so the dump
+# is taken inside it and needs no client on the host and no password anywhere.
+# `single` points at a database somebody else keeps, so there is nothing to exec
+# into — the dump goes over the network, from a client container, using the same
+# DATABASE_URL the application uses.
+#
+# Decided by reading the project's own service list rather than by a setting. A
+# setting here would be a second place to state something the compose file
+# already says, and the failure when the two disagree is a backup that reports
+# success and dumps the wrong database.
+cd "$SB_COMPOSE_DIR"
+if docker compose config --services 2>/dev/null | grep -qx postgres; then
+	database_in_project=yes
+else
+	database_in_project=no
+fi
+
+# libpq's spelling of DATABASE_URL, for the postgres client. The application
+# reads the same string with node-postgres, and the two disagree about sslmode:
+# `no-verify`, which docs/deployment.md recommends for a server that signed its
+# own certificate, is node-postgres's word, and libpq refuses it outright with
+# `invalid sslmode value` — so a deployment configured exactly as recommended
+# could be neither dumped nor restored. libpq's `require` is the same
+# guarantee, encrypted and not verified, and the client image carries no root
+# certificate that would quietly turn it into verify-ca. `uselibpqcompat`,
+# which tells node-postgres to read `require` libpq's way, is an unknown URI
+# parameter to libpq and is refused the same way, so it is dropped. Every other
+# parameter passes through untouched.
+#
+# The same function, spelled the same way, is in the other script of the pair;
+# tests/systemd-scripts.test.ts holds the two to each other and to its cases.
+libpq_url() {
+	printf '%s\n' "$1" | sed \
+		-e 's/\([?&]\)sslmode=no-verify$/\1sslmode=require/' \
+		-e 's/\([?&]\)sslmode=no-verify&/\1sslmode=require\&/' \
+		-e 's/[?&]uselibpqcompat=[^&]*$//' \
+		-e 's/\([?&]\)uselibpqcompat=[^&]*&/\1/'
+}
+
+# `single` needs the connection string, and it lives in the file Compose reads.
+# Read out of it with its quotes removed, so an operator who quoted it gets the
+# same value Compose would see.
+if [ "$database_in_project" = no ]; then
+	if [ -z "${DATABASE_URL:-}" ] && [ -r "$SB_COMPOSE_DIR/.env" ]; then
+		DATABASE_URL=$(sed -n 's/^DATABASE_URL=//p' "$SB_COMPOSE_DIR/.env" | tail -1 | sed 's/^"\(.*\)"$/\1/; s/^'"'"'\(.*\)'"'"'$/\1/')
+	fi
+	if [ -z "${DATABASE_URL:-}" ]; then
+		echo "simple-balance-backup: no postgres service in this deployment and no DATABASE_URL to dump from." >&2
+		echo "  This is the \`single\` profile, whose database is somebody else's. Put DATABASE_URL in" >&2
+		echo "  $SB_COMPOSE_DIR/.env, which is where the application reads it from too." >&2
+		exit 2
+	fi
+	pg_url=$(libpq_url "$DATABASE_URL")
+fi
+
+# One place that decides how a postgres client is run, so the dump and the
+# verification below cannot end up reaching two different databases.
+#
+# --network host because DATABASE_URL is written from the host's point of view:
+# a managed database is reachable either way, but one on this machine's own
+# loopback is only reachable this way, and that is a deployment somebody will
+# have.
+pg() {
+	if [ "$database_in_project" = yes ]; then
+		docker compose exec -T postgres "$@"
+	else
+		docker run --rm -i --network host -e PGCONNECT_TIMEOUT=15 \
+			"$SB_PG_CLIENT_IMAGE" "$@"
+	fi
+}
+
+# Dumps are every account's whole financial history in one file. 0077 makes the
+# directory and every file in it readable by root alone, and it is set before
+# anything is created rather than fixed afterward.
+umask 077
+
+mkdir -p "$SB_BACKUP_DIR"
+
+# Sorts chronologically as text, which is what lets the pruning at the bottom
+# use `sort` instead of a GNU-only `find -printf`. UTC so it keeps sorting
+# across a daylight saving change.
+stamp=$(date -u +%Y%m%dT%H%M%SZ)
+final="$SB_BACKUP_DIR/simple-balance-$stamp.dump"
+partial="$final.partial"
+
+# -T, and it is not optional: without it Compose allocates a TTY, and the
+# terminal translation corrupts the binary stream on its way to the file. The
+# result looks like a dump, has a plausible size, and fails to restore.
+#
+# -Fc is PostgreSQL's own compressed format. It restores with pg_restore, it can
+# be restored selectively, and unlike plain SQL it can be checked without being
+# applied — which is what the verification below does.
+#
+# Redirected to .partial so an interrupted dump is never mistaken for a finished
+# one by the pruning below or by whoever reaches for the newest file at 3am.
+if [ "$database_in_project" = yes ]; then
+	pg pg_dump -U simple_balance -d simple_balance -Fc --no-owner --no-privileges >"$partial"
+else
+	pg pg_dump -d "$pg_url" -Fc --no-owner --no-privileges >"$partial"
+fi
+
+# A dump nobody has read is a hope. pg_restore --list parses the archive's table
+# of contents without touching a database, so it catches a truncated file, a
+# corrupted stream and an empty one for the price of reading the header.
+if ! pg_restore_out=$(pg pg_restore --list <"$partial" 2>&1); then
+	rm -f "$partial"
+	echo "simple-balance-backup: the dump did not verify and was discarded" >&2
+	echo "$pg_restore_out" >&2
+	exit 1
+fi
+
+# And that it contains something. An archive with a valid header and no tables
+# verifies happily, which is what a dump of the wrong database looks like.
+entries=$(printf '%s\n' "$pg_restore_out" | grep -c 'TABLE DATA' || true)
+if [ "$entries" -lt 1 ]; then
+	rm -f "$partial"
+	echo "simple-balance-backup: the dump verified but holds no table data" >&2
+	exit 1
+fi
+
+mv "$partial" "$final"
+echo "simple-balance-backup: wrote $final ($(wc -c <"$final" | tr -d " ") bytes, $entries tables)"
+
+# Keep the newest SB_BACKUP_KEEP and remove the rest.
+#
+# A glob rather than `ls` piped into anything. The timestamp is in the name, so
+# the shell's own expansion is already oldest-first and the ones to remove are
+# the leading few — which needs no `sort`, no GNU-only `find -printf`, and no
+# parsing of `ls` output, whose one job is to be read by people. The `.partial`
+# suffix is outside this pattern, so an interrupted dump cannot push a good
+# backup off the end.
+set -- "$SB_BACKUP_DIR"/simple-balance-*.dump
+# An unmatched glob expands to itself in POSIX sh, so the first entry has to be
+# a real file before the count below means anything.
+[ -f "$1" ] || set --
+
+surplus=$(($# - SB_BACKUP_KEEP))
+while [ "$surplus" -gt 0 ]; do
+	rm -f "$1"
+	echo "simple-balance-backup: pruned ${1##*/}"
+	shift
+	surplus=$((surplus - 1))
+done

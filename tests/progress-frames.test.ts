@@ -61,14 +61,14 @@ describe("the progress frame format", () => {
     ).toEqual([1, 2]);
   });
 
-  it("drops what it does not recognise rather than throwing", () => {
+  it("drops what it does not recognize rather than throwing", () => {
     // A comment line is legal SSE and is what an intermediary sends to keep a
     // connection warm; an unknown event is what a newer server would send to a
     // page loaded before an upgrade. Abandoning a commit already running over
     // either would be the wrong answer to both.
     const frames = decode([
       ": keep-alive\n\n",
-      "event: rumour\ndata: {}\n\n",
+      "event: rumor\ndata: {}\n\n",
       "event: progress\ndata: not json\n\n",
       encodeProgressFrame({ type: "result", value: { committed: [] } }),
     ]);

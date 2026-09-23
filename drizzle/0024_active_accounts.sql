@@ -1,0 +1,13 @@
+-- Which accounts a person keeps usable when a plan limits how many may be.
+--
+-- The choice, not the answer: `frozenAccountIds` in `src/shared/domain.ts`
+-- combines this with the entitlement, because an override can expire
+-- overnight with no code running and a column written on the way down
+-- would still say what it said then. Defaulting to true is what makes this
+-- safe on a ledger that already exists — nothing is frozen until a plan
+-- says so.
+--
+-- Metadata-only on any PostgreSQL: a constant default rewrites no rows.
+-- Citus propagates ADD COLUMN to the shards, so it needs no gate the way
+-- 0023 does.
+ALTER TABLE "ledger_account" ADD COLUMN "active" boolean DEFAULT true NOT NULL;

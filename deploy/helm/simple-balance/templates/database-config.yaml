@@ -1,0 +1,191 @@
+{{- if .Values.database.enabled }}
+{{/*
+Patroni's configuration. Everything that is the same for every pod is here;
+identity — which pod, which Citus group — arrives as environment variables from
+the StatefulSet, because those differ per pod and per group.
+
+`bootstrap.dcs` is applied once, when the first cluster member initializes, and
+is then owned by the cluster rather than by this file. Changing a value here
+after that does not reach a running cluster: `patronictl edit-config` does, and
+`docs/citus-runbook.md` says so. That is Patroni's design rather than a
+limitation of the chart, and it is the right one — a Helm upgrade should not be
+able to silently change a running database's WAL settings.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "simple-balance.databaseName" . }}-patroni
+  labels:
+    {{- include "simple-balance.componentLabels" (dict "root" . "component" "database") | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+data:
+  patroni.yml: |
+    kubernetes:
+      use_endpoints: true
+      # Patroni labels its own pod with the role it holds, and the leader Service
+      # selects on exactly these labels plus that role. They have to agree with
+      # the StatefulSet's pod labels or the Service selects nothing and the
+      # application cannot reach a database that is running perfectly well.
+      labels:
+        app.kubernetes.io/name: {{ include "simple-balance.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: database
+      # Left off. Patroni can talk to the API server directly rather than
+      # through the `kubernetes` Service, which is marginally more robust, but it
+      # needs a ClusterRole to read that endpoint — cluster-scoped permission is
+      # a much larger thing for a chart to ask for than the namespaced Role
+      # beside it, and Patroni degrades to the Service on its own anyway.
+      bypass_api_service: false
+
+    bootstrap:
+      dcs:
+        ttl: 30
+        loop_wait: 10
+        retry_timeout: 10
+        # Patroni's default. Deliberately not zero: zero reads like "lose
+        # nothing" and behaves like "never fail over automatically", because an
+        # asynchronous standby is essentially never byte-for-byte current at the
+        # moment a primary dies. The guarantee a ledger actually wants comes from
+        # synchronous replication below, which stops a transaction being
+        # committed at all until a standby has it — and that is a real guarantee
+        # rather than a threshold.
+        maximum_lag_on_failover: 1048576
+{{- if .Values.database.synchronousReplication }}
+        # Every commit waits for a standby to have the WAL, so a promotion cannot
+        # lose an acknowledged transaction. This is the trade this profile makes
+        # for money: writes pay a network round trip inside the cluster.
+        synchronous_mode: true
+        # Not strict, and this is the half worth arguing. Strict mode refuses
+        # writes when no standby is available, which turns one lost pod into a
+        # ledger nobody can write to. Non-strict falls back to asynchronous and
+        # keeps serving — so the guarantee is "no loss while a standby is
+        # there", and `docs/citus-runbook.md` says how to see when it is not.
+        synchronous_mode_strict: false
+{{- end }}
+        postgresql:
+          use_pg_rewind: true
+          use_slots: true
+          parameters:
+            # Citus has to be loaded before the server accepts connections. The
+            # image writes this into postgresql.conf.sample as well, so a cluster
+            # bootstrapped outside Patroni still gets it; naming it here is what
+            # makes Patroni keep it.
+            shared_preload_libraries: citus
+            # Off because this is somebody's ledger rather than a telemetry
+            # sample. The GUC defaults to on wherever libcurl is compiled in,
+            # which on PostgreSQL 18 cannot be avoided — see citus.Dockerfile.
+            citus.enable_statistics_collection: "off"
+            # `logical`, not `replica`, and it is not about logical replication
+            # of this database to anywhere. Citus moves a shard between workers
+            # by logically replicating it, which is what makes `rebalance` a
+            # background operation rather than a write outage — and Citus raises
+            # this to `logical` at startup whether it is asked to or not. Naming
+            # it here means the file says what the server will actually run.
+            wal_level: logical
+            hot_standby: "on"
+            max_wal_senders: 10
+            max_replication_slots: 10
+            wal_keep_size: 1GB
+            # Citus opens connections between nodes for every distributed query,
+            # so the per-node ceiling is reached sooner than on a single server.
+            max_connections: 200
+            max_prepared_transactions: 200
+          {{- with .Values.database.parameters }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      initdb:
+        - encoding: UTF8
+        # ICU rather than libc, and this is the one initdb setting that is a
+        # correctness decision rather than a preference. Category and payee
+        # uniqueness in this application rests on comparing normalized names with
+        # the database's collation, and a libc collation changes with the libc
+        # underneath it — a base image upgrade can silently reorder an index. ICU
+        # carries its own version, so the same data sorts the same way.
+        - locale-provider: icu
+        - icu-locale: en-US
+        - data-checksums
+
+      # Runs once, on the very first bootstrap of the very first member. The
+      # application role is made here rather than by the application, because the
+      # application connects with it and cannot create what it signs in as.
+      post_init: /etc/patroni/post-init.sh
+
+    postgresql:
+      listen: "0.0.0.0:5432"
+      # Patroni writes here, and the rest of the filesystem is read-only.
+      pgpass: /home/postgres/pgpass
+      parameters:
+        # Left to the container rather than initdb so that a pod moved to a node
+        # with a different clock policy does not disagree with its own data.
+        timezone: UTC
+      pg_hba:
+        # Replication and the Citus node-to-node connections are the only things
+        # that reach a pod directly; everything else arrives at the coordinator.
+        # scram-sha-256 throughout: `trust` inside a namespace is still trust.
+        - local all all peer
+        - host replication {{ .Values.database.replication.username }} 0.0.0.0/0 scram-sha-256
+        - host replication {{ .Values.database.replication.username }} ::/0 scram-sha-256
+        - host all all 0.0.0.0/0 scram-sha-256
+        - host all all ::/0 scram-sha-256
+
+    restapi:
+      listen: "0.0.0.0:{{ .Values.database.restApiPort }}"
+
+    # A cluster that has lost its leader and cannot elect one should stay down
+    # rather than come up divided. This is Patroni's default and is named here
+    # because it is load-bearing for a ledger.
+    citus:
+      database: {{ .Values.database.databaseName }}
+
+  post-init.sh: |
+    #!/bin/sh
+    # Patroni runs this once, on the first bootstrap of the first member, with a
+    # connection string as $1. It makes the role the application signs in as,
+    # which the application cannot make for itself because it is what the
+    # application signs in with.
+    #
+    # Idempotent on purpose. Patroni will not run it twice, but an operator
+    # rebuilding a cluster from a backup might, and a script that fails the
+    # second time turns a recovery into an incident.
+    set -eu
+    : "${SB_APP_USER:?post-init needs SB_APP_USER}"
+    : "${SB_APP_PASSWORD:?post-init needs SB_APP_PASSWORD}"
+    : "${SB_APP_DATABASE:?post-init needs SB_APP_DATABASE}"
+
+    # Quoted by PostgreSQL rather than by the shell. `format` with %I and %L
+    # produces a correctly quoted identifier and literal, and \gexec runs the
+    # statement that comes back — so a password containing a quote is a password
+    # rather than a syntax error or an injection.
+    psql "$1" -v ON_ERROR_STOP=1 \
+      --set=app_user="$SB_APP_USER" \
+      --set=app_password="$SB_APP_PASSWORD" \
+      --set=app_database="$SB_APP_DATABASE" <<'SQL'
+    select format('create role %I login password %L', :'app_user', :'app_password')
+    where not exists (select 1 from pg_roles where rolname = :'app_user')
+    \gexec
+
+    select format('alter role %I login password %L', :'app_user', :'app_password')
+    \gexec
+
+    -- The database, owned by that role. It does not exist yet at this point:
+    -- Patroni runs post_init before its Citus handler creates the database, so
+    -- an `alter database ... owner to` here fails with "does not exist" — which
+    -- is exactly what the first version of this file did. Creating it here is
+    -- safe because Patroni's handler catches DuplicateDatabase and carries on to
+    -- `create extension citus` in it.
+    --
+    -- Owned rather than granted, and that is the whole point: from PostgreSQL 15
+    -- the `public` schema is owned by `pg_database_owner` and PUBLIC has no
+    -- CREATE on it, so the database owner is the one role that can create tables
+    -- without a grant. The application creates every table it uses through its
+    -- own migrations, and Citus needs the table's owner to distribute it — which
+    -- `0023` does. So this is what lets the application distribute its own
+    -- ledger without being handed a superuser.
+    select format('create database %I owner %I', :'app_database', :'app_user')
+    where not exists (select 1 from pg_database where datname = :'app_database')
+    \gexec
+    SQL
+{{- end }}

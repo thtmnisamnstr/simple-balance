@@ -121,7 +121,7 @@ describe("a field and its control", () => {
  * the same rows did, which is what made it look deliberate.
  */
 describe("a field around a composite", () => {
-  it("is a labelled group rather than a label", () => {
+  it("is a labeled group rather than a label", () => {
     render(
       <Field label="Category" as="group">
         <Input aria-label="Category for split 1" defaultValue="" />
@@ -172,9 +172,14 @@ describe("a field around a composite", () => {
  * control as far as anybody using it is concerned. A `Field` around it would add
  * a second label above a box that already says what it is.
  *
- * Named, so a second file input has to come here and make its own case.
+ * Named, so a second file input has to come here and make its own case — and
+ * named by its own text rather than its line number, which moved every time
+ * something was added above it and failed a test about a control nobody had
+ * touched.
  */
-const NOT_A_FIELD = new Set(["src/client/pages/ImportPage.tsx:322"]);
+const NOT_A_FIELD = new Set([
+  'src/client/pages/ImportPage.tsx:<input type="file" accept=".csv,text/csv" onChange={chooseFile} />',
+]);
 
 describe("every control in the client", () => {
   it("goes through the three shared components", () => {
@@ -185,14 +190,14 @@ describe("every control in the client", () => {
       const lines = readFileSync(path, "utf8").split("\n");
       lines.forEach((line, index) => {
         if (!/<(?:input|select|textarea)\b/.test(line)) return;
-        // A checkbox or a radio is labelled by the `<label>` it sits in or by
+        // A checkbox or a radio is labeled by the `<label>` it sits in or by
         // the `radiogroup` around it, and neither takes a `Field`. The `type`
         // is usually on the next line, so the tag's own attributes are read
         // rather than the line it opens on: a window to the closing `>`,
         // bounded so a malformed file cannot run to the end.
         const tag = lines.slice(index, index + 12).join(" ");
         if (/type="(?:checkbox|radio)"/.test(tag.slice(0, tag.indexOf(">") + 1))) return;
-        if (NOT_A_FIELD.has(`${path}:${index + 1}`)) return;
+        if (NOT_A_FIELD.has(`${path}:${line.trim()}`)) return;
         raw.push(`${path}:${index + 1}`);
       });
     }
@@ -206,7 +211,7 @@ describe("every control in the client", () => {
  * `web.md` 12.3 says so and six controls disabled on a computed predicate had
  * one sentence between them. It is the one control that can go completely
  * silent: nothing was typed wrongly, so there is no field error, and nothing was
- * submitted, so there is no summary — the button is simply grey and the person
+ * submitted, so there is no summary — the button is simply gray and the person
  * has to guess which of the form's conditions is unmet.
  *
  * The guide called this "structural and has nothing to key on today". `Button`
@@ -270,7 +275,7 @@ describe("a disabled button", () => {
    * `onClick={() => …}`, so an arrow-function-first button was invisible even
    * in the files it did read. A census that walks braces finds 22 such buttons
    * where the old one saw 8 — every one of the fourteen it missed was a
-   * control that goes grey and says nothing.
+   * control that goes gray and says nothing.
    *
    * Brace depth rather than a regex, because the thing being matched is
    * nested and a regular expression is the wrong tool for it.
@@ -306,7 +311,7 @@ describe("a disabled button", () => {
    * The rule's own words: "a button that is working already says so, and a
    * reason for that state would be a second answer to a question already
    * answered". These four are the other half of a pair — the one not pressed,
-   * greyed while its sibling works — so the answer is the sibling's spinner.
+   * grayed while its sibling works — so the answer is the sibling's spinner.
    * Named rather than pattern-matched, because "is this predicate a busy
    * flag" is a judgement.
    *

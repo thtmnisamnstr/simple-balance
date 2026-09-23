@@ -107,7 +107,7 @@ integration("paging the queue by date", () => {
   });
 
   it("finds a payee whose spelling NFKC folds", async () => {
-    // The filter compares against a value normalised in JavaScript, which folds
+    // The filter compares against a value normalized in JavaScript, which folds
     // NFKC. The SQL side did not, so a payee holding a ligature — or a full-width
     // letter, or any of the presentation forms NFKC collapses — never matched and
     // the queue came back empty rather than saying why.

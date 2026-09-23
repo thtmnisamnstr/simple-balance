@@ -15,7 +15,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useId, useState } from "react";
-import { Link, payeeDetailSearch, useLocation } from "./router.js";
+import { Link, payeeDetailSearch, useLocation, withoutLedgerText } from "./router.js";
 import {
   api,
   ApiClientError,
@@ -24,6 +24,7 @@ import {
   type Account,
   type Category,
   type PaginatedPage,
+  type Session,
   type StagedTransaction,
   type Transaction,
   type TransactionBulkEditFilter,
@@ -63,6 +64,7 @@ import {
   templateDraftFromDraft,
 } from "./staged-draft.js";
 import type { TransactionSortField, TransactionType } from "../shared/domain.js";
+import { frozenAccountRefusal, MAX_FREE_ACCOUNTS } from "../shared/domain.js";
 
 /** The share a split is named by in a list: its biggest one. */
 function largestLeg(legs: Transaction["legs"]) {
@@ -265,6 +267,13 @@ export function TransactionBrowser({
     queryKey: ["accounts"],
     queryFn: () => api<Account[]>("/api/v1/accounts"),
   });
+  // Read from what the app shell already loaded and never fetched from here:
+  // it is only wanted for the number the frozen sentence names.
+  const session = useQuery({
+    queryKey: ["session"],
+    queryFn: () => api<Session>("/api/v1/session"),
+    enabled: false,
+  });
   const categories = useQuery({
     queryKey: ["categories", true],
     queryFn: () => api<Category[]>("/api/v1/categories?includeArchived=true"),
@@ -319,7 +328,22 @@ export function TransactionBrowser({
   const items = transactions.data?.items ?? [];
   const totalMatching = transactions.data?.totalCount ?? items.length;
   const stagedRows = staged.data?.items ?? [];
-  const activeAccounts = (accounts.data ?? []).filter((account) => !account.archivedAt);
+  // The accounts a write may name, which is what both the bulk edit's picker
+  // and the Add button are about. A frozen account refuses a new entry and an
+  // entry moved onto it, so offering one there is offering a save the server
+  // then refuses.
+  const writableAccounts = (accounts.data ?? []).filter(
+    (account) => !account.archivedAt && !account.frozen,
+  );
+  const entitlement = session.data?.plan?.entitlement;
+  // The server's own sentence for a new entry on a frozen account. The
+  // fallback is the only limit any plan freezes under, for a browser rendered
+  // before the session has loaded.
+  const cannotAdd = accounts.data?.length
+    ? frozenAccountRefusal(
+        (entitlement?.billing ? entitlement.accountLimit : null) ?? MAX_FREE_ACCOUNTS,
+      )
+    : "Create an account first.";
   const activeCategories = (categories.data ?? []).filter((category) => !category.archivedAt);
   const selectedLoadedItems = items.filter((transaction) =>
     selection.mode === "filter"
@@ -363,7 +387,9 @@ export function TransactionBrowser({
     selection.mode === "filter"
       ? bulkFilter.includeDeleted
       : selectedLoadedItems.some((transaction) => Boolean(transaction.deletedAt));
-  const selectedBulkAccount = activeAccounts.find((account) => account.id === bulkValues.accountId);
+  const selectedBulkAccount = writableAccounts.find(
+    (account) => account.id === bulkValues.accountId,
+  );
   const accountChangeUnavailable =
     explicitSelectionHasMissingRows ||
     selectionContainsTransfers ||
@@ -387,7 +413,7 @@ export function TransactionBrowser({
     (!bulkEnabled.date || /^\d{4}-\d{2}-\d{2}$/.test(bulkValues.date)) &&
     (!bulkEnabled.payee || Boolean(bulkValues.payee.trim())) &&
     (!bulkEnabled.accountId ||
-      activeAccounts.some((account) => account.id === bulkValues.accountId));
+      writableAccounts.some((account) => account.id === bulkValues.accountId));
   const canSubmitBulkEdit =
     hasSelection &&
     filterSelectionReady &&
@@ -602,7 +628,7 @@ export function TransactionBrowser({
     setBulkEnabled(emptyBulkEditEnabled());
     setBulkValues(
       emptyBulkEditValues(
-        activeAccounts.find((account) => account.currency === selectedCurrencies[0])?.id,
+        writableAccounts.find((account) => account.currency === selectedCurrencies[0])?.id,
       ),
     );
     setBulkIdempotencyKey(newIdempotencyKey());
@@ -681,8 +707,8 @@ export function TransactionBrowser({
       {allowCreate ? (
         <Button
           onClick={() => setEditing("new")}
-          disabled={!accounts.data?.length}
-          disabledReason={accounts.isPending ? undefined : "Create an account first."}
+          disabled={!writableAccounts.length}
+          disabledReason={accounts.isPending ? undefined : cannotAdd}
         >
           <Plus size={16} /> Add transaction
         </Button>
@@ -1070,7 +1096,7 @@ export function TransactionBrowser({
                               <Link
                                 to={{
                                   pathname: `/categories/${largestLeg(transaction.legs)!.category!.id}`,
-                                  search: location.search,
+                                  search: withoutLedgerText(location.search),
                                 }}
                               >
                                 {largestLeg(transaction.legs)!.category!.name}
@@ -1084,7 +1110,7 @@ export function TransactionBrowser({
                           <Link
                             to={{
                               pathname: `/categories/${transaction.category.id}`,
-                              search: location.search,
+                              search: withoutLedgerText(location.search),
                             }}
                           >
                             {transaction.category.name}
@@ -1195,7 +1221,7 @@ export function TransactionBrowser({
               : "Add a deposit, a withdrawal or a transfer, or import a CSV of what has already happened."
           }
           action={
-            allowCreate && accounts.data?.length ? (
+            allowCreate && writableAccounts.length ? (
               <Button onClick={() => setEditing("new")}>Add transaction</Button>
             ) : undefined
           }
@@ -1395,7 +1421,7 @@ export function TransactionBrowser({
                 }
               >
                 <option value="">Choose an account</option>
-                {activeAccounts.map((account) => (
+                {writableAccounts.map((account) => (
                   <option
                     key={account.id}
                     value={account.id}

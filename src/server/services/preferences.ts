@@ -21,7 +21,7 @@ const preferenceSchema = z.object({
       }
     }, "Timezone is not recognized")
     .describe(
-      "An IANA timezone name such as Europe/London. It decides what today means everywhere a date is worked out: which day an open-ended range stops at, and which day an entry dated today lands on.",
+      "An IANA timezone name such as America/New_York. It decides what today means everywhere a date is worked out: which day an open-ended range stops at, and which day an entry dated today lands on.",
     ),
   defaultCurrency: currencyCodeSchema.describe(
     "The currency a new account and a new entry start in. It is a default and nothing else: it changes no figure already recorded, and the person may change it whenever they like.",
@@ -35,7 +35,7 @@ const preferenceSchema = z.object({
 
 /**
  * What a person gets before they have chosen anything. One copy, because the
- * read synthesises them for a missing row and a partial write has to insert
+ * read synthesizes them for a missing row and a partial write has to insert
  * the same ones for the field it was not given.
  */
 const unchosenPreferences = {

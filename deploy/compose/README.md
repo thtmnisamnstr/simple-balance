@@ -19,6 +19,14 @@ This is the shape `deploy/helm/simple-balance/` deploys, without Kubernetes. One
 container is still the supported way to run this in production; see
 [docs/deployment.md](../../docs/deployment.md).
 
+**This is not the `single` profile.** It runs the split containers on one
+machine to exercise the shape the Helm chart deploys, with a bundled
+PostgreSQL for convenience. For a deployment somebody's books live on — one
+container, a tuned database, TLS, backups and a systemd unit — read
+[`single/README.md`](single/README.md), and
+[`docs/deployment-profiles.md`](../../docs/deployment-profiles.md) for which
+of the two to pick.
+
 ## Bring it up
 
 ```sh
@@ -129,7 +137,8 @@ have to line up there, because there is nothing to line them up between.
 images to Kubernetes with an Ingress, cert-manager, autoscaling and network
 policies. The differences here are the ones a single machine forces:
 
-- The chart provisions no database. A cluster's PostgreSQL is bring your own,
+- The chart provisions no database by default. A cluster's PostgreSQL is bring
+  your own unless `database.enabled` runs the `ha` profile's Citus cluster,
   since whoever runs it owns its backups, its version and its
   `max_connections`. Here it is a container, because a trial on one machine
   should take one command.
@@ -137,7 +146,7 @@ policies. The differences here are the ones a single machine forces:
   schedulers, which is the arrangement that shows the scheduler dividing work.
 - nginx's graceful stop is stated as `stop_signal: SIGQUIT` rather than the
   chart's preStop hook. The image already declares SIGQUIT and compose would
-  honour that, but the reason the frontend can stop without cutting a response
+  honor that, but the reason the frontend can stop without cutting a response
   is worth stating where somebody reading the file will find it — nginx reads
   SIGQUIT as a graceful shutdown and SIGTERM as a fast one.
 - The tmpfs mounts carry `uid=101`, which the chart's emptyDirs do not need.
@@ -184,10 +193,14 @@ The role it names needs `CREATEDB` if the database does not exist yet. See
 which refuses an `APP_BASE_URL` that is neither HTTPS nor loopback, and that is
 the setting that also decides secure cookies and the OAuth issuer. So this needs
 a reverse proxy terminating TLS in front of the frontend and an `https://` origin
-in `.env`, not a wider port binding. Give that proxy the `X-Forwarded-For`
-handling `docs/deployment.md` shows, and add `set_real_ip_from` to
-`deploy/docker/nginx.conf.template`, or `$remote_addr` inside nginx is the proxy
-and every visitor shares one sign-in allowance again.
+in `.env`, not a wider port binding. Have that proxy set `X-Forwarded-For`, and
+set `SB_TRUSTED_PROXY_CIDR` in `.env` to the proxy's own address or range, or
+`$remote_addr` inside nginx is the proxy and every visitor shares one sign-in
+allowance again. That one value is the whole fix: the image already carries
+`set_real_ip_from ${SB_TRUSTED_PROXY_CIDR}`, so there is no template to edit and
+no image to rebuild, and it keeps `real_ip_recursive off` on purpose —
+`deploy/docker/nginx.conf.template` says why. Name the proxy's range and nothing
+wider, because this decides whose word is taken for a visitor's address.
 
 **Mail.** Off unless `SMTP_HOST` and `MAIL_FROM` are both set in `.env`. With
 neither there is no password reset and nobody is asked to confirm an address,

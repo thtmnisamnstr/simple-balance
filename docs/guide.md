@@ -15,6 +15,7 @@ walkthrough that starts from nothing — see [How to use it](how-to.md).
 - [Reading it back](#reading-it-back)
 - [Budgets](#budgets)
 - [How it looks](#how-it-looks)
+- [Plans](#plans)
 - [Signing in, and leaving](#signing-in-and-leaving)
 
 ## Accounts and transactions
@@ -28,7 +29,9 @@ price.
 Retiring an account archives it. That posts whatever it still holds out to
 equity, so the account closes at zero and stops counting toward your totals
 without the books going out of balance. Restoring it posts the balance back, and
-its history stays readable throughout.
+its history stays readable throughout. On a plan that limits how many accounts
+are usable, restoring one needs a free place, the same as opening one does; see
+[Plans](#plans).
 
 Transactions are deposits, withdrawals, and transfers, same-currency or
 converted. A date, an account, an amount and a payee are required; the category,
@@ -44,7 +47,7 @@ Any row can be cloned, from its menu on either list. The copy opens the staging
 form prefilled and lands on Staged rather than in the books, because a copy is a
 proposal until somebody has looked at it — and it deliberately leaves the
 original's bank reference behind, or the next import of that statement would
-recognise its own row in the copy and stay silent.
+recognize its own row in the copy and stay silent.
 
 ## Splitting one receipt across categories
 
@@ -78,7 +81,7 @@ to commit. Both say how far along they are while they work, row by row, so a
 long wait looks like a long wait rather than like nothing happening. Because a
 commit is all or nothing, a bar that stops on a refusal means nothing was
 written, and the message beside it says so. If the connection goes instead, the
-message says that too and asks you to reload — the work is never cancelled
+message says that too and asks you to reload — the work is never canceled
 because a browser went away, so it may well have finished.
 
 Staged transactions flags a row that repeats something you already have. The
@@ -105,7 +108,7 @@ so those rows arrive in the queue asking for it.
 
 A transaction you enter often can be saved as a template from any row and picked
 from a dropdown next time. It fills the form in and then gets out of the way:
-what you change afterwards is yours alone, and the template is not touched.
+what you change afterward is yours alone, and the template is not touched.
 
 Only the name is required. A template holds whatever subset of a transaction's
 fields you give it, and applying one fills in those fields and leaves the rest as
@@ -126,8 +129,8 @@ month or on a relative day such as the second Tuesday or the last Friday. You
 choose what happens when the month is too short for the day you picked, and what
 happens when a date lands on a weekend.
 
-A business day here means Monday to Friday. Public holidays are not modelled, so
-a proposal can land on one.
+A business day here means Monday through Friday. Holidays are not modeled, so a
+proposal can land on one.
 
 Make one on the Recurring screen, or from the menu on any row, on the
 transactions list or Staged transactions, the same way you save a template. The
@@ -138,7 +141,7 @@ and pick how often.
 On its due date it puts an ordinary row on Staged transactions, dated its own
 occurrence, and posts nothing. You check it and commit it like anything else.
 Leave the amount out and each proposal waits for a number, which is what the
-electricity bill wants. A split recurrence divides the same way every time, so its
+electric bill wants. A split recurrence divides the same way every time, so its
 legs have to add up to the amount before it is saved rather than each proposal
 being refused later.
 
@@ -160,7 +163,7 @@ set to send one, and the column sorts, so you can see them together.
 
 **A template can carry a reminder**, which is the other half of the same idea. A
 template is filled in by hand, so nothing can make it for you — but something can
-tell you it is the day. Once on a date, or repeating on the same schedules a
+tell you when it is due. Once on a date, or repeating on the same schedules a
 recurrence offers, and either way at a time of day on your own clock rather than
 the server's. The Templates list says which templates have one and whether it
 repeats.
@@ -190,7 +193,7 @@ checks the full form uses. The fields that depend on parts the list cannot show
 in-place edit can never quietly decide something off screen.
 
 Categories and payees match case-insensitively, flag their own near-duplicates,
-and merge by rewriting every reference at once. Recategorising the last
+and merge by rewriting every reference at once. Recategorizing the last
 transaction off a category removes that category, unless something still names
 it — a recurrence, a template, or a budget — or unless it was made ahead of
 time and is standing empty on purpose.
@@ -252,12 +255,12 @@ for that period alone, and the report says which of the two produced each figure
 Clearing the override puts the standing amount back.
 
 **A refund lowers the category it came back to**, rather than raising income.
-Thirty back from the shop makes groceries thirty lighter, because spending is
+Thirty back from the store makes groceries thirty lighter, because spending is
 summed signed from the postings and a refund is the negative one. A split
 receipt lands each leg on its own category, and a transfer between your own
 accounts is not spending, so neither needs a rule here.
 
-**A category you budgeted and never spent on still appears**, at nought against
+**A category you budgeted and never spent on still appears**, at zero against
 its limit, because a category dropped for being empty is the one you most want
 to see. Spending in categories nobody budgeted for is shown too — the question a
 budget raises is where the rest went — and can be turned off.
@@ -267,7 +270,7 @@ period still running is marked "so far" rather than reported as though it had
 finished. Nothing here writes to the ledger: a budget is a plan, and deleting one
 changes no balance and no report.
 
-**What is left over can carry into the next period.** Tick "Carry what is left
+**What is left over can carry into the next period.** Check "Carry what is left
 over" and the budget becomes an envelope: the fifty you did not spend on
 groceries in March is fifty more to spend in April, and going over is carried
 the same way, as a debt against the next period rather than something the
@@ -297,18 +300,18 @@ three alternatives to typing a number, and picking one is all there is to it:
   early on it averages the periods that exist rather than counting the months
   before you started as nothing. The amount you type is what it uses until
   there is anything to average.
-- **The last period, plus a percentage.** Ten per cent more each month, or a
+- **The last period, plus a percentage.** Ten percent more each month, or a
   negative number to taper. The amount you type is the first period's, and the
   increase starts from the one after it, compounding on the period before
   rather than on the original.
-- **A share of the income before it.** Fifteen per cent of what came in last
+- **A share of the income before it.** Fifteen percent of what came in last
   month. Last month rather than this one, because a share of a month still
   running changes every time you look at it.
 
 An amount you set for a single period beats any of them, and the chain carries
 on from what you set.
 
-**When there is not enough to go round, you can say what comes first.**
+**When there is not enough to go around, you can say what comes first.**
 "Funded first" takes a number — lower goes first — and the report then shows how
 much of each budget the period's income actually covers, filling them in that
 order until it runs out. Anything you did not rank is funded last, after
@@ -334,7 +337,7 @@ every category exactly where it was.
 assign.** That figure is the money in the accounts the budget is about, less
 what every envelope with money still in it has already claimed. It sits below
 your bank balance on purpose, for two reasons: envelopes have claimed the rest,
-and an account can be left out of the budget entirely — untick "The budget is
+and an account can be left out of the budget entirely — uncheck "The budget is
 about the money in this account" when you add or edit one. Cards are counted by
 default, because spending on a card empties an envelope even though no cash has
 moved yet.
@@ -369,9 +372,70 @@ different device brings it along. It is applied before the page draws, so there 
 no flash of the wrong theme on the way in.
 
 Every figure means the same thing in both themes. Money out is red and money in is
-green in each of them, and the report charts keep each account on the same colour
+green in each of them, and the report charts keep each account on the same color
 family when the theme changes, so a chart you have learned to read still reads the
 same way.
+
+## Plans
+
+A deployment sells plans only if its operator sets that up, and one that does
+not includes everything: no account is ever frozen and no advertisement is
+shown. Where payments were never set up at all, Settings has no **Plan and
+billing** tab either. The rest of this section is for a deployment that does
+sell them.
+
+There are two plans, and only accounts and advertising set them apart. **Free**
+keeps three accounts usable at a time and may show an advertisement below the
+page. **Premium** keeps every account usable and shows none. Everything else in
+this guide — budgets, imports, reports, recurring transactions, the MCP server —
+is the same on both, because what you pay for is the use of every account, not
+a feature held back.
+
+**Settings > Plan and billing** says which plan you are on and how many of its
+places are in use, and it is where you upgrade, switch between monthly and
+annual, replace the card, or cancel. A canceled plan runs to the end of the
+period you paid for. When a renewal fails, Premium continues for fifteen days
+while Stripe retries the card, and paying from that tab, or replacing the card,
+settles it right away. An operator can also grant a plan directly, and the tab
+says so when one has.
+
+**A frozen account is still all there.** On Free, the accounts past the three
+in use are frozen. Each stays on the Accounts page with a **Frozen** badge, is
+readable in full, and counts toward every balance and report: nothing is hidden
+and nothing is deleted. What it refuses is change. No new entry, no edit to or
+deletion of an entry it holds, no rename, and it cannot be archived or deleted
+either; a payee or category merge that would rewrite one of its entries is
+refused whole rather than done in part. Upgrading makes every account usable
+again.
+
+**Which accounts stay usable is chosen once.** When a plan starts limiting you,
+the Accounts page opens a panel headed **Choose which accounts stay usable**,
+and until you answer it your oldest accounts in use are the usable ones, so
+those are the ones checked to begin with. Check the ones you want, up to three,
+and press **Save which accounts are usable**. If the checked ones are already
+the ones you want, there is nothing to save: the button stays disabled, those
+accounts stay usable, and the question stays open until you save a different
+set. Once you have saved, the panel reads **Accounts you are using**, the
+chosen accounts are marked **In use**, and they stay in use until you archive or
+delete one. Nothing trades an account in use for a frozen one, because being
+able to swap them back and forth whenever you liked would be the same as having
+all of them.
+
+Archiving or deleting an account you are using opens up its place. A frozen
+account can then take it: check it in the same panel and press **Bring these
+back**. Restoring an archived account needs a free place too, and the restored
+account takes it. **New account** does the same, so with every place in use it
+is disabled and says why. While every account you have fits within the three,
+all of them are in use and there is nothing to choose.
+
+Time on Premium leaves an earlier choice standing unless you opened or restored
+accounts during it. If you did, going back to Free asks the question again,
+because the choice you made before was about a smaller ledger.
+
+An agent can read which plan you are on, its limit and how many places are in
+use, which is what it needs to explain a refusal. Starting, changing or
+canceling a plan is yours alone, signed in; see
+[MCP](mcp.md#what-an-agent-cannot-do).
 
 ## Signing in, and leaving
 

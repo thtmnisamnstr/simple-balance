@@ -173,7 +173,7 @@ describe("an MCP tool call", () => {
     const text = await registry.metrics();
     // The label the registration knows and `runTool` never sees. Wrapping
     // `registerTool` is what makes it available, and the failure it prevents is
-    // silent: without it every tool call lands in one unlabelled series and
+    // silent: without it every tool call lands in one unlabeled series and
     // "which tool is slow" cannot be asked at all.
     expect(text).toMatch(
       /simple_balance_mcp_tool_calls_total\{[^}]*tool="whoami"[^}]*outcome="error"[^}]*\} 1/,

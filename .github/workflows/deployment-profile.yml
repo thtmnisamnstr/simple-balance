@@ -1,0 +1,136 @@
+name: deployment profile
+
+# The `single` profile's material, checked on every pull request.
+#
+# Its own workflow file, and the reason is a CodeQL finding rather than tidiness.
+#
+# `actions/cache-poisoning/poisonable-step` reports a step that runs content out
+# of a checkout, in a workflow whose trigger can write the *default branch's*
+# cache scope. `verify.yml`'s can: `release.yml` is dispatched and calls into it
+# with an `inputs.ref` naming a tree that is not this one, and three of its jobs
+# set up Node with an npm cache. The rule's own guidance says it "reports only
+# workflows whose trigger can write to that scope", so the way out is a workflow
+# whose trigger cannot.
+#
+# `pull_request` cannot. A fork's run gets a read-only token and its own cache
+# scope; a branch's run writes to the branch's scope, never the default branch's.
+# There is also no cache in this file at all, and nothing here takes an input.
+#
+# Three other attempts are recorded because the next person will have the same
+# ideas. Moving the step after `npm ci` did not clear it — the query is not about
+# ordering, and the same rule fired again on the new position as a fresh alert.
+# Moving it to a job with no cache of its own did not clear it either, so the
+# cache it cares about is the workflow's rather than the job's. Replacing
+# `sh -n` with `shellcheck` did not clear it, so a shell interpreter pointed at a
+# checkout path was not the trigger.
+#
+# The finding is a false positive in substance and that is still worth writing
+# down. Nothing below executes what it reads: `docker compose config`
+# interpolates, `systemd-analyze verify` parses, `shellcheck` lints. Two steps
+# away in `verify.yml`, `npm ci` genuinely runs untrusted lifecycle scripts and
+# is not reported at all.
+#
+# What is lost by leaving `verify.yml`: this no longer runs on the release
+# republish path. That is acceptable. It checks repository material rather than
+# anything that reaches an image, and the one property a release depends on —
+# that the profile's pinned image tag matches the version being cut — is held by
+# `tests/version.test.ts`, which does run there.
+on:
+  pull_request:
+
+# Nothing here needs to read anything but the code it is checking.
+permissions:
+  contents: read
+
+jobs:
+  profile:
+    name: single profile material
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: The single profile's material is what it claims to be
+        run: |
+          set -euo pipefail
+          cd deploy/compose/single
+          # The guards are the point of the exercise, so supply what they ask
+          # for rather than what a real deployment would use.
+          cat > .env <<'ENV'
+          DATABASE_URL=postgresql://user:pass@db.example.org:5432/simple_balance
+          AUTH_SECRET=0123456789012345678901234567890123456789
+          APP_BASE_URL=https://books.example.org
+          SITE_ADDRESS=books.example.org
+          ENV
+          docker compose -f compose.yml config >/dev/null
+          echo "compose.yml interpolates"
+          docker compose -f compose.yml -f compose.caddy.yml config >/dev/null
+          echo "the Caddy overlay interpolates"
+          # The overlay's whole job: the application starts believing
+          # X-Forwarded-For because something is now in front of it.
+          docker compose -f compose.yml -f compose.caddy.yml config \
+            | grep -q 'TRUST_PROXY: "true"'
+          echo "the overlay turns TRUST_PROXY on"
+          # And that each required setting is genuinely required, since a `:?`
+          # that was softened to `:-` is invisible until somebody deploys
+          # without it.
+          for name in DATABASE_URL AUTH_SECRET APP_BASE_URL; do
+            if grep -v "^$name=" .env > .env.missing && \
+               docker compose --env-file .env.missing -f compose.yml config >/dev/null 2>&1; then
+              echo "::error::compose.yml rendered without $name instead of refusing"
+              exit 1
+            fi
+            echo "refused without $name"
+          done
+          rm -f .env .env.missing
+          cd ../../..
+          # Fail loudly rather than skip. The first spelling of this check used
+          # `|| true` and printed "parsed" for every unit on an image where the
+          # binary was absent — a check that could not fail, which is the one
+          # kind this repository refuses to keep.
+          command -v systemd-analyze >/dev/null || {
+            echo "::error::systemd-analyze is not installed, so the units were not checked"
+            exit 1
+          }
+          for unit in deploy/systemd/*.service deploy/systemd/*.timer; do
+            # The exit code is no use in either direction, which was measured
+            # rather than assumed: it is 1 for these units on any machine
+            # without docker.service, and it is 0 for a unit carrying an unknown
+            # directive. What systemd prints is the signal, so the two
+            # environment complaints are filtered and anything left is a defect.
+            complaints=$(systemd-analyze verify "$unit" 2>&1 \
+              | grep -v 'Unit .* not found' \
+              | grep -v 'is not executable: No such file or directory' || true)
+            if [ -n "$complaints" ]; then
+              echo "::error::$unit did not parse cleanly"
+              echo "$complaints"
+              exit 1
+            fi
+            echo "parsed $unit"
+          done
+          # Using shellcheck rather than `sh -n`, for two reasons and in that
+          # order. (Worded this way round deliberately: a comment starting with
+          # the word `shellcheck` is parsed as a directive and fails the lint.)
+          #
+          # It is a better check: `sh -n` finds a syntax error and nothing else,
+          # while shellcheck found a real fragility in the pruning here — an
+          # `ls` piped into `grep`, whose output is meant for people rather than
+          # for parsing. These scripts are written into cloud-init and run
+          # unattended on somebody's machine — at three in the morning, or before
+          # every start of the deployment — which is the worst place to discover
+          # a quoting bug. tests/systemd-scripts.test.ts holds this list to every
+          # script in deploy/systemd, so a new one cannot miss the lint.
+          #
+          # And `sh -n "$script"` is a shell interpreter pointed at a path out
+          # of the checkout, which is the shape CodeQL's
+          # actions/cache-poisoning/poisonable-step reports. It does not execute
+          # — that is what -n means — but the query matches the command line
+          # rather than its meaning, and a linter is not that shape.
+          command -v shellcheck >/dev/null || {
+            echo "::error::shellcheck is not installed, so the scripts were not checked"
+            exit 1
+          }
+          shellcheck deploy/systemd/simple-balance-backup \
+                     deploy/systemd/simple-balance-restore \
+                     deploy/systemd/simple-balance-firstboot \
+                     deploy/systemd/simple-balance-env
+          echo "shellcheck passed all four scripts"

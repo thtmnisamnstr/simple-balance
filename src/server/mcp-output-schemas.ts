@@ -107,7 +107,7 @@ export function mcpOutputSchema<T extends z.ZodType>(successSchema: T) {
 /**
  * What every record an agent can name carries, and deliberately no `userId`.
  *
- * Every row on this surface belongs to the actor that authorised the
+ * Every row on this surface belongs to the actor that authorized the
  * connection, so an owner id is one constant repeated on every row of every
  * page, and `AGENTS.md` forbids reading one back, so no next call can ever use
  * it. `toolResult` drops the key from the payload as well, because a schema and
@@ -143,6 +143,20 @@ export const accountResultSchema = z
       .boolean()
       .describe(
         "Whether the money here is money the budget is about. On by default, including for credit cards, because spending on a card empties an envelope. It changes no balance and no report — only the budget report's figure for what is left to assign.",
+      ),
+    // Declared rather than left to `.passthrough()`: a field an agent receives
+    // but cannot see in `tools/list` is the defect `AGENTS.md` names about
+    // `categoryKind`, one level down. An agent that does not know this field
+    // exists meets its refusals with no way to explain them.
+    active: z
+      .boolean()
+      .describe(
+        "Whether the person has this account among the ones they keep usable. The choice, not the answer — read `frozen` for that. It means nothing on a plan with no limit, every live account carries it while they all fit within the free plan's limit, and while the choice is still open more accounts carry it than the plan keeps.",
+      ),
+    frozen: z
+      .boolean()
+      .describe(
+        "Whether this account is closed to changes. A plan that limits how many accounts may be active leaves the rest frozen: still readable, and refusing every write — no new entry, no edit, no delete, not even a rename. Everything about it still counts toward balances and reports. Which accounts are active is chosen with set_active_accounts or on the Accounts page, and the choice is made once: afterward a frozen account can only take a place that opens up when an account in use is archived or deleted, unless time on the paid plan left more accounts marked active than the plan keeps, which opens the choice again (see set_active_accounts).",
       ),
   })
   .passthrough();
@@ -583,7 +597,8 @@ export const csvStageResultSchema = z.union([
  *
  * `frequency` null is a reminder that happens once, which `repeats` says outright
  * so a caller does not have to infer it. `nextNotificationDate` null means
- * nothing further is owed, which for a one-off is how it says it has been sent.
+ * nothing further is owed, which for a one-time reminder is how it says it has
+ * been sent.
  */
 const templateNotificationResultSchema = z.object({
   frequency: z.enum(recurrenceFrequencies).nullable(),
@@ -656,6 +671,23 @@ export const identityResultSchema = z.object({
     .describe(
       "What this token may do, sorted. ledger:stage and ledger:write both include ledger:read. A tool you cannot reach is not in your tool list at all, so this is how you tell a capability you were not granted from one that does not exist.",
     ),
+  plan: nullableStringSchema.describe(
+    "Which plan these books are on, or null when this deployment sells none and nothing is limited.",
+  ),
+  accountLimit: z
+    .number()
+    .int()
+    .nullable()
+    .describe(
+      "How many financial accounts this plan keeps usable at a time. Null means no limit. create_account refuses once accountsUsed reaches it, and only the person who owns these books can raise it, so check this before proposing a new account rather than after. Accounts beyond it are frozen rather than lost: fully readable, and refusing every write.",
+    ),
+  accountsUsed: z
+    .number()
+    .int()
+    .nullable()
+    .describe(
+      "How many of accountLimit are in use: accounts that are neither archived nor frozen, the ledger's own counter-accounts excluded. Null wherever there is no limit. Archiving or deleting an account frees its place, and a frozen account may then take it — but only then, because the choice of which accounts are in use is made once.",
+    ),
 });
 
 export const ownDataSummaryResultSchema = z.object({
@@ -667,6 +699,15 @@ export const ownDataSummaryResultSchema = z.object({
   importBatches: z.number().int().nonnegative(),
   payees: z.number().int().nonnegative(),
   connectedAgents: z.number().int().nonnegative(),
+  // Not a count, because somebody has one subscription or none — and it is the
+  // one item here that costs money and that deleting the account cancels
+  // outright. An agent reporting what a deletion destroys has to be able to say
+  // so, the same as the screen does.
+  activeSubscription: z
+    .boolean()
+    .describe(
+      "Whether a paid subscription is live. Deleting the account cancels it immediately, and a canceled subscription cannot be restored.",
+    ),
 });
 
 export const deletedEntityResultSchema = z.object({
@@ -834,7 +875,7 @@ export const budgetPlanResultSchema = z
     targetName: z
       .string()
       .describe("What this budget is about, whichever kind it is. Use it to name the budget."),
-    currency: z.string().describe("ISO-like code, upper case."),
+    currency: z.string().describe("ISO-like code, uppercase."),
     periodUnit: z.enum(budgetPeriodUnits),
     amount: z.string().describe("Decimal string. Never a number."),
     activeFrom: isoDateSchema.describe(
@@ -869,7 +910,7 @@ export const budgetPlanResultSchema = z
         "How many finished periods a trailing average looks back over, or null under any other rule.",
       ),
     percentOfPrevious: nullableStringSchema.describe(
-      'The percentage added to the previous period\'s amount, when that is the rule. A decimal string: "10" is ten per cent more each period.',
+      'The percentage added to the previous period\'s amount, when that is the rule. A decimal string: "10" is ten percent more each period.',
     ),
     percentOfIncome: nullableStringSchema.describe(
       "The percentage of the previous whole period's income this budget takes, when that is the rule.",
@@ -924,7 +965,7 @@ export const budgetReportResultSchema = z.object({
       clipped: z
         .boolean()
         .describe(
-          "True when the fold stopped at its bound instead of reaching that start, so the carry began from nothing part way through a budget's life. Say so rather than reporting the figure as though it were complete.",
+          "True when the fold stopped at its bound instead of reaching that start, so the carry began from nothing partway through a budget's life. Say so rather than reporting the figure as though it were complete.",
         ),
     })
     .nullable()

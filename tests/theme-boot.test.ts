@@ -160,7 +160,7 @@ describe("painting the theme before first paint", () => {
         runBoot();
         // `media` keys off the machine and an override is precisely the case the
         // machine disagrees with, so the winning meta cannot stay scoped or a
-        // phone frames a dark page in the light colour.
+        // phone frames a dark page in the light color.
         expect(metas()).toEqual([
           { for: "light", media: theme === "light" ? null : "not all" },
           { for: "dark", media: theme === "dark" ? null : "not all" },

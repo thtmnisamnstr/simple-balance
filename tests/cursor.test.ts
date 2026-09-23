@@ -134,10 +134,10 @@ describe("what this release deprecates", () => {
     expect(sunset, "api.ts should publish a sunset date").not.toBeNull();
     const day = new Date(sunset![1]!);
     expect(Number.isNaN(day.getTime())).toBe(false);
-    // The comment writes it the way prose does — "1 March 2027" — rather than
+    // The comment writes it the way prose does — "March 1, 2027" — rather than
     // as an HTTP date, so the day, month and year are compared rather than the
     // string.
-    const spelled = `${day.getUTCDate()} ${day.toLocaleString("en-GB", { month: "long", timeZone: "UTC" })} ${day.getUTCFullYear()}`;
+    const spelled = `${day.toLocaleString("en-US", { month: "long", timeZone: "UTC" })} ${day.getUTCDate()}, ${day.getUTCFullYear()}`;
     expect(cursor, `the cursor's window should end on ${spelled}`).toContain(spelled);
   });
 });

@@ -23,7 +23,7 @@ import {
   type SortState,
   useConfirm,
 } from "../components.js";
-import { formatDate, compareMoney, formatMoney, movementSign } from "../money.js";
+import { formatDate, formatTime, compareMoney, formatMoney, movementSign } from "../money.js";
 import { TemplateForm } from "../forms.js";
 import { Link, useLocation } from "../router.js";
 import { newIdempotencyKey } from "../idempotency.js";
@@ -603,7 +603,7 @@ export default function TemplatesPage() {
                             </Badge>
                             <span className="table-subtitle">
                               {template.notification.nextNotificationDate
-                                ? `${formatDate(template.notification.nextNotificationDate)} at ${template.notification.time}`
+                                ? `${formatDate(template.notification.nextNotificationDate)} at ${formatTime(template.notification.time)}`
                                 : template.notification.repeats
                                   ? // A repeating rule owing nothing is not a
                                     // rule that has finished: every occurrence

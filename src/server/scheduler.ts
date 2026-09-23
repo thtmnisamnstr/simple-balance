@@ -10,6 +10,7 @@ import { serveMetrics } from "./metrics-route.js";
 import { createRecurrenceScheduler } from "./recurrence-scheduler.js";
 import { createGracefulShutdown } from "./server-lifecycle.js";
 import { log } from "./log.js";
+import { checkStripePrices } from "./stripe.js";
 import { APP_VERSION } from "../shared/version.js";
 
 /**
@@ -92,6 +93,10 @@ async function main() {
         "MAIL_FROM are set on this container as well as on the API.",
     );
   }
+  // The boot check the API makes, made here too. The first billing sweep
+  // would make it anyway, but not until the first tick fires, and on a split
+  // deployment this is the container whose log the sweep writes to.
+  await checkStripePrices();
   const server = serve({
     fetch: health.fetch,
     port: config.port,

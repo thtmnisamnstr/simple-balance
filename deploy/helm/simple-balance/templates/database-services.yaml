@@ -1,0 +1,119 @@
+{{- if .Values.database.enabled }}
+{{- $root := . }}
+{{- $groups := fromJsonArray (include "simple-balance.databaseGroups" .) }}
+{{- range $group := $groups }}
+{{- $name := include "simple-balance.databaseGroupName" (dict "root" $root "group" $group) }}
+{{- $role := ternary "coordinator" "worker" (eq (int $group) 0) }}
+{{/*
+Three Services per Citus group, and each is doing a different job.
+
+`-config` is a headless Service that exists only so Kubernetes does not garbage
+collect the Endpoints object Patroni keeps its cluster configuration in. It
+selects nothing and is never connected to. Without it the control plane prunes
+the endpoint as unused and the cluster loses the record of its own settings.
+
+`-pods` is the headless Service that gives every pod a stable DNS name, which is
+how a standby finds the primary to stream from.
+
+The plain one is the leader, and it has **no selector on purpose**. With
+`use_endpoints`, Patroni writes the leader record — including the connection URL
+every standby needs — into the Endpoints object that shares this Service's name,
+and it maintains that object's addresses itself. Give the Service a selector and
+Kubernetes' own endpoints controller takes ownership of that object and
+overwrites Patroni's annotations, at which point the leader has no published
+`conn_url`, `basebackup` is filtered out as a method needing a connection it
+cannot make, and every standby fails to clone in about a millisecond with
+`failed to bootstrap from leader` and no further explanation. That is exactly
+what the first version of this chart did.
+
+The Endpoints object itself is deliberately **not** shipped here, and that is a
+second correction. Creating it empty and letting Patroni fill it in reads as the
+careful thing to do, and it breaks every subsequent upgrade: Helm 4 applies
+server-side, `.subsets` becomes a field owned by the manager called `Patroni`,
+and `helm upgrade` fails with `conflict with "Patroni" using v1: .subsets`
+rather than doing anything at all. Patroni creates the object itself when it
+cannot find one — which is the path this chart now leaves it on.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-config
+  labels:
+    {{- include "simple-balance.componentLabels" (dict "root" $root "component" "database") | nindent 4 }}
+    # Patroni finds these by label, and it appends `cluster-name=<scope>` to
+    # whatever selector it is configured with. An object without that label is
+    # one Patroni believes does not exist — so it POSTs a new one, gets 409
+    # Conflict against the object Helm already made, and reports the entirely
+    # unrelated-sounding `Could not take out TTL lock` forever.
+    cluster-name: {{ include "simple-balance.databaseName" $root }}
+    citus-group: {{ $group | quote }}
+spec:
+  clusterIP: None
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-pods
+  labels:
+    {{- include "simple-balance.componentLabels" (dict "root" $root "component" "database") | nindent 4 }}
+    # Patroni finds these by label, and it appends `cluster-name=<scope>` to
+    # whatever selector it is configured with. An object without that label is
+    # one Patroni believes does not exist — so it POSTs a new one, gets 409
+    # Conflict against the object Helm already made, and reports the entirely
+    # unrelated-sounding `Could not take out TTL lock` forever.
+    cluster-name: {{ include "simple-balance.databaseName" $root }}
+    citus-group: {{ $group | quote }}
+spec:
+  clusterIP: None
+  # A standby has to resolve its primary before either is ready, so the DNS name
+  # has to exist first. Without this the pods cannot find each other at exactly
+  # the moment they need to.
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "simple-balance.componentSelectorLabels" (dict "root" $root "component" "database") | nindent 4 }}
+    # Patroni finds these by label, and it appends `cluster-name=<scope>` to
+    # whatever selector it is configured with. An object without that label is
+    # one Patroni believes does not exist — so it POSTs a new one, gets 409
+    # Conflict against the object Helm already made, and reports the entirely
+    # unrelated-sounding `Could not take out TTL lock` forever.
+    cluster-name: {{ include "simple-balance.databaseName" $root }}
+    citus-group: {{ $group | quote }}
+  ports:
+    - name: postgresql
+      port: 5432
+      targetPort: postgresql
+    - name: patroni
+      port: {{ $root.Values.database.restApiPort }}
+      targetPort: patroni
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "simple-balance.componentLabels" (dict "root" $root "component" "database") | nindent 4 }}
+    # Patroni finds these by label, and it appends `cluster-name=<scope>` to
+    # whatever selector it is configured with. An object without that label is
+    # one Patroni believes does not exist — so it POSTs a new one, gets 409
+    # Conflict against the object Helm already made, and reports the entirely
+    # unrelated-sounding `Could not take out TTL lock` forever.
+    cluster-name: {{ include "simple-balance.databaseName" $root }}
+    citus-group: {{ $group | quote }}
+    citus-role: {{ $role }}
+spec:
+  type: ClusterIP
+  # No selector. See above: Patroni owns the Endpoints object of this name, and a
+  # selector here would hand it to Kubernetes instead.
+  ports:
+    # Deliberately unnamed. Kubernetes matches a Service port to an Endpoints
+    # port by name, and Patroni writes its subset port without one — so naming it
+    # here produces a Service with a healthy-looking endpoint, the right address
+    # in it, and nothing routing: every connection is refused while `kubectl get`
+    # shows a cluster that is entirely fine.
+    - port: 5432
+      targetPort: 5432
+{{- if ne $group (last $groups) }}
+---
+{{- end }}
+{{- end }}
+{{- end }}

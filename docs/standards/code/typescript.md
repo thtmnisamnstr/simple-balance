@@ -26,14 +26,14 @@ repository before going on; all but one cost nothing, and the one with a price
 ### 1.2 `erasableSyntaxOnly`, and the two classes it changed
 
 **Binding.** Every construct in this repository erases. Nothing here compiles to
-runtime behaviour that is not visible in the source: no `enum`, no `namespace`,
+runtime behavior that is not visible in the source: no `enum`, no `namespace`,
 no constructor parameter properties.
 
 The last of those cost five lines. `AppError` and `ApiClientError` both declared
 their fields in the constructor signature, which is TypeScript-only syntax that
 emits assignments. They now declare fields and assign them
-(`src/server/services/errors.ts:31-52`,
-`src/client/api.ts:31-44`).
+(`src/server/services/errors.ts:31-61`,
+`src/client/api.ts:34-51`).
 
 The gain is not stylistic. It means `node --experimental-strip-types` and every
 other type-stripping runtime can run this source directly, and it means reading
@@ -48,7 +48,7 @@ declares its fields and assigns them somewhere unreadable erases just as well.
 
 **Contested.** The flag is good advice in general and wrong here. All three
 sites it flags are Hono middleware
-(`src/server/api.ts:1072`, `src/server/http-security.ts:160` and `:559`),
+(`src/server/api.ts:1313`, `src/server/http-security.ts:472` and `:879`),
 where a `MiddlewareHandler` returns a `Response` to answer the request or
 nothing at all to let the next handler run. "Returns on some paths and not
 others" is the contract, not a mistake.
@@ -101,7 +101,7 @@ hold is zero.
 
 `unknown` is the type for a value that has not been checked yet, and the check
 is a Zod parse rather than a cast. `AppError.details` is `unknown`
-(`src/server/services/errors.ts:13`) because it
+(`src/server/services/errors.ts:34`) because it
 carries whatever the thrower had, and every reader narrows before use.
 
 *Checked by:* `tests/no-explicit-any.test.ts`. `no-explicit-any` is a
@@ -125,7 +125,7 @@ codebase writes. Neither number is zero and neither should be: a `!` after a
 lookup that a database constraint guarantees is honest, and the alternative is a
 branch that cannot be reached and cannot be tested.
 
-The single `as unknown as` is at `accounts.ts:534`, building the row an
+The single `as unknown as` is at `accounts.ts:559`, building the row an
 archived account would have had so the caller sees the shape it expects; the
 alternative was making every field optional for one call site. It was three when
 this was written and two of the three went while the code was being brought to
@@ -157,7 +157,7 @@ export type CategoryKind = (typeof categoryKinds)[number];
 (`src/shared/domain.ts:120-121`.)
 
 The array is the single source: Zod validates from it, the database enum is
-generated from it (`src/server/db/schema.ts:196`),
+generated from it (`src/server/db/schema.ts:199`),
 and the UI iterates it (`src/client/pages/CategoriesPage.tsx:133`).
 Adding a member is one edit, and every one of those follows.
 
@@ -211,22 +211,28 @@ export const budgetPeriodUnits = [
 ] as const satisfies readonly ReportBucket[];
 ```
 
-(`src/shared/domain.ts:1325`.)
+(`src/shared/domain.ts:1392`.)
 
 `as const` keeps the four literals; `satisfies` checks that every one of them is
 a bucket the report engine can group by. Annotating the constant
 `readonly ReportBucket[]` instead would have done the check and thrown the
-literals away, and the budget code needs them. The other use is the security
-header options (`src/server/http-security.ts:58`),
-which checks a literal against a library's parameter type without freezing it
-into that type.
+literals away, and the budget code needs them.
+
+It is the only use in `src`, and the second one is worth recording as it went.
+`securityHeaderOptions` used `satisfies` on a literal until it grew a second
+shape — a report-only policy has a different key from an enforcing one — and a
+`satisfies` on a value that is one of two shapes narrows to whichever branch was
+written, so reading the other one stopped compiling for callers. It carries an
+explicit return type now (`src/server/http-security.ts:210`). That is the line
+where `satisfies` stops being the better tool: it is for checking a literal
+without widening it, not for describing a value that has more than one shape.
 
 *Checked by:* `tsc`.
 
 ### 2.5 Discriminated unions carry the discriminant in the name
 
 **House.** A transaction draft is a union on `type`, and each member declares it
-as a literal (`src/shared/domain.ts:568`). Every
+as a literal (`src/shared/domain.ts:558`). Every
 function that takes one either handles all three or narrows first. This is why
 `noFallthroughCasesInSwitch` was free: there was nothing to find.
 
@@ -264,7 +270,7 @@ fails; nothing here prefers one of the two.
 ### 3.3 `src/shared` may not import from `src/server` or `src/client`
 
 **Binding.** `src/shared` is the code both sides run: the domain schemas, the
-CSV grammar, the name normalisation, the recurrence arithmetic. It is imported
+CSV grammar, the name normalization, the recurrence arithmetic. It is imported
 by a browser bundle, so a stray `node:` import there ends up in the client or
 fails the build.
 
@@ -319,7 +325,7 @@ updateTransaction(actor, id, input, transaction?)
 setTransactionDeleted(actor, id, expectedVersion, deleted, allowDuplicate?, transaction?)
 ```
 
-(`src/server/services/transactions.ts:1036`, `:2299` and `:2388`.)
+(`src/server/services/transactions.ts:1076`, `:2337` and `:2430`.)
 
 Note that `updateTransaction` takes `input: unknown` and parses it, rather than
 a typed object: the version and the draft arrive together inside it. An update
@@ -341,7 +347,7 @@ nothing to say about the signature, which is the side this rule is about.
   improve on it. Everything in `src/server/services` does this.
 - **Return a result** when the caller is going to render the failure rather than
   propagate it. `resolveEntrySide` returns `{ ok: false, message }`
-  (`src/shared/domain.ts:150`) precisely so the
+  (`src/shared/domain.ts:162`) precisely so the
   browser can preview the refusal without provoking it.
 
 That second shape exists because of a real defect: the form used to let somebody
@@ -358,7 +364,7 @@ reads.
 | --- | --- |
 | 1.3 `noImplicitReturns` is declined | Nothing re-measures it, so a fourth site would arrive unargued. |
 | 1.4 `noUncheckedIndexedAccess` is declined | A count taken once is a measurement, not a check, and 441 goes stale quietly. |
-| 2.2 Assertions carry a reason | Not mechanisable. |
+| 2.2 Assertions carry a reason | Not mechanizable. |
 | 4.1 Argument order | A signature is read, not called, and nothing reads one. |
 | 4.2 Throw or return a result | Which of the two a caller needs is a judgement about the caller. |
 

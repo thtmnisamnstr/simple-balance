@@ -308,7 +308,7 @@
         "One transaction divides across several category legs and still settles to zero in each currency it touches",
         "A split cuts the entry's counter-account side into pieces rather than recording the money again, so category totals add up to exactly what left the account",
         "Each leg posts under its own leg id, so a leg's share is attributable wherever spending is reported",
-        "Relabelling a leg writes no postings, and changing what a leg is worth writes only the difference",
+        "Relabeling a leg writes no postings, and changing what a leg is worth writes only the difference",
         "Deleting a split voids the entry a leg at a time",
         "Splits work on committed transactions, on staged rows, and on templates, where the categories are stored and the amounts left blank",
         "A CSV export carries a split by category name and reads back as the same split in another ledger",
@@ -389,7 +389,7 @@
       "networkAllowed": false,
       "completed": true,
       "acceptanceCriteria": [
-        "A standing budget covers every period in its window, so an ongoing budget is one row and nothing materialises the periods nobody has reached",
+        "A standing budget covers every period in its window, so an ongoing budget is one row and nothing materializes the periods nobody has reached",
         "An amount set for one period overrides the standing budget for that period alone, and the report says which of the two produced each figure",
         "Windows for one category, period unit and currency may not overlap, so what a past period intended survives a later change",
         "Spending is compared against the limit on the same period grid the reports bucket by, computed from postings alone",

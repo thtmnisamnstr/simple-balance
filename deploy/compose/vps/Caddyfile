@@ -1,0 +1,55 @@
+# Caddy for the `single` profile. Read by compose.caddy.yml, which supplies the
+# three variables through the environment.
+{
+	# Where Let's Encrypt writes about a renewal that failed, and the whole
+	# directive rather than just its value.
+	#
+	# `email {$ACME_EMAIL}` is what this said first, and with ACME_EMAIL unset
+	# it renders as a bare `email` — which is not an anonymous account, it is
+	# `Error: wrong argument count or unexpected line ending after 'email'` and
+	# a container that restarts forever. The same shape as an unset name in the
+	# frontend image's nginx template, and caught the same way: by starting it.
+	#
+	# So compose builds the line or leaves it out, with `${ACME_EMAIL:+...}`.
+	# An empty expansion is a blank line here, which Caddy is happy with, and
+	# an anonymous ACME account is what Caddy then uses.
+	{$ACME_EMAIL_OPTION}
+
+	# Deliberately *not* set: `servers { trusted_proxies ... }`.
+	#
+	# Without it Caddy discards an inbound X-Forwarded-For and writes the
+	# address it observed, so the application receives exactly one entry and a
+	# caller cannot name themselves. Setting it globally switches Caddy to
+	# *appending*, and the application reads the first entry — so a trusted
+	# range that is too wide hands a caller their own address. Measured, not
+	# assumed: with `trusted_proxies static 0.0.0.0/0` a request carrying
+	# `X-Forwarded-For: 203.0.113.7` arrived as `203.0.113.7, <real client>`,
+	# and the sign-in limiter would have counted it against 203.0.113.7.
+	#
+	# Set it only when something really is in front of Caddy — a CDN, a cloud
+	# load balancer — and then name that thing's ranges and nothing else.
+}
+
+{$SITE_ADDRESS} {
+	# zstd first: a browser that offers both gets the smaller one, and the
+	# application's JSON responses are the part of this that compresses well.
+	encode zstd gzip
+
+	request_body {
+		# The same ceiling the application enforces, applied a hop earlier so an
+		# oversized import is refused before it has been uploaded.
+		max_size {$MAX_BODY_SIZE}
+	}
+
+	# Everything. The application serves its own browser bundle, its own API and
+	# its own MCP endpoint on one origin, which is what lets the session cookie
+	# work for all three.
+	#
+	# No header_up and no timeouts, and both are deliberate. Caddy's default
+	# X-Forwarded-For is already the one this application needs, and Caddy
+	# streams responses and does not time a slow one out — which matters because
+	# a commit or an import of several thousand rows is one request that reports
+	# its progress as it goes. nginx needs `proxy_read_timeout` and
+	# `proxy_buffering off` told to it for exactly this; Caddy does not.
+	reverse_proxy app:3000
+}

@@ -11,7 +11,7 @@ import { blocks, stylesheet, tokensIn, type Block } from "./support/css.js";
  * what the palette was on the day somebody measured it.
  *
  * So this derives the pairs instead of listing them: every rule that sets both
- * a colour and a background gets checked, in both themes. That is the version
+ * a color and a background gets checked, in both themes. That is the version
  * worth having. The guide proposed an enumerated list of sanctioned pairs, and
  * all twenty of those reproduce exactly — an enumerated check would have caught
  * nothing, and the one real failure it found (`::selection` at 2.59:1 in dark)
@@ -81,7 +81,7 @@ const declaration = (block: Block, property: RegExp) => {
 const LARGE_TEXT_PX = 24;
 
 /**
- * Pairs that are correct and that a two-colour reading cannot see.
+ * Pairs that are correct and that a two-color reading cannot see.
  *
  * Named individually with the reason, because a blanket skip is how a check
  * like this stops meaning anything.
@@ -110,11 +110,11 @@ describe("contrast, from the tokens", () => {
       for (const block of blocks(css)) {
         if (block.selector.startsWith("@") || block.selector.startsWith(":root")) continue;
         if (COMPOSITED.has(block.selector.trim())) continue;
-        const colour = declaration(block, /^color$/);
+        const color = declaration(block, /^color$/);
         const fill = declaration(block, /^background(-color)?$/);
-        if (!colour || !fill) continue;
-        const foreground = resolve(colour, palette);
-        // A gradient, a keyword or a colour-mix resolves to nothing, and a pair
+        if (!color || !fill) continue;
+        const foreground = resolve(color, palette);
+        // A gradient, a keyword or a color-mix resolves to nothing, and a pair
         // this cannot read is a pair it must not judge.
         const background = resolve(fill, palette);
         if (!foreground || !background) continue;

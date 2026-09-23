@@ -3,13 +3,23 @@
 Simple Balance is one container and one PostgreSQL database. There is no Redis,
 no sidecar, no object store, and nothing it needs to write to disk.
 
-PostgreSQL 15 or newer. Every release is tested against 15 and 16, on Node 22
+PostgreSQL 15 or newer. Every release is tested against 15 and 18 — the floor
+and the version the profiles that run their own database deploy — on Node 22
 and 24. Nothing else is assumed about the server.
+
+This page is the settings and the contract: what every variable does, what a
+reverse proxy has to send, and what the split containers have to agree about.
+For a deployment that runs somewhere and survives a reboot, read
+[`deployment-profiles.md`](deployment-profiles.md) beside it — it compares the
+two shapes, gives the firewall and DNS, and points at the material that stands
+each one up. [`deployment-sizing.md`](deployment-sizing.md) says how big the
+machine has to be and [`deployment-costs.md`](deployment-costs.md) what it
+costs.
 
 ## Settings
 
-Everything is an environment variable. `.env.example` has the lot; these are the
-ones that matter.
+Everything is an environment variable. `.env.example` has all of them; these are
+the ones that matter.
 
 ### Required in production
 
@@ -57,6 +67,7 @@ than warning about.
 | `IDEMPOTENCY_RETENTION_HOURS` | `0`, meaning forever | How long a used idempotency key keeps replaying. Every create, commit and bulk write stores a copy of its response so a retried request answers the same way twice; nothing prunes those copies unless you set this, and on a busy deployment the table outgrows the ledger. Zero, unset or empty all mean keep everything, which is what every release before this one did. A window is safe because the record makes a retry *quiet* rather than safe: a repeated create still meets the duplicate check, a repeated commit finds its rows already committed, and a repeated bulk write carries a count and fingerprint that no longer match. Ceiling 8760, one year. Needs `RECURRENCE_SCHEDULER` on somewhere, since the sweep rides its tick. |
 | `METRICS_ENABLED` | `false` | Whether this process answers `GET /metrics` in Prometheus' text format. Off unless you ask for it. |
 | `METRICS_TOKEN` | unset | A bearer token `GET /metrics` demands before it answers. Optional; unset means anybody who can reach the port can scrape it. It is a secret, so it also takes a `METRICS_TOKEN_FILE`; see below. |
+| `SB_CSP_REPORT_ONLY` | `false` | Rehearses the plan and billing tab's content security policy instead of enforcing it: that page reports what would have been blocked and blocks nothing, and `POST /api/csp-report` is registered for the reports. Every other page goes on enforcing, and that includes every page that can carry an ad, so this rehearses nothing about advertising: an ad the policy refuses shows up as a content security policy violation in the browser's console, on a page showing one. For the hour after turning billing on; the process warns at every start while it is set. In the split deployment set it on the frontend container too — nginx serves that document, so its copy is the one that decides. |
 
 `CSV_MAX_BYTES`, `CSV_MAX_ROWS`, `DATABASE_POOL_SIZE`,
 `RECURRENCE_TICK_SECONDS`, `RECURRENCE_CATCH_UP_LIMIT` and
@@ -98,12 +109,12 @@ a refusal is explainable rather than surprising.
 | Limit | Value | What hits it |
 | --- | --- | --- |
 | Rows in one mass edit or mass delete | 10,000 | A selection larger than this is refused rather than truncated. Split the work across calls; each one stands or falls on its own. |
-| Category legs on one transaction | 50 | Far past a receipt anybody itemises by hand. A split is the whole counter-side of the entry rewritten, so the cost is paid on every read of it. |
-| Recurring transactions per person | 200 | Each one is a standing instruction that proposes rows on every tick, so an uncapped list is a way to flood Staged transactions with nothing but `ledger:write`. |
+| Category legs on one transaction | 50 | Far past a receipt anybody itemizes by hand. A split is the whole counter-side of the entry rewritten, so the cost is paid on every read of it. |
+| Recurring transactions per person | 200 | Each one is a standing rule that proposes rows on every tick, so an uncapped list is a way to flood Staged transactions with nothing but `ledger:write`. |
 | Transaction templates per person | 200 | A template is read into the form's dropdown on every visit, so the list is loaded whole rather than paged. |
 | Columns in one report | 600 | A long history asked for weekly buckets is thousands of columns nobody can read. Refused with the coarser bucket named, rather than served slowly. |
 | Postings in one register | 10,000 | Refused rather than truncated: a register is read to find the row a balance went wrong on, and one cut short would close on a balance its own last row does not reach. Narrow the date range. |
-| Consecutive skipped occurrences a reminder looks past | 400 | A rule whose every date its own policies skip — the 31st of every month with `skip`, say — has no schedule left to speak of, and the bound is what stops it spinning inside a scheduler tick. |
+| Consecutive skipped occurrences a reminder looks past | 400 | A rule whose every date its own policies skip — the 31st of every month with `skip`, say — has no schedule left to speak of, and the bound is what keeps it from spinning inside a scheduler tick. |
 | Interval on a schedule | 366 | The N in "every N days", for a recurrence and for a template reminder alike. |
 
 ### Only for Google sign-in
@@ -116,12 +127,142 @@ a refusal is explainable rather than surprising.
 Google modes refuse to start without both, and without an `ALLOWED_EMAILS` that
 admits somebody, rather than silently letting everyone in.
 
+### Only for selling a plan
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `SB_BILLING_ENABLED` | `false` | Whether this deployment sells a plan, and holds a free account to three financial accounts in use, freezing the rest. `true` or `false`; anything else refuses to start. Setting it without the five Stripe settings below refuses to start too, because a plan nobody can be charged for is an upgrade button that always fails. |
+| `STRIPE_SECRET_KEY` | unset | The key this process charges, refunds and cancels with. A live key while `NODE_ENV` is not `production` refuses to start. It is a secret, so it also takes a `STRIPE_SECRET_KEY_FILE`; see below. |
+| `STRIPE_PUBLISHABLE_KEY` | unset | The key the browser loads Stripe's payment form with. It is published to every visitor by design, so it is a setting rather than a secret. A live key here beside a test secret key, or the reverse, refuses to start. |
+| `STRIPE_WEBHOOK_SECRET` | unset | What a delivery from Stripe is verified against. Without it a forged request could tell this deployment an invoice was paid. It is a secret, so it also takes a `STRIPE_WEBHOOK_SECRET_FILE`; see below. |
+| `STRIPE_PRICE_MONTHLY_ID` | unset | The monthly price, `price_…`. A product id here is the usual mistake and is refused at startup rather than at the first checkout. |
+| `STRIPE_PRICE_YEARLY_ID` | unset | The annual price, `price_…`. Both prices belong to one product. |
+
+What has to exist at Stripe before these mean anything — the product and its
+two prices, the webhook endpoint, the customer emails, the retry settings and
+the payment method domain — is
+[`billing-operations.md` §Setting up Stripe](billing-operations.md#setting-up-stripe),
+in the order to do it.
+
+A `price_` prefix is all a string can say, so what the two ids name is asked of
+Stripe. Both have to be recurring, the monthly one billed every `month` and the
+annual one every `year`, one interval at a time; in the same currency as each
+other and prices of the same product; in the same mode as `STRIPE_SECRET_KEY`,
+so test prices beside a test key and live ones beside a live key; and active,
+which is checked only while `SB_BILLING_ENABLED` is `true`, because archiving
+the prices is what winding a deployment down looks like. An id Stripe has no
+price for is the same mistake from another angle, usually a test id beside a
+live key or an id from another account.
+
+The check runs once as each API and scheduler process starts, and again
+whenever the prices are read — the plan tab, before every subscription is
+started, and every reconciliation sweep — on a read at most ten minutes old. A
+mismatch is one error line in the log, written when the verdict changes rather
+than every time, and from then on nothing is sold:
+`PUT /api/v1/billing/subscription` answers `409 CONFLICT` with
+`details.prices` set to `misconfigured` and says nothing was charged, and
+`GET /api/v1/billing` reports `selling: false`. Replacing a card, canceling,
+paying a renewal's open invoice, and letting go of a switch still waiting for
+the renewal keep working from the plan tab, because they serve subscriptions
+that already exist. Stripe being unreachable is a warning and refuses nothing —
+a sale then goes ahead and meets Stripe on its own terms — and prices that fit
+are said once, as
+`Stripe is configured, and both prices fit the plans they are sold as.`
+
+### The webhook, and which events it has to be sent
+
+Point a Stripe webhook endpoint at `https://your-host/api/billing/webhook` and
+**subscribe it to exactly these event types**. Stripe makes the selection a
+required step and nothing in this deployment can see what you chose, so an
+endpoint subscribed to the wrong set fails silently — the deliveries that matter
+never arrive, and the ones that do are acknowledged.
+
+| Event | Why this deployment needs it |
+| --- | --- |
+| `customer.subscription.created` | A subscription that began somewhere other than the plan tab. |
+| `customer.subscription.updated` | Every change of status, price, cancellation and renewal. This is the one that grants and revokes the plan. |
+| `customer.subscription.deleted` | The end of a subscription, however it ended. |
+| `invoice.paid` | The only thing treated as proof that a first payment succeeded. |
+| `invoice.payment_failed` | Starts the fifteen-day grace, by recording when the failure happened. |
+| `setup_intent.succeeded` | Makes a replacement card the one Stripe bills. Without it, a card replaced during a 3-D Secure redirect is attached and never used, and dunning goes on retrying the dead one. |
+| `customer.deleted` | Drops a customer mapping Stripe no longer has, so the next attempt to subscribe is not made against a customer that does not exist. |
+| `charge.refunded`, `charge.dispute.created`, `charge.dispute.closed`, `charge.dispute.funds_withdrawn` | Logged for an operator to act on. None of them changes an entitlement by itself. |
+
+Anything else is acknowledged and ignored, so subscribing to more than this
+costs only noise. Subscribing to less is the failure that is hard to see.
+
+**The grace is fifteen days, and Stripe's retry setting decides whether that is
+enough.** A renewal that is declined leaves the subscription `past_due`, and it
+keeps the paid plan for fifteen days from the failure. From the fifteenth day it
+is on the free plan until a payment succeeds, which freezes the accounts a free
+plan does not keep active and, where ads are configured, shows them. Fifteen is
+Stripe's recommended Smart Retries default, eight tries within two weeks, plus a
+day for a webhook that arrives late. This deployment cannot see what the Stripe
+account is set to, so keep that default, or any window of two weeks or less,
+under **Billing → Revenue recovery → Retries**, and set *If all retries for a
+payment fail* to *Cancel the subscription* or *Mark the subscription as unpaid*.
+A window of three weeks or longer outlasts the grace: a subscriber whose card
+Stripe is still retrying drops to the free plan in the meantime, and gets the
+paid plan back the moment a retry succeeds. `billing-operations.md` §Setting up
+Stripe has what each of those two choices shows on the plan tab.
+
+**Testing it.** A test delivery from Stripe's dashboard answering `200` with
+`{"received": true}` proves the signature verified and nothing else — that body
+is also what an event this deployment has no opinion about returns. To prove a
+subscription path end to end, make a real test-mode subscription and watch the
+plan tab change, or read `simple_balance_billing_sweeps_total`.
+
+**Going live** is all five Stripe settings replaced together, never one at a
+time: the live webhook endpoint has a `whsec_` of its own, and a test-mode price
+id does not exist in live mode, which the price check above refuses by name.
+What the test mode leaves behind, and what the server does about it when nobody
+clears it, is
+[`billing-operations.md` §Going live, or changing Stripe account](billing-operations.md#going-live-or-changing-stripe-account).
+
+See [`monetization.md`](monetization.md) for what the two plans are, what the
+prices net, and the table of what is on in which combination.
+
+The five Stripe settings are set together or not at all, and they answer only
+whether Stripe can be reached. `SB_BILLING_ENABLED` answers the separate
+question of whether anything is for sale. That split is what lets a deployment
+stop selling while it goes on honoring — and listening to — the subscriptions
+people are already paying for. Set none of it and this process never opens a
+connection to Stripe.
+
+### Only for ads
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `PRIVACY_POLICY_URL` | unset | Where this deployment's privacy policy lives. **Required whenever AdSense is configured** — Google's program policies require one on any site serving their ads, and the server refuses to start without it rather than letting an operator breach them from the first impression. Must be absolute and https. Linked from the sidebar on every page. |
+| `ADSENSE_CLIENT_ID` | unset | The AdSense publisher id, `ca-pub-` followed by sixteen digits. The dashboard shows it as `pub-…`, and the missing `ca-` prefix is refused at startup because it otherwise fails by rendering nothing, which looks exactly like having no inventory. |
+| `ADSENSE_BANNER_SLOT_ID` | unset | The ad unit shown once in the application shell. Ten digits. Set with the client id or not at all. |
+| `ADSENSE_FOOTER_SLOT_ID` | unset | A second unit at the bottom of the page. Off unless you set it, and an addition to the banner rather than a replacement, so setting it alone refuses to start. |
+| `ADSENSE_CONSENT_MANAGED` | `false` | Whether a certified consent platform is collecting consent. Off by default, and then every ad request forces non-personalized ads, which Google serves without a platform at all. Set it to `true` only if you want personalized ads, and only once you have published a European regulations message in AdSense's own **Privacy and messaging** — free, part of your account, and delivered by the ad tag this app already loads, so nothing is added here. It then stops forcing the flag and lets the platform's answer decide. Visitors in the EEA, the UK and Switzerland need that message whichever you choose; this setting only decides whether its answer can turn personalized ads on. Nothing in this software can check the platform exists. See `monetization.md`. |
+
+**Know what this costs before turning it on.** AdSense publishes no list of the
+hosts it loads from, so serving it means widening this app's content security
+policy on every page that renders your balances — including allowing scripts to
+be evaluated at runtime. Those pages also send `Referrer-Policy:
+strict-origin-when-cross-origin` rather than `same-origin`, because Google's
+consent message does not serve under the stricter one: a request from them to
+another origin is told this site's address and never the page's path. A
+deployment that sets none of these keeps the `default-src 'self'` policy and
+the `same-origin` referrer the container ships with. Ads are never shown to a
+paid account, and never on the plan and billing tab.
+
+**And ads are shown only where a plan is for sale.** An ad goes to an account on
+a limited plan, and nobody is on one unless `SB_BILLING_ENABLED` is `true` with
+Stripe configured. Set these without it and the policy is still widened on every
+page and `/ads.txt` is still served, but nobody is shown an ad; a production
+process says so at every start, as a warning rather than a refusal.
+
 ### Keeping a secret out of the environment
 
-Seven variables also answer to a `NAME_FILE` form: `AUTH_SECRET`,
+Nine variables also answer to a `NAME_FILE` form: `AUTH_SECRET`,
 `DATABASE_URL`, `DIRECT_DATABASE_URL`, `SMTP_PASSWORD`, `GOOGLE_CLIENT_SECRET`,
-`SETUP_TOKEN` and `METRICS_TOKEN`. Having the form is the definition of being a
-secret here, so nothing else in either table above has one.
+`SETUP_TOKEN`, `METRICS_TOKEN`, `STRIPE_SECRET_KEY` and
+`STRIPE_WEBHOOK_SECRET`. Having the form is the definition of being a
+secret here, so nothing else in any table above has one.
 
 `NAME_FILE` names a file whose contents are the value. Set one of `NAME` and
 `NAME_FILE` and never both: both set warns and uses `NAME`, naming the file
@@ -179,7 +320,7 @@ consistent with the existing refusal when `SMTP_USERNAME` is set without
 you to expect while rotating a mail secret.
 
 And the shipped deployment paths do not use the form yet, so on both of them it
-takes work you do yourself. The Helm chart in `deploy/helm` writes all seven into
+takes work you do yourself. The Helm chart in `deploy/helm` writes all nine into
 a Secret that reaches both workloads through `envFrom`, and it has no volume or
 volume-mount values of its own, so `secret.create=false` is not enough on its
 own: an existing Secret is still consumed through `envFrom`. Something outside
@@ -214,7 +355,24 @@ not exist. The server refuses to start and says which setting to use instead.
 so nothing on the network can read it. It cannot tell you that the host
 answering is the host you meant, so on a network where somebody could stand in
 the middle, put the server's CA where the container trusts it and use
-`verify-full`.
+`verify-full` — though not yet on the `single` profile, for the reason below.
+
+**What the backups make of it.** `pg_dump`, `psql` and `pg_restore` are libpq,
+and read `sslmode` libpq's way rather than node-postgres's: `no-verify` is not a
+word libpq knows, so it refuses the whole string, and its `require` is exactly
+what node-postgres calls `no-verify`. So the `single` profile's nightly backup
+and its restore (`deploy/systemd/simple-balance-backup` and
+`simple-balance-restore`) rewrite the string before they use it:
+`sslmode=no-verify` becomes `sslmode=require`, the same guarantee in libpq's
+spelling, and a `uselibpqcompat` parameter, which libpq refuses as unknown, is
+dropped. Everything else passes through. An omitted `sslmode` stays omitted:
+node-postgres then connects without TLS, and libpq tries TLS first without
+checking the certificate (`prefer`), so the dump is never less protected than
+the application. `verify-full` does not survive the trip: the client runs from
+the `postgres:18` image, which carries no certificate authorities, so the dump
+fails against a certificate the application's own connection accepts. On that
+profile use `no-verify`, or leave it out on a network you trust. A `pg_dump` of
+your own against the same `DATABASE_URL` needs the same rewrite.
 
 ## Who may register
 
@@ -378,7 +536,7 @@ about it from their end.
 
 The connection is opened once at startup so a wrong setting is reported in the
 log rather than discovered by somebody locked out. A refusal is logged and the
-server carries on, because the ledger works whether or not mail does. Reset and
+server keeps running, because the ledger works whether or not mail does. Reset and
 verification links last an hour. A reset link is consumed the moment it is
 used, so it works once. A verification link is a signed token rather than a
 stored one, so it keeps working for the rest of its hour; opening it only
@@ -401,7 +559,7 @@ relay itself.
 A hosted relay (Google Workspace, Fastmail, Postmark, SES, Mailgun) already
 handles DKIM and PTR and hands you the records to publish, so its setup page is
 the one to follow rather than this one. Relaying through a host you own makes
-all four yours, and PTR is the one that catches people out: it belongs to
+all four yours, and PTR is the one that trips people up: it belongs to
 whoever owns the address, which on most cloud providers is a support request
 rather than a control panel.
 
@@ -494,7 +652,7 @@ when it is not, so silence there means the setting took.
 
 Only leave `TRUST_PROXY` off when the application is reached directly, or when
 the proxy in front passes through `X-Forwarded-For` rather than replacing it.
-With it off, an address a caller made up is ignored in favour of the connection
+With it off, an address a caller made up is ignored in favor of the connection
 they actually opened; with it on and a proxy that appends, a caller can put
 whatever they like at the front of the chain.
 
@@ -523,7 +681,12 @@ about the server is assumed or altered.
 ## Splitting it into separate containers
 
 One container is the supported way to run this, and the rest of this document
-assumes it. If you are running under Kubernetes and want to scale the web tier,
+assumes it. `deploy/compose/single/` is that container as a deployment — with
+TLS, backups and a systemd unit, against a PostgreSQL somebody else runs — and
+is what [`deployment-profiles.md`](deployment-profiles.md) calls the `single`
+profile.
+
+If you are running under Kubernetes and want to scale the web tier,
 `deploy/docker/` holds three Dockerfiles that split it up, and three things
 built on them: a Helm chart in `deploy/helm/simple-balance/`, a compose file in
 `deploy/compose/` that runs the same split on one machine, and Pulumi programs
@@ -544,22 +707,36 @@ authority on. It reads the same settings as the single container.
 The frontend image is nginx serving the bundle and proxying `/api`, `/mcp`,
 `/health` and `/.well-known` through to the server. It listens on **8080**, not
 80, because the base image runs as a non-root user that cannot bind a privileged
-port. Three settings, all with working defaults:
+port. Its settings all have working defaults:
 
 | Variable | Default | What it does |
 | --- | --- | --- |
 | `SB_API_ORIGIN` | `http://simple-balance-server:3000` | Where to proxy everything the API owns. Point it at your API Service. |
 | `SB_FRONTEND_PORT` | `8080` | The port nginx listens on. Change it and the readiness probe and Service have to follow. |
 | `SB_MAX_UPLOAD_SIZE` | `61m` | The largest request body nginx will pass. A CSV arrives as a JSON string rather than as a file upload, and the API sizes its own limit for those routes at `CSV_MAX_BYTES` x 6 plus 64 KiB to cover worst-case JSON escaping. Keep this above that number, or a CSV the API would accept is refused before it reaches it. At the default `CSV_MAX_BYTES` of 10 MB that means at least `61m`. |
+| `SB_BILLING_CONFIGURED` | `false` | Whether Stripe is configured. nginx serves the plan and billing tab's document in this shape, so it decides which content security policy that page arrives with, and Stripe's payment form needs the wider one. Configured, not selling: an operator who has stopped selling still has subscribers who must be able to replace an expired card. The compose recipe derives it from `STRIPE_PUBLISHABLE_KEY`, and the Helm chart from a `STRIPE_PUBLISHABLE_KEY` in `config.extraEnv` or from `frontend.billingConfigured`, which is for a key kept in an `existingSecret`, so the two cannot disagree. |
+| `SB_CSP_REPORT_ONLY` | `false` | Whether that page reports its policy instead of enforcing it. Only meaningful with `SB_BILLING_CONFIGURED`, and only for that page. Set it on the server as well, which is what registers `POST /api/csp-report` for the reports to land on. |
+| `SB_ADS_CONFIGURED` | `false` | Whether this deployment serves advertising. nginx serves every document in this shape, so it decides the policy they arrive with, and AdSense needs a much wider one — scripts, frames and connections to any HTTPS origin, plus `unsafe-eval`. Set it with the server's own `ADSENSE_*` settings or neither; the compose recipe derives it from `ADSENSE_CLIENT_ID`, and the Helm chart from an `ADSENSE_CLIENT_ID` in `config.extraEnv` or from `frontend.adsConfigured`, which is for an id kept in an `existingSecret`. |
+| `SB_TRUSTED_PROXY_CIDR` | `127.0.0.1` | Which addresses this nginx will believe about where a request came from. Everything it proxies carries `X-Forwarded-For` set to the address it saw, and behind anything terminating TLS that address is the terminator — the same value for every visitor. With `TRUST_PROXY` on, the API then counts every sign-in attempt against one allowance, and one stranger can spend it for everybody. Set it to the range the terminator connects from: an ingress controller's pod CIDR under Kubernetes, the load balancer's subnet on a VM. Name the proxy's range and nothing wider — this decides whose word is taken for an address, so a range that includes callers lets a caller choose their own. The default is the off position rather than a trusted range: nothing reaches the container from loopback, so a deployment that sets nothing behaves exactly as it did before this setting existed. It carries a value rather than an empty string because `set_real_ip_from ;` is a configuration error and nginx would refuse to start. |
 
-These three are the only settings in this document that appear in no
-`.env.example`, and that is the reason rather than an omission: they belong to
-the nginx container, and neither example file configures it. The root file
-serves the single container, which has no nginx in it. The compose file sets all
-three on the frontend service itself, where the value can carry the reason it is
-what it is, and the defaults above are baked into
+These belong to the nginx container, which is why most of them are in neither
+`.env.example` nor `deploy/compose/.env.example`, and that is the reason rather
+than an omission. The root file serves the single container, which has no nginx
+in it. The compose recipe sets all of them on the frontend service itself, where
+the value can carry the reason it is what it is, and derives
+`SB_BILLING_CONFIGURED` and `SB_ADS_CONFIGURED` from the server's own Stripe and
+AdSense settings so the two sides cannot disagree. Two are in the compose
+example anyway, commented out, because an operator chooses them:
+`SB_CSP_REPORT_ONLY`, which the server reads too and so is in the root file as
+well, and `SB_TRUSTED_PROXY_CIDR`, which depends on what is in front. The `vps`
+profile's frontend machine has an example of its own,
+`deploy/compose/vps/.env.frontend.example`. The defaults above are baked into
 `deploy/docker/frontend.Dockerfile`, so a deployment changing none of them has
-nothing to set. Everything the Node processes read appears in both places.
+nothing to set. Every `SB_` name the template reads has a default there, and
+`tests/dockerfile.test.ts` holds it to that: an absent one is not a fallback but
+a literal `${SB_…}` in the rendered config, which nginx refuses to start on.
+Everything the Node processes read is in a table here and in an example file,
+and `tests/env-example.test.ts` holds the two to each other.
 
 nginx repeats every response header the API sets — the content security policy,
 `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, HSTS, the two
@@ -568,9 +745,9 @@ files it serves itself. The application shell never reaches the API process, so
 without this the one document that actually runs the app would ship with no
 policy at all. `tests/security-header-parity.test.ts` runs a real response
 through the middleware and fails if the two lists differ by a header or by a
-value, because they are one policy written in two languages. It replaces `X-Forwarded-For` with `$remote_addr` rather than
-appending to it, which is what `TRUST_PROXY=true` on the server is safe to
-believe.
+value, because they are one policy written in two languages. It replaces
+`X-Forwarded-For` with `$remote_addr` rather than appending to it, which is what
+`TRUST_PROXY=true` on the server is safe to believe.
 
 The scheduler image runs the whole schedule — proposing recurring transactions
 and sending the reminders and proposal notices — and serves nothing but its own
@@ -579,7 +756,7 @@ request. It needs the `SMTP_*` and `MAIL_FROM` settings as well: without them it
 proposes rows and sends nothing, which is a supported deployment rather than an
 error, so it says so in one line at startup instead. Given them, it opens a
 connection to the relay at startup and logs the address it will be sending as,
-or logs the refusal and carries on proposing. Those two lines are the difference
+or logs the refusal and goes on proposing. Those two lines are the difference
 between a scheduler that is working and one that was never handed the settings,
 which otherwise look identical. The chart and the compose file both hand it the
 same configuration the API gets, so neither needs anything extra; a deployment
@@ -587,7 +764,7 @@ assembled by hand does. It runs one entrypoint of its own and always ticks: the
 `RECURRENCE_SCHEDULER` flag decides whether the API replicas tick too, and a pod
 whose only job is this one would be pointless with it off.
 
-Five things have to line up:
+These have to line up:
 
 - **`APP_BASE_URL` on the server names the frontend's public origin**, not the
   server's own address. Cookies are set by the API and read by the browser, so
@@ -603,17 +780,48 @@ Five things have to line up:
 - **As many scheduler replicas as you like.** They divide the due rows between
   them rather than one holding a lock the others wait on, so more of them is
   more throughput on a large backlog and costs nothing on a small one.
-- **Nothing trusted in front of nginx, or `set_real_ip_from` if there is.** The
-  template replaces `X-Forwarded-For` with `$remote_addr`, which is right when
-  nginx is the first hop and wrong when an ingress terminating TLS sits in front
-  of it: `$remote_addr` is then that ingress, and with `TRUST_PROXY=true` every
-  visitor in the cluster shares one sign-in allowance. Since this container
-  listens on plain HTTP and production requires an HTTPS `APP_BASE_URL`,
-  something is terminating TLS in front of it, so this is the ordinary case
-  rather than the exotic one. Add
-  `set_real_ip_from <your ingress CIDR>; real_ip_header X-Forwarded-For;
-  real_ip_recursive on;` to the proxy location so `$remote_addr` resolves back
-  to the visitor.
+- **`SB_BILLING_CONFIGURED` on the frontend**, if Stripe is configured at all —
+  not `SB_BILLING_ENABLED`, and not only when you are selling. nginx serves the
+  application shell itself in this shape, so it, and not the API, decides the
+  content security policy the plan tab arrives with, and Stripe's payment form
+  needs the wider one. An operator who has stopped selling still has subscribers
+  who must be able to replace an expired card on that page, which is why the
+  frontend asks "is Stripe configured" rather than "is a plan for sale". Set on
+  the server and not on the frontend, the tab loads and the card fields never
+  appear. The compose recipe derives it from `STRIPE_PUBLISHABLE_KEY`, and so
+  does the Helm chart from one in `config.extraEnv`; `frontend.billingConfigured`
+  turns it on for a key kept in an `existingSecret`, which the render never sees.
+- **`SB_TRUSTED_PROXY_CIDR` on the frontend**, set to the range whatever
+  terminates TLS in front of it connects from. The template replaces
+  `X-Forwarded-For` with `$remote_addr`, which is right when nginx is the first
+  hop and wrong when an ingress sits in front of it: `$remote_addr` is then the
+  ingress, and with `TRUST_PROXY=true` every visitor shares one sign-in
+  allowance. This container listens on plain HTTP and production requires an
+  HTTPS `APP_BASE_URL`, so something always sits in front, and this is the
+  ordinary case rather than the exotic one. Setting it takes no template edit
+  and no image rebuild. Under Helm it is `frontend.trustedProxyCidr`, and the
+  `ha` Pulumi programs pass `simple-balance:trustedProxyCidr` through to it;
+  under Kubernetes the range is the ingress controller's pods. Recursion stays
+  off, `real_ip_recursive off` rather than `on`: behind a terminator that
+  appends to the header instead of replacing it, `on` with a range set too wide
+  walks past the visitor to an address the caller wrote.
+  `deploy/docker/nginx.conf.template` has the reasoning, and
+  `docs/deployment-profiles.md` the measurement. On the two clouds the `ha`
+  programs build, the setting is not the whole answer: an AWS network load
+  balancer with IP targets hands ingress-nginx its own address unless client IP
+  preservation or proxy protocol is on, and GCP's load balancer appends its own
+  address after the visitor's, which one trusted range with recursion off cannot
+  see past.
+- **`SB_ADS_CONFIGURED` on the frontend**, if you serve advertising, for the
+  same reason: nginx decides the policy every other page arrives with, and
+  AdSense needs a much wider one. The Helm chart derives it from an
+  `ADSENSE_CLIENT_ID` in `config.extraEnv`, and `frontend.adsConfigured` turns it
+  on for an id kept in an `existingSecret`.
+- **Clocks in step across the API replicas.** A subscription snapshot is ordered
+  by the wall clock of whichever replica read it from Stripe, so two replicas
+  more than a moment apart can keep the older read and leave somebody's plan
+  wrong until the twelve-hour reconciliation sweep repairs it. Keep the nodes on
+  NTP, which they almost certainly already are.
 
 Each of these processes opens `DATABASE_POOL_SIZE` connections and no more once
 it is running. Two others exist and neither is held: migrations take one at
@@ -742,7 +950,7 @@ today:
 The migration counters are the exception: a startup migration that fails takes
 the process down before it serves anything, so nothing is ever scraped with
 `outcome="failed"` on it. Readiness is what tells you, and the counters are for
-reading afterwards — how long the wait for the lock was on a rolling deploy.
+reading afterward — how long the wait for the lock was on a rolling deploy.
 
 ## Backups
 
@@ -752,7 +960,11 @@ Everything is in PostgreSQL, so backing up the database backs up the product.
 pg_dump --format=custom "$DATABASE_URL" > simple-balance-$(date +%F).dump
 ```
 
-Restore into an empty database with `pg_restore`. Take a backup before upgrading;
+`pg_dump` reads that string as libpq does, so where it says
+`sslmode=no-verify`, write `sslmode=require` for the dump — the same guarantee,
+in the spelling libpq accepts; [reaching the database over a
+network](#reaching-the-database-over-a-network) has the reason. Restore into an
+empty database with `pg_restore`. Take a backup before upgrading;
 [upgrades](upgrades.md) explains why.
 
 ## Upgrading

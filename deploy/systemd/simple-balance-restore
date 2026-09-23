@@ -1,0 +1,253 @@
+#!/bin/sh
+# Replace the ledger with the contents of a dump.
+#
+#   sudo /usr/local/bin/simple-balance-restore /var/backups/simple-balance/simple-balance-20260914T031500Z.dump
+#
+# This destroys the current database. It asks before it does, and --yes skips
+# the asking for a scripted rebuild. There is no undo beyond the backup you are
+# about to overwrite, so take one first — the script offers.
+#
+# No systemd unit, deliberately. A restore is a decision somebody makes at a
+# keyboard, and a unit is a thing that can be enabled.
+set -eu
+
+# The machine's own settings, as every other script here reads them: the
+# client image, and the COMPOSE_FILE that names the Caddy overlay. Exported,
+# because docker compose reads COMPOSE_FILE from the environment — without it
+# the restart at the end brings the application back from compose.yml alone,
+# without the overlay's TRUST_PROXY, and every visitor shares one sign-in
+# allowance until the next restart of the unit.
+if [ -r /etc/default/simple-balance ]; then
+	set -a
+	# shellcheck disable=SC1091  # written by cloud-init, absent at lint time
+	. /etc/default/simple-balance
+	set +a
+fi
+: "${SB_COMPOSE_DIR:=/opt/simple-balance}"
+: "${SB_PG_CLIENT_IMAGE:=postgres:18}"
+
+dump=""
+assume_yes=no
+for arg in "$@"; do
+	case "$arg" in
+	--yes) assume_yes=yes ;;
+	-*)
+		echo "simple-balance-restore: unknown option $arg" >&2
+		exit 2
+		;;
+	*) dump="$arg" ;;
+	esac
+done
+
+if [ -z "$dump" ]; then
+	echo "Usage: simple-balance-restore <dump> [--yes]" >&2
+	exit 2
+fi
+if [ ! -r "$dump" ]; then
+	echo "simple-balance-restore: cannot read $dump" >&2
+	exit 2
+fi
+
+cd "$SB_COMPOSE_DIR"
+
+# Where the database is, decided the same way `simple-balance-backup` decides
+# it: by reading this project's own service list. `vps` has it as a service here,
+# `single` points at one somebody else keeps. See that script for the reasoning.
+if docker compose config --services 2>/dev/null | grep -qx postgres; then
+	database_in_project=yes
+else
+	database_in_project=no
+fi
+
+# libpq's spelling of DATABASE_URL, for the postgres client. The application
+# reads the same string with node-postgres, and the two disagree about sslmode:
+# `no-verify`, which docs/deployment.md recommends for a server that signed its
+# own certificate, is node-postgres's word, and libpq refuses it outright with
+# `invalid sslmode value` — so a deployment configured exactly as recommended
+# could be neither dumped nor restored. libpq's `require` is the same
+# guarantee, encrypted and not verified, and the client image carries no root
+# certificate that would quietly turn it into verify-ca. `uselibpqcompat`,
+# which tells node-postgres to read `require` libpq's way, is an unknown URI
+# parameter to libpq and is refused the same way, so it is dropped. Every other
+# parameter passes through untouched.
+#
+# The same function, spelled the same way, is in the other script of the pair;
+# tests/systemd-scripts.test.ts holds the two to each other and to its cases.
+libpq_url() {
+	printf '%s\n' "$1" | sed \
+		-e 's/\([?&]\)sslmode=no-verify$/\1sslmode=require/' \
+		-e 's/\([?&]\)sslmode=no-verify&/\1sslmode=require\&/' \
+		-e 's/[?&]uselibpqcompat=[^&]*$//' \
+		-e 's/\([?&]\)uselibpqcompat=[^&]*&/\1/'
+}
+
+if [ "$database_in_project" = no ]; then
+	if [ -z "${DATABASE_URL:-}" ] && [ -r "$SB_COMPOSE_DIR/.env" ]; then
+		DATABASE_URL=$(sed -n 's/^DATABASE_URL=//p' "$SB_COMPOSE_DIR/.env" | tail -1 | sed 's/^"\(.*\)"$/\1/; s/^'"'"'\(.*\)'"'"'$/\1/')
+	fi
+	if [ -z "${DATABASE_URL:-}" ]; then
+		echo "simple-balance-restore: no postgres service in this deployment and no DATABASE_URL to restore into." >&2
+		echo "  Put DATABASE_URL in $SB_COMPOSE_DIR/.env, which is where the application reads it from too." >&2
+		exit 2
+	fi
+	pg_url=$(libpq_url "$DATABASE_URL")
+	# The database this restores into, and the one to connect to while it does
+	# not exist. Dropping a database means not being connected to it. Both from
+	# libpq's spelling, so the maintenance connection carries the same sslmode.
+	restore_db=$(printf '%s' "$pg_url" | sed 's/[?].*$//; s#.*/##')
+	maintenance_url=$(printf '%s' "$pg_url" | sed 's#\(.*\)/[^/?]*\(?.*\)\{0,1\}$#\1/postgres\2#')
+	if [ -z "$restore_db" ]; then
+		echo "simple-balance-restore: DATABASE_URL names no database." >&2
+		exit 2
+	fi
+fi
+
+pg() {
+	if [ "$database_in_project" = yes ]; then
+		docker compose exec -T postgres "$@"
+	else
+		docker run --rm -i --network host -e PGCONNECT_TIMEOUT=15 \
+			"$SB_PG_CLIENT_IMAGE" "$@"
+	fi
+}
+
+# Read the archive before touching anything. A dump that cannot be listed cannot
+# be restored either, and finding that out *after* dropping the database is the
+# worst possible order to find it out in.
+if ! listing=$(pg pg_restore --list <"$dump" 2>&1); then
+	echo "simple-balance-restore: $dump is not a readable PostgreSQL archive" >&2
+	echo "$listing" >&2
+	exit 1
+fi
+tables=$(printf '%s\n' "$listing" | grep -c 'TABLE DATA' || true)
+if [ "$tables" -lt 1 ]; then
+	echo "simple-balance-restore: $dump holds no table data" >&2
+	exit 1
+fi
+
+# A server older than the client, decided before anything is touched. From 17
+# on, pg_restore opens every restore with `SET transaction_timeout = 0`, and a
+# 15 or 16 server has no such setting: the first statement fails, and with
+# --exit-on-error that ends the restore — after the database below has already
+# been dropped, leaving it empty and the application stopped. A 17 client
+# cannot be swapped for an older one either, because an older pg_restore cannot
+# read the archive a newer pg_dump wrote. So against an older server the dump is
+# rendered to SQL first, while nothing has changed, that one line is taken out,
+# and psql loads the rest in a single transaction. Only `single` needs asking:
+# on `vps` the client is the server's own image.
+filter_sql=""
+if [ "$database_in_project" = no ]; then
+	if ! server_num=$(pg psql -d "$maintenance_url" -Atc 'show server_version_num' 2>&1); then
+		echo "simple-balance-restore: could not reach the database to check its version. Nothing was changed." >&2
+		echo "$server_num" >&2
+		exit 1
+	fi
+	client_major=$(pg pg_restore --version | sed -n 's/.*PostgreSQL) \([0-9][0-9]*\).*/\1/p')
+	if [ "${client_major:-0}" -ge 17 ] && [ "$server_num" -lt 170000 ]; then
+		umask 077
+		filter_sql=$(mktemp)
+		rendered=$(mktemp)
+		trap 'rm -f "$filter_sql" "$rendered"' EXIT
+		# Two steps with the status of each checked, because this is POSIX sh
+		# with no pipefail: a pipe would hand sed an empty stream from a failed
+		# pg_restore and report success.
+		if ! pg pg_restore --no-owner --no-privileges -f - <"$dump" >"$rendered"; then
+			echo "simple-balance-restore: could not render $dump for a PostgreSQL ${server_num} server. Nothing was changed." >&2
+			exit 1
+		fi
+		sed '/^SET transaction_timeout = 0;$/d' "$rendered" >"$filter_sql"
+		rm -f "$rendered"
+		echo "simple-balance-restore: the server is older than the client ($server_num), so the dump goes in as SQL"
+	fi
+fi
+
+if [ "$assume_yes" != yes ]; then
+	printf 'Replace the ledger in this deployment with %s (%s tables)?\n' "$dump" "$tables"
+	printf 'Everything currently in the database is discarded. Type RESTORE to continue: '
+	read -r answer
+	[ "$answer" = "RESTORE" ] || { echo "Nothing was changed."; exit 1; }
+fi
+
+# The application first. It holds a pool of connections, and PostgreSQL refuses
+# to drop a database anybody is connected to — so without this the drop below
+# fails and the deployment is left running against a database somebody thinks has
+# been replaced. Stopping it also means nothing writes a transaction into the
+# half-restored ledger.
+#
+# Where the application is depends on the profile, and on `vps` it is not here:
+# that machine runs the database alone, and `docker compose stop app` against it
+# exits 1 with `no such service: app` — which under `set -e` would abort the
+# restore before it started. So it is stopped if it is in this project, and
+# named as the operator's job if it is not. Refusing to continue would be wrong
+# in the other direction: the application machines may already be stopped, and
+# this script cannot see them to find out.
+if docker compose config --services 2>/dev/null | grep -qx app; then
+	echo "simple-balance-restore: stopping the application"
+	docker compose stop app
+	restart_app=yes
+else
+	restart_app=no
+	echo "simple-balance-restore: no application in this Compose project."
+	echo "  On the vps profile the API and the scheduler are on machines of their own."
+	echo "  Stop them before continuing, or this restore will fail on connections it"
+	echo "  cannot see: sudo systemctl stop simple-balance"
+	if [ "$assume_yes" != yes ]; then
+		printf '  Are they stopped? Type YES to continue: '
+		read -r stopped
+		[ "$stopped" = "YES" ] || { echo "Nothing was changed."; exit 1; }
+	fi
+fi
+
+# Dropped and recreated rather than restored over with --clean. A clean restore
+# leaves behind anything the dump does not mention, which is exactly what a
+# restore is usually trying to get rid of. `template0` so the new database
+# inherits nothing that was added to template1.
+echo "simple-balance-restore: recreating the database"
+if [ "$database_in_project" = yes ]; then
+	pg psql -U simple_balance -d postgres -v ON_ERROR_STOP=1 \
+		-c "drop database if exists simple_balance;" \
+		-c "create database simple_balance template template0;"
+else
+	# The same two statements against a database this deployment does not run,
+	# which needs the role to be able to create one. That is already true of any
+	# `single` deployment the application bootstrapped itself — it creates the
+	# database on first start when the server does not have one — and where it is
+	# not, the restore says so here rather than halfway through.
+	pg psql -d "$maintenance_url" -v ON_ERROR_STOP=1 \
+		-c "drop database if exists \"$restore_db\";" \
+		-c "create database \"$restore_db\" template template0;"
+fi
+
+# --no-owner and --no-privileges to match how the dump was taken: this
+# deployment has exactly one role, so ownership recorded in the archive is
+# noise, and a restore that tries to reinstate a role that does not exist fails
+# row by row.
+#
+# --exit-on-error, because pg_restore's default is to report errors and carry on
+# to the end, exit 0, and leave a partially restored ledger that nothing has
+# noticed. A restore either worked or it did not.
+echo "simple-balance-restore: restoring $tables tables"
+if [ "$database_in_project" = yes ]; then
+	pg pg_restore -U simple_balance -d simple_balance --no-owner --no-privileges --exit-on-error <"$dump"
+elif [ -n "$filter_sql" ]; then
+	# ON_ERROR_STOP and one transaction are this path's --exit-on-error: the
+	# first failing statement stops psql and rolls everything back.
+	pg psql -d "$pg_url" -v ON_ERROR_STOP=1 --single-transaction <"$filter_sql"
+else
+	pg pg_restore -d "$pg_url" --no-owner --no-privileges --exit-on-error <"$dump"
+fi
+
+# Starting the application also runs any migration the dump predates, under the
+# same advisory lock a first start uses. That is the supported way to restore an
+# older backup onto a newer release: restore, then start, and the schema catches
+# up on the way.
+if [ "$restart_app" = yes ]; then
+	echo "simple-balance-restore: starting the application"
+	docker compose up -d --wait app
+else
+	echo "simple-balance-restore: start the application machines again:"
+	echo "  sudo systemctl start simple-balance"
+	echo "  Their first start applies any migration this dump predates."
+fi
+
+echo "simple-balance-restore: done"

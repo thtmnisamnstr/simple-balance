@@ -1,7 +1,7 @@
 # Web
 
 The browser app. A React 19 single-page app with a hand-rolled router, TanStack
-Query for server state, and 3,986 lines of hand-written CSS in
+Query for server state, and 4,085 lines of hand-written CSS in
 `src/client/styles.css`. No component library, no CSS framework, no token build
 step, and none is coming, so every rule here has to be reachable with plain CSS
 custom properties and components written by hand.
@@ -17,7 +17,7 @@ carries errata. Two things follow from picking it. Some level AAA criteria are
 met because they are cheap, and meeting one does not move the target. And APCA
 is not used: WCAG 3.0 is a Working Draft whose own status section says it is
 inappropriate to cite as other than a work in progress, and its contrast
-algorithm is undecided. Where a perceptual method likes a colour that the 2.x
+algorithm is undecided. Where a perceptual method likes a color that the 2.x
 ratio refuses, the 2.x ratio wins.
 
 ## 1. Tokens
@@ -25,17 +25,17 @@ ratio refuses, the 2.x ratio wins.
 ### 1.1 One tier, and it is semantic
 
 **House.** There is one token tier and a token's name says what it is for, never
-what colour it is. Material's three tiers exist to serve dynamic colour
+what color it is. Material's three tiers exist to serve dynamic color
 generation; this product has one brand and two themes, so a reference tier would
 double the names and buy nothing.
 
-*Checked by:* `tests/theme-tokens.test.ts`, which fails on any literal colour
+*Checked by:* `tests/theme-tokens.test.ts`, which fails on any literal color
 written outside the token blocks, on a token referenced but never declared, and
 on a token declared but never used.
 
 ### 1.2 The three blocks
 
-**House, and already enforced.** Every colour lives in exactly three blocks at
+**House, and already enforced.** Every color lives in exactly three blocks at
 the top of `src/client/styles.css`. Nothing in a specification or in
 `AGENTS.md` requires this structure; the test and the reasoning at
 `styles.css:73-92` are what carry it.
@@ -64,21 +64,21 @@ media one (`:55`), and that each block declares `color-scheme`.
 ### 1.3 What is a token, and what is not
 
 **House, and the largest gap in this chapter.** Sixty tokens are declared and
-all sixty are a colour or a shadow made of colours. Nothing else in
+all sixty are a color or a shadow made of colors. Nothing else in
 the stylesheet is a token: not a space, not a radius, not a size, not a weight,
 not a duration, not a z-index, not a breakpoint. There is no stated rule for why
 `--shadow` earns a name and `13px` does not.
 
 The rule, from here: **a value becomes a token when it is a decision that has to
-be the same in two places.** A colour qualifies because a theme must answer for
+be the same in two places.** A color qualifies because a theme must answer for
 it twice. A spacing step qualifies because a gap that is 11px on one card and
 12px on the next is not a decision, it is two accidents. A one-off geometry
 value does not qualify: the nine inline `style` props in the client
-(`charts.tsx:273`, `charts.tsx:322`, `components.tsx:501`, `components.tsx:938`,
-`BudgetsPage.tsx:1177`, `DashboardPage.tsx:278`, `DashboardPage.tsx:409`,
+(`charts.tsx:273`, `charts.tsx:322`, `components.tsx:682`, `components.tsx:1010`,
+`BudgetsPage.tsx:1189`, `DashboardPage.tsx:278`, `DashboardPage.tsx:409`,
 `DashboardPage.tsx:469`, `DashboardPage.tsx:515`) are all runtime geometry — a bar's width, a chart's offset — and are correct as they
 are. The count matters beyond tidiness: it is what
-`src/server/http-security.ts:22-29` reasons about when it declines
+`src/server/http-security.ts:217-221` reasons about when it declines
 `'unsafe-inline'`.
 
 *Not checked mechanically.* Section 3 proposes the ramps; the check that would
@@ -95,7 +95,7 @@ list: `ground`, `surface`, `field`, `fill`, `line`, `ink`, `muted`, `track`,
 two tokens using it as a role.
 
 Two consequences worth stating. First, do not reach for a token because its
-colour happens to match; a token used outside the concept it names breaks in the
+color happens to match; a token used outside the concept it names breaks in the
 other theme. Second, `--ambient`, `--art-glow-a`, `--art-glow-b`, `--art-veil`, `--chrome`
 and `--scrim` carry no property segment and cannot be read from their names
 alone. They are exempted here by name rather than left as a hole in the list —
@@ -125,7 +125,7 @@ without moving all of them.
 fields ship disabled — the mass-edit panels on transactions, staged rows and
 templates (`src/client/bulk-edit.tsx`, `src/client/TransactionBrowser.tsx`,
 `src/client/pages/StagingPage.tsx`, `src/client/pages/TemplatesPage.tsx`) — and
-because `.input` sets its own background, colour and border, the browser's
+because `.input` sets its own background, color and border, the browser's
 disabled rendering was overridden and a dead field was pixel-identical to a live
 one. `.bulk-edit-field.enabled` paints its row green as soon as an action is
 chosen, and on the templates panel choosing "Clear so it is filled in on use"
@@ -134,7 +134,7 @@ control is exempt from SC 1.4.3 and SC 1.4.11 (section 2.1), which is what lets
 its edge drop to the decorative `--line`; the exemption says the contrast need
 not be measured, not that the state may be invisible. Opacity is the house
 answer for a disabled *button* and the wrong answer here: a field sits on
-coloured rows, and dimming one lets the row's colour through instead of stating
+colored rows, and dimming one lets the row's color through instead of stating
 anything.
 
 A read-only field is not a disabled one and has not shipped. When the first one
@@ -148,7 +148,7 @@ and takes its fill from `--field-disabled`, and that the two fills differ in
 every theme — the last of those being the difference between declaring a
 disabled state and having one anybody can see.
 
-## 2. Colour and contrast
+## 2. Color and contrast
 
 ### 2.1 Text contrast
 
@@ -194,12 +194,12 @@ this table was written by hand and all eleven rows above reproduce exactly — a
 enumerated check would have caught nothing, and the one real failure it found
 was a pair nobody had thought to enumerate. One sanctioned exception,
 `.auth-ledger-card`, whose translucent wash composites over a gradient rather
-than over the token underneath and reads as 1.00:1 to a two-colour test.
+than over the token underneath and reads as 1.00:1 to a two-color test.
 
 ### 2.2 Non-text contrast
 
 **Binding, WCAG 2.2 SC 1.4.11 Non-text Contrast, level AA.** 3:1 against
-adjacent colours for anything required to identify a control or its state, and
+adjacent colors for anything required to identify a control or its state, and
 for parts of a graphic required to understand it. The enumerated exceptions are
 inactive components, components whose appearance the user agent determines and
 the author has not modified, and graphics whose particular presentation is
@@ -222,12 +222,12 @@ The rule for this stylesheet: **`--line-strong` for a control edge,
 | `--green-fill` on `--track` | 5.42 | 3.73 |
 
 **Settled.** The reasoning is written out twice in the file, at
-`styles.css:867-876` for `.input` and at `styles.css:3358-3362` for
+`styles.css:888-896` for `.input` and at `styles.css:3454-3460` for
 `.chart-zero`, and it had been applied to two of the eighteen
 `border: 1px solid var(--line…)` rules. Six control edges have now joined them —
 `.pagination-step`, `.sort-direction`, `.bulk-edit-field`, `.transaction-type`,
 `.commit-choice label` and `.report-tab` — along with `.button-secondary`
-(`styles.css:643`) and `.file-drop` (`styles.css:2418`), both of which rested on
+(`styles.css:722`) and `.file-drop` (`styles.css:2450`), both of which rested on
 the failing token and reached the compliant one only on hover. Both now hold it
 at rest, as `.input` already did; their hover states also shift `background`, so
 the hover affordance survives the change.
@@ -241,16 +241,16 @@ recompute them. The control-edge *selectors* are still read by a person: which
 borders are a control and which are a card outline is a judgement, and a test
 enumerating them would be a list of the answer rather than a check on it.
 
-### 2.3 Colour is never the only cue
+### 2.3 Color is never the only cue
 
 **Binding, WCAG 2.2 SC 1.4.1 Use of Color, level A.** A 3:1 lightness difference
-can count as the extra cue, but where the content depends on telling one colour
+can count as the extra cue, but where the content depends on telling one color
 from another an additional visual indicator is required regardless of ratio.
 
 This product already mostly obeys it, deliberately: a deleted row gets
 `line-through` as well as opacity, a staged row an amber badge as well as an
 amber background, an archived account an "Archived" badge as well as opacity,
-and the split remainder line changes its words and not only its colour. Keep
+and the split remainder line changes its words and not only its color. Keep
 that. Section 10 covers the money case, which is the one that still slips.
 
 *Checked by:* nothing mechanical. This is review, and it is the honest kind of
@@ -261,16 +261,16 @@ information.
 
 **Contested.** Red and green are the most common confusion pair, and no source
 found in research says whether a financial table should use them at all as a
-redundant cue. The published guidance says only that colour cannot be the sole
+redundant cue. The published guidance says only that color cannot be the sole
 cue.
 
 This product uses them, because the sign is always present and load-bearing and
-the colour is decoration on top of it (section 10). The decision is recorded
+the color is decoration on top of it (section 10). The decision is recorded
 here so the next person argues with it rather than rediscovering the
-disagreement. If the sign is ever suppressed in favour of the colour, this
-decision is void and the colour has to go.
+disagreement. If the sign is ever suppressed in favor of the color, this
+decision is void and the color has to go.
 
-*Not checked mechanically.* Whether the sign is still present beside the colour
+*Not checked mechanically.* Whether the sign is still present beside the color
 is what section 10.1 covers, and that is review.
 
 ## 3. The scales
@@ -282,18 +282,18 @@ description of what exists.
 *Not checked mechanically, and not yet checkable.* The scales do not exist: every
 spacing, radius, size and weight in `styles.css` is a hand-picked value. Once the
 tokens land, `tests/support/css.ts` can refuse a literal outside them the way
-`tests/theme-tokens.test.ts` already refuses a literal colour. Until then this
+`tests/theme-tokens.test.ts` already refuses a literal color. Until then this
 section is a proposal, and says so.
 
 ### 3.1 Spacing
 
 **House, and a proposal rather than a rule until the tokens exist.**
 
-Today: 289 padding, margin and gap declarations across **35 distinct pixel
+Today: 292 padding, margin and gap declarations across **35 distinct pixel
 values**, running 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
 19, 20, 21, 22, 24, 26, 28, 30, 32, 34, 35, 38, 42, 48, 55, 72, 248. `gap` alone
-takes 17 distinct single values, the commonest being 8px seventeen times, 10px
-and 12px twelve each, and 6px and 7px eight each. Nine, eleven, thirteen and
+takes 17 distinct single values, the commonest being 8px nineteen times, 10px
+thirteen, 12px twelve, 6px ten and 7px eight. Nine, eleven, thirteen and
 seventeen pixels are not decisions.
 
 Proposed ramp, nine steps, Carbon-shaped rather than GOV.UK-shaped because a
@@ -316,14 +316,14 @@ eight different numbers expressing one intent, and it is now one gap on one
 container. Section 7.4 has it. It uses the literal `24px` rather than
 `--space-7`, and the reason is worth recording so nobody "finishes the job" and
 finds out the hard way: `tests/theme-tokens.test.ts` requires every token to be
-declared in all three colour blocks and to be used somewhere, so the ramp cannot
-arrive as nine tokens in `:root` — it needs the token blocks split into colour
-and non-colour first. **That split is the first step of the ramp, not a detail
+declared in all three color blocks and to be used somewhere, so the ramp cannot
+arrive as nine tokens in `:root` — it needs the token blocks split into color
+and non-color first. **That split is the first step of the ramp, not a detail
 of it.**
 
 ### 3.2 Radius
 
-Today: 61 declarations across **19 distinct values**. No two cards match:
+Today: 62 declarations across **19 distinct values**. No two cards match:
 `.metric-card` and `.balance-snapshot` at 11px, `.table-card` at 12px, `.panel`
 and `.account-card` at 13px, `.modal` at 15px, `.auth-ledger-card` at 18px,
 `.auth-art` at 20px.
@@ -342,7 +342,7 @@ of what is here, and it is four steps plus a pill:
 
 ### 3.3 Type
 
-Today: 113 `font-size` declarations across nine pixel values (11, 12, 13, 14,
+Today: 115 `font-size` declarations across nine pixel values (11, 12, 13, 14,
 15, 16, 17, 20, 32) plus two `clamp()` expressions.
 
 Proposed: seven points, and GOV.UK's rule that a new style aligns to an existing
@@ -360,16 +360,16 @@ point rather than inventing one.
 
 Name the productive set and the expressive set separately. The expressive set
 has two members and both are the `clamp()` expressions counted above:
-`clamp(28px, 3.2vw, 40px)` on `.page-header h1` (`styles.css:575`), which is the
+`clamp(28px, 3.2vw, 40px)` on `.page-header h1` (`styles.css:591`), which is the
 `<h1>` of every page, and `clamp(35px, 4vw, 52px)` on the sign-in shell
-(`styles.css:2811`). The page title is deliberately outside the productive ramp
+(`styles.css:2872`). The page title is deliberately outside the productive ramp
 because it is the one size that answers to the viewport rather than to the
 scale. Naming both is what stops a display size leaking into a page of
 accounts.
 
 ### 3.4 Weight
 
-Today: **30 `font-weight` declarations carrying 14 distinct values**: 400, 500,
+Today: **31 `font-weight` declarations carrying 14 distinct values**: 400, 500,
 570, 600, 620, 630, 650, 660, 700, 720, 730, 750, 760, 780. That is very nearly
 a weight per component.
 
@@ -415,8 +415,8 @@ layer in the app are free to coincide, and that is the one exception it carries.
 ### 3.6 Breakpoints
 
 Four hardcoded max-widths, all four now contiguous at the foot of the
-stylesheet in descending order: 1050px (`styles.css:3746`), 980px
-(`styles.css:3770`), 780px (`styles.css:3777`) and 560px (`styles.css:3856`).
+stylesheet in descending order: 1050px (`styles.css:3829`), 980px
+(`styles.css:3853`), 780px (`styles.css:3860`) and 560px (`styles.css:3939`).
 Putting them in one place was section 7.3's doing; how many of them there should
 be is still this section's question.
 
@@ -435,28 +435,28 @@ documented constants rather than tokens until container queries or
 
 **House.** Durations and easings are tokens, and the reduced-motion block sets
 those tokens in one place. Otherwise every new animation has to remember to add
-itself to a second block, which is the exact failure the colour test exists to
+itself to a second block, which is the exact failure the color test exists to
 prevent.
 
 Today there are no motion tokens. Transitions are written inline at 120ms (six
 declarations), 140ms (one) and 180ms (the mobile drawer's paired `transform` and
-`visibility`, `styles.css:3662-3664`), and there are two reduced-motion
-blocks: `styles.css:681-685`, which turns off the skeleton shimmer specifically
+`visibility`, `styles.css:3864-3866`), and there are two reduced-motion
+blocks: `styles.css:781-784`, which turns off the skeleton shimmer specifically
 and stays beside `.skeleton` on purpose rather than joining the responsive body
-(section 7.3), and `styles.css:3977-3986`, a blanket rule setting
+(section 7.3), and `styles.css:4060-4069`, a blanket rule setting
 `animation-duration`, `transition-duration` and `scroll-behavior` on
 everything.
 
 **The blanket rule had a defect, and it was user-visible.** It also sets
 `animation-iteration-count: 1 !important`, which froze the button's
-`.animate-spin` loader (`src/client/components.tsx:324`) into a static icon:
+`.animate-spin` loader (`src/client/components.tsx:325`) into a static icon:
 somebody who asked for reduced motion got no busy indicator at all. `.skeleton`
 was exempted by hand and the spinner was not, and nothing said which of the two
 was the oversight. A slow rotation is acceptable under `reduce`, which asks for
-minimised non-essential motion; no indicator is not.
+minimized non-essential motion; no indicator is not.
 
 The spinner now swaps its rotation for an opacity pulse rather than stopping
-(`styles.css:775-782`), which carries the same meaning with no motion across the
+(`styles.css:791-798`), which carries the same meaning with no motion across the
 screen — the thing the preference is actually about.
 
 *Checked by:* `tests/styles-skeleton.test.ts`, twice. The shimmer animation
@@ -474,11 +474,19 @@ the two names the block contains.
 `Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
 sans-serif` at `styles.css:95-97`. **Inter is never loaded.** There is no
 `@font-face` in the stylesheet, no font file in `public/` (which holds
-`apple-touch-icon.png`, `favicon.svg` and `theme-boot.js`), no stylesheet link,
-and the Content-Security-Policy declares no `font-src`, so it falls back to
-`default-src 'self'` and a CDN font would be blocked
-(`src/server/http-security.ts:22-32`,
-`deploy/docker/nginx-security-headers.conf:10`).
+`apple-touch-icon.png`, `favicon.svg` and `theme-boot.js`), and no stylesheet
+link. On the policy every page carries by default the Content-Security-Policy
+declares no `font-src` at all, so it falls back to `default-src 'self'` and a
+CDN font is blocked.
+
+One deployment shape is the exception, and it does not change the conclusion. A
+deployment serving advertising carries `font-src 'self' https: data:`, because
+Google's consent message loads its own faces — so a CDN font *would* load there.
+That is a hole opened for a vendor rather than a decision about this product's
+typography: the stylesheet still links nothing, so the app still renders in the
+system font on that deployment exactly as on every other. Naming it here because
+the sentence above was written as though the policy were the reason Inter is not
+loaded, and it is not — the reason is that nothing asks for it.
 
 So the app renders in the system font on every machine that does not happen to
 have Inter installed. Two honest resolutions, and the guide does not pick
@@ -500,7 +508,7 @@ does not exist.
 
 ### 6.1 The inventory
 
-**House.** `src/client/components.tsx` is the component library: twenty-two
+**House.** `src/client/components.tsx` is the component library: twenty-four
 components, three helpers (`compareForSort`, `useConfirm`, `progressLabel`) and
 two exported types.
 There is no list of what it contains, which is how `.settings-note` became the
@@ -526,6 +534,8 @@ generic muted paragraph and `.section-title` grew two incompatible layouts.
 | `ProgressBar`, `progressLabel` | How far a long write has got, and the sentence beside it (12.6) |
 | `RequiredNote` | The one sentence a form says about required fields (8.4) |
 | `ErrorSummary` | The submit-time error list focus lands on (8.3) |
+| `SettingsTabs` | The Settings section strip, and the one navigation in the app that reloads the document on purpose (6.1) |
+| `AdSlot` | One ad unit, in `src/client/ads.tsx` rather than here, and it renders nothing unless the server said to (6.1) |
 
 Two members of the library live in `src/client/forms.tsx` rather than here:
 `PayeeInput` and `CategoryPicker`. Both are exported, both are used off their
@@ -538,6 +548,38 @@ check: a control absent from the inventory is a control the check cannot fire
 for, which is how `TransactionForm` carried a byte-for-byte copy of
 `PayeeInput` for a release.
 
+**One component lives outside this file on purpose.** `AdSlot`
+(`src/client/ads.tsx`) is the only control this product renders that a person
+did not ask for, and it is the only one whose markup belongs to somebody else:
+what fills it is Google's, inside an iframe this app cannot reach into. Keeping
+it beside the loader that fetches that vendor's script — rather than in the
+library beside `Button` and `Field` — is what makes "who renders an ad, and
+when" one file to read instead of two.
+
+It renders `null` unless the server sent an `AdPlacement`, which it does not for
+anybody entitled to more than a free plan. The gate is not in the browser at
+all: the page is simply never given the ids. That is deliberate, and the reason
+is in 6.2's terms — the decision is a server one and putting a copy of it here
+would be a second place for it to be written differently.
+
+**One component here navigates by document load, and it is the only one.**
+`SettingsTabs` renders plain anchors rather than `Link`, because Settings and
+the plan tab are served under different content security policies — the plan tab
+mounts Stripe's payment form — and a policy belongs to the document it arrived
+with. A client-side push between them carries the wrong policy: into the plan
+tab the payment form never appears, and out of it every page showing balances
+runs with Stripe's origins allowed. `src/client/router.tsx` enforces the second
+half, so leaving that document is a load however it is reached.
+
+**One screen renders controls this library did not make.** The plan and billing
+tab mounts Stripe's `PaymentElement`, which draws its own card fields inside an
+iframe from `js.stripe.com`. They are not in the inventory and cannot be: the
+markup is Stripe's, the styling is Stripe's, and nothing on this side can reach
+into it. That is the point — no card number ever touches this app — and it is
+also why that tab is the one place in the product where a form control does not
+come from `components.tsx`. Everything around it, including the submit button
+and the error message, does.
+
 *Not checked mechanically.* A test could assert that every exported function in
 `components.tsx` has a row, which would catch an addition but not a duplicate.
 
@@ -549,7 +591,7 @@ for, which is how `TransactionForm` carried a byte-for-byte copy of
 2. It does not duplicate something in the table above. A name check catches the
    obvious case and nothing else, so this one is judgement.
 3. It is reachable and operable by keyboard, and it has an accessible name.
-4. It does not need a new colour, space, radius or size outside the scales.
+4. It does not need a new color, space, radius or size outside the scales.
 
 Three things in the app are past the threshold and are not components yet:
 
@@ -571,7 +613,7 @@ Three things in the app are past the threshold and are not components yet:
   which is one state rendered two ways on two screens a person moves between.
   Both are held by `tests/ui-copy.test.ts`. The word stays plain inside the two
   inline-edit cells, where it is a button's own label and takes the button's
-  colour, and the test says so rather than skipping them.
+  color, and the test says so rather than skipping them.
 
 *Not checked mechanically.* Whether something has crossed the threshold is
 judgement; that a repeated markup has one owner is what a component test would
@@ -636,7 +678,7 @@ scrolling wrapper within eight lines above it, and that `.table-wrap` declares
 
 ### 7.3 One body, then the responsive body
 
-**House, and enforced.** The stylesheet is three colour blocks (section 1.2),
+**House, and enforced.** The stylesheet is three color blocks (section 1.2),
 then one body of component rules, then one body of responsive and preference
 blocks, and nothing after them. It was not always: component rules used to
 resume below the breakpoints and run for another 426 lines, with a stray 980px
@@ -646,14 +688,14 @@ there silently outranked the responsive overrides above it —
 would have lost to `.chart-grid` written later, with nothing on screen to say
 why. `.report-tabs` and the chart grid appear in no breakpoint block, and
 neither is a gap. `.report-tabs` carries `flex-wrap: wrap`
-(`styles.css:3198-3202`), which reflows at every width rather than at three
+(`styles.css:3283-3287`), which reflows at every width rather than at three
 chosen ones and is the better answer; and `.chart-grid` is an SVG stroke with no
 layout to change. This sentence used to call both a gap "somebody can fill",
 which is how a list of work comes to include work nobody should do — the
 absence of a breakpoint is only a defect where something needs one.
 
 Two blocks are outside the responsive body on purpose and are named here rather
-than left as holes. The dark-token block belongs to the three colour blocks at
+than left as holes. The dark-token block belongs to the three color blocks at
 the top, which section 1.2 requires and which this rule does not override. And
 the reduced-motion block that stops the skeleton shimmer sits directly beneath
 `.skeleton`, four lines qualifying the rule six lines above it: that is part of
@@ -689,7 +731,7 @@ moved to a new page brought a spacing opinion with it that nobody could see in
 the markup.
 
 **Flex rather than grid, and it is load-bearing rather than taste.**
-`.merge-panel` (`styles.css:2746`) is `position: sticky` and sits at page level
+`.merge-panel` (`styles.css:2778`) is `position: sticky` and sits at page level
 on Categories and Payees. A sticky *grid item* is bounded by its own grid area,
 which in a single-column grid is its own height, so it would stop following the
 list with nothing on screen to say why. A sticky *flex item* is bounded by the
@@ -749,9 +791,9 @@ Templates' Type select — twenty pixels taller than the search box beside it, a
 other filter in the app was already bare.
 
 This is the one place where this guide and
-[`code/client.md`](code/client.md#31-field-wraps-every-labelled-control-in-a-form)
+[`code/client.md`](code/client.md#31-field-wraps-every-labeled-control-in-a-form)
 disagreed, and the disagreement is recorded rather than resolved by silence:
-that rule says "`Field` wraps every labelled control", and it has been amended
+that rule says "`Field` wraps every labeled control", and it has been amended
 to carve out the filter bar rather than left to be rediscovered by the next
 person who adds a filter.
 
@@ -991,7 +1033,7 @@ float. GOV.UK's reasons (accidental scroll increments, no feedback on a
 non-numeric entry) are secondary and point the same way.
 
 **Scope this exactly.** A blanket ban on `type="number"` in the client would
-fail on correct code: `src/client/forms.tsx:1294` and `:3014` both use it for
+fail on correct code: `src/client/forms.tsx:1305` and `:3043` both use it for
 the recurrence interval, with `min` and `max`, which is an integer count where a
 spinner is arguably right. The rule is: no `type="number"` on a field bound to a
 decimal-string money value.
@@ -1000,7 +1042,7 @@ decimal-string money value.
 "labels or instructions are provided when content requires user input". A
 currency symbol rendered as an input prefix is not part of the control's label
 and is not announced, so the instruction is missing for anybody who does not see
-it. Put the currency in the label: "Amount (GBP)".
+it. Put the currency in the label: "Amount (USD)".
 
 *Not checked mechanically.* A grep test scoped to money-bound fields is listed
 in section 17.
@@ -1068,8 +1110,8 @@ generated by `useId()` inside a `role="radiogroup"` container with an
 `aria-label`. A constant name is forbidden, because two instances of one form can
 be on a page at once and a shared name silently merges them.
 
-`TransactionTypeChoice` (`src/client/forms.tsx:493`, the group markup at
-`:538`) is the reference
+`TransactionTypeChoice` (`src/client/forms.tsx:506`, the group markup at
+`:551`) is the reference
 implementation: a real radio group with roving tabindex and arrow, Home and End
 handling that wraps at both ends when a type is mandatory, `aria-pressed`
 toggles when "no type" is a real answer, and a discriminated union prop pair so
@@ -1082,7 +1124,7 @@ separate groups, and covers the roving tabindex and the wraparound.
 ### 8.9 Comboboxes
 
 **House, settled.** An input offering a `<datalist>` declares no widget ARIA of
-its own: `src/client/forms.tsx:339`, `:630` and `src/client/bulk-edit.tsx:96`
+its own: `src/client/forms.tsx:346`, `:643` and `src/client/bulk-edit.tsx:96`
 carry `list`, plus an `aria-label` where no visible `<label>` wraps them — a
 name, which every control owes, not a role. All three used to add
 `role="combobox"`, `aria-autocomplete="list"` and
@@ -1099,7 +1141,7 @@ semantics, and add ARIA only where there is no native element to lean on.
 `TransactionForm` used to re-implement the payee combobox byte for byte, which
 is exactly what `PayeeInput`'s docstring exists to prevent — a second copy is a
 second answer to "what counts as the same payee". The copy is retired
-(`forms.tsx:2188-2191` now renders the component under a comment saying so),
+(`forms.tsx:2210-2213` now renders the component under a comment saying so),
 and 6.1's inventory listing `PayeeInput` is what gives the duplicate check a
 row to fire against next time.
 
@@ -1115,13 +1157,13 @@ same query passes in a browser — which is why the browser tier owns that check
 comments that first specified it.** The queue is where imports get repaired,
 and repairing a date or a payee through the full modal is four clicks for a
 one-word change, so a row's date, payee, category and amount cells open an
-editor in place (`src/client/pages/StagingPage.tsx:520-530`). The pattern has
+editor in place (`src/client/pages/StagingPage.tsx:548-558`). The pattern has
 six rules, and each exists because the obvious alternative shipped a bug or an
 inconsistency during review:
 
 1. **The editors are the modal's own components, never copies.** The cells
    render `PayeeInput` and `CategoryPicker` through the `onCommit`/`onCancel`
-   API added for exactly this (`src/client/forms.tsx:312-318`), and the write
+   API added for exactly this (`src/client/forms.tsx:320-326`), and the write
    is the same PUT the modal sends — the whole draft plus the expected
    version — so everything the server enforces about a draft is enforced here
    identically, and a concurrent edit is refused rather than overwritten.
@@ -1134,12 +1176,12 @@ inconsistency during review:
    category editors are datalist-backed, and picking from a datalist lands on
    Enter too — committing on the keydown raced the picked value and created a
    category named by the half-typed prefix — so there blur is the only commit
-   gesture (`StagingPage.tsx:1063-1067`). This is the second exception 8.2
+   gesture (`StagingPage.tsx:1124-1129`). This is the second exception 8.2
    records: a cell with no submit button makes blur the submit.
 4. **Emptying a date or an amount reads as abandoning the edit, not as a
-   request to erase the field** (`StagingPage.tsx:616-620`). The modal is where
+   request to erase the field** (`StagingPage.tsx:639-645`). The modal is where
    a deliberate clear belongs, beside everything else the emptiness affects.
-5. **A same-value blur writes nothing** (`StagingPage.tsx:643-646`): no version
+5. **A same-value blur writes nothing** (`StagingPage.tsx:666-681`): no version
    bump, no invalidated bulk-selection fingerprint, no audit entry saying an
    edit happened.
 6. **The trigger's accessible name leads with its visible text** — `30 Jul
@@ -1148,7 +1190,7 @@ inconsistency during review:
    visible text of these triggers is the value itself.
 
 Closing an editor puts focus back on the trigger it replaced
-(`StagingPage.tsx:543-550`); commit, refusal and Escape all remove the focused
+(`StagingPage.tsx:574-583`); commit, refusal and Escape all remove the focused
 element, and without the handoff a keyboard user lands on `<body>`. Event-order
 guards around commit and cancel are refs, not state, for the reason
 `code/client.md` §1.3 records: the blur that follows Enter or Escape runs
@@ -1162,7 +1204,7 @@ and the editors a split does not get.
 
 **House.** Cloning a transaction prefills the staging form from the source, and
 three fields are scrubbed rather than carried
-(`src/client/forms.tsx:1507-1534`): leg ids, so the copy grows its own legs
+(`src/client/forms.tsx:1520-1547`): leg ids, so the copy grows its own legs
 rather than claiming the source's; `externalId`, because it is a bank file's
 identity for one real row, and a copy carrying it would be swallowed by the
 duplicate check as already-imported; and `templateId`, because provenance
@@ -1192,7 +1234,7 @@ This product stays a table. A grid means writing arrow-key focus management
 across thousands of rows to shorten a tab sequence nobody has complained about,
 and there is no roving tabindex anywhere else in the client, which is the same
 reason `RowMenu` deliberately refuses `role="menu"`
-(`src/client/components.tsx:613-616`). A transactions row carries a checkbox
+(`src/client/components.tsx:614-617`). A transactions row carries a checkbox
 and a row menu; a review-queue row now carries up to ten stops — the checkbox,
 four click-to-edit triggers (8.10), sometimes a duplicate link, three icon
 buttons and the menu — so the tab-sequence cost the APG worries about is real
@@ -1220,7 +1262,7 @@ a name is harder to place, and the caption is the cheapest way to give it one.
 `<caption>`, and every header cell carries a `scope`. Four of the tables people
 live in had neither — the register, the review queue, templates and recurrences
 — while reports and budgets did. `SortableHeader`
-(`src/client/components.tsx:52-99`) now emits `scope="col"` alongside its
+(`src/client/components.tsx:53-100`) now emits `scope="col"` alongside its
 `aria-sort`, which was the fix worth making because that one change covers every
 sortable column in the product.
 
@@ -1246,7 +1288,7 @@ both the header and the cell but applies tabular figures to the cell only; the
 stronger rule is this product's.
 
 Implemented: `className="align-right"` on a money cell is what turns on tabular
-figures, through `.data-table :is(th, td).align-right` at `styles.css:792-803`.
+figures, through `.data-table :is(th, td).align-right` at `styles.css:806-817`.
 
 **The sentence above was not true of the CSS, and now is.** The selector was
 `.data-table td.align-right`, so a `<th className="align-right">` — Reports and
@@ -1259,7 +1301,7 @@ and is used by nothing; delete it or adopt it at the 69 `formatMoney` call
 sites, some of which render currency outside a table in proportional digits. And
 `.money`'s weight and `white-space: nowrap` reach three files rather than the
 transaction register alone — `BudgetsPage.tsx` seventeen times,
-`ImportPage.tsx:657` and `TransactionBrowser.tsx:1096` — so folding them into
+`ImportPage.tsx:691` and `TransactionBrowser.tsx:1122` — so folding them into
 `.data-table :is(th, td).align-right` is still the right cleanup, but the
 argument for it is consistency rather than a rule that only fires on one page.
 
@@ -1291,10 +1333,10 @@ selected" come from two different code paths and the second must never be
 produced by the first.
 
 The mixed state is already handled. `SelectionCheckbox`
-(`src/client/components.tsx:182-197`) takes an `indeterminate` prop and writes it
+(`src/client/components.tsx:183-198`) takes an `indeterminate` prop and writes it
 onto the DOM node in an effect, because React does not expose it, and all three
-select-all checkboxes pass it: `TransactionBrowser.tsx:795`,
-`TemplatesPage.tsx:474`, `StagingPage.tsx:899`.
+select-all checkboxes pass it: `TransactionBrowser.tsx:913`,
+`TemplatesPage.tsx:490`, `StagingPage.tsx:949`.
 
 *Checked by:* `tests/bulk-row-cap.test.ts` and the server-side selection tests
 cover the contract. The two sentences are review.
@@ -1314,7 +1356,7 @@ harder than anything else here (six columns of arbitrary CSV headers inside a
 300px aside), was the one scrolling container in the client a keyboard could not
 reach. Nothing was wrong with the rule; the check and the sentence had both been
 written against the classes that existed the day they were written. The pairing is good practice; the
-`tabindex` is the rule, and a focusable region with no name is an unlabelled tab
+`tabindex` is the rule, and a focusable region with no name is an unlabeled tab
 stop, which is why the two travel together. The name repeats the table's
 `.sr-only` caption, so the two cannot describe different tables.
 
@@ -1347,13 +1389,13 @@ There were **no `scroll-padding` or `scroll-margin` declarations anywhere in
 | Selector | Line | Position |
 | --- | --- | --- |
 | `.sidebar` | `styles.css:359` | fixed |
-| `.row-menu-popover` | `styles.css:1690` | fixed |
-| `.modal` | `styles.css:2280` | fixed |
-| `.modal-header` | `styles.css:2313` | sticky |
-| `.import-preview` | `styles.css:2457` | sticky |
-| `.merge-panel` | `styles.css:2746` | sticky |
-| `.nav-scrim` | `styles.css:3798` | fixed |
-| `.mobile-header` | `styles.css:3808` | sticky |
+| `.row-menu-popover` | `styles.css:1706` | fixed |
+| `.modal` | `styles.css:2312` | fixed |
+| `.modal-header` | `styles.css:2345` | sticky |
+| `.import-preview` | `styles.css:2489` | sticky |
+| `.merge-panel` | `styles.css:2778` | sticky |
+| `.nav-scrim` | `styles.css:3881` | fixed |
+| `.mobile-header` | `styles.css:3891` | sticky |
 
 `.merge-panel` was the live case. It exists because the list is long enough to
 scroll, which is the same condition that puts a focused row underneath it. Every
@@ -1363,7 +1405,7 @@ scroll container holding a sticky element sets `scroll-padding-top` (or
 There are two scroll containers, so there are two declarations: `html` carries
 `scroll-padding-top: 80px` (`styles.css:321`), which clears the mobile header
 and the merge panel alike, and `.modal-card` carries 64px
-(`styles.css:2310`) for the sticky `.modal-header` inside it. The other six
+(`styles.css:2342`) for the sticky `.modal-header` inside it. The other six
 regions are inside one of those two or are the container itself.
 
 *Checked by:* `tests/page-stack.test.ts`, which pairs each sticky or fixed
@@ -1379,7 +1421,7 @@ is only what a screen adds.
 ### 10.1 The sign carries the meaning
 
 **Binding, SC 1.4.1 Use of Color, level A, and `AGENTS.md` for the arithmetic.**
-The minus sign is load-bearing and the colour is decoration on top of it.
+The minus sign is load-bearing and the color is decoration on top of it.
 Whether a figure is negative is decided by `isNegativeMoney`, never by
 `Number(x) < 0`.
 
@@ -1390,18 +1432,18 @@ is what replaced it.
 | Where | Treatment |
 | --- | --- |
 | `DashboardPage`, `AccountsPage`, `ReportsPage`, `AccountDetailPage` | `money-negative` on the value, with Intl's own minus sign. Still the rule for a computed total, which has a sign of its own |
-| `TransactionBrowser` | Coloured and signed by transaction *type*, with a hand-prefixed `+` or `−` |
-| `StagingPage`, `TemplatesPage`, `RecurrencesPage` | No colour and no sign |
+| `TransactionBrowser` | Colored and signed by transaction *type*, with a hand-prefixed `+` or `−` |
+| `StagingPage`, `TemplatesPage`, `RecurrencesPage` | No color and no sign |
 
 Page names without line numbers, for 12.2's reason: the table records a state
-the code is no longer in — the queue's amount cell now colours and signs
+the code is no longer in — the queue's amount cell now colors and signs
 through `movementSign` like the rest — and a line number into it could only
 ever go stale.
 
 One rule, and it is **direction** rather than the value's own sign: a stored
 amount is always positive, because `AGENTS.md` keeps direction in the type. So a
 deposit reads `+` in green, a withdrawal `−` in red, and a transfer is signed
-but uncoloured — money moving between somebody's own accounts is not spending.
+but uncolored — money moving between somebody's own accounts is not spending.
 
 `movementSign` (`src/client/money.ts`) is that rule, and five lists share it —
 the register, the review queue, the templates, the recurrences and the import
@@ -1409,11 +1451,11 @@ preview.
 The register already did this; the review queue, the templates and the
 recurrences showed no sign at all, so the same withdrawal read three ways in
 three places and one of the three did not read at all. The register may
-additionally show direction through `.transaction-icon`, because a colour and an
+additionally show direction through `.transaction-icon`, because a color and an
 icon fail in different conditions.
 
 **One asymmetry survives, deliberately.** An inbound transfer takes the deposit
-colour and an outbound one takes none. That is the register's own behaviour and
+color and an outbound one takes none. That is the register's own behavior and
 it was preserved rather than tidied, because tidying it would repaint a screen
 nobody asked to have repainted. It is recorded here so the next person finds a
 decision rather than a bug.
@@ -1441,7 +1483,7 @@ no site strips them afterwards is not checked mechanically.
 ### 10.3 A standalone figure carries its whole sentence
 
 **House.** A figure in a card gets the whole sentence as its accessible name:
-"Net worth, £1,234.56", not "£1,234.56". A screen reader reading the number
+"Net worth, $1,234.56", not "$1,234.56". A screen reader reading the number
 alone gives no way back to what it counts. `SortableHeader` already uses this
 technique with its `.sr-only` sentence.
 
@@ -1456,12 +1498,12 @@ code path renders them.
 
 **Settled, with two named exceptions.** Calendar dates go through `formatDate`,
 including the two "As of" lines that printed raw ISO directly above formatted
-tables (`DashboardPage.tsx:194` and `ReportsPage.tsx:257` were the offenders).
+tables (`DashboardPage.tsx:194` and `ReportsPage.tsx:304` were the offenders).
 Instants go through `formatTimestamp(instant, timezone)`
-(`src/client/money.ts:333-348`), whose zone comes from `useTimezone()`: the
-activity log (`src/client/pages/ActivityPage.tsx:60`) and the connected-apps
-panel (`src/client/pages/SettingsPage.tsx:535-536`) each rolled their own in the
-*browser's* zone, so an audit trail read while travelling disagreed with the
+(`src/client/money.ts:356-381`), whose zone comes from `useTimezone()`: the
+activity log (`src/client/pages/ActivityPage.tsx:80`) and the connected-apps
+panel (`src/client/pages/SettingsPage.tsx:574`) each rolled their own in the
+*browser's* zone, so an audit trail read while traveling disagreed with the
 dates on the entries it audits. A date column is right-aligned or left-aligned
 by taste, but it gets tabular figures either way.
 
@@ -1487,7 +1529,7 @@ no pie chart, which decides a question below.
 
 ### 11.1 Series against the background
 
-**Binding, SC 1.4.11, level AA.** Every series colour clears 3:1 against the
+**Binding, SC 1.4.11, level AA.** Every series color clears 3:1 against the
 surface it is drawn on. Measured, all ten do, in both themes:
 
 | Series | Light | Dark | | Series | Light | Dark |
@@ -1503,7 +1545,7 @@ Series 3 at 3.64 light is the tightest and is the one to watch.
 Gridlines do not have to contrast with the data. The Understanding document for
 1.4.11 says data lines "should have 3:1 contrast against their background, but
 as there is little overlap with other lines they do not need to contrast with
-each other or the graduated lines". `.chart-grid` at `styles.css:3361-3368` is
+each other or the graduated lines". `.chart-grid` at `styles.css:3444-3452` is
 correctly faint and says why; `.chart-zero` is correctly held to 3:1 because it
 is where money in becomes money out, and says why.
 
@@ -1516,16 +1558,16 @@ two adjacent slices at 1.8:1 against the page would pass today.
 
 **Contested, and this is where the guide departs from the research behind it.**
 
-The UK Government Analysis Function publishes a six-colour categorical palette
-where all adjacent colours clear 3:1 against each other, caps categories at four
+The UK Government Analysis Function publishes a six-color categorical palette
+where all adjacent colors clear 3:1 against each other, caps categories at four
 as best practice, and treats five and six as "only when essential". Read
 literally, that says this product should cut ten series to six.
 
-This product keeps ten, on measured grounds recorded at `styles.css:3320-3332`.
-The previous six-colour set had a worst dichromatic pair of 1.78 in CIEDE2000
+This product keeps ten, on measured grounds recorded at `styles.css:3517-3529`.
+The previous six-color set had a worst dichromatic pair of 1.78 in CIEDE2000
 under simulated deuteranopia and protanopia, where the green and the pink were
-the same colour; the current ten reach 5.6 in light and 4.7 in dark. Going from
-six to ten made colour-blind separation better, not worse. The number of series
+the same color; the current ten reach 5.6 in light and 4.7 in dark. Going from
+six to ten made color-blind separation better, not worse. The number of series
 here is also not an author's editorial choice: it is how many accounts somebody
 has.
 
@@ -1534,31 +1576,31 @@ against each other, adjacent series pairs run from 1.05 to 2.09 in light and
 1.19 to 2.03 in dark. Not one pair reaches 3:1. For the line chart that is
 allowed by the Understanding document, quoted above. **For the grouped bar chart
 it was not.** `BarChart` lays each series' bar at `index * barWidth` with no gap
-(`src/client/charts.tsx:399`), so bars within a group touch, and `.chart-bar`
+(`src/client/charts.tsx:430`), so bars within a group touch, and `.chart-bar`
 set `stroke: none`. Two touching bars at 1.05:1 had no visible boundary.
 
 The fix was geometry rather than a repainted palette: `.chart-bar` now carries a
-one-pixel `--surface` stroke (`styles.css:3321-3324`), which separates every
+one-pixel `--surface` stroke (`styles.css:3473-3476`), which separates every
 adjacent pair against the page they are drawn on and disturbs none of the
-measured dichromatic separation the ten-colour set was chosen for.
+measured dichromatic separation the ten-color set was chosen for.
 
 *Checked by:* `tests/theme-tokens.test.ts`, which asserts `.chart-bar` declares a
 stroke and that the stroke is not `none` — the state it was in. The ratio
 between two *series* tokens is deliberately not asserted: this section argues at
-length that the ten-colour set beats a compliant six-colour one on the measure
+length that the ten-color set beats a compliant six-color one on the measure
 that matters here, and a test demanding 3:1 between adjacent series would be a
 test that contradicts the guide it is attached to.
 
-### 11.3 A second channel that is not colour
+### 11.3 A second channel that is not color
 
 **Binding, SC 1.4.1, level A, plus the source guidance.** Ten categorical
-colours cannot all be told apart under dichromatic vision, and no choice of ten
+colors cannot all be told apart under dichromatic vision, and no choice of ten
 fixes that: the palette in 11.2 is the best available set and reaches 5.6 in
 light, which is three times better than the six it replaced and still not enough
 on its own.
 
 **The remedy the CSS comment named has landed.** Nine of the ten line series
-carry a `stroke-dasharray` (`styles.css:3366-3374`) and series 0 stays solid,
+carry a `stroke-dasharray` (`styles.css:3578-3586`) and series 0 stays solid,
 because that is what a single-series chart gets and what a plain line should look
 like. A dash pattern is orthogonal to hue, which is the whole point: two series
 that look alike to one reader are still two different lines. The patterns differ
@@ -1569,19 +1611,19 @@ defect.
 
 **And the legend carries the same rhythm**, which is the half that was
 backwards. `ChartLegend` renders the swatch with `aria-hidden="true"` and the
-label as text, so a screen reader gets the label and a colour-blind sighted
-reader got only a block of colour to match against a line. A swatch that shows
+label as text, so a screen reader gets the label and a color-blind sighted
+reader got only a block of color to match against a line. A swatch that shows
 the line's pattern can be matched by shape. It is a repeating gradient rather
 than a border, because the swatch is a `<span>` and has no stroke to dash, and
 the stops are the dash arrays scaled to a 10px box so the two rhythms are the
 same rather than similar.
 
-Direct labelling is the other published answer, and both the Analysis Function
+Direct labeling is the other published answer, and both the Analysis Function
 and Okabe and Ito recommend it over a legend for lines. Use it where a chart has
 few enough series to fit labels; keep the legend where it does not.
 
 *Checked by:* `tests/theme-tokens.test.ts`, which requires nine dashed series and
-no two sharing a rhythm — two series on one pattern would put them back on colour
+no two sharing a rhythm — two series on one pattern would put them back on color
 alone for the reader this exists for — and a patterned swatch for every dashed
 line. And `tests/browser/budgets.spec.ts` for the half only a browser resolves:
 jsdom computes no styles for an SVG `<path>` and no gradients at all, so it can
@@ -1596,7 +1638,7 @@ description, so the table is free.
 
 The table goes **in the page**, not behind `aria-describedby`. A described-by
 target is flattened to one continuous paragraph and a screen reader loses the
-table structure entirely. `ReportsPage.tsx:302-315` already does this correctly,
+table structure entirely. `ReportsPage.tsx:336-349` already does this correctly,
 with a real table carrying an `.sr-only` caption and `scope` on every header.
 `.chart-figure` uses `<figure>` and `<figcaption>`, which is the recommended
 structure.
@@ -1613,16 +1655,16 @@ and it is the only place in the chart code that is allowed to make one.
 
 *Checked by:* `tests/client-money.test.ts`.
 
-### 11.6 A series keeps its colour when the visible set shrinks
+### 11.6 A series keeps its color when the visible set shrinks
 
-**House.** A series' colour is bound to its place in the full set, never to its
-index in whatever subset is currently drawn. Colours were dealt by array
-position, so excluding one category from the categories report recoloured every
+**House.** A series' color is bound to its place in the full set, never to its
+index in whatever subset is currently drawn. Colors were dealt by array
+position, so excluding one category from the categories report recolored every
 line and swatch after it — and the moment somebody most wants to compare before
 and after is the moment everything changed clothes. `Series.paint`
 (`src/client/charts.tsx:15-26`) carries the full-set position past the filter,
 and the categories report assigns it from the unfiltered rows
-(`src/client/pages/ReportsPage.tsx:272`); a chart whose set cannot shrink may
+(`src/client/pages/ReportsPage.tsx:298`); a chart whose set cannot shrink may
 leave it out, because there position and identity are the same number.
 
 *Not checked mechanically.* A jsdom test excluding one series and asserting the
@@ -1656,11 +1698,11 @@ easiest to wire:
 
 - **The URL**, when the choice defines the view itself: the range, the report,
   the grouping bucket, the archived flag. A report somebody sends somebody else
-  is the report they were looking at (`src/client/pages/ReportsPage.tsx:107-108`),
+  is the report they were looking at (`src/client/pages/ReportsPage.tsx:129-130`),
   and 11.7's link rule only works if the filter has a query string to ride in.
 - **Component state**, when the choice is a reading gesture rather than a view
   definition: the categories report's exclusions
-  (`src/client/pages/ReportsPage.tsx:60-67`). Putting the one huge category
+  (`src/client/pages/ReportsPage.tsx:82-89`). Putting the one huge category
   aside is how the remaining lines become readable; it changes nothing stored,
   an agent asking over MCP still sees every category, and navigating away
   forgets it.
@@ -1703,9 +1745,9 @@ about is exactly the figure worth linking, and "why is Groceries $182?" is the
 question that panel provokes.
 
 **Two conditions.** The link appears only where there is something to link to:
-the uncategorised row has a null id, because it is the absence of a category
+the uncategorized row has a null id, because it is the absence of a category
 rather than one of them, and `/categories/null` is a 404. And a linked name
-inside a row takes the row's own colour rather than the global anchor green,
+inside a row takes the row's own color rather than the global anchor green,
 greening on hover — the treatment `.account-mini-row` already had and
 `.spending-row` did not, or the name reads as a second green thing beside a
 green bar.
@@ -1719,7 +1761,7 @@ is 11.7's, and it is not caught there either.
 Research found no primary source on empty-state categories, on when to show a
 spinner versus a skeleton, or on how long before either. Carbon's and Polaris's
 pages could not be retrieved. So this section is reasoning, not citation, and it
-is labelled accordingly.
+is labeled accordingly.
 
 ### 12.1 Four states per list
 
@@ -1728,6 +1770,16 @@ loading, empty because nothing exists yet, empty because nothing matches the
 filter, and error. "No transactions yet" and "No transactions match this view"
 are different sentences with different next actions, and collapsing them is the
 most common way a list lies to somebody.
+
+**The check asked this of four pages until 0.2.0, and the four were the ones
+already right.** It named them in an array, on the reasoning that whether a list
+can be filtered is a fact about its controls rather than something to derive —
+which is true, and is why four attempts at deriving it produced four false
+positives. The answer was not a better pattern but the opposite shape: ask every
+page that renders an empty state, and name the exceptions with the argument.
+Payees and Accounts had been collapsing two situations into one message the
+whole time, and Payees was telling somebody who had mistyped a search to go and
+commit a transaction they had already committed.
 
 The title states the situation in the plural, the body carries the explanation,
 and the button carries the imperative. `EmptyState` is used at 16 sites — the
@@ -1745,9 +1797,9 @@ duplicate review's "nothing left to review" *is* the page's content and takes
 *Checked by:* `npm run typecheck`, which is the whole check for the required
 icon and is why making it required was worth more than a test — the three sites
 that omitted it were three compile errors. `tests/ui-copy.test.ts` holds two
-more: that a filtered list's title is a conditional rather than one sentence for
-two situations, and that an empty state sits *behind* its query's error rather
-than beside it.
+more: that every page rendering an empty state gives it a conditional rather
+than one sentence for two situations, and that an empty state sits *behind* its
+query's error rather than beside it.
 
 That last one had been three screens and a banner on six lists. React Query's
 `isPending` is `status === "pending"`, so a query that errored is not pending
@@ -1805,7 +1857,7 @@ not where the skeleton is used. A grep test for a loading paragraph would.
 
 **House, settled.** `Button` couples `loading` to `disabled` and now says so:
 `aria-busy` while it works and an `.sr-only` "Working…" beside the spinner
-(`components.tsx:280-306`). A spinner is a picture of waiting, which is nothing
+(`components.tsx:314-328`). A spinner is a picture of waiting, which is nothing
 at all to somebody who cannot see it, and a disabled button otherwise goes
 silent at exactly the moment a person most wants to know their click landed. See
 section 4 for the reduced-motion half of the same defect.
@@ -1815,12 +1867,12 @@ disabled on a computed predicate and one had a sentence beside it — the split
 remainder line, which is the model the rest now follow. It is the one control
 that can go completely silent: nothing has been typed wrongly, so there is no
 field error, and nothing has been submitted, so there is no summary. The button
-is grey and the person guesses which of the form's conditions is unmet.
+is gray and the person guesses which of the form's conditions is unmet.
 
 `Button` takes `disabledReason`, rendered only while `disabled` is true and
 `loading` is not — a button that is working already says so, and a reason for
 that state would be a second answer to a question already answered. Wired with
-`aria-describedby` rather than left as a neighbouring paragraph: a sighted
+`aria-describedby` rather than left as a neighboring paragraph: a sighted
 person reads what is beside the button, and somebody on a screen reader is told
 the button's name and its state and then has to go looking.
 
@@ -1832,7 +1884,7 @@ when a reason exists remounts the button as the reason comes and goes, which
 takes focus off it at the moment it becomes usable, which is the defect 13.3 is
 about.
 
-*Checked by:* `tests/field-contract.test.tsx`, which holds the behaviour — shown
+*Checked by:* `tests/field-contract.test.tsx`, which holds the behavior — shown
 when disabled, absent when enabled, absent while working, and the same element
 across the change — and requires the prop at every `<Button>` in the client with
 a computed `disabled`. That last part is what this section said it had nothing to
@@ -1846,8 +1898,8 @@ without having it. It read a hand-written list of five files and matched
 the five. Eight buttons carried the prop and the check saw exactly those eight,
 which is what a passing check looks like when it is measuring itself. Walking
 the client properly finds 22, and the fourteen it had never seen were fourteen
-controls that went grey and said nothing. Four of those are exempt and named in
-`WORKING_NOT_BLOCKED`: the unpressed half of a pair, greyed while its sibling
+controls that went gray and said nothing. Four of those are exempt and named in
+`WORKING_NOT_BLOCKED`: the unpressed half of a pair, grayed while its sibling
 works, where the answer is the sibling's spinner.
 
 ### 12.4 One live region per page
@@ -1857,10 +1909,10 @@ confirmations and progress, and reaches for `role="alert"` only for something
 time-sensitive that interrupts.
 
 Announcement is already handled: `Alert` sets `role={kind === "error" ? "alert"
-: "status"}` (`src/client/components.tsx:986`), so a success alert is a polite
+: "status"}` (`src/client/components.tsx:1090`), so a success alert is a polite
 live region and an error alert interrupts. The two real defects are elsewhere.
 There are three separate `aria-live="polite"` regions in the client
-(`components.tsx:230`, `TransactionBrowser.tsx:756`, `TemplatesPage.tsx:424`),
+(`components.tsx:233`, `TransactionBrowser.tsx:782`, `TemplatesPage.tsx:425`),
 so a page can carry four polite regions at once and nothing decides which speaks
 first. And a success alert persists until the next render, with no rule for how
 long it stays.
@@ -1898,7 +1950,7 @@ The rules, in the order they matter:
 
 - **A bar is determinate or it is not shown.** `<progress>` with no `value` is
   indeterminate and animates in every engine, and the blanket reduced-motion
-  block at `styles.css:3977-3986` freezes it into a bar that reads as stuck.
+  block at `styles.css:4060-4069` freezes it into a bar that reads as stuck.
   That is section 4's spinner defect a second time, and a determinate bar is the
   fix for that class of failure rather than a new instance of it.
 - **A bar never appears before its total is a real count.** A commit does fixed
@@ -1935,13 +1987,13 @@ The rules, in the order they matter:
   committed." or "Nothing was staged.", because no other copy on either page
   says so and somebody who watched the bar climb has no other way to know.
   **A connection that died is not a refusal and gets no such sentence.** The
-  work is never cancelled because a browser went away, so the outcome is
+  work is never canceled because a browser went away, so the outcome is
   genuinely unknown and the page says exactly that instead. `writeDidNotHappen`
   (`src/client/api.ts`) is the one place the two are told apart, because a page
   that guessed would guess wrong in the direction that matters: telling somebody
   their four thousand rows did not post when they did.
 - **The threshold at which a bar earns its row of layout is
-  `PROGRESS_STREAM_MIN_ROWS`** (`src/shared/domain.ts:1226`), not a literal in a
+  `PROGRESS_STREAM_MIN_ROWS`** (`src/shared/domain.ts:1273`), not a literal in a
   page. Fifty is a judgement rather than a boundary in nature — below it the work
   is over before a bar could be read, and a bar that flashes is worse than none.
   It sits under the cap `AGENTS.md` fixes: "Ten thousand rows is the cap, and it
@@ -1950,9 +2002,9 @@ The rules, in the order they matter:
 - **Binding, SC 1.4.11.** The fill is `--green-fill` on `--track`, measured in
   2.2, and the bar keeps the `--line-strong` edge 2.2 requires of a control.
 - **Three bars now, and a fourth has to say which of them it is not.**
-  `.progress-track` (`styles.css:1345`, `DashboardPage.tsx:254`) is a decorative
+  `.progress-track` (`styles.css:1361`, `DashboardPage.tsx:277`) is a decorative
   share-of-total meter under a row that already states its figure.
-  `.budget-bar` (`styles.css:3699`, `BudgetsPage.tsx:1168`) is money, with an
+  `.budget-bar` (`styles.css:3782`, `BudgetsPage.tsx:1180`) is money, with an
   over state. `.progress-meter` is work in flight. Neither of the first two
   appeared in this guide before this section, which by 17.3's closing test was a
   defect in the guide.
@@ -1975,11 +2027,11 @@ checked by hand in Chromium in both themes and is listed in 17.3.
 ### 13.1 The indicator
 
 **Binding, SC 1.4.11 for the contrast; House for the composition.** The focus
-indicator is two colours so that one of them always contrasts, which is GOV.UK's
+indicator is two colors so that one of them always contrasts, which is GOV.UK's
 reasoning for pairing yellow with a thick black border. `--focus-ring` and
 `--focus-inner` already are that pair, and `--focus-ring` measures 5.08:1 light
 and 9.70:1 dark against `--surface`. The reasoning is recorded here so a future
-simplification to one colour reads as a regression rather than a tidy-up.
+simplification to one color reads as a regression rather than a tidy-up.
 
 Meeting SC 2.4.13 Focus Appearance (level AAA) is cheap here, a 2px perimeter at
 3:1, and meeting it does not move the target.
@@ -1994,11 +2046,11 @@ focus indicator.
 
 **The code covered two element types out of the set**, and three of the gaps
 were live SC 2.4.7 failures. `summary` is the `RowMenu` trigger
-(`components.tsx:491`) and fell to the user agent default; checkboxes and radios
+(`components.tsx:672`) and fell to the user agent default; checkboxes and radios
 got only `accent-color`; and `.file-drop`'s `<input>` is visually hidden, so
 tabbing to the CSV file picker showed nothing at all.
 
-One rule now covers the set (`styles.css:922-932`):
+One rule now covers the set (`styles.css:938-948`):
 `:is(button, a, summary, input, select, textarea, [tabindex]):focus-visible`
 plus `.file-drop:focus-within`, which is where the wrapper takes the indicator
 its hidden input cannot show. `.input:focus` stays as it is — a field's ring is
@@ -2067,8 +2119,8 @@ and starting again.
   used to leave a scrim over a page nobody could dismiss.
 
 Modals were already correct: a native `<dialog>` driven by `showModal()` and
-`close()`, labelled by `aria-labelledby` from a `useId()`, with `onCancel`
-intercepted (`components.tsx:480-530`), and with the form body mounted only while
+`close()`, labeled by `aria-labelledby` from a `useId()`, with `onCancel`
+intercepted (`components.tsx:693-743`), and with the form body mounted only while
 the dialog is open so closing discards what was half-typed.
 
 *Checked by:* `tests/shell-focus.test.tsx` for all four, and `tests/browser/budgets.spec.ts`
@@ -2083,13 +2135,13 @@ keyboard pass in section 14 remains a person's job.
 ### 13.4 Target size
 
 **Binding, SC 2.5.8 Target Size (Minimum), level AA.** 24 by 24 CSS pixels,
-subject to the spacing exception: if a 24px circle centred on each target's
+subject to the spacing exception: if a 24px circle centered on each target's
 bounding box does not intersect another target's circle, the target passes.
 
 This is already solved, deliberately. `.icon-button` is 31 by 31
-(`styles.css:2296-2307`) with an `::after` at `inset: -7px` giving a 45px hit
+(`styles.css:2370-2381`) with an `::after` at `inset: -7px` giving a 45px hit
 area without growing the row, and a comment saying why
-(`styles.css:2061-2065`). **That is the house answer for a dense-row control.**
+(`styles.css:2088-2092`). **That is the house answer for a dense-row control.**
 
 The spacing exception never has to be reached here. It applies only to targets
 under 24 by 24 CSS pixels, and `.icon-button` is 31 by 31, so it passes on size
@@ -2116,7 +2168,7 @@ What belongs here, and only here:
 - What actually went over the wire, when a control's whole job is to change it.
 - Keyboard reachability of a page, which needs real focus order.
 - That a page produces no console error and no failed request.
-- Anything whose failure mode is "the element is correct and the behaviour is
+- Anything whose failure mode is "the element is correct and the behavior is
   not".
 
 What does not: rules about markup, which jsdom checks faster; anything a
@@ -2151,7 +2203,7 @@ mean something rather than an instruction to be careful.
 
 **Binding for the requirement, House for the steps.** SC 1.4.10 Reflow (level
 AA) asks for no two-dimensional scrolling at 320 CSS pixels wide. `html` and
-`body` both set `min-width: 320px` (`styles.css:308-321`).
+`body` both set `min-width: 320px` (`styles.css:312-331`).
 
 Four steps, described as what actually changes. Section 3.6 proposes folding the
 980px one into the 1050px one and this table is why it is a proposal rather than
@@ -2203,7 +2255,7 @@ in sentence case and uppercased by CSS, never by the string.
 dropped: "Add menu item", not "Add a menu item". Bare verbs are allowed for four
 labels and only four: Done, Close, Cancel, OK. "Save" is not one of them and
 takes an object. This product's verbs are already domain verbs (Commit, Stage,
-Archive, Merge, Restore), so the rule mostly formalises what exists.
+Archive, Merge, Restore), so the rule mostly formalizes what exists.
 
 **House.** *Create* generates something from nothing; *add* brings in something
 that already exists. This distinction matters more in a ledger than the usual
@@ -2219,7 +2271,7 @@ names the specific thing, says exactly what happens to it, says what does **not*
 happen, and says whether it can be undone. The `ConfirmDialog` descriptions are
 the model:
 
-> "£1,240.00 is posted out of "Old current account" to Opening Balances, so the
+> "$1,240.00 is posted out of "Old current account" to Opening Balances, so the
 > account closes at zero and that amount stops counting toward your totals. The
 > books stay balanced and its history stays readable. Restoring the account posts
 > the balance back."
@@ -2262,12 +2314,12 @@ is which.
 
 | Test | What it holds |
 | --- | --- |
-| `tests/theme-tokens.test.ts` | Three token blocks exist, share a key set, and the two dark ones parse to the same token map; the attribute block is last; `color-scheme` per block; no literal colour outside the blocks; no undeclared or unused token; no text token used as a fill or fill token used as text; one token per series in both themes, all distinct; every `.chart-series-N` draws from its token; `.input` draws its fill and edge from `--field` and `--field-line`, `.input:disabled` exists and takes its fill from `--field-disabled`, and that fill differs from `--field` in every theme |
+| `tests/theme-tokens.test.ts` | Three token blocks exist, share a key set, and the two dark ones parse to the same token map; the attribute block is last; `color-scheme` per block; no literal color outside the blocks; no undeclared or unused token; no text token used as a fill or fill token used as text; one token per series in both themes, all distinct; every `.chart-series-N` draws from its token; `.input` draws its fill and edge from `--field` and `--field-line`, `.input:disabled` exists and takes its fill from `--field-disabled`, and that fill differs from `--field` in every theme |
 | `tests/table-overflow.test.ts` | Every `.data-table` sits in a scrolling wrapper; `.table-wrap` carries `overflow-x` and none of the card chrome |
 | `tests/styles-skeleton.test.ts` | The shimmer animation belongs to `.skeleton` alone; every card paints its own background; every selector whose animation says `infinite` is answered by name under `prefers-reduced-motion` (4) |
 | `tests/styles-order.test.ts` | No top-level rule follows the responsive body; the four breakpoint blocks are contiguous and in descending order; the two preference blocks above them are named and so are the two selectors the motion one qualifies; no two independently-triggered layers share a `z-index` (3.5, 3.6, 4) |
 | `tests/contrast.test.ts` | Every rule painting text on a fill clears 4.5:1 (or 3:1 where the rule says it is large) in both themes, derived from the token values rather than quoted; the six published non-text pairs clear 3:1 (2.1, 2.2, 11.1) |
-| `tests/modal-layout.test.ts` | `.modal` centres independently of the global margin reset |
+| `tests/modal-layout.test.ts` | `.modal` centers independently of the global margin reset |
 | `tests/error-summary-ui.test.tsx` | A refusal's every sentence is rendered, two fields sharing one sentence stay two lines, one field refused twice shows once, the summary takes focus and retakes it on an identical repeat, its heading is an `h3` under a dialog's `h2`, and a parser's own errors leave the app's sentence standing (8.3) |
 | `tests/radio-groups.test.tsx` | Every radio belongs to exactly one group; two forms on one page stay separate; the transaction type choice is one tab stop with arrow wraparound |
 | `tests/new-category-kind-ui.test.tsx` | The form asks which kind a name with nothing behind it should become, stays quiet when the category exists or the picker is empty, sends the answer only when one was given, and forgets it when the direction changes |
@@ -2281,15 +2333,15 @@ is which.
 | `tests/progress-bar-ui.test.tsx`, `tests/progress-frames.test.ts` | When a progress bar is drawn, what it says, and that it is removed rather than frozen (12.6) |
 | `tests/recurrence-dates.test.ts`, `tests/locale-detection.test.ts` | The date and locale arithmetic every rendered date rests on (10.4) |
 | `tests/page-stack.test.ts` (continued) | A page-prefixed class is used on its own page, or is one of twenty-one registered components; every full-height rule measures `dvh`; a right-aligned cell gets tabular figures whether it is a header or not (6.3, 9.3, 15) |
-| `tests/field-contract.test.tsx` | Every `<Button>` with a computed `disabled` carries a `disabledReason`, which is shown and pointed at while disabled, absent while enabled or working, and does not remount the button (12.3); a field names its control explicitly, points it at the hint and the error, marks it invalid, and is a labelled group around a composite; every `<input>`, `<select>` and `<textarea>` in the client goes through the three shared components, with two named exceptions (8.1) |
+| `tests/field-contract.test.tsx` | Every `<Button>` with a computed `disabled` carries a `disabledReason`, which is shown and pointed at while disabled, absent while enabled or working, and does not remount the button (12.3); a field names its control explicitly, points it at the hint and the error, marks it invalid, and is a labeled group around a composite; every `<input>`, `<select>` and `<textarea>` in the client goes through the three shared components, with two named exceptions (8.1) |
 | `tests/shell-focus.test.tsx`, `tests/browser/budgets.spec.ts` | The skip link is first and lands in `<main>`; a route change moves focus and resets scroll; the drawer makes the page behind it inert, moves focus in and out, and closes on Escape; a finished bulk action puts focus on the sentence saying so (13.3) |
-| `tests/ui-copy.test.ts` | No banned word in any string a person reads, in all three of client, shared and server; every literal button label is a verb phrase or one of the four bare actions; the three bulk bars use the four sanctioned strings; no eyebrow repeats its title; a blank cell's dash is a fallback and never cell text; `Uncategorized` is styled once; and every worked sentence in `common.md`'s table appears verbatim in `src` (6.2, 16) |
+| `tests/ui-copy.test.ts` | No banned word in any string a person reads, in all three of client, shared and server; every literal button label is a verb phrase or one of the four bare actions; the three bulk bars use the four sanctioned strings; no eyebrow repeats its title; a blank cell's dash is a fallback and never cell text; `Uncategorized` is styled once; every worked sentence in `common.md`'s table appears verbatim in `src`; every page rendering a list's empty state gives it a conditional rather than one sentence for two situations, with six named exceptions; and an empty state sits behind its query's error rather than beside it, with two named exceptions (6.2, 12.1, 16) |
 
 ### 17.2 Worth building, ranked by bugs caught per hour
 
 1. **No spacing, radius, size or weight literal outside the scales.** The same
-   trick the colour test uses, with an allow-list for `1px` borders, `0` and
-   percentages. This is the largest unmanaged surface in the stylesheet: 289
+   trick the color test uses, with an allow-list for `1px` borders, `0` and
+   percentages. This is the largest unmanaged surface in the stylesheet: 292
    spacing declarations across 35 values. The census itself is now derived
    rather than recounted — `tests/standards-citations.test.ts` holds section 3's
    numbers to the file, which is what stopped this item and section 3.1 quoting
@@ -2300,20 +2352,20 @@ is which.
 3. **Duration and easing tokens exist and the reduced-motion block sets them**,
    so a new animation cannot forget the second block. The bar separation half of
    what used to be item 5 has landed; the adjacent-series half is deliberately
-   not here, because section 11.2 argues at length that the ten-colour set beats
-   a compliant six-colour one on the measure that matters, and a test demanding
+   not here, because section 11.2 argues at length that the ten-color set beats
+   a compliant six-color one on the measure that matters, and a test demanding
    3:1 between adjacent series would contradict the guide it is attached to.
    Section 11.3's dash patterns were the honest successor and have landed.
 4. **No `type="number"` on a field bound to a decimal-string money value.**
-   Scope it, or it fails on the recurrence interval at `forms.tsx:1297` and
-   `:3014` and gets deleted on first contact.
+   Scope it, or it fails on the recurrence interval at `forms.tsx:1305` and
+   `:3043` and gets deleted on first contact.
 5. **`th[scope="col"]` on every column header of every `.data-table`.**
    `tests/table-overflow.test.ts` covers the caption and that every `th` carries
    *a* scope; which one it should be is still uncounted, and a `scope="row"` in a
    `thead` would pass today.
 6. **No loading paragraph.** The `Skeleton` migration is done — 23 skeletons
-   against four deliberate paragraphs, at `App.tsx:205`,
-   `AccountDetailPage.tsx:72`, `CategoryDetailPage.tsx:24` and
+   against four deliberate paragraphs, at `App.tsx:218`,
+   `AccountDetailPage.tsx:81`, `CategoryDetailPage.tsx:24` and
    `TemplateDetailPage.tsx:19`, each of which is a whole-page swap rather than a
    region — so this is a grep with a four-line allow-list rather than a grep
    waiting on a migration.
@@ -2326,7 +2378,7 @@ is which.
 `eslint-plugin-jsx-a11y` used to be item 7 here and has been removed rather than
 demoted: it is enabled at `.oxlintrc.json:15` with 38 rules, and the two this
 item wanted are off **by name with recorded reasons** at
-`docs/standards/code/index.md:167-176`, because neither can see through `Field`.
+`docs/standards/code/index.md:175-184`, because neither can see through `Field`.
 `code/index.md` owns that decision and has made it; listing shipped-and-refused
 work under "worth building" is how a backlog stops being one.
 
@@ -2334,8 +2386,10 @@ work under "worth building" is how a backlog stops being one.
 
 These cannot be tested and the guide says so rather than pretending.
 
-- Whether an empty state's copy distinguishes "nothing yet" from "nothing
-  matching" in a way a person understands.
+- Whether an empty state's two sentences are the *right* two. That a filtered
+  list has two rather than one is checked as of 0.2.0 (12.1); whether either
+  names the action that gets somebody out is not, and a page can satisfy the
+  check with two sentences that are both useless.
 - Whether a chart with more than a few series wants direct labels or a different
   chart.
 - Whether a new component duplicates one in the inventory.
@@ -2366,9 +2420,9 @@ invariant, and the money-field ban in section 8.5 is the invariant reaching a
 screen rather than an argument with it.
 
 What it does record is four places where published guidance and this product
-disagree, each labelled Contested and each naming the position it did not take:
+disagree, each labeled Contested and each naming the position it did not take:
 green and red in a ledger (2.4), the dense transaction form against one question
-per page (8.7), a table rather than a grid (9.1), and ten series colours rather
+per page (8.7), a table rather than a grid (9.1), and ten series colors rather
 than six (11.2). Section 10.2 records a fifth departure, from GOV.UK's prose rule
 about trailing zeros, which is a reversal rather than a disagreement: the rule is
 right for a sentence and wrong for a column.

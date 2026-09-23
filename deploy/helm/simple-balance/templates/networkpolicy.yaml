@@ -22,7 +22,7 @@ spec:
   ingress:
     # With no peers named, this is every source in the cluster but only on the
     # one port, which is as far as the chart can go without knowing how the
-    # ingress controller is labelled.
+    # ingress controller is labeled.
     - ports:
         - protocol: TCP
           port: {{ .Values.frontend.containerPort }}

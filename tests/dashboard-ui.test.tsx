@@ -18,7 +18,7 @@ const summary: Summary = {
   includesArchived: false,
   currencies: [
     {
-      currency: "GBP",
+      currency: "USD",
       balance: "1000",
       deposits: "2000",
       withdrawals: "1000",
@@ -44,7 +44,7 @@ const report: BudgetReport = {
       start: "2026-03-01",
       end: "2026-03-31",
       partial: true,
-      currency: "GBP",
+      currency: "USD",
       budgeted: "700",
       spent: "845",
       carriedIn: "0",
@@ -100,10 +100,10 @@ const report: BudgetReport = {
 };
 
 /**
- * Groceries carries £50 forward, so its limit and what it may spend differ.
+ * Groceries carries $50 forward, so its limit and what it may spend differ.
  *
- * The case that caught a real defect: the figure said "of £200.00" while the
- * bar and the badge were drawn against £250.00.
+ * The case that caught a real defect: the figure said "of $200.00" while the
+ * bar and the badge were drawn against $250.00.
  */
 const carrying: BudgetReport = {
   ...report,
@@ -188,7 +188,7 @@ const unspent: BudgetReport = {
  *
  * `period.budgeted` sums category limits alone, so this period reads zero and
  * was filtered out — taking its group rows with it. The panel said nothing was
- * budgeted while the budgets page showed the group, and one unrelated £1
+ * budgeted while the budgets page showed the group, and one unrelated $1
  * category budget was enough to make the whole thing reappear.
  */
 const groupOnly: BudgetReport = {
@@ -352,7 +352,7 @@ describe("the Overview's budget panel", () => {
     expect(groceries.getAttribute("href")).toContain("start=2026-03-01");
     expect(within(panel).getByRole("link", { name: "Rent" })).toBeInTheDocument();
     // Spent against the limit, both formatted as money.
-    expect(within(panel).getByText(/£245\.00 of £200\.00/)).toBeInTheDocument();
+    expect(within(panel).getByText(/\$245\.00 of \$200\.00/)).toBeInTheDocument();
   });
 
   it("shows a budget with nothing spent against it", async () => {
@@ -362,7 +362,7 @@ describe("the Overview's budget panel", () => {
     renderOverview();
     const panel = await budgetPanel();
     await within(panel).findByRole("link", { name: "Rent" });
-    expect(within(panel).getByText(/£0\.00 of £500\.00/)).toBeInTheDocument();
+    expect(within(panel).getByText(/\$0\.00 of \$500\.00/)).toBeInTheDocument();
   });
 
   it("shows a group that holds a budget, badged for how it is budgeted", async () => {
@@ -372,7 +372,7 @@ describe("the Overview's budget panel", () => {
     expect(await within(panel).findByText("Fixed costs")).toBeInTheDocument();
     // The badge is what says a group and its categories are not to be added.
     expect(within(panel).getByText("Own budget")).toBeInTheDocument();
-    expect(within(panel).getByText(/£500\.00 of £800\.00/)).toBeInTheDocument();
+    expect(within(panel).getByText(/\$500\.00 of \$800\.00/)).toBeInTheDocument();
   });
 
   it("caps nothing: every budget somebody set is shown", async () => {
@@ -394,14 +394,14 @@ describe("the Overview's budget panel", () => {
     expect(await within(panel).findByText("Fixed costs")).toBeInTheDocument();
     expect(within(panel).queryByText(/No budget set in this range/)).not.toBeInTheDocument();
     // And the period line says its name alone: it totals the category budgets,
-    // which here are none, so a figure would read "£500.00 of £0.00, Over"
-    // above a group row saying £500.00 of £800.00.
-    expect(within(panel).queryByText(/of £0\.00/)).not.toBeInTheDocument();
+    // which here are none, so a figure would read "$500.00 of $0.00, Over"
+    // above a group row saying $500.00 of $800.00.
+    expect(within(panel).queryByText(/of \$0\.00/)).not.toBeInTheDocument();
   });
 
   it("leaves out a category nobody budgeted", async () => {
     // "Spending by category" above already reports it, and a row reading
-    // "£100.00 of —" is a budget that does not exist.
+    // "$100.00 of —" is a budget that does not exist.
     stub();
     renderOverview();
     const panel = await budgetPanel();
@@ -409,16 +409,16 @@ describe("the Overview's budget panel", () => {
     expect(within(panel).queryByText("Uncategorized")).not.toBeInTheDocument();
   });
 
-  it("says which categories are over, in words as well as colour", async () => {
+  it("says which categories are over, in words as well as color", async () => {
     stub();
     renderOverview();
     const panel = await budgetPanel();
     await within(panel).findByRole("link", { name: "Groceries" });
     // Groceries spent 245 of 200. The bar's accessible name carries the same
-    // judgement the badge does, so the state never reaches somebody as colour
+    // judgement the badge does, so the state never reaches somebody as color
     // alone.
     expect(
-      screen.getByRole("img", { name: /Groceries: Over, £245\.00 of £200\.00/ }),
+      screen.getByRole("img", { name: /Groceries: Over, \$245\.00 of \$200\.00/ }),
     ).toBeInTheDocument();
     // Rent spent exactly its 500, which is neither over nor nearly there.
     expect(screen.getByRole("img", { name: /Rent: All spent/ })).toBeInTheDocument();
@@ -458,20 +458,20 @@ describe("what the overview's budget panel leaves out", () => {
     renderOverview();
     const panel = await budgetPanel();
     await within(panel).findByRole("link", { name: "Groceries" });
-    expect(within(panel).getByText(/£120\.00 of £250\.00/)).toBeInTheDocument();
-    expect(within(panel).queryByText(/£120\.00 of £200\.00/)).not.toBeInTheDocument();
+    expect(within(panel).getByText(/\$120\.00 of \$250\.00/)).toBeInTheDocument();
+    expect(within(panel).queryByText(/\$120\.00 of \$200\.00/)).not.toBeInTheDocument();
   });
 
   it("measures the period line against what the period may spend", async () => {
     // Same rule as the row beneath it: the figure, the bar and the badge take
-    // one denominator. With £50 carried in, the line reads against £750 and
-    // not against the £700 that was planned.
+    // one denominator. With $50 carried in, the line reads against $750 and
+    // not against the $700 that was planned.
     stub(carrying);
     renderOverview();
     const panel = await budgetPanel();
     await within(panel).findByRole("link", { name: "Groceries" });
-    expect(within(panel).getByText(/£620\.00 of £750\.00/)).toBeInTheDocument();
-    expect(within(panel).queryByText(/£620\.00 of £700\.00/)).not.toBeInTheDocument();
+    expect(within(panel).getByText(/\$620\.00 of \$750\.00/)).toBeInTheDocument();
+    expect(within(panel).queryByText(/\$620\.00 of \$700\.00/)).not.toBeInTheDocument();
   });
 
   it("breaks down only the period the range ends in", async () => {

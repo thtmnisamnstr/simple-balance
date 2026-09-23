@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
  * "Is this name free" and "take it" are two statements, and between them a
  * second transaction can read the same answer. PostgreSQL cannot help: there is
  * no row to lock for a name that does not exist yet, and the comparison is over
- * a normalised form rather than over a column, so a unique index would not
+ * a normalized form rather than over a column, so a unique index would not
  * catch it either. The product's answer is an advisory namespace lock per
  * tenant, taken before the check.
  *

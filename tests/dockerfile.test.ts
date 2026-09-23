@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { repoFiles } from "./support/source.js";
 import { describe, expect, it } from "vitest";
 
 describe("Docker runtime", () => {
@@ -22,7 +23,15 @@ describe("Docker runtime", () => {
       dependencies: Record<string, string>;
       devDependencies?: Record<string, string>;
     };
+    // Bundled by Vite into the client, so the server image never imports them
+    // and shipping them would be megabytes of node_modules nothing reads. The
+    // two Stripe entries are the pair that needs saying out loud: `stripe` is
+    // the server SDK and belongs in the runtime image, while `@stripe/*` are
+    // its browser halves and do not — three packages from one vendor, split
+    // across the boundary.
     const browserOnlyDependencies = new Set([
+      "@stripe/react-stripe-js",
+      "@stripe/stripe-js",
       "@tanstack/react-query",
       "lucide-react",
       "react",
@@ -206,7 +215,17 @@ describe("the decomposed images", () => {
 
   it("proxies every route prefix the API actually answers on", () => {
     const api = readFileSync(new URL("../src/server/api.ts", import.meta.url), "utf8");
-    const proxied = new Set(["api", "mcp", "health", ".well-known"]);
+    const template = readFileSync(
+      new URL("../deploy/docker/nginx.conf.template", import.meta.url),
+      "utf8",
+    );
+    // Read out of the template rather than listed here. A hardcoded copy is a
+    // mirror, not a check: it agrees with itself while the config it is meant
+    // to be holding to account says something else.
+    const alternation = /location ~ \^\/\(([^)]+)\)\(\/\|\$\)/.exec(template);
+    expect(alternation, "no proxy location in the template").not.toBeNull();
+    const proxied = new Set(alternation![1]!.split("|").map((name) => name.replaceAll("\\", "")));
+    expect(proxied.size, "parsed no prefixes out of the proxy location").toBeGreaterThan(3);
     // Anything the client bundle is expected to own rather than the API.
     const servedByNginx = new Set(["assets"]);
     // Answered by the API and deliberately unreachable through the browser's
@@ -219,10 +238,6 @@ describe("the decomposed images", () => {
       [...api.matchAll(/app\.(?:get|post|put|delete|use|all|on)\(\s*"\/([^/"*]+)/g)].map(
         (match) => match[1],
       ),
-    );
-    const template = readFileSync(
-      new URL("../deploy/docker/nginx.conf.template", import.meta.url),
-      "utf8",
     );
     for (const prefix of prefixes) {
       if (servedByNginx.has(prefix) || deliberatelyNotProxied.has(prefix)) continue;
@@ -260,15 +275,38 @@ describe("the decomposed images", () => {
  * built, which is what makes them the ones worth guaranteeing.
  */
 describe("the labels on every image", () => {
-  const dockerfiles = [
-    "Dockerfile",
-    "deploy/docker/server.Dockerfile",
-    "deploy/docker/scheduler.Dockerfile",
-    "deploy/docker/frontend.Dockerfile",
-  ] as const;
+  /**
+   * Discovered, not listed, and the difference has already cost this repository
+   * something: this array held four names while the tree held five, so the Citus
+   * image was checked by nothing at all — for a release in which
+   * `docs/standards/operations.md` claimed every image pins its base by digest.
+   *
+   * `APPLICATION_IMAGES` below is the population this block is about: the images
+   * that *are* Simple Balance and carry its version. The database image is a
+   * different population with different obligations and has a block of its own at
+   * the foot of this file, so it is excluded here by what it is rather than by
+   * being left off a list — a new application image joins automatically, and a
+   * new image of some other kind fails this until somebody says which it is.
+   */
+  const DATABASE_IMAGES = new Set(["deploy/docker/citus.Dockerfile"]);
+  const dockerfiles = repoFiles(
+    (path) => path === "Dockerfile" || /(^|\/)[a-z-]*\.?Dockerfile$/.test(path),
+  )
+    .map((file) => file.path)
+    .filter((path) => !DATABASE_IMAGES.has(path));
   const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
-  it("names the product, its licence and where it came from", () => {
+  it("finds every application image in the tree", () => {
+    // The check that keeps the rest of this block honest. Without it, a regex
+    // that stopped matching would empty the population and every assertion below
+    // would pass over nothing — which is what a list does, slowly.
+    expect(dockerfiles.length).toBeGreaterThanOrEqual(4);
+    expect(dockerfiles).toContain("Dockerfile");
+    expect(dockerfiles).toContain("deploy/docker/server.Dockerfile");
+    expect(dockerfiles).not.toContain("deploy/docker/citus.Dockerfile");
+  });
+
+  it("names the product, its license and where it came from", () => {
     for (const path of dockerfiles) {
       const dockerfile = read(path);
       for (const label of [
@@ -339,5 +377,162 @@ describe("the labels on every image", () => {
       expect(dockerfile, path).not.toContain("org.opencontainers.image.created");
       expect(dockerfile, path).not.toContain("org.opencontainers.image.revision");
     }
+  });
+});
+
+/**
+ * Every `SB_` name the nginx template reads has somewhere to come from.
+ *
+ * The nginx image's entrypoint builds its envsubst list by walking the
+ * environment and keeping the names that match `NGINX_ENVSUBST_FILTER`. A name
+ * that is not *in* the environment is therefore never substituted: it survives
+ * into the rendered config as a literal `${SB_WHATEVER}`, nginx reads that as a
+ * variable reference, and the container exits with
+ * `[emerg] unknown "sb_whatever" variable` before it serves anything.
+ *
+ * That is not a degraded mode. The frontend container is the only one serving
+ * the bundle and the only one proxying `/api`, `/mcp`, `/health` and
+ * `/.well-known`, so the whole product is unreachable while the API and the
+ * scheduler stay healthy and log nothing about it. It shipped exactly once, in
+ * the change that added the rehearsal switch, and every test in this repository
+ * read the template as text rather than running it.
+ *
+ * An `ENV` default in the image is what makes the name present, and it is what
+ * makes `docker run`, Compose and Helm all work without each repeating it.
+ */
+describe("the nginx template and the image that renders it", () => {
+  const template = readFileSync(
+    new URL("../deploy/docker/nginx.conf.template", import.meta.url),
+    "utf8",
+  );
+  const dockerfile = readFileSync(
+    new URL("../deploy/docker/frontend.Dockerfile", import.meta.url),
+    "utf8",
+  );
+
+  it("gives every SB_ name the template reads a default in the image", () => {
+    // Both spellings. `envsubst` substitutes `$SB_NAME` exactly as it does
+    // `${SB_NAME}`, so a census that knew only the braced form would miss a
+    // reference written the other way — and reproduce the container-will-not-
+    // start defect this guard exists to prevent, while passing.
+    const referenced = [...template.matchAll(/\$\{?(SB_[A-Z0-9_]+)\}?/g)].map((match) => match[1]!);
+    const defined = new Set(
+      [...dockerfile.matchAll(/^ENV (SB_[A-Z0-9_]+)=/gm)].map((match) => match[1]!),
+    );
+    // The census finds something, so a broken regex reads as a pass rather than
+    // as a template with no variables in it.
+    expect(new Set(referenced).size).toBeGreaterThanOrEqual(4);
+    const orphaned = [...new Set(referenced)].filter((name) => !defined.has(name));
+    expect(orphaned, "referenced by the template with no ENV default to render from").toEqual([]);
+  });
+
+  /**
+   * And the other direction, because a default nothing reads is a setting an
+   * operator can set with no effect — which is the shape the compose recipe
+   * shipped for a release with `IDEMPOTENCY_RETENTION_HOURS`.
+   */
+  it("reads every SB_ default the image declares", () => {
+    const defined = [...dockerfile.matchAll(/^ENV (SB_[A-Z0-9_]+)=/gm)].map((match) => match[1]!);
+    const referenced = new Set(
+      [...template.matchAll(/\$\{?(SB_[A-Z0-9_]+)\}?/g)].map((match) => match[1]!),
+    );
+    const unread = defined.filter((name) => !referenced.has(name));
+    expect(unread, "defaulted in the image and read by nothing").toEqual([]);
+  });
+
+  /**
+   * And the third direction: every one of them can be set from both shapes that
+   * deploy this image.
+   *
+   * The two above are about a container that will not start, which is loud. This
+   * one is about a setting that exists and cannot be reached, which is silent —
+   * the operator reads the documentation, finds the name, and has nowhere to put
+   * it. `SB_TRUSTED_PROXY_CIDR` was exactly that for the length of one commit:
+   * the image defaulted it, the template read it, and neither the chart nor the
+   * compose recipe passed it, so every deployment kept the shared sign-in
+   * allowance it was written to fix while the census above stayed green.
+   *
+   * An image default is not the answer to this. A default is the *off*
+   * position by construction — that is what makes an upgrade change nothing —
+   * so a name nobody can set is a name permanently off.
+   */
+  it("lets both deployment shapes set every SB_ name", () => {
+    const referenced = [
+      ...new Set([...template.matchAll(/\$\{?(SB_[A-Z0-9_]+)\}?/g)].map((match) => match[1]!)),
+    ];
+    for (const [label, relative] of [
+      ["the chart", "../deploy/helm/simple-balance/templates/frontend-deployment.yaml"],
+      ["the compose recipe", "../deploy/compose/compose.distributed.yml"],
+    ] as const) {
+      const source = readFileSync(new URL(relative, import.meta.url), "utf8");
+      const missing = referenced.filter((name) => !source.includes(name));
+      expect(missing, `read by the template and unreachable from ${label}`).toEqual([]);
+    }
+  });
+});
+
+/**
+ * The database image, which is not one of the four and must not be treated as
+ * one.
+ *
+ * `docs/standards/operations.md` §An image we build for a dependency carries the
+ * dependency's version is the rule. The obligations it shares with the other
+ * four — a pinned base, a license, a source — are checked here rather than in the
+ * loop above, because two of that loop's assertions are actively wrong for this
+ * image: its `FROM` comes from an `ARG` so the digest is one level down, and its
+ * version label is Citus's rather than `APP_VERSION`.
+ *
+ * Adding it to the list would therefore have meant weakening the list. The four
+ * app images are one population and this is another, and saying so is what keeps
+ * both checks strict.
+ */
+describe("the database image", () => {
+  const path = "deploy/docker/citus.Dockerfile";
+  const dockerfile = readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+
+  it("pins its base by digest, through the ARG that names it", () => {
+    const base = /^ARG POSTGRES_IMAGE=(\S+)$/m.exec(dockerfile)?.[1];
+    expect(base, "citus.Dockerfile must name its base in ARG POSTGRES_IMAGE").toBeDefined();
+    expect(base, "the base must be pinned by digest, not by a tag that can move").toContain(
+      "@sha256:",
+    );
+    // And nothing else may introduce an unpinned base behind its back.
+    const floating = [...dockerfile.matchAll(/^FROM (?:--\S+ )*(\S+)/gm)]
+      .map((match) => match[1]!)
+      .filter((image) => image.includes(":") && !image.includes("@sha256:"));
+    expect(floating, "builds on a tag that can move").toEqual([]);
+  });
+
+  it("pins the source it compiles, and its checksum", () => {
+    expect(dockerfile).toMatch(/^ARG CITUS_VERSION=\d+\.\d+\.\d+$/m);
+    expect(dockerfile).toMatch(/^ARG CITUS_SHA256=[a-f0-9]{64}$/m);
+    // A tarball fetched over the network and compiled into a database holding
+    // people's money is where a substitution would be worth making, so the
+    // checksum has to be verified rather than merely recorded.
+    expect(dockerfile).toContain("sha256sum -c -");
+  });
+
+  it("carries the license and source, and does not claim this product's version", () => {
+    for (const label of [
+      "org.opencontainers.image.title=",
+      'org.opencontainers.image.licenses="AGPL-3.0-only"',
+      'org.opencontainers.image.source="https://github.com/thtmnisamnstr/simple-balance"',
+    ]) {
+      expect(dockerfile, `${path} must set ${label}`).toContain(label);
+    }
+    // The rule, stated as a check: this image's version belongs to Citus and
+    // PostgreSQL. Labeling it with APP_VERSION would print 0.2.0 on contents
+    // decided by somebody else's release cycle.
+    //
+    // Instructions only, the same way the four-image loop above reads them: the
+    // comment at the top of this file explains at length why APP_VERSION is not
+    // used, and a check that read comments would fail on the sentence saying so.
+    const instructions = dockerfile
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("#"))
+      .join("\n");
+    expect(instructions, "the database image must not claim APP_VERSION").not.toContain(
+      "APP_VERSION",
+    );
   });
 });

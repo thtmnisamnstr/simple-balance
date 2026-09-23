@@ -215,7 +215,7 @@ integration("scheduled notifications", () => {
       expect(sent).toHaveLength(1);
       expect(sent[0]!.subject).toBe("Reminder: Quarterly tax");
       expect(sent[0]!.body).toContain("/templates");
-      expect(sent[0]!.body).toContain("one-off");
+      expect(sent[0]!.body).toContain("one-time reminder");
 
       // Nothing further is owed, and the scheduler stops looking.
       const row = await reminderRow(created.id);
@@ -228,7 +228,7 @@ integration("scheduled notifications", () => {
       expect(sent).toHaveLength(0);
     });
 
-    it("refuses the fields a one-off cannot use", async () => {
+    it("refuses the fields a one-time reminder cannot use", async () => {
       await expect(
         template("Nonsense", {
           anchorDate: "2026-05-10",

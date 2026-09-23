@@ -11,42 +11,49 @@ This guide is what they have in common.
 ### 1.1 A service function takes an actor first
 
 **Binding.** Three shapes, and which one a function has says what it is. All
-three rows count the same 313 declarations — everything at the top level of the
+three rows count the same 377 declarations — everything at the top level of the
 directory, exported or not — because the second shape is mostly not exported and
 a table that counted only entry points would report the helpers as a handful:
 
 | First parameter | What it is | Count |
 | --- | --- | --- |
-| `actor: Actor` | A public entry point. Scopes every query by `actor.userId`. | 92 |
-| `tx: DbTransaction` | A helper that runs inside somebody else's transaction. Takes `actor` second when it needs scoping. | 61 |
-| anything else | Mostly a pure function — `canonicalDecimal`, `encodeCursor`, `categoryKindForDraft` — touching no database and needing no actor. | 160 |
+| `actor: Actor` | A public entry point. Scopes every query by `actor.userId`. | 103 |
+| `tx: DbTransaction` | A helper that runs inside somebody else's transaction. Takes `actor` second when it needs scoping. | 76 |
+| anything else | Mostly a pure function — `canonicalDecimal`, `encodeCursor`, `categoryKindForDraft` — touching no database and needing no actor. | 198 |
 
 The three add up because they are one population read one way. Splitting them
-by export tells you something the totals hide: 83 of the 92 are exported and 30
-of the 61 are, which is the shape working. An entry point is reachable and a
+by export tells you something the totals hide: 93 of the 103 are exported and 33
+of the 76 are, which is the shape working. An entry point is reachable and a
 helper mostly is not.
 
-The third row is the one to read carefully, because *mostly* is doing work: 139
-of the 160 touch no database at all, and the other 21 do. Most of those are the
+The third row is the one to read carefully, because *mostly* is doing work: 180
+of the 198 touch no database at all, and the other 18 do. Most of those are the
 second row under another name:
 `selectBulkFilterRows(executor: Database | DbTransaction, …)` and
 `legsByTransaction(db, …)` are helpers whose first parameter is spelled to admit
 the pool as well. The rest are entry points with no actor to take, either
 because no request made them run or because of the exception below. There are
-six, and naming two of them was how this paragraph fell behind: the fifth,
+twelve, and naming two of them was how this paragraph fell behind: the fifth,
 `pruneIdempotencyRecords`, arrived after the sentence was written and nothing
-asked it again.
+asked it again. The table below is the list, and the test reads it, which is why
+the five that arrived with billing could not repeat that.
 
 | Entry point | Why it has no actor |
 | --- | --- |
 | `runDueRecurrences` | The proposal sweep, on the scheduler's tick |
 | `runDueNotifications` | The reminder sweep, on the same tick |
 | `pruneIdempotencyRecords` | The retention sweep, on the same tick |
+| `runBillingReconciliation` | The subscription re-read sweep, on the same tick: its subject is every stale row in the deployment, so there is no one person it is about |
 | `pruneAbandonedClients` | A scheduled sweep of OAuth clients nobody completed |
 | `reconcileArchivedAccountClosings` | A repair of somebody's postings, run at startup rather than by a request |
 | `revokeAllConnectedApps` | The exception below: a `userId`, reached from a session or a password reset rather than from a request naming one |
+| `userForStripeCustomer` | A lookup from a Stripe customer id to the person it belongs to, which is how the webhook finds an actor at all |
+| `applyStripeDelivery` | The same delivery, claimed and written in one transaction |
+| `reconcileSubscription` | Stripe's delivery names a customer, not a person, so there is no request naming an actor |
+| `claimWebhookEvent` | The deployment's record of which deliveries Stripe has been answered for, which belongs to nobody |
+| `applyCustomerDeletion` | The same delivery, claimed and applied in one transaction |
 
-None of the 21 is a fourth shape.
+None of the 18 is a fourth shape.
 
 *Checked by:* `tests/service-entry-points.test.ts`, which walks every exported
 service function, sorts it into "takes an actor", "takes an executor" or
@@ -55,7 +62,7 @@ list — **and requires this table to name it too**, because a reader meets the
 paragraph before the test and the two came apart once already. A name left
 behind after the sweep it excused was renamed fails as well.
 
-There are 202 `userId, actor.userId` comparisons in this directory, which is
+There are 213 `userId, actor.userId` comparisons in this directory, which is
 roughly one per query, and that is the right ratio.
 
 `AGENTS.md` is the authority: "Never accept a public `userId`. Derive it from
@@ -74,14 +81,14 @@ same paragraph or it does not get written.
 
 `AGENTS.md` is the authority here: a query that forgets the scope is a
 cross-tenant read, which is the one class of bug in this product that cannot be
-apologised for.
+apologized for.
 
 *Checked by:* `tests/integration/tenant-isolation.integration.test.ts`, which
 walks the surface with two users and asserts neither can see the other.
 
 ### 1.2 The transport layer decides nothing
 
-**House.** A route parses, calls one service function, and serialises. It does
+**House.** A route parses, calls one service function, and serializes. It does
 not branch on business rules. The test for whether a line is in the wrong place:
 if the MCP and the HTTP API would both need it, it belongs in the service.
 
@@ -103,7 +110,47 @@ one a program can: is a transport querying the database at all. Every ledger
 read and write goes through a service, so anything else here is either on the
 list or is a decision that has left the layer both surfaces share.
 
-### 1.3 One public function per intent, not per table
+### 1.3 Withhold rather than gate, where the browser could get it wrong
+
+**House, and new in 0.2.0.** `AGENTS.md` settles the usual shape: a rule the
+browser previews and the server enforces has to be one function, so the two
+cannot disagree. `resolveEntrySide` and `subscriptionAction` are that — shared,
+pure, and called from both sides.
+
+There is a second shape, for when the browser has no business previewing at all.
+Rather than send the data and a rule for using it, **send nothing and let the
+absence be the answer.** `getAdPlacement` (`src/server/services/billing.ts:1994`)
+returns the publisher and slot ids, or `null`: a session belonging to somebody
+who should see no advertising simply carries no ad configuration, so the page
+has nothing to render a slot from. `AdSlot` (`src/client/ads.tsx:70`) has no
+entitlement logic in it, because there is nothing for it to decide.
+
+The obvious alternative — put the entitlement on the session and have the
+component check it — was tried first, and it fails in two ways that are both
+invisible in review. The condition has to be written as "a *limited* plan is in
+force" and not as "not on Plus", and the two differ only on a deployment that
+has stopped selling while its subscribers are still being charged, which is the
+one state nobody writes a test for. And the entitlement arrives a round trip
+after first paint, so a slot rendered eagerly shows an advertisement to somebody
+who paid not to see one, for as long as the session query takes.
+
+Withholding removes both. There is no condition to invert and no window to
+render in, and every bug in the area fails towards showing nothing.
+
+Use it where the cost of the browser being wrong is borne by somebody other than
+the person using it — money, privacy, a promise made to a third party. Do not
+use it where a screen genuinely needs the value to explain itself: a disabled
+button still needs the sentence saying why (`errors.md` 4), and hiding the
+reason would be this rule misapplied.
+
+*Checked by:* `tests/integration/ad-placement.integration.test.ts` and
+`tests/integration/ad-placement-wound-down.integration.test.ts`, which call the
+service itself against a real database. The second exists only for the
+wound-down state, because that is the sole state where the two spellings of the
+condition differ — a gate inverted in the real function passed every other test
+in this repository, including the one that pins the rule's shape.
+
+### 1.4 One public function per intent, not per table
 
 **House.** `setTransactionDeleted(actor, id, expectedVersion, deleted)` rather
 than a `delete` and an `undelete`, because they are one intent with a boolean.
@@ -155,7 +202,7 @@ and ends the tenant whose work anything composing with it would be doing. A
 seventh has to argue that nothing will ever want to compose with it.
 
 The parameter is not decoration. The MCP transport passes its transaction in
-(`src/server/mcp.ts:310-328`, and every `runIdempotentMcpMutation` call under it)
+(`src/server/mcp.ts:321-335`, and every `runIdempotentMcpMutation` call under it)
 so that
 its idempotency record, the mutation and the audit events land on one connection
 and commit together. Take it away and an agent's write could record its
@@ -184,7 +231,7 @@ numbers above are today's and the test is what keeps the rule.
 **Binding.** Optimistic concurrency, everywhere, no exceptions. The caller sends
 the version it read; the service compares, throws `staleVersion` if it moved,
 and bumps on success
-(`updateAccount`, `src/server/services/accounts.ts:662`).
+(`updateAccount`, `src/server/services/accounts.ts:1019`).
 
 Two windows have to be closed, not one. Comparing before the update leaves a
 gap between the read and the write, so the update itself also filters on the
@@ -218,7 +265,7 @@ Same key and same request returns the stored response. Same key and a
 something else and silently returning the old answer would be worse than
 refusing.
 
-The hash is over a canonicalised payload
+The hash is over a canonicalized payload
 (`src/server/services/helpers.ts:168`):
 keys sorted, `undefined` dropped, dates as ISO strings. Without that, two
 identical requests whose JSON key order differed would hash differently and the
@@ -235,7 +282,7 @@ now pad the counter rather than the string
 transaction and staging idempotency keys to their request": the same request
 twice comes back as one row, the same key over a changed amount is refused as a
 `conflict`, and a stage whose `rawData` keys arrive in the other order still
-replays, which is the canonicalisation being exercised rather than the key.
+replays, which is the canonicalization being exercised rather than the key.
 Two simultaneous retries are covered a few cases below it. That a create takes a
 key at all is held only on the agent surface, by
 `tests/mcp-measurements.test.ts`, which counts the mutating tools from their
@@ -247,19 +294,19 @@ service function reached from a route has nothing equivalent behind it.
 **Binding.** Anything that decides "does this name already exist?" takes an
 advisory lock on that namespace first, and there are five namespaces:
 accounts, categories, payees, templates and recurrences
-(`src/server/services/helpers.ts:307-336`). Otherwise two concurrent requests
+(`src/server/services/helpers.ts:307-368`). Otherwise two concurrent requests
 both read "no", and both create.
 
 Accounts were the fifth and were added late, which is the point of listing them.
 `createAccount` called `assertAccountNameAvailable` under no lock at all, and
 `updateAccount` held only the per-account-id reference lock — which does not
-serialise two *different* accounts being renamed to the same name. Two
+serialize two *different* accounts being renamed to the same name. Two
 concurrent `POST /api/v1/accounts` naming one account both succeeded. There was
 no `lockAccountNamespace` to have forgotten, which is why a walk of the call
 sites would not have found it: nothing named a lock that did not exist.
 
-The lock is per user and per namespace, so it serialises the smallest thing that
-has to be serialised.
+The lock is per user and per namespace, so it serializes the smallest thing that
+has to be serialized.
 
 Two more rules ride on the locks, and both live in comments a new path will not
 stumble on by itself. First, the order is fixed: all account locks in sorted id
@@ -271,7 +318,7 @@ it. Second, the category lock is not only for paths deciding a name: a write
 that merely *references* a category takes it too, because a category delete
 counts references before it archives, and a create sitting between its
 ownership check and its insert is invisible to that count — the recurrence
-lands naming a dead category (`src/server/services/recurrences.ts:522-530`,
+lands naming a dead category (`src/server/services/recurrences.ts:528-536`,
 and the same guard in `transaction-templates.ts` and `budgets.ts`). A new write
 that names or references a category needs the lock even though no name is
 being invented.
@@ -295,7 +342,7 @@ a payee has no row to constrain at all.
 
 **Binding.** 47 `writeAudit` calls, nine `writeAuditMany`, and seven
 `auditedTransaction`. The audit row carries the entity, the
-operation, and the row before and after, serialised through `serializeRow` so a
+operation, and the row before and after, serialized through `serializeRow` so a
 `Date` does not end up in JSON as something unparseable.
 
 An operation name is a sentence about intent, not a table verb:
@@ -400,20 +447,20 @@ the same new category end up on one category rather than two: the second
 lookup sees what the first created.
 ```
 
-(`src/server/services/categories.ts:199`.)
+(`src/server/services/categories.ts:200`.)
 
 Run those in parallel and a split naming "Groceries" twice creates two
 categories. The sequence *is* the algorithm. A linter cannot tell that apart
 from an accident, so the rule is off and the reasoning lives in the comment
 beside the loop.
 
-The rule for a reader: parallelise reads that do not see each other's writes;
-never parallelise a loop whose iterations resolve names.
+The rule for a reader: parallelize reads that do not see each other's writes;
+never parallelize a loop whose iterations resolve names.
 
 *Checked by:* `tests/integration/splits.integration.test.ts`, "creates a category
 named by a leg, and reuses it for a second leg naming the same one" — the outcome
 the sequence exists for, on two legs spelled "Garden supplies" and "garden
-supplies", asserting they land on one id. Resolution matches on a normalised name
+supplies", asserting they land on one id. Resolution matches on a normalized name
 and stores the raw one, so two legs resolved side by side would insert two rows
 that `category_user_name_unique` is perfectly happy with, and the assertion
 fails. Nothing checks the other half, that the loop stays sequential, because the
@@ -442,7 +489,7 @@ a source read can settle here.
 **Binding**, because it is the rule most recently got wrong.
 
 Resolving a category by name never widens the category it finds
-(`src/server/services/categories.ts:154`).
+(`src/server/services/categories.ts:155`).
 Widening to `both` was correct while an entry could only name a category of its
 own direction. It stopped being correct when a category running against the
 direction became a refund, and it stopped quietly: `both` agrees with whichever
@@ -451,7 +498,7 @@ instead of lowering the spending.
 
 Where the direction genuinely cannot decide — a name with nothing behind it
 yet — the caller says so with `categoryKind`
-(`src/server/services/categories.ts:209`),
+(`src/server/services/categories.ts:210`),
 and that field is ignored when the category already exists, because that one has
 an answer already.
 
@@ -464,7 +511,7 @@ into a spending category it created itself has to move a budget.
 
 | Rule | Why it is only a sentence |
 | --- | --- |
-| 1.3 One public function per intent | Whether two operations are one intent with a boolean is the judgement being asked for, and anything able to settle it would not need the rule written down. The nearest check belongs to another guide: `tests/http-route-table.test.ts` refuses a route ending `/archive` or `/delete`, which is this split where it reaches a URL and nowhere else. |
+| 1.4 One public function per intent | Whether two operations are one intent with a boolean is the judgement being asked for, and anything able to settle it would not need the rule written down. The nearest check belongs to another guide: `tests/http-route-table.test.ts` refuses a route ending `/archive` or `/delete`, which is this split where it reaches a URL and nowhere else. |
 | 2.6 The counter and the merge agree | The two instances that existed are pinned by tests; whether a NEW reference table reaches both lists is a fact about a diff, which only a reviewer sees. |
 | 2.7 Guards hold for siblings | No program knows which paths are siblings. The two ledger instances are pinned; the class is a review question. |
 | 3.1 Reads before dependent writes | Only the outcome is testable, and it is: the refund tests are that check wearing a different hat. |

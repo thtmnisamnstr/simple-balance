@@ -58,9 +58,9 @@ export type NotificationOccurrence = {
 /**
  * The next reminder this rule owes after `cursor`, or null when it owes none.
  *
- * A one-off owes exactly one, on its anchor, and nothing afterwards — which is
- * what a null return means and what leaves `nextNotificationDate` null so the
- * scheduler stops looking at the row.
+ * A one-time reminder owes exactly one, on its anchor, and nothing afterward —
+ * which is what a null return means and what leaves `nextNotificationDate` null
+ * so the scheduler stops looking at the row.
  */
 function nextNotificationAfter(
   rule: NotificationRule,
@@ -112,8 +112,8 @@ export const notificationRuleOf = (row: {
 });
 
 /**
- * Whether a reminder dated `sendDate` at `notifyAt` has come round yet, on this
- * person's clock.
+ * Whether a reminder dated `sendDate` at `notifyAt` has come around yet, on
+ * this person's clock.
  *
  * The date on its own is not enough — that is the whole difference between this
  * and a recurrence — so a reminder set for the evening does not go out at one in
@@ -178,7 +178,7 @@ export type NotificationTickSummary = {
 };
 
 /**
- * One pass over every template reminder that has come round, for everybody.
+ * One pass over every template reminder that has come around, for everybody.
  *
  * The same shape as the recurrence sweep and for the same reasons: a prefilter
  * that over-selects by a day because a calendar date is "today" somewhere from

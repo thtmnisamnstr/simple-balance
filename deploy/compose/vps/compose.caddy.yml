@@ -1,0 +1,82 @@
+# TLS for the frontend machine, terminated by Caddy, with certificates it obtains
+# and renews on its own.
+#
+#   sudo docker compose -f compose.frontend.yml -f compose.caddy.yml up -d
+#
+# An overlay rather than a second copy, so there is one description of the
+# frontend and this file says only what changes when something stands in front of
+# it. Skip it if you already run a terminator and point that at the port
+# compose.frontend.yml publishes — but then set SB_TRUSTED_PROXY_CIDR yourself to
+# the range it connects from, which this overlay would have done for you.
+services:
+  frontend:
+    environment:
+      # Caddy is now the only thing that connects to nginx, and it does so from
+      # this network. Pinned below precisely so this can be a written-down value
+      # rather than whatever Docker chose today — an over-wide range here lets a
+      # caller choose their own address, and a wrong one puts every visitor in
+      # one sign-in bucket.
+      SB_TRUSTED_PROXY_CIDR: ${SB_PROXY_SUBNET:-172.31.240.0/24}
+    ports: !override
+      # Nothing published to the host at all now. Caddy reaches nginx over the
+      # Compose network, so the only open ports on this machine are Caddy's.
+      []
+
+  caddy:
+    image: ${CADDY_IMAGE:-caddy:2-alpine}
+    restart: unless-stopped
+    depends_on:
+      frontend:
+        condition: service_healthy
+    ports:
+      # 80 as well as 443, for the redirect and for the ACME HTTP-01 challenge.
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS to this deployment's public DNS name}
+      # The whole directive travels, not the address: `email` with nothing after
+      # it is a Caddyfile parse error rather than a default, so `:+` renders the
+      # line only when there is an address.
+      ACME_EMAIL_OPTION: ${ACME_EMAIL:+email ${ACME_EMAIL}}
+      # The same ceiling nginx carries as SB_MAX_UPLOAD_SIZE, to the byte. MiB
+      # and not MB: Caddy reads MB as a million, so `61MB` is 61,000,000 against
+      # nginx's 63,963,136 — and the API accepts 62,980,096, which sits between
+      # them. A CSV in that range was advertised, accepted by the API, and
+      # refused by the terminator with a 413 and nothing to explain it.
+      MAX_BODY_SIZE: ${MAX_BODY_SIZE:-61MiB}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates and the ACME account key. Losing this volume means asking
+      # Let's Encrypt for a new certificate on every restart, and their limit is
+      # five duplicates per name per week.
+      - caddy-data:/data
+      - caddy-config:/config
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 10s
+      timeout: 3s
+      start_period: 20s
+      retries: 3
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+networks:
+  default:
+    ipam:
+      config:
+        # Pinned so SB_TRUSTED_PROXY_CIDR above can name it. Docker would
+        # otherwise pick a subnet per project and per machine, and a trusted
+        # range that has to be looked up after every `docker compose up` is one
+        # that will eventually be wrong without anybody noticing.
+        - subnet: ${SB_PROXY_SUBNET:-172.31.240.0/24}
+volumes:
+  caddy-data:
+  caddy-config:

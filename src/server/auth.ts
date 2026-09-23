@@ -3,6 +3,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { mcp } from "better-auth/plugins";
 import { eq } from "drizzle-orm";
 import type { Actor } from "../shared/domain.js";
+import { APP_NAME } from "../shared/version.js";
 import {
   isLedgerUserAuthorized,
   mayCreateProviderAccount,
@@ -33,7 +34,7 @@ function createAuthInstance() {
     "ledger:write",
   ];
   return betterAuth({
-    appName: "Simple Balance",
+    appName: APP_NAME,
     baseURL: config.baseUrl,
     basePath: "/api/auth",
     secret: config.authSecret,
@@ -77,7 +78,7 @@ function createAuthInstance() {
       minPasswordLength: 12,
       maxPasswordLength: 128,
       // Both of these need somewhere to send a link. A deployment with no mail
-      // server keeps the behaviour it has always had: no reset, and an address
+      // server keeps the behavior it has always had: no reset, and an address
       // nobody is asked to prove. Configure SMTP_HOST and MAIL_FROM and the two
       // switch on together, because requiring an address to be confirmed
       // without being able to send the confirmation would lock everybody out.
@@ -115,7 +116,7 @@ function createAuthInstance() {
             sendOnSignIn: true,
             // Deliberately not autoSignInAfterVerification. The token is a
             // stateless JWT that stays valid for its hour, so anyone who came
-            // by the link afterwards would be signed in as its owner. Opening
+            // by the link afterward would be signed in as its owner. Opening
             // it confirms the address; signing in still takes the password.
             expiresIn: 3600,
           },
@@ -210,7 +211,7 @@ function createAuthInstance() {
             // path it is reachable from, this plugin's `/api/auth` one
             // included. Left wide because the plugin's fallback when this is
             // absent is its four OpenID defaults, which name no ledger scope at
-            // all: a client following that would authorise with nothing it
+            // all: a client following that would authorize with nothing it
             // could call a tool with. `scopes` above is the separate question
             // of what `/authorize` accepts, and must keep every tier, because
             // the step-up challenge sends clients back to ask for one.

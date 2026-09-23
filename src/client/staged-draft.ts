@@ -216,7 +216,7 @@ export function templateDraftFromDraft(
   }
   const amount = keep(draft.amount);
   if (amount) template.amount = amount;
-  // Legs are carried explicitly. `keep` only recognises strings, so a split
+  // Legs are carried explicitly. `keep` only recognizes strings, so a split
   // saved as a template would quietly become a template with no category at
   // all, on a surface nobody would think to check.
   const legs = (draft.legs ?? []).filter(

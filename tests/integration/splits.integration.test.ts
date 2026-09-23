@@ -159,21 +159,21 @@ integration("splitting a transaction across categories", () => {
 
   /**
    * The point of keeping the label on the leg rather than on the posting: the
-   * leg's identity does not change when it is relabelled, so the difference
+   * leg's identity does not change when it is relabeled, so the difference
    * between what is posted and what should be posted is empty.
    */
-  it("writes no postings at all when a leg is only recategorised", async () => {
+  it("writes no postings at all when a leg is only recategorized", async () => {
     const created = await receipt(
       [
         { categoryId: foodId, amount: "70.00" },
         { categoryId: householdId, amount: "30.00" },
       ],
-      "split-recategorise",
+      "split-recategorize",
     );
     const before = await postingsOf(created.id);
     const [first, second] = await legPositions(created.id);
 
-    await edit(created.id, "split-recategorise", created.version, {
+    await edit(created.id, "split-recategorize", created.version, {
       legs: [
         { id: first.id, categoryId: petsId, amount: "70.00" },
         { id: second.id, categoryId: householdId, amount: "30.00" },

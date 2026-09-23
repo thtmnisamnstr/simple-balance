@@ -293,7 +293,7 @@ describe("editing a transfer between two accounts in one currency", () => {
   // say it had gone.
   it("keeps a category the form does not render", async () => {
     let body: { draft?: Record<string, unknown> } | undefined;
-    const categorised = {
+    const categorized = {
       ...sameCurrencyTransfer,
       categoryId: groceriesCategory.id,
       category: groceriesCategory,
@@ -304,7 +304,7 @@ describe("editing a transfer between two accounts in one currency", () => {
         const url = new URL(String(input), window.location.origin);
         if (url.pathname.startsWith("/api/v1/transactions/")) {
           body = JSON.parse(String(init?.body));
-          return new Response(JSON.stringify(categorised), {
+          return new Response(JSON.stringify(categorized), {
             status: 200,
             headers: { "Content-Type": "application/json" },
           });
@@ -322,7 +322,7 @@ describe("editing a transfer between two accounts in one currency", () => {
         <TransactionForm
           accounts={[checkingAccount, savingsAccount, eurAccount]}
           categories={[groceriesCategory]}
-          transaction={categorised as never}
+          transaction={categorized as never}
           onDone={() => undefined}
         />
       </QueryClientProvider>,

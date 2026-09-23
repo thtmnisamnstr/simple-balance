@@ -10,6 +10,7 @@ import {
 } from "../../src/server/services/accounts.js";
 import { createCategory } from "../../src/server/services/categories.js";
 import { canonicalDecimal, decimal } from "../../src/server/services/helpers.js";
+import { setPreferences } from "../../src/server/services/preferences.js";
 import { balanceStatement, getReport } from "../../src/server/services/reports.js";
 import { getSummary } from "../../src/server/services/summary.js";
 import { createTransaction } from "../../src/server/services/transactions.js";
@@ -422,7 +423,7 @@ integration("reports", () => {
   /**
    * The third leg was filed under nothing on purpose. A coalesce to the
    * transaction's own category would quietly move that twenty pounds into
-   * whatever the receipt as a whole was labelled.
+   * whatever the receipt as a whole was labeled.
    */
   it("leaves an unfiled leg unfiled", async () => {
     const report = await getReport(actor, { report: "categories", ...year });
@@ -516,6 +517,45 @@ integration("reports", () => {
     } finally {
       const archived = await getAccount(actor, savingsId);
       await setAccountArchived(actor, savingsId, archived.version, false);
+    }
+  });
+
+  /**
+   * The Overview and this page read the same ledger, so they order it the same
+   * way — `compareCurrencies` in `src/shared/domain.ts`, asked by both. The
+   * failure this closes was visible rather than theoretical: sorted by code
+   * alone, a small euro account headed the Net worth report of somebody whose
+   * money is in dollars, and the marketing screenshots of both pages led with
+   * a currency the fixture barely uses.
+   */
+  it("leads with the currency this person chose, on the report and the summary alike", async () => {
+    const yen = await createAccount(actor, {
+      name: "Yen Savings",
+      type: "savings",
+      currency: "JPY",
+      openingDate: "2026-01-01",
+      // Zero, like the closed-currency test below and for the same reason: an
+      // opening balance writes postings, and the whole-ledger zero-sum check
+      // at the end of this file enumerates every currency it finds.
+      openingBalance: "0",
+    });
+    try {
+      // JPY sorts before USD, so alphabetical and preference-first disagree —
+      // which is the only arrangement that can tell them apart.
+      const report = await getReport(actor, { report: "balance-sheet", ...year });
+      expect(report.currencies[0]?.currency).toBe("USD");
+      const summary = await getSummary(actor, year);
+      expect(summary.currencies[0]?.currency).toBe("USD");
+
+      await setPreferences(actor, { defaultCurrency: "JPY" });
+      const moved = await getReport(actor, { report: "balance-sheet", ...year });
+      expect(moved.currencies[0]?.currency).toBe("JPY");
+      const movedSummary = await getSummary(actor, year);
+      expect(movedSummary.currencies[0]?.currency).toBe("JPY");
+    } finally {
+      await setPreferences(actor, { defaultCurrency: "USD" });
+      const held = await getAccount(actor, yen.id);
+      await setAccountArchived(actor, yen.id, held.version, true);
     }
   });
 

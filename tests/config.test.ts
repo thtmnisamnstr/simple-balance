@@ -41,6 +41,23 @@ const keys = [
   "SMTP_PASSWORD_FILE",
   "GOOGLE_CLIENT_SECRET_FILE",
   "SETUP_TOKEN_FILE",
+  // Monetization. Both halves default to off, so every case that does not name
+  // one of these is also a case proving an unconfigured deployment sells
+  // nothing and shows nothing.
+  "SB_BILLING_ENABLED",
+  "STRIPE_SECRET_KEY",
+  "STRIPE_PUBLISHABLE_KEY",
+  "STRIPE_WEBHOOK_SECRET",
+  "STRIPE_PRICE_MONTHLY_ID",
+  "STRIPE_PRICE_YEARLY_ID",
+  "ADSENSE_CLIENT_ID",
+  "ADSENSE_BANNER_SLOT_ID",
+  "ADSENSE_FOOTER_SLOT_ID",
+  "ADSENSE_CONSENT_MANAGED",
+  // Required whenever AdSense is configured, so every ad case has to name it.
+  "PRIVACY_POLICY_URL",
+  "STRIPE_SECRET_KEY_FILE",
+  "STRIPE_WEBHOOK_SECRET_FILE",
 ] as const;
 const original = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
 
@@ -352,7 +369,7 @@ describe("authentication configuration", () => {
 });
 
 /**
- * The `_FILE` form, over its six names.
+ * The `_FILE` form, over all nine of its names.
  *
  * Every case reads the value back through whatever actually consumes it rather
  * than through the resolver, because the defect worth catching is a secret that
@@ -386,6 +403,15 @@ describe("a secret held in a file", () => {
   };
 
   const configFor = async () => (await import("../src/server/config.js")).getConfig();
+
+  /** Billing refuses half a configuration, so a Stripe row needs the other four. */
+  const stripeAround = {
+    STRIPE_SECRET_KEY: "sk_test_around",
+    STRIPE_PUBLISHABLE_KEY: "pk_test_around",
+    STRIPE_WEBHOOK_SECRET: "whsec_around",
+    STRIPE_PRICE_MONTHLY_ID: "price_monthly",
+    STRIPE_PRICE_YEARLY_ID: "price_yearly",
+  } as const;
 
   /**
    * One row per file-backed name, each naming the environment that name needs
@@ -437,6 +463,18 @@ describe("a secret held in a file", () => {
       value: "a-setup-code-from-a-file",
       around: production,
       read: async () => (await import("../src/server/setup-token.js")).getOwnerSetupToken(),
+    },
+    {
+      name: "STRIPE_SECRET_KEY",
+      value: "sk_test_from_a_file",
+      around: { ...production, ...stripeAround, STRIPE_SECRET_KEY: undefined },
+      read: async () => (await configFor()).billing?.secretKey,
+    },
+    {
+      name: "STRIPE_WEBHOOK_SECRET",
+      value: "whsec_from_a_file",
+      around: { ...production, ...stripeAround, STRIPE_WEBHOOK_SECRET: undefined },
+      read: async () => (await configFor()).billing?.webhookSecret,
     },
   ] as const;
 
@@ -554,7 +592,7 @@ describe("a secret held in a file", () => {
     const { directConnectionString } = await import("../src/server/db/client.js");
 
     expect((await configFor()).databaseUrl).toBe(url);
-    // The point of the whole form. A Node diagnostic report serialises
+    // The point of the whole form. A Node diagnostic report serializes
     // `process.env`, so the one thing that must not happen is the resolved
     // value being handed back to the environment on the way past.
     expect(process.env.DATABASE_URL).toBeUndefined();
@@ -580,5 +618,203 @@ describe("a secret held in a file", () => {
     const { getOwnerSetupToken } = await import("../src/server/setup-token.js");
 
     await expect(getOwnerSetupToken()).rejects.toThrow(/at least 16 characters/);
+  });
+});
+
+/**
+ * The gate every monetization feature asks about, as a table rather than as
+ * prose in three places.
+ *
+ * Two settings make three states rather than four, and the middle one is the
+ * reason they are two settings: a deployment that has stopped selling still
+ * reaches Stripe, because the subscriptions people are already paying for go on
+ * emitting webhooks and refusing to listen would leave this ledger's idea of
+ * who has paid drifting away from Stripe's. `docs/monetization.md` carries the
+ * same table for an operator; this is the copy that fails when the code stops
+ * agreeing with it.
+ */
+describe("what a deployment sells and shows", () => {
+  const production = {
+    NODE_ENV: "production",
+    APP_BASE_URL: "https://simple-balance.example.com",
+    DATABASE_URL: "postgresql://simple_balance:secret@database.example/simple_balance",
+    AUTH_SECRET: "a-production-secret-that-is-at-least-32-characters",
+    AUTH_MODE: "local",
+  } as const;
+  const stripe = {
+    STRIPE_SECRET_KEY: "sk_test_example",
+    STRIPE_PUBLISHABLE_KEY: "pk_test_example",
+    STRIPE_WEBHOOK_SECRET: "whsec_example",
+    STRIPE_PRICE_MONTHLY_ID: "price_monthly",
+    STRIPE_PRICE_YEARLY_ID: "price_yearly",
+  } as const;
+  const adsense = {
+    ADSENSE_CLIENT_ID: "ca-pub-1234567890123456",
+    ADSENSE_BANNER_SLOT_ID: "9876543210",
+    PRIVACY_POLICY_URL: "https://smpl.money/privacy/",
+  } as const;
+
+  const cases = [
+    ["nothing configured", {}, { stripe: false, billing: false, ads: false }],
+    ["Stripe present, not selling", stripe, { stripe: true, billing: false, ads: false }],
+    [
+      "Stripe present and selling",
+      { ...stripe, SB_BILLING_ENABLED: "true" },
+      { stripe: true, billing: true, ads: false },
+    ],
+    ["ads alone", adsense, { stripe: false, billing: false, ads: true }],
+    // The wind-down state, and the row the table was missing. Stripe is still
+    // configured and subscribers are still being charged, but nothing is for
+    // sale — so nobody is held to a limit, and the ad gate has to read this as
+    // "not a free plan" rather than as "not on Plus". Written the second way,
+    // every paying subscriber on a paused deployment would be shown ads.
+    ["both, wound down", { ...stripe, ...adsense }, { stripe: true, billing: false, ads: true }],
+    [
+      "both, selling",
+      { ...stripe, ...adsense, SB_BILLING_ENABLED: "true" },
+      { stripe: true, billing: true, ads: true },
+    ],
+  ] as const;
+
+  it.each(cases)("%s", async (_name, environment, expected) => {
+    setEnvironment({ ...production, ...environment });
+    vi.resetModules();
+    const { stripeConfigured, billingEnabled, adsEnabled } =
+      await import("../src/server/config.js");
+
+    expect({
+      stripe: stripeConfigured(),
+      billing: billingEnabled(),
+      ads: adsEnabled(),
+    }).toEqual(expected);
+  });
+
+  it("says so when Stripe is configured and nothing is for sale", async () => {
+    // The likely slip in a two-axis design, and otherwise completely silent.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      setEnvironment({ ...production, ...stripe });
+      vi.resetModules();
+      const { getConfig } = await import("../src/server/config.js");
+      getConfig();
+
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("SB_BILLING_ENABLED"));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("says nothing when the deployment is actually selling", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      setEnvironment({ ...production, ...stripe, SB_BILLING_ENABLED: "true" });
+      vi.resetModules();
+      const { getConfig } = await import("../src/server/config.js");
+      getConfig();
+
+      expect(warn).not.toHaveBeenCalledWith(expect.stringContaining("SB_BILLING_ENABLED"));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  /**
+   * An ad goes to somebody on a limited plan, and nobody is on one unless a
+   * plan is for sale — so AdSense ids alone widen the policy and serve ads.txt
+   * while showing nobody an ad, which looks exactly like having no inventory.
+   * Warned, never refused: trying the ads settings before selling is legitimate.
+   */
+  it("says so when AdSense is configured and nothing is for sale", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      for (const environment of [adsense, { ...stripe, ...adsense }]) {
+        warn.mockClear();
+        setEnvironment({ ...production, ...environment });
+        vi.resetModules();
+        const { getConfig } = await import("../src/server/config.js");
+        expect(() => getConfig()).not.toThrow();
+
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("nobody is shown an ad"));
+      }
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("says nothing about ads where a plan is for sale", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      setEnvironment({ ...production, ...stripe, ...adsense, SB_BILLING_ENABLED: "true" });
+      vi.resetModules();
+      const { getConfig } = await import("../src/server/config.js");
+      getConfig();
+
+      expect(warn).not.toHaveBeenCalledWith(expect.stringContaining("nobody is shown an ad"));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("refuses a live key outside production even when it arrives through a file", async () => {
+    // The `_FILE` form must not be a way around a refusal. Pointing a
+    // development machine at a live key is the mistake with no symptom until it
+    // has charged somebody, and the indirection must not launder it.
+    const directory = mkdtempSync(join(tmpdir(), "simple-balance-live-"));
+    try {
+      const file = join(directory, "secret");
+      writeFileSync(file, "sk_live_through_a_file");
+      setEnvironment({
+        NODE_ENV: "development",
+        APP_BASE_URL: "http://localhost:5173",
+        STRIPE_PUBLISHABLE_KEY: "pk_live_example",
+        STRIPE_WEBHOOK_SECRET: "whsec_example",
+        STRIPE_PRICE_MONTHLY_ID: "price_monthly",
+        STRIPE_PRICE_YEARLY_ID: "price_yearly",
+        STRIPE_SECRET_KEY_FILE: file,
+      });
+      vi.resetModules();
+      const { getConfig } = await import("../src/server/config.js");
+
+      expect(() => getConfig()).toThrow(/live key and NODE_ENV/);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  // The three rows of the same table that end in a refusal rather than a state.
+  const refusals = [
+    ["selling with no way to charge", { SB_BILLING_ENABLED: "true" }, /no Stripe settings/],
+    ["half the Stripe settings", { STRIPE_SECRET_KEY: "sk_test_x" }, /half configured/],
+    [
+      "half the AdSense settings",
+      { ADSENSE_CLIENT_ID: "ca-pub-1", PRIVACY_POLICY_URL: "https://smpl.money/privacy/" },
+      /must be set together/,
+    ],
+    [
+      "AdSense with no privacy policy",
+      { ADSENSE_CLIENT_ID: "ca-pub-1234567890123456", ADSENSE_BANNER_SLOT_ID: "9876543210" },
+      /PRIVACY_POLICY_URL must be set/,
+    ],
+  ] as const;
+
+  it.each(refusals)("refuses to start on %s", async (_name, environment, message) => {
+    setEnvironment({ ...production, ...environment });
+    vi.resetModules();
+    const { getConfig } = await import("../src/server/config.js");
+
+    expect(() => getConfig()).toThrow(message);
+  });
+
+  it("leaves an unconfigured deployment with no billing and no ads on the config", async () => {
+    // The upgrade case, and the one every existing installation lands in: a
+    // release that added two paid features must not change what an untouched
+    // .env does.
+    setEnvironment(production);
+    vi.resetModules();
+    const { getConfig } = await import("../src/server/config.js");
+    const config = getConfig();
+
+    expect(config.billing).toBeUndefined();
+    expect(config.ads).toBeUndefined();
   });
 });

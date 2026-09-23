@@ -17,6 +17,7 @@ import {
   Note,
   PageHeader,
   Select,
+  SettingsTabs,
   Skeleton,
   useConfirm,
 } from "../components.js";
@@ -29,7 +30,7 @@ import {
 
 /**
  * Named for what each one does rather than for the value it stores. "Follow my
- * system" is a standing instruction, not a colour, and calling it "System"
+ * system" is a standing instruction, not a color, and calling it "System"
  * leaves somebody guessing whose system and when.
  */
 const THEME_CHOICES = [
@@ -111,9 +112,13 @@ export default function SettingsPage({ session }: { session: Session }) {
   return (
     <>
       <PageHeader
-        eyebrow="Preferences"
-        title="Settings"
+        eyebrow="Settings"
+        title="Preferences"
         description="Choose how the app looks, how dates and amounts are shown, and how you sign in."
+      />
+      <SettingsTabs
+        current="preferences"
+        billingAvailable={authOptions.data?.billingAvailable ?? false}
       />
       <div className="settings-grid">
         {/* Two columns of independent cards rather than a grid of rows. Sharing
@@ -128,7 +133,7 @@ export default function SettingsPage({ session }: { session: Session }) {
               </span>
               <div>
                 <h2>Appearance</h2>
-                <p>How the app is coloured. Nothing here changes a figure.</p>
+                <p>How the app is colored. Nothing here changes a figure.</p>
               </div>
             </header>
             {/* Outside a form and with no Save button, unlike everything else on
@@ -363,7 +368,7 @@ export default function SettingsPage({ session }: { session: Session }) {
               {session.auth.localPasswordConfigured ? (
                 <Note>
                   {authOptions.data?.passwordResetAvailable
-                    ? "Forgotten this password? The sign-in screen can send a link to reset it."
+                    ? "Forgot this password? The sign-in screen can send a link to reset it."
                     : "This deployment has no mail server, so a forgotten password cannot be reset. Keep it in a password manager."}
                 </Note>
               ) : null}
@@ -386,6 +391,7 @@ type OwnDataSummary = {
   importBatches: number;
   payees: number;
   connectedAgents: number;
+  activeSubscription: boolean;
 };
 
 const plural = (count: number, one: string, many = `${one}s`) =>
@@ -401,7 +407,7 @@ const readableList = (parts: (string | null)[]) => {
 /**
  * Leaving, and taking everything with you.
  *
- * Its own section at the foot of the page rather than a menu item, because
+ * Its own section at the bottom of the page rather than a menu item, because
  * nothing here is recoverable and it should not sit next to anything somebody
  * clicks by habit. What will be destroyed is counted and shown before the
  * confirmation, and the address has to be typed: it is the one thing on the
@@ -469,6 +475,18 @@ function DeleteAccount({ session }: { session: Session }) {
                   : null,
               ])}
               .
+              {/* Last, and a sentence of its own rather than an item in the
+                  list above. Everything in that list is a number saying how
+                  much is lost; this is the one that costs money, cannot be
+                  undone by re-entering it, and is the thing somebody would most
+                  want to have been told before they typed their address. */}
+              {summary.data.activeSubscription ? (
+                <>
+                  {" "}
+                  Your paid plan is canceled at the same time, immediately and for good — a canceled
+                  subscription cannot be restored.
+                </>
+              ) : null}
             </Note>
           ) : null}
           <Field label="Type your email address to confirm" hint={session.user.email}>

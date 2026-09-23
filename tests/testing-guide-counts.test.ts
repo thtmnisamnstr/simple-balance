@@ -47,8 +47,8 @@ const isJsdom = (relative: string, name: string): boolean => {
   return /^\s*(?:\/\/|\/\*)[^\n]*@vitest-environment\s+jsdom/m.test(source);
 };
 
-/** The number in the `Files` column of a row whose first cell is `label`. */
-const rowNumbers = (guide: string, label: string): number[] => {
+/** Every number in one cell of a row whose first cell is `label`. */
+const cellNumbers = (guide: string, label: string, column: number): number[] => {
   const row = guide.split("\n").find((line) => line.startsWith(`| ${label} |`));
   if (row === undefined) throw new Error(`testing.md has no row for ${label}`);
   const cells = row.split("|").map((cell) => cell.trim());
@@ -58,10 +58,23 @@ const rowNumbers = (guide: string, label: string): number[] => {
   // A number, not a run of digits and commas: `106 pass, 51 skip` separates its
   // two numbers with a comma, and a pattern that let one start with a comma read
   // that separator as a third number worth nothing.
-  return [...(cells[2] ?? "").matchAll(/\d[\d,]*/g)].map((match) =>
+  return [...(cells[column] ?? "").matchAll(/\d[\d,]*/g)].map((match) =>
     Number(match[0].replaceAll(",", "")),
   );
 };
+
+/** The `Files` column, which is cell 2 in both tables. */
+const rowNumbers = (guide: string, label: string): number[] => cellNumbers(guide, label, 2);
+
+/**
+ * And the `Tests` column of the run table, which nothing checked.
+ *
+ * It drifted silently through this workstream: the file counts failed loudly
+ * when a test file was added, the test counts beside them stayed wrong until
+ * somebody read them. A measured number with no mechanism is a number that
+ * decays, and this guide says so about other people's numbers.
+ */
+const testNumbers = (guide: string, label: string): number[] => cellNumbers(guide, label, 3);
 
 describe("testing.md file counts", () => {
   const guide = readFileSync(GUIDE, "utf8");
@@ -88,6 +101,30 @@ describe("testing.md file counts", () => {
     expect(withoutDatabase! + skipped!).toBe(collected);
     expect(rowNumbers(guide, "`npm test`, database set")).toEqual([collected]);
     expect(rowNumbers(guide, "`npm run test:integration`")).toEqual([integration.length]);
+
+    // And the same arithmetic on the Tests column, which nothing checked until
+    // it drifted. The guide's own sentence is the assertion: a database-less
+    // run's passes and skips add up to a run with one, "which is why the two
+    // rows add up to 2,097 both times". Counting the tests from the filesystem
+    // is not possible — `it.each` and a `describe` in a loop each produce a
+    // number only a run knows — but the three figures have to agree with each
+    // other, and a hand-edited one usually does not.
+    const [passWithout, skipWithout] = testNumbers(guide, "`npm test`, no database");
+    const [passWith] = testNumbers(guide, "`npm test`, database set");
+    expect(passWithout! + skipWithout!, "the Tests column has to add up").toBe(passWith);
+    // The integration tier run alone is one larger than the skip count, because
+    // one case in it needs no database and runs either way. The guide explains
+    // that difference in prose directly below the table, so the number and the
+    // explanation cannot come apart without this failing.
+    const [integrationTests] = testNumbers(guide, "`npm run test:integration`");
+    expect(integrationTests, "the integration tier against its own skip count").toBe(
+      skipWithout! + 1,
+    );
+    // Whitespace-collapsed, because the sentence is hard-wrapped and the number
+    // sits at the end of a line as often as not.
+    expect(guide.replaceAll(/\s+/g, " "), "the total the prose quotes").toContain(
+      `add up to ${passWith!.toLocaleString("en-US")} both times`,
+    );
     // The skipping files are integration files, so there cannot be more of them
     // than there are integration files. This is the only claim in the run table
     // the filesystem can check about *which* files skip, and it is worth making

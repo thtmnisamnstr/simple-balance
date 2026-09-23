@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -165,6 +166,68 @@ describe("migration baseline", () => {
   });
 
   /**
+   * 0022 is the same shape as 0007 and 0008 — five tables the rest of the
+   * product does not read yet — which is precisely when a migration slips
+   * through unasserted. It is also one of the three on disk that have not
+   * shipped, 0022 to 0024, so its assertions are among the few here that can
+   * still change what a migration says rather than merely describe it.
+   */
+  it("adds the billing tables as pure additions, and cascades all but one", async () => {
+    const sql = await readFile(path.join(migrationDirectory, "0022_plans_and_billing.sql"), "utf8");
+    for (const forbidden of [
+      /\bDROP\b/i,
+      /^\s*UPDATE\s/im,
+      /^\s*DELETE\s/im,
+      /^\s*INSERT\s/im,
+      /\bALTER COLUMN\b/i,
+    ]) {
+      expect(sql, forbidden.source).not.toMatch(forbidden);
+    }
+    // No column is added to a table that already exists, so nothing this
+    // migration does can rewrite a row of somebody's ledger.
+    expect(sql).not.toMatch(/ADD COLUMN/i);
+
+    for (const table of [
+      "billing_customer",
+      "billing_subscription",
+      "billing_override",
+      "billing_operation",
+      "billing_webhook_event",
+    ]) {
+      expect(sql, table).toContain(`CREATE TABLE "${table}"`);
+    }
+
+    // Four of the five carry somebody's data and cascade from auth_user, which
+    // is what makes deleting an account one delete of one row.
+    const cascades = [
+      ...sql.matchAll(/ALTER TABLE "(billing_\w+)" ADD CONSTRAINT[^;]*ON DELETE cascade/g),
+    ]
+      .map((match) => match[1])
+      .sort();
+    expect(cascades).toEqual([
+      "billing_customer",
+      "billing_operation",
+      "billing_override",
+      "billing_subscription",
+    ]);
+    // The fifth deliberately does not: it records which Stripe deliveries have
+    // been answered, which is the deployment's fact rather than any person's,
+    // and cascading it would let a retry be handled twice after an account goes.
+    expect(sql).not.toMatch(/ALTER TABLE "billing_webhook_event" ADD CONSTRAINT/);
+    // One index, and it is the one the reconciliation sweep reads by: staleness,
+    // ordered by staleness, fifty at a time. Without it that query scans the
+    // whole table and sorts it every tick, whether or not anything is due.
+    expect(sql).toContain(
+      'CREATE INDEX "billing_subscription_synced_at_idx" ON "billing_subscription"',
+    );
+    // And none on the delivery log, which is read by primary key alone. An
+    // earlier draft indexed its `created_at` for a retention sweep that was
+    // never written, so the index had no reader and cost a write on the webhook
+    // hot path for nothing.
+    expect(sql).not.toContain('ON "billing_webhook_event"');
+  });
+
+  /**
    * 0007 and 0008 add tables nothing else reads yet, which is exactly when a
    * migration slips through unasserted. Both are pure additions; neither may
    * grow a backfill later.
@@ -254,11 +317,47 @@ describe("migration baseline", () => {
   });
 
   /**
+   * 0024 has not shipped, so it can still be regenerated, and a regeneration is
+   * where this goes wrong without anybody meaning it to. `DEFAULT false` would
+   * make every account on every existing ledger inactive, and on the first
+   * downgrade after the upgrade the ordering would have nothing to stand in
+   * for; a backfill `UPDATE` would rewrite every account row on the way in.
+   * The column's whole safety on an existing ledger is that it arrives true
+   * and costs no rewrite, so that is asserted rather than described.
+   */
+  it("adds the active flag without rewriting a row", async () => {
+    const sql = await readFile(path.join(migrationDirectory, "0024_active_accounts.sql"), "utf8");
+    // The statements, not the prose above them: the header comment names
+    // ADD COLUMN itself, and a check that counted it would be counting words.
+    const statements = sql
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("--"))
+      .join("\n");
+
+    expect(statements).toMatch(
+      /ALTER TABLE "ledger_account" ADD COLUMN "active" boolean DEFAULT true NOT NULL/,
+    );
+    expect(statements.match(/ADD COLUMN/gi)).toHaveLength(1);
+    // A constant default, so the add is metadata-only. A volatile one would
+    // rewrite the table.
+    expect(statements).not.toMatch(/DEFAULT\s+[a-z_]+\s*\(/i);
+    for (const forbidden of [
+      /^\s*UPDATE\s/im,
+      /^\s*DELETE\s/im,
+      /^\s*INSERT\s/im,
+      /\bDROP\b/i,
+      /\bALTER COLUMN\b/i,
+    ]) {
+      expect(statements, forbidden.source).not.toMatch(forbidden);
+    }
+  });
+
+  /**
    * The theme column, and the promise the upgrade notes make about it to
    * operators: that it is metadata-only, so no table is rewritten and nobody
    * waits. That holds only while the default is a constant and the column is
    * added rather than backfilled — a NOT NULL add with a constant default is
-   * filled by PostgreSQL without touching a row, and an UPDATE afterwards would
+   * filled by PostgreSQL without touching a row, and an UPDATE afterward would
    * quietly take that away on a large table.
    */
   it("adds the theme without rewriting a row", async () => {
@@ -343,5 +442,48 @@ describe("migration baseline", () => {
     // The new enum value must not be used in the same migration that adds it.
     const afterEnum = sql.slice(sql.indexOf("ADD VALUE 'schedule'"));
     expect(afterEnum).not.toMatch(/'schedule'::/);
+  });
+});
+
+/**
+ * `0023` is the one migration that decides for itself whether to do anything.
+ *
+ * Its two gates are load-bearing in different directions. The first keeps it
+ * harmless on the `single` and `vps` profiles, which have no Citus and for which
+ * every statement in the file is meaningless or destructive. The second keeps it
+ * harmless on a second run — `docs/citus-runbook.md` tells an operator to feed
+ * this file to psql by hand, which is the supported way to move an existing
+ * database onto a cluster, and without that gate a second run fails on the first
+ * statement whose work is already done.
+ *
+ * Neither can be exercised here: CI has no Citus. So this holds the structure
+ * rather than the behavior, which is worth saying out loud — a gate deleted
+ * from the file is caught, a gate that stops working is not.
+ */
+describe("the Citus migration decides whether to run", () => {
+  const sql = readFileSync(
+    new URL("../drizzle/0023_citus_distribution.sql", import.meta.url),
+    "utf8",
+  );
+
+  it("does nothing without the extension", () => {
+    expect(sql).toMatch(
+      /IF NOT EXISTS \(SELECT 1 FROM pg_extension WHERE extname = 'citus'\) THEN\s+RETURN;/,
+    );
+  });
+
+  it("does nothing on a ledger that is already distributed", () => {
+    expect(sql).toMatch(/IF EXISTS \(SELECT 1 FROM pg_dist_partition\) THEN/);
+    // And says so, rather than returning in silence: an operator who ran it by
+    // hand needs to know the difference between "done already" and "did nothing
+    // because the gate above stopped it".
+    expect(sql).toContain("RAISE NOTICE");
+  });
+
+  it("runs both gates before any statement that changes anything", () => {
+    const firstChange = sql.search(/^\s*execute '/m);
+    expect(firstChange).toBeGreaterThan(-1);
+    expect(sql.indexOf("pg_extension")).toBeLessThan(firstChange);
+    expect(sql.indexOf("pg_dist_partition")).toBeLessThan(firstChange);
   });
 });

@@ -101,7 +101,7 @@ describe("the page stack", () => {
         ...rule.body.matchAll(/(?:^|[;\s])(margin(?:-top|-bottom)?)\s*:\s*([^;]+)/g),
       ];
       for (const [, property, value] of margins) {
-        // `margin: 0 auto` centres a page and sets no vertical distance;
+        // `margin: 0 auto` centers a page and sets no vertical distance;
         // `margin-bottom: 0` is a reset, not a decision.
         const parts = value!.trim().split(/\s+/);
         const vertical = property === "margin" ? [parts[0], parts[2] ?? parts[0]] : [parts[0]];
@@ -264,7 +264,7 @@ describe("a page-scoped class", () => {
    * the reading `.settings-note` never got in 26 uses across four releases.
    */
   const COMPONENTS = new Map([
-    ["account-icon", "An account's coloured glyph, wherever an account is listed"],
+    ["account-icon", "An account's colored glyph, wherever an account is listed"],
     ["budget-display", "The budget section the dashboard and the budgets page share"],
     ["budget-report", "Same section, same reason"],
     ["budget-progress", "The bar inside it"],
@@ -287,6 +287,16 @@ describe("a page-scoped class", () => {
     ["transaction-selection-actions", "Same bar"],
     ["transaction-type", "The deposit/withdrawal/transfer choice, in every form that asks"],
     ["transaction-type-grid", "Same choice"],
+    [
+      "settings-grid",
+      "Settings' two-column card layout, which the plan tab is a second page of rather than a different shape",
+    ],
+    ["settings-column", "One of those two columns"],
+    [
+      "settings-tabs",
+      "The strip across the Settings section, in components.tsx because Settings and the plan tab are two pages of it",
+    ],
+    ["settings-tab", "One tab in that strip"],
   ]);
 
   it("is used on the page it is named for and nowhere else", () => {

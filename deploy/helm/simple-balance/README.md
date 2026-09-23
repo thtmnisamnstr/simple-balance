@@ -14,7 +14,7 @@ would be a second origin the cookies do not belong to.
 
 One container is still the supported way to run this in production. This chart is
 for people who are already running Kubernetes and want the web tier to scale. The
-contract all three deployment artefacts satisfy, and every environment variable
+contract all three deployment artifacts satisfy, and every environment variable
 the application reads, is in
 [docs/deployment.md](../../../docs/deployment.md); this file is the chart, not
 the application.
@@ -109,6 +109,25 @@ The Service publishes no separate port for it and the frontend does not proxy
 it, so a scrape reaches the pods directly — `kubernetes-pods` discovery with the
 usual `prometheus.io/scrape` annotations through `server.podAnnotations` and
 `scheduler.podAnnotations`, or a ServiceMonitor pointed at the existing port.
+
+## Selling a plan and serving ads
+
+Both arrive through `config.extraEnv`, with their secrets in the Secret:
+`SB_BILLING_ENABLED`, `STRIPE_PUBLISHABLE_KEY` and the two
+`STRIPE_PRICE_*_ID` values in `config.extraEnv`, and `secret.stripeSecretKey`
+and `secret.stripeWebhookSecret`. The `ADSENSE_*` ids go in `config.extraEnv`
+too, with `PRIVACY_POLICY_URL` beside them, because the server refuses to start
+with AdSense configured and no policy to link to.
+
+nginx serves every page here, so it decides the content security policy each
+arrives with, and Stripe's payment form and AdSense each need a wider one than
+the rest of the app allows. The chart tells it, the way the compose recipes do:
+a `STRIPE_PUBLISHABLE_KEY` in `config.extraEnv` turns on
+`SB_BILLING_CONFIGURED`, and an `ADSENSE_CLIENT_ID` turns on
+`SB_ADS_CONFIGURED`. `frontend.billingConfigured` and `frontend.adsConfigured`
+turn them on as well, for a key that reaches the pods by a route the render
+cannot read, such as an `existingSecret` or a post-renderer. Without them the plan tab opens with no
+card fields, or every page blocks the script AdSense asks it to run.
 
 ## Everything else
 

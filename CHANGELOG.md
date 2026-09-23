@@ -2,6 +2,761 @@
 
 Notable changes, newest first.
 
+## Unreleased
+
+**This release upgrades cleanly from 0.1.6.** Every new setting is additive and
+every one of them defaults to absent, so a deployment that changes nothing sells
+nothing, limits nobody, shows no advertising, and opens no connection it did not
+open before. No route, tool or CSV column is removed.
+
+### Added
+
+**An `ha` deployment profile: PostgreSQL sharded with Citus, run by Patroni.**
+`deploy/helm/` now provisions the database as well as the application — a
+StatefulSet per Citus group, the coordinator and its workers, each a primary with
+streaming standbys. Synchronous replication is on by default, because a
+promotion that loses an acknowledged transaction is not something a ledger can
+offer; it falls back to asynchronous rather than refusing writes when no standby
+is available. Citus supplies no high availability of its own, so Patroni is what
+promotes, and it registers each node with the cluster unaided. Off unless
+`database.enabled` is set: every deployment that does not ask for it keeps the
+`DATABASE_URL` it already had. `docs/citus.md` is what distributing the ledger
+costs and `docs/citus-runbook.md` is how to run it — adding a worker,
+rebalancing, what a failover does, and how to move an existing database onto a
+cluster.
+
+**A `vps` deployment profile: one machine per service, database included.**
+`deploy/compose/vps/` is a compose file per machine, with the firewall written as
+a table of rules between them, what DNS has to resolve before a certificate can
+be issued, and the order to start them in. The smallest shape that owns its whole
+stack: nothing in it is somebody else's managed anything. The API and the
+scheduler share one file selected by a Compose profile, because they are the same
+application differing only in which half they run. Each file pins its image to a
+release written out in full, so moving to another is that tag changed to the
+same value on every machine, and the firewall table lets the scheduler as well as
+the API reach Stripe, because the reconciliation sweep runs there.
+
+**A PostgreSQL image this project builds, for the profile that needs one.**
+`deploy/docker/citus.Dockerfile` is PostgreSQL 18 pinned by digest with Citus
+14.2.0 compiled from a checksummed source tarball, published for both
+architectures. It exists because the one arm64 image Citus publishes is musl, and
+musl compares text byte by byte whatever collation is declared — which is what
+category and payee uniqueness in this application rests on. Its tag names Citus
+and PostgreSQL rather than this release, and there is deliberately no `latest`: a
+major version cannot read the previous major's data directory, so a floating tag
+on a database turns an image pull into an outage.
+
+**A capacity proof, reproducible from this repository.** `docs/capacity.md` is
+the claim — ten thousand people's ledgers on the smallest machine the `single`
+profile sells, answered inside stated times — and `scripts/capacity/` is what
+produces it: a generator that builds thirty million transactions and sixty-six
+million postings in SQL, a driver that applies an hour of graded load, and the
+thresholds both are held to. The generator writes SQL because thirty million
+entries through the service is a load test rather than a setup step, so it ends
+by proving what the service would otherwise have enforced: every currency
+settles to zero, every individual's books settle to zero, every posting names an
+account of its own owner and currency, and every entry moved the amount it says
+it moved. It refuses to finish otherwise, because a number measured against a
+ledger that does not balance is measuring rows the application could never have
+written.
+
+**A `single` deployment profile: one machine, and a database it does not run.**
+`deploy/compose/single/` runs the application container against a `DATABASE_URL`
+you supply — a managed PostgreSQL, or one of your own — with an overlay that adds
+Caddy and automatic TLS, and container logs capped so they cannot fill a boot
+disk. The two profiles that do own their database run PostgreSQL 18; this one
+states a floor of 15 instead, because it connects to whatever you already have.
+`deploy/systemd/` makes it a service that survives a reboot, with a daily
+`pg_dump` that is verified by being read back before it is kept, and a restore
+that refuses a dump it cannot parse before it touches the database.
+`deploy/pulumi/aws-single/` and `deploy/pulumi/oci-single/` stand the same thing
+up on one EC2 or Oracle Cloud instance. Neither provisions a database: the
+`DATABASE_URL` goes on the machine, in `/var/lib/simple-balance/env.local`, and
+their output walks through it. A data disk that outlives the machine holds the
+nightly backups, that file and the generated secret, so replacing the machine
+destroys the root volume and keeps all three; a resize is made in place.
+Neither carries a secret: `AUTH_SECRET` is generated on the machine at first
+boot and kept on that disk, so it is in no user data and no state file. Three
+new documents say which profile to pick, how big a machine has to be, and what
+it costs.
+
+On those two machines a setting is an edit to `env.local` and then
+`sudo systemctl restart simple-balance`, which is what every instruction they
+print says: a drop-in the machine is built with runs
+`/usr/local/sbin/simple-balance-env` before each start and folds the file into
+the `.env` Compose reads. The shared unit in `deploy/systemd/` carries no such
+step, so a machine installed by hand edits `/opt/simple-balance/.env` and
+restarts, as before. Running `simple-balance-firstboot` again on a live machine
+applies its settings too, because it ends with a restart. The Oracle program
+takes `simple-balance:availabilityDomain` — a full name, or a number from 1 —
+for the launch that fails with `Out of host capacity`, and
+`simple-balance:databaseSubnet` for a private subnet an Oracle database can sit
+in. It requires `simple-balance:sshPublicKey`, and reaches the machine through
+OCI's Bastion unless `simple-balance:sshCidr` opens port 22 to one address. Its
+public address is ephemeral, and a rebuild changes it.
+
+**`SB_TRUSTED_PROXY_CIDR`, without which every visitor shares one sign-in
+allowance.** The frontend container tells the API which address a request came
+from, and behind anything terminating TLS that address was the terminator — the
+same value for everybody, so four wrong passwords from anywhere locked out the
+rest of the world. Set this to the range the terminator connects from and the
+visitor's own address survives the hop. It defaults to loopback, which is the
+off position: nothing reaches the container from there, so a deployment that
+sets nothing behaves exactly as it did before. Under Kubernetes the chart prints
+a warning while it is unset and `config.trustProxy` is on, replacing a note that
+told operators to edit the nginx template and rebuild the image — which nobody
+using a published image could do.
+
+**A plan, sold through Stripe, off by default.** Setting the five `STRIPE_*`
+variables makes Stripe reachable; `SB_BILLING_ENABLED=true` puts a plan on sale
+and holds a free account to three financial accounts. The two are separate
+switches so that winding a deployment down stops new subscriptions without going
+deaf to the ones already running — the state in which somebody is charged for a
+plan the app no longer believes they have. `docs/monetization.md` has the table
+of what each combination turns on, and `docs/billing-operations.md` is the
+runbook: setting the Stripe account up in order, going live from test mode,
+granting a plan by hand, what a refund does and does not change, and the order
+to shut billing down in. This release collects no tax, and the fee arithmetic
+in `docs/monetization.md` counts none.
+
+**No advertising on the plan and billing tab**, enforced in the shell rather
+than by the policy. The policy is the obvious place and the wrong one: under
+`SB_CSP_REPORT_ONLY` — the mode an operator is told to run on exactly that page
+— nothing there is enforced, so a slot left mounted would have put live ads
+beside the payment form on the page that sells their removal.
+
+**The ads policy carries what Google's consent message needs.** It does not
+render in an iframe: it appends into the document and styles itself from
+injected blocks and a Google font stylesheet, so under `style-src 'self'` it
+appeared unstyled far down the page, nobody answered it, and in the EEA and UK
+no ad request completed — which looks exactly like having no inventory. It needs
+a referrer as well, and Google's own troubleshooting says it does not serve under
+the `same-origin` this app sends everywhere. So the pages that can carry an ad
+send `strict-origin-when-cross-origin`, the browser's own default: another
+origin is told this site's address and never a page's path, so the record ids
+in a URL still stay off every `Referer`. The plan tab keeps `same-origin`.
+
+**Advertising, off unless an operator asks for it.** Setting `ADSENSE_CLIENT_ID`
+and `ADSENSE_BANNER_SLOT_ID` shows one unit in the application shell, and an
+optional second at the bottom of the page. Never on the plan and billing tab,
+never on sign-in, and never to anybody on a paid plan — and only where a plan is
+for sale, so AdSense on a deployment with `SB_BILLING_ENABLED` off widens the
+policy, serves `/ads.txt` and shows nobody an ad. The process says so at every
+start rather than refusing. `PRIVACY_POLICY_URL` is required beside the ids,
+and `docs/monetization.md` holds the one ordered checklist for turning ads on,
+from the AdSense account to checking both `ads.txt` files.
+
+**The server decides who sees an ad, and the browser is never told the rule.**
+A session that should show no ads carries no ad configuration at all, so the
+page has nothing to build a slot from rather than a rule it has to apply
+correctly. That closes both ways this usually goes wrong: the gate cannot be
+written as the inverse of "is on Premium" — which would show ads to every paying
+subscriber on a deployment that had _stopped_ selling, since nobody is on a
+limited plan there — and there is no window between first paint and the
+entitlement arriving. Absent reads as "no ads", so every bug in this fails
+toward showing nothing. Google's script is fetched by the first slot that
+mounts rather than by the document, so a subscriber never loads it, is never
+counted as an impression, and is never tracked by it.
+
+**The publisher id reaches the browser at runtime**, on the session response,
+the same path `STRIPE_PUBLISHABLE_KEY` already takes. One published image serves
+every operator with their own account; nothing is compiled in, and there is no
+shared publisher id.
+
+**Ads are requested non-personalized unless a consent platform is collecting
+consent.** `ADSENSE_CONSENT_MANAGED` defaults to false, and then every request
+carries `requestNonPersonalizedAds` — which is what lets a deployment serve ads
+with no consent platform at all, since Google gates only _personalized_ ads on
+one. It is also the right default on its own merits: the page beside the ad is
+showing somebody their own balances.
+
+An operator who wants personalized ads uses **AdSense's own Privacy and
+messaging**, which is a certified platform, free, and part of the account they
+already have — no second vendor, no second contract, and nothing added to this
+application, because Google's ad tag delivers the consent message itself and
+that tag is already loaded by the first ad slot that renders. The setting then
+stops forcing the flag and lets the platform's answer decide, which is the whole
+point: forcing it on top of a platform would override somebody who consented as
+surely as it protects somebody who did not.
+
+**`/ads.txt` is served automatically**, derived from the publisher id. Without
+it AdSense treats the inventory as unauthorized and pays nothing, which is a
+failure with no symptom inside the product: the ads render, the impressions
+happen, the revenue is zero. An operator selling through other partners serves
+their own file at the edge.
+
+**What serving ads costs the policy is now real rather than promised.** AdSense
+publishes no list of the hosts it loads from, so allowing it means allowing
+scripts, frames and connections to any HTTPS origin, plus `unsafe-eval`, on
+every page but the plan tab. That was documented for a release before it was
+implemented — the settings were accepted, the cost was described, and the app's
+own policy blocked every unit. Both transports carry the axis now, and
+`tests/security-header-parity.test.ts` compares them. `'unsafe-inline'`,
+`base-uri`, `form-action`, `frame-ancestors` and `object-src` are unchanged.
+
+**A tab strip across Settings**, with Preferences and Plan and billing as two
+pages of one section. It navigates with plain anchors rather than the client
+router, which is the one place in the app that does: the two pages are served
+under different content security policies, and a policy belongs to the document
+it arrived with. Leaving the plan tab is a document load too, however it is
+reached — otherwise its wider policy would follow you onto every page that
+renders balances.
+
+**`SB_BILLING_CONFIGURED` on the frontend container.** In the split deployment
+nginx serves the plan tab's document, so nginx decides which content security
+policy it arrives with. It is keyed on whether Stripe is _configured_, not on
+whether a plan is for sale — an operator winding down keeps the Stripe settings
+while their subscribers go on being charged, and replacing an expired card has
+to keep working on that page. The compose recipe derives it from
+`STRIPE_PUBLISHABLE_KEY` so the two cannot disagree.
+
+**`SB_CSP_REPORT_ONLY`, a rehearsal for the plan tab's policy.** That policy is
+Stripe's published set for Stripe.js and its set for Link, plus four hosts this
+project added — `*.hcaptcha.com`, `m.stripe.com`, `q.stripe.com` and
+`errors.stripe.com` — and whether a live account contacts those four has not yet
+been observed, because no live account has run the form. Setting this makes that
+page report what its policy would have blocked and block nothing, and registers
+`POST /api/csp-report` for the reports. It reaches that one page: every other
+page goes on enforcing, because learning about a page that renders no balances
+is not worth taking the defense off every page that does. That includes every
+page that can carry an ad, so it reports nothing about AdSense; what the ads
+policy refuses is read from the browser console on a page with an ad. Both
+deployment shapes honor it, and `tests/security-header-parity.test.ts` now
+compares the TypeScript and the nginx spelling across both surfaces and both
+modes — a comparison that ran only for the default surface before, which is how
+the split deployment shipped a plan tab whose payment form could not load.
+
+**A plan and billing tab, at `/settings/plan`.** It shows what the account
+includes, how much of it is used, what it costs — read from Stripe, not from
+this deployment's settings, so the figure on the screen is the figure that gets
+charged — and changes it. Monthly to annual takes effect immediately and charges
+the difference; annual to monthly waits for the renewal, because the period
+already paid for is not this software's to cut short. Canceling always means
+"at the end of the period", in both directions.
+
+The tab is a separate document rather than a panel on Settings, and the link
+into it is a plain anchor. Stripe's payment form loads a script and an iframe
+from Stripe, which every other page in this app forbids, and a content security
+policy belongs to the document it was served with — so a client-side navigation
+would keep the strict policy and the form would never appear. Every other page
+keeps the `default-src 'self'` policy this container has shipped since 0.1.0,
+byte for byte. Stripe's script loads on that tab alone, and only once there is
+something to confirm, so no other page fetches it — sign-in included — and
+Stripe's fraud-prevention cookies are set nowhere else.
+
+A failed renewal keeps Premium for fifteen days from the failure while Stripe
+retries, which is sized to Stripe's recommended default of eight tries within
+two weeks with a day over for a late webhook; a retry window of three weeks or
+more outlasts it. While a renewal is failing the tab offers **Pay now**, which
+confirms the open invoice in the page — the way to pay, from here, a charge the
+bank wants authenticated, since a replaced card pays off-session and 3-D Secure
+refuses exactly that. It works while nothing is for sale too, and so does
+**Pay what is owed** on an unpaid subscription: paying an invoice that already
+exists sells nothing. Asking an unpaid subscription for the other interval is
+not a payment but a switch scheduled for the renewal, so it is refused then like
+every other change of interval. Letting go of a switch still waiting sells
+nothing either, and the tab keeps a button for it. `GET /api/v1/billing` reports
+`subscription.payable`, and the tab offers a pay button only where it is true,
+so **Finish your payment** on an unfinished first subscription is hidden while
+nothing is for sale. `docs/billing-operations.md` §Setting up Stripe says which
+Stripe settings to match it with, what each "if all retries fail" choice looks
+like here, and how to go live from test mode.
+
+**The two price ids are checked against the plans they are sold as.** Each has
+to be recurring, bill every one month or every one year to match its setting, be
+active while a plan is for sale, and sit in the secret key's own mode, and the
+two have to share a product and a currency. A `price_` prefix is all the
+configuration check can see, and swapped ids, a one-time price or a test price
+beside a live key each pass it and go unnoticed until somebody is charged the
+wrong amount or checkout fails. So where one does not fit, the log says what is
+wrong, `GET /api/v1/billing` reports nothing for sale, and starting a
+subscription answers `409` and charges nobody until the prices are fixed;
+replacing a card, canceling, paying a renewal's open invoice and letting go of a
+pending switch go on working. A Stripe that cannot be reached to check is a
+warning and refuses nothing. The check runs at startup in both the API and the
+scheduler, so a wrong id is in the log before anybody opens the plan tab, and
+again whenever the prices are read, before every subscription is started, and on
+every reconciliation sweep.
+
+**Five billing routes**, all session-only. `AGENTS.md` now names three MCP
+exceptions rather than two: paying for the deployment is account management, and
+an MCP token is a credential handed to a program. What an agent needs in order to
+explain a refusal it meets — the plan, its ceiling and how much of it is used —
+is on `whoami`.
+
+**A reconciliation sweep**, on the scheduler's existing tick. Every live
+subscription is re-read from Stripe when nothing has been heard about it for
+twelve hours, fifty per tick, oldest first, so a webhook endpoint that was
+misconfigured for a weekend repairs itself within a day of being fixed. It
+returns without touching the database where no Stripe is configured, which is
+the default.
+
+**Two metrics for the Stripe seam** — `simple_balance_stripe_requests_total` and
+`simple_balance_stripe_request_duration_seconds`, labeled by operation and
+outcome and by nothing else — and `simple_balance_billing_sweeps_total`, which
+carries an `off` outcome so a deployment that sells nothing is distinguishable
+from one whose sweep has stopped.
+
+### Changed
+
+**A free plan now freezes the accounts it cannot keep active, instead of
+letting you keep using all of them.** Somebody who drops to the free plan
+with more than three accounts keeps every one of them and chooses three to
+keep using. The rest are frozen: still listed, still readable, still
+counted in every balance, report and export, and closed to every change — no
+new entry, no edit, no delete, not even a rename. Choosing is one operation
+over the whole set, `PUT /api/v1/accounts/active` or `set_active_accounts` for
+an agent, because swapping which three are live is one decision and a switch
+per account would make somebody pass through a state their plan forbids.
+Nothing is frozen on a deployment that sells nothing, which is every install
+arriving from 0.1.6 — but turning selling on freezes, at once, every account
+past the oldest three of anybody who has more, so `docs/upgrades.md` says to
+grant an override first to whoever should keep them all.
+
+A frozen account says so everywhere it can be reached. Its own page carries a
+Frozen badge and no Add transaction, a new entry never defaults to one, a CSV
+import neither defaults to one nor offers one, and the account pickers in both
+bulk edits leave frozen accounts out; where every account is frozen, Add
+transaction is disabled with the sentence the server would refuse with, and the
+import page says so instead of offering a form.
+
+**The choice is made once.** An account you are using stays that way until you
+archive or delete it, and only then can a frozen one take its place. Parking
+one to make room for another would be having them all a few minutes at a time,
+which is the same as not having a limit. The cap counts the accounts you are
+using rather than every account you ever opened, so archiving or deleting one
+really does free a place — and coming back out of the archive needs a free
+place too, which is what keeps the quota from being cycled. A restored account
+takes that place and arrives in use, and while none is free the Accounts page
+disables Restore with the refusal's own sentence. Creating, archiving,
+restoring, deleting and choosing all hold one lock over the person's accounts,
+so two requests racing for the last place cannot both have it.
+
+There is no choice while nothing is frozen. On a plan with no limit, or while
+every live account fits within the one there is, `set_active_accounts` and
+`PUT /api/v1/accounts/active` answer `409`, except for a list naming exactly the
+accounts already active, which changes nothing and succeeds. Accepting a set
+then would be a capability only an agent had, since the Accounts page shows no
+chooser there, and a choice written on the paid plan would bind silently at the
+next downgrade. The tool is annotated destructive, so a client may ask the
+person before it runs: while the choice is open it decides which accounts they
+keep, and its description tells an agent to confirm that with them first.
+
+You are asked again when the question changes. A spell on Premium leaves any
+account you opened while the limit was lifted sitting beside a choice you made
+about a smaller ledger, so the next lapse puts the choice back rather than
+freezing an account nobody ever asked you about. Archiving one of the ones you
+are using is the other case and is not the same: that frees a place, and only
+a place. Whenever the live accounts fit within three, every one is marked in use
+again, on any plan — after an archive or a delete, and before a create or a
+restore — so a column left saying "not in use" about an account somebody was
+using cannot close the choice at the next lapse and freeze that account instead
+of a new one.
+
+Frozen is worked out rather than stored. `0024_active_accounts.sql` adds the
+*choice*; `frozenAccountIds` combines it with the entitlement, and it has to be
+that way around because entitlements change with nobody present — an override
+expires at a moment no code observes, and a deployment that stops selling
+answers "no billing" while Stripe goes on charging its subscribers. Until
+somebody chooses, the oldest of the accounts marked in use stay usable and the
+rest are frozen. The first time a plan limits somebody, every account is marked
+in use, so those are the oldest of them all. That costs no write at all, and it
+is what makes a subscription lapsing at three in the morning correct rather than
+merely handled.
+
+**The Overview and the Reports page lead with your own currency.** Both group
+money by currency and both sorted the groups by code, so somebody holding
+dollars and a euro account kept for one trip met the euros first — at the top of
+the Overview, where the first heading is the largest figure on the page. The
+currency set in Settings now leads and the rest follow alphabetically behind it.
+Only the order changes: every figure is what it was, and no total, balance or
+report value moves. The rule is `compareCurrencies` in `src/shared/domain.ts`,
+asked by both pages, because two screens ordering the same ledger differently is
+a defect even when both are right.
+
+**Every profile that deploys a database now deploys PostgreSQL 18.** Two
+questions were being answered as one. What this application will *connect* to is
+a floor and it has not moved: PostgreSQL 15 and up, so a deployment already on 15
+or 16 keeps working and is not asked to move. What we *deploy* where the
+deployment owns the database is a choice, and it is now the newest version all
+three shapes can share. The cluster decides it: Citus 14.2 is the newest Citus
+and accepts 16, 17 and 18. Every release is now tested against both ends rather
+than the middle.
+
+**Three migrations run at startup, and on one PostgreSQL none rewrites a row.**
+`0022_plans_and_billing.sql` creates the five billing tables and alters nothing
+that exists. `0024_active_accounts.sql` adds `ledger_account.active` with a
+constant default of true, which is one catalog change on any PostgreSQL this
+release supports, and every existing account arrives marked active.
+`0023_citus_distribution.sql` does nothing on most deployments: it distributes
+the ledger across a Citus cluster and is gated on the extension being installed,
+so the `single` and `vps` profiles record it as run and keep the schema they had.
+All three were verified on PostgreSQL 15 and 18, from an empty database and from
+one 0.1.6 left: twenty-five migrations recorded, and every primary and foreign
+key exactly as `0022` left it. On a cluster `0023` rewrites fourteen primary keys
+to carry the owner, rebuilds the indexes on them, and drops five unique
+constraints the new key makes redundant. It is one transaction: it either
+distributes everything or changes nothing, and it is safe to run twice — a second
+gate stops it on a ledger that is already distributed and says so, because moving
+an existing database onto a cluster means running this file by hand.
+`docs/upgrades.md` has what each means for rolling back.
+
+**Deleting a category group no longer depends on which foreign key is
+installed.** The service cleared the categories' group by leaving it to
+`on delete set null`, which a Citus cluster cannot use when the distribution
+column is part of the constraint. It now clears the column itself, which is
+identical behavior on a single database and the difference between working and
+failing outright on a cluster.
+
+**The release script is no longer told which files pin an image; it is asked.**
+Both halves of the check walked a hardcoded pair, so a third file pinning one of
+this project's images was checked by nothing — it would pass the suite while
+quietly deploying whatever release it was written during. `tests/version.test.ts`
+now sweeps the repository for pinned references and fails until `set-version`
+rewrites every file carrying one. Adding the `single` profile found the gap
+immediately, which is the point.
+
+It writes twenty-two files now, and the test runs it over a scratch copy of every
+one of them to prove it, rather than only reading the tree afterward. Two sets
+had been out of its reach. The `vps` profile pinned its images as
+`${SB_VERSION:-0.1.6}`, which neither the rewrite nor the sweep could see, so a
+cut would have left it deploying 0.1.6; the pins are written out now and the
+sweep refuses that spelling. And the product kit in `docs/product/` names the
+release it describes, which nothing wrote, so the first cut would have failed
+three kit tests with nothing in the procedure saying why. `set-version` stamps
+the kit rather than rebuilding it, which is honest only because `release-prep`
+rebuilds it on the tree being cut — so `docs/upgrades.md` §Cutting a release now
+asks for that check, and for the step that gives the provisional upgrade note
+its number and opens the next one.
+
+**Pressing a plan button means one of seven things, decided in one place.**
+The browser previews that decision and the server enforces it, from the same
+function, the way refunds already work. It arrived after an adversarial
+audit found four defects in the branch it replaces, all of them in corners no
+test covered: an unpaid subscription handed back the wrong interval's invoice,
+so pressing "Monthly — $3" could charge $30; a second downgrade press sent
+Stripe a request it refuses, leaving the plan tab with no working control at
+all; somebody on a price the deployment had stopped selling was read as
+"Monthly" and could be charged immediately for a switch that should have waited;
+and an upgrade on a card that was already failing added a proration charge on
+top of the invoice it was failing. `tests/subscription-action.test.ts` walks
+every Stripe status against both intervals.
+
+**Replacing a card now replaces the card.** Confirming a SetupIntent attaches a
+payment method to the Stripe customer and changes nothing about what is billed —
+a subscription's own default outranks the customer's — so the new card sat
+unused while Stripe went on retrying the dead one. The browser also confirmed it
+with `confirmPayment`, which Stripe.js refuses outright for a SetupIntent. Both
+halves are fixed, the server pins the card and pays the outstanding invoice, and
+there is a `/api/v1/billing/payment-setups/confirmations` route and a
+`setup_intent.succeeded` delivery so neither a closed tab nor an unsubscribed
+webhook endpoint leaves it half done.
+
+**The split deployment serves the plan tab's policy.** nginx serves the
+application shell itself in that shape rather than proxying it, so the content
+security policy the plan tab arrives with is nginx's to set — and it was serving
+the strict one, which blocks `js.stripe.com`. The payment form could not load at
+all. `SB_BILLING_CONFIGURED` now reaches the frontend container, and both spellings
+of the path get the wider policy, because the browser's router renders the tab
+for `/settings/plan` and `/settings/plan/` alike.
+
+**Stopping selling no longer hides the way out.** `/api/auth/methods` reports
+`billingAvailable` from whether Stripe is configured rather than from whether a
+plan is for sale, so turning `SB_BILLING_ENABLED` off stops new subscriptions
+without boarding up the only link to the page where somebody cancels or replaces
+an expired card — while Stripe keeps charging them.
+
+**Deleting an account fails closed on money.** The Stripe customer is deleted
+first, which cancels everything it owns, and the account deletion is refused
+with a `409` if that cannot be confirmed: when Stripe cannot be reached, and
+when a key that cannot vouch for it says there is no such customer, as a test
+key says of every live one. The `billing_customer` row cascades away with the
+account, so a subscription that outlived the deletion would belong to nobody:
+still charging a card, invisible to the sweep, unreachable from anything left in
+the database.
+
+**`STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` take a `_FILE` form**, joining
+the seven that already did and taking that list to nine.
+
+**`/api/billing/*` answers `404` rather than the single-page shell.** A webhook
+aimed at a misspelled path used to get a `200` and an HTML body, which Stripe
+records as delivered — a missed delivery nothing ever retries.
+
+**The plan tab's policy carries Stripe's Link hosts, and its opener policy lets
+Google Pay finish.** The Payment Element offers Link by default once the domain
+is registered with Stripe, and `link.com` and `*.link.com` were missing from
+`frame-src` and `connect-src`, so a payer with a Link account would have watched
+the sign-in fail halfway through the form. And that page alone now sends
+`Cross-Origin-Opener-Policy: same-origin-allow-popups`, because `same-origin`
+severs a popup from its opener and Google Pay, where it completes in a popup,
+needs that link to hand the payment back. Both transports carry both, and
+neither has yet been watched against a live account.
+
+**Under Helm, the frontend's billing and ads switches follow the settings.**
+The frontend is told Stripe is configured when `config.extraEnv` carries a
+non-blank `STRIPE_PUBLISHABLE_KEY` or `frontend.billingConfigured` is true, and
+told ads are configured the same way from `ADSENSE_CLIENT_ID` and
+`frontend.adsConfigured`, as the compose recipes already derive them. Left to
+agree by hand, either one disagreeing is a plan tab with no card fields or an ad
+slot the frontend's policy blocks, with nothing in the pods to say why; refusing
+the render instead would have refused a values file 0.1.6 accepted. The two
+switches stay for a key kept in an `existingSecret`, which the render cannot
+see. The list of keys an `existingSecret` may carry now names `METRICS_TOKEN`,
+`STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` as well.
+
+**The `aws` and `gcp` Pulumi programs take the trusted-proxy range**, as
+`simple-balance:trustedProxyCidr`, passed to the chart's
+`frontend.trustedProxyCidr`. It is not the whole fix on either cloud as those
+programs build them, and `deploy/pulumi/README.md` says what else each needs.
+Neither program has a billing or ads setting; enabling either means editing
+`deploy/pulumi/common/index.ts`, which the README spells out.
+
+**An import, a recurrence's proposals and a staged commit read the plan once,
+not once a row.** Freezing made every row's validation ask which plan is in
+force and which accounts are frozen, which roughly doubled the cost of each row
+on a deployment that sells a plan. They are read once per batch now, after the
+batch's locks, and a test counts the reads.
+
+**The app reads as American English wherever a person or an agent reads it.**
+The spelling sweep changed words by a map, and a map cannot see an idiom, so a
+few survived on screen and in what an agent is told. "Tick the box" is "Check
+the box" on Staged transactions and Budgets, a budget whose amount is derived
+shows "Calculated" rather than "Worked out", both weekend hints say "Monday
+through Friday", the budget form's errors say "percent", the reminder mail says
+"one-time", and the tool descriptions an agent reads say "every two weeks",
+"at once" and "one-time" where they said otherwise. No argument, field or
+stored value changed, so a client that worked still works; only the text it
+is shown moved. The page declares `lang="en-US"`, and
+`tests/american-wording.test.ts` holds the phrases it lists at zero across
+`src`, `index.html` and the product kit.
+
+**A reminder's time is written the way the reader's clock writes it.** The
+templates list and the reminder preview in the template form printed the stored
+`HH:MM` as it was, so a 24-hour "18:30" sat beside a date written the reader's
+way. Both now format it in the browser's locale: "6:30 PM" in the US, "18:30"
+where a 24-hour clock is the habit. The stored value, and the `time` field over
+HTTP and MCP, stay `HH:MM`.
+
+**The guide has a Plans section, in the words the screens use**, and the how-to
+walks through choosing which accounts stay usable. `tests/product-facts.test.ts`
+holds that section to the labels and the limit `docs/product/facts.json`
+publishes and to `BILLING_GRACE_DAYS`, and refuses any other number word there
+from zero to twenty but the count of plans and the pronoun "one", so a change to
+a label, the limit or the grace cannot leave the guide behind. The MCP guide
+names three things an agent cannot do rather than two.
+
+**`docs/product/facts.json` names no `$schema`**, because no address serves
+one and anything that followed it met a 404 page. `tests/product-facts.test.ts`
+now compares the whole file with what `scripts/build-product-facts.mjs` writes,
+rather than only the fields it names, so a hand edit fails. The marketing
+site's copy loses the key on its next sync.
+
+### Fixed
+
+**A restore into PostgreSQL 15 or 16 no longer empties the ledger.** From 17
+on, `pg_restore` opens every restore with `SET transaction_timeout = 0`, which
+an older server does not have, and `simple-balance-restore` found that out
+after it had dropped the database — leaving it empty and the application
+stopped, on a server version the `single` profile supports. The script now asks
+the server's version before it touches anything and, for an older server,
+renders the dump to SQL, takes that one statement out and loads the rest in a
+single transaction. Proved against a real PostgreSQL 16 with the postgres:18
+client. It also reads `/etc/default/simple-balance` now, so the application it
+restarts keeps the Caddy overlay's `TRUST_PROXY`.
+
+**Two presses of a plan button no longer make two subscriptions.** The
+per-user lock was held across Stripe, but the new subscription was stored only
+after it was let go, so a second press waiting on the lock — a reload while
+Stripe was slow, a second tab — found no subscription and made another, and the
+person could pay both. The subscription is stored before the lock is released,
+and the second press resumes the first.
+
+**A payee's name never reaches Google.** The payee view is addressed by the
+payee's name, and every link on it forwarded the query string, the sidebar
+included, so one click to the overview put a person's name and who they pay
+into an ad request's page address. No ad slot mounts while the page's address,
+or the one it was opened from, carries a payee name, and no link leaving that
+view forwards it.
+
+**The PostgreSQL 16 to 18 procedure for `compose.distributed.yml` can be run as
+written.** Every command in it named no compose file, in a directory that holds
+more than one, so the first failed and left an empty dump behind; the last
+brought the old images back up. It names the file once and builds the release.
+
+
+**Turning AdSense on no longer stops a compose deployment from starting.** No
+compose shape passed `PRIVACY_POLICY_URL` to the application, and the server
+refuses to start with the AdSense ids set and no policy — so following the
+instructions crash-looped the API and the scheduler on `single`, `vps` and the
+split recipe alike, the Oracle and AWS machines included. All three pass it now.
+`tests/env-example.test.ts` holds every compose file that runs the server to
+exactly the names `src/server` reads, in both directions, which is the check
+that would have caught it.
+
+**`DIRECT_DATABASE_URL` now reaches the containers**, for the same reason and
+through the same test. The split recipe never passed it, so a deployment behind
+a pooler that set it got no bypass and no word about it. A pre-existing defect
+rather than anything this release introduced.
+
+**The `vps` profile's mail settings had the wrong names.** It passed
+`SMTP_SECURE` and `SMTP_FROM`, which the server does not read, so configuring
+mail refused to start both application machines. They are `SMTP_SSL` and
+`MAIL_FROM`, as everywhere else, with no alias because the profile has not been
+released; the file also passes the Google, `SETUP_TOKEN` and `MAIL_REPLY_TO`
+settings it had left out.
+
+**Neither single-machine Pulumi program could launch a machine.** Oracle caps
+instance metadata at 32,000 bytes and the user data was 67 KB; EC2 caps it at
+16,384 and it was 50 KB. Both now send it gzipped, with whole-line comments taken
+out of the files it carries, and `pulumi preview` refuses a document over either
+ceiling rather than letting the launch find out: about 8.7 KB on Oracle and
+5.9 KB on AWS. The Oracle program also asked for a 20 GB data volume, under
+Oracle's 50 GB minimum, and now asks for at least 50 — `small` is still inside
+the free tier. And its default stack had no way in, so it now requires an SSH
+key and admits port 22 from its own subnet for OCI's Bastion. A later
+`pulumi up` leaves either machine alone; an upgrade or a setting is applied on
+it.
+
+**The nightly backup could not dump a TLS database.** The application needs
+`sslmode=no-verify` for a managed PostgreSQL whose certificate names a private
+authority, and `pg_dump` refuses that value. The backup and the restore now hand
+libpq `sslmode=require` in its place and drop the parameter libpq does not know.
+`verify-full` still cannot work for backups there, because the `postgres:18`
+client image carries no CA bundle, which is why the profile recommends
+`no-verify`.
+
+**The nightly backup no longer starts a deployment somebody stopped.** Its unit
+bound itself to the application's, so the 03:15 timer brought a stopped
+deployment back up in order to back it up. It now requires the deployment to be
+running already, and fails instead.
+
+**Trying the plan in test mode and then going live no longer strands the
+tester.** The rows test mode wrote named a customer and a subscription no live
+key can read, so the tester kept Premium for nothing, could never subscribe for
+real, and the sweep retried the dead rows forever. A customer Stripe reports
+deleted, or missing once a live key has found both prices in live mode, is now
+forgotten and a new one made at the next subscription; the sweep marks a
+subscription Stripe has no record of canceled under the same condition. A "no
+such customer" or "no such subscription" from a test key, or from a key for the
+wrong account, drops and cancels nothing: to either one every live customer is
+missing, and believing it would end every paying subscriber's plan. Nor can
+either confirm that an account being deleted leaves nothing charging, so the
+deletion is refused, with a message that says so rather than one promising a
+retry. Never point a live deployment at test keys, then. Nothing is canceled,
+but nobody with a live customer can subscribe, replace a card or delete their
+account until the live keys are back, and the store stays open to anybody else
+with Stripe's public test card. `docs/billing-operations.md` §Going live, or changing Stripe account has
+the steps that make it immediate.
+
+**The sweep no longer stalls behind rows Stripe cannot answer about.** A row
+that failed kept its old `synced_at`, so it stayed at the head of the
+oldest-first queue, and fifty of them were every row the sweep would ever read.
+A failure now stamps the time the attempt began, so the row is tried again after
+the same twelve hours as everything else.
+
+**A card saved while Stripe was failing is no longer forgotten.** The
+`setup_intent.succeeded` delivery was claimed before the calls that pin the card,
+so one transient failure left it claimed and never retried. The card is pinned
+first and the delivery claimed after, and a late delivery for a card that has
+since been replaced is claimed and ignored rather than pinning the older card.
+
+**A second change of plan interval no longer fails with an error the person
+cannot clear.** A move that waits for the renewal is made on a subscription
+schedule, and Stripe refuses a new one while another exists — a switch still
+pending on a price this deployment has stopped selling, or one made in Stripe's
+dashboard — so the second press answered `500`. Any existing schedule is
+released first now.
+
+**An upgrade whose charge the bank wants confirmed now asks for it.** Moving from
+monthly to annual charges the difference at once, and when that charge needed
+3-D Secure the subscription went `past_due` with no form to confirm it in. The
+upgrade's own answer now carries the open invoice's secret, and the tab confirms
+it there.
+
+**The forecast read every tenant's budget plans, not just yours.**
+`/api/v1/forecast` joined a budget plan to its category on the category id alone,
+with no owner, while every equivalent query carried one on both sides. It was
+unreachable on a single database — two people cannot hold the same category id
+while the key is the id alone — and became reachable the moment the ledger was
+distributed, which is how it was found. Scoping the join fixed a tenancy hole and
+a cluster failure in the same edit.
+
+**Waiting for PostgreSQL waited for the wrong server.** The official image runs a
+temporary server while it executes its initdb scripts, and that one answers on
+the unix socket alone. Five readiness checks in this repository asked over the
+socket, so each could report a database ready moments before it was stopped and
+replaced — and whatever was waiting connected to `FATAL: the database system is
+shutting down`. All of them now ask over TCP, and a test walks the repository for
+any that does not.
+
+**The `single` profile's backups ran against a database it no longer has.** When
+that profile stopped bundling PostgreSQL, the scripts around it went on assuming
+one: every nightly dump would have failed, and so would the restore somebody
+reached for at three in the morning. Both now work out how to reach the database
+by reading the deployment's own service list — inside it where there is one, over
+the network where there is not — so the `vps` and `single` profiles share one
+script and no setting can disagree with the compose file about which database is
+being backed up.
+
+**The development database and a `single` deployment no longer fight over the
+same containers.** Compose takes a project name from the directory when a file
+does not give one, which made `compose.dev.yml` claim `simple-balance` — the
+name `deploy/compose/single/compose.yml` declares for itself. Bringing the
+profile up on a development machine silently replaced the development database
+with it, bind mount and all. The development file now names itself
+`simple-balance-dev`, so the two coexist.
+
+**A promise this project has made since 0.1.0 is now a test.** "This image
+makes no outbound connection nobody configured" carried "not checked
+mechanically" for four releases, because an allow-list of network calls did not
+exist. Stripe arriving as a library rather than a URL is what changed it: the
+way that was made safe — one module imports the vendor, and it turns the SDK's
+own telemetry off — is exactly what makes the promise answerable by reading one
+file. A test now holds all three. A new vendor library is still a reviewer's
+job, and the guide says so rather than implying otherwise.
+
+**`IDEMPOTENCY_RETENTION_HOURS` now reaches the containers.** The compose recipe
+has documented it since 0.1.6 and never passed it, so an operator who set it got
+no retention sweep and no indication why. Nothing tested that the recipe
+delivers what its own example file promises; that is now a test, which is the
+half that keeps it fixed.
+
+**Deleting an account no longer leaves your address behind.** The cleanup of
+pending verification rows matched only the shape a password reset writes, so an
+abandoned account-link or authorization flow left a row holding the user id —
+and, for a link, the email address — after the account was gone. It matches all
+three shapes now. Both are pre-existing defects rather than anything this
+release introduced.
+
+**Two lists told you the wrong thing about your own data.** Payees showed one
+message whether the ledger was empty or a search had simply matched nothing, and
+its two halves disagreed with each other: the heading said "in this view" while
+the text underneath told you payees appear once you commit a transaction — the
+wrong next step for somebody who has committed hundreds and mistyped a name.
+Accounts told anyone whose accounts were all archived that they had none yet,
+and offered to create one, rather than pointing at the archived ones already
+there. Each list now separates "nothing yet" from "nothing matches this view",
+because the way out of the two is the opposite. Both are pre-existing defects
+rather than anything this release introduced.
+
+**The Activity page printed some operations as code.** The budget and
+category-group services record an operation as `entity.camelCaseVerb`, and the
+page printed that whole, so creating a budget plan read as `budgetPlan.create`
+followed by the entity's own name. It reads "Create Budget Plan" now. The stored
+operation is unchanged, and so is what the MCP returns. A pre-existing defect
+rather than anything this release introduced.
+
+**Re-running the product kit no longer posts its history twice.** Each seeded
+entry was posted under a key that carried its date, and an entry still ahead of
+today is clamped to today, so a re-run on a later day posted those entries
+again, and once the month turned the whole history went in twice — every figure
+in the marketing screenshots too high, with nothing on screen to say so. The key
+is now the entry's calendar month and its place in the seed
+(`scripts/product-kit/entry-key.mjs`), so a re-run against the same database
+replays within the month, and once the month turns adds that month's entries
+rather than the whole history a second time. A database seeded by an earlier
+build shares none of the new keys, so drop it once.
+
 ## 0.1.6 - 2026-09-12
 
 **This release upgrades cleanly from 0.1.5.** A deployment starts on the
@@ -29,15 +784,14 @@ failure, and that is worth knowing before upgrading. It is the whole point of
 the change: an open object accepts a hallucinated argument, answers success, and
 teaches the model that the argument works.
 
-
 ### Added
 
 **A category can be put in a group from the categories list.** The control
-existed, in a modal behind an unlabelled pencil, and no row ever said which group
+existed, in a modal behind an unlabeled pencil, and no row ever said which group
 a category was already in — so a page with a Groups panel showing "0 categories"
 and no way to change it read as a feature that does not work. Every row now
 carries its group and changes it in place, the add form files a new category
-straight away, and a failed read of the groups says so instead of claiming there
+right away, and a failed read of the groups says so instead of claiming there
 are none.
 
 **The forecast can project from what a ledger actually does.** "What happens
@@ -58,7 +812,7 @@ of: every group and every category you have budgeted, each with what it spent
 against what it may actually spend, a bar, and a word for the state it is in. A
 budget with nothing spent against it yet is shown like any other, because a
 budget is what you set rather than what you spent. A category with no budget is
-left out; the panel above already reports that spending, and "£100.00 of —" is
+left out; the panel above already reports that spending, and "$100.00 of —" is
 not a budget. Groups are badged the way the budgets page badges them, so a group
 budgeted as the sum of its categories is not read as a figure to add to them.
 Only the period the range ends in is broken down, which is what keeps a
@@ -161,7 +915,6 @@ the statement and never the values bound into it. That last one was already true
 of the HTTP path and was not true of the MCP path, which logged the error whole
 — including, on a database hiccup during token exchange, a live access token.
 
-
 Seven secrets can be read from a file instead of the environment:
 `AUTH_SECRET`, `DATABASE_URL`, `DIRECT_DATABASE_URL`, `SMTP_PASSWORD`,
 `GOOGLE_CLIENT_SECRET`, `SETUP_TOKEN` and `METRICS_TOKEN`. Point `NAME_FILE` at a file whose contents are the value, and
@@ -183,7 +936,7 @@ A budget is a standing instruction rather than a row per month. Both ends of its
 window are snapped to the period, so any day inside a month names that whole
 month and a budget set today applies today. One plan covers every period in its
 window, so a budget that runs all year is one row and the
-months nobody has reached yet are not materialised by anything. Setting an
+months nobody has reached yet are not materialized by anything. Setting an
 amount for a single period overrides the plan for that period alone, and the
 report says which of the two produced each figure. Windows for one category may
 not overlap, which is what keeps last March answering with what last March
@@ -198,7 +951,7 @@ running is marked as such, because its spending is a total so far.
 The comparison runs on the same `date_trunc` grid the reports bucket by, so a
 limit and its spending cannot land on different months, and it joins from the
 budget to the spending rather than the other way, so a category budgeted at two
-hundred and spent nothing on reads as nought of two hundred instead of
+hundred and spent nothing on reads as zero of two hundred instead of
 disappearing. Splits attribute each leg to its own category and transfers
 contribute nothing, both because legs are postings rather than because anything
 special was written for them.
@@ -215,7 +968,7 @@ and postings every other figure comes from, so turning it off leaves nothing
 behind and a back-dated correction changes every period after it. The fold
 reaches back to the budget's own start, up to ten years of months, and a report
 that stopped at the bound says so rather than reporting a carry that began from
-nothing part way through.
+nothing partway through.
 
 **A budget can be saving up for something**, which is the same machinery with a
 target and a date: each period puts aside what is still needed divided by the
@@ -334,8 +1087,8 @@ indefinitely; it now logs the address it will be sending as, or logs the refusal
 and goes on proposing. A scheduler with no mail configured says that in one line
 too, because a container that was never handed the SMTP settings and one whose
 relay answers look identical in a log that says nothing, and a split deployment
-assembled by hand is exactly where that happens. Neither line stops it starting:
-mail is optional and the schedule is not.
+assembled by hand is exactly where that happens. Neither line keeps it from
+starting: mail is optional and the schedule is not.
 
 All four images now record the digest of the base they were built on, not only
 its tag. `org.opencontainers.image.base.digest` sits beside `base.name`, and
@@ -351,7 +1104,7 @@ A refund now lowers the category it came back from, instead of raising income.
 A deposit credits income and a withdrawal debits expense only when no category
 contradicts it. A category whose kind runs against the direction makes the entry
 a refund, and its other half posts to the counter-account the direction would
-never have asked for. Thirty pounds back from the shop was previously refused
+never have asked for. Thirty dollars back from the store was previously refused
 outright with "Choose an income category for a deposit", so there was no way to
 enter one at all, and a spending figure could only ever go up.
 
@@ -415,7 +1168,7 @@ Committing or deleting staged transactions now refuses a selection that leaves
 out the version for one of its own rows, and says which row, instead of
 reporting it as a version conflict on a row nothing had changed. A repeated id
 in the same selection is refused as a duplicate rather than reported as a row
-that could not be found. Over MCP both requests also refuse an unrecognised
+that could not be found. Over MCP both requests also refuse an unrecognized
 field rather than dropping it — a body typing `expectedVersion` where the field
 is `expectedVersions` is refused by name — and over HTTP they still drop it, as
 they did in 0.1.5. Tightening the HTTP side was in an earlier draft of this
@@ -455,28 +1208,28 @@ enforces it. **It defaults to zero, which means forever**, so nothing about your
 data changes on upgrade and the number stays an operator's to pick rather than
 one this release imposes.
 
-Setting it is safe because the record makes a retry *quiet* rather than safe: a
+Setting it is safe because the record makes a retry _quiet_ rather than safe: a
 repeated create still meets the duplicate check, a repeated commit finds its
 rows already committed, and a repeated bulk write still carries a count and
 fingerprint that no longer match the set. The sweep removes a bounded batch per
 pass, so a first sweep after a year of records drains over a few ticks instead
 of locking the table, and it reads by age through an index added for it.
 
-**A greyed-out button says why it is greyed out.** Eight submit and merge
+**A grayed-out button says why it is grayed out.** Eight submit and merge
 controls are disabled until the form is ready and one of them had a sentence
 beside it. It is the one control that can go completely silent: nothing has been
 typed wrongly, so there is no field error, and nothing has been submitted, so
-there is no summary — the button is grey and you guess which of the form's
+there is no summary — the button is gray and you guess which of the form's
 conditions is unmet. Each now carries a sentence under it, wired so a screen
 reader hears it as part of the button rather than as text somewhere nearby, and
-it names the *first* thing to fix rather than everything outstanding.
+it names the _first_ thing to fix rather than everything outstanding.
 
-**A line chart no longer relies on colour alone.** Ten account colours cannot
-all be told apart under colour-blind vision — the palette here is the best
+**A line chart no longer relies on color alone.** Ten account colors cannot
+all be told apart under color-blind vision — the palette here is the best
 available set and is measured at three times the separation of the six it
 replaced, which is still not enough by itself. Nine of the ten line series now
 carry their own dash rhythm, and the legend swatch beside each one shows the
-same rhythm rather than a block of colour, so a line can be matched to its
+same rhythm rather than a block of color, so a line can be matched to its
 label by shape. The first series stays solid, which is what a single-line chart
 should look like.
 
@@ -497,7 +1250,7 @@ undone, which are different decisions for whoever approves the call. Merging
 categories or payees collapses rows into one and there is nothing to unpick, so
 both say so. The four-item list this started from was wrong, and the code caught
 it: deleting transactions in bulk already said it posts a reversal that can be
-undone, and revoking an agent already said it can be authorised again.
+undone, and revoking an agent already said it can be authorized again.
 
 **And a write is counted when it commits.** Every MCP write hands the service a
 transaction the transport opened, so the `ledger_writes_total` increment
@@ -520,17 +1273,17 @@ none of them Settings; the stacked panel it sat in got the same treatment.
 
 **Every field's label, hint and error now reach the control they are about.**
 They were all on screen and none of them was connected: a label associated by
-wrapping rather than by name, a hint rendered *after* the control with nothing
+wrapping rather than by name, a hint rendered _after_ the control with nothing
 pointing at it, and no error slot at all — no `aria-invalid` anywhere in the
 app. So a screen reader read a box with a name and no explanation of what to
-type, and a field that was wrong said so in colour and in nothing else. A field
+type, and a field that was wrong said so in color and in nothing else. A field
 that is wrong now says so in three places that agree: the sentence, the control
 marked invalid, and the control pointing at the sentence.
 
 One visible consequence: **a hint sits above its control now, not below it.**
 That is GOV.UK's order, and it is also what fixes the deeper problem — a name
 computed from a label is that label's whole text content, so a hint inside the
-label was becoming part of the control's *name* ("Amount Up to eighteen decimal
+label was becoming part of the control's _name_ ("Amount Up to eighteen decimal
 places") instead of its description. The old markup got away with it only
 because the hint was not associated at all.
 
@@ -538,7 +1291,7 @@ because the hint was not associated at all.
 up to fifty rows of three inputs, and a label around that binds to the first of
 them — so the first leg borrowed the label and every leg after it had no
 accessible name, while the amount and note boxes in the same row had one. The
-field is a labelled group now and each picker names itself: "Category for split
+field is a labeled group now and each picker names itself: "Category for split
 2", and so on.
 
 **A keyboard user can get past the navigation, and stays where they were.**
@@ -546,7 +1299,7 @@ Four holes, each the same shape: something moved or vanished and focus was left
 behind, so the next Tab started at the top of the document — past eleven
 navigation links — to get back to a list somebody was in the middle of.
 
-There is a **skip link** now, first in the tab order, and it lands *in* the main
+There is a **skip link** now, first in the tab order, and it lands _in_ the main
 region rather than merely scrolling to it. **Following a link** moves focus to
 the page it opened and resets the scroll, where `pushState` used to do neither —
 only on a real navigation, so changing a filter or a sort leaves focus in the
@@ -569,7 +1322,7 @@ nothing to hide, and a scheme a reader can check beats one they have to trust.
 
 **And it binds the filters it was issued under.** A cursor bound its ordering
 and nothing else, so paging through Transactions and changing the search or the
-account between pages resumed the walk inside a *different* collection — rows
+account between pages resumed the walk inside a _different_ collection — rows
 from a query nobody asked for, with the row count reporting the truth of the new
 collection, so nothing on screen said anything had gone wrong. Every cursor now
 carries a fingerprint of the filters, and one that no longer matches is refused
@@ -583,7 +1336,7 @@ held rather than stored — a browser tab keeps one in component state, an agent
 may send one back minutes later — so a rolling deploy has a window where a
 working client legitimately holds an old one, and refusing it would narrow that
 client's pagination. The unsigned form is read and never issued, and stops being
-read on **1 March 2027**, the same date the four renamed paths stop answering.
+read on **March 1, 2027**, the same date the four renamed paths stop answering.
 Two consequences: replacing `AUTH_SECRET` invalidates outstanding cursors along
 with every session, which is the same thing a sign-out already does to whoever
 is mid-list; and every replica needs the same `AUTH_SECRET`, which was already
@@ -612,7 +1365,7 @@ A button leads with a verb and takes an object, and two shipped as a bare
 on the other two screens, and "Clear" on one where the others said "Clear
 selection". Two pages carried an eyebrow repeating their own title. And a staged
 row on the transactions list showed a dash where its category should be, so a
-row read as uncategorised on one page and categorised on the next.
+row read as uncategorized on one page and categorized on the next.
 
 `common.md`'s table of worked error sentences is now the sentences the product
 actually says. Six of its thirteen rows named messages that were nowhere in the
@@ -690,7 +1443,7 @@ matched a UUID anywhere in the draft; both filters read the real fields now.
 Links that promise rows — the post-import review link, the recurrence
 waiting-count — pin the date range that makes those rows visible instead of
 opening a this-month queue that hides them. Removing a middle split leg no
-longer leaves focus on a button that deletes its neighbour. A refused group
+longer leaves focus on a button that deletes its neighbor. A refused group
 rename no longer stays on screen looking accepted. Restoring an archived
 account asks before it moves money, exactly as archiving always did. The
 category picker no longer snaps a typed name onto an archived category's id
@@ -700,7 +1453,7 @@ Activity and connected agents render where you live, not where the browser
 happens to be. And a template holding a cross-currency transfer keeps its
 received amount through the browser's editor instead of losing it on every
 save; the recurrence form now refuses the mixed split the commit would have
-refused every month for ever.
+refused every month forever.
 
 **Quietly wrong plumbing.** Better Auth's own rate-limit sweeper deleted the
 shared brute-force tally ten seconds into its fifteen-minute window; the rows
@@ -808,7 +1561,7 @@ Two touching bars in a grouped chart have an edge between them. Adjacent series
 run as close as 1.05:1 against each other, which is fine for lines that rarely
 overlap and not for bars that share a border.
 
-A spreadsheet cell led by a full-width `＝`, `＋`, `－` or `＠` is neutralised on
+A spreadsheet cell led by a full-width `＝`, `＋`, `－` or `＠` is neutralized on
 export, as the ASCII forms already were — Excel and Sheets fold them to the
 ASCII leader before deciding whether a cell is a formula. So is one led by a
 no-break or zero-width space. An older file re-imports unchanged.
@@ -870,7 +1623,6 @@ under it. And the alert about budgets in other period units told you to switch
 "the period above", which on that panel is the forecast's own horizon control;
 it names "Budgeting by" now, as the identical alert on the same page already did.
 
-
 **The overview's budget panel could not say it was empty, so it disappeared
 instead.** The panel was drawn only when the report was loading, had failed, or
 had at least one budgeted period; the "Nothing budgeted in this range" message
@@ -882,7 +1634,6 @@ which is indistinguishable from the feature never having been built. The panel
 is always there now and says which kind of empty it is. It had no test of any
 kind, which is how a branch that could never run shipped; it has seven.
 
-
 **A design review, run across pages rather than down them.** Comparing each
 section of the app against the same section on every other page — rather than
 reading one page at a time — turned up defects that are invisible from inside
@@ -890,7 +1641,7 @@ any single screen.
 
 A panel header never stacked. It is a flex row with the title at one end and
 what is said about it at the other, and no breakpoint changed that, so on a
-phone "September 2026, GBP (so far)" ran down three lines beside a sentence
+phone "September 2026, USD (so far)" ran down three lines beside a sentence
 running down three more. It stacks at 560px now, and §15's table of what that
 step does says so.
 
@@ -911,7 +1662,7 @@ A group's budget policy could not be read: the select was pinned at 160px and
 "Adds up its categories' budgets" did not fit, so the control said "Has a budget
 of its". It sizes to its longest option now.
 
-The import preview showed a tick over "No file yet" — a success mark for
+The import preview showed a checkmark over "No file yet" — a success mark for
 something that had not started. It shows the file icon the rest of the page
 uses.
 
@@ -920,26 +1671,25 @@ put it directly under the picker.
 
 **Two accessibility defects, one of them on the consent screen.** Denying an
 agent's request put the spinner on "Allow access" — the button nobody pressed —
-while the pressed one only greyed out. Both buttons now show the state of the
+while the pressed one only grayed out. Both buttons now show the state of the
 answer actually in flight. And the two CSV preview tables were the only
 scrolling regions in the app a keyboard could not reach, so the columns past the
 right edge could not be read at all.
 
-**And fourteen buttons went grey without saying why**, against a rule that says
+**And fourteen buttons went gray without saying why**, against a rule that says
 they must. The check meant to catch that had been passing since it was written:
 it read a hand-written list of five files, and matched with a pattern that
 cannot cross the `>` inside `onClick={() => …}`, so an arrow-function-first
 button was invisible even in the five it did read. It saw eight buttons and
 eight reasons and reported success. Counting properly finds 22. Ten now carry a
 reason they did not have — including "Add transaction" on three pages, which
-goes grey before you have an account and used to leave a first-time reader with
+goes gray before you have an account and used to leave a first-time reader with
 a dead button and an empty list telling them to add a transaction.
-
 
 **Five procedures that kept being rediscovered are written down.** Bringing the
 documents back to true after work lands, sweeping the product against the
 guides, reviewing the browser app, preparing a release, and cutting one — each
-was being worked out again, in the wrong order, every time it came round. They
+was being worked out again, in the wrong order, every time it came around. They
 are `.claude/skills/` now, and `writing.md` names their reader and their mode
 beside every other document in the repository.
 
@@ -956,7 +1706,6 @@ is expanded when it loads, so one of the five quoted a defect report about a
 figure that "always showed $0" and the loaded skill said it showed the skill's
 own name. Command substitution survives; the bare form does not. Neither is
 visible in the file, which is why it is a test rather than a note.
-
 
 **Two pages scrolled sideways on a 320px screen**, which the standards make a
 binding failure and nothing had ever measured. `html` and `body` carry a
@@ -976,14 +1725,13 @@ the accounts are still loading, when nobody knows yet whether there are any.
 
 **The overview's budget line disagreed with its own bar.** It printed what the
 period was allowed while the bar and the badge beside it measured what the
-period may actually spend, so a budget carrying money forward read "£450.00 of
-£100.00" next to a bar at 90% and a "Nearly there" badge. That is the same
+period may actually spend, so a budget carrying money forward read "$450.00 of
+$100.00" next to a bar at 90% and a "Nearly there" badge. That is the same
 disagreement the category rows below it were written to end, and it had been
 left in the line directly above them. It also said "Nothing budgeted in this
 range" to anybody budgeting at the group level, where the figure behind the
 sentence counts category limits only; it says "No category budgeted" now, which
 is what it knows.
-
 
 **Six lists told you they were empty when the truth was that they could not be
 read.** Transactions, the staged queue, Templates, Recurring, Payees and the
@@ -1010,7 +1758,6 @@ with every row's header cell so a screen reader announced "Row: Rent" — the
 table's own structure read out as though it were the data. It says Account,
 Category, Line or Movement now, depending on what the report actually lists.
 
-
 **A disabled button no longer distorts the bar it sits in.** In a selection bar
 the reason was laid out as a caption under one button, which made that button as
 wide as the sentence — "Commit selected" stretched to 470px while "Edit
@@ -1019,18 +1766,16 @@ on a narrower window pushed the duplicate checkbox onto a row of its own. The
 sentence takes a line of its own under the whole bar now. In a form the caption
 is still under the button, where the actions are the last thing on a stack.
 
-
 **A budget set on a group and on no category was invisible on the overview.**
 The panel kept a period only when its category budgets came to more than zero,
 and a group's own budget is not counted there — so somebody budgeting the way
 the 50/30/20 recipe describes saw "nothing budgeted in this range" while the
-budgets page showed the group, and one unrelated £1 category budget was enough
+budgets page showed the group, and one unrelated $1 category budget was enough
 to make the whole section appear. The gate asks whether anything is budgeted
 now, groups included. Where a period has only group budgets its summary line
 shows the period's name alone: the line totals the category budgets, so a figure
-there would read "£500.00 of £0.00" with a full red bar directly above a group
-row saying £500.00 of £800.00.
-
+there would read "$500.00 of $0.00" with a full red bar directly above a group
+row saying $500.00 of $800.00.
 
 ## 0.1.5 - 2026-08-22
 
@@ -1073,16 +1818,16 @@ would have reached a release as a flash of the wrong theme on every load.
 
 The stylesheet had one palette written into it in 189 places. It now has two, in
 one place each: 57 tokens, every one declared in both themes, with a test that
-fails on a colour written anywhere else and on a token given a value in only one
+fails on a color written anywhere else and on a token given a value in only one
 theme — which is the bug that makes half an app unreadable while looking fine to
-whoever wrote it. Four literals turned out to be two colours sharing a spelling:
+whoever wrote it. Four literals turned out to be two colors sharing a spelling:
 white is both a card and the text on a green button, and only one of those is
 still white in the dark. The same split runs through the accent, where the green
 that reads as a link is not the green a button is filled with, and in dark the
 first has to lift while the second stays dark enough to carry white.
 
 Three repairs to the light theme came out of writing the second one down. Six
-greys carrying real text were under the contrast a person needs, the input
+grays carrying real text were under the contrast a person needs, the input
 placeholder worst at 2.65:1. An input's border was 1.39:1 against the field it
 edges, which is not a boundary — and an input here is white on a white card, so
 that border is the only thing saying where the field is. It holds 3:1 now, and a
@@ -1093,13 +1838,13 @@ semi-transparent; it is opaque now.
 
 The report palette was worse than it looked. Under simulated deuteranopia its
 green and its pink were 1.78 apart as CIEDE2000 measures it, which is to say they
-were the same colour, and that shipped in 0.1.4 when six colours became ten. The
+were the same color, and that shipped in 0.1.4 when six colors became ten. The
 two palettes now reach 5.6 and 4.7 by keeping each slot's hue family across both
 themes and varying lightness, which is the channel that survives. An honest limit
-on that: ten categorical colours cannot all be told apart by somebody with
+on that: ten categorical colors cannot all be told apart by somebody with
 dichromatic vision, and a search that held hue identity and the contrast a line
 needs could not beat about 7 and 4. The remedy is a second channel that is not
-colour, which is a change to the charts rather than to the palette. Until then the
+color, which is a change to the charts rather than to the palette. Until then the
 legend and the table under every chart carry identity, and both are always there.
 
 Emailed notifications, on a schedule, in two kinds.
@@ -1230,7 +1975,7 @@ commits. The one already in the books sits second — on the right, or underneat
 on a phone — and where both are staged the older one does. Only a staged side
 can be dropped, because the way out of a duplicate is to remove the copy that
 has not been recorded yet. It is not a diff: the fields that differ are the ones
-that always differ, and colouring them says nothing a person reading two
+that always differ, and coloring them says nothing a person reading two
 transactions cannot already see.
 
 ### Changed
@@ -1269,7 +2014,7 @@ An idempotency key means the same thing over MCP as it does over the HTTP API.
 Ten MCP writes kept a replay record of their own on top of the one the service
 they call already keeps, and the two matched a retry differently: the outer one
 against the request as it arrived, the inner against what the service had
-normalised. A retry of a mass edit that listed the same rows in a different
+normalized. A retry of a mass edit that listed the same rows in a different
 order was a different request to one and the same request to the other. They
 call their service directly now. Records already written are inert, and no key
 in an existing database loses its replay.
@@ -1290,13 +2035,13 @@ Recurrences report their shape over MCP. `get_recurrence` and
 `list_recurrences` declared it as an unknown value, so the one thing an agent
 reads a recurrence for was the one thing the tools would not describe.
 
-Recategorising the last transaction off a category removes that category. Only
+Recategorizing the last transaction off a category removes that category. Only
 what an edit moved off is considered, so one made ahead of time and standing
 empty on purpose is left alone, and anything a recurrence or a template still
 names is kept — neither holds a foreign key, so nothing else would stop the
 delete and what would be left is a standing instruction naming a category that
 is gone. A queue-scoped agent edits the row and leaves the category, on the same
-rule that stops it creating one.
+rule that keeps it from creating one.
 
 Payees needed no such change and got none. Every list of them is a group-by over
 the rows that name them, so a payee nothing references has already stopped
@@ -1389,7 +2134,7 @@ in under it, one for what went out — and Uncategorized always is. Only a name
 that really does span both sides is qualified now; every other row reads as the
 person wrote it.
 
-A report chart had six colours and no limit on how many rows it would draw, so a
+A report chart had six colors and no limit on how many rows it would draw, so a
 seventh account shared the first account's line and the legend said two things at
 once. There are ten, and a test fails if the stylesheet and the code disagree
 about how many.
@@ -1420,7 +2165,7 @@ accepts, so it was dropped and the row landed on the whole unfiltered
 transactions list. It narrows by account and that one day now.
 
 The application shell described the product differently from the manifest the
-release publishes, and coloured a phone's browser chrome near-black on a
+release publishes, and colored a phone's browser chrome near-black on a
 stylesheet that commits to a light scheme.
 
 A staged mass edit left behind a category the identical edit, done one row at a
@@ -1455,13 +2200,12 @@ whether a draft would balance and nothing else, so an agent holding only
 added a counter-account and a new zero row to the trial balance. It looks the
 account up now and stands one in when there is none.
 
-Smaller ones. A malformed request body answered 500 with a stack trace instead of
-400. A mistyped `/api/v1` path, and any with a trailing slash, came back as the
+Smaller ones. A malformed request body answered 500 with a stack trace instead of 400. A mistyped `/api/v1` path, and any with a trailing slash, came back as the
 application shell with a 200. Responses carrying a session token had no
 `Cache-Control`. A broken consent cookie 500ed. An `APP_BASE_URL` that was not a
 URL, and every strict scalar setting, refused to start without saying which
 variable was wrong. A register window opening after today summed future postings
-into a balance labelled as of today. The cash flow statement read every posting
+into a balance labeled as of today. The cash flow statement read every posting
 in the ledger to answer about one month, at eight times the cost. A failed report
 also told a full ledger it was empty, and reports could show figures from before
 an edit. The recurring list ordered amounts as text, so 1.50 sorted below 1.45.
@@ -1485,7 +2229,7 @@ faster, with the netting that decides membership unchanged.
 A duplicate payee group offers the spelling the ledger would itself keep. The
 group was ordered by how often each spelling is used and then by name, while a
 write reusing a payee breaks a tie by preferring a name already equal to its own
-cleaned form. So three equally used spellings of one shop offered
+cleaned form. So three equally used spellings of one store offered
 `" ACME MARKET "` as the one to merge into, where the ledger would have kept
 `"Acme Market"`. Both the browser and the MCP guide say the first entry is the
 target, so this was the wrong answer rather than a cosmetic ordering. One rule
@@ -1583,7 +2327,7 @@ in February, and what happens when a date lands on a weekend.
 On each due date it puts an ordinary row in the review queue, dated its own
 occurrence rather than the day the scheduler ran, and posts nothing. Leave the
 amount out and each proposal waits in the queue for a number, which is what the
-electricity bill wants. A recurrence naming an account that has since been
+electric bill wants. A recurrence naming an account that has since been
 deleted still proposes its row, flagged and saying which field, rather than
 failing where nobody would see it. Deleting a recurrence leaves every row it
 proposed alone.
@@ -1604,7 +2348,7 @@ documented single container keeps working with nothing added to it. Set
 Running several with it on is safe: each recurrence is claimed with `for update
 skip locked`, so replicas divide the due list rather than wait on one another,
 and a per-occurrence unique key refuses a duplicate proposal even if a claim
-were bypassed. Public holidays are not modelled; a business day means Monday to
+were bypassed. Holidays are not modeled; a business day means Monday through
 Friday.
 
 Four settings control it: `RECURRENCE_SCHEDULER`, `RECURRENCE_TICK_SECONDS`,
@@ -1642,7 +2386,7 @@ The entry still settles to zero in each currency it touches, postings are still
 append-only, a correction still costs the difference and nothing more, and
 deleting still voids the entry a leg at a time.
 
-Relabelling a leg writes no postings at all, because the label lives on the leg
+Relabeling a leg writes no postings at all, because the label lives on the leg
 and the leg's identity does not change when you rename what it is for. Changing
 what a leg is worth writes two, which is right: the money was divided
 differently.
@@ -1660,17 +2404,17 @@ every figure reads the same the moment they finish.
 
 ### Changed
 
-The licence is now the [GNU Affero General Public License v3.0 only](LICENSE)
+The license is now the [GNU Affero General Public License v3.0 only](LICENSE)
 (`AGPL-3.0-only`), where it was the LGPL. What changes for somebody running this
 is nothing: self-hosting it for yourself, your household or your company was
-free before and is free now. What section 13 adds is that offering a *modified*
+free before and is free now. What section 13 adds is that offering a _modified_
 version to people over a network entitles those people to that version's source.
 
 Every release up to and including 0.1.3 was published under the LGPL and remains
 available under it. This applies from 0.1.4 onward.
 
-The AGPL is a complete licence rather than a set of permissions layered on the
-GPL, so the images carry one licence file where they used to carry two, and
+The AGPL is a complete license rather than a set of permissions layered on the
+GPL, so the images carry one license file where they used to carry two, and
 `COPYING` is gone.
 
 ### Security
@@ -1753,7 +2497,7 @@ and deleting one now counts them as a use rather than destroying the category
 underneath them. Deleting your whole account also names the recurring
 transactions it is about to take.
 
-A stored timezone that has stopped being recognisable, after an ICU update or a
+A stored timezone that has stopped being recognizable, after an ICU update or a
 hand-edited row, no longer throws when the dashboard works out what day it is.
 It falls back to UTC. The value is free text checked only when it was written,
 and the scheduler now reads it in a loop that serves everybody, where one bad
@@ -1764,7 +2508,7 @@ names, is refused rather than leaving a template that cannot be saved or a
 schedule that proposes a flagged row every month with nothing saying why.
 Neither reference has a foreign key, because both live inside JSON.
 
-The audit trail records a split's legs. Relabelling one is a single update to
+The audit trail records a split's legs. Relabeling one is a single update to
 the leg: it writes no posting and changes no column on the transaction, so
 Activity showed a before and after that were identical for the change most worth
 looking up later.
@@ -1841,7 +2585,7 @@ the ledger refused every save. A transfer also keeps its category when you edit
 it, rather than losing it to a form that has nowhere to display one.
 
 A staged row filed under a category by name keeps that name when you open it to
-review it, instead of committing uncategorised.
+review it, instead of committing uncategorized.
 
 Two settings changes made at the same time no longer overwrite one another.
 
@@ -1893,7 +2637,7 @@ of at once is not a setting.
 
 It is the transactions screen's shape. Every column it shows orders by that
 column, the search narrows on name, payee, and notes, and the row menu edits or
-deletes one. Tick some rows and the selection bar offers a mass edit and a mass
+deletes one. Check some rows and the selection bar offers a mass edit and a mass
 delete, both atomic. The screen also creates a template, which Settings could not
 do: a management screen with an edit and a delete and no way to add a row sends
 you back to the transactions list to invent a transaction you did not want. Saving
@@ -1942,7 +2686,7 @@ template would make the next real import of that statement row look like one
 already seen.
 
 An account or category the template names is looked up when you use it, and
-dropped with a note if it is not there any more. Templates outlive the accounts
+dropped with a note if it is not there anymore. Templates outlive the accounts
 they mention rather than being deleted along with them. Rename, reshape, or
 delete them on the Templates screen.
 
@@ -1961,14 +2705,14 @@ has no date range on it. A category's own page does, and shows it, so a badge
 reading 43 landing on a list of 7 has its reason on screen.
 
 Agents get the same three numbers from `list_categories`, which is the cheapest
-way to stop a ledger accumulating a third spelling of Groceries.
+way to keep a ledger from accumulating a third spelling of Groceries.
 
 Mass edit for staged rows, on the same terms as committed ones. Select rows in
 the review queue, or select everything matching the current filters, and change
 the date, payee, category, account, description, notes, or deposit/withdrawal
 type in one atomic request. This is the fastest way through the case the queue
 exists for: a CSV whose account column meant nothing to the importer leaves
-several hundred rows all failing the same check, and one edit fixes the lot.
+several hundred rows all failing the same check, and one edit fixes all of them.
 
 Every row it writes is validated again, so a batch that was failing on a missing
 account comes back ready to commit, and the reply says how many are ready and
@@ -1992,7 +2736,7 @@ gaps that had accumulated: reading and setting the timezone and default
 currency, which is the one that mattered most because what counts as today is
 decided by the person's timezone and an agent previously had no way to read it
 or explain the figures it was given; payee suggestions, which is how an agent
-avoids forking a shop into a second spelling; previewing a CSV's columns before
+avoids forking a store into a second spelling; previewing a CSV's columns before
 staging it and listing the imports still awaiting review; fetching a single
 account or category; the five template tools; counting everything in the ledger;
 and `whoami`, which also lets a client pick itself out of the list of connected
@@ -2009,14 +2753,14 @@ quietly.
 ### Fixed
 
 An export could only be imported back into the ledger it came from. The importer
-recognised its own format and then read the account ids out of the file, and
+recognized its own format and then read the account ids out of the file, and
 those ids name accounts of the ledger that wrote it. Into a different account,
 a different person's books, or a fresh install they resolved to nothing, so
 every row was rejected with "An exported account is unavailable" and staged
 blank: no payee, no account, no category, no amount. A 5,334-row file arrived as
 5,334 empty rows.
 
-No account is read out of a file any more, by any import path. The account is
+No account is read out of a file anymore, by any import path. The account is
 the one chosen on the import screen, which is the only thing that decides where
 rows land. The same export now stages with its payees, amounts, categories,
 notes, and bank references intact, against whichever account was picked, for
@@ -2108,12 +2852,12 @@ a valid token in hand, and then got a bare 404 on every call, which an agent
 reports as an authorization problem. Discovery under the resource path accepts
 the slash for the same reason, and so does the larger request body an MCP CSV
 upload is allowed: the route was registered for both spellings but the body
-limit still recognised only one, so a client using the slash could reach the
+limit still recognized only one, so a client using the slash could reach the
 endpoint and then be refused a payload the other spelling was allowed.
 
 ### Changed
 
-Uncategorised spending sits at the bottom of spending by category rather than
+Uncategorized spending sits at the bottom of spending by category rather than
 wherever its total ranks. It is not a category anybody chose, so putting it
 first answers "what needs filing" on a panel that was asked where the money
 went. It is still shown, and shown even when the list is cut short, because it
@@ -2149,7 +2893,7 @@ requested, so the policy deciding who may open an account was told
 `/callback/:id`, matched nothing, and fell through to refusing. A first-ever
 Google sign-up therefore failed with `unable_to_create_user` while linking
 Google to an account that already existed kept working, because linking creates
-no user. Both forms of the path are now recognised.
+no user. Both forms of the path are now recognized.
 
 The icon. It was in the built bundle and nothing routed to it: only `/assets/*`
 was served as files, so a request for `/favicon.svg` fell through to the
@@ -2164,7 +2908,7 @@ than UTC and USD. UTC is wrong for most of the world in a way that misdates
 entries: something recorded on a California evening lands on tomorrow. The
 timezone comes from the browser, which knows it exactly, and the currency from
 the region of its language tag, with USD when the tag names no region. Both are
-ordinary settings afterwards, and nothing is adopted once anybody has chosen.
+ordinary settings afterward, and nothing is adopted once anybody has chosen.
 
 The sign-in screen and Settings no longer describe anything as "local".
 `AUTH_MODE=local` is a name for a deployment mode, not something a person
@@ -2248,7 +2992,7 @@ makes the request stale rather than silently changing its scope.
 
 ### Getting data in and out
 
-Bank CSV import detects the format, maps columns, parses localised dates and
+Bank CSV import detects the format, maps columns, parses localized dates and
 numbers, matches or creates categories and payees, and lands everything in a
 review queue. Committing a batch validates every row first and runs as one
 transaction. Simple Balance's own export reads back in without loss.

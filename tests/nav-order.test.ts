@@ -62,11 +62,17 @@ describe("the sidebar", () => {
     const reachedFromElsewhere = new Set([
       // A payee has no id of its own — it is text on a transaction — so its
       // detail page carries the name in the query string and sits under a
-      // static path instead of a parameterised one.
+      // static path instead of a parameterized one.
       "/payees/transactions",
       // The run through the flagged rows, started from Staged transactions.
       // It is a job you do to the queue, not a place alongside it.
       "/staged/duplicates",
+      // Reached from a card on Settings, and by a plain anchor rather than a
+      // client-side push, because it is served under a wider content security
+      // policy so Stripe's payment form can load. A sidebar entry would be a
+      // thirteenth place somebody goes on purpose, and it is a page most people
+      // open twice: once to subscribe and once to cancel.
+      "/settings/plan",
     ]);
     for (const route of served) {
       if (reachedFromElsewhere.has(route)) continue;

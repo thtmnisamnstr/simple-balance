@@ -142,7 +142,7 @@ const cluster = new eks.Cluster("simple-balance", {
   publicSubnetIds: publicSubnets.map((s) => s.id),
   privateSubnetIds: privateSubnets.map((s) => s.id),
   // Left unset, EKS creates the version it currently defaults to and never
-  // moves it afterwards. Pinning a version here ages badly; upgrading is
+  // moves it afterward. Pinning a version here ages badly; upgrading is
   // `pulumi config set simple-balance:kubernetesVersion` when you mean it.
   version: settings.kubernetesVersion,
   skipDefaultNodeGroup: true,

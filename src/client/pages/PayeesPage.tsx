@@ -273,8 +273,23 @@ export default function PayeesPage() {
       ) : (
         <EmptyState
           icon={<UserRound size={24} />}
-          title="No payees in this view"
-          body="Payees appear here when you commit or stage a transaction."
+          // Two screens, not one. `web.md` 12.1: a search that matches nothing
+          // and a ledger with no payees in it are different situations whose
+          // ways out are opposite — clear the search, or go and write a
+          // transaction. This said the second to both, so somebody who mistyped
+          // a name was told to commit a transaction they had already committed.
+          // Templates and Recurring branch the same way.
+          //
+          // The condition is the unfiltered list rather than the search box: a
+          // search that happens to match everything still leaves rows, and it is
+          // having none *while the ledger has payees* that means the filter is
+          // what emptied the view.
+          title={payees.data?.length ? "No payees match" : "No payees yet"}
+          body={
+            payees.data?.length
+              ? "Nothing here matches that search."
+              : "Payees appear here when you commit or stage a transaction."
+          }
         />
       )}
       <ConfirmDialog

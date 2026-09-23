@@ -146,6 +146,13 @@ export default function ImportPage() {
     queryKey: ["accounts"],
     queryFn: () => api<Account[]>("/api/v1/accounts"),
   });
+  // The accounts an import may post against. Every row lands on the one chosen
+  // here, so a frozen one stages the whole file with the same issue on every
+  // row — and the list arrives in name order, so a default read off its front
+  // chose a frozen account for anybody whose first one was.
+  const writableAccounts = (accounts.data ?? []).filter(
+    (account) => !account.archivedAt && !account.frozen,
+  );
 
   const appExport = preview ? isAppExportCsv(preview.headers) : false;
 
@@ -187,7 +194,7 @@ export default function ImportPage() {
       setFileName(name);
       setPreview(parsed);
       setMapping(inferMapping(parsed.headers));
-      setDefaultAccountId((current) => current || accounts.data?.[0]?.id || "");
+      setDefaultAccountId((current) => current || writableAccounts[0]?.id || "");
       setResult(null);
       setResultReading("");
       stageIdempotencyKey.current = newIdempotencyKey();
@@ -304,6 +311,17 @@ export default function ImportPage() {
           title="Create an account first"
           body="A CSV needs an account for its rows to be posted against."
         />
+      ) : !writableAccounts.length ? (
+        <EmptyState
+          icon={<FileSpreadsheet size={25} />}
+          title="Every account is frozen"
+          body="A CSV needs an account its rows can be posted against, and a frozen account accepts no rows until you make it one of the active ones or upgrade."
+          action={
+            <Link className="button button-primary" to="/accounts">
+              Go to Accounts
+            </Link>
+          }
+        />
       ) : (
         <div className="import-layout">
           <section className="panel import-steps">
@@ -365,7 +383,7 @@ export default function ImportPage() {
                         value={defaultAccountId}
                         onChange={(event) => setDefaultAccountId(event.target.value)}
                       >
-                        {accounts.data?.map((account) => (
+                        {writableAccounts.map((account) => (
                           <option key={account.id} value={account.id}>
                             {account.name} ({account.currency})
                           </option>
@@ -728,9 +746,10 @@ export default function ImportPage() {
               </>
             ) : (
               <EmptyState
-                // The subject, like every other empty state here. A tick meant
-                // "done" on a panel that has not started: nothing had been
-                // imported, and the screen congratulated the reader for it.
+                // The subject, like every other empty state here. A checkmark
+                // meant "done" on a panel that has not started: nothing had
+                // been imported, and the screen congratulated the reader for
+                // it.
                 icon={<FileSpreadsheet size={23} />}
                 title="No file yet"
                 body="A sample of the file appears here before anything is staged."

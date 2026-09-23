@@ -55,7 +55,7 @@ const PRESENTATION = new Set(["sort", "direction", "cursor", "page", "limit"]);
 /**
  * The fingerprint of one collection, from the parsed query that defines it.
  *
- * `idempotencyRequestHash` is the canonicaliser this product already has: keys
+ * `idempotencyRequestHash` is the canonicalizer this product already has: keys
  * sorted, `undefined` dropped, dates as ISO strings, so two spellings of one
  * query hash alike. Reused rather than reimplemented, because two canonical
  * forms is a way for one of them to drift.
@@ -143,10 +143,10 @@ export function decodeCursor(
   // The cost of the window is small and worth stating rather than implying: an
   // unsigned cursor can be hand-built, and what that buys is a different
   // starting boundary inside a query already scoped to the caller's own
-  // `userId`. It is not an authorisation boundary — no cursor has ever been one
+  // `userId`. It is not an authorization boundary — no cursor has ever been one
   // — so the window costs opacity for one release and nothing else.
   //
-  // It goes on **1 March 2027**, which is the sunset this release already
+  // It goes on **March 1, 2027**, which is the sunset this release already
   // publishes on the four renamed paths (`RENAMED_PATH_SUNSET` in
   // `src/server/api.ts`). One date for everything deprecated in one release, so
   // an operator has one thing to remember; `http.md`'s deprecation policy asks

@@ -49,7 +49,7 @@ function resolveTheme(preference: Theme): Resolved {
  * It records what this BROWSER last painted, not whose it is. Nothing here can
  * know who is about to be signed in — the session cookie is HttpOnly — so on a
  * browser two people share, the second one sees the first one's theme until the
- * session answers a moment later and this overwrites it. A background colour is
+ * session answers a moment later and this overwrites it. A background color is
  * not somebody's data, so that is a fair trade for never flashing; and sign-out
  * clears it, so the sign-in screen does not keep it either.
  *
@@ -117,7 +117,7 @@ function applyChrome(preference: Theme) {
       }
     }
   } catch {
-    // A wrong chrome colour is not worth breaking a page over.
+    // A wrong chrome color is not worth breaking a page over.
   }
 }
 

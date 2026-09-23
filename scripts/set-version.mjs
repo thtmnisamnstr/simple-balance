@@ -4,8 +4,11 @@
  *
  * The version appears in three manifests and their three lockfiles, the four
  * Dockerfiles' default build argument, the chart's appVersion, the constant the
- * MCP server announces to its clients, the product backlog, and the example
- * image tags in the split-deployment compose file and the Pulumi README.
+ * MCP server announces to its clients, the product backlog, the release the
+ * product kit says it describes, and every pinned image tag in the deployment
+ * material — the split recipe, the `single` profile, the `vps` profile's
+ * compose.app.yml and compose.frontend.yml, and the two places the Pulumi
+ * programs name a release.
  * `tests/version.test.ts` checks every one of them against `package.json`, and
  * the release workflow refuses to publish when the tag and the manifest
  * disagree, so changing one by hand and missing another fails late and
@@ -137,9 +140,23 @@ function rewriteEvery(relative, pattern, replacement, describe) {
 // The example image tags. Pinned rather than :latest on purpose — an upgrade
 // moves the schema and should be a decision — which is exactly why they have to
 // name the release somebody is reading about.
+//
+// Discovered rather than remembered: `tests/version.test.ts` sweeps the tree for
+// this same reference and fails when a file carrying one is not named here. The
+// list went stale exactly once — the `single` profile added two more and nothing
+// noticed, because both checks walked a hardcoded pair.
+//
+// And written out in every one of them. The `vps` files pinned
+// `${SB_VERSION:-0.1.6}`, which neither this pattern nor the sweep could see, so
+// they sat outside both and a cut would have left that profile pulling the
+// release before; the sweep now refuses that spelling outright.
 for (const relative of [
   "deploy/compose/compose.distributed.yml",
+  "deploy/compose/single/compose.yml",
+  "deploy/compose/vps/compose.app.yml",
+  "deploy/compose/vps/compose.frontend.yml",
   "deploy/pulumi/README.md",
+  "deploy/pulumi/single-common/index.ts",
 ]) {
   rewriteEvery(
     relative,
@@ -156,6 +173,33 @@ rewriteLine(
   `export const APP_VERSION = "${version}";`,
   "APP_VERSION",
 );
+
+// The product kit the marketing site reads names the release it describes, in
+// all three of its files, and `tests/product-kit.test.ts` and
+// `tests/product-facts.test.ts` hold each to the version. Left to a rebuild, the
+// first cut after the kit existed would have failed verify on three tests with
+// nothing in the procedure saying why.
+//
+// Stamped rather than rebuilt, and that is honest only because of when the kit
+// is built. `release-prep` phase 4a rebuilds it on the tree about to be cut,
+// and a cut changes nothing a screen shows — no page renders the version — so
+// the pictures taken there are pictures of this release. What this cannot tell
+// is whether 4a ran, which is why the cut procedure asks. facts.json is
+// rewritten in place rather than regenerated because its builder imports
+// TypeScript and this script runs under plain node; the field is the whole of
+// what a version changes in it.
+for (const kit of [
+  "docs/product/features.json",
+  "docs/product/screenshots.json",
+  "docs/product/facts.json",
+]) {
+  rewriteLine(
+    kit,
+    /^(\s*"appVersion": )"[^"]*"/m,
+    `$1"${version}"`,
+    "the release the product kit describes",
+  );
+}
 
 // The Ralph backlog names the version it describes. Left behind it drifts, and
 // the file is the one place a reader looks for what the product is at.

@@ -3,7 +3,7 @@
 The one convention in this repository that is genuinely unusual, and the reason
 it pays.
 
-**20.1% of the non-blank lines in `src` are comments** — 9,664 of 48,058. That
+**23.7% of the non-blank lines in `src` are comments** — 13,112 of 55,357. That
 is far above what most codebases carry and far above what most style guides
 recommend. It is deliberate, and this guide exists so that nobody "tidies" it
 away and so that the density is spent on the right things.
@@ -22,7 +22,7 @@ percentage anyway.
 
 *Checked by:* `tests/comment-density.test.ts`, which recounts `src`, fails under
 the floor, refuses two documents that quote different numbers, and compares
-`9,664 of 48,058` against the recount exactly.
+the pair beside the percentage against the recount exactly.
 
 ## 1. What a comment is for here
 
@@ -69,7 +69,7 @@ where the code is counter-intuitive and thin out where it is ordinary:
 | Where | Why |
 | --- | --- |
 | Anywhere money changes form | Because the wrong thing looks right. |
-| Any deliberate sequence | A loop that must not be parallelised says so beside the loop, because the linter would otherwise be right. |
+| Any deliberate sequence | A loop that must not be parallelized says so beside the loop, because the linter would otherwise be right. |
 | Any place a rule reverses | The refund rule inverts what a deposit normally does. Every site that participates says so. |
 | Any workaround for a tool | `unstubGlobals` in `vitest.config.ts` carries a paragraph on why `restoreAllMocks` is not enough. |
 | Any exception to a lint rule | See 5. |
@@ -106,12 +106,12 @@ a paragraph arguing why the rule is wrong about that line:
 // oxlint-disable-next-line jsx-a11y/no-static-element-interactions
 ```
 
-That one is `src/client/forms.tsx:535`. `src/client/components.tsx:678`
+That one is `src/client/forms.tsx:549`. `src/client/components.tsx:679`
 silences two rules in a single comment and does not borrow this argument: it
 makes its own, that a keyboard user's activation of the buttons inside bubbles
 to the same handler, so the element is a catcher for its children's events
 rather than a mouse-only control. Thirteen of the fourteen paragraphs sit
-directly above the disable. The exception is `src/client/forms.tsx:1653`, where
+directly above the disable. The exception is `src/client/forms.tsx:1676`, where
 the reason is about the whole effect and sits above it, and the disable reaches
 only the first of the two lines inside that assign. The second lints clean
 anyway — the rule reports once per effect, on the first setter it sees — which
@@ -157,14 +157,15 @@ comment when the code around it moves and does nothing else. Had it reflowed the
 formatter that rewrites the reasoning is not worth consistent brace placement.
 
 If the formatter is ever changed, re-run that measurement first. The check is:
-strip every comment line, normalise whitespace, compare before and after.
+strip every comment line, normalize whitespace, compare before and after.
 
 ## 7. Prose style
 
 **House**, inherited from [`docs/standards/writing.md`](../writing.md), with two
 additions for comments specifically:
 
-- **Full sentences, and British spelling**, matching the product's copy.
+- **Full sentences, and American spelling**, matching the product's copy.
+  `docs/standards/common.md` §Naming owns that rule; this is where it lands.
 - **Say what happened, not what might.** "This used to credit income and the
   budget never moved" beats "this could cause issues". The first is a fact
   somebody can check; the second is a feeling.

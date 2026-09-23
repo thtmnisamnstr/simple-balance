@@ -29,7 +29,7 @@ type Level = LogLevel;
  *
  * A module-level `getConfig()` would refuse an unconfigured environment as a
  * side effect of importing anything that logs, which is a failure with no
- * relation to what the caller was doing. Memoised because a scheduler tick logs
+ * relation to what the caller was doing. Memoized because a scheduler tick logs
  * on a timer and re-parsing the environment on every line is work for nobody.
  */
 let configured: Level | undefined;

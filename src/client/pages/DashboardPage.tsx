@@ -62,7 +62,7 @@ export default function DashboardPage() {
   // showing. Keyed under "budgets" so setting one over there refreshes this.
   //
   // Some of what it carries is dropped here on purpose (§11.9), and neither
-  // `rows` nor `groups` is among them any more. "How is the budget going"
+  // `rows` nor `groups` is among them anymore. "How is the budget going"
   // turned out to be two questions — how is it going, and where is it going
   // wrong — and the second needs the categories, so a reader had to leave the
   // page to learn which budget the period's red bar was about. Every budgeted
@@ -83,7 +83,7 @@ export default function DashboardPage() {
   // group's own budget is pushed to `groups` and skipped — so a ledger
   // budgeted entirely at the group level had a period of zero and was filtered
   // out, taking its group rows with it. It said nothing was budgeted while the
-  // budgets page showed the group, and one unrelated £1 category budget was
+  // budgets page showed the group, and one unrelated $1 category budget was
   // enough to make the whole thing appear.
   const budgetPeriodsFor = (currency: string) =>
     (budgets.data?.periods ?? []).filter(
@@ -231,7 +231,7 @@ export default function DashboardPage() {
                   {currency.spendingByCategory.length ? (
                     <div>
                       {(() => {
-                        // Uncategorised arrives last from the server and stays
+                        // Uncategorized arrives last from the server and stays
                         // last here, but it is kept rather than cut: it is the
                         // one row that says there is filing left to do, and
                         // losing it at rank eight would hide that.
@@ -244,7 +244,7 @@ export default function DashboardPage() {
                         return [...named.slice(0, 7), ...unnamed];
                       })().map((item, _index, shown) => {
                         // Scaled against the largest row on show rather than
-                        // the first. With uncategorised moved off the top the
+                        // the first. With uncategorized moved off the top the
                         // first row is no longer necessarily the biggest, and a
                         // ratio over one is clamped to a full bar, which would
                         // draw two different amounts the same width.
@@ -254,7 +254,7 @@ export default function DashboardPage() {
                           <div key={item.categoryId ?? "uncategorized"} className="spending-row">
                             <div>
                               {/* Linked where there is something to link to.
-                                  Uncategorised has no id — it is the absence of
+                                  Uncategorized has no id — it is the absence of
                                   a category rather than one of them — and a
                                   link to /categories/null is a 404. The range
                                   travels, because the detail page mounts its
@@ -339,7 +339,7 @@ export default function DashboardPage() {
                   // at two hundred and spent nothing on is the row this panel
                   // exists to show, and an unbudgeted category is spending
                   // "Spending by category" above already reports — a row
-                  // reading "£100.00 of —" is a budget nobody set.
+                  // reading "$100.00 of —" is a budget nobody set.
                   //
                   // Uncapped, because a cap on a list somebody chose the length
                   // of is a cap on their own budget: the budgets page shows all
@@ -361,9 +361,9 @@ export default function DashboardPage() {
                           period budgeted only at the group level has nothing
                           for it to measure: `available` is zero, which
                           `periodState` reads as over and `fillPercent` draws as
-                          a full bar. It would say "£500.00 of £0.00, Over"
-                          directly above a group row reading "£500.00 of
-                          £800.00, So far". The name alone is honest; the group
+                          a full bar. It would say "$500.00 of $0.00, Over"
+                          directly above a group row reading "$500.00 of
+                          $800.00, So far". The name alone is honest; the group
                           rows beneath carry the figures. Folding group limits
                           into the total is the other tempting answer and is
                           refused in the service for the same reason
@@ -379,8 +379,8 @@ export default function DashboardPage() {
                             </span>
                             {/* `available`, like the bar at the end of this row
                               and the badge beside it. It printed `budgeted`, so
-                              a period carrying money forward read "£450.00 of
-                              £100.00" next to a bar at 90% and a "Nearly there"
+                              a period carrying money forward read "$450.00 of
+                              $100.00" next to a bar at 90% and a "Nearly there"
                               badge — the disagreement the category rows below
                               were written to end, left in the line above them. */}
                             <strong>
@@ -482,8 +482,8 @@ export default function DashboardPage() {
                         // badge. `remaining` is `available` minus what was
                         // spent (`budgets.ts:1665`), so printing the bare
                         // limit beside a bar drawn against `available` made a
-                        // category that carried money forward read "£245.00 of
-                        // £200.00" next to a bar under half full.
+                        // category that carried money forward read "$245.00 of
+                        // $200.00" next to a bar under half full.
                         const room = row.available ?? row.limit!;
                         const spent = formatMoney(row.actual, currency.currency);
                         const limit = formatMoney(room, currency.currency);

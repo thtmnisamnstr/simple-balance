@@ -66,11 +66,11 @@ function numberFormat(locales: string | string[] | undefined, options: Intl.Numb
 
 const dateFormatters = new Map<string, Intl.DateTimeFormat>();
 
-function dateFormat(options: Intl.DateTimeFormatOptions) {
-  const key = JSON.stringify(options);
+function dateFormat(options: Intl.DateTimeFormatOptions, locales?: string | string[]) {
+  const key = `${Array.isArray(locales) ? locales.join(",") : (locales ?? "")}|${JSON.stringify(options)}`;
   let formatter = dateFormatters.get(key);
   if (!formatter) {
-    formatter = new Intl.DateTimeFormat(undefined, options);
+    formatter = new Intl.DateTimeFormat(locales, options);
     dateFormatters.set(key, formatter);
   }
   return formatter;
@@ -225,7 +225,7 @@ export function sumMoney(amounts: readonly string[]) {
  * The largest of several decimal money strings, compared exactly.
  *
  * Bar widths need the biggest row on show, and the biggest is no longer simply
- * the first now that uncategorised spending is pinned to the bottom of the
+ * the first now that uncategorized spending is pinned to the bottom of the
  * list. Compared as scaled integers rather than through Number, so a value with
  * eighteen fractional digits is ordered by what it says and not by what a float
  * can hold.
@@ -303,13 +303,6 @@ export function moneyScalePercent(amount: string, low: string, high: string): st
 }
 
 /**
- * Total on purpose. A staged row is allowed to hold whatever a CSV put in its
- * date column, and Intl throws a RangeError on an invalid date, which unmounts
- * the tree and leaves a white page rather than a badly formatted cell. Anything
- * this cannot read is shown as it arrived, which is also what somebody needs to
- * see in order to fix it.
- */
-/**
  * A month named for an axis: "Aug 2026".
  *
  * Here rather than in charts.tsx because web.md 10.4's own check is a grep for
@@ -322,6 +315,13 @@ export function formatMonth(value: string) {
   return dateFormat({ month: "short", year: "numeric", timeZone: "UTC" }).format(day);
 }
 
+/**
+ * Total on purpose. A staged row is allowed to hold whatever a CSV put in its
+ * date column, and Intl throws a RangeError on an invalid date, which unmounts
+ * the tree and leaves a white page rather than a badly formatted cell. Anything
+ * this cannot read is shown as it arrived, which is also what somebody needs to
+ * see in order to fix it.
+ */
 export function formatDate(value: string) {
   const day = new Date(`${value.slice(0, 10)}T00:00:00Z`);
   if (Number.isNaN(day.getTime())) return value;
@@ -334,11 +334,31 @@ export function formatDate(value: string) {
 }
 
 /**
+ * A reminder's time of day, "HH:MM" as stored, in the reader's own clock
+ * style: "6:30 PM" for somebody in the US, "18:30" for somebody who reads a
+ * 24-hour clock.
+ *
+ * The stored value is a wall-clock time in the person's own timezone, not an
+ * instant, so it is formatted in UTC against an arbitrary date purely to borrow
+ * Intl's sense of how a time is written; nothing is converted. The two places
+ * that print one — a template's next reminder and the reminder preview in its
+ * form — used to print it raw, so a 24-hour "18:30" sat beside a date that had
+ * been written the reader's way. Total for the same reason `formatDate` is:
+ * anything that is not a time is shown as it arrived.
+ */
+export function formatTime(value: string, locales?: string | string[]) {
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) return value;
+  return dateFormat({ hour: "numeric", minute: "2-digit", timeZone: "UTC" }, locales).format(
+    new Date(`1970-01-01T${value}:00Z`),
+  );
+}
+
+/**
  * An instant, rendered where this person lives.
  *
  * The two places that print one — the activity log and the connected-apps
  * panel — each rolled their own formatter in the browser's zone, so an audit
- * trail read while travelling disagreed with the dates on the entries it
+ * trail read while traveling disagreed with the dates on the entries it
  * audits. Total for formatDate's reason: an unreadable timestamp renders as it
  * arrived rather than unmounting the page, and an unknown zone falls back to
  * the browser's rather than throwing.
@@ -368,8 +388,8 @@ export function formatTimestamp(value: string, timezone: string) {
  * itself says whether money arrived or left. A list of movements has to say so
  * anyway, and it has to say it the same way on every page.
  *
- * It used to say it three ways. The register signed and coloured by type; the
- * reports coloured by the value's own sign; and the review queue, the templates
+ * It used to say it three ways. The register signed and colored by type; the
+ * reports colored by the value's own sign; and the review queue, the templates
  * and the recurrences said nothing at all, so the same withdrawal read three
  * ways in three places and one of the three did not read at all.
  *
@@ -385,10 +405,11 @@ export function movementSign(
   if (type === "withdrawal") return { sign: "−", className: "withdrawal" };
   if (type === "transfer") {
     // A transfer between somebody's own accounts is not spending, so it is
-    // signed but left uncoloured. The inbound side reads as an arrival, which
-    // is why it takes the deposit colour and the outbound side takes none.
+    // signed but left uncolored. The inbound side reads as an arrival, which
+    // is why it takes the deposit color and the outbound side takes none.
     // That asymmetry is the register's own and is preserved here rather than
-    // tidied, because tidying it would repaint a screen without being asked.
+    // cleaned up, because cleaning it up would repaint a screen without being
+    // asked.
     if (inbound === true) return { sign: "+", className: "deposit" };
     if (inbound === false) return { sign: "−", className: "transfer" };
     return { sign: "", className: "transfer" };

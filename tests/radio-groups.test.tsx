@@ -47,7 +47,7 @@ function mount(node: React.ReactNode) {
 /** Every radio, with the group it claims to belong to. */
 function radioGroups(container: HTMLElement) {
   return [...container.querySelectorAll('[role="radiogroup"]')].map((group) => ({
-    label: group.getAttribute("aria-label") ?? "(unlabelled)",
+    label: group.getAttribute("aria-label") ?? "(unlabeled)",
     native: [...group.querySelectorAll('input[type="radio"]')] as HTMLInputElement[],
     aria: [...group.querySelectorAll('[role="radio"]')] as HTMLElement[],
   }));
@@ -118,7 +118,7 @@ describe("radio groups", () => {
           ).toBeTruthy();
         }
       }
-      // Every native radio anywhere, not only the ones inside a labelled group:
+      // Every native radio anywhere, not only the ones inside a labeled group:
       // a set of radios outside one is the same defect with less signposting.
       for (const radio of container.querySelectorAll<HTMLInputElement>('input[type="radio"]')) {
         expect(radio.getAttribute("name"), radio.outerHTML.slice(0, 90)).toBeTruthy();

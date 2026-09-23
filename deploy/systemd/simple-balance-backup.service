@@ -1,0 +1,23 @@
+# One dump. Started by simple-balance-backup.timer, and by hand with
+# `sudo systemctl start simple-balance-backup.service`.
+[Unit]
+Description=Back up the Simple Balance ledger
+Documentation=https://github.com/thtmnisamnstr/simple-balance/blob/main/docs/deployment-profiles.md
+
+# The dump is taken through the running deployment, so there is nothing to do
+# while it is not running, and a deployment somebody stopped on purpose stays
+# stopped. Requisite= rather than Requires= or BindsTo=, because both of those
+# start the deployment when the timer fires: a site paused at midnight would be
+# serving again by morning on whatever .env was there, and one with no
+# DATABASE_URL yet would be started, and fail, every night. Requisite= fails
+# the backup at once instead. It implies no ordering, so After= goes with it, as
+# systemd.unit(5) says it should.
+After=simple-balance.service
+Requisite=simple-balance.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/default/simple-balance
+ExecStart=/usr/local/bin/simple-balance-backup
+# pg_dump of a large ledger, on a small machine, over a compressed stream.
+TimeoutStartSec=3600

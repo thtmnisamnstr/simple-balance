@@ -62,7 +62,7 @@ bug.
 ### 2.1 Money is `numeric(44, 18)`
 
 **Binding.** `AGENTS.md`. Every amount column, without exception
-(`src/server/db/schema.ts:287`).
+(`src/server/db/schema.ts:292`).
 Drizzle returns `numeric` as a string, which is exactly what the rest of the
 codebase wants, so nothing casts.
 
@@ -78,7 +78,7 @@ else at some other scale would pass.
 ### 2.2 An enum column is generated from the shared tuple
 
 **Binding.** `pgEnum` takes the same `as const` array the domain and the UI use
-(`src/server/db/schema.ts:196`), so there is no second list of the members —
+(`src/server/db/schema.ts:199`), so there is no second list of the members —
 with one exception the next paragraph owns up to.
 
 *Checked by:* `npm run typecheck`, in both directions. A member the schema drops
@@ -202,10 +202,10 @@ somebody gives it a case where the two tables disagree.
 
 ### 4.1 Uniqueness by name takes an advisory lock, not a unique index
 
-**House, with a reason.** Names are compared after normalisation — case folded,
+**House, with a reason.** Names are compared after normalization — case folded,
 whitespace collapsed, NFKC — so a unique index on the raw column would not
-express the rule. The lock serialises the read-then-create
-(`src/server/services/helpers.ts:307`),
+express the rule. The lock serializes the read-then-create
+(`src/server/services/helpers.ts:324`),
 and it is scoped per user so two people naming a category at once do not queue
 behind each other.
 

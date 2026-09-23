@@ -63,6 +63,7 @@ import {
 import {
   compareMoney,
   formatDate,
+  formatTime,
   isNegativeMoney,
   isPositiveMoney,
   moneyRemainder,
@@ -176,6 +177,11 @@ export function AccountForm({
       // the Budgets page showed pre-mutation figures for its staleTime.
       await queryClient.invalidateQueries({ queryKey: ["budgets"] });
       await queryClient.invalidateQueries({ queryKey: ["forecast"] });
+      // The session carries how much of the plan's account allowance is used,
+      // and this is the only place an account is created. Without it the
+      // New account button stays offered after the last one the plan allows,
+      // and the person finds out by being refused.
+      await queryClient.invalidateQueries({ queryKey: ["session"] });
       onDone();
     },
   });
@@ -277,7 +283,8 @@ export function AccountForm({
       <Note>
         On for everything by default, cards included: spending on a card empties an envelope, so
         leaving cards out would say there is more money to assign than there is. Turn it off for
-        something the budget should not see, such as a pension. It changes no balance and no report.
+        something the budget should not see, such as a retirement account. It changes no balance and
+        no report.
       </Note>
       <div className="form-actions">
         <Button type="button" variant="ghost" onClick={onDone}>
@@ -293,7 +300,7 @@ export function AccountForm({
 
 /**
  * The payee field, with the suggestions and the snap-to-existing-spelling
- * behaviour that keeps a ledger from growing three spellings of one shop. Its
+ * behavior that keeps a ledger from growing three spellings of one store. Its
  * own component because the template editor needs exactly this and a second
  * copy would be a second answer to "what counts as the same payee".
  */
@@ -442,7 +449,7 @@ const transactionTypeOptions: {
 /**
  * The transaction type, as one control rather than three copies of it.
  *
- * Two shapes, because there are two behaviours. A template may hold no type at
+ * Two shapes, because there are two behaviors. A template may hold no type at
  * all, and clicking the chosen one again is how somebody says so — which a radio
  * cannot express, since a radio has no way to become unset. That shape is a group
  * of toggles reporting `aria-pressed`.
@@ -472,7 +479,13 @@ const transactionTypeOptions: {
  */
 function selectableAccounts(accounts: Account[], ...referenced: (string | undefined)[]) {
   const kept = new Set(referenced.filter((id): id is string => Boolean(id)));
-  return accounts.filter((account) => !account.archivedAt || kept.has(account.id));
+  // Frozen answers to the same rule as archived, and for the same reason: the
+  // server refuses a new entry on one and keeps an entry that already names
+  // it, so offering it would be offering a choice the save refuses, and
+  // dropping it would hide the account an open entry is already filed under.
+  return accounts.filter(
+    (account) => (!account.archivedAt && !account.frozen) || kept.has(account.id),
+  );
 }
 
 type TransactionTypeChoiceProps =
@@ -861,8 +874,8 @@ function useNotificationsAvailable() {
 function reminderSendDates(
   rule: TemplateNotification,
 ): { occurrenceDate: string; postedDate: string | null }[] {
-  // A one-off owes exactly one, on its anchor, and refuses the policies that
-  // could move it.
+  // A one-time reminder owes exactly one, on its anchor, and refuses the
+  // policies that could move it.
   if (rule.frequency === null) {
     return [{ occurrenceDate: rule.anchorDate, postedDate: rule.anchorDate }];
   }
@@ -897,7 +910,7 @@ function reminderSendDates(
  * Its own form rather than the transaction form with pieces switched off,
  * because what it collects genuinely differs: every field may be left blank, no
  * date is recorded at all, and nothing here can be committed or staged. The two
- * pieces that carry real behaviour - the payee suggestions and the category
+ * pieces that carry real behavior - the payee suggestions and the category
  * matching - are shared components, so the rules that matter cannot drift
  * between them.
  *
@@ -1040,7 +1053,7 @@ export function TemplateForm({
     }
   }, [reminderBusinessDayBlocked, reminderWeekendPolicy]);
 
-  // Worked out during render rather than memoised. The only honest dependency
+  // Worked out during render rather than memoized. The only honest dependency
   // is the parse result, which `safeParse` rebuilds every render, so a
   // `useMemo` keyed on it would never hit - and this one got around that by
   // stringifying the parsed rule, which costs more than the five dates it was
@@ -1126,7 +1139,7 @@ export function TemplateForm({
           required
           value={name}
           onChange={(event) => setName(event.target.value)}
-          placeholder="Weekly shop"
+          placeholder="Weekly groceries"
         />
       </Field>
 
@@ -1401,7 +1414,7 @@ export function TemplateForm({
             {reminderRepeats ? (
               <Field
                 label="When it lands on a weekend"
-                hint="A business day here means Monday to Friday. Public holidays are not modelled."
+                hint="A business day here means Monday through Friday. Holidays are not modeled."
               >
                 <Select
                   value={reminderWeekendPolicy}
@@ -1412,10 +1425,10 @@ export function TemplateForm({
                   <option value="allow">Send it on the weekend</option>
                   <option value="skip">Skip it</option>
                   <option value="previous_business_day" disabled={reminderBusinessDayBlocked}>
-                    Send it on the Friday
+                    Send it the Friday before
                   </option>
                   <option value="next_business_day" disabled={reminderBusinessDayBlocked}>
-                    Send it on the Monday
+                    Send it the Monday after
                   </option>
                 </Select>
               </Field>
@@ -1437,7 +1450,7 @@ export function TemplateForm({
                     <li key={one.occurrenceDate}>
                       {one.postedDate ? (
                         <>
-                          {formatDate(one.postedDate)} at {reminderTime}
+                          {formatDate(one.postedDate)} at {formatTime(reminderTime)}
                           {one.postedDate === one.occurrenceDate ? null : (
                             <small> moved from {formatDate(one.occurrenceDate)}</small>
                           )}
@@ -1537,13 +1550,19 @@ export function TransactionForm({
     return null;
   }, [transaction, staged, clone]);
   const createType = initialType ?? "withdrawal";
+  // Chosen from the accounts a new entry may name, not from the list as it
+  // arrives. The list is in name order, so `accounts[0]` put a frozen account
+  // in front of anybody whose alphabetically first one was frozen — and
+  // `selectableAccounts` then kept it on offer, because the form named it, for
+  // a save the server refuses.
   const defaultAccountIds = (nextType: TransactionType) => {
-    const primaryAccountId = initialAccountId ?? accounts[0]?.id ?? "";
+    const writable = selectableAccounts(accounts);
+    const primaryAccountId = initialAccountId ?? writable[0]?.id ?? "";
     return {
       fromAccountId: primaryAccountId,
       toAccountId:
         nextType === "transfer"
-          ? (accounts.find((account) => account.id !== primaryAccountId)?.id ?? "")
+          ? (writable.find((account) => account.id !== primaryAccountId)?.id ?? "")
           : primaryAccountId,
     };
   };
@@ -1561,7 +1580,7 @@ export function TransactionForm({
       )?.name ??
       // The name the draft carried, for a row filed by name and no id. Falling
       // through to "" wrote null over it on the next save, and the row then
-      // committed uncategorised.
+      // committed uncategorized.
       initial?.categoryName ??
       "",
   );
@@ -1646,16 +1665,18 @@ export function TransactionForm({
     queryKey: ["transaction-templates"],
     queryFn: () => api<TransactionTemplate[]>("/api/v1/transaction-templates"),
   });
+  const firstWritable = selectableAccounts(accounts)[0];
   // Seeding state from a query that had not resolved at mount, which is the one
   // copy `docs/standards/code/client.md` §1.1 allows. The defaults above read
-  // `accounts[0]` while the list is still empty, so without this the form opens
-  // on a fresh session with no account chosen and the select showing nothing.
-  // Only ever fills a blank: from here the field is the person's to change.
+  // the first writable account while the list is still empty, so without this
+  // the form opens on a fresh session with no account chosen and the select
+  // showing nothing. Only ever fills a blank, and only from the same writable
+  // accounts: from here the field is the person's to change.
   useEffect(() => {
     // oxlint-disable-next-line react/set-state-in-effect
-    if (!fromAccountId && accounts[0]) setFromAccountId(accounts[0].id);
-    if (!toAccountId && accounts[0]) setToAccountId(accounts[0].id);
-  }, [accounts, fromAccountId, toAccountId]);
+    if (!fromAccountId && firstWritable) setFromAccountId(firstWritable.id);
+    if (!toAccountId && firstWritable) setToAccountId(firstWritable.id);
+  }, [firstWritable, fromAccountId, toAccountId]);
 
   // Only a transfer clears the category, because only a transfer files under
   // none. Against-the-direction is a refund, not a mismatch.
@@ -1666,7 +1687,7 @@ export function TransactionForm({
       // that followed would file the entry under one the form had already
       // forgotten. Nothing reads it while the type is Transfer - the picker is
       // not rendered and the submit carries `initial`'s category through - so
-      // the clear is only ever about what comes back afterwards.
+      // the clear is only ever about what comes back afterward.
       // oxlint-disable-next-line react/set-state-in-effect
       setCategoryId("");
       setCategoryName("");
@@ -2164,14 +2185,15 @@ export function TransactionForm({
         onChange={(next) => {
           setType(next);
           if (transaction || staged || !next) return;
-          const primaryAccountId = initialAccountId ?? accounts[0]?.id ?? "";
+          const { fromAccountId: primaryAccountId, toAccountId: nextToAccountId } =
+            defaultAccountIds(next);
           if (next === "withdrawal") {
             setFromAccountId(primaryAccountId);
           } else if (next === "deposit") {
             setToAccountId(primaryAccountId);
           } else {
             setFromAccountId(primaryAccountId);
-            setToAccountId(accounts.find((account) => account.id !== primaryAccountId)?.id ?? "");
+            setToAccountId(nextToAccountId);
           }
         }}
       />
@@ -2679,7 +2701,7 @@ export function RecurrenceForm({
     const usable = (category: Category) => !category.archivedAt;
     const selected = categories.find((category) => category.id === categoryId);
     if (selected && !usable(selected)) {
-      // Synchronising with the categories query: archiving happens on another
+      // Synchronizing with the categories query: archiving happens on another
       // page and arrives here on a refetch. Cleared rather than derived because
       // somebody now has to choose again, and a name derived away on render
       // would leave the field looking merely empty on the next save.
@@ -2705,7 +2727,7 @@ export function RecurrenceForm({
   const previewWatermark = recurrence
     ? { proposesFrom: recurrence.proposesFrom, lastOccurrenceDate: recurrence.lastOccurrenceDate }
     : { proposesFrom: today, lastOccurrenceDate: null };
-  // Worked out during render rather than memoised, for the reason the reminder
+  // Worked out during render rather than memoized, for the reason the reminder
   // preview is. The dependency array named the fields the schedule is built from
   // rather than the parse result it reads, and those are not the same set:
   // `intervalNumber` is null for an interval of "abc" and null again for a blank
@@ -2795,7 +2817,7 @@ export function RecurrenceForm({
    *
    * The same question `TransactionForm` asks, for the same reason and with the
    * same words: a recurring refund into a spending category nobody has created
-   * yet would otherwise be filed as income, once a month, for ever. The schema
+   * yet would otherwise be filed as income, once a month, forever. The schema
    * has carried `categoryKind` since the refund work; only this form did not
    * ask, so an agent could set it and a person could not.
    */
@@ -2814,10 +2836,10 @@ export function RecurrenceForm({
     })
     .map(({ name }) => name.trim());
   const newCategoryKind: CategoryKind = categoryKind || (type === "deposit" ? "income" : "expense");
-  // The same rule TransactionForm previews, for a harsher reason: a one-off
+  // The same rule TransactionForm previews, for a harsher reason: a one-time
   // mixed split is refused once at the moment somebody is looking, while a
   // recurrence that saved cleanly proposes an uncommittable row every
-  // occurrence for ever. One function, so the sentence here is the sentence
+  // occurrence forever. One function, so the sentence here is the sentence
   // the commit would eventually throw.
   const entrySide =
     type === "transfer"
@@ -3108,7 +3130,7 @@ export function RecurrenceForm({
 
         <Field
           label="When it lands on a weekend"
-          hint="A business day here means Monday to Friday. Public holidays are not modelled."
+          hint="A business day here means Monday through Friday. Holidays are not modeled."
         >
           <Select
             value={weekendPolicy}
@@ -3119,10 +3141,10 @@ export function RecurrenceForm({
             <option value="allow">Propose it on the weekend</option>
             <option value="skip">Skip it</option>
             <option value="previous_business_day" disabled={businessDayBlocked}>
-              Move it back to the Friday
+              Move it to the Friday before
             </option>
             <option value="next_business_day" disabled={businessDayBlocked}>
-              Move it on to the Monday
+              Move it to the Monday after
             </option>
           </Select>
         </Field>

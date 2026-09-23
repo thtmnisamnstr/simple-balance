@@ -240,6 +240,21 @@ describe("the recurrences list", () => {
   });
 });
 
+/**
+ * Today as the component sees it, and a day's arithmetic on it.
+ *
+ * UTC on both sides. The preview formats its labels with `timeZone: "UTC"`, so
+ * deriving the anchor any other way would put the test and the component on
+ * different days for part of every day.
+ */
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
+const addDays = (iso: string, days: number) => {
+  const [year, month, day] = iso.split("-").map(Number);
+  const moved = new Date(Date.UTC(year!, month! - 1, day! + days));
+  return moved.toISOString().slice(0, 10);
+};
+
 describe("the recurrence form", () => {
   const openForm = async () => {
     fireEvent.click(screen.getByRole("button", { name: /New recurrence/ }));
@@ -250,20 +265,38 @@ describe("the recurrence form", () => {
     await renderPage([]);
     await openForm();
 
+    // Tomorrow, not a date written down.
+    //
+    // A new recurrence previews from *today* — `previewWatermark` in
+    // `forms.tsx` seeds `proposesFrom` with it — so a fixed anchor makes this an
+    // assertion about what day the suite runs on. It was written with an anchor
+    // of 2026-09-15 and a cursor the day before, passed for as long as today was
+    // on or before the 15th, and then failed everywhere at once: green in PDT
+    // and red on a CI runner seven hours ahead in UTC, because the two were on
+    // different days.
+    //
+    // Anchoring a day ahead of today keeps the first occurrence in front of the
+    // watermark whenever this runs, which is what the assertion below needs and
+    // all it needs. Fake timers were the other way to fix it and are the wrong
+    // one here: the form is driven through `findBy*`, which waits on real
+    // timers, so freezing the clock hangs every await in the file.
+    const anchorDate = addDays(todayIso(), 1);
+    const cursorDate = todayIso();
+
     fireEvent.change(screen.getByLabelText(/^Starting/), {
-      target: { value: "2026-09-15" },
+      target: { value: anchorDate },
     });
 
     const preview = screen.getByText("Next five").parentElement!;
     const rule = {
       frequency: "monthly" as const,
       interval: 1,
-      anchorDate: "2026-09-15",
+      anchorDate,
       monthPolicy: "last_day" as const,
       weekendPolicy: "allow" as const,
       position: null,
     };
-    let cursor = "2026-09-14";
+    let cursor = cursorDate;
     for (let index = 0; index < 5; index += 1) {
       const next = nextOccurrenceAfter(rule, cursor);
       const [year, month, day] = next.postedDate!.split("-").map(Number);
@@ -358,9 +391,11 @@ describe("the recurrence form", () => {
 
     const policy = screen.getByLabelText(/When it lands on a weekend/);
     expect(
-      within(policy).getByRole("option", { name: /Move it back to the Friday/ }),
+      within(policy).getByRole("option", { name: /Move it to the Friday before/ }),
     ).toBeDisabled();
-    expect(within(policy).getByRole("option", { name: /Move it on to the Monday/ })).toBeDisabled();
+    expect(
+      within(policy).getByRole("option", { name: /Move it to the Monday after/ }),
+    ).toBeDisabled();
     expect(
       screen.getByText(/Make the interval three days or more to use those two/),
     ).toBeInTheDocument();
@@ -370,14 +405,14 @@ describe("the recurrence form", () => {
       target: { value: "2" },
     });
     expect(
-      within(policy).getByRole("option", { name: /Move it back to the Friday/ }),
+      within(policy).getByRole("option", { name: /Move it to the Friday before/ }),
     ).toBeDisabled();
 
     fireEvent.change(screen.getByLabelText(/^Every N days/), {
       target: { value: "3" },
     });
     expect(
-      within(policy).getByRole("option", { name: /Move it back to the Friday/ }),
+      within(policy).getByRole("option", { name: /Move it to the Friday before/ }),
     ).not.toBeDisabled();
   });
 

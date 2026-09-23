@@ -20,9 +20,9 @@ import { APP_VERSION } from "../shared/version.js";
  * one series; `/api/v1/accounts/<uuid>` is one series per account, which is how
  * a monitoring system falls over on a ledger with ten thousand transactions.
  *
- * **Collection is always on; only the endpoint is switched.** A labelled
+ * **Collection is always on; only the endpoint is switched.** A labeled
  * increment costs about 130ns and does allocate — `prom-client` hashes the
- * label object into a string key on every call — and an unlabelled one about
+ * label object into a string key on every call — and an unlabeled one about
  * 12ns (2M iterations of `Counter.inc` on this machine, Node 26). That is a
  * rounding error beside the database round trip it sits next to, so gating it
  * on `METRICS_ENABLED` would buy back nothing worth a branch in front of every
@@ -158,6 +158,57 @@ export const idempotencySweeps = new Counter({
 export const mailMessages = new Counter({
   name: `${prefix}mail_messages_total`,
   help: "Messages this process handed to the relay, by outcome.",
+  labelNames: ["outcome"] as const,
+  registers: [registry],
+});
+
+/**
+ * Requests this process made to Stripe, by what it asked for and how it went.
+ *
+ * Labeled by operation and outcome and by nothing else. A Stripe request is
+ * always about one person's money, so a customer id, a subscription id or an
+ * amount here would put somebody's payment history in front of whoever can
+ * reach the scrape endpoint — `observability.md` 1.2 — and would be unbounded
+ * cardinality besides. The operation names are a closed set written in this
+ * repository, which is what keeps the series count fixed.
+ *
+ * Counted at the adapter seam rather than in each service, so a new call cannot
+ * be added without being counted.
+ */
+export const stripeRequests = new Counter({
+  name: `${prefix}stripe_requests_total`,
+  help: "Requests this process made to Stripe, by operation and outcome.",
+  labelNames: ["operation", "outcome"] as const,
+  registers: [registry],
+});
+
+/**
+ * How long a Stripe request took, by operation.
+ *
+ * Separate from `httpDuration`: that measures requests this server answers, and
+ * a plan tab that feels slow because Stripe is slow looks identical in it to one
+ * that is slow for any other reason. The buckets run out to the client's own
+ * ten-second timeout, so a request that gave up lands in the last one rather
+ * than off the end.
+ */
+export const stripeDuration = new Histogram({
+  name: `${prefix}stripe_request_duration_seconds`,
+  help: "How long a Stripe request took, by operation.",
+  labelNames: ["operation"] as const,
+  buckets: [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10],
+  registers: [registry],
+});
+
+/**
+ * What the billing reconciliation sweep found, by outcome.
+ *
+ * `off` for the same reason the idempotency sweep has one: a deployment that
+ * sells nothing is the default, and a sweep that examined nothing because there
+ * was nothing to examine looks identical in a bare count to one that never ran.
+ */
+export const billingSweeps = new Counter({
+  name: `${prefix}billing_sweeps_total`,
+  help: "Subscriptions the reconciliation sweep re-read, by outcome.",
   labelNames: ["outcome"] as const,
   registers: [registry],
 });

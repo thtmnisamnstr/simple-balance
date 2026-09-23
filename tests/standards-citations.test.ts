@@ -13,13 +13,19 @@ import { describe, expect, it } from "vitest";
  * Three citations had already drifted by the time this was written, so this is
  * a check that was needed rather than one that might be.
  *
+ * `deploy/` and `.github/` were outside this for four releases, which mattered
+ * more than it sounds: the guides cite twenty of those files by line, and the
+ * release that added two deployment profiles and a database image rewrote most
+ * of them. A citation into a compose file or a workflow rots exactly as fast as
+ * one into `src/`, and nothing was reading them.
+ *
  * What it can prove is that the file exists and the lines are inside it, which
  * catches deletion, renaming and truncation. What it cannot prove is that the
  * line still holds the thing the sentence claims. That half stays a person's
  * job, and saying so is better than implying the machine has it covered.
  */
 const CITATION =
-  /`?((?:src|tests|drizzle|docs|scripts|public)\/[A-Za-z0-9_./-]+\.(?:ts|tsx|css|sql|md|json|js|mjs)):(\d+)(?:[-–](\d+))?`?/g;
+  /`?((?:src|tests|drizzle|docs|scripts|public|deploy|\.github)\/[A-Za-z0-9_./-]+\.(?:ts|tsx|css|sql|md|json|js|mjs|yml|yaml|conf|template|Dockerfile)):(\d+)(?:[-–](\d+))?`?/g;
 
 type Citation = {
   guide: string;
@@ -415,7 +421,7 @@ describe("what the standards guides cite", () => {
       `${words[tokens] ?? String(tokens)} tokens are declared`,
     );
     expect(guide, `styles.css is ${lines} lines`).toContain(
-      `${lines.toLocaleString("en-GB")} lines of hand-written CSS`,
+      `${lines.toLocaleString("en-US")} lines of hand-written CSS`,
     );
   });
 
@@ -508,12 +514,12 @@ describe("what the standards guides cite", () => {
    * The contract the code guides state about themselves.
    *
    * `index.md` says "Every rule says how it is checked" and gives a count of the
-   * ones nothing checks. Both were false: 34 of the 67 labelled rules named no
+   * ones nothing checks. Both were false: 34 of the 67 labeled rules named no
    * mechanism at all — not even `human` — and the count said 19 because a rule
    * that stayed silent was not counted as anything. A silent rule is the worst
    * of the four states, because it reads as covered.
    */
-  it("gives every labelled rule a mechanism, and counts the ones with none", () => {
+  it("gives every labeled rule a mechanism, and counts the ones with none", () => {
     const guides = globSync("docs/standards/code/*.md").filter(
       (file) => !file.endsWith("index.md"),
     );
@@ -528,7 +534,7 @@ describe("what the standards guides cite", () => {
       // rather than at the next one of its own level. Ending only at the next
       // `###` let the last `###` in a file swallow the `##` section after it and
       // borrow its footer, and it never looked at a `##`-level rule at all —
-      // which is three labelled rules in this set answering to nothing.
+      // which is three labeled rules in this set answering to nothing.
       const starts = lines.flatMap((line, index) => (/^#{2,6} /.test(line) ? [index] : []));
       for (const [position, start] of starts.entries()) {
         const end = starts[position + 1] ?? lines.length;
@@ -538,7 +544,7 @@ describe("what the standards guides cite", () => {
         const heading = lines[start]!.replace(/^#+ /, "");
         // `## 4.` and `### 3.3` number themselves differently — a top-level
         // heading carries the trailing dot a subsection does not — and the
-        // tables spell both without it. Normalised here rather than in seven
+        // tables spell both without it. Normalized here rather than in seven
         // tables, because the tables are what a person reads.
         const number = heading.split(" ")[0]!.replace(/\.$/, "");
         // A row in the file's own table is the other way to name a mechanism:

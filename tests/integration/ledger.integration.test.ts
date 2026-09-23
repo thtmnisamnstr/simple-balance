@@ -27,6 +27,7 @@ import {
   cursorPageResultSchema,
 } from "../../src/server/mcp-output-schemas.js";
 import { commitStages, createStage } from "../../src/server/services/staging.js";
+import { setPreferences } from "../../src/server/services/preferences.js";
 import { getSummary } from "../../src/server/services/summary.js";
 import { createTransaction, getTransaction } from "../../src/server/services/transactions.js";
 
@@ -280,12 +281,26 @@ integration("PostgreSQL ledger integration", () => {
       start: "2026-07-01",
       end: "2026-07-31",
     });
-    expect(summary.currencies.map((item) => item.currency)).toEqual(["EUR", "USD"]);
+    // The person's own currency first, the rest alphabetically behind it.
+    // Alphabetical throughout put EUR at the top of the Overview for somebody
+    // whose money is in dollars, which is the largest figure on the page.
+    expect(summary.currencies.map((item) => item.currency)).toEqual(["USD", "EUR"]);
     expect(summary.currencies.find((item) => item.currency === "USD")).toMatchObject({
       deposits: "1200.5",
       withdrawals: "0",
       netCashFlow: "1200.5",
     });
+
+    // Moving the preference moves the order, which is what says the rule is
+    // the preference rather than the alphabet: EUR sorts first either way
+    // under `localeCompare`, so only the reverse direction can tell them
+    // apart. Set back afterwards, because the rest of this file shares it.
+    await setPreferences(first, { defaultCurrency: "EUR" });
+    const inEuros = await getSummary(first, { start: "2026-07-01", end: "2026-07-31" });
+    expect(inEuros.currencies.map((item) => item.currency)).toEqual(["EUR", "USD"]);
+    await setPreferences(first, { defaultCurrency: "USD" });
+    const back = await getSummary(first, { start: "2026-07-01", end: "2026-07-31" });
+    expect(back.currencies.map((item) => item.currency)).toEqual(["USD", "EUR"]);
   });
 
   it("writes scoped audit history", async () => {

@@ -1,0 +1,255 @@
+{{- if .Values.database.enabled }}
+{{- $root := . }}
+{{- $groups := fromJsonArray (include "simple-balance.databaseGroups" .) }}
+{{- range $group := $groups }}
+{{- $name := include "simple-balance.databaseGroupName" (dict "root" $root "group" $group) }}
+{{- $role := ternary "coordinator" "worker" (eq (int $group) 0) }}
+{{/*
+One StatefulSet per Citus group, which is how Patroni models this: a group is a
+Patroni cluster of its own, with one primary and the rest streaming standbys,
+and Citus is told about the group as a whole. Group 0 is the coordinator and
+always exists; the workers are 1..N.
+
+Splitting by group rather than deriving the group from the pod ordinal is
+upstream's own arrangement, and it is the one that lets a worker group be scaled
+or replaced without touching the coordinator.
+*/}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "simple-balance.componentLabels" (dict "root" $root "component" "database") | nindent 4 }}
+    cluster-name: {{ include "simple-balance.databaseName" $root }}
+    citus-group: {{ $group | quote }}
+    citus-role: {{ $role }}
+  {{- with $root.Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ $root.Values.database.replicasPerGroup }}
+  serviceName: {{ $name }}-pods
+  # Patroni decides which member is primary, so starting them one at a time buys
+  # nothing and makes a cold start take replicas × startup time. What must not
+  # happen is Kubernetes deciding the order of a *failover*, and it does not.
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      {{- include "simple-balance.componentSelectorLabels" (dict "root" $root "component" "database") | nindent 6 }}
+      cluster-name: {{ include "simple-balance.databaseName" $root }}
+      citus-group: {{ $group | quote }}
+  template:
+    metadata:
+      labels:
+        {{- include "simple-balance.componentLabels" (dict "root" $root "component" "database") | nindent 8 }}
+        cluster-name: {{ include "simple-balance.databaseName" $root }}
+        citus-group: {{ $group | quote }}
+        citus-role: {{ $role }}
+      annotations:
+        # A change to Patroni's configuration should reach the pods. `bootstrap`
+        # settings are owned by the cluster once it exists — see the ConfigMap —
+        # but everything outside it is read at start.
+        checksum/patroni: {{ include (print $root.Template.BasePath "/database-config.yaml") $root | sha256sum }}
+        {{- with $root.Values.commonAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "simple-balance.databaseName" $root }}
+      {{- with $root.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # Long enough for Patroni to hand over cleanly. A primary killed outright
+      # is a failover the cluster has to detect rather than one it was told
+      # about, and the difference is the ttl above — up to thirty seconds of a
+      # ledger not accepting writes.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with $root.Values.database.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $root.Values.database.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if $root.Values.database.affinity }}
+      affinity:
+        {{- toYaml $root.Values.database.affinity | nindent 8 }}
+      {{- else }}
+      affinity:
+        # Spread one group's replicas across nodes. Two replicas of the same
+        # Citus group on one node is a group with no redundancy, and a chart that
+        # scheduled it that way while calling itself `ha` would be lying. It is a
+        # preference rather than a requirement so a smaller cluster still starts.
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    {{- include "simple-balance.componentSelectorLabels" (dict "root" $root "component" "database") | nindent 20 }}
+                    citus-group: {{ $group | quote }}
+      {{- end }}
+      containers:
+        - name: postgresql
+          image: {{ include "simple-balance.databaseImage" $root | quote }}
+          imagePullPolicy: {{ $root.Values.database.image.pullPolicy }}
+          # Patroni instead of the image's own entrypoint. The image still starts
+          # as an ordinary PostgreSQL when nothing overrides this, which is what
+          # makes it testable on its own.
+          command: ["/usr/local/bin/patroni", "/etc/patroni/patroni.yml"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: postgresql
+              containerPort: 5432
+              protocol: TCP
+            - name: patroni
+              containerPort: {{ $root.Values.database.restApiPort }}
+              protocol: TCP
+          env:
+            - name: PATRONI_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: PATRONI_KUBERNETES_POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: PATRONI_KUBERNETES_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            # One scope for the whole Citus cluster, not one per group, and this
+            # is the detail that decides whether any of it works. Patroni appends
+            # the Citus group to the scope itself, so a scope already carrying
+            # the group produces `...-db-0-0` — which matches none of the
+            # Services above, leaving the leader record somewhere the standbys
+            # and the application never look.
+            - name: PATRONI_SCOPE
+              value: {{ include "simple-balance.databaseName" $root | quote }}
+            - name: PATRONI_CITUS_GROUP
+              value: {{ $group | quote }}
+            - name: PATRONI_CITUS_DATABASE
+              value: {{ $root.Values.database.databaseName | quote }}
+            - name: PATRONI_POSTGRESQL_DATA_DIR
+              value: /var/lib/postgresql/data/pgdata
+            - name: PATRONI_POSTGRESQL_CONNECT_ADDRESS
+              value: "$(PATRONI_KUBERNETES_POD_IP):5432"
+            - name: PATRONI_RESTAPI_CONNECT_ADDRESS
+              value: "$(PATRONI_KUBERNETES_POD_IP):{{ $root.Values.database.restApiPort }}"
+            - name: PATRONI_SUPERUSER_USERNAME
+              value: {{ $root.Values.database.superuser.username | quote }}
+            - name: PATRONI_SUPERUSER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "simple-balance.databaseSecretName" $root }}
+                  key: superuser-password
+            - name: PATRONI_REPLICATION_USERNAME
+              value: {{ $root.Values.database.replication.username | quote }}
+            - name: PATRONI_REPLICATION_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "simple-balance.databaseSecretName" $root }}
+                  key: replication-password
+            # Read by post-init.sh on the first bootstrap only.
+            - name: SB_APP_USER
+              value: {{ $root.Values.database.application.username | quote }}
+            - name: SB_APP_DATABASE
+              value: {{ $root.Values.database.databaseName | quote }}
+            - name: SB_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "simple-balance.databaseSecretName" $root }}
+                  key: application-password
+          {{- with $root.Values.database.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          # Patroni answers /readiness for "this member is running and in the
+          # cluster" and /liveness for "this process is alive". The leader
+          # Service does not select on readiness — it selects on Patroni's own
+          # role label — so a standby being unready never removes the primary.
+          startupProbe:
+            httpGet:
+              path: /liveness
+              port: patroni
+            periodSeconds: 5
+            # initdb on a slow disk, plus a first replica cloning from the
+            # primary, is minutes rather than seconds.
+            failureThreshold: 120
+          livenessProbe:
+            httpGet:
+              path: /liveness
+              port: patroni
+            periodSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /readiness
+              port: patroni
+            periodSeconds: 10
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: patroni-config
+              mountPath: /etc/patroni
+              readOnly: true
+            - name: home
+              mountPath: /home/postgres
+            - name: run
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: patroni-config
+          configMap:
+            name: {{ include "simple-balance.databaseName" $root }}-patroni
+            defaultMode: 0o555
+        # The root filesystem is read-only, so every directory PostgreSQL and
+        # Patroni write to outside the data volume is named here. Missing one
+        # fails at start rather than later, which is the good direction.
+        - name: home
+          emptyDir: {}
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        {{- if not $root.Values.database.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
+  {{- if $root.Values.database.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "simple-balance.componentLabels" (dict "root" $root "component" "database") | nindent 10 }}
+      spec:
+        accessModes:
+          {{- toYaml $root.Values.database.persistence.accessModes | nindent 10 }}
+        {{- with $root.Values.database.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ $root.Values.database.persistence.size | quote }}
+  {{- end }}
+{{- if ne $group (last $groups) }}
+---
+{{- end }}
+{{- end }}
+{{- end }}

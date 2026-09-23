@@ -16,7 +16,7 @@ of them unusually, so an unwritten convention is a convention with one holder.
 | Document | Reader | Mode | Changes when |
 | --- | --- | --- | --- |
 | `README.md` | Somebody deciding whether to run it | Orientation | The product's shape changes, or the commands to run it do |
-| `docs/guide.md` | Somebody using it | Tutorial and explanation | A behaviour changes, or the decision behind one does |
+| `docs/guide.md` | Somebody using it | Tutorial and explanation | A behavior changes, or the decision behind one does |
 | `docs/how-to.md` | Somebody using it, mid-task | How-to | A screen changes what it asks for or what it does |
 | `docs/architecture.md` | Somebody changing the code | Explanation | A boundary moves, or a guarantee is added or withdrawn |
 | `docs/deployment.md` | An operator standing one up | Reference and how-to | A setting is added, renamed, or given a new default |
@@ -37,14 +37,15 @@ cannot name both, it is a section of a document that already exists. The corpus
 is small enough to list on one screen, and the reason a reader can find the
 right document in it is that none of them overlap.
 
-**House, and the reason the skills are not a tenth guide.** Five procedures
+**House, and the reason the skills are not a tenth guide.** Six procedures
 repeat — bringing the documents back to true after work lands, sweeping the
-product against the guides, reviewing the browser app, preparing a release, and
-cutting one — and each was being rediscovered, in the wrong order, every time.
+product against the guides, reviewing the browser app, rebuilding the product
+kit the marketing site reads, preparing a release, and cutting one — and each
+was being rediscovered, in the wrong order, every time.
 They are `.claude/skills/`, and the rule that keeps them from becoming a second
 copy of this set is that **a skill cites a guide and never restates it.** A rule
 written down twice drifts, which is the defect the whole set exists to prevent;
-so a skill says "read `web.md` section 9" where it is tempted to summarise
+so a skill says "read `web.md` section 9" where it is tempted to summarize
 section 9. What a skill is allowed to hold is what a guide has no place for: the
 order the steps go in, and the traps. `release-prep` says twice that the recount
 is last, because doing it early cost four passes in one session.
@@ -77,7 +78,7 @@ warning against empty template sections. Only the second is actionable at this
 size.
 
 So: test a page against the four modes when it feels wrong to read, and fix the
-page. Do not reorganise `docs/` into four directories. The existing documents
+page. Do not reorganize `docs/` into four directories. The existing documents
 land in the quadrants without having been designed to, which is the evidence
 that the shape is real rather than imposed.
 
@@ -98,7 +99,7 @@ nothing here is Binding. The one principle worth quoting is its first:
 "Changelogs are for humans, not machines." This file takes that further than the
 convention expects.
 
-- **Prose, not bullets.** `CHANGELOG.md` holds zero list items in 1,746 lines,
+- **Prose, not bullets.** `CHANGELOG.md` holds zero list items in 2,664 lines,
   and the paragraphs are why it can be read. An entry runs at the length and in
   the voice of a commit body: what changed, what it fixes, and what it costs.
 - **Newest first, under `## Unreleased`, then `## X.Y.Z - YYYY-MM-DD`.** The
@@ -108,17 +109,17 @@ convention expects.
 - **Section headings borrow Keep a Changelog's vocabulary**: Added, Changed,
   Deprecated, Removed, Fixed, Security. This file also uses `Internal`, for a
   change with no user-visible effect that an operator or a contributor would
-  still want to find. Across the dated sections: four Added, four Changed, five
-  Fixed, one Security, one Internal. Counting `## Unreleased` as well gives
-  five, five and six. The 0.1.0 entry predates the
-  convention and uses its own headings; leave it.
+  still want to find. Across the dated sections: five Added, five Changed, six
+  Fixed, one Security, one Internal. Counting `## Unreleased` as well gives six,
+  six and seven. The 0.1.0 entry predates the convention and uses its own
+  headings; leave it.
 - **A change a person would notice gets an entry.** "Notice" means one of four
-  things: behaviour on a screen, a value on the wire in any of the three
+  things: behavior on a screen, a value on the wire in any of the three
   contracts, something an operator configures, or something that changes at
   startup. A refactor with none of those is not an entry. This is the rule that
   decides, and it decides at commit time, not at release time.
 - **An entry says why, not only what.** The entry that reads well a year later
-  is the one carrying the reason, including the limits: "ten categorical colours
+  is the one carrying the reason, including the limits: "ten categorical colors
   cannot all be told apart by somebody with dichromatic vision" is the model.
 - **State the limit rather than omitting it.** A fix that is partial says which
   part.
@@ -126,7 +127,7 @@ convention expects.
 *Not checked mechanically.* Nothing in `tests/`, `scripts/` or `.github/`
 reads `CHANGELOG.md`. In particular nothing checks that the top heading matches
 `package.json`, which is a hand step in the release recipe at
-`docs/upgrades.md:237` and has already been the subject of a commit ("Date
+`docs/upgrades.md:650` and has already been the subject of a commit ("Date
 0.1.4 the day it is cut").
 
 ## Versioning
@@ -138,7 +139,7 @@ cites this section and adds the one consequence that belongs to an operator,
 which is that renaming a configuration variable is a breaking release.
 
 The shape of a version is written in three places and two of them used to
-disagree. `scripts/set-version.mjs:25` and `tests/version.test.ts:25` accept a
+disagree. `scripts/set-version.mjs:28` and `tests/version.test.ts:146` accept a
 prerelease suffix; `tasks/product.prd.schema.json:10` pinned three numeric parts
 and nothing else, so `npm run set-version 0.2.0-rc.1` succeeded, the suite
 stayed green, and the build loop then refused to start on an error two steps
@@ -151,7 +152,7 @@ things somebody can depend on:
 | --- | --- |
 | HTTP `/api/v1` | A field removed or renamed, an accepted input narrowed, a status or error code changed for an unchanged request, a default changed. [`http.md`](http.md#what-counts-as-a-breaking-change) holds the full list and the deprecation policy this obliges. |
 | MCP | A tool removed or renamed, a required argument added, a scope widened for an existing tool, an output field removed. |
-| CSV | A recognised column removed from `APP_CSV_COLUMNS`, or an existing column's meaning changed. Adding a column is not breaking and column order is not part of the contract; [`csv.md`](csv.md#6-the-columns) says why. |
+| CSV | A recognized column removed from `APP_CSV_COLUMNS`, or an existing column's meaning changed. Adding a column is not breaking and column order is not part of the contract; [`csv.md`](csv.md#6-the-columns) says why. |
 | The deployment | A configuration variable renamed, removed, or made required; a refusal to start on a configuration the previous version accepted; a new external dependency; a raised floor on PostgreSQL or Node. |
 
 **A surface's own version and the release version answer different questions**,
@@ -195,7 +196,7 @@ What that rules out, and what it leaves:
   later release rather than this one.
 - A capability a client had must not narrow. Advertising a smaller scope in the
   RFC 9728 document would be least privilege and would also take write access
-  away from anybody who re-authorises without step-up support, so it waits.
+  away from anybody who re-authorizes without step-up support, so it waits.
 
 None of these is permanent. A break becomes fine once it has been announced for
 a release and the thing being removed has been deprecated in the field — which
@@ -216,18 +217,18 @@ with no note. The publish runs `npm run verify` first, so an unwritten note now
 stops the release rather than reaching an operator mid-upgrade. *Also checked:*
 the frozen migration list, which `tests/migrations.test.ts` holds to what is on
 disk. *Not checked:* the changelog heading, a hand step in the release recipe at
-`docs/upgrades.md:237`, and which release a migration is attributed to,
+`docs/upgrades.md:650`, and which release a migration is attributed to,
 which is prose inside a list a test can only check the membership of.
 
 ## Upgrade notes
 
-**Binding, quoting `AGENTS.md:181-196`:** "Every migration that has shipped is
+**Binding, quoting `AGENTS.md:289-326`:** "Every migration that has shipped is
 frozen" and "Never edit or regenerate one: someone's database has already run
 it, and changing it would leave their schema and its recorded history
 disagreeing." What follows is the documentation the operator is owed for that.
 
 **House, the shape.** A `## Before you upgrade to X.Y.Z` section, and its first
-sentence tells an operator whether they can stop reading. `docs/upgrades.md:8-9`
+sentence tells an operator whether they can stop reading. `docs/upgrades.md:337-338`
 is the model: "Nothing refuses to start that 0.1.5 accepted, and nothing about
 an existing configuration has to change. Five things are worth knowing." The
 0.1.4 section is the other model, because the answer there was different: "0.1.4
@@ -250,15 +251,15 @@ Then four parts, in this order:
 in a specification or in `AGENTS.md` asks for one; a past failure does. The best
 example in the repository: the 0.1.5 note promises the theme column is a
 constant default and therefore rewrites no table, and
-`tests/migrations.test.ts:264` is called "adds the theme without rewriting a
+`tests/migrations.test.ts:363` is called "adds the theme without rewriting a
 row". Six tests in that file make a claim of that kind, covering migrations
 0005 through 0011. A note that makes a promise about somebody's data
 and has no test behind it has been wrong before: the 0.1.5 contrast note quoted
 a number that was not the old value, and the change it described as an
 improvement was a small regression.
 
-*Checked by:* `tests/migrations.test.ts`. Per-migration behaviour assertions
-cover 0005 through 0011; the frozen ordering list at `:36-43` names the first
+*Checked by:* `tests/migrations.test.ts`. Per-migration behavior assertions
+cover 0005 through 0011; the frozen ordering list at `:39-45` names the first
 five explicitly and the rest are held by number, file and snapshot rather than
 by name, and 0012 has no assertion there at all. *Checked by:* `tests/migrations.test.ts`, which reads `AGENTS.md` and fails when
 a file in `drizzle/` is not named there. That test exists because the list had
@@ -305,13 +306,13 @@ out.
   **done**, because that is presence rather than judgement and presence is the
   half that fell behind.
 - **A "Deliberately not planned" section with the counter-argument in it.** The
-  auto-categorisation entry states the case against its own decision and names
+  auto-categorization entry states the case against its own decision and names
   the condition under which to revisit it. That is what makes the section
   useful rather than defensive.
 - **Nothing is committed to here.** `tasks/product.prd.json` records the product
   as built; the roadmap records intent, and says so in its opening paragraph.
 
-*Not checked mechanically.* `tests/version.test.ts:119-121` checks that the
+*Not checked mechanically.* `tests/version.test.ts:321-323` checks that the
 backlog's version matches the manifest, which is the only mechanical link
 between intent and release.
 
@@ -339,7 +340,7 @@ The reasoning, which is what the next person should argue with:
 So, taking Nygard's Status field and immutability rule without the ceremony:
 
 - **House. A recorded decision names the release it was made in.** The exemplar
-  is `AGENTS.md:181-196`, the frozen migration list, which names every migration
+  is `AGENTS.md:289-326`, the frozen migration list, which names every migration
   and the release it shipped in, and is the most reliable section in the file
   for exactly that reason.
 - **House. A reversal edits the old text to say it is superseded, and says by
@@ -369,10 +370,10 @@ with `docs/guide.md` keeping the explanations.
 - **A section per question somebody actually asks**, in this order: what it is,
   everything else it does, run it locally, run the tests, host it, connect an
   agent, security, not built yet, more, built with, license.
-- **The licence is stated in the README, not only in `LICENSE`.** For an AGPL
-  project the licence is a term of use. `README.md:269-279` names it, links it,
+- **The license is stated in the README, not only in `LICENSE`.** For an AGPL
+  project the license is a term of use. `README.md:277-287` names it, links it,
   and explains what section 13 adds, including for versions published under the
-  older licence.
+  older license.
 - **No badge wall.** There are none today.
 - **A Security section, and a `SECURITY.md` behind it.** It ships an OAuth
   authorization server with dynamic client registration and a public MCP
@@ -451,7 +452,7 @@ a layer has almost always failed it, because those are answers to "where" and
 the subject's question is "what changed for somebody".
 
 Two habits that follow from that. Say the domain thing rather than the technical
-thing where both would do: "spell a payee", not "normalise the payee string".
+thing where both would do: "spell a payee", not "normalize the payee string".
 And where a commit really does several things, join them with a comma rather
 than inventing a category: "Stop a staging token making ledger changes, and a
 JWT carrying a credential".
@@ -543,17 +544,17 @@ them cover the whole range:
   Note the last line, which states the bound: "Unbounded on purpose: the keys
   are locale-and-currency pairs and a ledger holds a handful of currencies, so
   there is nothing here to grow."
-- **The trade named, not only the choice.** `src/client/components.tsx:603-617`:
+- **The trade named, not only the choice.** `src/client/components.tsx:604-618`:
   a fixed popover, why absolute fails in a scrolling table card, what fixed
   costs, and then the harder half: "Deliberately not `role="menu"` ... menu
-  roles without the keyboard behaviour they imply are worse than none."
+  roles without the keyboard behavior they imply are worse than none."
 - **The invariant with the consequence of breaking it.**
-  `src/shared/domain.ts:2306-2308`: "`.strict()` is the load-bearing part: a
-  filter this cannot honour is an error rather than a key quietly dropped,
+  `src/shared/domain.ts:2354-2356`: "`.strict()` is the load-bearing part: a
+  filter this cannot honor is an error rather than a key quietly dropped,
   because a selection resolves twice and an ignored filter makes the count and
   the fingerprint agree about the wrong set."
 - **The rule stated where somebody will try to break it.**
-  `src/client/styles.css:73-92`: why every colour is a token, which test fails
+  `src/client/styles.css:73-92`: why every color is a token, which test fails
   if one is not, and why the two dark blocks cannot be merged.
 
 Three further rules:
@@ -595,7 +596,7 @@ here is testable, because the thing being judged is whether a sentence is true.
 
 ## Keeping a document true
 
-**House. A change that alters behaviour a document describes changes that
+**House. A change that alters behavior a document describes changes that
 document in the same commit.** `AGENTS.md`'s definition of done covers the code
 half. The documentation half is habit, and habit is why seven of these are
 checked and four are not.
@@ -604,9 +605,9 @@ What is checked:
 
 | Correspondence | Checked by |
 | --- | --- |
-| Every MCP tool name appears in `docs/mcp.md` | `tests/mcp-parity.test.ts:300-305`, by name rather than by count, "so the failure says which" |
-| Example image tags in `deploy/pulumi/README.md` and the split compose file match the release | `tests/version.test.ts:110-117` |
-| The product backlog's version matches the manifest | `tests/version.test.ts:119-121` |
+| Every MCP tool name appears in `docs/mcp.md` | `tests/mcp-parity.test.ts:306-316`, by name rather than by count, "so the failure says which" |
+| Every pinned image tag in the tree matches the release, *and* is a file `set-version` rewrites | `tests/version.test.ts:232-262`, which finds them by sweeping the repository rather than by holding a list — the list had gone stale once, leaving a third file deploying the release it was written during |
+| The product backlog's version matches the manifest | `tests/version.test.ts:321-323` |
 | `docs/deployment.md`'s settings tables against `.env.example` and `deploy/compose/.env.example`, both directions | `tests/env-example.test.ts`, which documents every variable an example names and shows an example of every variable the tables document, and holds its own two exception lists to being genuinely exceptional |
 | The `docker run` command in `README.md` and `docs/deployment.md` carries its hardening flags | `tests/deployment-docs.test.ts`, which requires `--read-only`, the `noexec,nosuid` tmpfs, `--stop-timeout 30`, `--cap-drop=ALL` and `--security-opt=no-new-privileges` in both, and hardens every service in the compose recipe the same way |
 | The README tells somebody who found a hole where to report it, and does not answer the contributing question with the invariants file | `tests/docs-conventions.test.ts` |
@@ -635,7 +636,7 @@ All four hold today, by hand.
 **House, and specific to this product.** Any convention stated in `docs/mcp.md`
 prose that an agent must obey also appears in a tool or field description,
 because an agent never reads the prose. The document already articulates the
-principle at `:67`: "Fields carry descriptions, so an agent reading the schema
+principle at `:91`: "Fields carry descriptions, so an agent reading the schema
 learns the conventions that matter."
 [`mcp.md`](mcp.md#descriptions) owns the rule; it is repeated here because the
 temptation is to write the convention down in the guide and consider it
@@ -653,7 +654,7 @@ document; 76 lines in `CHANGELOG.md` currently run past 80 and should come back.
 image, because an image cannot be diffed and goes stale in silence. There is
 exactly one, at `docs/architecture.md:8-19`. There is exactly one screenshot,
 `docs/images/dashboard.png`, and it is replaced when the thing it shows changes
-shape rather than when it changes colour. It was last retaken against a real
+shape rather than when it changes color. It was last retaken against a real
 production build during the 0.1.5 cut, which is the standard: a seeded ledger
 and the real Content-Security-Policy in force, not a development server.
 
@@ -672,13 +673,13 @@ edit.
   anybody argued the rule down: a rule nothing enforces loses ground at the rate
   the repository grows, which is the case for scoping it rather than for
   restating it. In user-visible copy the rule holds almost everywhere, with
-  four exceptions: `App.tsx:582`, `select-options.ts:110`,
+  four exceptions: `App.tsx:595`, `select-options.ts:110`,
   `TemplatesPage.tsx:611`, and the review queue's inline-edit labels
-  (`StagingPage.tsx:995`), which lead with the visible value and set the
+  (`StagingPage.tsx:1039`), which lead with the visible value and set the
   instruction off behind a dash. The lone "—" in an empty table cell is a
   placeholder glyph rather than punctuation and is not counted here. Two
   further sites,
-  `SettingsPage.tsx:135` and `ReportsPage.tsx:167-171`, are prose inside JSX
+  `SettingsPage.tsx:141` and `ReportsPage.tsx:195-199`, are prose inside JSX
   and read as copy but are comments, so they answer to the comment rule rather
   than this one. Three of those citations have now drifted off the line they
   name at least once, which is what a line number into a file somebody is
@@ -698,13 +699,15 @@ edit.
   trailers GitHub wrote.
 - **Four forms of a release subject** across six release commits.
 - **`Humanize the docs`**, an American spelling in a subject, in a repository
-  whose prose is British. Pre-convention, and the only one.
+  whose prose was British when that commit landed. Pre-convention, and the only
+  one — and the convention has since turned over to meet it
+  (`docs/standards/common.md` §Naming).
 - **The browser tier is new and thin.** `tests/browser/` covers the budgets
   page and nothing else. Every other page still rests on jsdom, which cannot
   see the class of defect that tier was added for.
 - **No `CONTRIBUTING.md`**, on a published AGPL project that accepts dependabot
   pull requests. The README carries a `## Contributing` section
-  (`README.md:210`) and `tests/docs-conventions.test.ts` holds it to not
+  (`README.md:217`) and `tests/docs-conventions.test.ts` holds it to not
   answering the question by pointing at the invariants file, so the half that
   was missing is the separate document a forge links to from a pull request
   form. Whether pull requests are taken at all is the owner's answer to give,

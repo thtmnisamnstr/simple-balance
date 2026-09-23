@@ -22,7 +22,17 @@ const BROWSER_ONLY: Record<string, string> = {
   "POST /api/v1/auth/local-password":
     "Setting a sign-in credential is account management rather than bookkeeping, and an agent cannot undo it from its side.",
   "GET /api/v1/session":
-    "Split rather than missing: whoami reports the identity and get_preferences the regional settings. The rest of it is which sign-in methods the deployment offers, which is no business of an agent's.",
+    "Split rather than missing: whoami reports the identity, the plan's ceiling and how much of it is used, and get_preferences the regional settings. What is left is which sign-in methods the deployment offers, which is no business of an agent's.",
+  "GET /api/v1/billing":
+    "Paying for the deployment is account management rather than bookkeeping. Reported to an agent as far as it needs it: whoami carries the plan, its ceiling and how much of it is used, which is what an agent has to know to explain a refusal.",
+  "PUT /api/v1/billing/subscription":
+    "Starting or changing a paid subscription spends somebody's money, and an MCP token is a credential handed to a program. It stays something a person does while signed in, alongside deleting the account and setting a password.",
+  "PUT /api/v1/billing/subscription/cancellation":
+    "The other half of the same decision. An agent that could not subscribe but could cancel would be a worse split, not a safer one.",
+  "POST /api/v1/billing/payment-setups":
+    "Returns a secret that only Stripe's browser SDK can use. There is nothing an agent could do with it.",
+  "POST /api/v1/billing/payment-setups/confirmations":
+    "The other half of that one: it names a SetupIntent only Stripe's browser SDK can have confirmed. An agent has no way to reach the state this reports.",
   "GET /api/v1/csv/export":
     "Reachable as export_transactions_csv. The route differs only in returning a file download with a dated filename.",
 };
@@ -36,6 +46,7 @@ const COVERED_BY: Record<string, string> = {
   "POST /api/v1/accounts": "create_account",
   "PUT /api/v1/accounts/:id": "update_account",
   "POST /api/v1/accounts/:id/archived": "archive_account",
+  "PUT /api/v1/accounts/active": "set_active_accounts",
   "DELETE /api/v1/accounts/:id": "delete_account",
   "GET /api/v1/category-groups": "list_category_groups",
   "POST /api/v1/category-groups": "create_category_group",
@@ -188,7 +199,7 @@ async function servicesByTool() {
 }
 
 /**
- * The one pair that deliberately differs, and in the agent's favour: the page
+ * The one pair that deliberately differs, and in the agent's favor: the page
  * lists categories and asks for the usage counts separately, while the tool
  * always returns them, so an agent can tell an existing category from a second
  * spelling of one without a second call.
@@ -474,7 +485,7 @@ describe("what an agent can reach compared with the browser", () => {
    * is read only by an agent that already holds ledger:write and never by the
    * one that does not. Written on all 36 gated tools it would be about 3,600
    * characters of one convention repeated per tool, for a reader who cannot
-   * benefit. What a description owes is the behaviour that differs by scope,
+   * benefit. What a description owes is the behavior that differs by scope,
    * which is these four and nothing else — so this is set equality rather than
    * a floor, and it fails both when one of them loses its sentence and when
    * somebody starts pasting the scope onto the rest.
@@ -564,7 +575,7 @@ describe("what the browser can reach compared with an agent", () => {
       // The whole path, with each parameter standing in for a template hole.
       // This asked whether the prefix before the first parameter appeared
       // anywhere in the client, which is true of `/api/v1/accounts` the moment
-      // anything fetches an account — so every parameterised sub-route was
+      // anything fetches an account — so every parameterized sub-route was
       // unchecked, and a page could stop calling one without this noticing.
       const pattern = new RegExp(
         path

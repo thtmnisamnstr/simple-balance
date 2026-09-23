@@ -3,11 +3,13 @@ import {
   configuredIdempotencyRetentionHours,
   configuredRecurrenceTickSeconds,
 } from "./config-limits.js";
+import { runBillingReconciliation, type BillingSweepSummary } from "./services/billing.js";
 import { pruneIdempotencyRecords } from "./services/helpers.js";
 import { runDueNotifications, type NotificationTickSummary } from "./services/notifications.js";
 import { runDueRecurrences, type TickSummary } from "./services/recurrences.js";
 import { log } from "./log.js";
 import {
+  billingSweeps,
   idempotencySweeps,
   recurrenceOccurrences,
   reminderSweeps,
@@ -18,8 +20,8 @@ import {
 /**
  * How long after the process starts listening the first tick fires.
  *
- * Short, so a container restarted after downtime shows its backlog straight
- * away rather than an interval later, and after `serve()` has returned so a slow
+ * Short, so a container restarted after downtime shows its backlog right away
+ * rather than an interval later, and after `serve()` has returned so a slow
  * first tick can never delay a readiness probe.
  */
 export const FIRST_TICK_DELAY_MS = 5_000;
@@ -75,6 +77,11 @@ export type RecurrenceSchedulerOptions = {
   runReminders?: (stopped: () => boolean) => Promise<NotificationTickSummary>;
   /** Substitutable for the same reason the other two are: a test needs a fake. */
   runIdempotencySweep?: () => Promise<{ swept: number; capped: boolean }>;
+  /**
+   * The fourth job, and the only one that talks to anything outside this
+   * deployment. Substitutable so a test can drive it without a Stripe account.
+   */
+  runBillingSweep?: (stopped: () => boolean) => Promise<BillingSweepSummary>;
   schedule?: (callback: () => void, milliseconds: number) => Timer;
   jitter?: () => number;
   logger?: SchedulerLogger;
@@ -94,6 +101,7 @@ export function createRecurrenceScheduler(
     runTick = runDueRecurrences,
     runReminders = runDueNotifications,
     runIdempotencySweep = pruneIdempotencyRecords,
+    runBillingSweep = runBillingReconciliation,
     schedule = defaultSchedule,
     jitter = () => Math.random() * FIRST_TICK_JITTER_MS,
     logger = log,
@@ -171,6 +179,31 @@ export function createRecurrenceScheduler(
           idempotencySweeps.inc({ outcome: "failed" });
           logger.failure("Idempotency retention sweep failed", error);
         }
+        // And the billing sweep, last of the four and for the same reasons: the
+        // schedule it is due on has the same shape, and a second timer would be
+        // a second thing to configure, shut down and notice had stopped.
+        //
+        // Its own try, so Stripe being unreachable costs the other three
+        // nothing — this is the only job that depends on somebody else's server
+        // being up. It returns without a query where no Stripe is configured,
+        // which is the default, so a deployment that sells nothing pays a
+        // function call per tick.
+        let reconciled = 0;
+        try {
+          const billing = await runBillingSweep(() => stopping);
+          if (billing.skipped) {
+            billingSweeps.inc({ outcome: "off" });
+          } else {
+            billingSweeps.inc({ outcome: "examined" }, billing.examined);
+            billingSweeps.inc({ outcome: "written" }, billing.written);
+            billingSweeps.inc({ outcome: "failed" }, billing.failed);
+            if (billing.capped) billingSweeps.inc({ outcome: "capped" });
+          }
+          reconciled = billing.written + billing.failed;
+        } catch (error) {
+          billingSweeps.inc({ outcome: "swept_failed" });
+          logger.failure("Billing reconciliation sweep failed", error);
+        }
         // Said out loud, and not only counted.
         //
         // `/metrics` is off unless a deployment asks for it, so without this a
@@ -186,12 +219,19 @@ export function createRecurrenceScheduler(
         // trail's business and the ledger's; this line is about whether the
         // schedule is running.
         const acted =
-          summary.proposed + summary.notified + summary.failed + sent + sweepFailed + sweptRecords;
+          summary.proposed +
+          summary.notified +
+          summary.failed +
+          sent +
+          sweepFailed +
+          sweptRecords +
+          reconciled;
         const line =
           `Scheduler tick: examined ${summary.examined} recurrence${summary.examined === 1 ? "" : "s"}, ` +
           `proposed ${summary.proposed}, failed ${summary.failed}, notified ${summary.notified}; ` +
           `sent ${sent} reminder${sent === 1 ? "" : "s"}, ${sweepFailed} failed` +
           (sweptRecords > 0 ? `; pruned ${sweptRecords} idempotency records` : "") +
+          (reconciled > 0 ? `; re-read ${reconciled} subscriptions` : "") +
           (summary.capped ? "; capped, so the next tick follows immediately" : "");
         if (acted > 0) logger.info(line);
         else logger.debug(line);

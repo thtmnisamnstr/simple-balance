@@ -299,7 +299,7 @@ integration("archiving an account closes its balance out to equity", () => {
   });
 });
 
-integration("where uncategorised spending sits in the summary", () => {
+integration("where uncategorized spending sits in the summary", () => {
   const catActor: Actor = { userId: "spend-order-user", source: "web" };
   const catDatabase = `simple_balance_spendorder_${process.pid}_${Date.now()}`;
   let catAdmin: PgClient;
@@ -325,7 +325,7 @@ integration("where uncategorised spending sits in the summary", () => {
       openingDate: "2026-01-01",
       openingBalance: "10000",
     });
-    // Deliberately the largest: uncategorised outspends every named category,
+    // Deliberately the largest: uncategorized outspends every named category,
     // which is exactly when ranking it by amount put it at the top.
     const spend = async (amount: string, payee: string, category?: string) =>
       createTransaction(
@@ -340,7 +340,7 @@ integration("where uncategorised spending sits in the summary", () => {
           ...(category ? { categoryName: category } : {}),
         },
         // The payee whole, never padded to a width: padding and slicing is the
-        // collision shape testing.md 2.6 is about — two keys that agree for
+        // collision shape testing.md 2.7 is about — two keys that agree for
         // sixteen characters replay each other and the second write is a read.
         `spend-${payee}`,
       );
@@ -423,7 +423,7 @@ integration("a summary stops at today", () => {
   });
 
   // "All time" used to mean 9999-12-31, so next month's deposit counted toward
-  // a figure the page labelled as of today.
+  // a figure the page labeled as of today.
   it("leaves a future-dated deposit out of an open-ended range", async () => {
     const summary = await getSummary(futureActor, {});
     const currency = summary.currencies.find((entry) => entry.currency === "USD")!;
@@ -440,7 +440,7 @@ integration("a summary stops at today", () => {
     expect(summary.range.end).toBe("9999-12-31");
   });
 
-  it("still honours an end date in the past", async () => {
+  it("still honors an end date in the past", async () => {
     const summary = await getSummary(futureActor, { end: "2026-01-01" });
     const currency = summary.currencies.find((entry) => entry.currency === "USD")!;
     expect(Number(currency.balance)).toBe(165);

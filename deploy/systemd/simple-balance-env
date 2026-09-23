@@ -1,0 +1,54 @@
+#!/bin/sh
+# Assembles the file Compose reads, /opt/simple-balance/.env, from its three
+# parts: env.base, which cloud-init wrote and which holds nothing secret; the
+# secret simple-balance-firstboot generated onto the data volume; and env.local,
+# the settings somebody added by hand, on the same volume.
+#
+# Run by simple-balance-firstboot, and before every start of the deployment by
+# the drop-in the cloud programs install beside the unit, which is what makes
+# "edit env.local, then sudo systemctl restart simple-balance" true. Not by the
+# unit itself: simple-balance.service also serves the hand-installed `single`
+# and `vps` profiles, whose .env is somebody's own and has no parts to be
+# assembled from.
+set -eu
+
+: "${SB_COMPOSE_DIR:=/opt/simple-balance}"
+: "${SB_STATE_DIR:=/var/lib/simple-balance}"
+
+base="$SB_COMPOSE_DIR/env.base"
+secrets="$SB_STATE_DIR/secrets.env"
+local_env="$SB_STATE_DIR/env.local"
+target="$SB_COMPOSE_DIR/.env"
+
+# No env.base means no cloud program built this machine, so its .env is written
+# by hand and overwriting it would lose whatever is in it. Leaving it alone and
+# succeeding is what keeps the deployment starting.
+if [ ! -f "$base" ]; then
+	echo "simple-balance-env: no $base, so $target is left as it is." >&2
+	exit 0
+fi
+
+# Without the secret the deployment has no AUTH_SECRET, and starting it on the
+# .env from last time would run on settings that are no longer the ones on the
+# volume. That is the data volume missing or not mounted, and a failed start
+# says so where a quiet one would not.
+if [ ! -f "$secrets" ]; then
+	echo "simple-balance-env: $secrets is missing; is the data volume mounted at $SB_STATE_DIR?" >&2
+	exit 1
+fi
+
+# Written beside the target and moved over it, so a fold that fails partway
+# leaves the last good .env in place rather than half of a new one. Moved within
+# one directory, which is one filesystem, so the rename is atomic.
+umask 077
+partial="$target.partial"
+{
+	cat "$base"
+	cat "$secrets"
+	if [ -s "$local_env" ]; then
+		echo "# --- added by hand, on the volume that survives a rebuild ---"
+		cat "$local_env"
+	fi
+} >"$partial"
+chmod 0600 "$partial"
+mv "$partial" "$target"

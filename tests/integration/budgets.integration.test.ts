@@ -92,7 +92,7 @@ const spend = (
 /**
  * This file is order-independent, and is meant to stay that way. Five of these
  * tests once shared two categories and asserted what an earlier test had spent,
- * which is an order rather than a behaviour, and it hid a wrong expected value
+ * which is an order rather than a behavior, and it hid a wrong expected value
  * for two rounds. Check it with:
  *
  *     npx vitest run -c vitest.integration.config.ts \
@@ -136,7 +136,7 @@ integration("budgets", () => {
    * Each of these owns the categories it names. They read as a sequence and
    * they used to be one: five tests sharing two categories, each depending on
    * what the last one spent. Five of them failed under `--sequence.shuffle`,
-   * which means the suite was asserting an order rather than a behaviour.
+   * which means the suite was asserting an order rather than a behavior.
    */
   const budgetedCategory = async (name: string, amount = "200.00") => {
     const category = await createCategory(actor, { name, kind: "expense" });
@@ -633,7 +633,7 @@ integration("budgets", () => {
   });
 
   /**
-   * Every behavioural test above is monthly, and the worst defect this story
+   * Every behavioral test above is monthly, and the worst defect this story
    * had was a period-boundary bug that monthly fixtures could not see: a plan
    * starting mid-period budgeted nothing for that period. So the boundary is
    * exercised at every unit, and the dates are derived from what the service
@@ -1156,7 +1156,7 @@ integration("budgets", () => {
    * The last order dependence in the import path. A `ledger:stage` caller may
    * not create a category, so the row is staged carrying the name and the
    * commit makes it. The commit sees one row at a time, so without the file's
-   * decision travelling with the name, whichever row committed first decided
+   * decision traveling with the name, whichever row committed first decided
    * the kind: a refund landing first made an income category, filed every
    * purchase in the file against the income counter-account, and left a
    * category no budget could be set on at all.
@@ -1347,7 +1347,7 @@ integration("budgets", () => {
    * Nothing here is stored per period: every figure below is folded at read
    * time from the same plans, entries and postings the rest of the report comes
    * from. That is what these tests are really holding — a carry that had been
-   * materialised would pass the first two and quietly fail the fifth, where a
+   * materialized would pass the first two and quietly fail the fifth, where a
    * budget's history is edited after the fact.
    */
   describe("a budget that carries what a period did not spend", () => {

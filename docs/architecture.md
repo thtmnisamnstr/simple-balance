@@ -30,7 +30,7 @@ contract breaks, which is not the same as when the app does.
 
 | Path | What is in it |
 | --- | --- |
-| `src/shared` | Zod contracts, money and date primitives, CSV normalisation. Imported by both sides. |
+| `src/shared` | Zod contracts, money and date primitives, CSV normalization. Imported by both sides. |
 | `src/server/services` | The ledger itself: tenancy, concurrency, idempotency, postings, summaries, staging, import/export, audit. |
 | `src/server/api.ts` | HTTP transport. Resolves the user from Better Auth and calls services. |
 | `src/server/mcp.ts` | MCP transport. Exposes tools and filters them by OAuth scope. |
@@ -91,16 +91,16 @@ Each posting carries its own date. Balances, cash flow, and spending by category
 therefore read one table, and a balance as of a date is an indexed range rather
 than a scan of the ledger. Labels are the exception. Which category an entry was
 filed under is read from the transaction, or from the leg the posting belongs
-to, which is why recategorising updates past reports rather than only future
+to, which is why recategorizing updates past reports rather than only future
 ones.
 
 A split transaction is that counter-account side cut into legs. Each leg is a
 row holding one category and one amount, and each leg's share is posted under
-its own leg id, so a hundred-pound receipt split three ways is three postings
+its own leg id, so a hundred-dollar receipt split three ways is three postings
 adding to a hundred rather than one posting counted three times. Because the
 legs are those postings, "the legs add up to the total" is the zero-sum check
 that was already running: there is no way to write a split that satisfies one
-and not the other, and no balance query changes a line. Relabelling a leg is a
+and not the other, and no balance query changes a line. Relabeling a leg is a
 single update that writes no postings at all, since the leg's identity does not
 change when its label does. A leg is zeroed rather than deleted, because the
 postings naming it are append-only; it falls out of every report through the
@@ -147,7 +147,7 @@ not match the selection.
 A template is a saved starting point for the transaction form, not a record of
 anything: it posts nothing and never touches a balance. The account and category
 it names live inside its JSON with no foreign key, deliberately, because a key
-would cascade and tidying up an old account would take the saved template with
+would cascade and cleaning up an old account would take the saved template with
 it. What it holds instead is an id resolved when the template is used and
 dropped, with a note, when it no longer resolves. Ownership of those ids is
 checked when the template is written rather than when it is read.
@@ -263,7 +263,7 @@ thing to configure, a second thing to notice had stopped, and a second sweep of
 the same tables. Proposals go first, so a notice about what a tick proposed is
 sent in the same tick that proposed it.
 
-Two independent things stop the same occurrence being proposed twice. Every
+Two independent things keep the same occurrence from being proposed twice. Every
 replica sweeps the same due list and claims each recurrence with `for update
 skip locked`, so they divide the work by racing for rows rather than by electing
 one of themselves to do all of it: a row another replica holds is skipped, not

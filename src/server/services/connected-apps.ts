@@ -136,7 +136,7 @@ export type RevokedConnectedApp = {
  * Cut one client off from this person's ledger, now rather than at expiry.
  *
  * Deleting the access-token row is what makes it immediate: an MCP request
- * presents a signed JWT, and the JWT is only honoured while it still resolves
+ * presents a signed JWT, and the JWT is only honored while it still resolves
  * to a live row, so a token already in an agent's hands stops working on the
  * next call. The refresh token lives on that same row, so it goes with it and
  * cannot mint a replacement.

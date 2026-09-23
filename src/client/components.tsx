@@ -25,6 +25,7 @@ import {
   useState,
 } from "react";
 import type { SortDirection } from "../shared/domain.js";
+import { APP_NAME } from "../shared/version.js";
 import { PROGRESS_VERB, type ProgressEvent } from "../shared/progress.js";
 import { errorMessages } from "./api.js";
 import type { DatePreset } from "./date-range.js";
@@ -294,13 +295,13 @@ export function Button({
    * completely silent: nothing has been typed wrongly, so there is no field
    * error, and nothing has been submitted, so there is no summary. Six of them
    * shipped and one had a sentence — the split remainder line, which is the
-   * model this generalises.
+   * model this generalizes.
    *
    * Rendered only while `disabled` is true and `loading` is not, because a
    * button that is working already says so and a reason for that state would
    * be a second answer to a question already answered.
    *
-   * Wired with `aria-describedby` rather than left as a neighbouring
+   * Wired with `aria-describedby` rather than left as a neighboring
    * paragraph: a sighted person reads what is next to the button, and somebody
    * on a screen reader is told the button's name and its state and then has to
    * go looking. The description is what makes "disabled" say why.
@@ -404,7 +405,7 @@ export function ErrorSummary({
   // name; a second `<h2>` in the body reads as a peer section of the dialog
   // rather than as content in it. Same reasoning as `EmptyState`.
   const Heading = level === 2 ? "h2" : "h3";
-  // Plain defence against a refusal carrying an unbounded list. No call site
+  // Plain defense against a refusal carrying an unbounded list. No call site
   // reaches it today.
   const shown = messages.slice(0, 10);
   const rest = messages.length - shown.length;
@@ -613,7 +614,7 @@ export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement
  * Deliberately not `role="menu"`. Those roles promise a screen reader arrow-key
  * navigation, and a roving tabindex exists nowhere else in this client. A
  * disclosure that behaves like a disclosure is honest; menu roles without the
- * keyboard behaviour they imply are worse than none.
+ * keyboard behavior they imply are worse than none.
  */
 export function RowMenu({ label, children }: { label: string; children: ReactNode }) {
   const details = useRef<HTMLDetailsElement>(null);
@@ -680,7 +681,7 @@ export function RowMenu({ label, children }: { label: string; children: ReactNod
         className="menu-popover row-menu-popover"
         style={anchor ? { top: anchor.top, right: anchor.right } : undefined}
         // Choosing something closes the menu. Without this it stays open behind
-        // whatever the choice opened, and is still there afterwards.
+        // whatever the choice opened, and is still there afterward.
         onClick={() => close()}
       >
         {children}
@@ -869,6 +870,23 @@ export function PageHeader({
   description?: string;
   actions?: ReactNode;
 }) {
+  /*
+   * The tab says which page you are on.
+   *
+   * It said "Simple Balance" on all thirteen for five releases, which is the
+   * state where two windows of this app are indistinguishable in a task
+   * switcher and a bookmark records nothing about what was bookmarked.
+   *
+   * Setting it here rather than from a table in the router is deliberate:
+   * `title` is already the page's `h1`, so the tab cannot drift from the
+   * heading, and a page added later gets a correct tab without anybody
+   * remembering a second list. The router is where the obvious alternative
+   * lives and it is the one that goes stale.
+   */
+  useEffect(() => {
+    document.title = `${title} — ${APP_NAME}`;
+  }, [title]);
+
   return (
     <header className="page-header">
       {/* The actions sit in the title row rather than beside the whole block,
@@ -884,6 +902,54 @@ export function PageHeader({
       </div>
       {description ? <p>{description}</p> : null}
     </header>
+  );
+}
+
+/**
+ * The strip across the top of Settings, and the one place in this app that
+ * navigates by document load on purpose.
+ *
+ * Settings and the plan tab are two documents rather than two panels because
+ * they are served under different content security policies — the plan tab
+ * mounts Stripe's payment form, which loads a script and an iframe from Stripe
+ * that every other page forbids — and a policy belongs to the document it
+ * arrived with. A client-side push between them would carry one page's policy
+ * onto the other: into the plan tab that means the payment form never appears,
+ * and out of it that means the pages showing somebody's balances run with
+ * Stripe's origins allowed.
+ *
+ * So these are plain anchors, and the cost is a reload on a strip most people
+ * use twice. Written as one component rather than copied into both pages,
+ * because a strip that disagrees with itself about which tab is current is the
+ * obvious thing to get wrong with two copies.
+ */
+export function SettingsTabs({
+  current,
+  billingAvailable,
+}: {
+  current: "preferences" | "plan";
+  billingAvailable: boolean;
+}) {
+  // Nothing to choose between when the deployment sells nothing, and a strip
+  // with one tab in it is furniture rather than navigation.
+  if (!billingAvailable) return null;
+  const tabs = [
+    { id: "preferences", href: "/settings", label: "Preferences" },
+    { id: "plan", href: "/settings/plan", label: "Plan and billing" },
+  ] as const;
+  return (
+    <nav className="settings-tabs" aria-label="Settings sections">
+      {tabs.map((tab) => (
+        <a
+          key={tab.id}
+          href={tab.href}
+          className={tab.id === current ? "settings-tab is-current" : "settings-tab"}
+          aria-current={tab.id === current ? "page" : undefined}
+        >
+          {tab.label}
+        </a>
+      ))}
+    </nav>
   );
 }
 

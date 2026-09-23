@@ -22,7 +22,17 @@ import {
   X,
 } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
-import { Navigate, NavLink, Route, Routes, useLocation, useSearchParams } from "./router.js";
+import {
+  addressCarriesLedgerText,
+  isPlanSurfacePath,
+  withoutLedgerText,
+  Navigate,
+  NavLink,
+  Route,
+  Routes,
+  useLocation,
+  useSearchParams,
+} from "./router.js";
 import { api, ApiClientError, json, type AuthPublicOptions, type Session } from "./api.js";
 import { authClient } from "./auth-client.js";
 import { Alert, Button, Field, Input, Note } from "./components.js";
@@ -41,12 +51,15 @@ import ImportPage from "./pages/ImportPage.js";
 import TemplateDetailPage from "./pages/TemplateDetailPage.js";
 import RecurrencesPage from "./pages/RecurrencesPage.js";
 import TemplatesPage from "./pages/TemplatesPage.js";
+import { AdSlot } from "./ads.js";
+import { PlanPage } from "./pages/PlanPage.js";
 import SettingsPage from "./pages/SettingsPage.js";
 import StagingPage from "./pages/StagingPage.js";
 import TransactionsPage from "./pages/TransactionsPage.js";
 import { detectedCurrency, detectedTimezone } from "./locale.js";
 import { clearCachedTheme, useThemeSetting } from "./theme.js";
 import { TimezoneProvider } from "./timezone.js";
+import { APP_NAME } from "../shared/version.js";
 
 /**
  * Reading order rather than alphabetical: where the money is and what moved it,
@@ -521,7 +534,7 @@ export function OAuthConsent() {
   const [error, setError] = useState("");
   // Which answer is in flight, not merely that one is. A single boolean put
   // the spinner on "Allow access" when Deny was pressed — the busy state on the
-  // button nobody touched, while the pressed one only greyed out.
+  // button nobody touched, while the pressed one only grayed out.
   const [deciding, setDeciding] = useState<null | boolean>(null);
   const request = useQuery<ConsentRequest>({
     queryKey: ["consent-request", consentCode],
@@ -651,9 +664,43 @@ function useAdoptBrowserRegion(session: Session) {
 }
 
 function Shell({ session }: { session: Session }) {
+  /*
+   * The deployment's capabilities, for the privacy link below. This is the
+   * same `["auth-methods"]` query the sign-in screen ran, so it is served
+   * from the cache rather than fetched again.
+   */
+  const deployment = useQuery({
+    queryKey: ["auth-methods"],
+    queryFn: () => api<AuthPublicOptions>("/api/auth/methods"),
+    retry: false,
+  });
   const [mobileNav, setMobileNav] = useState(false);
   const location = useLocation();
   const main = useRef<HTMLElement>(null);
+
+  /**
+   * No ad on the plan and billing tab, which three documents promise and which
+   * the content security policy does not deliver.
+   *
+   * The policy is the obvious place to look and the wrong one: under
+   * `SB_CSP_REPORT_ONLY` nothing on that page is enforced at all, so a slot
+   * left mounted there would put live Google ads beside the payment form rather
+   * than an empty box. And that page is the one whose entire purpose is selling
+   * their removal.
+   *
+   * Read from the router's location rather than `window`, because this has to
+   * be right for a client-side arrival as well as a document load, and it uses
+   * the router's own predicate so the two cannot disagree about which spellings
+   * are that page.
+   */
+  //
+  // Nor wherever the address carries a payee's name, which an ad request would
+  // send to Google as the page it was on — see addressCarriesLedgerText.
+  const ads =
+    isPlanSurfacePath(location.pathname) ||
+    addressCarriesLedgerText(location.search, document.referrer, window.location.origin)
+      ? null
+      : session.ads;
   const hamburger = useRef<HTMLButtonElement>(null);
   const drawerClose = useRef<HTMLButtonElement>(null);
   useAdoptBrowserRegion(session);
@@ -751,7 +798,7 @@ function Shell({ session }: { session: Session }) {
             <CircleDollarSign size={23} />
           </span>
           <div>
-            <strong>Simple Balance</strong>
+            <strong>{APP_NAME}</strong>
             <small>Personal accounting</small>
           </div>
           <button
@@ -767,7 +814,8 @@ function Shell({ session }: { session: Session }) {
           {nav.map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
-              to={{ pathname: to, search: location.search }}
+              // The date range travels; a payee name does not.
+              to={{ pathname: to, search: withoutLedgerText(location.search) }}
               end={end}
               onClick={() => setMobileNav(false)}
             >
@@ -799,6 +847,19 @@ function Shell({ session }: { session: Session }) {
           >
             {theme.resolved === "dark" ? <Sun size={17} /> : <Moon size={17} />}
           </button>
+          {/* Reachable from every page, which is what Google's policy asks
+              of a deployment serving ads — and what anybody looking for it
+              expects anyway. Absent when the operator has configured none. */}
+          {deployment.data?.privacyPolicyUrl ? (
+            <a
+              className="privacy-link"
+              href={deployment.data.privacyPolicyUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Privacy
+            </a>
+          ) : null}
           <button
             className="sign-out"
             aria-label="Sign out"
@@ -838,7 +899,7 @@ function Shell({ session }: { session: Session }) {
             <span className="brand-mark">
               <CircleDollarSign size={21} />
             </span>
-            <strong>Simple Balance</strong>
+            <strong>{APP_NAME}</strong>
           </div>
         </header>
         <main className="content" id="main" tabIndex={-1} ref={main}>
@@ -866,10 +927,35 @@ function Shell({ session }: { session: Session }) {
               <Route path="/import" element={<ImportPage />} />
               <Route path="/activity" element={<ActivityPage />} />
               <Route path="/settings" element={<SettingsPage session={session} />} />
+              {/* A separate document, not a tab rendered in place, and the
+                  reason is the content security policy: the payment form loads
+                  a script and an iframe from Stripe, which every other page in
+                  this app forbids. A policy belongs to the document it was
+                  served with, so reaching this by a client-side push would keep
+                  the strict one and Elements would fail to load with nothing to
+                  say why. The link into it is a plain anchor for that reason. */}
+              <Route path="/settings/plan" element={<PlanPage session={session} />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </TimezoneProvider>
         </main>
+        {/* Outside `<main>`, and that is an accessibility decision rather than a
+            layout one. `<main>` is what the skip link targets and what focus
+            moves to on every route change, and a screen reader entering it
+            reads from the top — so a slot inside it put an advertisement in
+            front of the page on every navigation, for exactly the people least
+            able to skip past it. Below the content, they are reached by
+            continuing rather than by being interrupted.
+
+            Each names itself, so somebody navigating by landmark can pass them.
+            Neither is `aria-hidden`: an ad is content, and hiding it from a
+            screen reader while showing it to everybody else is concealment
+            dressed as accessibility. */}
+        <AdSlot placement={ads} slotId={ads?.bannerSlotId} label="Advertisement" />
+        {/* Off unless the operator asked for a second unit, which is what
+            `footerSlotId` being absent means. An addition to the first rather
+            than a replacement. */}
+        <AdSlot placement={ads} slotId={ads?.footerSlotId} label="Advertisement" />
       </div>
     </div>
   );
@@ -909,7 +995,7 @@ function ResetPassword() {
         <div className="brand-mark large">
           <CircleDollarSign size={31} />
         </div>
-        <span className="eyebrow">Simple Balance</span>
+        <span className="eyebrow">{APP_NAME}</span>
         {unusable ? (
           <>
             <h1>That link has expired.</h1>

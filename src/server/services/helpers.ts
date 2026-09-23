@@ -314,8 +314,8 @@ export async function lockAccountReferences(
  * had all had one since the day their check was written.
  *
  * Taken after the account-reference locks and before the category namespace,
- * so the one path that takes both — renaming an account — takes them in the
- * order every other path does.
+ * so the paths that take both — renaming, archiving or restoring, and deleting
+ * an account — take them in the order every other path does.
  */
 export async function lockAccountNamespace(tx: DbTransaction, actor: Actor) {
   await takeTransactionLock(tx, `accounts:${actor.userId}`);
@@ -338,6 +338,24 @@ export async function lockTransactionTemplateNamespace(tx: DbTransaction, actor:
 /** Serialize changes to the tenant's recurrence names, which are unique. */
 export async function lockRecurrenceNamespace(tx: DbTransaction, actor: Actor) {
   await takeTransactionLock(tx, `recurrences:${actor.userId}`);
+}
+
+/**
+ * Serialize writes to one person's billing state.
+ *
+ * Not a name lock, unlike every other lock beside it, and it is here because it
+ * is the same mechanism rather than the same purpose. What it protects is the
+ * read-decide-write in `reconcileSubscription`: Stripe guarantees no ordering
+ * between deliveries, several replicas answer the webhook endpoint, and two of
+ * them holding snapshots of the same subscription would otherwise both read the
+ * stored row, both decide theirs is newer, and both write.
+ *
+ * Taken alone. No path takes this and a name lock together, so it joins no
+ * ordering — and it must stay that way, because the billing tables and the
+ * ledger tables have no reason to be written in one transaction.
+ */
+export async function lockBillingState(tx: DbTransaction, userId: string) {
+  await takeTransactionLock(tx, `billing:${userId}`);
 }
 
 /**

@@ -75,7 +75,7 @@ its own container, sticky regions.
 **§10 Money and dates.** The sign carries the meaning; trailing zeros stay; a
 standalone figure carries its whole sentence.
 
-**§11 Charts.** Never colour alone; every chart ships its table; §11.9 a field
+**§11 Charts.** Never color alone; every chart ships its table; §11.9 a field
 the API sends is rendered or its absence is argued; §11.10 a named figure links
 to the thing it is about, carrying `location.search`.
 
@@ -83,7 +83,7 @@ to the thing it is about, carrying `location.search`.
 something unmounts — a bulk action's button lives in a bar that its own success
 destroys.
 
-**§15 Responsive** and **§2 Colour and contrast**.
+**§15 Responsive** and **§2 Color and contrast**.
 
 ## What code can answer and what needs eyes
 
@@ -111,7 +111,7 @@ them and usually removes code.
 
 Watch for the finding that is not cosmetic. "Expected in and Expected Out always
 show zero" was reported alongside spacing complaints and was a projection bug in
-the service, not a design problem. Sort each report into *layout*, *behaviour* or
+the service, not a design problem. Sort each report into *layout*, *behavior* or
 *data* before starting, and send the last two to the service that owns them.
 
 ## Fix at the right level

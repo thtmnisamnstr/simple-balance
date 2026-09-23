@@ -59,6 +59,43 @@ function useRouter() {
   if (!router) throw new Error("Router hooks must be used inside BrowserRouter");
   return router;
 }
+/**
+ * Whether this document arrived under the plan tab's wider content security
+ * policy.
+ *
+ * A policy belongs to the document it was served with, and the way *in* to
+ * `/settings/plan` is a full page load for that reason. The way out has to be
+ * one too: a `pushState` to the dashboard keeps the plan tab's policy over
+ * every page after it, so the pages that render somebody's balances would run
+ * with Stripe's hosts allowed for the life of the tab. Nothing is exploitable
+ * in that — the wider policy adds three vendor origins and no `unsafe-inline`
+ * or `unsafe-eval` — but a policy that widens on one page and then follows you
+ * around is not the policy that was designed, and it is the kind of drift
+ * nothing would ever notice.
+ *
+ * Read once at load rather than at click time: with this in place the path
+ * cannot leave `/settings/plan` without a document load, so the answer stays
+ * true for as long as the document does.
+ */
+const PLAN_SURFACE_PATH = "/settings/plan";
+
+/**
+ * Whether a path is the plan tab, normalized the way this router matches.
+ *
+ * Exported because two unrelated things need the same answer and must not
+ * disagree about it: this file, deciding that leaving the tab has to be a
+ * document load, and the shell, deciding that no ad may render there. The
+ * second is a promise the product makes in three documents, and the content
+ * security policy is *not* what keeps it — under `SB_CSP_REPORT_ONLY` nothing
+ * on that page is enforced at all, so a slot left mounted would put live ads
+ * beside the payment form rather than an empty box.
+ */
+export const isPlanSurfacePath = (pathname: string) =>
+  `/${pathname.split("/").filter(Boolean).join("/")}` === PLAN_SURFACE_PATH;
+
+const servedUnderPlanPolicy = () =>
+  typeof window !== "undefined" && isPlanSurfacePath(window.location.pathname);
+
 export function BrowserRouter({ children }: { children: ReactNode }) {
   const [location, setLocation] = useState(browserLocation);
   useEffect(() => {
@@ -66,19 +103,29 @@ export function BrowserRouter({ children }: { children: ReactNode }) {
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
-  const navigate = useCallback((to: To, options: NavigateOptions = {}) => {
-    const url = toUrl(to, browserLocation());
-    if (url.origin !== window.location.origin) {
-      window.location.assign(url);
-      return;
-    }
-    window.history[options.replace ? "replaceState" : "pushState"](
-      null,
-      "",
-      `${url.pathname}${url.search}${url.hash}`,
-    );
-    setLocation(browserLocation());
-  }, []);
+  const leavingPlanPolicy = useMemo(() => servedUnderPlanPolicy(), []);
+  const navigate = useCallback(
+    (to: To, options: NavigateOptions = {}) => {
+      const url = toUrl(to, browserLocation());
+      if (url.origin !== window.location.origin) {
+        window.location.assign(url);
+        return;
+      }
+      // A document load out of the plan tab, for the reason above: its policy
+      // would otherwise travel to every page reached without one.
+      if (leavingPlanPolicy) {
+        window.location.assign(url);
+        return;
+      }
+      window.history[options.replace ? "replaceState" : "pushState"](
+        null,
+        "",
+        `${url.pathname}${url.search}${url.hash}`,
+      );
+      setLocation(browserLocation());
+    },
+    [leavingPlanPolicy],
+  );
   const value = useMemo(() => ({ location, navigate }), [location, navigate]);
   return <RouterContext.Provider value={value}>{children}</RouterContext.Provider>;
 }
@@ -206,4 +253,51 @@ export function payeeDetailSearch(search: string, payee: string) {
   const params = new URLSearchParams(search);
   params.set("name", payee);
   return params.toString();
+}
+
+/**
+ * The one query parameter that carries text from somebody's ledger: the payee
+ * name the view above is addressed by. Everything else a URL here carries is a
+ * date, a preset or an id.
+ */
+export const LEDGER_TEXT_PARAMETER = "name";
+
+/**
+ * A query string with the ledger's own text taken out, for a link leaving the
+ * payee view.
+ *
+ * Links forward the query string so a date range survives moving between
+ * pages, and forwarding it wholesale took the payee name along too — onto a
+ * page that carries an ad, whose request tells Google the page's address.
+ */
+export function withoutLedgerText(search: string): string {
+  const params = new URLSearchParams(search);
+  params.delete(LEDGER_TEXT_PARAMETER);
+  return params.toString();
+}
+
+/**
+ * Whether this document's address, or the page that opened it, carries text
+ * from the ledger.
+ *
+ * An ad request sends Google the page's own address and the address it was
+ * opened from, and a payee name in either is a person's name and who they pay
+ * — "ZELLE TO JANE DOE" — handed to an advertiser, which is also what the
+ * program's policy forbids a page to pass. The referrer is the one this
+ * document arrived with, so a tab opened from the payee view keeps no ads for
+ * as long as it lasts, even after it moves somewhere clean.
+ */
+export function addressCarriesLedgerText(
+  search: string,
+  referrer: string,
+  origin: string,
+): boolean {
+  if (new URLSearchParams(search).has(LEDGER_TEXT_PARAMETER)) return true;
+  if (!referrer) return false;
+  try {
+    const from = new URL(referrer);
+    return from.origin === origin && from.searchParams.has(LEDGER_TEXT_PARAMETER);
+  } catch {
+    return false;
+  }
 }

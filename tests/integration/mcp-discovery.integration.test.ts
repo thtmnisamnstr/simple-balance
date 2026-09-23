@@ -158,7 +158,7 @@ integration("what an MCP client can discover before it has a token", () => {
    * copies into its authorization request, and the SDK prefers it to the
    * client's own configured scope. Narrowing the second to the read tier would
    * be least privilege and is deliberately not done: it would mean anybody
-   * re-authorising after an upgrade comes back read-only, regaining write only
+   * re-authorizing after an upgrade comes back read-only, regaining write only
    * if their client implements the RFC 6750 step-up. What did land is the
    * challenge itself, so a client that asks for too little has a way back up.
    * `tests/mcp-discovery-scopes.test.ts` holds every path the document answers

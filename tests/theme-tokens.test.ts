@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { SERIES_COLOURS } from "../src/client/charts.js";
+import { SERIES_COLORS } from "../src/client/charts.js";
 import { blocks, ruleFor, stylesheet, tokensIn, type Block } from "./support/css.js";
 
 /**
@@ -10,7 +10,7 @@ import { blocks, ruleFor, stylesheet, tokensIn, type Block } from "./support/css
  *
  * The one that matters most: a token declared in one theme and not the other.
  * Nothing about that fails to compile, nothing looks wrong in the theme somebody
- * happened to be in, and the other theme paints one colour from the wrong set —
+ * happened to be in, and the other theme paints one color from the wrong set —
  * white text on white, or a border that vanishes. It is invisible in review and
  * obvious to whoever is using it.
  */
@@ -77,17 +77,17 @@ describe("the two palettes", () => {
   });
 });
 
-describe("colours in the stylesheet", () => {
+describe("colors in the stylesheet", () => {
   const TOKEN_BLOCK = (block: Block) => LIGHT(block) || MEDIA_DARK(block) || ATTRIBUTE_DARK(block);
 
   it("are written in the token blocks and nowhere else", () => {
-    // A colour written inline has one theme by construction. This is the rule
+    // A color written inline has one theme by construction. This is the rule
     // that stops the second palette rotting the next time somebody adds a rule.
     const strays: string[] = [];
     for (const block of blocks(css)) {
       if (TOKEN_BLOCK(block)) continue;
       for (const found of block.body.matchAll(/#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)/g)) {
-        // A mask's colour keyword is an alpha channel, not a colour.
+        // A mask's color keyword is an alpha channel, not a color.
         if (/mask(-image)?\s*:/.test(block.body.slice(0, found.index))) continue;
         strays.push(`${block.selector}: ${found[0]}`);
       }
@@ -111,7 +111,7 @@ describe("colours in the stylesheet", () => {
 });
 
 describe("what each token is for", () => {
-  // A colour that reads as text in one theme can be a fill in the other only if
+  // A color that reads as text in one theme can be a fill in the other only if
   // the two roles are two tokens. They were one token, and in dark that put
   // white text on a bright mint button at 1.9:1.
   const TEXT = new Set([
@@ -143,7 +143,7 @@ describe("what each token is for", () => {
     "--field-disabled",
   ]);
 
-  it("never paints an area with a text colour, or writes text in a surface colour", () => {
+  it("never paints an area with a text color, or writes text in a surface color", () => {
     const wrong: string[] = [];
     for (const block of blocks(css)) {
       if (block.selector.includes(":root")) continue;
@@ -185,7 +185,7 @@ describe("the field role", () => {
   });
 
   it("makes a disabled field look different from a live one in every theme", () => {
-    // The assertion that holds the behaviour rather than the wiring. Fourteen
+    // The assertion that holds the behavior rather than the wiring. Fourteen
     // fields ship disabled and every one of them was pixel-identical to a live
     // one; a --field-disabled equal to --field would pass every test above and
     // leave them that way.
@@ -200,13 +200,13 @@ describe("the field role", () => {
 });
 
 describe("the chart palette", () => {
-  it("has a colour for every series the code will ask for, in both themes", () => {
+  it("has a color for every series the code will ask for, in both themes", () => {
     for (const [name, tokens] of [
       ["light", light],
       ["dark", mediaDark],
     ] as const) {
       const series = Object.keys(tokens).filter((token) => /^--series-\d+$/.test(token));
-      expect(series.length, `${name} series count`).toBe(SERIES_COLOURS);
+      expect(series.length, `${name} series count`).toBe(SERIES_COLORS);
     }
   });
 
@@ -218,7 +218,7 @@ describe("the chart palette", () => {
       const values = Object.entries(tokens)
         .filter(([token]) => /^--series-\d+$/.test(token))
         .map(([, value]) => value);
-      expect(new Set(values).size, `${name} has a repeated series colour`).toBe(values.length);
+      expect(new Set(values).size, `${name} has a repeated series color`).toBe(values.length);
     }
   });
 
@@ -226,9 +226,9 @@ describe("the chart palette", () => {
    * Ten hues cannot all be distinguishable from each other — section 11.2 of
    * the guide argues that at length and takes the trade deliberately. Adjacent
    * bars run as low as 1.05:1, which is the case where a shape boundary has to
-   * do the work colour cannot.
+   * do the work color cannot.
    */
-  it("separates one bar from the next with something that is not colour", () => {
+  it("separates one bar from the next with something that is not color", () => {
     const bar = ruleFor(css, ".chart-bar");
     expect(bar.length, ".chart-bar has no rule").toBeGreaterThan(0);
     const stroke = bar.map((rule) => /stroke:\s*([^;]+)/.exec(rule.body)?.[1]?.trim()).at(-1);
@@ -236,8 +236,8 @@ describe("the chart palette", () => {
     expect(stroke).not.toBe("none");
   });
 
-  it("draws every series from a token rather than a colour of its own", () => {
-    for (let index = 0; index < SERIES_COLOURS; index++) {
+  it("draws every series from a token rather than a color of its own", () => {
+    for (let index = 0; index < SERIES_COLORS; index++) {
       const rule = new RegExp(
         `\\.chart-series-${index} \\{ stroke: var\\(--series-${index}\\); fill: var\\(--series-${index}\\); \\}`,
       );
@@ -255,7 +255,7 @@ describe("the browser chrome", () => {
 
   it("declares one theme-color per theme, each matching that theme's ground", () => {
     // Was a whole-file substring match, which with two palettes passes when the
-    // colour turns up in the wrong block.
+    // color turns up in the wrong block.
     const metas = [...html.matchAll(/<meta\s+name="theme-color"[\s\S]*?\/>/g)].map(
       (match) => match[0],
     );
@@ -291,17 +291,17 @@ describe("the browser chrome", () => {
 });
 
 /**
- * A second channel that is not colour, per `web.md` 11.3.
+ * A second channel that is not color, per `web.md` 11.3.
  *
- * Ten categorical colours cannot all be told apart under dichromatic vision and
+ * Ten categorical colors cannot all be told apart under dichromatic vision and
  * no choice of ten fixes that: the palette this product ships is the best
  * available set and still reaches only 5.6 in light. A dash pattern is
  * orthogonal to hue, so two series that look alike to one reader are still two
  * different lines.
  *
  * The legend half is the part that was backwards. The swatch is `aria-hidden`,
- * so a screen reader gets the label and a colour-blind sighted reader gets only
- * a block of colour to match against a line — a swatch carrying the line's
+ * so a screen reader gets the label and a color-blind sighted reader gets only
+ * a block of color to match against a line — a swatch carrying the line's
  * rhythm can be matched by shape.
  */
 describe("a chart series and its second channel", () => {
@@ -316,7 +316,7 @@ describe("a chart series and its second channel", () => {
     // and what a plain line should look like.
     expect([...patterns.keys()].sort()).toEqual(["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
     expect(css).not.toMatch(/\.chart-line\.chart-series-0\s*\{\s*stroke-dasharray/);
-    // And no two share a rhythm, which would put two series back on colour
+    // And no two share a rhythm, which would put two series back on color
     // alone for the reader this exists for.
     expect(new Set(patterns.values()).size).toBe(patterns.size);
   });

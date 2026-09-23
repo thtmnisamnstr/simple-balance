@@ -32,6 +32,12 @@ export interface Settings {
   schedulerMaxReplicas: number;
   maxConnections: number;
   kubernetesVersion?: string;
+  /**
+   * The range the frontend's nginx believes X-Forwarded-For from: the ingress
+   * controller's pods, and nothing wider. Unset leaves the chart's 127.0.0.1,
+   * which believes nobody.
+   */
+  trustedProxyCidr?: string;
   databaseUrl: pulumi.Output<string>;
   authSecret: pulumi.Output<string>;
   directDatabaseUrl?: pulumi.Output<string>;
@@ -60,6 +66,7 @@ export function readSettings(): Settings {
     schedulerMaxReplicas: cfg.getNumber("schedulerMaxReplicas") ?? 2,
     maxConnections: cfg.getNumber("maxConnections") ?? 100,
     kubernetesVersion: cfg.get("kubernetesVersion"),
+    trustedProxyCidr: cfg.get("trustedProxyCidr"),
     databaseUrl: cfg.requireSecret("databaseUrl"),
     authSecret: cfg.requireSecret("authSecret"),
     directDatabaseUrl: cfg.getSecret("directDatabaseUrl"),
@@ -192,7 +199,7 @@ export interface AppArgs {
   issuerName: string;
   /**
    * Left out for a controller that does not read `spec.ingressClassName`.
-   * GKE's built-in controller is one: it honours only the legacy
+   * GKE's built-in controller is one: it honors only the legacy
    * `kubernetes.io/ingress.class` annotation, so the GCP program passes the
    * annotation instead and omits this — a class name here selected nothing,
    * and no load balancer was ever provisioned.
@@ -273,6 +280,12 @@ export function simpleBalance(args: AppArgs): App {
         frontend: {
           image: image("frontend"),
           autoscaling: { enabled: true, maxReplicas: settings.frontendMaxReplicas },
+          // Only when set, so the chart's own default stays the answer
+          // otherwise; its schema refuses anything that is not an address or a
+          // CIDR. Behind the ingress every request arrives from the controller,
+          // so until this names it the API counts every visitor's sign-in
+          // attempts against one allowance.
+          ...(settings.trustedProxyCidr ? { trustedProxyCidr: settings.trustedProxyCidr } : {}),
         },
         scheduler: {
           image: image("scheduler"),

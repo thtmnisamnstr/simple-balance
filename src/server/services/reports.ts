@@ -4,6 +4,7 @@ import {
   MAX_REGISTER_ENTRIES,
   MAX_REPORT_BUCKETS,
   cashAccountTypes,
+  compareCurrencies,
   dateRangeSchema,
   reportQuerySchema,
 } from "../../shared/domain.js";
@@ -169,7 +170,7 @@ export async function getReport(actor: Actor, input: unknown, includeArchived = 
 
   const preset = PRESETS[query.report];
   const bucket = query.bucket ?? preset.defaultBucket;
-  const { timezone } = await getPreferences(actor);
+  const { timezone, defaultCurrency } = await getPreferences(actor);
   const today = todayIn(timezone);
   const requestedEnd = query.end ?? "9999-12-31";
   const asOf = requestedEnd < today ? requestedEnd : today;
@@ -236,7 +237,12 @@ export async function getReport(actor: Actor, input: unknown, includeArchived = 
     accumulation: preset.accumulation,
     includesArchived: includeArchived,
     buckets: buckets.map(({ start: from, end }) => ({ start: from, end })),
-    currencies: query.report === "categories" ? currencies.map(rankCategories) : currencies,
+    // `assemble` sorts by code so its output does not depend on who asked.
+    // The person's own currency leading is presentation, decided here and by
+    // the same rule the Overview uses.
+    currencies: (query.report === "categories" ? currencies.map(rankCategories) : currencies)
+      .slice()
+      .sort((left, right) => compareCurrencies(defaultCurrency)(left.currency, right.currency)),
   };
 }
 
@@ -394,7 +400,7 @@ async function flowCells(
       on c.user_id = p.user_id
       -- A case rather than a coalesce: a leg with no category is a share the
       -- person left unfiled on purpose, and coalesce would quietly fall
-      -- through to the transaction's own label instead of honouring it.
+      -- through to the transaction's own label instead of honoring it.
       and c.id = case
         when p.leg_id is not null then l.category_id
         else t.category_id
@@ -455,7 +461,7 @@ export function qualifyRepeatedLabels(cells: Cell[]): Cell[] {
  *
  * `sides` reduces a transaction to its distinct accounts per currency, so a
  * receipt split three ways presents one counter-account rather than three rows
- * that would treble the cash side. Matching on currency is what makes a
+ * that would triple the cash side. Matching on currency is what makes a
  * conversion resolve to the exchange account in the moving side's own currency
  * instead of to all three of its other legs.
  *

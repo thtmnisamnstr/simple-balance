@@ -147,6 +147,21 @@ export type AppConfig = {
    * machine working with no configuration at all.
    */
   mail?: MailSettings;
+  /**
+   * How this deployment reaches Stripe, when it charges for anything.
+   *
+   * Undefined is the default and what every existing deployment upgrades into:
+   * no plan, no limit, no outbound connection. See `BillingSettings` for why
+   * "configured" and "selling" are two questions rather than one.
+   */
+  billing?: BillingSettings;
+  /**
+   * Which AdSense inventory to render, when a deployment shows any.
+   *
+   * Undefined is the default, and it is the only state in which the browser
+   * bundle keeps a `default-src 'self'` content security policy.
+   */
+  ads?: AdSettings;
   port: number;
   logLevel: LogLevel;
   trustProxy: boolean;
@@ -155,9 +170,15 @@ export type AppConfig = {
    *
    * On by default, so the documented single container keeps working with no
    * extra configuration. Turn it off on web replicas when a separate scheduler
-   * container owns the job; leaving it on everywhere is also safe, because a
-   * recurrence is claimed with `for update skip locked` and whoever reaches a
-   * row first is the only one that works it.
+   * container owns the job.
+   *
+   * Leaving it on everywhere is safe for the three jobs that claim their work:
+   * a recurrence and a reminder are taken with `for update skip locked` and a
+   * retention sweep deletes rows only once. The billing reconciliation sweep
+   * claims nothing — it re-reads from Stripe and writes what Stripe says, which
+   * is idempotent — so every replica running it re-reads the same rows. That
+   * costs Stripe requests rather than correctness, and it is the reason to turn
+   * this off on web replicas in a deployment that sells a plan.
    */
   recurrenceSchedulerEnabled: boolean;
   /**
@@ -176,6 +197,16 @@ export type AppConfig = {
    * is compared in constant time and is a file-backed secret like the rest.
    */
   metrics: { enabled: boolean; token?: string };
+  /**
+   * Whether the content security policy is reported on rather than enforced.
+   *
+   * A rehearsal for the plan tab alone, for the operator who has just turned
+   * billing on and wants to know what their deployment would block before it
+   * blocks it. Every other page goes on enforcing, so this is a narrow hole
+   * rather than an open door — but it is still a hole, and not a state to leave
+   * a deployment in.
+   */
+  cspReportOnly: boolean;
   isProduction: boolean;
 };
 
@@ -183,7 +214,7 @@ let cached: AppConfig | undefined;
 
 export function getConfig(): AppConfig {
   if (cached) return cached;
-  // `readSecret` memoises, so this call buys exactly one thing: an unreadable
+  // `readSecret` memoizes, so this call buys exactly one thing: an unreadable
   // secret file, or a name set both ways, refuses at startup rather than at the
   // first query. That is what the "Validating at startup" rule in
   // `docs/standards/operations.md` asks of every other setting here.
@@ -227,7 +258,7 @@ export function getConfig(): AppConfig {
     .enum(["true", "false"], { error: () => "TRUST_PROXY must be true or false" })
     .transform((value) => value === "true")
     .parse((process.env.TRUST_PROXY ?? "false").toLowerCase());
-  // Parsed strictly rather than treating anything unrecognised as off. A
+  // Parsed strictly rather than treating anything unrecognized as off. A
   // misspelling here has no symptom: the process starts, serves, and quietly
   // proposes nothing until somebody notices a year of missing rent.
   const recurrenceSchedulerEnabled = z
@@ -242,6 +273,24 @@ export function getConfig(): AppConfig {
     })
     .transform((value) => value === "true")
     .parse((process.env.METRICS_ENABLED ?? "false").toLowerCase());
+  // A rehearsal switch for the plan tab's policy, and off by default. It exists
+  // because that policy is Stripe's published list plus four hosts of our own,
+  // and nobody has yet watched a live account's payment form to see which of
+  // those it contacts: an operator turns this on, opens the page, reads what
+  // would have been blocked, and turns it off again.
+  //
+  // It reaches that one page and no other, and that includes the pages that
+  // carry ads, whose widened policy is just as new. Declined there on purpose
+  // rather than because there is nothing to learn: every one of those pages
+  // renders somebody's balances, and taking the defense off all of them to
+  // rehearse an ad is the wrong trade. An ad the policy refuses is read from the
+  // browser console on a page that shows one, while that page goes on enforcing.
+  const cspReportOnly = z
+    .enum(["true", "false"], {
+      error: () => "SB_CSP_REPORT_ONLY must be true or false",
+    })
+    .transform((value) => value === "true")
+    .parse((process.env.SB_CSP_REPORT_ONLY ?? "false").toLowerCase());
   // The secrets are read through `readSecret` and the settings beside
   // them straight from the environment. That split is not an oversight: having a
   // `_FILE` form is what makes a name a secret here, so giving one to
@@ -262,6 +311,22 @@ export function getConfig(): AppConfig {
     METRICS_TOKEN: readSecret("METRICS_TOKEN"),
     MAIL_FROM: process.env.MAIL_FROM,
     MAIL_REPLY_TO: process.env.MAIL_REPLY_TO,
+    // Two of these go through `readSecret` and the rest do not, which is the
+    // same split the mail block above makes: the key that can charge a card and
+    // the secret that authenticates a webhook take a `_FILE` form, and the
+    // publishable key, the price ids and the AdSense ids are published to every
+    // browser that loads the page, so calling them secrets would mean nothing.
+    SB_BILLING_ENABLED: process.env.SB_BILLING_ENABLED,
+    STRIPE_SECRET_KEY: readSecret("STRIPE_SECRET_KEY"),
+    STRIPE_PUBLISHABLE_KEY: process.env.STRIPE_PUBLISHABLE_KEY,
+    STRIPE_WEBHOOK_SECRET: readSecret("STRIPE_WEBHOOK_SECRET"),
+    STRIPE_PRICE_MONTHLY_ID: process.env.STRIPE_PRICE_MONTHLY_ID,
+    STRIPE_PRICE_YEARLY_ID: process.env.STRIPE_PRICE_YEARLY_ID,
+    ADSENSE_CLIENT_ID: process.env.ADSENSE_CLIENT_ID,
+    ADSENSE_BANNER_SLOT_ID: process.env.ADSENSE_BANNER_SLOT_ID,
+    ADSENSE_FOOTER_SLOT_ID: process.env.ADSENSE_FOOTER_SLOT_ID,
+    ADSENSE_CONSENT_MANAGED: process.env.ADSENSE_CONSENT_MANAGED,
+    PRIVACY_POLICY_URL: process.env.PRIVACY_POLICY_URL,
   };
   if (isProduction) {
     productionSchema.parse(values);
@@ -272,6 +337,8 @@ export function getConfig(): AppConfig {
     googleAuthSchema.parse(values);
   }
   const mail = parseMailSettings(values);
+  const billing = parseBillingSettings(values, isProduction);
+  const ads = parseAdSettings(values);
   const registration = parseRegistrationRule(values.ALLOWED_EMAILS);
   if (googleAuthEnabled && registration.kind === "closed") {
     throw new Error(
@@ -293,6 +360,8 @@ export function getConfig(): AppConfig {
     googleClientSecret: values.GOOGLE_CLIENT_SECRET,
     registration,
     mail,
+    billing,
+    ads,
     port,
     logLevel,
     trustProxy,
@@ -301,6 +370,7 @@ export function getConfig(): AppConfig {
       enabled: metricsEnabled,
       ...(values.METRICS_TOKEN ? { token: values.METRICS_TOKEN } : {}),
     },
+    cspReportOnly,
     isProduction,
   };
   // Warned rather than refused. Scraping over a private network with nothing in
@@ -308,12 +378,53 @@ export function getConfig(): AppConfig {
   // ceremony; publishing queue depths and write rates to the open internet is
   // not, and the two are indistinguishable from in here. So the one that can be
   // said is said, once, at the moment somebody turns the endpoint on.
+  // Said every time, and at `warn` rather than `info`, because this is the one
+  // setting that turns a defense off. A rehearsal that was never turned back
+  // off looks exactly like a working deployment from the outside.
+  if (cspReportOnly && isProduction) {
+    console.warn(
+      "SB_CSP_REPORT_ONLY is true, so the plan and billing tab reports what its " +
+        "content security policy would have blocked and blocks nothing. Every " +
+        "other page still enforces. Turn it off once you have read the reports.",
+    );
+  }
   if (metricsEnabled && !values.METRICS_TOKEN && isProduction) {
     console.warn(
       "METRICS_ENABLED is true and METRICS_TOKEN is not set, so /metrics answers " +
         "anybody who can reach this port. That is fine behind a private network " +
         "and is not fine on a public one. Set METRICS_TOKEN (or METRICS_TOKEN_FILE) " +
         "and give the scraper an Authorization: Bearer header.",
+    );
+  }
+  // Said out loud because the two states are indistinguishable from in here and
+  // one of them is a mistake. Setting the five Stripe settings and forgetting
+  // the boolean is the likely slip in a two-axis design, and it fails silently:
+  // the deployment starts, reaches Stripe, sells nothing and limits nobody,
+  // with every page looking exactly as it did. The other reading — a deployment
+  // winding down, still honoring what it sold — is legitimate and is why this
+  // is not a refusal.
+  if (billing && !billing.enforcing && isProduction) {
+    console.warn(
+      "Stripe is configured and SB_BILLING_ENABLED is not true, so this deployment " +
+        "answers webhooks for subscriptions that already exist and offers no plan to " +
+        "anybody new. Set SB_BILLING_ENABLED=true to sell one. If you meant to stop " +
+        "selling, nothing is wrong and this line is the confirmation.",
+    );
+  }
+  // The same two-axis slip, one setting over. An ad is shown to somebody on a
+  // *limited* plan, and nobody is on one unless a plan is for sale — so AdSense
+  // ids on a deployment that sells nothing widen the policy on every page and
+  // serve `/ads.txt` while showing nobody an ad, which from the outside looks
+  // exactly like having no inventory. Warned rather than refused, for the reason
+  // the line above is: an operator trying the ads settings before selling
+  // anything, or winding a deployment down, is doing something legitimate, and
+  // a setting that was accepted stays accepted.
+  if (ads && !billing?.enforcing && isProduction) {
+    console.warn(
+      "AdSense is configured and SB_BILLING_ENABLED is not true, so nobody is on a " +
+        "limited plan and nobody is shown an ad. The content security policy is " +
+        "still widened for ads on every page and /ads.txt is still served. Set " +
+        "SB_BILLING_ENABLED=true, with Stripe configured, to show ads to free accounts.",
     );
   }
   // Publishes the development default to `getPool()`, and only ever that. A
@@ -423,6 +534,346 @@ export function parseMailSettings(env: {
     throw new Error("SMTP_PASSWORD is set without SMTP_USERNAME");
   }
   return { host, port, ssl, username, password, from, replyTo };
+}
+
+/**
+ * What this deployment needs to charge for a plan, if it sells one.
+ *
+ * Undefined is the ordinary case and the default: a deployment nobody pays for.
+ * Every entitlement then reads as unrestricted, no plan UI renders, and this
+ * process opens no connection to Stripe — which is how the promise in
+ * `docs/standards/operations.md` that nothing reaches out unasked stays true by
+ * construction rather than by intent.
+ *
+ * `enforcing` is a second axis rather than a second name for the same thing.
+ * Credentials being present means Stripe can be reached, which is what keeps
+ * webhook ingestion and reconciliation working for subscriptions that already
+ * exist. `SB_BILLING_ENABLED` decides whether anybody may start a new one and
+ * whether the free tier's limit binds. An operator winding a deployment down
+ * stops selling long before they stop listening, and a single flag cannot say
+ * that: turning one off would either abandon paying subscribers or keep selling
+ * to new ones.
+ */
+export type BillingSettings = {
+  readonly enforcing: boolean;
+  readonly secretKey: string;
+  readonly publishableKey: string;
+  readonly webhookSecret: string;
+  readonly monthlyPriceId: string;
+  readonly yearlyPriceId: string;
+};
+
+/** The five Stripe names, with the prefix each one's value is known to carry. */
+const stripeInputs = [
+  // Restricted keys start `rk_` and are a supported way to hand this process
+  // less than the whole account, so both forms are accepted.
+  ["STRIPE_SECRET_KEY", /^(sk|rk)_/, "sk_live_… or sk_test_…"],
+  ["STRIPE_PUBLISHABLE_KEY", /^pk_/, "pk_live_… or pk_test_…"],
+  ["STRIPE_WEBHOOK_SECRET", /^whsec_/, "whsec_…"],
+  ["STRIPE_PRICE_MONTHLY_ID", /^price_/, "price_…"],
+  ["STRIPE_PRICE_YEARLY_ID", /^price_/, "price_…"],
+] as const;
+
+/**
+ * Which half of Stripe a key belongs to, when the key says so.
+ *
+ * Undefined rather than a guess for anything unrecognized, because this is used
+ * to refuse a mismatch and a wrong refusal is worse than a missed one: Stripe
+ * has added key forms before and a deployment holding a shape this file has not
+ * heard of should start, not stop.
+ *
+ * Exported for `stripe.ts`, which holds the configured prices to the same mode:
+ * a Price says which half it lives in, and a test price behind a live key is a
+ * checkout that fails for every customer rather than a startup that fails once.
+ */
+export function stripeMode(key: string): "live" | "test" | undefined {
+  if (/^(sk|rk|pk)_live_/.test(key)) return "live";
+  if (/^(sk|rk|pk)_test_/.test(key)) return "test";
+  return undefined;
+}
+
+/**
+ * Reads the Stripe settings.
+ *
+ * All five together or none of them. Half a billing configuration is the shape
+ * that fails at the worst moment: a deployment that renders an upgrade button,
+ * takes a card, and then cannot tell whether the payment succeeded because it
+ * has no webhook secret to verify the answer with.
+ */
+export function parseBillingSettings(
+  env: {
+    SB_BILLING_ENABLED?: string;
+    STRIPE_SECRET_KEY?: string;
+    STRIPE_PUBLISHABLE_KEY?: string;
+    STRIPE_WEBHOOK_SECRET?: string;
+    STRIPE_PRICE_MONTHLY_ID?: string;
+    STRIPE_PRICE_YEARLY_ID?: string;
+  },
+  isProduction: boolean,
+): BillingSettings | undefined {
+  const enforcing = z
+    .enum(["true", "false"], {
+      error: () => "SB_BILLING_ENABLED must be true or false",
+    })
+    .transform((value) => value === "true")
+    .parse((env.SB_BILLING_ENABLED ?? "false").toLowerCase());
+
+  const present = new Map(
+    stripeInputs.flatMap(([name]) => {
+      const value = env[name]?.trim();
+      return value ? [[name, value] as const] : [];
+    }),
+  );
+  if (present.size === 0) {
+    if (enforcing) {
+      throw new Error(
+        "SB_BILLING_ENABLED is true and no Stripe settings are set, so this " +
+          "deployment would offer a plan it cannot charge for. Set " +
+          `${stripeInputs.map(([name]) => name).join(", ")}, or leave ` +
+          "SB_BILLING_ENABLED unset to sell nothing.",
+      );
+    }
+    return undefined;
+  }
+  const missing = stripeInputs.map(([name]) => name).filter((name) => !present.has(name));
+  if (missing.length > 0) {
+    throw new Error(
+      `Stripe is half configured: ${missing.join(", ")} ${
+        missing.length === 1 ? "is" : "are"
+      } missing. Set all five of ` +
+        `${stripeInputs.map(([name]) => name).join(", ")} to sell a plan, or none of them.`,
+    );
+  }
+
+  for (const [name, prefix, shape] of stripeInputs) {
+    const value = present.get(name)!;
+    if (!prefix.test(value)) {
+      throw new Error(
+        `${name} does not look like a Stripe value: it should start ${shape}. ` +
+          "A product id where a price id belongs is the usual cause, and it fails " +
+          "at the first checkout rather than at startup.",
+      );
+    }
+  }
+
+  const secretKey = present.get("STRIPE_SECRET_KEY")!;
+  const publishableKey = present.get("STRIPE_PUBLISHABLE_KEY")!;
+  // Refused rather than warned, and only when both keys say which half they
+  // belong to. A live secret key beside a test publishable key takes real money
+  // from a card the browser thought was a test one, and nothing about it looks
+  // wrong until somebody reads a statement.
+  const secretMode = stripeMode(secretKey);
+  const publishableMode = stripeMode(publishableKey);
+  if (secretMode && publishableMode && secretMode !== publishableMode) {
+    throw new Error(
+      `STRIPE_SECRET_KEY is a ${secretMode} key and STRIPE_PUBLISHABLE_KEY is a ` +
+        `${publishableMode} key. Use both from the same mode, or payments succeed ` +
+        "in one half of Stripe and are invisible in the other.",
+    );
+  }
+  // The same argument as `assertNotADeployment` makes about APP_BASE_URL: a
+  // development process pointed at something real is a mistake with no symptom
+  // until it has done something that cannot be undone. Here that is charging a
+  // card while running the test suite.
+  if (secretMode === "live" && !isProduction) {
+    throw new Error(
+      "STRIPE_SECRET_KEY is a live key and NODE_ENV is not production, so this " +
+        "process would charge real cards. Use a test key outside production.",
+    );
+  }
+
+  return {
+    enforcing,
+    secretKey,
+    publishableKey,
+    webhookSecret: present.get("STRIPE_WEBHOOK_SECRET")!,
+    monthlyPriceId: present.get("STRIPE_PRICE_MONTHLY_ID")!,
+    yearlyPriceId: present.get("STRIPE_PRICE_YEARLY_ID")!,
+  };
+}
+
+/**
+ * Where the advertising slots get their inventory, if a deployment shows any.
+ *
+ * Undefined is the default and the ordinary case. It is also the only state in
+ * which the browser bundle keeps the `default-src 'self'` policy this product
+ * advertises: AdSense publishes no host list, so serving it means widening the
+ * policy on every page that renders somebody's balances. That widening is the
+ * real cost of this setting and it belongs beside the setting itself.
+ *
+ * Presence is the switch, exactly as `SMTP_HOST` and `MAIL_FROM` are for mail.
+ * There is no separate on/off flag because there is nothing an operator would
+ * want to keep configured while switched off — unlike billing, where existing
+ * subscriptions outlive the decision to stop selling.
+ */
+export type AdSettings = {
+  readonly clientId: string;
+  readonly bannerSlotId: string;
+  /**
+   * Where this deployment's privacy policy lives. Required whenever ads are
+   * configured, because Google's program policies require one on any site
+   * serving their ads — see `parseAdSettings`.
+   *
+   * It sits on the ad settings rather than beside them, so that "ads are on"
+   * and "there is a policy to link to" cannot become two facts that disagree.
+   */
+  readonly privacyPolicyUrl: string;
+  /** Off unless asked for: one banner is the whole placement by default. */
+  readonly footerSlotId?: string;
+  /**
+   * Whether a certified consent platform is collecting consent for this
+   * deployment. Off unless an operator says so.
+   *
+   * It decides one thing: whether the ad request forces
+   * `requestNonPersonalizedAds`. Off, it does, and every visitor gets
+   * non-personalized ads — the conservative default for a page showing somebody
+   * their own money, and the setting under which Google will serve without a
+   * certified platform at all.
+   *
+   * On, the flag is *not* forced, and that is the point rather than an
+   * omission: a consent platform's whole job is to ask and then tell Google the
+   * answer. Forcing the flag on top of it would override a person who consented
+   * just as surely as it protects one who did not, which makes the platform
+   * ornamental.
+   *
+   * Turning it on is an operator asserting the platform exists. Nothing here
+   * can check that — a consent message is served by Google's tag from Google's
+   * account, and this process never sees it — so the default is the safe answer
+   * rather than the profitable one.
+   */
+  readonly consentManaged: boolean;
+};
+
+// `ca-pub-` and then the publisher's sixteen digits. Checked because pasting the
+// bare `pub-…` from the AdSense dashboard is the common mistake and it fails by
+// rendering nothing at all, which looks exactly like having no inventory.
+//
+// The length is checked as well as the shape, and that is the half that earns
+// its keep: a prefix check passes `ca-pub-1`, and every truncated, doubled or
+// short-by-one publisher id starts the process cleanly and then earns nobody
+// anything. A slot id is ten digits for the same reason. Both are Google's
+// formats rather than ours, so a deployment whose ids are refused here has ids
+// that would have been refused by AdSense.
+const adsenseClientId = /^ca-pub-\d{16}$/;
+const adsenseSlotId = /^\d{10}$/;
+
+/** Reads the AdSense settings. A client id and a banner slot, or neither. */
+export function parseAdSettings(env: {
+  ADSENSE_CLIENT_ID?: string;
+  ADSENSE_BANNER_SLOT_ID?: string;
+  ADSENSE_FOOTER_SLOT_ID?: string;
+  ADSENSE_CONSENT_MANAGED?: string;
+  PRIVACY_POLICY_URL?: string;
+}): AdSettings | undefined {
+  const clientId = env.ADSENSE_CLIENT_ID?.trim();
+  const bannerSlotId = env.ADSENSE_BANNER_SLOT_ID?.trim();
+  const footerSlotId = env.ADSENSE_FOOTER_SLOT_ID?.trim() || undefined;
+  if (!clientId && !bannerSlotId) {
+    if (footerSlotId) {
+      throw new Error(
+        "ADSENSE_FOOTER_SLOT_ID is set without ADSENSE_CLIENT_ID and " +
+          "ADSENSE_BANNER_SLOT_ID. The footer unit is an addition to the banner, " +
+          "not a replacement for it.",
+      );
+    }
+    return undefined;
+  }
+  if (!clientId || !bannerSlotId) {
+    throw new Error(
+      "ADSENSE_CLIENT_ID and ADSENSE_BANNER_SLOT_ID must be set together. Set " +
+        "both to show ads, or neither to show none.",
+    );
+  }
+  if (!adsenseClientId.test(clientId)) {
+    throw new Error(
+      'ADSENSE_CLIENT_ID must be a publisher id of the form "ca-pub-" followed ' +
+        'by sixteen digits. The AdSense dashboard shows it as "pub-…"; the "ca-" ' +
+        "prefix belongs in front of it.",
+    );
+  }
+  for (const [name, value] of [
+    ["ADSENSE_BANNER_SLOT_ID", bannerSlotId],
+    ["ADSENSE_FOOTER_SLOT_ID", footerSlotId],
+  ] as const) {
+    if (value && !adsenseSlotId.test(value)) {
+      throw new Error(`${name} must be an ad unit's slot id, which is ten digits.`);
+    }
+  }
+  /*
+   * A privacy policy is not optional once ads are served.
+   *
+   * Google's program policies require one on any site showing their ads,
+   * naming third-party cookies and the vendors that set them. An operator who
+   * turns ads on without it is in breach from the first impression, and the
+   * failure is the expensive kind: the account is suspended rather than the
+   * ads simply not rendering.
+   *
+   * So it is refused at startup, in the same place and the same shape as the
+   * half-configured refusals above. This is the one setting in this product
+   * that exists because somebody else's terms demand it, which is why the
+   * message says whose terms they are.
+   */
+  const privacyPolicyUrl = env.PRIVACY_POLICY_URL?.trim();
+  if (!privacyPolicyUrl) {
+    throw new Error(
+      "PRIVACY_POLICY_URL must be set when AdSense is configured. Google's " +
+        "program policies require a privacy policy on any site serving their " +
+        "ads, naming third-party cookies and the vendors that set them. Point " +
+        "this at yours.",
+    );
+  }
+  let parsedPrivacyUrl: URL;
+  try {
+    parsedPrivacyUrl = new URL(privacyPolicyUrl);
+  } catch {
+    throw new Error(`PRIVACY_POLICY_URL must be an absolute URL, not "${privacyPolicyUrl}".`);
+  }
+  if (parsedPrivacyUrl.protocol !== "https:") {
+    // A policy served over plain http is one a reader cannot trust arrived
+    // unmodified, on a page that is about what happens to their data.
+    throw new Error("PRIVACY_POLICY_URL must be https.");
+  }
+
+  const consentManaged = z
+    .enum(["true", "false"], { error: () => "ADSENSE_CONSENT_MANAGED must be true or false" })
+    .transform((value) => value === "true")
+    .parse((env.ADSENSE_CONSENT_MANAGED ?? "false").toLowerCase());
+
+  return {
+    clientId,
+    bannerSlotId,
+    privacyPolicyUrl,
+    ...(footerSlotId ? { footerSlotId } : {}),
+    consentManaged,
+  };
+}
+
+/**
+ * Whether this process can reach Stripe at all.
+ *
+ * True whenever the credentials are present, including on a deployment that has
+ * stopped selling: a subscription somebody is still paying for goes on emitting
+ * webhooks, and refusing to listen would leave this ledger's idea of who has
+ * paid drifting away from Stripe's.
+ */
+export function stripeConfigured(): boolean {
+  return Boolean(getConfig().billing);
+}
+
+/**
+ * Whether this deployment sells plans and holds people to their limits.
+ *
+ * Everything that gates a feature asks this one question, so that turning
+ * billing off cannot half-apply: no plan is offered, no limit binds, and every
+ * existing account keeps every account it already has.
+ */
+export function billingEnabled(): boolean {
+  return getConfig().billing?.enforcing === true;
+}
+
+/** Whether this deployment shows ads. */
+export function adsEnabled(): boolean {
+  return Boolean(getConfig().ads);
 }
 
 /**

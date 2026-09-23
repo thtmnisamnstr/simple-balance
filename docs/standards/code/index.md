@@ -65,7 +65,7 @@ nobody coming back here.
 
 **It went up, and that is the honest direction.** It was 26, then seven became
 tests in one pass and it read 19 — and 19 was wrong, because 34 of the 67
-labelled rules named no mechanism at all. A rule that says nothing about how it
+labeled rules named no mechanism at all. A rule that says nothing about how it
 is checked is `human`, whether or not the word appears; leaving those silent
 made the count flattering rather than useful. Every rule now names one, so the
 count is of rules that really have nobody but a reader behind them, and it can
@@ -90,7 +90,7 @@ what review is for.
 Before that it went 32 → 33, which is the same honesty at a smaller scale:
 `database.md` 1.2 says a migration's name stays what it was written as, and no
 test can tell a name somebody chose from a slug the generator produced. It had
-been sitting silent beside a test that checks its neighbour, which is exactly
+been sitting silent beside a test that checks its neighbor, which is exactly
 the shape that made 19 wrong.
 
 The seven that became tests are worth reading for how, and one especially,
@@ -166,8 +166,8 @@ thing they ever see:
 
 One `eslint` rule is off. **`no-control-regex`** flags a regular expression that
 matches control characters, and all three sites here exist *to reject* them: two
-sanitise user input (`src/shared/domain.ts:274-275`) and one is the
-CSV-injection defence (`src/shared/csv.ts:464`).
+sanitize user input (`src/shared/domain.ts:323-324`) and one is the
+CSV-injection defense (`src/shared/csv.ts:464`).
 The rule exists to catch a control character written by accident; every one of
 these was written on purpose, and the code that strips control characters is
 necessarily code that names them.
@@ -177,9 +177,9 @@ codebase rather than about accessibility:
 
 | Rule | Why off |
 | --- | --- |
-| `jsx-a11y/label-has-associated-control` | Cannot see through `Field`, which wraps every control (`src/client/components.tsx:470`). Every site it flagged was correctly labelled. |
+| `jsx-a11y/label-has-associated-control` | Cannot see through `Field`, which wraps every control (`src/client/components.tsx:471`). Every site it flagged was correctly labeled. |
 | `jsx-a11y/control-has-associated-label` | Same, and it also flags `<option>` inside `<datalist>`, which needs no label. |
-| `jsx-a11y/prefer-tag-over-role` | Flags `<svg role="img">`, which is the recommended way to expose an SVG, and a `<summary role="button">` whose comment already explains itself (`src/client/components.tsx:671`). |
+| `jsx-a11y/prefer-tag-over-role` | Flags `<svg role="img">`, which is the recommended way to expose an SVG, and a `<summary role="button">` whose comment already explains itself (`src/client/components.tsx:672`). |
 | `jsx-a11y/anchor-has-content` | Content arrives through `children`, which it cannot follow. |
 | `jsx-a11y/no-autofocus` | **Contested.** jsx-a11y bans it; WCAG does not. This product autofocuses two things: the first field of a form somebody deliberately opened, and the inline editor a click on a staged-list cell just summoned. Nine sites, all one of those two shapes — in both, focus lands where the person's own gesture was already headed. |
 
@@ -192,8 +192,8 @@ rule that is *narrowed* is the same kind of decision as one turned off:
 
 Two more are denied but disabled at two individual sites, each carrying its
 reason in the code: `jsx-a11y/no-static-element-interactions` at
-`src/client/forms.tsx:535`, and both that and `click-events-have-key-events` at
-`src/client/components.tsx:678`. Both are elements catching events that bubble
+`src/client/forms.tsx:549`, and both that and `click-events-have-key-events` at
+`src/client/components.tsx:679`. Both are elements catching events that bubble
 from real controls inside them.
 
 *Checked by:* `npm run lint`, in `npm run verify`.

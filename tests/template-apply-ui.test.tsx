@@ -254,7 +254,7 @@ describe("starting a transaction from a template", () => {
 
   /**
    * Picking a second template replaces the first rather than layering over it.
-   * Merging would leave Rent's £1,450 attached to Coffee, which is a wrong
+   * Merging would leave Rent's $1,450 attached to Coffee, which is a wrong
    * transaction one click from being committed.
    *
    * This is what the restore before applying is for: only the fields the

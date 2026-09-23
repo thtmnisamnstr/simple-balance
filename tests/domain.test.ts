@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { staleVersion } from "../src/server/services/errors.js";
 import {
+  compareCurrencies,
   decimalStringSchema,
   accountCreateSchema,
   bulkDeleteStageSchema,
@@ -426,7 +427,7 @@ describe("CSV normalization", () => {
       });
     });
 
-    it("still honours the sign on a mapped signed-amount column", () => {
+    it("still honors the sign on a mapped signed-amount column", () => {
       const [row] = normalizeCsvRows(
         [{ Date: "07/30/2026", Memo: "Reversal", Amount: "-250.00" }],
         {
@@ -530,15 +531,15 @@ describe("CSV normalization", () => {
   /**
    * The same rule in the spellings a spreadsheet also reads as a formula.
    *
-   * Excel and Google Sheets normalise the full-width forms before deciding
+   * Excel and Google Sheets normalize the full-width forms before deciding
    * whether a cell is a formula, so a value led by a full-width equals was
-   * neutralised nowhere and evaluated everywhere — the one outright code defect
+   * neutralized nowhere and evaluated everywhere — the one outright code defect
    * the CSV guide records. The leading-whitespace half is the same story: the
    * class stopped at U+0020, so a no-break space or a zero-width space in front
    * of an `=` carried the cell past the test.
    *
    * Written with escapes rather than the characters themselves, so that what is
-   * being tested survives a copy, a paste and an editor that normalises.
+   * being tested survives a copy, a paste and an editor that normalizes.
    */
   it("neutralizes the full-width and wide-space spellings too", () => {
     const cases = [
@@ -708,7 +709,7 @@ describe("the CSV media type", () => {
  * on line 4 and "Row 2" for a fault on line 3 — both wrong, and wrong by
  * different amounts, which is worse than being consistently off.
  *
- * These cases pin the dependency's behaviour as much as ours: if papaparse ever
+ * These cases pin the dependency's behavior as much as ours: if papaparse ever
  * changes either base, this fails rather than the numbers quietly shifting.
  */
 describe("which line of a CSV an error is about", () => {
@@ -790,6 +791,36 @@ describe("the budget report's query flags", () => {
  * and read the row again — on a refusal that is not about a row and has no
  * version to retry with.
  */
+describe("the order a ledger's currencies are shown in", () => {
+  /**
+   * The Overview and the Reports page both ask this, which is the point of it
+   * being one function: two pages ordering the same ledger differently is a
+   * defect even when every figure on both is right.
+   */
+  it("leads with the currency this person chose", () => {
+    expect(["EUR", "JPY", "USD"].sort(compareCurrencies("USD"))).toEqual(["USD", "EUR", "JPY"]);
+    expect(["EUR", "JPY", "USD"].sort(compareCurrencies("JPY"))).toEqual(["JPY", "EUR", "USD"]);
+  });
+
+  it("orders the rest alphabetically behind it", () => {
+    // Chosen so alphabetical and preference-first disagree on the first entry
+    // and agree on nothing else, which is what makes the assertion able to
+    // fail for the right reason.
+    expect(["ZAR", "AUD", "USD", "EUR"].sort(compareCurrencies("USD"))).toEqual([
+      "USD",
+      "AUD",
+      "EUR",
+      "ZAR",
+    ]);
+  });
+
+  it("changes nothing when the chosen currency is not in the ledger", () => {
+    // Somebody whose default is a currency they hold no account in. The list
+    // still has to come back in a defined order rather than an arbitrary one.
+    expect(["USD", "EUR", "AUD"].sort(compareCurrencies("NOK"))).toEqual(["AUD", "EUR", "USD"]);
+  });
+});
+
 describe("the refusal a stale bulk selection sends", () => {
   it("offers the move that works, which is previewing again", () => {
     const refusal = staleVersion({

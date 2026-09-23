@@ -1,20 +1,21 @@
 {
   "name": "simple-balance-pulumi",
   "version": "0.1.6",
-  "description": "Pulumi programs that stand up the split Simple Balance deployment on EKS and on GKE.",
+  "description": "Pulumi programs that stand up Simple Balance: the split deployment on EKS and GKE, and the single-machine profile on EC2 and OCI compute.",
   "license": "AGPL-3.0-only",
   "private": true,
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit -p aws/tsconfig.json && tsc --noEmit -p gcp/tsconfig.json"
+    "typecheck": "tsc --noEmit -p aws/tsconfig.json && tsc --noEmit -p gcp/tsconfig.json && tsc --noEmit -p aws-single/tsconfig.json && tsc --noEmit -p oci-single/tsconfig.json"
   },
   "dependencies": {
     "@pulumi/aws": "7.45.0",
     "@pulumi/eks": "4.3.0",
     "@pulumi/gcp": "9.36.1",
     "@pulumi/kubernetes": "4.34.1",
+    "@pulumi/oci": "4.22.0",
     "@pulumi/pulumi": "3.261.0"
   },
   "devDependencies": {

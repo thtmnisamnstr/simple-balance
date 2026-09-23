@@ -310,7 +310,7 @@ integration("the cash flow statement", () => {
   });
 
   /**
-   * The number people will report as a defect. An expense is recognised when
+   * The number people will report as a defect. An expense is recognized when
    * the card is swiped; the cash leaves when the bill is paid. Both are right,
    * and reconciling them would mean choosing one of the two questions to stop
    * answering.

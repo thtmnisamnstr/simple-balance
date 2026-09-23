@@ -303,7 +303,7 @@ async function publishedTools() {
  * The owner id, which this surface published on 34 of its 71 tools and then
  * refused to read back.
  *
- * Every row belongs to the actor that authorised the connection, so it was one
+ * Every row belongs to the actor that authorized the connection, so it was one
  * constant repeated on every row of every page, and no next call could send it
  * anywhere. It is gone from the schemas and gone from the payload, and both had
  * to move together: whoami's result is the one closed object of the four, so a
@@ -394,6 +394,9 @@ describe("the owner id no agent can use", () => {
       source: "mcp",
       notificationsAvailable: false,
       scopes: ["ledger:read"],
+      plan: null,
+      accountLimit: null,
+      accountsUsed: null,
     };
     const stripped = withoutUserId(identity);
     // Both halves, because the parse alone proves only one direction: the

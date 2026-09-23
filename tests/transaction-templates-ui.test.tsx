@@ -142,7 +142,7 @@ describe("saving a row as a template", () => {
       name: "Actions for Market",
     });
     // The action lives inside the menu rather than as a fourth bare icon in the
-    // row. Opening and closing is the browser's own disclosure behaviour, which
+    // row. Opening and closing is the browser's own disclosure behavior, which
     // this environment does not implement, so it is exercised in
     // tests/row-menu.test.tsx instead.
     const item = screen.getByRole("button", { name: /Save as template/ });
