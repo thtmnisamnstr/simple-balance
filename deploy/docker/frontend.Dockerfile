@@ -12,7 +12,7 @@
 # reproduce, and the digest is what the `base.digest` label below claims of the
 # runtime stage. `.github/dependabot.yml` watches Docker so neither pin freezes,
 # and the `apk upgrade` below still takes whatever Alpine has published since.
-FROM node:24-alpine@sha256:50c8e8ca1d27439048670df5883f32d57cf81cff6233222c893fd0d9884cbd81 AS build
+FROM node:25-alpine@sha256:bdf2cca6fe3dabd014ea60163eca3f0f7015fbd5c7ee1b0e9ccb4ced6eb02ef4 AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
