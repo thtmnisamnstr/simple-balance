@@ -388,6 +388,12 @@ export const EMBEDDED_FILES: readonly {
     syntax: "yaml",
   },
   {
+    source: "deploy/compose/single/compose.db-tls.yml",
+    target: "/opt/simple-balance/compose.db-tls.yml",
+    permissions: "0644",
+    syntax: "yaml",
+  },
+  {
     source: "deploy/compose/single/Caddyfile",
     target: "/opt/simple-balance/Caddyfile",
     permissions: "0644",
@@ -500,6 +506,12 @@ function composeWithImage(compose: string, image: string): string {
  *   there. Nor are there POSTGRES_* tuning settings: nothing on the machine
  *   reads them, and docs/deployment-sizing.md has the numbers to set on
  *   whichever PostgreSQL this is pointed at.
+ * - COMPOSE_FILE names compose.db-tls.yml, which mounts the directory the
+ *   database's CA certificate goes in, and a hand install does not unless it
+ *   asks. The mount needs its directory to exist before anything starts, and
+ *   here firstboot makes it on the data volume first; on a hand install under
+ *   a rootless daemon, the same line in compose.yml stopped the application
+ *   starting at all.
  */
 export function cloudInit(args: CloudInitArgs): string {
   const { settings, dataDevice } = args;
@@ -555,7 +567,7 @@ ${files}
   - path: /etc/default/simple-balance
     permissions: "0644"
     content: |
-      COMPOSE_FILE=compose.yml:compose.caddy.yml
+      COMPOSE_FILE=compose.yml:compose.caddy.yml:compose.db-tls.yml
       SB_BACKUP_DIR=/var/lib/simple-balance/backups
       SB_BACKUP_KEEP=${settings.backupKeep}
       SB_DATA_DEVICE=${dataDevice}

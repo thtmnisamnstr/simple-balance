@@ -70,8 +70,11 @@ export function getStripe(): Stripe {
  *
  * The operation name is a constant from this file, never anything from the
  * request, so the label set is closed and no identifier can leak into it.
+ *
+ * `report` is off only for the startup probe, which says what it found in one
+ * line of its own rather than one per resource.
  */
-async function measured<T>(operation: string, run: () => Promise<T>): Promise<T> {
+async function measured<T>(operation: string, run: () => Promise<T>, report = true): Promise<T> {
   const stop = stripeDuration.startTimer({ operation });
   try {
     const result = await run();
@@ -79,10 +82,75 @@ async function measured<T>(operation: string, run: () => Promise<T>): Promise<T>
     return result;
   } catch (error) {
     stripeRequests.inc({ operation, outcome: "failed" });
+    if (report) reportKeyRefusal(operation, error);
     throw error;
   } finally {
     stop();
   }
+}
+
+/**
+ * The two ways Stripe refuses a call because of the key rather than the
+ * request, as it spells them in `code`.
+ */
+const keyRefusals = new Set(["more_permissions_required", "approval_required"]);
+
+/**
+ * Whether Stripe refused this because of what the key is allowed, rather than
+ * anything about the request. Beside `measured` because every failed call is
+ * asked it there, and the startup probe asks it too.
+ */
+function isKeyRefusal(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  const type = (error as { type?: unknown } | null)?.type;
+  return (typeof code === "string" && keyRefusals.has(code)) || type === "StripePermissionError";
+}
+
+/**
+ * One line an operator can act on, when Stripe refuses a call because of the
+ * key rather than the request.
+ *
+ * Beside the dump the request's error handler writes, not instead of it: that
+ * one is the SDK's whole error, forty lines of headers in which the code and
+ * the operation are two words, and the person reading it at the moment a
+ * subscriber could not cancel wants the call, the reason and the fix. Named by
+ * operation because that is the one thing Stripe's message leaves out — it
+ * names the permission only sometimes (`subscription.create` came back as "An
+ * unknown error occurred" for a key without PaymentIntents), and it never says
+ * which of this product's calls tripped it.
+ *
+ * `approval_required` is the other one, and it is not a permission at all:
+ * Stripe holds a call made with an agent-tagged key for a person to approve,
+ * and by default that includes canceling a subscription — which this product
+ * does, with nobody to approve it, when somebody abandons an unpaid first
+ * payment for the other plan. Two ways out rather than one, and the line names
+ * both, because naming only the key sends an operator to replace a key that is
+ * working: the rule is Stripe's own default and can be deleted like any other,
+ * which is the half they can change without touching what is deployed.
+ */
+function reportKeyRefusal(operation: string, error: unknown) {
+  if (!isKeyRefusal(error)) return;
+  const code = (error as { code?: unknown }).code;
+  const said = error instanceof Error ? ` Stripe said: ${error.message}` : "";
+  if (code === "approval_required") {
+    log.error(
+      `Stripe held ${operation} for human approval (approval_required), so it has not ` +
+        "happened, and runs later only if somebody approves it in the dashboard. " +
+        "STRIPE_SECRET_KEY is agent-tagged, or a rule of your own covers this call. Two ways " +
+        "out: create the key without that intended use, or delete the rule for a canceled " +
+        "subscription under Settings > Approvals > Rules, as docs/billing-operations.md " +
+        "step 2 says." +
+        said,
+    );
+    return;
+  }
+  log.error(
+    `Stripe refused ${operation} because STRIPE_SECRET_KEY lacks a permission ` +
+      `(${typeof code === "string" ? code : "permission_error"}). Give the key every ` +
+      "permission in docs/billing-operations.md step 2, PaymentIntents included; Stripe does " +
+      "not always name the one it wanted." +
+      said,
+  );
 }
 
 /** Dropped between tests, and by nothing else. */
@@ -105,6 +173,87 @@ export function isMissingStripeResource(error: unknown): boolean {
   const code = (error as { code?: unknown; statusCode?: unknown } | null)?.code;
   const status = (error as { statusCode?: unknown } | null)?.statusCode;
   return code === "resource_missing" || status === 404;
+}
+
+/**
+ * Whether Stripe refused a card as the one a subscription bills, as opposed to
+ * failing to answer at all.
+ *
+ * A definite 400 naming `default_payment_method`, which is what a subscription
+ * says to a method that cannot pay its currency — "The payment method type
+ * `satispay` does not support the currency usd." The same request gets the
+ * same answer every time, so a caller that let it through answered Stripe's
+ * delivery 500 on every retry for three days, and a caller holding a person's
+ * request could only tell them something went wrong.
+ */
+export function isUnusableDefaultPaymentMethod(error: unknown): boolean {
+  const status = (error as { statusCode?: unknown } | null)?.statusCode;
+  const param = (error as { param?: unknown } | null)?.param;
+  return status === 400 && param === "default_payment_method";
+}
+
+/**
+ * Why paying an invoice with nobody on the page did not go through.
+ *
+ * `needs_authentication` where the bank wants 3-D Secure — Stripe says so in
+ * `code`, and it schedules no retry of its own for it, so the person has to be
+ * sent to the payment form. `declined` for everything else, carrying Stripe's
+ * sentence only for a card error, whose message is written for the cardholder
+ * ("Your card was declined."); anything else's message is written for a
+ * developer, and a timeout says nothing about the card at all.
+ */
+export function invoicePaymentRefusal(error: unknown): {
+  readonly outcome: "declined" | "needs_authentication";
+  readonly message: string | null;
+} {
+  const code = (error as { code?: unknown } | null)?.code;
+  if (
+    code === "invoice_payment_intent_requires_action" ||
+    code === "authentication_required" ||
+    code === "payment_intent_action_required"
+  ) {
+    return { outcome: "needs_authentication", message: null };
+  }
+  const type = (error as { type?: unknown } | null)?.type;
+  const rawType = (error as { rawType?: unknown } | null)?.rawType;
+  const cardError = type === "StripeCardError" || rawType === "card_error";
+  return {
+    outcome: "declined",
+    message: cardError && error instanceof Error && error.message ? error.message : null,
+  };
+}
+
+/**
+ * The payment methods a card replacement may offer: a filter on the account's
+ * configuration, never a list Stripe is told to honor.
+ *
+ * Left out, a SetupIntent offered whatever the dashboard had enabled, and a
+ * SetupIntent has no currency to filter by: a USD subscription's Replace card
+ * offered Satispay, Kakao Pay and Naver Pay, saving one pointed the customer
+ * at a method the subscription then refused, and every method an operator
+ * turns on later — bank debits, Klarna, Cash App Pay — would reach the plan tab
+ * without anybody having tried it here. The invoice's own PaymentIntent had
+ * narrowed the same configuration to these two. Apple Pay and Google Pay are
+ * wallets on `card` and come with it; Link stays because the plan tab's policy
+ * was built for it.
+ *
+ * Sent as `allowed_payment_method_types`, and `payment_method_types` is the
+ * wrong one for all that it reads the same. That one is a demand: Stripe
+ * refuses the whole request over a type the account has not turned on, and
+ * Link is opt-in under Wallets and not offered at all in India, so on such an
+ * account Replace card stopped opening — for a past-due subscriber too, whose
+ * way back it is. The allowed list narrows what the configuration would offer
+ * anyway, so there it offers a card. A subscription names none of this, for
+ * the same reason, and `createStripeSubscription` says why it does not need to.
+ */
+export const OFFERED_PAYMENT_METHOD_TYPES = ["card", "link"] as const;
+
+/** Whether a saved payment method is one this product offers. */
+export function isOfferedPaymentMethodType(type: string | null | undefined): boolean {
+  // A type Stripe did not send is not a reason to refuse: every read here
+  // expands the method, so no type means an older shape rather than a new method.
+  if (!type) return true;
+  return (OFFERED_PAYMENT_METHOD_TYPES as readonly string[]).includes(type);
 }
 
 /**
@@ -144,6 +293,13 @@ export type StripeSnapshot = {
   scheduledAt: Date | null;
   syncedAt: Date;
   stripeCustomerId: string | null;
+  /**
+   * The invoice that is owed, where one is, so the plan tab's read can ask
+   * about its payment without a second read of the subscription. Not stored.
+   */
+  latestInvoiceId: string | null;
+  /** When Stripe made it, which is what an unfinished first payment lapses from. Not stored. */
+  createdAt: Date | null;
 };
 
 /** The price id on a phase item, whichever of the two shapes Stripe sent. */
@@ -189,16 +345,34 @@ export function snapshotOfSubscription(
     null;
   const customer = subscription.customer;
   const pending = pendingPhase(subscription.schedule, syncedAt);
+  // Stripe has two ways to say a subscription ends, and a dashboard's "cancel
+  // on a custom date" and `cancel_at: "min_period_end"` both use the one that
+  // leaves `cancel_at_period_end` false. Read as that flag alone, such a
+  // subscription was stored as renewing: the tab said "renews" and offered
+  // Cancel at period end, which moved an operator's chosen day back to the end
+  // of the period, and hid Keep my plan. A `cancel_at` inside the current
+  // period is the same fact, and Stripe moves the period's end onto it, so the
+  // stored end is already the day it stops. One further out leaves this period
+  // renewing, which is true — and Keep my plan clears either, because Stripe
+  // drops `cancel_at` when `cancel_at_period_end` is set false.
+  const cancelAt = subscription.cancel_at ?? null;
+  const latestInvoice = subscription.latest_invoice;
   return {
     stripeSubscriptionId: subscription.id,
     status: subscription.status,
     priceId: item?.price?.id ?? "",
     currentPeriodEnd: periodEnd === null ? null : new Date(periodEnd * 1000),
-    cancelAtPeriodEnd: subscription.cancel_at_period_end === true,
+    cancelAtPeriodEnd:
+      subscription.cancel_at_period_end === true ||
+      (cancelAt !== null && periodEnd !== null && cancelAt <= periodEnd),
     scheduledPriceId: pending?.priceId ?? null,
     scheduledAt: pending?.startsAt ?? null,
     syncedAt,
     stripeCustomerId: typeof customer === "string" ? customer : (customer?.id ?? null),
+    latestInvoiceId:
+      typeof latestInvoice === "string" ? latestInvoice : (latestInvoice?.id ?? null),
+    createdAt:
+      typeof subscription.created === "number" ? new Date(subscription.created * 1000) : null,
   };
 }
 
@@ -284,7 +458,20 @@ export async function createStripeSubscription(
         customer: input.customerId,
         items: [{ price: input.priceId }],
         payment_behavior: "default_incomplete",
-        payment_settings: { save_default_payment_method: "on_subscription" },
+        payment_settings: {
+          save_default_payment_method: "on_subscription",
+          // No `payment_method_types`, and naming card and Link here is the
+          // mistake this line exists to prevent. Payment settings have only
+          // the strict form, which refuses the subscription over a type the
+          // account has not turned on, so an account without Link could sell
+          // nothing at all. Left out, Stripe works each invoice's methods out
+          // from the dashboard's invoice settings and the default method,
+          // narrowed to the invoice's currency: in the sandbox that offered a
+          // USD invoice card and Link and none of the Satispay, Kakao Pay and
+          // Naver Pay the same account had on. A method Replace card saved is
+          // always among them, because the subscription's default is one of
+          // the things Stripe looks at.
+        },
         expand: ["latest_invoice.confirmation_secret"],
       },
       { idempotencyKey },
@@ -312,6 +499,11 @@ export async function createStripeSubscription(
  * difference immediately is what the person asked for. The other direction goes
  * through a schedule, because taking a year's money and then halving the term
  * would be a refund nobody agreed to.
+ *
+ * Returns what Stripe says the subscription is now, for the caller to store
+ * while it still holds the lock — the reason `createStripeSubscription` does.
+ * The schedule is not expanded and reads as none, which is true: the caller
+ * let any schedule go before asking for this.
  */
 export async function switchStripeSubscriptionNow(
   input: {
@@ -320,8 +512,8 @@ export async function switchStripeSubscriptionNow(
     readonly priceId: string;
   },
   idempotencyKey: string,
-) {
-  await measured("subscription.update", () =>
+): Promise<StripeSnapshot> {
+  const updated = await measured("subscription.update", () =>
     getStripe().subscriptions.update(
       input.subscriptionId,
       {
@@ -344,6 +536,7 @@ export async function switchStripeSubscriptionNow(
       { idempotencyKey },
     ),
   );
+  return snapshotOfSubscription(updated, new Date());
 }
 
 /**
@@ -530,7 +723,15 @@ export async function createStripeSetupIntent(
 ): Promise<{ id: string; clientSecret: string | null }> {
   const intent = await measured("setup_intent.create", () =>
     getStripe().setupIntents.create(
-      { customer: customerId, usage: "off_session" },
+      {
+        customer: customerId,
+        usage: "off_session",
+        // Filtered, because a SetupIntent has no currency for Stripe to narrow
+        // the account's methods by, and filtered rather than named, because a
+        // named Link refuses the intent where Link is off — see
+        // `OFFERED_PAYMENT_METHOD_TYPES`.
+        allowed_payment_method_types: [...OFFERED_PAYMENT_METHOD_TYPES],
+      },
       { idempotencyKey },
     ),
   );
@@ -560,6 +761,13 @@ export async function fetchStripeSetupIntent(setupIntentId: string): Promise<{
    * intent that saved it, so that is the earliest it can be.
    */
   paymentMethodCreated: Date;
+  /**
+   * What kind of method was saved — `card`, `link` — or null where Stripe sent
+   * the method as a bare id. Read so a method this product does not offer is
+   * turned away before anything is pinned, rather than by the subscription
+   * refusing it halfway through.
+   */
+  paymentMethodType: string | null;
 }> {
   const intent = await measured("setup_intent.retrieve", () =>
     getStripe().setupIntents.retrieve(setupIntentId, {
@@ -577,6 +785,7 @@ export async function fetchStripeSetupIntent(setupIntentId: string): Promise<{
     paymentMethodCreated: new Date(
       (method && typeof method !== "string" ? method.created : intent.created) * 1000,
     ),
+    paymentMethodType: method && typeof method !== "string" ? method.type : null,
   };
 }
 
@@ -658,7 +867,19 @@ export async function stripeCustomerStanding(
  * leaves the next subscription they start on the old card.
  *
  * `save_default_payment_method: "on_subscription"` does not cover this: Stripe
- * applies that when a payment *succeeds*, and a SetupIntent pays nothing.
+ * applies that when a payment *succeeds* with a card being saved for later —
+ * a PaymentIntent whose `setup_future_usage` is set — and a SetupIntent pays
+ * nothing. It is not every payment either: the first invoice and an upgrade's
+ * charge are set up that way, and a renewal Stripe finalizes on its own is
+ * not, which is why `keepCardThatPays` marks one before the person pays it.
+ *
+ * The subscription first, because it is the write that can refuse: Stripe
+ * accepts any attached method as the customer's default and checks the
+ * subscription's currency only on the subscription. The other order left a
+ * method that could not pay in USD as the customer's default while the
+ * subscription went on billing the old card, and a refusal now changes
+ * nothing at all. Setting both still leaves the next subscription somebody
+ * starts on the card they chose.
  *
  * Distinct idempotency keys, because Stripe scopes a key to one request and the
  * second call would otherwise replay the first one's answer.
@@ -671,20 +892,21 @@ export async function setStripeDefaultPaymentMethod(
   },
   idempotencyKey: string,
 ) {
+  const subscriptionId = input.subscriptionId;
+  if (subscriptionId) {
+    await measured("subscription.update", () =>
+      getStripe().subscriptions.update(
+        subscriptionId,
+        { default_payment_method: input.paymentMethodId },
+        { idempotencyKey: `${idempotencyKey}:subscription` },
+      ),
+    );
+  }
   await measured("customer.update", () =>
     getStripe().customers.update(
       input.customerId,
       { invoice_settings: { default_payment_method: input.paymentMethodId } },
       { idempotencyKey: `${idempotencyKey}:customer` },
-    ),
-  );
-  const subscriptionId = input.subscriptionId;
-  if (!subscriptionId) return;
-  await measured("subscription.update", () =>
-    getStripe().subscriptions.update(
-      subscriptionId,
-      { default_payment_method: input.paymentMethodId },
-      { idempotencyKey: `${idempotencyKey}:subscription` },
     ),
   );
 }
@@ -694,8 +916,9 @@ export async function setStripeDefaultPaymentMethod(
  *
  * Called after a replacement card is pinned, so "replacing the card fixes it
  * right away" is true rather than "at Stripe's next retry, which may be days
- * away and may be after the grace has run out". Failure is not the caller's
- * problem: the card is attached either way and Stripe will retry on its own.
+ * away and may be after the grace has run out". A failure does not undo the
+ * card, which is attached and pinned either way, but it is the person's to
+ * hear about: `invoicePaymentRefusal` reads it for the caller to report.
  */
 export async function payStripeInvoice(invoiceId: string, idempotencyKey: string) {
   await measured("invoice.pay", () => getStripe().invoices.pay(invoiceId, {}, { idempotencyKey }));
@@ -711,6 +934,121 @@ export async function openStripeInvoiceFor(subscriptionId: string): Promise<stri
   if (!id) return null;
   const latest = await measured("invoice.retrieve", () => getStripe().invoices.retrieve(id));
   return latest.status === "open" ? id : null;
+}
+
+/**
+ * Where the payment of an owed invoice has got to, for the plan tab to say.
+ *
+ * The stored row knows the subscription's status and nothing about the
+ * payment, so "tried and declined" and "never tried" looked the same after a
+ * reload, and a renewal waiting on 3-D Secure was described as one Stripe was
+ * retrying — which it does not do for authentication, so nothing would ever
+ * happen without the person. This reads the invoice's own PaymentIntent.
+ */
+export type OwedPayment = {
+  readonly invoiceId: string;
+  /**
+   * Stripe's sentence for why the last attempt failed, written for the
+   * cardholder, or null where nothing has been tried or it was not refused.
+   */
+  readonly failureMessage: string | null;
+  /** A payment method is on it and the bank wants the person to confirm it. */
+  readonly awaitingAuthentication: boolean;
+  /** When Stripe will try again by itself, or null where it will not. */
+  readonly nextAttemptAt: Date | null;
+  readonly intent: {
+    readonly id: string;
+    readonly status: string;
+    readonly setupFutureUsage: string | null;
+  } | null;
+};
+
+/** The owed invoice's payment, or null where the invoice is not open. */
+export async function fetchOwedPayment(invoiceId: string): Promise<OwedPayment | null> {
+  // Read off the invoice rather than expanded from the subscription: the
+  // PaymentIntent sits four levels below a subscription, at the edge of what
+  // Stripe will expand, and this shape is the one read against the sandbox.
+  const invoice = await measured("invoice.retrieve", () =>
+    getStripe().invoices.retrieve(invoiceId, {
+      expand: ["payments.data.payment.payment_intent"],
+    }),
+  );
+  if (invoice.status !== "open") return null;
+  const payments = invoice.payments?.data ?? [];
+  // The default payment is the one Stripe keeps in step with what is owed, and
+  // the one the invoice's confirmation secret belongs to.
+  const payment = payments.find((one) => one.is_default) ?? payments[0];
+  const expanded = payment?.payment?.payment_intent;
+  const intent = expanded && typeof expanded !== "string" ? expanded : null;
+  const status = intent?.status ?? null;
+  return {
+    invoiceId: invoice.id ?? invoiceId,
+    failureMessage:
+      status === "requires_payment_method" ? (intent?.last_payment_error?.message ?? null) : null,
+    awaitingAuthentication:
+      (status === "requires_action" || status === "requires_confirmation") &&
+      intent?.payment_method !== null &&
+      intent?.payment_method !== undefined,
+    nextAttemptAt:
+      typeof invoice.next_payment_attempt === "number"
+        ? new Date(invoice.next_payment_attempt * 1000)
+        : null,
+    intent: intent
+      ? { id: intent.id, status: intent.status, setupFutureUsage: intent.setup_future_usage }
+      : null,
+  };
+}
+
+/** The PaymentIntent statuses a person can still pay from. */
+const payableIntentStatuses = new Set([
+  "requires_payment_method",
+  "requires_confirmation",
+  "requires_action",
+]);
+
+/**
+ * Makes sure the card that pays an owed renewal is the one billed afterward.
+ *
+ * Stripe finalizes a renewal's invoice itself, and its PaymentIntent has no
+ * `setup_future_usage`. Confirmed with a card typed into Pay now, it charged
+ * the card once and never attached it, so `save_default_payment_method:
+ * "on_subscription"` had nothing to save and the next renewal went back to the
+ * card that had failed — for a subscriber who had just paid to get off it. A
+ * card used unattached can never be attached afterward, so this has to happen
+ * before the secret is handed out, not after the payment. Marked
+ * `off_session`, the card is attached when the payment succeeds and becomes
+ * the subscription's default the way a first payment's does. Stripe accepts
+ * the change on an invoice's own PaymentIntent, and it moves one waiting on
+ * 3-D Secure to waiting for confirmation, which the form does anyway.
+ *
+ * Only while the payment can still be made, and only where it is not set
+ * already — the first invoice and an upgrade's charge carry it. Keyed on the
+ * PaymentIntent as well as the request, so a retry that finds a different
+ * invoice owed is a new request rather than one Stripe refuses as a reuse.
+ *
+ * Returns whether it changed anything, which nothing depends on.
+ */
+export async function keepCardThatPays(
+  subscriptionId: string,
+  idempotencyKey: string,
+): Promise<boolean> {
+  const subscription = await measured("subscription.retrieve", () =>
+    getStripe().subscriptions.retrieve(subscriptionId),
+  );
+  const latest = subscription.latest_invoice;
+  const invoiceId = typeof latest === "string" ? latest : (latest?.id ?? null);
+  if (!invoiceId) return false;
+  const intent = (await fetchOwedPayment(invoiceId))?.intent;
+  if (!intent || intent.setupFutureUsage !== null) return false;
+  if (!payableIntentStatuses.has(intent.status)) return false;
+  await measured("payment_intent.update", () =>
+    getStripe().paymentIntents.update(
+      intent.id,
+      { setup_future_usage: "off_session" },
+      { idempotencyKey: `${idempotencyKey}:${intent.id}` },
+    ),
+  );
+  return true;
 }
 
 /**
@@ -1073,6 +1411,87 @@ export async function checkStripePrices(): Promise<boolean> {
     return false;
   }
   return priceCheck?.problems.length === 0;
+}
+
+/**
+ * Every resource this product reads, each with the cheapest read that proves
+ * the key may read it: one item of a list, which writes nothing anywhere.
+ *
+ * The names are the dashboard's, because the reader acts on them there, and
+ * the list is `docs/billing-operations.md` step 2's table less PaymentMethods,
+ * which this product only ever reads expanded inside another resource; a key
+ * without it is named by `reportKeyRefusal` at the first such read.
+ */
+const accessProbes: readonly (readonly [string, string, (stripe: Stripe) => Promise<unknown>])[] = [
+  ["Customers", "customer.list", (stripe) => stripe.customers.list({ limit: 1 })],
+  ["Subscriptions", "subscription.list", (stripe) => stripe.subscriptions.list({ limit: 1 })],
+  [
+    "Subscription schedules",
+    "schedule.list",
+    (stripe) => stripe.subscriptionSchedules.list({ limit: 1 }),
+  ],
+  ["SetupIntents", "setup_intent.list", (stripe) => stripe.setupIntents.list({ limit: 1 })],
+  ["Invoices", "invoice.list", (stripe) => stripe.invoices.list({ limit: 1 })],
+  ["PaymentIntents", "payment_intent.list", (stripe) => stripe.paymentIntents.list({ limit: 1 })],
+  ["Prices", "price.list", (stripe) => stripe.prices.list({ limit: 1 })],
+];
+
+/**
+ * Asks, once for a process starting up, whether the key can read everything
+ * this product uses, and names in one line whatever it cannot.
+ *
+ * A restricted key missing one permission starts cleanly and then fails the
+ * first time somebody reaches the call that needs it — and Stripe does not
+ * always say which: a key without PaymentIntents made a first subscription
+ * fail as "An unknown error occurred", because the subscription is created
+ * with its invoice's confirmation secret expanded. The operator reading the
+ * startup log is the one person who can fix it, and the customer who found it
+ * could not.
+ *
+ * Reads only, so it proves only reads: a key holding Read where step 2 asks
+ * for Write passes here and is refused at the first write, where
+ * `reportKeyRefusal` names the call. Nothing here can see an agent tag either,
+ * because Stripe holds only writes for approval. It never refuses to start and
+ * never throws, for the reason `checkStripePrices` gives, and a Stripe that
+ * cannot be reached is a warning that it could not look. A standard `sk_` key
+ * holds every permission, so it is not asked at all.
+ *
+ * Returns the resources it found the key cannot read, for a caller that wants
+ * them; nothing depends on the answer.
+ */
+export async function checkStripeAccess(): Promise<string[]> {
+  const { billing } = getConfig();
+  if (!billing || !billing.secretKey.startsWith("rk_")) return [];
+  const stripe = getStripe();
+  // All at once: each is independent, and one after another would be seven
+  // round trips of startup on a deployment whose Stripe is slow to answer.
+  const results = await Promise.allSettled(
+    accessProbes.map(([, operation, read]) => measured(operation, () => read(stripe), false)),
+  );
+  const refused: string[] = [];
+  const unchecked: string[] = [];
+  for (const [index, result] of results.entries()) {
+    if (result.status === "fulfilled") continue;
+    const name = accessProbes[index]![0];
+    (isKeyRefusal(result.reason) ? refused : unchecked).push(name);
+  }
+  if (refused.length > 0) {
+    log.error(
+      `STRIPE_SECRET_KEY cannot read ${refused.join(", ")}, and this deployment uses each of ` +
+        "them, so the plan tab will fail where it reaches one. Give the restricted key the " +
+        "permissions in docs/billing-operations.md step 2. Carrying on.",
+    );
+  }
+  if (unchecked.length > 0) {
+    log.warn(
+      `Stripe could not be asked whether STRIPE_SECRET_KEY can read ${unchecked.join(", ")}. ` +
+        "Carrying on; a call the key cannot make is logged by name when it is made.",
+    );
+  }
+  if (refused.length === 0 && unchecked.length === 0) {
+    log.info("STRIPE_SECRET_KEY can read everything this deployment uses at Stripe.");
+  }
+  return refused;
 }
 
 /** Dropped between tests, and by nothing else. */

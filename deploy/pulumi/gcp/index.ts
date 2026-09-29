@@ -221,6 +221,35 @@ const app = sb.simpleBalance({
     // this Ingress, every time the certificate is renewed.
     "kubernetes.io/ingress.allow-http": "true",
   },
+  // Container-native load balancing, named rather than inherited, because the
+  // address a frontend pod sees depends entirely on which path the load
+  // balancer takes. Through network endpoint groups Google's front ends connect
+  // to the pod itself; through instance groups they connect to a node port and
+  // kube-proxy hands the pod the node's own address instead. GKE picks the
+  // first by default only while the cluster is VPC-native, off Shared VPC,
+  // without GKE Network Policy and with HttpLoadBalancing on
+  // (docs.cloud.google.com/kubernetes-engine/docs/concepts/
+  // container-native-load-balancing) — all true of the cluster above, and one
+  // policy switch away from false. The Service is ClusterIP, which the GKE
+  // Ingress serves only through endpoint groups, so this is also what makes
+  // the Ingress work at all rather than a second way of saying so.
+  frontendServiceAnnotations: { "cloud.google.com/neg": '{"ingress": true}' },
+  // Google's external Application Load Balancer, which the GKE Ingress is,
+  // connects to endpoint-group backends from 130.211.0.0/22 and 35.191.0.0/16
+  // and appends `<client-ip>,<load-balancer-ip>` to whatever X-Forwarded-For
+  // the client sent, `<load-balancer-ip>` being the forwarding rule's address
+  // — the reserved one above (docs.cloud.google.com/load-balancing/docs/https,
+  // "Firewall rules" and "X-Forwarded-For header"). So the rightmost entry is
+  // that address for every visitor, and only recursion past it reaches the
+  // visitor. All three are trusted and recursion is on: nginx then stops at
+  // `<client-ip>`, the first untrusted address from the right, which the load
+  // balancer wrote from its own socket, and never reads the entries to its
+  // left, which are the only ones a client can write. Health checks come from
+  // 35.191.0.0/16 with no header at all and are left as they arrive.
+  trustedProxies: {
+    addresses: ["130.211.0.0/22", "35.191.0.0/16", ingressAddress.address],
+    recursive: true,
+  },
   dependsOn: [certManager.clusterIssuer],
 });
 

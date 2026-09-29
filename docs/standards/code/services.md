@@ -115,11 +115,22 @@ list or is a decision that has left the layer both surfaces share.
 **House, and new in 0.2.0.** `AGENTS.md` settles the usual shape: a rule the
 browser previews and the server enforces has to be one function, so the two
 cannot disagree. `resolveEntrySide` and `subscriptionAction` are that — shared,
-pure, and called from both sides.
+pure, and called from both sides. So are the three smaller rules the plan tab
+reads off the second, and each exists because the tab's own copy said
+something the server did not do: `planChangeTakesEffect` answers whether a move
+to annual happens now or at the renewal, after the tab promised a past-due
+subscriber "takes effect now" for a press that was scheduled; `periodIsPaid`
+answers whether a period end is a date the plan runs to, after the tab printed
+"renews" beside a period nobody had paid for; and `graceEndsAt` is the moment
+`resolveEntitlement` drops a failed renewal, so the date in the alert is the
+date enforced. Where the page cannot have a rule's inputs it says nothing
+rather than approximate it: how many accounts ending the paid plan would freeze
+depends on account rows the tab never loads, so that sentence waits for the
+server to send the count, and a server that sends none gets no sentence.
 
 There is a second shape, for when the browser has no business previewing at all.
 Rather than send the data and a rule for using it, **send nothing and let the
-absence be the answer.** `getAdPlacement` (`src/server/services/billing.ts:1994`)
+absence be the answer.** `getAdPlacement` (`src/server/services/billing.ts:2327`)
 returns the publisher and slot ids, or `null`: a session belonging to somebody
 who should see no advertising simply carries no ad configuration, so the page
 has nothing to render a slot from. `AdSlot` (`src/client/ads.tsx:70`) has no
@@ -148,7 +159,13 @@ reason would be this rule misapplied.
 service itself against a real database. The second exists only for the
 wound-down state, because that is the sole state where the two spellings of the
 condition differ — a gate inverted in the real function passed every other test
-in this repository, including the one that pins the rule's shape.
+in this repository, including the one that pins the rule's shape. The shared
+rules are held where they are written: `tests/subscription-action.test.ts`
+("when a change of plan takes effect", "whether the current period has been
+paid for") and `tests/entitlements.test.ts` ("names the moment the grace ends,
+and the plan drops exactly then"). That the tab reads them rather than a copy
+is held by `tests/plan-page-ui.test.tsx`, which renders the sentences each one
+decides.
 
 ### 1.4 One public function per intent, not per table
 
@@ -231,7 +248,7 @@ numbers above are today's and the test is what keeps the rule.
 **Binding.** Optimistic concurrency, everywhere, no exceptions. The caller sends
 the version it read; the service compares, throws `staleVersion` if it moved,
 and bumps on success
-(`updateAccount`, `src/server/services/accounts.ts:1019`).
+(`updateAccount`, `src/server/services/accounts.ts:1024`).
 
 Two windows have to be closed, not one. Comparing before the update leaves a
 gap between the read and the write, so the update itself also filters on the

@@ -249,15 +249,24 @@ export async function getPublicAuthOptions() {
     billingAvailable: stripeConfigured(),
     adsAvailable: adsEnabled(),
     /*
-     * Published whenever there is one, not only to the people who see ads.
+     * Published whenever there is one, not only to the people who see ads, and
+     * before anybody has signed in.
      *
      * Google's policy requires the link on pages serving ads, which would
      * argue for putting it on the ad placement — and the ad placement is null
      * for anybody on a paid plan, so a subscriber would lose the link to the
      * policy that still describes what happens to their data. It travels with
      * the deployment's capabilities instead.
+     *
+     * And not gated on ads at all. It was, and a deployment selling a plan
+     * with no advertising then published no policy anywhere, while the sign-up
+     * form collected a name and an address and the plan tab a payment — the
+     * places California's online privacy law expects the policy to be
+     * conspicuous. Here is before a session exists, which is what lets the
+     * sign-up screen draw both links where the collecting starts.
      */
-    ...(getConfig().ads ? { privacyPolicyUrl: getConfig().ads!.privacyPolicyUrl } : {}),
+    ...(config.legal.privacyPolicyUrl ? { privacyPolicyUrl: config.legal.privacyPolicyUrl } : {}),
+    ...(config.legal.termsOfUseUrl ? { termsOfUseUrl: config.legal.termsOfUseUrl } : {}),
     minimumPasswordLength: 12,
   };
 }

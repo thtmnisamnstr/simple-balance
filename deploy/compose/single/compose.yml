@@ -57,6 +57,11 @@ services:
       #
       # Where the database should live is the one thing this profile does not
       # decide. What it does decide is that losing this machine loses no data.
+      #
+      # A URL that names the database's CA certificate with sslrootcert needs
+      # compose.db-tls.yml beside this file, which mounts the certificate's
+      # directory. It is left out of here because a daemon that cannot make
+      # that directory, a rootless one, would then start nothing at all.
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in deploy/compose/single/.env}
       # Only behind a transaction pooler, which managed services often hand
       # out. Migrations and the first-account claim hold a session-level
@@ -132,11 +137,14 @@ services:
       ADSENSE_BANNER_SLOT_ID: ${ADSENSE_BANNER_SLOT_ID:-}
       ADSENSE_FOOTER_SLOT_ID: ${ADSENSE_FOOTER_SLOT_ID:-}
       ADSENSE_CONSENT_MANAGED: ${ADSENSE_CONSENT_MANAGED:-false}
-      # Required, as an absolute https:// address, the moment the AdSense ids
+      # Optional, and linked from sign-in and every page whenever it is set;
+      # required, as an absolute https:// address, the moment the AdSense ids
       # are set: the server refuses to start without it. This block once left
       # it out, so the value in .env never arrived and turning AdSense on took
       # the whole deployment down asking for a variable already set.
       PRIVACY_POLICY_URL: ${PRIVACY_POLICY_URL:-}
+      # Optional, the same shape, linked beside the policy and the renewal terms.
+      TERMS_OF_USE_URL: ${TERMS_OF_USE_URL:-}
 
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]

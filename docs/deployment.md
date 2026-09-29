@@ -54,7 +54,7 @@ than warning about.
 | `ALLOWED_EMAILS` | unset | Who may register. Unset admits nobody but the first account. See below. |
 | `SETUP_TOKEN` | generated | The one-time code that claims a fresh instance. At least 16 characters if you set it; a shorter one refuses to start. Left unset, one is generated and printed to the startup log. It is a secret, so it also takes a `SETUP_TOKEN_FILE`; see below. |
 | `PORT` | `3000` | The port inside the container. Change it and your published port mapping has to follow. |
-| `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, or `error`. It governs this product's own lines as well as the auth library's, so `error` really is quiet. `debug` adds a line per HTTP request, per MCP tool call, per message sent and per scheduler tick that found nothing due; `info` keeps startup, mail, shutdown and the ticks that actually proposed or reminded. A refusal at startup is reported whatever it is set to, and so is the first-run setup code. |
+| `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, or `error`. It governs this product's own lines as well as the auth library's, so `error` really is quiet. The auth library writes through the same gate, each line tagged `[Better Auth]`, with every email address in what it writes replaced by `[email address]` — at `info` it used to log the address of every sign-up that named an existing account — and a failure inside one of its routes is logged like any other, as the statement that failed without the values it was given. A few notices about the library's own setup still go straight to the console; none carries anything from a request. `debug` adds a line per HTTP request, per MCP tool call, per message sent and per scheduler tick that found nothing due; `info` keeps startup, mail, shutdown and the ticks that actually proposed or reminded. A refusal at startup is reported whatever it is set to, and so is the first-run setup code. |
 | `TRUST_PROXY` | `false` | Turn it on when a reverse proxy sits in front and replaces `X-Forwarded-For`. See the reverse proxy section; getting it wrong costs per-visitor rate limiting. |
 | `DATABASE_POOL_SIZE` | `10` | Connections held open, per process. Ceiling 100. Raise it only if you have measured contention, and see the split-container section for what it means once there is more than one replica. |
 | `DIRECT_DATABASE_URL` | `DATABASE_URL` | A second connection string that bypasses a transaction pooler. Only needed when PgBouncer or similar sits in front; see below. It carries a password, so it also takes a `DIRECT_DATABASE_URL_FILE`. |
@@ -127,12 +127,31 @@ a refusal is explainable rather than surprising.
 Google modes refuse to start without both, and without an `ALLOWED_EMAILS` that
 admits somebody, rather than silently letting everyone in.
 
+### Your privacy policy and terms of use
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `PRIVACY_POLICY_URL` | unset | Where this deployment's privacy policy lives. Linked, whenever it is set, from the sign-in and sign-up screens and from the sidebar on every page, because the sign-up form is where a name and an address are first collected and California's online privacy law expects a policy conspicuous there. **Required whenever AdSense is configured** — Google's program policies require one on any site serving their ads, and the server refuses to start without it rather than letting an operator breach them from the first impression. Must be absolute and https. |
+| `TERMS_OF_USE_URL` | unset | Where this deployment's terms of use live. Linked beside the privacy policy wherever that is. With it set, the sign-up form and the **Continue with Google** button each say, directly above the button, that creating an account accepts these terms, and the plan tab links them from the renewal terms it shows beside every request to pay. Optional, and never required. Must be absolute and https. |
+
+This software ships neither document and cannot write yours: what it does is
+one input to them, and the rest is who you are and what else you run. Both are
+read at startup, so an address that is relative or plain http refuses to start
+and names the variable. A blank value is the same as unset, which is what every
+compose recipe passes when you set nothing.
+
+Both names are unprefixed, which the `SB_` rule for names this product invents
+does not allow. Neither has been released, so whether they keep these spellings
+or both take the prefix is still open until 0.2.0 ships;
+`docs/standards/operations.md` §Naming records the question. Whichever it is,
+the two are spelled the same way.
+
 ### Only for selling a plan
 
 | Variable | Default | What it does |
 | --- | --- | --- |
 | `SB_BILLING_ENABLED` | `false` | Whether this deployment sells a plan, and holds a free account to three financial accounts in use, freezing the rest. `true` or `false`; anything else refuses to start. Setting it without the five Stripe settings below refuses to start too, because a plan nobody can be charged for is an upgrade button that always fails. |
-| `STRIPE_SECRET_KEY` | unset | The key this process charges, refunds and cancels with. A live key while `NODE_ENV` is not `production` refuses to start. It is a secret, so it also takes a `STRIPE_SECRET_KEY_FILE`; see below. |
+| `STRIPE_SECRET_KEY` | unset | The key this process charges, refunds and cancels with. A restricted key, `rk_…`, is what §Setting up Stripe step 2 builds, and it must carry PaymentIntents: Write and must not be agent-tagged — Stripe holds an agent-tagged key's `subscriptions.cancel` for a person to approve, which this deployment has nobody to do. A live key while `NODE_ENV` is not `production` refuses to start. It is a secret, so it also takes a `STRIPE_SECRET_KEY_FILE`; see below. |
 | `STRIPE_PUBLISHABLE_KEY` | unset | The key the browser loads Stripe's payment form with. It is published to every visitor by design, so it is a setting rather than a secret. A live key here beside a test secret key, or the reverse, refuses to start. |
 | `STRIPE_WEBHOOK_SECRET` | unset | What a delivery from Stripe is verified against. Without it a forged request could tell this deployment an invoice was paid. It is a secret, so it also takes a `STRIPE_WEBHOOK_SECRET_FILE`; see below. |
 | `STRIPE_PRICE_MONTHLY_ID` | unset | The monthly price, `price_…`. A product id here is the usual mistake and is refused at startup rather than at the first checkout. |
@@ -161,12 +180,12 @@ mismatch is one error line in the log, written when the verdict changes rather
 than every time, and from then on nothing is sold:
 `PUT /api/v1/billing/subscription` answers `409 CONFLICT` with
 `details.prices` set to `misconfigured` and says nothing was charged, and
-`GET /api/v1/billing` reports `selling: false`. Replacing a card, canceling,
-paying a renewal's open invoice, and letting go of a switch still waiting for
-the renewal keep working from the plan tab, because they serve subscriptions
-that already exist. Stripe being unreachable is a warning and refuses nothing —
-a sale then goes ahead and meets Stripe on its own terms — and prices that fit
-are said once, as
+`GET /api/v1/billing` reports `selling: false`. Changing the payment method,
+canceling, paying a renewal's open invoice, and letting go of a switch still
+waiting for the renewal keep working from the plan tab, because they serve
+subscriptions that already exist. Stripe being unreachable is a warning and
+refuses nothing — a sale then goes ahead and meets Stripe on its own terms —
+and prices that fit are said once, as
 `Stripe is configured, and both prices fit the plans they are sold as.`
 
 ### The webhook, and which events it has to be sent
@@ -184,7 +203,7 @@ never arrive, and the ones that do are acknowledged.
 | `customer.subscription.deleted` | The end of a subscription, however it ended. |
 | `invoice.paid` | The only thing treated as proof that a first payment succeeded. |
 | `invoice.payment_failed` | Starts the fifteen-day grace, by recording when the failure happened. |
-| `setup_intent.succeeded` | Makes a replacement card the one Stripe bills. Without it, a card replaced during a 3-D Secure redirect is attached and never used, and dunning goes on retrying the dead one. |
+| `setup_intent.succeeded` | Makes a replacement payment method the one Stripe bills. Without it, a method saved during a 3-D Secure redirect is attached and never used, and dunning goes on retrying the dead one. A method the subscription cannot be billed with — one of a kind this deployment does not offer, or one Stripe refuses for the subscription's currency — is recorded and acknowledged rather than retried, because a delivery that fails is retried for 72 hours and the answer will not change. |
 | `customer.deleted` | Drops a customer mapping Stripe no longer has, so the next attempt to subscribe is not made against a customer that does not exist. |
 | `charge.refunded`, `charge.dispute.created`, `charge.dispute.closed`, `charge.dispute.funds_withdrawn` | Logged for an operator to act on. None of them changes an entitlement by itself. |
 
@@ -233,7 +252,6 @@ connection to Stripe.
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `PRIVACY_POLICY_URL` | unset | Where this deployment's privacy policy lives. **Required whenever AdSense is configured** — Google's program policies require one on any site serving their ads, and the server refuses to start without it rather than letting an operator breach them from the first impression. Must be absolute and https. Linked from the sidebar on every page. |
 | `ADSENSE_CLIENT_ID` | unset | The AdSense publisher id, `ca-pub-` followed by sixteen digits. The dashboard shows it as `pub-…`, and the missing `ca-` prefix is refused at startup because it otherwise fails by rendering nothing, which looks exactly like having no inventory. |
 | `ADSENSE_BANNER_SLOT_ID` | unset | The ad unit shown once in the application shell. Ten digits. Set with the client id or not at all. |
 | `ADSENSE_FOOTER_SLOT_ID` | unset | A second unit at the bottom of the page. Off unless you set it, and an addition to the banner rather than a replacement, so setting it alone refuses to start. |
@@ -249,6 +267,9 @@ another origin is told this site's address and never the page's path. A
 deployment that sets none of these keeps the `default-src 'self'` policy and
 the `same-origin` referrer the container ships with. Ads are never shown to a
 paid account, and never on the plan and billing tab.
+
+`PRIVACY_POLICY_URL`, above, is required beside these: the server refuses to
+start with the AdSense ids set and no policy to link to.
 
 **And ads are shown only where a plan is for sale.** An ad goes to an account on
 a limited plan, and nobody is on one unless `SB_BILLING_ENABLED` is `true` with
@@ -335,27 +356,48 @@ refusal rather than a fallback.
 
 ## Reaching the database over a network
 
-A database on another host should be reached over TLS, or the password and every
-row of the ledger cross the network in the clear. Which `sslmode` to put in
-`DATABASE_URL` depends on who signed the server's certificate.
+A database on another host should be reached over TLS that checks who is
+answering, or the password and every row of the ledger go to whoever can stand
+at that address. Which `sslmode` to put in `DATABASE_URL` depends on who signed
+the server's certificate.
 
 | `sslmode` | Encrypted | Certificate checked | Use it when |
 | --- | --- | --- | --- |
 | omitted | No | n/a | The database is on the same host, or reached over a private network you trust. |
-| `no-verify` | Yes | No | The server presents a certificate it signed itself, which a self-hosted PostgreSQL usually does. |
-| `verify-full` | Yes | Yes | The server has a certificate from a CA the container already trusts, such as a managed database. |
+| `no-verify` | Yes | No | There is no CA certificate to name. It encrypts, and checks nothing about who answers. |
+| `verify-full` | Yes | Yes | Any database reached over a network. Name the CA that signed its certificate with `&sslrootcert=/path/to/ca.pem`, or leave that out when the certificate is from a public CA that Node already trusts. |
+
+`verify-full` with `sslrootcert` is the answer for most managed PostgreSQL
+services, whose certificates are signed by a CA of the provider's own that it
+publishes for download — OCI Database with PostgreSQL and Amazon RDS both do —
+and for a server you run yourself, whose CA is yours, or whose self-signed
+`server.crt` is its own CA. node-postgres reads `sslrootcert` as a path and
+trusts that file and nothing else, so the file has to be readable inside the
+container, and the host in the URL has to be a name the certificate carries. Use
+the hostname, not an IP address, even one the certificate lists: node-postgres
+passes no server name for an address and so checks the certificate against the
+name `localhost`.
 
 Do not reach for `require`. In libpq it means "encrypt and do not check the
 certificate", and it is the setting most people try first, but node-postgres
-does check the certificate, so against a self-signed server it fails with
-`DEPTH_ZERO_SELF_SIGNED_CERT` and Node advises installing a root CA that does
-not exist. The server refuses to start and says which setting to use instead.
+reads it as `verify-full`, so against a server whose CA it has not been given it
+fails with `DEPTH_ZERO_SELF_SIGNED_CERT` or `SELF_SIGNED_CERT_IN_CHAIN`, and
+Node's advice is to install the root CA system-wide, which in a container means
+rebuilding the image. The server refuses to start and says what to write
+instead: the CA's certificate named with `sslrootcert`, or `no-verify` where
+there is no certificate to name.
 
 `no-verify` is a real improvement on no TLS at all: the connection is encrypted,
 so nothing on the network can read it. It cannot tell you that the host
 answering is the host you meant, so on a network where somebody could stand in
-the middle, put the server's CA where the container trusts it and use
-`verify-full` — though not yet on the `single` profile, for the reason below.
+the middle, name the CA and use `verify-full`. On the `single` profile the file
+goes in `/var/lib/simple-balance/tls/`, and the `compose.db-tls.yml` overlay
+mounts that directory into the application, so add it to `COMPOSE_FILE` (the
+cloud programs already do). `deploy/compose/single/README.md`, "The database's
+certificate", has the steps for OCI, Amazon RDS and a public CA. The Helm chart
+has no value that mounts a file into its API and scheduler pods, so there
+`sslrootcert` needs a volume added by a Helm post-renderer, or a database whose
+certificate is from a public CA, which needs no file.
 
 **What the backups make of it.** `pg_dump`, `psql` and `pg_restore` are libpq,
 and read `sslmode` libpq's way rather than node-postgres's: `no-verify` is not a
@@ -368,11 +410,28 @@ spelling, and a `uselibpqcompat` parameter, which libpq refuses as unknown, is
 dropped. Everything else passes through. An omitted `sslmode` stays omitted:
 node-postgres then connects without TLS, and libpq tries TLS first without
 checking the certificate (`prefer`), so the dump is never less protected than
-the application. `verify-full` does not survive the trip: the client runs from
-the `postgres:18` image, which carries no certificate authorities, so the dump
-fails against a certificate the application's own connection accepts. On that
-profile use `no-verify`, or leave it out on a network you trust. A `pg_dump` of
-your own against the same `DATABASE_URL` needs the same rewrite.
+the application.
+
+`verify-full` survives the trip, and so does `verify-ca` with a `sslrootcert`.
+The client runs from the `postgres:18` image, which carries no certificate
+authorities, so the scripts mount the file `sslrootcert` names into it at the
+same path and point `PGSSLROOTCERT` at it. `verify-full` with no `sslrootcert`
+gets this machine's CA bundle instead: the first of
+`/etc/ssl/certs/ca-certificates.crt`, `/etc/pki/tls/certs/ca-bundle.crt`,
+`/etc/ssl/ca-bundle.pem` and `/etc/ssl/cert.pem` that exists, or the file
+`SB_PG_CA_BUNDLE` names in `/etc/default/simple-balance`. `verify-ca` with no
+`sslrootcert` is refused before any client runs, because libpq would then take
+a certificate any public CA issued, for any host, as the database's — the
+reason libpq itself refuses `verify-ca` with `sslrootcert=system`. A named file
+that is missing, a relative path, `system`, or a path holding a `%`, a `+` or a
+comma is refused the same way, the last because node-postgres decodes a `+` to a
+space where libpq does not, and the two would read different files. Under any
+other mode nothing is mounted, even when the URL names a file, and libpq stays
+unverified as it always was. `verify-full` is the one spelling both read the
+same way: under `verify-ca` libpq checks the chain and not the name, and under
+`require` with a file the application checks the certificate and the backup
+does not. A `pg_dump` of your own against the same `DATABASE_URL` needs the same
+rewrite, and the file `sslrootcert` names readable where it runs.
 
 ## Who may register
 
@@ -700,6 +759,13 @@ docker build -f deploy/docker/frontend.Dockerfile -t simple-balance-frontend .
 docker build -f deploy/docker/scheduler.Dockerfile -t simple-balance-scheduler .
 ```
 
+Building the frontend image needs BuildKit, which is Docker's builder by default
+since 23.0 and what `docker buildx` and Compose use: the Dockerfile sets the
+mode of the script that checks the trusted-proxy settings with `COPY --chmod`,
+because nginx's entrypoint skips one that is not executable with nothing but a
+log line. The legacy builder refuses it with
+`the --chmod option requires BuildKit`.
+
 The server image is the API and the MCP endpoint with no browser bundle in it.
 A request for a page gets a 404 rather than an application shell it is not the
 authority on. It reads the same settings as the single container.
@@ -717,7 +783,8 @@ port. Its settings all have working defaults:
 | `SB_BILLING_CONFIGURED` | `false` | Whether Stripe is configured. nginx serves the plan and billing tab's document in this shape, so it decides which content security policy that page arrives with, and Stripe's payment form needs the wider one. Configured, not selling: an operator who has stopped selling still has subscribers who must be able to replace an expired card. The compose recipe derives it from `STRIPE_PUBLISHABLE_KEY`, and the Helm chart from a `STRIPE_PUBLISHABLE_KEY` in `config.extraEnv` or from `frontend.billingConfigured`, which is for a key kept in an `existingSecret`, so the two cannot disagree. |
 | `SB_CSP_REPORT_ONLY` | `false` | Whether that page reports its policy instead of enforcing it. Only meaningful with `SB_BILLING_CONFIGURED`, and only for that page. Set it on the server as well, which is what registers `POST /api/csp-report` for the reports to land on. |
 | `SB_ADS_CONFIGURED` | `false` | Whether this deployment serves advertising. nginx serves every document in this shape, so it decides the policy they arrive with, and AdSense needs a much wider one — scripts, frames and connections to any HTTPS origin, plus `unsafe-eval`. Set it with the server's own `ADSENSE_*` settings or neither; the compose recipe derives it from `ADSENSE_CLIENT_ID`, and the Helm chart from an `ADSENSE_CLIENT_ID` in `config.extraEnv` or from `frontend.adsConfigured`, which is for an id kept in an `existingSecret`. |
-| `SB_TRUSTED_PROXY_CIDR` | `127.0.0.1` | Which addresses this nginx will believe about where a request came from. Everything it proxies carries `X-Forwarded-For` set to the address it saw, and behind anything terminating TLS that address is the terminator — the same value for every visitor. With `TRUST_PROXY` on, the API then counts every sign-in attempt against one allowance, and one stranger can spend it for everybody. Set it to the range the terminator connects from: an ingress controller's pod CIDR under Kubernetes, the load balancer's subnet on a VM. Name the proxy's range and nothing wider — this decides whose word is taken for an address, so a range that includes callers lets a caller choose their own. The default is the off position rather than a trusted range: nothing reaches the container from loopback, so a deployment that sets nothing behaves exactly as it did before this setting existed. It carries a value rather than an empty string because `set_real_ip_from ;` is a configuration error and nginx would refuse to start. |
+| `SB_TRUSTED_PROXY_CIDR` | `127.0.0.1` | Which addresses this nginx will believe about where a request came from. Everything it proxies carries `X-Forwarded-For` set to the address it saw, and behind anything terminating TLS that address is the terminator — the same value for every visitor. With `TRUST_PROXY` on, the API then counts every sign-in attempt against one allowance, and one stranger can spend it for everybody. Set it to the address or range the terminator connects from — an ingress controller's pod CIDR under Kubernetes, the load balancer's subnet on a VM — or to several, separated by commas or spaces, when more than one proxy connects. Name the proxies' ranges and nothing wider: this decides whose word is taken for an address, so a range that includes callers lets a caller choose their own. Every entry has to be an IPv4 or IPv6 address, a CIDR, or `unix:`, and anything else — a host name, a short form such as `10.0.0`, an empty value — stops the container before nginx starts, with a line naming the entry, because nginx would otherwise resolve a name at startup and trust whatever it answered, and read `10.0.0` as `10.0.0.0`, without a word. The default is the off position rather than a trusted range: nothing reaches the container from loopback, so a deployment that sets nothing behaves exactly as it did before this setting existed, and a single address or CIDR renders exactly the configuration it did before a list was accepted. |
+| `SB_REAL_IP_RECURSIVE` | `off` | Whether nginx walks `X-Forwarded-For` from the right past every address above and takes the first one that is not among them, rather than taking the last entry outright. Leave it off behind a terminator that *replaces* the header, which is what nginx with `$remote_addr`, Caddy, and ingress-nginx unless `use-forwarded-headers` and `compute-full-forwarded-for` are both on all do: the last entry is then the visitor. Turn it on only behind a chain whose every hop *appends* and is in the list — Google's load balancer appends `<client-ip>,<load-balancer-ip>` — so nginx walks past the trusted hops to the address the outermost of them wrote and never reads anything a caller wrote before it. Takes `on` or `off`, and `true` or `false` meaning the same, in any case; empty is off, and any other value stops the container. A `/0` entry above with this on stops it too, since the walk would then end at whatever a caller put first. |
 
 These belong to the nginx container, which is why most of them are in neither
 `.env.example` nor `deploy/compose/.env.example`, and that is the reason rather
@@ -725,10 +792,11 @@ than an omission. The root file serves the single container, which has no nginx
 in it. The compose recipe sets all of them on the frontend service itself, where
 the value can carry the reason it is what it is, and derives
 `SB_BILLING_CONFIGURED` and `SB_ADS_CONFIGURED` from the server's own Stripe and
-AdSense settings so the two sides cannot disagree. Two are in the compose
-example anyway, commented out, because an operator chooses them:
-`SB_CSP_REPORT_ONLY`, which the server reads too and so is in the root file as
-well, and `SB_TRUSTED_PROXY_CIDR`, which depends on what is in front. The `vps`
+AdSense settings so the two sides cannot disagree. The ones an operator
+chooses are in the compose example anyway, commented out: `SB_CSP_REPORT_ONLY`,
+which the server reads too and so is in the root file as well, and
+`SB_TRUSTED_PROXY_CIDR` and `SB_REAL_IP_RECURSIVE`, which depend on what is in
+front. The `vps`
 profile's frontend machine has an example of its own,
 `deploy/compose/vps/.env.frontend.example`. The defaults above are baked into
 `deploy/docker/frontend.Dockerfile`, so a deployment changing none of them has
@@ -799,19 +867,30 @@ These have to line up:
   allowance. This container listens on plain HTTP and production requires an
   HTTPS `APP_BASE_URL`, so something always sits in front, and this is the
   ordinary case rather than the exotic one. Setting it takes no template edit
-  and no image rebuild. Under Helm it is `frontend.trustedProxyCidr`, and the
-  `ha` Pulumi programs pass `simple-balance:trustedProxyCidr` through to it;
-  under Kubernetes the range is the ingress controller's pods. Recursion stays
-  off, `real_ip_recursive off` rather than `on`: behind a terminator that
-  appends to the header instead of replacing it, `on` with a range set too wide
-  walks past the visitor to an address the caller wrote.
+  and no image rebuild. Under Helm it is `frontend.trustedProxyCidr`, a string
+  or a YAML list, and under Kubernetes the range is the ingress controller's
+  pods.
+- **`SB_REAL_IP_RECURSIVE` left off, unless every hop appends.** Off, nginx
+  takes the last entry of `X-Forwarded-For`, which behind a terminator that
+  replaces the header is the visitor and cannot be talked past. On, it walks
+  back past every trusted address, which is what a chain of appending proxies
+  needs and what lets a range set too wide walk past the visitor to an address
+  the caller wrote. Under Helm it is `frontend.realIpRecursive`.
   `deploy/docker/nginx.conf.template` has the reasoning, and
-  `docs/deployment-profiles.md` the measurement. On the two clouds the `ha`
-  programs build, the setting is not the whole answer: an AWS network load
-  balancer with IP targets hands ingress-nginx its own address unless client IP
-  preservation or proxy protocol is on, and GCP's load balancer appends its own
-  address after the visitor's, which one trusted range with recursion off cannot
-  see past.
+  `docs/deployment-profiles.md` the measurement.
+
+  The `ha` Pulumi programs set both for the network they build, and on each
+  cloud that takes more than these two values. On AWS the program turns proxy
+  protocol on between the network load balancer and ingress-nginx, which would
+  otherwise see the load balancer rather than the visitor, and ingress-nginx
+  believes that header only from the load balancer's subnets; the frontend then
+  trusts the VPC's range, where ingress-nginx's pods take their addresses, with
+  recursion off. On GCP it trusts Google's two front-end ranges and the
+  Ingress's reserved address with recursion on, because Google's load balancer
+  appends its own address after the visitor's. `simple-balance:trustedProxyCidr`
+  and `simple-balance:realIpRecursive` replace either choice.
+  `deploy/pulumi/README.md` has the detail, and only a frontend image of 0.2.0
+  or later reads either setting.
 - **`SB_ADS_CONFIGURED` on the frontend**, if you serve advertising, for the
   same reason: nginx decides the policy every other page arrives with, and
   AdSense needs a much wider one. The Helm chart derives it from an
@@ -962,7 +1041,8 @@ pg_dump --format=custom "$DATABASE_URL" > simple-balance-$(date +%F).dump
 
 `pg_dump` reads that string as libpq does, so where it says
 `sslmode=no-verify`, write `sslmode=require` for the dump — the same guarantee,
-in the spelling libpq accepts; [reaching the database over a
+in the spelling libpq accepts, and a file `sslrootcert` names has to be
+readable where `pg_dump` runs; [reaching the database over a
 network](#reaching-the-database-over-a-network) has the reason. Restore into an
 empty database with `pg_restore`. Take a backup before upgrading;
 [upgrades](upgrades.md) explains why.

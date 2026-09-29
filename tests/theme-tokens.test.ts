@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { SERIES_COLORS } from "../src/client/charts.js";
 import { blocks, ruleFor, stylesheet, tokensIn, type Block } from "./support/css.js";
+import { sourceFiles } from "./support/source.js";
 
 /**
  * The stylesheet holds two palettes now, and the ways that goes wrong are all
@@ -196,6 +197,204 @@ describe("the field role", () => {
     ] as const) {
       expect(tokens["--field-disabled"], `${name} disabled fill`).not.toBe(tokens["--field"]);
     }
+  });
+});
+
+/**
+ * The other half of section 1.5, and the half that shipped without a guard.
+ *
+ * A field states its disabled condition with a fill, because it sits on colored
+ * rows and dimming it would let the row's color through. A button states it
+ * with opacity — which works only while nothing paints over the rendering the
+ * browser gives a disabled control, and two families do exactly that:
+ * `.row-actions button` and `.menu-popover button` each set their own color,
+ * background and cursor. So freezing an account left a dead row icon and a dead
+ * menu item pixel-identical to live ones, down to the hover fill. Nothing
+ * asserted either rule, which is why that could ship.
+ */
+describe("a disabled button", () => {
+  /**
+   * The families that override the browser's rendering and so must say it
+   * themselves. Written out because two of them have to be: a row icon and a
+   * menu item are bare `<button>`s named only by the container they sit in, so
+   * the scan over the source below cannot see them. That scan is what keeps
+   * this list from falling behind the third kind — `.link-button` was shipping
+   * disabled with none of this while the list said the answer was complete.
+   */
+  const FAMILIES = [".row-actions button", ".menu-popover button", ".link-button"];
+  const opacityOf = (body: string) => /opacity:\s*([\d.]+)/.exec(body)?.[1];
+  const house = opacityOf(ruleFor(css, ".button:disabled")[0]?.body ?? "");
+
+  it("dims the families that paint over the browser's own disabled rendering", () => {
+    expect(house, ".button:disabled sets the house opacity").toBeDefined();
+    expect(Number(house), "a dim rather than no change at all").toBeLessThan(1);
+    for (const family of FAMILIES) {
+      const rule = ruleFor(css, `${family}:disabled`);
+      expect(rule.length, `${family}:disabled is declared once at the top level`).toBe(1);
+      expect(rule[0]!.body, family).toMatch(/cursor:\s*not-allowed/);
+      // Read from `.button:disabled` rather than written out twice. The
+      // pagination controls already sit at their own 0.45, so a hard-coded
+      // number here would be a third value nothing compares.
+      expect(rule[0]!.body, `${family} takes the house opacity`).toMatch(
+        new RegExp(`opacity:\\s*${house!.replace(".", "\\.")}\\s*;`),
+      );
+    }
+  });
+
+  it("lights no hover on a control that does nothing", () => {
+    // Stated over the whole stylesheet rather than the two families, because
+    // the defect is not specific to them: any family with a `:disabled` rule
+    // has a hover that must be narrowed to live controls, and the next one
+    // added would otherwise repeat this with nothing to say so.
+    const parts = (selector: string) =>
+      selector.split(",").map((one) => one.replaceAll(/\s+/g, " ").trim());
+    const top = blocks(css).filter((block) => block.context.length === 0);
+    const selectors = top.flatMap((block) => parts(block.selector));
+    const shipsDisabled = new Set(
+      selectors
+        .filter((one) => one.endsWith(":disabled"))
+        .map((one) => one.slice(0, -":disabled".length)),
+    );
+    expect(shipsDisabled.size, "the stylesheet disables something").toBeGreaterThan(2);
+    const lit = selectors
+      .filter((one) => one.includes(":hover") && !one.includes(":not(:disabled)"))
+      .filter((one) => shipsDisabled.has(one.replace(":hover", "")));
+    expect(lit, "a hover on a family that ships disabled, not narrowed to live ones").toEqual([]);
+  });
+
+  /**
+   * Every element the browser ships `disabled` while naming a class of its own,
+   * with the classes on it.
+   *
+   * The two tests above are both keyed off the stylesheet: the first checks the
+   * families somebody wrote down, the second every family already carrying a
+   * `:disabled` rule. Neither can see the defect that matters — a family that
+   * ships disabled and was never given the answer at all — because a family
+   * nobody remembered appears in neither list. `.link-button` was exactly that,
+   * and it was found by reading the source rather than by either test.
+   *
+   * So the population is discovered from the markup, in the shape
+   * `tests/support/source.ts` argues for: every opening tag carrying both a
+   * `className` and a `disabled`, which is what a browser renders as a dead
+   * control painted by a rule of its own.
+   */
+  function elementsShippedDisabled(): { classes: string[]; where: string }[] {
+    const found: { classes: string[]; where: string }[] = [];
+    for (const file of sourceFiles("src/client")) {
+      for (let at = 0; at < file.code.length; at++) {
+        if (file.code[at] !== "<" || !/[A-Za-z]/.test(file.code[at + 1] ?? "")) continue;
+        const attributes = attributesOf(file.code, at);
+        if (attributes === undefined || !("disabled" in attributes)) continue;
+        const value = attributes["className"];
+        if (value === undefined) continue;
+        const classes = value
+          // An interpolation is not a class name, and what it leaves behind —
+          // the `button-` of `button-${variant}` — is a prefix rather than one.
+          .replaceAll(/\$\{[^}]*\}/g, " ")
+          .split(/[\s"'`{}?:()]+/)
+          .filter((token) => /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(token));
+        const line = file.code.slice(0, at).split("\n").length;
+        if (classes.length > 0) found.push({ classes, where: `${file.path}:${line}` });
+      }
+    }
+    return found;
+  }
+
+  /**
+   * The attributes of the JSX opening tag at `at`, or undefined if what is
+   * there is not one.
+   *
+   * Read by walking rather than by a pattern, and only at brace depth zero,
+   * because both halves of this go wrong otherwise. `disabled={legs.length >=
+   * MAX_TRANSACTION_LEGS}` holds a `>` that closes no tag, and a `<PageHeader
+   * actions={<div className="…"><Button disabled /></div>} />` holds both of
+   * the words being looked for, belonging to two elements inside it rather
+   * than to it. Nested tags are found by the walk over the file instead, each
+   * from its own `<`.
+   */
+  function attributesOf(code: string, at: number): Record<string, string> | undefined {
+    const attributes: Record<string, string> = {};
+    let index = at + 1;
+    while (index < code.length && /[\w.]/.test(code[index]!)) index++;
+    while (index < code.length) {
+      const character = code[index]!;
+      if (character === ">") return attributes;
+      if (character === "<") return undefined;
+      if (!/[A-Za-z]/.test(character)) {
+        index++;
+        continue;
+      }
+      const from = index;
+      while (index < code.length && /[\w-]/.test(code[index]!)) index++;
+      const name = code.slice(from, index);
+      while (index < code.length && /\s/.test(code[index]!)) index++;
+      if (code[index] !== "=") {
+        attributes[name] = "";
+        continue;
+      }
+      index++;
+      const [value, after] = valueAt(code, index);
+      if (after < 0) return undefined;
+      attributes[name] = value;
+      index = after;
+    }
+    return undefined;
+  }
+
+  /** One attribute's value as written, and the index just past it. */
+  function valueAt(code: string, from: number): [string, number] {
+    const quote = code[from];
+    if (quote === '"' || quote === "'") {
+      const close = code.indexOf(quote, from + 1);
+      return close < 0 ? ["", -1] : [code.slice(from + 1, close), close + 1];
+    }
+    if (quote !== "{") return ["", -1];
+    // Brace-balanced, and quote-aware so a `}` inside a string does not close
+    // the expression. A template literal's `${…}` balances on its own.
+    let depth = 0;
+    let inside = "";
+    for (let index = from; index < code.length; index++) {
+      const character = code[index]!;
+      if (inside) {
+        if (character === inside) inside = "";
+        continue;
+      }
+      if (character === '"' || character === "'" || character === "`") inside = character;
+      else if (character === "{") depth++;
+      else if (character === "}" && --depth === 0) return [code.slice(from + 1, index), index + 1];
+    }
+    return ["", -1];
+  }
+
+  /**
+   * A class that is shipped disabled but is not itself the family that answers
+   * for it. Each entry is argued, because an entry is a place this stops
+   * looking.
+   */
+  const ANSWERED_BY: Record<string, string> = {
+    // The account card's **Delete if unused**. `.danger` sets the item's color
+    // and nothing else; what paints it, and so what has to un-paint it, is the
+    // popover's own button rule.
+    danger: ".menu-popover button",
+  };
+
+  it("answers every family the browser ships disabled, not only the ones written down", () => {
+    const elements = elementsShippedDisabled();
+    // A scan that found nothing would pass this silently, and the whole point
+    // is that it is looking. Six today: the three pagination controls, the
+    // `Button` component, the split editor's "Add a category", and the account
+    // card's red menu item.
+    expect(elements.length, "the browser disables something it paints itself").toBeGreaterThan(3);
+    const missing: string[] = [];
+    for (const { classes, where } of elements) {
+      // Any one class on the element answering covers it: `class="button
+      // button-secondary"` is a `.button`, and `.button-secondary` is a repaint
+      // of one rather than a family of its own.
+      const answers = classes.map((one) => ANSWERED_BY[one] ?? `.${one}`);
+      if (answers.some((family) => ruleFor(css, `${family}:disabled`).length > 0)) continue;
+      missing.push(`${answers.join(" / ")} at ${where}`);
+    }
+    expect(missing, "a family shipped disabled with nothing to say so").toEqual([]);
   });
 });
 

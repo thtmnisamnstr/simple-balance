@@ -48,7 +48,7 @@ declares its fields and assigns them somewhere unreadable erases just as well.
 
 **Contested.** The flag is good advice in general and wrong here. All three
 sites it flags are Hono middleware
-(`src/server/api.ts:1313`, `src/server/http-security.ts:472` and `:879`),
+(`src/server/api.ts:1313`, `src/server/http-security.ts:480` and `:887`),
 where a `MiddlewareHandler` returns a `Response` to answer the request or
 nothing at all to let the next handler run. "Returns on some paths and not
 others" is the contract, not a mistake.
@@ -125,7 +125,7 @@ codebase writes. Neither number is zero and neither should be: a `!` after a
 lookup that a database constraint guarantees is honest, and the alternative is a
 branch that cannot be reached and cannot be tested.
 
-The single `as unknown as` is at `accounts.ts:559`, building the row an
+The single `as unknown as` is at `accounts.ts:560`, building the row an
 archived account would have had so the caller sees the shape it expects; the
 alternative was making every field optional for one call site. It was three when
 this was written and two of the three went while the code was being brought to

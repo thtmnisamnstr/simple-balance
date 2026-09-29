@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { accountAllowance, MAX_FREE_ACCOUNTS, resolveEntitlement } from "../src/shared/domain.js";
+import {
+  accountAllowance,
+  graceEndsAt,
+  MAX_FREE_ACCOUNTS,
+  resolveEntitlement,
+} from "../src/shared/domain.js";
 
 const now = new Date("2026-06-15T12:00:00.000Z");
 
@@ -68,6 +73,29 @@ describe("what a plan allows", () => {
       plan: "free",
     });
     expect(failedAt("2026-05-31T11:59:59.000Z"), "a second past").toMatchObject({ plan: "free" });
+  });
+
+  /**
+   * The date the plan tab puts in its past-due alert, which has to be the
+   * moment the plan above drops — one function, rather than the page doing its
+   * own sum beside a "renews" date nobody had paid for. Literal dates again,
+   * for the reason above, and a failure at a daylight-saving change still ends
+   * fifteen days of twenty-four hours later.
+   */
+  it("names the moment the grace ends, and the plan drops exactly then", () => {
+    expect(graceEndsAt("2026-05-31T12:00:00.000Z")).toEqual(new Date("2026-06-15T12:00:00.000Z"));
+    expect(graceEndsAt(new Date("2026-10-25T00:30:00.000Z"))).toEqual(
+      new Date("2026-11-09T00:30:00.000Z"),
+    );
+    const at = (moment: Date) =>
+      resolveEntitlement({
+        billingEnabled: true,
+        subscriptions: [{ status: "past_due", pastDueSince: new Date("2026-05-31T12:00:00.000Z") }],
+        now: moment,
+      });
+    const ends = graceEndsAt("2026-05-31T12:00:00.000Z");
+    expect(at(new Date(ends.getTime() - 1))).toMatchObject({ plan: "plus" });
+    expect(at(ends)).toMatchObject({ plan: "free" });
   });
 
   it("gives a past_due row with no recorded failure time no grace at all", () => {

@@ -393,11 +393,21 @@ a feature held back.
 
 **Settings > Plan and billing** says which plan you are on and how many of its
 places are in use, and it is where you upgrade, switch between monthly and
-annual, replace the card, or cancel. A canceled plan runs to the end of the
-period you paid for. When a renewal fails, Premium continues for fifteen days
-while Stripe retries the card, and paying from that tab, or replacing the card,
-settles it right away. An operator can also grant a plan directly, and the tab
+annual, change the payment method, or cancel. Before you cancel it says what
+ending the plan would freeze, where anything would: how many of your accounts,
+and whether you would then choose which three stay usable or keep the ones you
+chose before. A canceled plan runs to the end of the period you paid for. When
+a renewal fails, Premium continues for fifteen days, and paying from that tab,
+or changing the payment method, settles it right away. The tab says why the
+last attempt failed and when Stripe will try again. A payment your bank wants
+you to confirm is the one Stripe does not retry on its own: press **Pay now**
+to confirm it there. An operator can also grant a plan directly, and the tab
 says so when one has.
+
+**A card is not the only way to pay.** The form offers a card — which is also
+how Apple Pay and Google Pay arrive — and Link, Stripe's saved-details wallet,
+which can be funded from a bank account. Which of them you see depends on what
+the deployment's Stripe account has turned on, and the card is always there.
 
 **A frozen account is still all there.** On Free, the accounts past the three
 in use are frozen. Each stays on the Accounts page with a **Frozen** badge, is
@@ -412,14 +422,13 @@ again.
 the Accounts page opens a panel headed **Choose which accounts stay usable**,
 and until you answer it your oldest accounts in use are the usable ones, so
 those are the ones checked to begin with. Check the ones you want, up to three,
-and press **Save which accounts are usable**. If the checked ones are already
-the ones you want, there is nothing to save: the button stays disabled, those
-accounts stay usable, and the question stays open until you save a different
-set. Once you have saved, the panel reads **Accounts you are using**, the
-chosen accounts are marked **In use**, and they stay in use until you archive or
-delete one. Nothing trades an account in use for a frozen one, because being
-able to swap them back and forth whenever you liked would be the same as having
-all of them.
+and press **Save which accounts are usable**. Keeping the three already checked
+is an answer like any other, so the button is ready for it, and the question
+stays open until you press it. Once you have saved, the panel reads **Accounts
+you are using**, the chosen accounts are marked **In use**, and they stay in use
+until you archive or delete one. Nothing trades an account in use for a frozen
+one, because being able to swap them back and forth whenever you liked would be
+the same as having all of them.
 
 Archiving or deleting an account you are using opens up its place. A frozen
 account can then take it: check it in the same panel and press **Bring these

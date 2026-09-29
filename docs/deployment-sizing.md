@@ -179,6 +179,16 @@ backups use. `psql` is libpq, so where `DATABASE_URL` says `sslmode=no-verify`,
 write `sslmode=require` — the same guarantee in libpq's spelling, as the backup
 script does; `docs/deployment.md` has the reason.
 
+Under `sslmode=verify-full` the client needs the certificate to check against
+inside its container, which is what the backup script mounts for it. Where
+`DATABASE_URL` names `sslrootcert=/var/lib/simple-balance/tls/db-ca.pem`, add
+`-v /var/lib/simple-balance/tls:/var/lib/simple-balance/tls:ro` to the
+`docker run` below, so the path means the same file inside as out. Where it
+names none, the certificate is from a public CA and the client image carries no
+CA bundle, so add
+`-v /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro -e PGSSLROOTCERT=/etc/ssl/certs/ca-certificates.crt`
+instead.
+
 ```sh
 psql() { sudo docker run --rm -i --network host postgres:18 psql "$@"; }
 url='postgresql://user:password@host:5432/simple_balance?sslmode=require'

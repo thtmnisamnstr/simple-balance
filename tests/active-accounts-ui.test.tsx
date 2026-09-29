@@ -2,13 +2,16 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Account } from "../src/client/api.js";
 import { ActiveAccountChooser } from "../src/client/pages/AccountsPage.js";
 import { MAX_FREE_ACCOUNTS } from "../src/shared/domain.js";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 /**
  * The panel somebody picks their three accounts in.
@@ -58,10 +61,45 @@ const saveButton = () =>
   screen.getByRole("button", { name: /save which accounts|bring these back/i });
 const boxFor = (name: string) => screen.getByLabelText(new RegExp(name)) as HTMLInputElement;
 
+/** Every save the panel sends, answered the way the server answers one. */
+function recordSaves() {
+  const saves: { method: string | undefined; path: string; body: unknown }[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), window.location.origin);
+      saves.push({
+        method: init?.method,
+        path: url.pathname,
+        body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      });
+      return Response.json([]);
+    }),
+  );
+  return saves;
+}
+
 describe("choosing which accounts stay usable", () => {
+  it("saves the three it started on, untouched, as the one-time choice", async () => {
+    // After a downgrade every live account is still marked active, so the
+    // three the ordering keeps are a change to what is stored, and
+    // `activeAccountChange` accepts them. The panel compared against the three
+    // it had derived instead, called them "Nothing to save yet.", and left the
+    // choice for an agent to close.
+    const saves = recordSaves();
+    mount(firstChoice);
+    expect(saveButton(), "the default is a choice, and the panel is for making it").toBeEnabled();
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(saves).toHaveLength(1));
+    expect(saves[0]).toEqual({
+      method: "PUT",
+      path: "/api/v1/accounts/active",
+      body: { accountIds: ["a", "b", "c"] },
+    });
+  });
+
   it("saves a first choice that swaps one account for another", () => {
     mount(firstChoice);
-    expect(saveButton()).toBeDisabled();
 
     // The choice this panel exists to take: drop one of the three the ordering
     // picked, take one it did not. Same size, different set.
@@ -71,12 +109,28 @@ describe("choosing which accounts stay usable", () => {
     expect(saveButton(), "a same-size swap is a change and must be savable").toBeEnabled();
   });
 
-  it("still refuses to save when the set is put back the way it was", () => {
+  it("still offers the save when a first choice is put back the way it started", () => {
+    // Where it started is not what is stored: five accounts are marked active
+    // and the plan keeps three, so the question is still open.
     mount(firstChoice);
     fireEvent.click(boxFor("Account c"));
-    expect(saveButton()).toBeEnabled();
+    expect(saveButton(), "two within a limit of three is a choice too").toBeEnabled();
     fireEvent.click(boxFor("Account c"));
-    expect(saveButton(), "back to where it started is nothing to save").toBeDisabled();
+    expect(saveButton(), "back to the default is still the choice to make").toBeEnabled();
+  });
+
+  it("has nothing to save once the choice is made and nothing has changed", () => {
+    // `d` and `e` are marked inactive, so the stored choice is a, b and c —
+    // exactly what the panel starts on — and sending it would change nothing.
+    mount([
+      account("a"),
+      account("b"),
+      account("c"),
+      account("d", { frozen: true, active: false }),
+      account("e", { frozen: true, active: false }),
+    ]);
+    expect(saveButton()).toBeDisabled();
+    expect(saveButton()).toHaveAccessibleDescription("Nothing to save yet.");
   });
 
   it("refuses more than the plan keeps, and says why", () => {

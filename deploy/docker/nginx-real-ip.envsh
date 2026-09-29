@@ -1,0 +1,127 @@
+#!/bin/sh
+# Turns SB_TRUSTED_PROXY_CIDR and SB_REAL_IP_RECURSIVE into what the two
+# real_ip lines in default.conf.template need, or refuses to start.
+#
+# The image installs this as /docker-entrypoint.d/18-sb-real-ip.envsh. The
+# entrypoint *sources* every executable `*.envsh` there, in `sort -V` order,
+# inside the same shell that then launches 20-envsubst-on-templates.sh — which
+# is how the stock 15-local-resolvers.envsh hands NGINX_LOCAL_RESOLVERS on. So
+# what this exports is what envsubst substitutes, and an `exit` here fails that
+# shell's pipeline and, under the entrypoint's `set -e`, the container. Sourced
+# rather than run is the whole point: a `.sh` is a child process, and nothing a
+# child exports reaches its parent.
+#
+# Why this exists at all: envsubst substitutes and cannot loop, so a template
+# can spell `set_real_ip_from` once and never once per entry. The value is
+# rewritten in place, so the template's line
+#
+#   set_real_ip_from ${SB_TRUSTED_PROXY_CIDR};
+#
+# renders a list as one directive per entry and a single CIDR byte for byte as
+# it did before the list existed. The template keeps reading the operator's own
+# name rather than a derived one because every census of that template — which
+# names the image must default, the chart and the compose recipes must pass —
+# counts the names it reads, and a derived name would have them demanding that
+# operators set something they must not.
+#
+# And why it refuses rather than passing the value through: nginx is lenient
+# here in the dangerous direction. `set_real_ip_from` falls back to resolving
+# anything it cannot parse as a host name, at startup, and trusts whatever that
+# returns — `localhost` starts and trusts loopback, and musl reads `10.0.0` as
+# 10.0.0.0 and `10.1` as 10.0.0.1, all without a word in the log. A typo in the
+# one setting that decides whose word is taken for a visitor's address must stop
+# the container, not quietly trust some other address.
+#
+# Sourced under whatever options the scripts before it left, and
+# 15-local-resolvers.envsh leaves `set -eu`, so every expansion here has a
+# default. Every name is prefixed, because this shares a shell with the
+# entrypoint's own loop variable, and everything but the two exports is unset
+# before it returns.
+
+sb_real_ip_me=18-sb-real-ip.envsh
+
+# One address, one CIDR, or `unix:`. The same expression, character for
+# character, as the chart's per-entry pattern for frontend.trustedProxyCidr in
+# values.schema.json, and `tests/frontend-real-ip.test.ts` holds the two to
+# each other: a value the chart renders is a value this accepts, so a chart
+# install cannot pass its schema and then crashloop here. IPv4 is exact, octets
+# and prefix; IPv6 is a shape, and nginx's own parser refuses a malformed one
+# loudly, because text made of hex digits and colons cannot resolve as a name.
+sb_real_ip_entry='^(unix:|(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}(/(3[0-2]|[12]?[0-9]))?|[0-9A-Fa-f:]*:[0-9A-Fa-f:]*(/(12[0-8]|1[01][0-9]|[1-9]?[0-9]))?)$'
+
+sb_real_ip_refuse() {
+  printf '%s: ERROR: %s\n' "$sb_real_ip_me" "$*" >&2
+  exit 1
+}
+
+# on/off is nginx's spelling and true/false is every other switch this image
+# takes, so either is accepted and neither is guessed past: a third spelling is
+# refused like a bad address. Empty is off, as an empty SB_ switch is everywhere
+# else in this image — off is the safe direction.
+case $(printf '%s' "${SB_REAL_IP_RECURSIVE:-off}" | tr '[:upper:]' '[:lower:]') in
+  on | true) SB_REAL_IP_RECURSIVE=on ;;
+  off | false) SB_REAL_IP_RECURSIVE=off ;;
+  *)
+    sb_real_ip_refuse "SB_REAL_IP_RECURSIVE is \"${SB_REAL_IP_RECURSIVE:-}\"; it takes on or off" \
+      "(true and false mean the same)."
+    ;;
+esac
+
+# Commas, whitespace, or both, so `a,b`, `a, b` and `a b` are one list. Word
+# splitting does the whitespace; `set -f` stops an entry such as `*` from being
+# expanded against the working directory before it can be refused.
+sb_real_ip_list=$(printf '%s' "${SB_TRUSTED_PROXY_CIDR:-}" | tr ',' ' ')
+sb_real_ip_from=
+sb_real_ip_shown=
+sb_real_ip_count=0
+set -f
+for sb_real_ip_address in $sb_real_ip_list; do
+  if ! printf '%s\n' "$sb_real_ip_address" | grep -Eq "$sb_real_ip_entry"; then
+    sb_real_ip_refuse "SB_TRUSTED_PROXY_CIDR holds \"$sb_real_ip_address\", which is not an IPv4 or" \
+      "IPv6 address, a CIDR, or unix:. Nothing has been trusted. Correct it, or leave it unset for" \
+      "the off position, 127.0.0.1."
+  fi
+  # A range holding every address with recursion on can only ever take the
+  # leftmost entry of the header, which is the one the caller wrote. There is
+  # no chain that wants that, so it is refused rather than served. With
+  # recursion off the same range means "whoever connects is a proxy", which is
+  # right where nothing else can reach this container, and it was accepted
+  # before recursion existed, so it still is.
+  case $sb_real_ip_address in
+    */0)
+      if [ "$SB_REAL_IP_RECURSIVE" = on ]; then
+        sb_real_ip_refuse "SB_TRUSTED_PROXY_CIDR holds $sb_real_ip_address with SB_REAL_IP_RECURSIVE on," \
+          "which believes whatever address a caller writes first in X-Forwarded-For. Name the" \
+          "proxies' own ranges, or turn recursion off."
+      fi
+      ;;
+  esac
+  # The glue between entries is the rest of one directive and the start of the
+  # next, because the template supplies the first `set_real_ip_from ` and the
+  # last `;` itself.
+  sb_real_ip_from="${sb_real_ip_from:+$sb_real_ip_from;
+set_real_ip_from }$sb_real_ip_address"
+  sb_real_ip_shown="${sb_real_ip_shown:+$sb_real_ip_shown }$sb_real_ip_address"
+  sb_real_ip_count=$((sb_real_ip_count + 1))
+done
+set +f
+
+# Refused rather than read as the off position. An explicitly empty value never
+# started — `set_real_ip_from ;` is a syntax error — and a list that came out
+# empty is more likely a templating mistake upstream than a decision, so it
+# stays a stop with a reason instead of becoming a silent shared allowance.
+if [ "$sb_real_ip_count" -eq 0 ]; then
+  sb_real_ip_refuse "SB_TRUSTED_PROXY_CIDR is empty. Leave it unset for the off position," \
+    "127.0.0.1, or name the proxies' addresses or ranges."
+fi
+
+if [ -z "${NGINX_ENTRYPOINT_QUIET_LOGS:-}" ]; then
+  printf '%s: believing X-Forwarded-For from %s, real_ip_recursive %s\n' \
+    "$sb_real_ip_me" "$sb_real_ip_shown" "$SB_REAL_IP_RECURSIVE"
+fi
+
+SB_TRUSTED_PROXY_CIDR=$sb_real_ip_from
+export SB_TRUSTED_PROXY_CIDR SB_REAL_IP_RECURSIVE
+unset sb_real_ip_me sb_real_ip_entry sb_real_ip_list sb_real_ip_from sb_real_ip_shown \
+  sb_real_ip_count sb_real_ip_address
+unset -f sb_real_ip_refuse

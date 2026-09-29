@@ -306,7 +306,7 @@ unrepresentable, so the model's own sampling cannot produce it.
 - **Ids are `format: "uuid"`.** See the budget section for why the pattern
   beside the format is a defect rather than a second safeguard.
 - **A name beside an id, where the server can resolve it.** `categoryName`
-  (`src/shared/domain.ts:497-510` for the entry-level field,
+  (`src/shared/domain.ts:496-507` for the entry-level field,
   `:373-378` for the leg-level one, which defers to it) lets an agent send the
   human word: it is "matched case-insensitively against your existing categories
   and created only if it is genuinely new", and `categoryId` wins if both are

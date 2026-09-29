@@ -48,6 +48,10 @@ vi.mock("../src/server/stripe.js", async (importOriginal) => ({
     order.push("stripe");
     return true;
   },
+  checkStripeAccess: async () => {
+    order.push("stripe-access");
+    return [];
+  },
 }));
 
 afterEach(() => {
@@ -75,6 +79,23 @@ describe("the Stripe price check at startup", () => {
       expect(order.filter((step) => step === "stripe")).toHaveLength(1);
       expect(order.indexOf("migrate")).toBeLessThan(order.indexOf("stripe"));
       expect(order.indexOf("stripe")).toBeLessThan(order.indexOf("serve"));
+    },
+  );
+
+  /**
+   * And what a restricted key may read, beside it. A key missing a permission
+   * started cleanly and failed at the first call that needed it, found by a
+   * customer rather than by the operator reading this log. Run alongside the
+   * price check rather than after it, so an unreachable Stripe costs startup
+   * one wait.
+   */
+  it.each(["index", "scheduler"] as const)(
+    "asks what the key may read in the %s entrypoint, before it listens",
+    async (entrypoint) => {
+      await start(entrypoint);
+      expect(order.filter((step) => step === "stripe-access")).toHaveLength(1);
+      expect(order.indexOf("migrate")).toBeLessThan(order.indexOf("stripe-access"));
+      expect(order.indexOf("stripe-access")).toBeLessThan(order.indexOf("serve"));
     },
   );
 });

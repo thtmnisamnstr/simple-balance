@@ -3374,6 +3374,25 @@ const entitlingStatuses = new Set(["active", "trialing"]);
  */
 export const BILLING_GRACE_DAYS = 15;
 
+/**
+ * The moment a failed renewal's grace runs out, from the moment it failed.
+ *
+ * One function, so the date the plan tab puts in its past-due alert is the date
+ * `resolveEntitlement` drops the plan on. The alert said "fifteen days from
+ * then" and left the arithmetic to the reader, beside a "renews" date a month
+ * or a year later that nobody had paid for; a page that names the day has to
+ * name this one, and a copy of the sum in the browser is the second copy
+ * `AGENTS.md` warns about. Counted in UTC, which is what the grace has always
+ * counted in and which has no daylight-saving change, so it is exactly fifteen
+ * days of twenty-four hours wherever somebody lives; the page formats the
+ * moment in their timezone and does no sum of its own.
+ */
+export function graceEndsAt(pastDueSince: Date | string): Date {
+  const ends = new Date(pastDueSince);
+  ends.setUTCDate(ends.getUTCDate() + BILLING_GRACE_DAYS);
+  return ends;
+}
+
 /** What one person's plan and limits are, given what is known about them. */
 export function resolveEntitlement(input: {
   /** False when the deployment sells nothing, which is the default. */
@@ -3420,9 +3439,7 @@ export function resolveEntitlement(input: {
   // gets no grace rather than an unbounded one.
   const inGrace = subscriptions.some((s) => {
     if (s.status !== "past_due" || !s.pastDueSince) return false;
-    const graceEnds = new Date(s.pastDueSince);
-    graceEnds.setUTCDate(graceEnds.getUTCDate() + BILLING_GRACE_DAYS);
-    return graceEnds > input.now;
+    return graceEndsAt(s.pastDueSince) > input.now;
   });
   return inGrace ? paid("subscription") : free("subscription");
 }
@@ -3582,6 +3599,74 @@ export function activeChoicePending(
 }
 
 /**
+ * What the paid plan ending would freeze, and whether it would leave a choice.
+ *
+ * The plan tab is the one screen that can say this *before* the press, and it
+ * takes the entitlement that would be in force **afterward** rather than the
+ * one in force now — which is the free plan in every case but one: an
+ * operator's grant that is still running once the plan has ended keeps the
+ * limit off, and then there is no answer to give rather than a zero. A grant
+ * that has expired by then is no longer an answer either, and reading
+ * "override present" instead of resolving it hid the real count behind one.
+ *
+ * So the ending entitlement is `resolveEntitlement` again, and never a bare
+ * `MAX_FREE_ACCOUNTS`. What it is asked differs from the live question in
+ * exactly two ways, and both of them were wrong for a while:
+ *
+ * - **`endsAt`, not now.** A cancellation takes effect at the end of the paid
+ *   period, so that is the moment every expiry has to be judged against. A
+ *   grant running two more days beside a period running a month resolves to
+ *   `plus` today and to nothing on the day it matters; judged at `now` this
+ *   answered null and the tab said nothing at all about the accounts that
+ *   really were going to freeze. The same moment settles a remaining
+ *   subscription's `past_due` grace, which can likewise run out in between.
+ * - **The subscriptions that would remain**, not none at all. Dropping every
+ *   row answers "what if this person had no subscription", which is a
+ *   different question wherever two are live — `resolveEntitlement` handles
+ *   several on purpose — and it told somebody canceling one of two that two
+ *   accounts would freeze when the other one keeps the plan open.
+ *
+ * Both halves of the question live in one function because they are one
+ * question, and the page must not answer either half itself: the shared rule
+ * keeps the accounts already marked in use, so "live minus the limit" is the
+ * wrong number wherever somebody has chosen — the page had it, and said "you
+ * choose which 3" to people with nothing left to choose.
+ *
+ * Named for the plan it lands on, as the wire fields are, because the grant is
+ * the exception and a null is what it produces.
+ */
+export function freezeOnPlanEnd(input: {
+  readonly billingEnabled: boolean;
+  readonly override?: { readonly plan: Plan; readonly expiresAt: Date | null } | undefined;
+  /** Every subscription except the one ending, which the caller removes. */
+  readonly subscriptions?: readonly {
+    readonly status: string;
+    readonly pastDueSince: Date | null;
+  }[];
+  /** When the plan would end, which is never earlier than now. */
+  readonly endsAt: Date;
+  readonly accounts: readonly FreezableAccount[];
+}): {
+  readonly accountsFrozenOnFree: number | null;
+  readonly activeChoicePendingOnFree: boolean;
+} {
+  const ending = resolveEntitlement({
+    billingEnabled: input.billingEnabled,
+    override: input.override,
+    subscriptions: input.subscriptions,
+    now: input.endsAt,
+  });
+  const limit = ending.billing ? ending.accountLimit : null;
+  if (limit === null) return { accountsFrozenOnFree: null, activeChoicePendingOnFree: false };
+  const live = input.accounts.filter((account) => account.archivedAt === null);
+  return {
+    // Only live accounts are ever frozen, so the set's size is the count.
+    accountsFrozenOnFree: frozenAccountIds(ending, input.accounts).size,
+    activeChoicePendingOnFree: activeChoicePending(limit, live),
+  };
+}
+
+/**
  * Whether a person may make this the set of accounts they keep usable.
  *
  * The rule is not "pick any three whenever you like". Choosing happens **once**
@@ -3721,10 +3806,26 @@ export function restoreAllowance(
  * disabled control and a refusal say the same thing. It names both ways out —
  * a person can activate it, and that is a move an agent can make too, which
  * `accountAllowance`'s message deliberately cannot say.
+ *
+ * `name` is the account the refusal is about, and it is what closes the last
+ * divergence that section named. "This account" is unanswerable on a transfer,
+ * which has two sides, and above a list of entries it says nothing at all: the
+ * browser had grown a prefix of its own — `` `${account.name}: ` `` — so the
+ * two sides were one sentence and a longer one rather than the same sentence.
+ * The server knows the name at every site that throws this, so it passes it and
+ * the browser reads the result back instead of building one.
+ *
+ * Optional, because one caller genuinely has no account to name: the Add button
+ * that is dead because *every* account is frozen is about all of them, and a
+ * sentence naming one of them would be worse than the general one.
  */
-export function frozenAccountRefusal(limit: number) {
+export function frozenAccountRefusal(limit: number, name?: string) {
+  // Straight quotes, not typographic ones: this string is composed on the
+  // server as well as in the browser, and `src/server` and `src/shared` carry
+  // no curly quotes anywhere — a refusal is JSON before it is prose.
+  const subject = name ? `"${name}" is frozen.` : "This account is frozen.";
   return (
-    `This account is frozen. A free plan keeps ${limit} accounts active and the rest readable, ` +
+    `${subject} A free plan keeps ${limit} accounts active and the rest readable, ` +
     "so nothing here can change until you make it one of the active ones or upgrade."
   );
 }
@@ -3830,6 +3931,42 @@ export const liveSubscriptionStatuses = [
   "paused",
 ] as const;
 
+/**
+ * The live statuses somebody has paid for at least once.
+ *
+ * `liveSubscriptionStatuses` without `incomplete`, for the one question that
+ * set answers wrongly: whether deleting an account cancels a paid plan. An
+ * incomplete subscription has never been paid, the plan tab already calls it
+ * Free, and the deletion note told somebody whose first payment never went
+ * through that their paid plan would be canceled. `past_due`, `unpaid` and
+ * `paused` stay, because each was paid for and each is lost for good with the
+ * account — an unpaid one can still be brought back by paying what is owed, up
+ * to the moment the account goes. Not a replacement for the live set: the
+ * resume path, the sweep and the refusal to make a second subscription all
+ * depend on `incomplete` being somebody's current one.
+ */
+export const paidForSubscriptionStatuses = liveSubscriptionStatuses.filter(
+  (status) => status !== "incomplete",
+);
+
+/**
+ * Whether the period a subscription is in has been paid for, so its end is a
+ * date the plan runs to — "renews" or "ending" — rather than the end of a
+ * period nobody has paid.
+ *
+ * Only `active` and `trialing`, the two statuses `resolveEntitlement` grants
+ * the plan for. Stripe dates every period from the moment it starts, paid or
+ * not: an `incomplete` subscription carries a period end a month or a year out
+ * from the second it is created, and expires unpaid after 23 hours; a failed
+ * renewal moves the end to the close of the period whose invoice failed. The
+ * plan tab printed "renews" beside all of them, which told somebody the day
+ * after a declined card that they were paid up for a year. For `past_due` the
+ * date the plan runs to is `graceEndsAt`, and for the rest there is none.
+ */
+export function periodIsPaid(status: string): boolean {
+  return entitlingStatuses.has(status);
+}
+
 /** What a request to be on a given plan means, given what somebody is on now. */
 export type SubscriptionAction =
   /** No subscription at all: make one. */
@@ -3845,19 +3982,37 @@ export type SubscriptionAction =
   /** Monthly to annual, now, charging the difference. */
   | { readonly kind: "upgrade" }
   /** Anything else, at the renewal. */
-  | { readonly kind: "schedule" };
+  | { readonly kind: "schedule" }
+  /**
+   * A change of interval while a cancellation is pending: refused, with
+   * `PLAN_ENDING_REFUSAL`, until **Keep my plan** turns renewal back on.
+   */
+  | { readonly kind: "ending" };
 
 /**
- * Which of the seven things a request to change plan actually means.
+ * What a change of interval is refused with while the plan is set to end, and
+ * what the plan tab puts beside the buttons it disables for the same reason —
+ * one sentence, because `docs/standards/code/errors.md` 4 asks that a disabled
+ * control and the refusal it stands in for say the same thing.
+ */
+export const PLAN_ENDING_REFUSAL =
+  "Your plan is set to end. Press Keep my plan before changing it.";
+
+/**
+ * Which of the eight things a request to change plan actually means.
  *
  * Pure, shared, and separated from the service for the reason `AGENTS.md` gives
  * about `resolveEntrySide`: the browser previews this — which button is
  * disabled, whether the note about a scheduled switch applies, whether there is
- * a payment to finish — and the server enforces it. Two copies would eventually
- * disagree, and the way that shows up is a person pressing a button that says
- * one price and being charged another.
+ * a payment to finish, and whether a move to annual happens now or at the
+ * renewal (`planChangeTakesEffect`) — and the server enforces it. Two copies
+ * would eventually disagree, and the way that shows up is a person pressing a
+ * button that says one price and being charged another. It did show up: the
+ * tab promised a past-due monthly subscriber that annual "takes effect now and
+ * charges the difference" from a condition of its own, and the press was a
+ * `schedule` for the renewal, which is what this answers for `past_due`.
  *
- * The order of the checks is the whole of it, and three of them are load-bearing:
+ * The order of the checks is the whole of it, and four of them are load-bearing:
  *
  *  - Owing money is asked *before* anything about intervals, but only for the
  *    interval they are already on. The open invoice belongs to the stored
@@ -3876,12 +4031,27 @@ export type SubscriptionAction =
  *    deployment no longer sells, or one made in the Stripe dashboard — is
  *    released by `setSubscription` before it creates the new one, because
  *    Stripe would refuse a second schedule rather than replace the first.
+ *  - A change of interval while a cancellation is pending is `ending`, asked
+ *    after everything that keeps the plan as it is and before anything that
+ *    moves it. Each of the two moves did something nobody was shown: a
+ *    schedule to monthly carries the cancellation into its phases and then
+ *    replaces it, so the plan quietly renewed forever at the monthly price; an
+ *    upgrade keeps the cancellation and charged the difference for a year set
+ *    to end. Turning renewal back on is consent the renewal terms are shown
+ *    for, beside **Keep my plan**, so it is that button's to give and never a
+ *    side effect of another. Paying what is owed, a repeat of the plan they
+ *    are on and letting a scheduled switch go all come first, and still work.
+ *
+ * `cancelAtPeriodEnd` is optional so a caller that has no reason to ask about
+ * a cancellation compiles unchanged; absent reads as none pending, which is
+ * the answer the rule gave before it asked.
  */
 export function subscriptionAction(input: {
   readonly current: {
     readonly status: string;
     readonly interval: BillingInterval | null;
     readonly scheduled: BillingInterval | null;
+    readonly cancelAtPeriodEnd?: boolean;
   } | null;
   readonly requested: BillingInterval;
 }): SubscriptionAction {
@@ -3896,6 +4066,7 @@ export function subscriptionAction(input: {
     return current.scheduled === null ? { kind: "none" } : { kind: "release" };
   }
   if (current.scheduled === requested) return { kind: "none" };
+  if (current.cancelAtPeriodEnd === true) return { kind: "ending" };
 
   // Only from a known monthly that is paid up. Two conditions, and each is
   // there for its own reason.
@@ -3915,3 +4086,49 @@ export function subscriptionAction(input: {
   }
   return { kind: "schedule" };
 }
+
+/**
+ * When the change a plan button would make takes effect, for the sentence
+ * beside it: `now`, `renewal`, or null where the press changes no interval.
+ *
+ * Read off `subscriptionAction` rather than off the statuses, which is the
+ * rule the plan tab broke by writing its own: it said "takes effect now and
+ * charges the difference" whenever nothing was owed by its own reckoning, and
+ * its reckoning left out `past_due`, where the press schedules the switch for
+ * the renewal instead of charging a failing card twice. `create` and
+ * `replace` start a subscription that begins once it is paid, which is now as
+ * far as the sentence goes. `resume` pays what is owed on the plan already
+ * running, `none` and `release` keep it as it is, and `ending` is refused.
+ */
+export function planChangeTakesEffect(action: SubscriptionAction): "now" | "renewal" | null {
+  switch (action.kind) {
+    case "create":
+    case "replace":
+    case "upgrade":
+      return "now";
+    case "schedule":
+      return "renewal";
+    case "resume":
+    case "none":
+    case "release":
+    case "ending":
+      return null;
+  }
+}
+
+/**
+ * What became of the invoice a replacement card was asked to pay, as the
+ * confirmation reports it.
+ *
+ * `none` is nothing owed. `paid` is paid with the new card. `declined` is the
+ * card refused — with Stripe's own sentence beside it where Stripe gave one —
+ * or the payment failing for any other reason, because the one answer that
+ * would be false is "nothing was owed". `needs_authentication` is a bank that
+ * wants 3-D Secure, which a payment made with nobody on the page cannot give;
+ * Stripe does not retry that one by itself, and **Pay now** confirms it with
+ * the person present. A boolean said `false` for both "nothing owed" and
+ * "declined", so a page that read it still could not tell a declined card
+ * from a card replaced with nothing to pay.
+ */
+export const owedInvoiceOutcomes = ["none", "paid", "declined", "needs_authentication"] as const;
+export type OwedInvoiceOutcome = (typeof owedInvoiceOutcomes)[number];

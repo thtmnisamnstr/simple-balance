@@ -42,7 +42,7 @@ Three facts, all currently true, combine into that:
    bearer path.
 2. Every state-changing `/api/v1` request must present an `Origin` (or failing
    that a `Referer`) equal to the configured base URL
-   (`src/server/http-security.ts:470-504`, mounted at `src/server/api.ts:1305-1312`).
+   (`src/server/http-security.ts:478-512`, mounted at `src/server/api.ts:1305-1312`).
 3. Every state-changing `/api/v1` request must declare
    `Content-Type: application/json`, including the ones with no body at all
    (`requireContentType: true`, `src/server/api.ts:1310`).
@@ -69,7 +69,7 @@ not found, not as forbidden."
 [`common.md`](common.md#errors) settles the rule. What HTTP adds is the
 transport argument: 403 would confirm the row exists, so
 `GET /api/v1/accounts/{id}` for a stranger's account is a 404 with the same body
-as an id that was never issued (`src/server/services/accounts.ts:579`). This is
+as an id that was never issued (`src/server/services/accounts.ts:580`). This is
 deliberate, it is not a missing feature, and it applies to every resource.
 
 *Checked by:* `tests/integration/tenant-isolation.integration.test.ts:169-207`
@@ -112,7 +112,7 @@ without a route survives the suite.
 ### Plan and billing
 
 Registered only where Stripe is configured. On every other deployment — which is
-the default — these four paths do not exist, and `/api/billing/*` answers `404`
+the default — these five paths do not exist, and `/api/billing/*` answers `404`
 rather than the single-page shell.
 
 | Route | Scope |
@@ -123,8 +123,8 @@ rather than the single-page shell.
 | `POST /api/v1/billing/payment-setups` | session only |
 | `POST /api/v1/billing/payment-setups/confirmations` | session only |
 
-Each of the three mutations takes an `idempotencyKey`, and each is a state
-sub-resource rather than a verb: `PUT` the subscription you want, `PUT` whether
+Each of the four mutations takes an `idempotencyKey`. The two `PUT`s are state
+sub-resources rather than verbs: `PUT` the subscription you want, `PUT` whether
 it cancels at the end of the period. Setting either to what it already is
 succeeds and sends nothing to Stripe, which is what makes a double-pressed
 button harmless before the key is even consulted.
@@ -133,8 +133,22 @@ button harmless before the key is even consulted.
 one decision from the person's side. Monthly to annual takes effect immediately
 and charges the difference; annual to monthly takes effect at the renewal, via a
 Stripe subscription schedule, because ending a year somebody has paid for early
-is not what they asked for. Asking for the interval you are already on, while a
-change is scheduled, abandons the scheduled change.
+is not what they asked for. A monthly subscription with a renewal still owed
+moves at the renewal too, rather than charging a failing card a second time.
+Asking for the interval you are already on, while a change is scheduled,
+abandons the scheduled change. Which of these a request means is
+`subscriptionAction` in `src/shared/domain.ts`, the same function the plan tab
+previews it with.
+
+While a cancellation is pending, a change of interval is refused with
+`409 CONFLICT`, `details.cancelAtPeriodEnd: true` and the sentence the plan tab
+disables its buttons with, and nothing is sent to Stripe. Either move did
+something nobody was shown: the schedule to monthly replaced the cancellation,
+so the plan renewed after all, and the upgrade charged the difference for a
+year set to end. Turning renewal back on is consent the renewal terms are
+displayed for, so it belongs to `PUT …/cancellation` alone. Paying what is owed,
+asking for the plan already held, and letting a scheduled switch go still
+succeed.
 
 `POST /api/v1/billing/payment-setups` answers `200` with no `Location`, alone
 among the creates here: what it makes lives at Stripe and has no address in this
@@ -143,7 +157,18 @@ optional — confirming a card in the browser attaches it to the Stripe customer
 and changes nothing about what is billed, so without this call the replacement
 card is never the one charged. It names a SetupIntent id, which is an unowned
 string, so the server reads the intent back from Stripe and refuses one whose
-customer is not the caller's.
+customer is not the caller's. It refuses a saved method this deployment does not
+offer, or one the subscription refuses to bill, with `409` and
+`details.paymentMethodType`, before anything is written.
+
+Its answer says what became of anything owed, because a new card is asked to pay
+it: `invoice` is `none`, `paid`, `declined` or `needs_authentication`, with
+Stripe's own sentence in `declineMessage` where a card was declined and Stripe
+gave one. `paidInvoice` stays beside it, and is `invoice === "paid"`. A boolean
+alone said `false` both for nothing owed and for a declined card, so the page
+reading it closed the form over a payment that had failed. A replay of a key
+stored before `invoice` existed answers with the first two fields only, and a
+client reads a missing `invoice` as unknown rather than as nothing owed.
 
 ### Connected agents
 
@@ -398,10 +423,10 @@ add it.
 - **House.** JSON in, JSON out. `Content-Type: application/json` is required
   on every state-changing request, with no body-present exception, and a request
   that omits it is refused with 415 before anything reads the body
-  (`src/server/http-security.ts:488-500`). The consequence is real and the
+  (`src/server/http-security.ts:496-508`). The consequence is real and the
   browser client lives with it: revoking an agent is a `DELETE` that sends `{}`
   purely so it can declare a content type
-  (`src/client/pages/SettingsPage.tsx:589-595`).
+  (`src/client/pages/SettingsPage.tsx:618-627`).
   *Checked by:* `tests/api-security.test.ts:64-88`, both halves, the refusal and
   the bodyless request that gets through the gate.
 - **House.** A malformed or absent JSON body is a 400 with a message saying so,
@@ -415,7 +440,7 @@ add it.
   ordinary `/api/v1`, a CSV-derived limit for `/csv/preview`, `/csv/stage` and
   `/mcp`, and a selection-derived limit for any route whose last segment is
   `bulk-edit`, `bulk-delete`, `bulk-selection`, `commit` or `delete`
-  (`src/server/http-security.ts:372-410`, `:972-1012`). A limit is derived, not
+  (`src/server/http-security.ts:380-418`, `:980-1020`). A limit is derived, not
   guessed: the template mass edit and mass delete were once sized as ordinary
   requests, so a selection their own schemas accepted came back 413. Recognizing
   a bulk route by shape rather than by a hand-kept list is what stops that
@@ -607,7 +632,7 @@ code.
 | 413 | Body over the derived limit for that path |
 | 415 | Missing or unacceptable `Content-Type` on a state change |
 | 422 | The body is valid JSON and valid against no rule the ledger will accept |
-| 429 | Rate limited: the setup-code limiter (`src/server/api.ts:536-551`), and Better Auth's production limiter on `/api/auth` (`src/server/auth.ts:51-55`) |
+| 429 | Rate limited: the setup-code limiter (`src/server/api.ts:536-551`), and Better Auth's production limiter on `/api/auth` (`src/server/auth.ts:102-106`) |
 | 500 | Anything unhandled, with no detail |
 | 503 | `GET /health/ready` when the database is unreachable |
 
@@ -645,7 +670,7 @@ code.
   and reject the rest with 405.
 - **House.** A 429 carries `Retry-After`. Neither of the two the process emits
   did. The setup-code limiter now sends the window it counts by, taken from the
-  limiter rather than written beside it (`src/server/http-security.ts:668-675`)
+  limiter rather than written beside it (`src/server/http-security.ts:676-683`)
   — the whole window rather than what is left of it, because the remaining time
   is known only to whichever replica counted the first attempt and a local
   reading can be shorter than the truth. Over-reporting only makes the caller
@@ -730,10 +755,10 @@ derives by reading the `(code, status)` pair off every `AppError` and
   `apiErrorCodes` (`src/shared/domain.ts:2639`) is the sum of two lists
   held apart on purpose: `serviceErrorCodes`, the nine an `AppError` can carry,
   and `transportErrorCodes`, the five the middleware refuses with before a route
-  runs — `CROSS_ORIGIN_REQUEST` (`src/server/http-security.ts:483`, `:552`),
-  `UNSUPPORTED_MEDIA_TYPE` (`:497`, `:536`), `PAYLOAD_TOO_LARGE` (`:906`,
-  `:951`), `INVALID_CONTENT_LENGTH` (`:895`) and `REQUEST_BODY_NOT_ALLOWED`
-  (`:921`). All fourteen reach a caller from `/api/v1` in this guide's own
+  runs — `CROSS_ORIGIN_REQUEST` (`src/server/http-security.ts:491`, `:560`),
+  `UNSUPPORTED_MEDIA_TYPE` (`:505`, `:544`), `PAYLOAD_TOO_LARGE` (`:914`,
+  `:959`), `INVALID_CONTENT_LENGTH` (`:903`) and `REQUEST_BODY_NOT_ALLOWED`
+  (`:929`). All fourteen reach a caller from `/api/v1` in this guide's own
   envelope, so all fourteen are published; the split is what stops a service
   raising a transport code, because `AppError`
   (`src/server/services/errors.ts:31-61`) takes `ServiceErrorCode`, and a code
@@ -777,7 +802,7 @@ derives by reading the `(code, status)` pair off every `AppError` and
   limit, the count in a stale bulk selection. A client should never have to
   parse a sentence to learn a number.
 - **House.** No stack traces, no SQL, no bound parameters, ever. The docblock on
-  `log.failure` at `src/server/log.ts:71-86` says why, and it is not
+  `log.failure` at `src/server/log.ts:75-90` says why, and it is not
   boilerplate: "Drizzle builds an error's message out of the failing SQL *and
   its bound parameters*, and one of those parameters is the OAuth access token
   the MCP token endpoint looks a grant up by. Logging such an error whole
@@ -786,9 +811,9 @@ derives by reading the `(code, status)` pair off every `AppError` and
   comment above it at `src/server/api.ts:398-401` says why the narrowing is
   not done there.
   The narrowing is not this route's: it lives in `log.failure`
-  (`src/server/log.ts:87-97`), so all five paths in this process that can log a
-  database error get it — `src/server/index.ts:116`,
-  `src/server/scheduler.ts:137`, `src/server/db/migrate.ts:163` and
+  (`src/server/log.ts:91-101`), so all five paths in this process that can log a
+  database error get it — `src/server/index.ts:118`,
+  `src/server/scheduler.ts:138`, `src/server/db/migrate.ts:197` and
   `src/server/db/client.ts:33` and `:92`. It was a route-level guard for a
   release, which meant the agent transport logged whole what this one redacted.
 - **House.** What an error sentence says is settled in
@@ -1366,7 +1391,7 @@ socket already open is the only channel that exists.
 - **A streamed route keeps `Cache-Control: no-store`** and adds
   `X-Accel-Buffering: no`. The first is the rule below, kept without exception;
   the second is for an operator whose reverse proxy buffers by default, which
-  the one this repository ships does not (`deploy/docker/nginx.conf.template:45`).
+  the one this repository ships does not (`deploy/docker/nginx.conf.template:242`).
 - **A client that disconnects does not cancel the work.** The commit finishes
   and the idempotency record answers the retry. Somebody closed a tab; they did
   not ask for a rollback. The consequence for a client is the important half: a
@@ -1398,7 +1423,7 @@ forwards the frames unbuffered. That is `docs/deployment.md` and an operator.
   is cacheable. The invariant to preserve: no cacheable response depends on a
   request header without naming it in `Vary`.
 - **House.** The security headers are one exported function of `isProduction`
-  (`src/server/http-security.ts:207-318`) and no route overrides one of the
+  (`src/server/http-security.ts:207-326`) and no route overrides one of the
   headers in the table below. Two other headers are set by hand outside
   `/api/v1` and are documented under CORS: `Access-Control-Allow-Origin` on the
   JWKS route (`src/server/api.ts:766`) and on discovery (`:985`), and
@@ -1431,7 +1456,7 @@ forwards the frames unbuffered. That is `docs/deployment.md` and an operator.
   origin check rightly refuses an origin it cannot recognize. The pages that
   carry ads widen it to `strict-origin-when-cross-origin`, which still sends
   another origin this site's address and never the path, so a record id in a
-  URL stays off every Referer (`src/server/http-security.ts:279-300`).
+  URL stays off every Referer (`src/server/http-security.ts:287-308`).
 - **House, and the two halves are one rule.** Same-origin and JSON content type
   are presented together and neither is relaxed on the grounds that the other
   exists. OWASP files origin checking under defense in depth rather than as a
@@ -1493,11 +1518,11 @@ way.
   published in the discovery documents (`src/server/api.ts:989-1006`), and the
   route table above says which each route needs. `AGENTS.md`: "`ledger:stage`
   proposes and never decides."
-- **Binding.** Six routes stay session-only whatever the token. `AGENTS.md`:
+- **Binding.** Seven routes stay session-only whatever the token. `AGENTS.md`:
   "Three exceptions, all account management rather than bookkeeping: deleting an
   account, setting a sign-in password, and the billing routes are reachable from
   a session and never from an MCP token." Those are `DELETE /api/v1/me`,
-  `POST /api/v1/auth/local-password`, and the four under `/api/v1/billing`.
+  `POST /api/v1/auth/local-password`, and the five under `/api/v1/billing`.
 - **House.** `GET /api/v1/session` is session-only for a different reason and
   should not be read as a third invariant: it is split rather than withheld.
   Identity, the plan's ceiling and how much of it is used are `whoami`, and the

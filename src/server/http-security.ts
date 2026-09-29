@@ -218,7 +218,15 @@ export const securityHeaderOptions = (
     // which are applied through the CSSOM rather than written as a style
     // attribute, and CSP does not govern those. Vite emits the stylesheet as
     // a file. Checked in a browser across the sign-in, overview, and
-    // transaction pages with no violation reported.
+    // transaction pages, which reported no style violation.
+    //
+    // They did report one of another kind, and an operator watching a
+    // report-only log should know it has been dealt with rather than read the
+    // quiet as the policy never having been exercised: Zod probes for `eval`
+    // when it builds its first object schema, which `script-src` refuses and
+    // the browser reports even though Zod swallows the error.
+    // `src/client/zod-jitless.ts` turns the probe off, so what is left in that
+    // log comes from a vendor rather than from this app.
     //
     // hCaptcha, which Stripe Radar can put in front of a payment, styles
     // itself from its own origin, so the host joins the list on that one page

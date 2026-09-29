@@ -55,9 +55,11 @@ config:
   # Believable only while the frontend's nginx sets X-Forwarded-For to
   # $remote_addr rather than appending to whatever the caller sent. An ingress
   # terminating TLS in front of it makes $remote_addr the ingress and brings the
-  # shared allowance back. The fix is one value, frontend.trustedProxyCidr, set
-  # to the ingress controller's pod range: no template edit and no image
-  # rebuild. NOTES.txt says so when it is left at its off position.
+  # shared allowance back. The fix is frontend.trustedProxyCidr, set to the
+  # ingress controller's pod range — or to every hop's range, with
+  # frontend.realIpRecursive, behind a chain of proxies that append: no template
+  # edit and no image rebuild. NOTES.txt says so when it is left at its off
+  # position.
   trustProxy: true
 
   # local, google, or both. Google needs config.google.clientId,
@@ -143,7 +145,9 @@ config:
   # the Secret below. SB_BILLING_ENABLED, STRIPE_PUBLISHABLE_KEY and the two
   # STRIPE_PRICE_*_ID values go here, and so do the ADSENSE_* ids with
   # PRIVACY_POLICY_URL beside them: the server refuses to start with AdSense
-  # configured and no absolute https:// privacy policy address. The frontend
+  # configured and no absolute https:// privacy policy address. It and
+  # TERMS_OF_USE_URL are optional otherwise, and linked from sign-in and every
+  # page whenever they are set. The frontend
   # decides the policy each page arrives with, so a STRIPE_PUBLISHABLE_KEY here
   # tells it Stripe is configured and an ADSENSE_CLIENT_ID tells it ads are,
   # the way the compose recipes derive both: frontend.billingConfigured and
@@ -373,12 +377,33 @@ frontend:
   # whose word is taken for the address, so a range that includes callers lets a
   # caller name themselves.
   #
+  # One address or CIDR, or several: a string separated by commas or spaces, or
+  # a YAML list. Every entry must be an IPv4 or IPv6 address, a CIDR, or unix:,
+  # and the schema refuses anything else, because nginx would resolve a host
+  # name here and trust whatever it answered. On the command line a list is
+  # --set 'frontend.trustedProxyCidr={10.0.0.0/16,10.1.0.0/16}'.
+  #
   # 127.0.0.1 is the off position, not a trusted range. Nothing reaches the
   # container from loopback, so the behavior is exactly what it was before this
   # setting existed. It carries a value rather than an empty string because
-  # `set_real_ip_from ;` is a configuration error and the container would not
-  # start.
+  # an empty one is refused and the container would not start.
   trustedProxyCidr: 127.0.0.1
+
+  # Whether nginx walks X-Forwarded-For right to left past every address above
+  # and takes the first one that is not among them (real_ip_recursive on),
+  # rather than taking the last entry outright.
+  #
+  # Off for an ingress that *replaces* the header, which ingress-nginx does
+  # unless use-forwarded-headers and compute-full-forwarded-for are both on —
+  # the first alone still replaces it: the last entry is then the visitor, and
+  # off cannot be talked past it. On for a chain whose every hop *appends* and
+  # is listed above — a cloud load balancer in front, such as Google's, which
+  # appends `<client-ip>,<load-balancer-ip>` to whatever the client sent. Off
+  # there takes the load balancer's address for everybody; on stops at the
+  # client's, which the load balancer wrote, and never reaches anything the
+  # client wrote before it. A range holding every address is refused with this
+  # on, since the walk would then end at whatever the caller put first.
+  realIpRecursive: false
 
   # How long to keep answering after Kubernetes decides this pod is going, so
   # the load balancer and kube-proxy have stopped handing it new connections

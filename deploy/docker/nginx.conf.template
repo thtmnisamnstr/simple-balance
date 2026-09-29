@@ -24,23 +24,48 @@ map $http_upgrade $connection_upgrade {
 # behavior this image has always had, and the directive is still syntactically
 # whole — an empty value here is `[emerg] invalid number of arguments` and a
 # container that will not start.
+#
+# A list, and still one line. SB_TRUSTED_PROXY_CIDR takes addresses and CIDRs
+# separated by commas, whitespace or both, and envsubst cannot loop, so
+# /docker-entrypoint.d/18-sb-real-ip.envsh (deploy/docker/nginx-real-ip.envsh)
+# rewrites the value before envsubst reads it: each entry after the first
+# arrives as `;`, a newline and another `set_real_ip_from `, and one CIDR
+# arrives exactly as it did before lists existed. The same script refuses to
+# start on an entry that is not an address, a CIDR or `unix:`, because nginx
+# would resolve a host name here and trust whatever it answered.
 set_real_ip_from ${SB_TRUSTED_PROXY_CIDR};
 real_ip_header X-Forwarded-For;
 
-# Off, which is nginx's default, and it is a decision rather than an omission.
+# SB_REAL_IP_RECURSIVE, off unless it is asked for, which is nginx's default
+# and a decision rather than an omission. The script above normalizes it, so
+# `true` and `false` arrive here as the `on` and `off` nginx spells.
 #
 # `on` walks the header right to left and takes the last address that is *not*
 # trusted, which is what you want for a chain of proxies. `off` takes the last
 # address outright — the one the nearest trusted proxy observed for itself.
 #
-# Off is right here twice over. The topology this image documents is one
-# terminator in front of one nginx, so there is no chain to walk. And off is the
+# Off is right for the topology this image was first written for, twice over.
+# One terminator in front of one nginx is no chain to walk. And off is the
 # spelling that survives being pointed at the wrong thing: a terminator that
 # *appends* to X-Forwarded-For rather than replacing it hands us
 # `attacker-chosen, real-client`, and off takes the real client while `on` with
 # a CIDR set too wide would walk past it and take the attacker's entry. The
 # safer reading of a setting somebody can get wrong.
-real_ip_recursive off;
+#
+# On is right for a chain whose every hop appends and every hop is in the list
+# above, and Google's external Application Load Balancer is that chain: it
+# appends `<client-ip>,<load-balancer-ip>` to whatever X-Forwarded-For the
+# client sent, and connects from 130.211.0.0/22 and 35.191.0.0/16. Off would
+# take the load balancer's own address, the same for every visitor. On, with
+# those two ranges and the load balancer's address trusted, is safe for a reason
+# that holds whatever the client wrote: nginx stops at the first address from
+# the right that is not trusted, and on that chain that address is always
+# `<client-ip>` — appended by the load balancer, observed on its own socket,
+# and never written by the client. Everything to its left, where a forged entry
+# would be, is never read. What would break it is a trusted range that holds
+# clients, which is why every entry has to be a proxy's own and why the script
+# refuses a `/0` with recursion on outright.
+real_ip_recursive ${SB_REAL_IP_RECURSIVE};
 
 # The content security policy for /settings/plan, which is the only page whose
 # policy depends on configuration. Stripe's payment form loads a script and an

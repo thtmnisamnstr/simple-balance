@@ -3,8 +3,8 @@ import type { MachineSettings, Size } from "../single-common/cloud-init";
 
 /**
  * What `./index.ts` decides about Oracle Cloud that is not a resource: the disk
- * floor, which availability domain, the key, and the metadata the instance is
- * launched with.
+ * floor, which availability domain and when the data volume refuses a new one,
+ * the region, the key, and the metadata the instance is launched with.
  *
  * Apart from the program, with no Pulumi import, for the same reason
  * `../single-common/cloud-init.ts` is: the repository's tests render and check
@@ -66,6 +66,92 @@ export function chooseAvailabilityDomain(names: string[], requested: string): st
     `simple-balance:availabilityDomain is "${wanted}", which is none of this region's: ` +
       `${names.map((name, index) => `${index + 1} (${name})`).join(", ")}.`,
   );
+}
+
+/** A block volume as ListVolumes reports it, cut to what the check below reads. */
+export interface ListedVolume {
+  id: string;
+  availabilityDomain: string;
+  state: string;
+}
+
+/**
+ * The availability domain to build in, refused while the protected data volume
+ * is in another one.
+ *
+ * Pulumi's own refusal of that move is not enough, because it comes when the
+ * volume's step is reached, and the volume is built after the instance. The
+ * preview stops there having changed nothing, but `pulumi up --skip-preview`
+ * has by then deleted the machine and launched its replacement in the new
+ * domain, where the volume cannot follow — a block volume attaches only within
+ * its own domain. Refused here, in the availability domain every zoned input
+ * waits for, nothing the move would touch is registered, so both paths leave
+ * the machine and the volume as they are.
+ *
+ * Found by name, since a program cannot read its own state, so a live volume
+ * of that name left by a removed stack of the same name is refused too, and
+ * the message covers it. Compared without case because that is how the
+ * provider decides a volume must be replaced. A volume on its way out holds
+ * nothing to keep. Not checked while the protection is off: the move is then
+ * what the stack asked for, and the volume goes with it.
+ */
+export function requireDataVolumeDomain(
+  chosen: string,
+  volumes: readonly ListedVolume[],
+  protect: boolean,
+): string {
+  if (!protect) return chosen;
+  const elsewhere = volumes.filter(
+    (volume) =>
+      volume.state !== "TERMINATING" &&
+      volume.state !== "TERMINATED" &&
+      volume.availabilityDomain.toLowerCase() !== chosen.toLowerCase(),
+  );
+  if (elsewhere.length === 0) return chosen;
+  const kept = elsewhere[0]!.availabilityDomain;
+  throw new Error(
+    `simple-balance:availabilityDomain chooses ${chosen}, but this stack's data volume ` +
+      `(${elsewhere.map((volume) => volume.id).join(", ")}) is in ${kept}, and a block volume ` +
+      "cannot be attached across domains. Moving would replace it, and the generated secret, " +
+      "env.local and every backup on it would go with the old one, so neither the machine nor " +
+      "the volume has been touched. To stay: pulumi config set simple-balance:availabilityDomain " +
+      `"${kept}". To move and start again on an empty volume, copy off what is on it first, then ` +
+      "set simple-balance:protectDataVolume to false. A volume of that name that belongs to no " +
+      "stack any more is found the same way: rename it or delete it in the console.",
+  );
+}
+
+/**
+ * The region, which has to be written in the stack.
+ *
+ * The provider itself does not insist: with `oci:region` unset it takes
+ * TF_VAR_region or OCI_REGION from the environment, or failing both the region
+ * of the `~/.oci/config` profile it reads. So the stack would build wherever
+ * the shell running `pulumi up` happened to point, and an existing one run from
+ * another shell would look for its resources in a region they are not in. Where
+ * a machine holding somebody's data runs is a decision — a privacy policy may
+ * promise it — and it belongs with the stack's other decisions rather than in a
+ * file on one laptop. Set in the stack, it also wins over both fallbacks.
+ *
+ * Refused rather than defaulted, as `compartmentOcid` is, because no region is
+ * right for everybody. Any region is accepted: this program serves operators
+ * anywhere, and a promise about a country is one deployment's promise, not the
+ * program's. The message names the home region because Always Free A1 exists
+ * only there and no setting moves it.
+ */
+export function requireRegion(region: string | undefined): string {
+  if (!region?.trim()) {
+    throw new Error(
+      "oci:region is required, in this stack: pulumi config set oci:region <region>, for example " +
+        "us-ashburn-1. Unset, the provider takes OCI_REGION or the region of whichever ~/.oci/config " +
+        "profile runs `pulumi up`, so where the machine and its data volume live would depend on the " +
+        "shell rather than the stack. Always Free Ampere A1 capacity exists only in the tenancy's home " +
+        "region, which is chosen at sign-up and cannot be changed; the console shows it under Profile " +
+        "→ Tenancy, and `oci iam region-subscription list` marks it is-home-region. A stack that was " +
+        "built before this was required is in the region its profile named: set that one, never another.",
+    );
+  }
+  return region;
 }
 
 /**

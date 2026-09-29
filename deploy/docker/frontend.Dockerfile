@@ -77,11 +77,17 @@ ENV SB_CSP_REPORT_ONLY=false
 ENV SB_ADS_CONFIGURED=false
 # Which addresses may tell this nginx where a request really came from, so that
 # `$remote_addr` is the visitor rather than whatever terminated TLS in front.
-# One CIDR, and it is the proxy's own range: name the visitors' range instead
-# and a caller writes their own X-Forwarded-For. Loopback is the off position —
-# nothing reaches this container from 127.0.0.1 — and it is a value rather than
-# an empty string because `set_real_ip_from ;` refuses to start.
+# An address or CIDR, or several separated by commas or spaces, and every one of
+# them a proxy's own: name the visitors' range instead and a caller writes their
+# own X-Forwarded-For. Loopback is the off position — nothing reaches this
+# container from 127.0.0.1 — and it is a value rather than an empty string
+# because an empty one refuses to start.
 ENV SB_TRUSTED_PROXY_CIDR=127.0.0.1
+# Whether nginx walks X-Forwarded-For past the trusted addresses above to the
+# first one that is not, which a chain of appending proxies needs and one
+# terminator does not. Off, nginx's own default and this image's behavior before
+# the setting existed. `on`/`off`, and `true`/`false` like the switches above.
+ENV SB_REAL_IP_RECURSIVE=off
 # Only SB_ names are substituted, so nginx's own $host and $remote_addr are not
 # blanked out by an envsubst pass that does not know the difference.
 ENV NGINX_ENVSUBST_FILTER=^SB_
@@ -89,6 +95,14 @@ ENV NGINX_ENVSUBST_FILTER=^SB_
 # sitting beside it. Two servers listening on one port with server_name _ is a
 # conflict nginx resolves by picking whichever the include glob reached first.
 COPY deploy/docker/nginx.conf.template /etc/nginx/templates/default.conf.template
+# Sourced by the entrypoint before 20-envsubst-on-templates.sh, which is what
+# lets it turn the trusted list into one directive per entry and refuse a value
+# that is not an address. The number is the ordering: `sort -V` runs it after the
+# stock 15 and before the 20 that renders the template. Executable, because the
+# entrypoint skips an `.envsh` that is not, with nothing but a log line — so the
+# mode is set here rather than trusted to a checkout, and it stays root's to
+# write, since the uid nginx runs as has no business editing its own startup.
+COPY --chmod=0755 deploy/docker/nginx-real-ip.envsh /docker-entrypoint.d/18-sb-real-ip.envsh
 # Outside /etc/nginx/templates on purpose: the entrypoint runs envsubst over
 # everything in there, and outside /etc/nginx/conf.d, which the main config
 # includes into http{} where a location-scoped directive is a syntax error.

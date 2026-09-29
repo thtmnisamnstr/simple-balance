@@ -7,7 +7,10 @@ Notable changes, newest first.
 **This release upgrades cleanly from 0.1.6.** Every new setting is additive and
 every one of them defaults to absent, so a deployment that changes nothing sells
 nothing, limits nobody, shows no advertising, and opens no connection it did not
-open before. No route, tool or CSV column is removed.
+open before. No route, tool or CSV column is removed. The one change to
+schedule is in the `aws` Pulumi program, whose next `pulumi up` turns proxy
+protocol on in front of ingress-nginx and interrupts the site for seconds to
+about a minute while it does.
 
 ### Added
 
@@ -95,6 +98,67 @@ in. It requires `simple-balance:sshPublicKey`, and reaches the machine through
 OCI's Bastion unless `simple-balance:sshCidr` opens port 22 to one address. Its
 public address is ephemeral, and a rebuild changes it.
 
+**The Oracle program builds where its stack says, and will not delete its data
+volume by accident.** It requires `oci:region` in the stack and stops at
+`preview`, before anything is declared, without it. Left to the provider, the
+region came from `TF_VAR_region`, `OCI_REGION` or whichever `~/.oci/config`
+profile ran `pulumi up`, so where a machine holding somebody's data lived
+depended on the shell, and a stack run from another one looked for its
+resources somewhere they were not. Any region is accepted, and for Always Free
+it is the tenancy's home region, the only one with free Ampere capacity. The
+data volume — the generated secret, `env.local` and every nightly dump — is
+marked with Pulumi's `protect` unless `simple-balance:protectDataVolume` is
+false, so `pulumi destroy` fails at its preview and deletes nothing. A new
+`simple-balance:availabilityDomain`, which would replace the volume, is refused
+before the machine is touched, `--skip-preview` included: Pulumi's own refusal
+comes only on reaching the volume, by which point a run without a preview had
+already relaunched the machine in a domain the volume cannot follow it to. The
+volume is built after the machine, so a launch refused for capacity leaves no
+volume behind and the retry in another domain goes through. The cost is at
+teardown: `pulumi destroy --exclude-protected` and `--skip-preview` delete only
+the volume's attachment and leave the machine running without its disk, so
+`deploy/pulumi/README.md` §Tearing down on Oracle Cloud gives the two ways to
+mean it. `protect` binds Pulumi and nothing else; the console can still delete
+the volume. The stack exports `region` and `dataVolumeId`.
+
+**The AWS single-machine program does the same.** It requires `aws:region` in
+the stack and stops before anything is declared without it, where it had
+accepted the shell's `AWS_REGION` or `AWS_DEFAULT_REGION` — and version 7 of
+the provider records a region on every resource, so a stack run from a shell
+pointed elsewhere planned to replace every one of them there, the data volume
+included. Its EBS data volume is marked with `protect` unless
+`simple-balance:protectDataVolume` is false, so `pulumi destroy` fails at its
+preview, and so does the one change that would replace the volume, a new
+region. A resize and a replaced machine go through, since the volume is built
+before the machine and takes nothing from it. `pulumi destroy
+--exclude-protected` and `--skip-preview` keep the volume and the VPC and subnet
+it was built in and delete the rest, the Elastic IP included, so a rebuild
+comes back on a new address; `deploy/pulumi/README.md` §Tearing down on AWS
+gives the two ways to mean it. The stack exports `region` and `dataVolumeId`.
+Both behaviors were run against the provider itself, on a stand-in of the
+program's graph, rather than read from its documentation.
+
+**A first boot waits for its data volume as long as Pulumi would: up to forty
+minutes**, which is how long the providers give the steps between the machine
+running and its disk appearing. On Oracle Cloud the volume is built only after
+the instance runs, and the provider allows twenty minutes for that and twenty
+for the attachment; on AWS a replacement waits out the old machine's stop, the
+detach and the attach. A shorter wait could give up on a volume still on its
+way and leave a machine with none of the directories the next steps write into.
+A volume that arrives sooner is used at once, and the script says what it is
+waiting for when run by hand.
+
+**The single-machine programs' instructions verify the database.** Both
+`nextSteps` install the CA certificate at
+`/var/lib/simple-balance/tls/db-ca.pem` and give a `DATABASE_URL` of
+`sslmode=verify-full` naming it, as the machine's own `/etc/motd` does;
+`sslmode=no-verify` still works. Both say to wait for the first boot to finish
+before any of it.
+`deploy/systemd/simple-balance.env` documents `SB_PG_CA_BUNDLE` and when to add
+`compose.db-tls.yml` to `COMPOSE_FILE`, and both compose recipes with a
+frontend pass `SB_REAL_IP_RECURSIVE` through, commented in
+`deploy/compose/.env.example`.
+
 **`SB_TRUSTED_PROXY_CIDR`, without which every visitor shares one sign-in
 allowance.** The frontend container tells the API which address a request came
 from, and behind anything terminating TLS that address was the terminator — the
@@ -106,6 +170,25 @@ sets nothing behaves exactly as it did before. Under Kubernetes the chart prints
 a warning while it is unset and `config.trustProxy` is on, replacing a note that
 told operators to edit the nginx template and rebuild the image — which nobody
 using a published image could do.
+
+It takes a list, separated by commas, spaces or both, for more than one proxy,
+and beside it `SB_REAL_IP_RECURSIVE`, off by default, for a chain of proxies
+that each append to `X-Forwarded-For` rather than one that replaces it —
+Google's load balancer is one, and off there takes its address for everybody. A
+script the image's entrypoint runs before it renders the configuration turns
+each entry into a directive of its own and refuses to start on one that is not
+an IPv4 or IPv6 address, a CIDR or `unix:`, naming it, because nginx would
+otherwise resolve a host name at startup and trust whatever it answered, and
+read `10.0.0` as `10.0.0.0`, without a word in the log. It refuses a recursion
+value it would have to guess at, and a `/0` entry with recursion on, which would
+believe whatever address a caller wrote first. One address or CIDR renders
+exactly the configuration it did before the list existed. The chart takes
+`frontend.trustedProxyCidr` as a string or a YAML list, adds
+`frontend.realIpRecursive`, refuses at render what the image would refuse at
+start, and renders `--set frontend.trustedProxyCidr=null` as the off position
+rather than as an empty value and a pod that never started. Building the
+frontend image now needs BuildKit, for the `COPY --chmod` that makes that script
+executable; the entrypoint skips one that is not, with nothing but a log line.
 
 **A plan, sold through Stripe, off by default.** Setting the five `STRIPE_*`
 variables makes Stripe reachable; `SB_BILLING_ENABLED=true` puts a plan on sale
@@ -277,6 +360,73 @@ warning and refuses nothing. The check runs at startup in both the API and the
 scheduler, so a wrong id is in the log before anybody opens the plan tab, and
 again whenever the prices are read, before every subscription is started, and on
 every reconciliation sweep.
+
+**And what a restricted key may read is checked at startup too.** A key built
+from `docs/billing-operations.md` step 2 is asked once, in one round of
+parallel calls, for a single item of each of the seven things this deployment
+reads — customers, subscriptions, subscription schedules, setup intents,
+invoices, payment intents and prices — and every one it is refused is named in
+a single error line. It writes nothing, refuses nothing, and asks a standard
+`sk_` key nothing at all, because such a key has no permission to be missing.
+The reason for it is that Stripe does not reliably name the permission it
+wanted: a key without PaymentIntents answered a first subscription with "An
+unknown error occurred", and the only way to learn which of eleven grants was
+short was to try them. Reads are all a probe can prove, so the other half is
+per call: a call refused for a missing permission now logs the call, the code
+and the fix, and a call Stripe *holds* for a person to approve says that
+instead — which is what an agent-tagged key does, on a deployment with nobody
+to approve it. Step 2 now says where that tag comes from, which is a choice
+made in the form that creates the key rather than anything a replacement key
+escapes; that Stripe's default approval rules cover exactly two actions, a
+refund and a cancellation, of which this deployment makes only the second, in
+one place; and the two ways out, a key created without that intended use or
+the "Subscription is canceled" rule deleted under **Settings → Approvals →
+Rules**. The refusal line names both of those too, where it used to name only
+the key and so sent an operator to rotate a working one. Both are checkable
+rather than invisible, which is what answers *is my replacement key tagged as
+well*: a tagged key carries an **Agent** badge in the API keys list, and the
+rules are on the Approvals page, where any can be deleted. Do it again in live
+mode either way — a key belongs to one mode, though whether a rule does is
+something Stripe does not say, so that page is worth a look there too. That
+table also
+gains **PaymentIntents: Write**, which is not optional: it is what lets a paid
+renewal keep the card that paid it.
+
+**The plan tab states its renewal terms beside every request to pay.** Beside
+the Annual and Monthly buttons, beside the payment form's confirm button for the
+plan being paid for, beside **Keep my plan**, which turns renewal back on, and
+beside **Stay on the annual plan** (or monthly), which lets a scheduled switch
+go and so decides which price the next renewal charges, a
+boxed paragraph says that Premium renews automatically until canceled; what each
+plan charges and how often, in the figures Stripe returns and never one written
+into the page; that if the price changes, or tax is added to what a renewal
+costs, an email comes between 7 and 30 days before the change takes effect,
+saying what it will cost and how to cancel; and that canceling is **Cancel at
+period end** on this tab, with the plan running to the end of the period paid
+for. Each of those buttons is described by it, so a screen reader reads it on
+the button as well. California's Automatic Renewal Law asks for these terms
+conspicuous and beside the request for consent, which is a place no terms page
+can reach, and it sets the 7-to-30-day window. A plan Stripe cannot price at
+that moment is not offered, and the tab says which, because its terms could not
+say what it charges; paying what is owed, replacing a card and canceling need no
+price and still work. The email is a promise this software makes and does not
+keep: nothing here sends one when a price changes, so an operator who changes a
+price sends it, and `docs/monetization.md` says so.
+
+**Your privacy policy and terms of use, where somebody signs up.**
+`TERMS_OF_USE_URL` is new, optional, and an absolute `https://` address like the
+`PRIVACY_POLICY_URL` beside it. Either one, once set, is linked from the sign-in
+and sign-up screens and from the sidebar of every page. With terms set, the
+sign-up form and the **Continue with Google** button each say, above the
+button, that creating an account accepts them, and the plan tab links them from
+its renewal terms. `PRIVACY_POLICY_URL` is
+published whenever it is set, not only while AdSense is configured, which is
+where it was read for most of this release: a deployment selling a plan without
+advertising linked its policy nowhere, not beside the form that collects an
+address and not beside the tab that takes a payment. Both names are
+unprefixed, against the `SB_` rule, and whether they stay that way is still
+open until this release ships: `docs/standards/operations.md` §Naming records
+the question.
 
 **Five billing routes**, all session-only. `AGENTS.md` now names three MCP
 exceptions rather than two: paying for the deployment is account management, and
@@ -504,12 +654,30 @@ switches stay for a key kept in an `existingSecret`, which the render cannot
 see. The list of keys an `existingSecret` may carry now names `METRICS_TOKEN`,
 `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` as well.
 
-**The `aws` and `gcp` Pulumi programs take the trusted-proxy range**, as
-`simple-balance:trustedProxyCidr`, passed to the chart's
-`frontend.trustedProxyCidr`. It is not the whole fix on either cloud as those
-programs build them, and `deploy/pulumi/README.md` says what else each needs.
-Neither program has a billing or ads setting; enabling either means editing
-`deploy/pulumi/common/index.ts`, which the README spells out.
+**The `aws` and `gcp` Pulumi programs take the trusted-proxy settings**, as
+`simple-balance:trustedProxyCidr` and `simple-balance:realIpRecursive`, passed
+to the chart's `frontend.trustedProxyCidr` and `frontend.realIpRecursive`. Left
+unset, each program now supplies its own answer for the network it built,
+rather than the chart's off position — the fix for the shared allowance under
+Fixed, below. A list of your own replaces the program's whole, with recursion
+off unless `simple-balance:realIpRecursive` says otherwise, because a list
+written before recursion existed was written for a header that is replaced; on
+GCP as the program builds it that brings the load balancer's address back for
+everybody, and `deploy/pulumi/README.md` says so. Neither program has a billing
+or ads setting; enabling either means editing `deploy/pulumi/common/index.ts`,
+which the README spells out.
+
+**The refusal a TLS database meets at startup leads with the way that keeps the
+check.** When node-postgres cannot verify the server's certificate, the message
+now says to save the certificate of the CA that signed it and name it,
+`?sslmode=verify-full&sslrootcert=/path/to/ca.pem`, and that the host has to be
+a name the certificate carries; `sslmode=no-verify` comes last, for where there
+is no certificate to name. It had recommended `no-verify` first for any
+self-hosted server, which is the one setting that tells nobody when a different
+server answers. Where the code rules the CA out it says so instead of blaming
+the one named: an expired certificate is sent to a renewal, and a name the
+certificate does not carry to the host in the URL. The process refuses to start
+exactly as before.
 
 **An import, a recurrence's proposals and a staged commit read the plan once,
 not once a row.** Freezing made every row's validation ask which plan is in
@@ -552,6 +720,25 @@ rather than only the fields it names, so a hand edit fails. The marketing
 site's copy loses the key on its next sync.
 
 ### Fixed
+
+**The auth library no longer writes email addresses to the log.** At the
+default `LOG_LEVEL=info`, Better Auth logged `Sign-up attempt for existing
+email:` and the address for every sign-up that named an account already here,
+through its own `console` calls and outside the gate every other line goes
+through. Its lines go through that gate now, tagged `[Better Auth]`, and every
+address in them, or in anything passed beside them, reads `[email address]`.
+The line itself stays, because a run of them is what probing for accounts looks
+like and the sign-up response is careful to hide it. A pre-existing defect
+rather than anything this release introduced; a log alert matching the
+library's own prefix, `INFO [Better Auth]:`, is the one thing that notices.
+
+**A failure inside a sign-in route no longer goes to the log whole.** An error
+that was not the auth library's own — a failed query, most often — fell through
+to its router's last resort, which wrote `# SERVER_ERROR:` and the error to the
+console, the query's bound parameters with it, and in an auth route those are
+addresses and OAuth tokens. It now reaches the same error handler as every other
+route, which logs `Request failed:` and the statement without its values and
+answers with the usual `INTERNAL_ERROR` body rather than an empty 500.
 
 **A restore into PostgreSQL 15 or 16 no longer empties the ledger.** From 17
 on, `pg_restore` opens every restore with `SET transaction_timeout = 0`, which
@@ -609,21 +796,65 @@ settings it had left out.
 instance metadata at 32,000 bytes and the user data was 67 KB; EC2 caps it at
 16,384 and it was 50 KB. Both now send it gzipped, with whole-line comments taken
 out of the files it carries, and `pulumi preview` refuses a document over either
-ceiling rather than letting the launch find out: about 8.7 KB on Oracle and
-5.9 KB on AWS. The Oracle program also asked for a 20 GB data volume, under
+ceiling rather than letting the launch find out: about 9.8 KB on Oracle and
+7.2 KB on AWS. The Oracle program also asked for a 20 GB data volume, under
 Oracle's 50 GB minimum, and now asks for at least 50 — `small` is still inside
 the free tier. And its default stack had no way in, so it now requires an SSH
 key and admits port 22 from its own subnet for OCI's Bastion. A later
 `pulumi up` leaves either machine alone; an upgrade or a setting is applied on
 it.
 
-**The nightly backup could not dump a TLS database.** The application needs
-`sslmode=no-verify` for a managed PostgreSQL whose certificate names a private
-authority, and `pg_dump` refuses that value. The backup and the restore now hand
-libpq `sslmode=require` in its place and drop the parameter libpq does not know.
-`verify-full` still cannot work for backups there, because the `postgres:18`
-client image carries no CA bundle, which is why the profile recommends
-`no-verify`.
+**Behind either `ha` Pulumi program, every visitor shared one sign-in
+allowance.** The API counts sign-in attempts per address and reads it from the
+frontend's `X-Forwarded-For`, and on both clouds that held a proxy's address,
+the same for everybody, so four wrong passwords from anywhere locked out the
+rest, and no trusted range set on the frontend could have fixed it on either
+cloud as the programs built them. On AWS the network load balancer's IP targets
+pass nothing about who connected, so ingress-nginx saw the load balancer: the
+program now turns
+proxy protocol v2 on at both ends in the one ingress-nginx release, believes the
+header only from the public subnets where the load balancer's nodes are — never
+the pods' private subnets, from which any pod could otherwise have named an
+address of its choosing — and moves the load balancer's health check to
+`/healthz` on port 80, because AWS sends the header on health checks and the
+controller's server on 10254 cannot parse it. The frontend then trusts the
+VPC's range with recursion off. On GCP the load balancer appends its own address
+after the visitor's, so the program trusts Google's two front-end ranges and the
+Ingress's reserved address with recursion on, and names container-native load
+balancing on the frontend's Service, since through instance groups the pod would
+see a node instead. It costs an AWS stack that is already running one
+interruption of seconds to about a minute at the next `pulumi up`, while the two
+ends change over. The frontend's half needs a frontend image of 0.2.0 or later,
+and the programs deploy 0.1.6 until 0.2.0 is released. With the chart's
+`NetworkPolicy` off, as both programs leave it, a pod inside the cluster can
+still reach the API directly, or on AWS the frontend, and name its own address;
+that reach is not new, and turning the policy on closes it. None of this has run
+on a real AWS or GCP account: it rests on the vendors' documentation,
+ingress-nginx's source, Pulumi's mocks and stock nginx built into each chain.
+
+**The nightly backup could not dump a TLS database, and now checks it.** The
+application needs `sslmode=no-verify` for a managed PostgreSQL whose certificate
+names a private authority, and `pg_dump` refuses that value. The backup and the
+restore now hand libpq `sslmode=require` in its place and drop the parameter
+libpq does not know. And a `DATABASE_URL` of
+`?sslmode=verify-full&sslrootcert=/var/lib/simple-balance/tls/db-ca.pem` now
+verifies the database for the application and the backups alike, where
+`verify-full` had failed every backup because the `postgres:18` client image
+carries no CA bundle. The new `compose.db-tls.yml` overlay mounts that directory
+read-only into the application at the same path; it is an overlay rather than a
+line in `compose.yml` because a rootless Docker daemon cannot make a directory
+under `/var/lib`, and the line stopped every such deployment starting, a URL
+naming no file included. The cloud programs name it in `COMPOSE_FILE`, and first
+boot makes the directory on the data volume. The backup and the restore mount
+the named file into their client under `verify-full` and `verify-ca`, or the
+machine's CA bundle — or `SB_PG_CA_BUNDLE` — under `verify-full` with no file,
+and refuse `verify-ca` with no file, which libpq would check against any public
+CA with no name check at all. Every other `sslmode` is handled exactly as
+before. The restore's connection to the maintenance database now keeps the
+URL's query whole, where it had replaced the last path anywhere in the string
+and so mangled an `sslrootcert` path or a socket host, and a server version
+that does not come back as a number stops the restore with nothing changed
+rather than being compared as one.
 
 **The nightly backup no longer starts a deployment somebody stopped.** Its unit
 bound itself to the application's, so the 03:15 timer brought a stopped
@@ -672,6 +903,267 @@ monthly to annual charges the difference at once, and when that charge needed
 3-D Secure the subscription went `past_due` with no form to confirm it in. The
 upgrade's own answer now carries the open invoice's secret, and the tab confirms
 it there.
+
+**Paying a failed renewal now keeps the card that paid it.** **Pay now** and
+**Pay what is owed** confirm the open invoice in the page, and the card typed
+into that form was used once and thrown away, so the next renewal charged the
+card that had already failed. A renewal's PaymentIntent carries no instruction
+to save what pays it, which is the difference between it and a first payment;
+it is now marked to keep the method before its secret is handed out, and Stripe
+makes that card the subscription's default. It is marked only while the payment
+is still to be made and only where nothing has been said about the method
+already, so a first payment is left exactly as it was. The marking is best
+effort: a failure is one log line and the payment goes ahead anyway, because
+refusing to take somebody's money over not being able to remember their card is
+the worse of the two outcomes. It needs the key's PaymentIntents Write grant.
+What moves is the subscription's default payment method, which is what Stripe
+bills; the customer's own default is left alone, and pinning that too would
+mean either a route that takes a PaymentIntent id or a Stripe write on every
+`invoice.paid`.
+
+**The plan tab now checks with Stripe whenever money is owed, and says what it
+finds.** It re-read Stripe only for an unfinished first payment, so after a
+**Pay now** that worked, a failed renewal went on saying "Payment failed" until
+the page was reloaded. Every state that owes money is re-read now, on the load
+that draws the page. That read also carries the four things the tab had no way
+to say: why the last attempt failed, in the sentence Stripe writes for a
+cardholder; whether the bank is waiting for the payment to be confirmed, which
+is the one case Stripe does not retry, so the alert points at **Pay now**
+rather than promising a retry that will not come; when Stripe will next try,
+in the cases where it will; and when an unfinished first payment lapses. A
+first payment's decline therefore survives a reload, where before it lived
+only in the form that showed it and vanished with it.
+
+**And it no longer says a period renews when nobody has paid for it.** "renews
+on" and "ending on" are printed only for a period that has been paid for. An
+unfinished first payment says nothing has been charged yet and when it lapses;
+a failed renewal names the day the fifteen-day grace ends, taken from the same
+function that ends it, so the date on the screen is the date enforced; an
+unpaid subscription says Stripe has stopped retrying and that the plan is not
+in force until what is owed is paid.
+
+**Changing the payment method while a payment is owed now says what happened to
+the payment.** Saving a card that was itself declined closed the form as though
+it had worked, leaving somebody on a page that said they owed money with
+nothing to tell them the new card had not paid it either. The answer now tells
+paid, declined — carrying Stripe's own sentence for the cardholder — and a
+payment the bank wants confirmed apart, the last of which no saved card can do
+off-session and which the tab answers by pointing at **Pay now**. A failure it
+cannot classify while money is still owed is reported as a failure rather than
+as nothing owed, that being the one answer that would be a lie. A replay of an
+idempotency key stored before this change carries no outcome, and is read as
+unknown rather than as success.
+
+**The payment form no longer offers a method the subscription cannot be billed
+with.** A USD subscription's card replacement offered Satispay, Kakao Pay and
+Naver Pay, because the form inherited every method the Stripe account had
+turned on. Changing a payment method now narrows that list to a card — which is
+how Apple Pay and Google Pay arrive — and Link. It narrows rather than demands,
+and the distinction is the whole of it: a list Stripe reads as a demand is
+refused whole over a type the account has not activated, and Link is off until
+somebody turns it on under Wallets and is not offered at all in India, so
+demanding it would have taken the card replacement away from the past-due
+subscriber whose way back it is. Starting a subscription names no methods at
+all, for the same reason, so its invoices get what the Stripe account allows
+for invoices, narrowed to the currency. That list is the operator's to keep to
+cards and Link, and `docs/billing-operations.md` step 6 says so. A saved method
+the subscription still refuses is answered with a sentence and changes nothing,
+and the `setup_intent.succeeded` delivery for one is recorded and acknowledged
+rather than failing every retry for three days. The method is pinned on the
+subscription before the customer, so a refusal leaves the two agreeing rather
+than disagreeing. None of this has been tried against a Stripe account with
+Link turned off; it rests on Stripe's documented behavior for the two list
+parameters and on what the sandbox's own intents resolved to.
+
+**And the tab stops calling every payment method a card.** **Replace card** is
+**Change payment method**, **Save this card** is **Save this payment method**,
+the panel headed **Your card** is **Payment method**, and the renewal terms say
+a plan is charged to your payment method. Link can be funded from a bank
+account, so the old wording was wrong about what was being saved.
+
+**A cancellation set in Stripe's dashboard now shows on the plan tab, and holds
+a change of plan.** Stripe records "stop at the end of the period" two ways, as
+a flag and as a date, and this deployment read only the flag — so a
+cancellation set by date was stored as renewing, and the tab offered no way to
+undo something it did not know about. A date falling inside the current period
+is now read as the cancellation it is, and the "ending" line and **Keep my
+plan** the tab already had apply unchanged. It needs no migration and no stored
+date, because Stripe moves the period end onto the cancellation date. While a
+cancellation is pending, asking for the other interval is refused with "Your
+plan is set to end. Press Keep my plan before changing it.", and Stripe is sent
+nothing. Before, **Monthly** quietly turned renewal back on, because the
+schedule it creates clears the cancellation, and **Annual** charged the
+difference for a year of a plan that was set to stop. Paying what is owed and
+repeating the plan already held are not changes of interval and still work. A
+cancellation dated more than one period out still reads as renewing until the
+period it falls in; showing the eventual date would take a stored column.
+
+**Two overlapping presses of Annual no longer move the renewal date twice.**
+The upgrade was made at Stripe and stored only after the lock was released —
+the same shape as the double subscription above — so a second press waiting on
+the lock read a monthly subscription and upgraded again, anchoring the billing
+cycle a second time. The upgraded subscription is stored under the lock now,
+and the second press reads it and finds nothing to do, or, where the charge is
+still owed, the payment to finish.
+
+**The plan tab's buttons and the note under them now follow the server's rule
+rather than a copy of it.** Each priced button is disabled exactly where the
+shared rule says the press would do nothing, and says which reason it is: the
+plan already held, a switch already set and the date it happens, or a plan set
+to end, in the server's own words. Letting a scheduled switch go has its own
+**Stay on the annual plan** button, where it used to be done by pressing the
+priced button of the plan already held — a button that is otherwise disabled,
+so on a deployment that had stopped selling there was no way to do it at all.
+That button carries the renewal terms, because letting a switch go decides what
+the next renewal charges. The note under the buttons is built from the same
+rule, so a subscriber whose renewal has failed is no longer told that moving to
+annual "takes effect now" when the move is scheduled, and a plan that is ending
+gets no renewal sentence at all.
+
+**While a payment form is open it is the only way to pay.** The panel went on
+drawing its own **Pay now**, **Finish your payment** or **Pay what is owed**
+beside the form — a second primary button with the same name, for the same
+payment, pressable while the form was confirming. Those are hidden while a
+payment form is open. A form that only saves a payment method hides nothing,
+because it is not another way to pay.
+
+**And every result on that tab is now a sentence that takes focus.** Every
+button there disables itself while it works, and a disabled element cannot hold
+focus, so the browser let go of it as the request started and the answer
+arrived with focus on `<body>`: a keyboard user began again from the top of the
+page. A payment, a saved payment method, a refusal, and a change that needs no
+payment — canceling, keeping, scheduling a switch, letting one go, upgrading —
+each say what happened and take focus, worded after the plan has been read
+again so a date in the sentence is the new one. A form that opens from a press
+takes focus as well, since the button that opened it has gone or let go.
+Neither moves focus on a page load: coming back from a bank's page is a fresh
+document, and its sentence is left where a reader finds it.
+
+**Coming back from a bank's or a wallet's confirmation page now finishes the
+job.** The address Stripe was told to return to was the tab's whole address, so
+its parameters piled up a set at a time, and a payment method saved through a
+redirect was never confirmed — the tab drew the plan it already had and said
+nothing about what had just happened. The return is to the tab's own path now;
+the five parameters Stripe adds are taken off the address on arrival, the
+client secret among them, and anything else on it is kept; a method that saved
+is confirmed through the same route the in-page form uses, once, keyed so a
+reload cannot confirm it twice; and each of the six outcomes gets a sentence of
+its own.
+
+**A stale "Please select a payment method" no longer sits above a form that is
+complete.** Stripe's element draws and clears its own validation message, and
+the tab was copying it into an alert of its own that nothing cleared. The
+tab's alert is cleared when the form reports itself complete, and only then, so
+a decline in the middle of filling the form is not erased; a validation error
+is left to the element, beside the field it is about.
+
+**A refused change of plan now re-reads the plan.** The tab said the refusal
+and went on offering exactly what had just been refused. Every refusal from the
+four billing mutations re-reads the plan and the session, without closing a
+form somebody is part-way through.
+
+**The plan tab says what a plan's limit is doing to your accounts.** It gave
+the places in use against the limit and said nothing at all about the accounts
+past it: how many are frozen, what being frozen means, or where the one-time
+choice is made. It now says how many are frozen, that they stay readable and
+counted in every total, and links to that choice on the Accounts page while it
+is still open. **And it now says what ending Premium would freeze**, beside
+**Cancel at period end** before the press and again while a cancellation is
+pending, along with whether the one-time choice would be yours to make or
+already made. The figure is the server's, because the page cannot work it out:
+what freezes is the accounts nobody chose, which is not the same as every
+account past the third, and an operator's grant outlasting the period end
+freezes nothing at all. `freezeOnPlanEnd` answers both halves at once, by
+resolving the entitlement that would be in force afterward with the
+subscriptions dropped — so somebody who chose three of five before upgrading is
+told the same two freeze with nothing left to choose, somebody who then
+archived one of the three is told two and not one, and a grant that outlives
+the period gives no number rather than a zero. It rides on the plan status as
+`accountsFrozenOnFree` and `activeChoicePendingOnFree`, and a bundle served by
+a container from before those fields reads their absence as nothing to say
+rather than as a zero, which is what keeps the tab working through the upgrade.
+
+**The one-time choice of active accounts can be saved with the accounts it
+starts on.** The Accounts page's **Choose which accounts stay usable** panel
+compared the selection against the accounts that are not frozen, which is also
+what it starts with ticked — so the commonest answer of all, keep the three
+already in use, was read as no change and **Save** stayed gray under "Nothing
+to save yet." Only an agent could close the choice that way. The comparison is
+against what is stored now, which while the choice is open is every account, so
+any selection inside the limit can be saved. Once the choice is made the two
+are the same again, so it is still a choice made once.
+
+**A frozen account now says why it will not let you do something, before you
+try.** Its card's **Edit**, **Archive** and **Delete** were disabled with no
+reason given, and in the transaction list **Edit**, **Delete** and **Restore**
+were not disabled at all: they opened a form or a confirmation, and the server
+refused what came back as one message at the top of the list that named no
+entry. Entries on a frozen account now carry a **Frozen** badge in the Account
+column, their three buttons are disabled, and the reason names the account, so
+a transfer says which of its two sides is frozen. **Delete selected** and **Edit
+selected** are disabled the same way whenever the selection holds such an entry
+the page has seen — on this page, on a page it has left, taken in by "Select
+all matching", or carried off the page by a reorder — because the server
+refuses those whole rather than skipping rows, and unticking or excluding the
+entry frees them again. A filtered selection's rows the page has never shown
+are the part the browser cannot see; those still meet the server's refusal,
+which now names the entry it was about. The account card's three menu items
+carry the reason too, written once under the menu because one sentence covers
+all three.
+
+**And a disabled row icon or menu item now looks disabled.** Those two families
+paint their own color, background and cursor, so the rendering a browser gives
+a disabled control never showed: a frozen account's **Edit** icon was
+pixel-identical to a live one, down to the hover fill, which is how the badge
+and the description came to be the only things saying so. Both now take
+`.button:disabled`'s own dim and `cursor: not-allowed`, read from that rule
+rather than chosen again, and both hover rules are narrowed to live controls
+rather than answered by a second rule repainting what the first painted — two
+rules fighting would leave both spellings live for whoever adds the next hover
+state. The pagination controls' dimmer 0.45 is left where it is and is not the
+number to copy. `tests/theme-tokens.test.ts` holds both families to the house
+dim and holds every `:hover` on a family that ships disabled to
+`:not(:disabled)`, and `tests/field-contract.test.tsx` now reaches a plain
+`<button>` inside a `RowMenu` or behind a spread, which is where a census of
+`Button`s could not see that these three said nothing.
+
+**Deleting an account no longer promises to cancel a paid plan nobody had.**
+The note said "Your paid plan is canceled", which was false for a first payment
+that never went through: there is a subscription, deleting the Stripe customer
+does cancel it, and nobody ever paid for anything. It says the subscription is
+canceled. It also says what it had never said: that nothing is refunded, that
+time left on what was paid for is lost, and to talk to whoever runs the server
+before deleting if a refund is owed. The last dialog, which is the thing
+actually confirmed, says the subscription ends now and nothing is refunded.
+
+**The browser app no longer trips its own content security policy on every page
+load.** Zod asks once, as it loads, whether it may compile a faster validator,
+and it asks by constructing an empty function — which is `eval`, which this
+app's policy has refused since 0.1.0. Zod catches the refusal and uses its
+interpreted parser, so nothing was ever broken, but the browser reports the
+violation before Zod can catch it. The question is turned off before any schema
+is built, which needs its own module imported first, because imports are
+hoisted and the shared schemas are built while they load. It matters most in
+the rehearsal `SB_CSP_REPORT_ONLY` is for, where a log meant to show which of
+Stripe's hosts a live account reaches instead filled with a report about `eval`
+that invites exactly the wrong fix. Under that rehearsal policy, where `eval`
+is allowed, this also moves Zod to the interpreted parser it was already on
+everywhere else; the two agree, and nothing this app parses is large enough to
+notice.
+
+**An ad unit Google has nothing to fill now collapses.** An unfilled unit kept
+the 280px band the slot reserves, so a page shown no advertisement ended in a
+blank stripe. Both the unit and the slot around it are hidden once Google marks
+it unfilled, which is the rule Google documents for exactly this.
+
+**An enabled button no longer sits below a disabled one that says why.** A
+button's reason is a line under it, so the wrapper showing one is the tallest
+thing in its row, and a row that centers its items dropped every neighbor half
+a reason lower — 8.5px, and 15px with a two-line reason on a phone. The plan
+tab showed it on every visit, one of its two plan buttons always being disabled
+with a reason. A form's action row and a modal's footer line up on the tops
+while a reason is showing, and a line of text in such a row is given a button's
+height so it keeps the midline it had.
 
 **The forecast read every tenant's budget plans, not just yours.**
 `/api/v1/forecast` joined a budget plan to its category on the category id alone,

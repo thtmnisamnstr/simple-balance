@@ -412,8 +412,12 @@ const readableList = (parts: (string | null)[]) => {
  * clicks by habit. What will be destroyed is counted and shown before the
  * confirmation, and the address has to be typed: it is the one thing on the
  * screen a stray click cannot produce.
+ *
+ * Exported for `tests/account-deletion-ui.test.tsx`, which renders it alone:
+ * the page around it needs the auth client and four other sections, and none
+ * of them is what the deletion copy is about.
  */
-function DeleteAccount({ session }: { session: Session }) {
+export function DeleteAccount({ session }: { session: Session }) {
   const [confirmEmail, setConfirmEmail] = useState("");
   const [open, setOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -479,12 +483,34 @@ function DeleteAccount({ session }: { session: Session }) {
                   list above. Everything in that list is a number saying how
                   much is lost; this is the one that costs money, cannot be
                   undone by re-entering it, and is the thing somebody would most
-                  want to have been told before they typed their address. */}
+                  want to have been told before they typed their address.
+
+                  Worded to be true of everything the flag covers, which is
+                  narrower than what the deletion cancels and deliberately so.
+                  `hasLiveSubscription` reads `paidForSubscriptionStatuses` —
+                  the live statuses minus `incomplete` — while
+                  `closeBillingForDeletion` deletes the Stripe customer and so
+                  ends every subscription it owns, a first payment that never
+                  finished included. Saying nothing about that one is the point:
+                  nothing was charged for it and the plan tab calls its owner
+                  Free, so a note about a canceled plan told somebody who had
+                  paid nothing that they were losing one. The one status in the
+                  set nobody paid for is an operator's hand-made `trialing`, and
+                  the sentence below does not claim they did. And it says what
+                  the deletion does not do:
+                  deleting the Stripe customer ends the subscription at once
+                  with no proration and no refund, and the sentence used to stop
+                  at "cannot be restored", which a person who paid for a year in
+                  March could read as the rest of it coming back. A refund is
+                  the operator's to give by hand, so it names who to ask, in the
+                  words the deletion's own refusal uses. */}
               {summary.data.activeSubscription ? (
                 <>
                   {" "}
-                  Your paid plan is canceled at the same time, immediately and for good — a canceled
-                  subscription cannot be restored.
+                  Your subscription is canceled at the same time, immediately and for good — a
+                  canceled subscription cannot be restored. Nothing is refunded, so any time left on
+                  what you paid for is lost. If you think you are owed a refund, contact whoever
+                  runs this server before you delete.
                 </>
               ) : null}
             </Note>
@@ -533,9 +559,17 @@ function DeleteAccount({ session }: { session: Session }) {
       <ConfirmDialog
         open={confirmDelete}
         title="Delete this account for good?"
+        // The last thing somebody confirms, so it names the one item that
+        // costs money as the note above does. It used to leave the subscription
+        // out entirely, although the summary saying there is one has loaded by
+        // the time this can open.
         description={
           summary.data
-            ? `${plural(summary.data.transactions, "transaction")} across ${plural(summary.data.accounts, "account")} and everything else in this ledger will be removed now. There is no copy and no undo. Any agent you have connected loses access immediately.`
+            ? `${plural(summary.data.transactions, "transaction")} across ${plural(summary.data.accounts, "account")} and everything else in this ledger will be removed now. There is no copy and no undo. Any agent you have connected loses access immediately.${
+                summary.data.activeSubscription
+                  ? " Your subscription ends now, and nothing is refunded."
+                  : ""
+              }`
             : "Everything in this ledger will be removed now. There is no copy and no undo."
         }
         confirmLabel="Delete everything"

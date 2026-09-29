@@ -149,13 +149,39 @@ which without help is the terminator, for every visitor alike.
 
 `SB_TRUSTED_PROXY_CIDR` is what fixes it. Set it to the range the terminator
 connects from — the ingress controller's pod CIDR under Kubernetes — and nginx
-resolves `$remote_addr` back to the visitor before passing it on. Its default,
+resolves `$remote_addr` back to the visitor before passing it on. It takes a
+list, separated by commas or spaces, for more than one proxy, and it refuses to
+start on an entry that is not an address, a CIDR or `unix:`, because nginx
+would otherwise resolve a host name and trust the answer. Its default,
 `127.0.0.1`, is the off position: nothing reaches the container from loopback,
 so a deployment that sets nothing behaves exactly as it did before the setting
 existed.
 
 Name the proxy's range and nothing wider. This decides whose word is taken for
 an address, so a range that includes callers lets a caller choose their own.
+
+`SB_REAL_IP_RECURSIVE` stays off behind a terminator that replaces the header,
+which is the case above: nginx takes the last entry, and that is the visitor.
+It is for a chain whose every hop appends and is in the list, where off would
+take the last hop's own address for everybody; on, nginx walks back past every
+trusted hop to the first address that is not one, which the outermost hop wrote
+from its own socket. That is Google's load balancer, which appends
+`<client-ip>,<load-balancer-ip>`, and it is the one place the programs here turn
+it on.
+
+The `ha` programs set both for the network they build. On AWS the load balancer
+in front of ingress-nginx would otherwise hand it the load balancer's own
+address, so the program turns proxy protocol on between the two, and
+ingress-nginx believes that header only from the load balancer's subnets, never
+from the pods'; the frontend trusts the VPC's range, where ingress-nginx's pods
+take their addresses, with recursion off. On GCP the load balancer is the
+ingress, and the frontend trusts Google's two front-end ranges and the
+Ingress's reserved address with recursion on. On both, a pod inside the cluster
+that reaches the API directly — or on AWS the frontend — can still write its own
+`X-Forwarded-For`, because the chart's `NetworkPolicy` is off unless asked for;
+the firewall table below is what closes that. `deploy/pulumi/README.md` has the
+detail, including that only a frontend image of 0.2.0 or later reads either
+setting.
 
 ## The firewall
 
@@ -192,7 +218,9 @@ The `ha` profile, where the tiers are separate:
 The server is not publicly reachable in either shape, and a second ingress rule
 sending `/api` straight to it would bypass the `X-Forwarded-For` handling
 `TRUST_PROXY` depends on. The chart's `NetworkPolicy` enforces the table above
-when `networkPolicy.enabled` is set.
+when `networkPolicy.enabled` is set, and it is also what stops a pod inside the
+cluster from reaching the API, or a frontend that trusts the pods' range, and
+naming its own address: without it, anything in the cluster can.
 
 ## DNS
 
@@ -279,20 +307,35 @@ logs are its own server's.
 
 **Disks.** The boot disk holds the operating system, the images and the logs,
 and does not grow. The data disk holds the backups, the generated secret in
-`secrets.env` and the settings in `env.local`, and is a separate volume on both
-clouds — so replacing the machine keeps all three. It does not hold the
-database; the ledger was never on this machine. `docs/deployment-sizing.md`
-sizes both disks, and on Oracle Cloud `oci-single` never makes the data disk
-smaller than 50 GB, which is that provider's minimum.
+`secrets.env`, the settings in `env.local` and the database's CA certificate in
+`tls/`, and is a separate volume on both clouds — so replacing the machine
+keeps all of it. It does not hold the database; the ledger was never on this
+machine. `docs/deployment-sizing.md` sizes both disks, and on Oracle Cloud
+`oci-single` never makes the data disk smaller than 50 GB, which is that
+provider's minimum. Both programs also mark the data disk with Pulumi's
+`protect` unless `simple-balance:protectDataVolume` is false, so a
+`pulumi destroy` refuses rather than taking it, and so does the one change that
+would replace it on each cloud — a new availability domain on Oracle Cloud, a
+new region on AWS; `deploy/pulumi/README.md` §Tearing down on AWS and
+§Tearing down on Oracle Cloud are how to mean it.
 
 **Backups.** A daily `pg_dump` in PostgreSQL's own compressed format, taken over
 the network from a `postgres:18` client container — the database is not on the
 machine — and verified by reading it back before it is kept. The timer's unit
 requires the deployment to be running rather than starting it, so a deployment
-stopped on purpose stays stopped and that night's backup fails instead. Which
-`sslmode` the dump can use is in
-[`docs/deployment.md`](deployment.md#reaching-the-database-over-a-network).
-`deploy/compose/single/README.md` has the commands, including the restore.
+stopped on purpose stays stopped and that night's backup fails instead. It
+connects with the application's own `DATABASE_URL`, and under
+`sslmode=verify-full` it checks the database's certificate exactly as the
+application does: the `postgres:18` client carries no certificate authorities,
+so the script mounts the CA certificate `sslrootcert` names into it, and without
+one the machine's own CA bundle. That file lives in
+`/var/lib/simple-balance/tls/`, on the data disk, where the `compose.db-tls.yml`
+overlay mounts it into the application at the same path. `verify-ca` with no
+`sslrootcert` is refused rather than checked against every public CA, and
+`no-verify` still dumps, encrypted and unchecked, as it did.
+[`docs/deployment.md`](deployment.md#reaching-the-database-over-a-network) has
+every mode, and `deploy/compose/single/README.md` the commands, the restore
+included, and where each provider publishes its CA certificate.
 
 ## Secrets
 

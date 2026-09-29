@@ -34,8 +34,12 @@ services:
       # reaches a container from its own loopback, so an unset value means nginx
       # takes the connection's address and no header. That is wrong behind a
       # terminator and safe everywhere, which is the right way round for a
-      # default.
+      # default. Several ranges go in one value, separated by commas or spaces.
       SB_TRUSTED_PROXY_CIDR: ${SB_TRUSTED_PROXY_CIDR:-127.0.0.1}
+      # Off here, because Caddy replaces X-Forwarded-For rather than appending
+      # to it, so the last entry is the visitor. On only behind a chain whose
+      # every hop appends and is in the list above.
+      SB_REAL_IP_RECURSIVE: ${SB_REAL_IP_RECURSIVE:-off}
 
       SB_FRONTEND_PORT: "8080"
       # Move together with CSV_MAX_BYTES on the application machines. nginx

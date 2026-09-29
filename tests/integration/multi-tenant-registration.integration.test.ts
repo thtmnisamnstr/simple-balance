@@ -1,3 +1,4 @@
+import { inspect } from "node:util";
 import { Client as PgClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { user } from "../../src/server/db/schema.js";
@@ -18,6 +19,8 @@ const originalEnvironment = {
   ALLOWED_EMAILS: process.env.ALLOWED_EMAILS,
   SETUP_TOKEN: process.env.SETUP_TOKEN,
   TRUST_PROXY: process.env.TRUST_PROXY,
+  GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
+  GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
 };
 
 // Sign-up is rate limited to a few attempts per address per ten seconds, so
@@ -41,7 +44,10 @@ function restoreEnvironment() {
  * Each rule needs its own process-wide config and its own empty database, so
  * every case here builds both from scratch rather than sharing them.
  */
-async function startDeployment(allowedEmails: string | undefined) {
+async function startDeployment(
+  allowedEmails: string | undefined,
+  settings: Record<string, string> = {},
+) {
   const databaseName = `simple_balance_tenants_${process.pid}_${Date.now()}_${Math.abs(
     hash(allowedEmails ?? "closed"),
   )}`;
@@ -61,6 +67,7 @@ async function startDeployment(allowedEmails: string | undefined) {
   process.env.TRUST_PROXY = "true";
   if (allowedEmails === undefined) delete process.env.ALLOWED_EMAILS;
   else process.env.ALLOWED_EMAILS = allowedEmails;
+  Object.assign(process.env, settings);
 
   vi.resetModules();
   // Everything below has to come from the modules loaded after the reset. The
@@ -175,6 +182,37 @@ integration("ALLOWED_EMAILS=* lets anybody register", () => {
     expect(duplicate.status).toBeGreaterThanOrEqual(400);
     expect(await getDb().select().from(user)).toHaveLength(3);
   });
+
+  /**
+   * The auth library says so in the log, at the default level, and it used to
+   * say it with the address: `Sign-up attempt for existing email:
+   * second@anywhere.test`, written to `console` outside the gate. The line
+   * stays, because a run of them is what somebody probing for accounts looks
+   * like and the response hides it; the address goes.
+   */
+  it("logs the attempt without the address it was made for", async () => {
+    const lines: string[] = [];
+    const spies = (["debug", "info", "log", "warn", "error"] as const).map((method) =>
+      vi.spyOn(console, method).mockImplementation((...parts: unknown[]) => {
+        lines.push(parts.map((part) => inspect(part, { depth: Infinity })).join(" "));
+      }),
+    );
+    try {
+      const duplicate = await signUp(app, {
+        name: "Second Person Once More",
+        email: "Second@Anywhere.test",
+        password: "another-good-long-password",
+      });
+      expect(duplicate.status).toBeGreaterThanOrEqual(400);
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
+
+    expect(lines.join("\n")).not.toMatch(/second@anywhere\.test/i);
+    expect(lines).toContainEqual(
+      expect.stringContaining("[Better Auth] Sign-up attempt for existing email: [email address]"),
+    );
+  });
 });
 
 integration("a list of domains and addresses admits exactly those", () => {
@@ -254,6 +292,129 @@ integration("a list of domains and addresses admits exactly those", () => {
       password: "a-perfectly-good-password",
     });
     expect(response.status).toBe(200);
+  });
+});
+
+/**
+ * Every line written to `console` while `run` runs, whole, and nothing printed.
+ * Inspected rather than stringified, because a stack and a nested object are
+ * where an address would be carried.
+ */
+async function consoleDuring(run: () => Promise<void>) {
+  const lines: string[] = [];
+  const spies = (["debug", "info", "log", "warn", "error"] as const).map((method) =>
+    vi.spyOn(console, method).mockImplementation((...parts: unknown[]) => {
+      lines.push(
+        parts
+          .map((part) => (typeof part === "string" ? part : inspect(part, { depth: Infinity })))
+          .join(" "),
+      );
+    }),
+  );
+  try {
+    await run();
+  } finally {
+    for (const spy of spies) spy.mockRestore();
+  }
+  return lines;
+}
+
+/**
+ * The whole application, rather than the library alone, because what these
+ * two decide is where an auth route's failure lands: in the response the
+ * sign-in screen reads, and in `log.failure` rather than round it.
+ */
+integration("an auth route that fails, reported through the log", () => {
+  let app: App;
+  let getDb: Awaited<ReturnType<typeof startDeployment>>["getDb"];
+  let stop: () => Promise<void>;
+  type Context = Awaited<
+    ReturnType<(typeof import("../../src/server/auth.js"))["getAuth"]>["$context"]
+  >;
+  let context: Context;
+
+  beforeAll(async () => {
+    ({ app, getDb, stop } = await startDeployment("allowed.test", {
+      AUTH_MODE: "both",
+      GOOGLE_CLIENT_ID: "tenant-integration-client-id",
+      GOOGLE_CLIENT_SECRET: "tenant-integration-client-secret",
+    }));
+    const { getAuth } = await import("../../src/server/auth.js");
+    context = await getAuth().$context;
+  });
+  afterAll(async () => {
+    vi.restoreAllMocks();
+    await stop();
+    restoreEnvironment();
+  });
+
+  /**
+   * An address the list turns away: `mayCreateAuthUser` refuses in the user
+   * hook, the library's `createOAuthUser` reads `.id` off nothing, and its
+   * catch logs the TypeError by handing over the error as the line. Treated as
+   * a string that threw inside the catch, and the refused person got an empty
+   * 500 instead of the 401 the sign-in screen turns into its Google alert.
+   */
+  it("answers a Google sign-up the list turns away with a 401", async () => {
+    const google = context.socialProviders.find((provider) => provider.id === "google")!;
+    vi.spyOn(google, "verifyIdToken").mockResolvedValue(true);
+    vi.spyOn(google, "getUserInfo").mockResolvedValue({
+      user: { id: "google-outsider", email: "outsider@elsewhere.test", emailVerified: true },
+      data: {},
+    } as Awaited<ReturnType<typeof google.getUserInfo>>);
+
+    let response: Response | undefined;
+    const lines = await consoleDuring(async () => {
+      response = await app.request("http://localhost:3000/api/auth/sign-in/social", {
+        method: "POST",
+        headers: {
+          origin: "http://localhost:3000",
+          "content-type": "application/json",
+          "x-forwarded-for": fromNewClient(),
+        },
+        body: JSON.stringify({ provider: "google", idToken: { token: "an-id-token" } }),
+      });
+    });
+
+    expect(response!.status).toBe(401);
+    expect(await response!.json()).toMatchObject({ code: "OAUTH_LINK_ERROR" });
+    expect(await getDb().select().from(user)).toHaveLength(0);
+    expect(lines.join("\n")).not.toMatch(/outsider@elsewhere\.test/i);
+    expect(lines).toContainEqual(expect.stringContaining("[Better Auth] Error [TypeError]"));
+  });
+
+  /**
+   * A failed query inside an auth route. The library's router answered it with
+   * an empty 500 and wrote `# SERVER_ERROR:` and the error whole to `console`
+   * — the query's bound parameters with it, an address and a token among
+   * them. Now it reaches the application's error handler.
+   */
+  it("hands a failed query to the application's error handler, parameters left out", async () => {
+    const credentials = { email: "failing@allowed.test", password: "a-good-long-password" };
+    expect((await signUp(app, { name: "Failing Query", ...credentials })).status).toBe(200);
+    const failure = Object.assign(
+      new Error('Failed query: insert into "auth_session" params: failing@allowed.test,tok_secret'),
+      {
+        query: 'insert into "auth_session" ("token", "user_id") values ($1, $2)',
+        params: ["failing@allowed.test", "tok_secret"],
+      },
+    );
+    vi.spyOn(context.internalAdapter, "createSession").mockRejectedValueOnce(failure);
+
+    let response: Response | undefined;
+    const lines = await consoleDuring(async () => {
+      response = await signIn(app, credentials.email, credentials.password);
+    });
+
+    expect(response!.status).toBe(500);
+    expect(await response!.json()).toEqual({
+      error: { code: "INTERNAL_ERROR", message: "An unexpected error occurred" },
+    });
+    const logged = lines.join("\n");
+    expect(logged).not.toMatch(/SERVER_ERROR|failing@allowed\.test|tok_secret/);
+    expect(logged).toContain(
+      'Request failed: insert into "auth_session" ("token", "user_id") values ($1, $2)',
+    );
   });
 });
 

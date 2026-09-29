@@ -56,6 +56,7 @@ const keys = [
   "ADSENSE_CONSENT_MANAGED",
   // Required whenever AdSense is configured, so every ad case has to name it.
   "PRIVACY_POLICY_URL",
+  "TERMS_OF_USE_URL",
   "STRIPE_SECRET_KEY_FILE",
   "STRIPE_WEBHOOK_SECRET_FILE",
 ] as const;
@@ -816,5 +817,50 @@ describe("what a deployment sells and shows", () => {
 
     expect(config.billing).toBeUndefined();
     expect(config.ads).toBeUndefined();
+    expect(config.legal).toEqual({});
+  });
+
+  /**
+   * The policy and the terms are the deployment's, not the ads'. Read inside
+   * the ad settings, the policy existed only while AdSense did, so a deployment
+   * selling a plan with no advertising had no policy to link on the screens
+   * that collect an address and a payment.
+   */
+  it("carries the privacy policy and the terms with no ads configured", async () => {
+    setEnvironment({
+      ...production,
+      ...stripe,
+      SB_BILLING_ENABLED: "true",
+      PRIVACY_POLICY_URL: "https://smpl.money/privacy/",
+      TERMS_OF_USE_URL: "https://smpl.money/terms/",
+    });
+    vi.resetModules();
+    const { getConfig } = await import("../src/server/config.js");
+    const config = getConfig();
+
+    expect(config.ads).toBeUndefined();
+    expect(config.legal).toEqual({
+      privacyPolicyUrl: "https://smpl.money/privacy/",
+      termsOfUseUrl: "https://smpl.money/terms/",
+    });
+  });
+
+  it("carries the one policy the ads required, read once", async () => {
+    setEnvironment({ ...production, ...adsense });
+    vi.resetModules();
+    const { getConfig } = await import("../src/server/config.js");
+
+    expect(getConfig().legal.privacyPolicyUrl).toBe(adsense.PRIVACY_POLICY_URL);
+  });
+
+  it("refuses to start on a terms address that is not an https one", async () => {
+    setEnvironment({
+      ...production,
+      TERMS_OF_USE_URL: "http://smpl.money/terms/",
+    });
+    vi.resetModules();
+    const { getConfig } = await import("../src/server/config.js");
+
+    expect(() => getConfig()).toThrow(/TERMS_OF_USE_URL must be https/);
   });
 });

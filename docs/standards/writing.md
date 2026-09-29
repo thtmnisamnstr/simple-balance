@@ -99,7 +99,7 @@ nothing here is Binding. The one principle worth quoting is its first:
 "Changelogs are for humans, not machines." This file takes that further than the
 convention expects.
 
-- **Prose, not bullets.** `CHANGELOG.md` holds zero list items in 2,664 lines,
+- **Prose, not bullets.** `CHANGELOG.md` holds zero list items in 3,508 lines,
   and the paragraphs are why it can be read. An entry runs at the length and in
   the voice of a commit body: what changed, what it fixes, and what it costs.
 - **Newest first, under `## Unreleased`, then `## X.Y.Z - YYYY-MM-DD`.** The
@@ -127,7 +127,7 @@ convention expects.
 *Not checked mechanically.* Nothing in `tests/`, `scripts/` or `.github/`
 reads `CHANGELOG.md`. In particular nothing checks that the top heading matches
 `package.json`, which is a hand step in the release recipe at
-`docs/upgrades.md:650` and has already been the subject of a commit ("Date
+`docs/upgrades.md:909` and has already been the subject of a commit ("Date
 0.1.4 the day it is cut").
 
 ## Versioning
@@ -217,7 +217,7 @@ with no note. The publish runs `npm run verify` first, so an unwritten note now
 stops the release rather than reaching an operator mid-upgrade. *Also checked:*
 the frozen migration list, which `tests/migrations.test.ts` holds to what is on
 disk. *Not checked:* the changelog heading, a hand step in the release recipe at
-`docs/upgrades.md:650`, and which release a migration is attributed to,
+`docs/upgrades.md:909`, and which release a migration is attributed to,
 which is prose inside a list a test can only check the membership of.
 
 ## Upgrade notes
@@ -228,9 +228,10 @@ it, and changing it would leave their schema and its recorded history
 disagreeing." What follows is the documentation the operator is owed for that.
 
 **House, the shape.** A `## Before you upgrade to X.Y.Z` section, and its first
-sentence tells an operator whether they can stop reading. `docs/upgrades.md:337-338`
-is the model: "Nothing refuses to start that 0.1.5 accepted, and nothing about
-an existing configuration has to change. Five things are worth knowing." The
+sentence tells an operator whether they can stop reading.
+`docs/upgrades.md:591-592` is the model: "Nothing refuses to start that 0.1.5
+accepted, and nothing about an existing configuration has to change. Five
+things are worth knowing." The
 0.1.4 section is the other model, because the answer there was different: "0.1.4
 refuses to start on three configurations 0.1.3 accepted", followed by a table of
 what to do about each.
@@ -544,7 +545,7 @@ them cover the whole range:
   Note the last line, which states the bound: "Unbounded on purpose: the keys
   are locale-and-currency pairs and a ledger holds a handful of currencies, so
   there is nothing here to grow."
-- **The trade named, not only the choice.** `src/client/components.tsx:604-618`:
+- **The trade named, not only the choice.** `src/client/components.tsx:610-624`:
   a fixed popover, why absolute fails in a scrolling table card, what fixed
   costs, and then the harder half: "Deliberately not `role="menu"` ... menu
   roles without the keyboard behavior they imply are worse than none."
@@ -673,7 +674,7 @@ edit.
   anybody argued the rule down: a rule nothing enforces loses ground at the rate
   the repository grows, which is the case for scoping it rather than for
   restating it. In user-visible copy the rule holds almost everywhere, with
-  four exceptions: `App.tsx:595`, `select-options.ts:110`,
+  four exceptions: `App.tsx:696`, `select-options.ts:110`,
   `TemplatesPage.tsx:611`, and the review queue's inline-edit labels
   (`StagingPage.tsx:1039`), which lead with the visible value and set the
   instruction off behind a dash. The lone "—" in an empty table cell is a

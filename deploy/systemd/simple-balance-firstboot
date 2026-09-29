@@ -25,8 +25,22 @@ set +a
 # before the block device appears, and a mount that races it writes the secret,
 # env.local and every backup onto the boot disk — which works, until the machine
 # is rebuilt and all three go with the disk.
+#
+# For as long as Pulumi would go on waiting for the device before calling the
+# `up` failed, which is forty minutes, from the providers' own timeouts. On
+# Oracle Cloud the volume is built only once this instance is running, so a
+# first boot waits out its creation and then its attachment, and the OCI
+# provider allows twenty minutes for each. On AWS a replacement waits for the
+# old machine to stop (ten), the volume to detach (five) and attach (five). A
+# wait shorter than Pulumi's can give up on a volume that is still on its way,
+# and leaves a machine with none of the directories the next steps write into.
+# The loop ends the moment the device appears, so the number only matters when
+# it is late, and a person running this by hand is told what it is waiting on.
 i=0
-while [ ! -b "$SB_DATA_DEVICE" ] && [ "$i" -lt 60 ]; do
+if [ ! -b "$SB_DATA_DEVICE" ]; then
+	echo "simple-balance: waiting up to forty minutes for the data volume $SB_DATA_DEVICE" >&2
+fi
+while [ ! -b "$SB_DATA_DEVICE" ] && [ "$i" -lt 1200 ]; do
 	i=$((i + 1))
 	sleep 2
 done
@@ -53,6 +67,19 @@ mountpoint -q /var/lib/simple-balance || mount /var/lib/simple-balance
 
 mkdir -p "$SB_BACKUP_DIR"
 chmod 0700 "$SB_BACKUP_DIR"
+
+# The database's CA certificate goes here, as db-ca.pem, for a DATABASE_URL
+# that verifies the server: compose.db-tls.yml, which COMPOSE_FILE names on
+# these machines, mounts this directory into the application at the same path,
+# and the backup and restore mount the file from it. On the data volume, so it
+# survives a rebuild with the URL that names it. Made here, before anything
+# starts, because that mount refuses a directory that is not there.
+#
+# 0755, set on every run, because the application reads it as the image's
+# unprivileged user and not as root. Unlike the backups, nothing in it is a
+# secret: a CA certificate is what a server hands every client that asks.
+mkdir -p /var/lib/simple-balance/tls
+chmod 0755 /var/lib/simple-balance/tls
 
 # Generated here, kept on the data volume, and sent nowhere. The value is of no
 # use off this machine, so it belongs neither in user data — readable by anyone
@@ -116,16 +143,21 @@ if ! grep -q '^DATABASE_URL=..*' /opt/simple-balance/.env; then
 Simple Balance is installed and not yet running: it has no database to talk to.
 
 This is the `single` profile, whose database is somebody else's — a managed
-PostgreSQL, or a server you already keep. Point it at one:
+PostgreSQL, or a server you already keep. Point it at one, with the CA
+certificate that signed the database's saved beside it:
 
+  sudo install -m 0644 ca-certificate.pem /var/lib/simple-balance/tls/db-ca.pem
   sudo nano /var/lib/simple-balance/env.local
-      DATABASE_URL='postgresql://user:password@host:5432/simple_balance?sslmode=no-verify'
+      DATABASE_URL='postgresql://user:password@host:5432/simple_balance?sslmode=verify-full&sslrootcert=/var/lib/simple-balance/tls/db-ca.pem'
 
   sudo /usr/local/sbin/simple-balance-firstboot
 
 Single quotes, so nothing in the value is expanded, and any @ : / ? # % & or $
-in the password written as %40 %3A %2F %3F %23 %25 %26 %24. Which sslmode to use
-is in docs/deployment.md, "Reaching the database over a network".
+in the password written as %40 %3A %2F %3F %23 %25 %26 %24. host is the name in
+the database's certificate, not its IP address. A certificate from a public CA
+needs no file: leave out &sslrootcert=... Where to get the certificate is in
+deploy/compose/single/README.md, and which sslmode to use in docs/deployment.md,
+"Reaching the database over a network".
 
 That second command rebuilds the configuration and starts the deployment and its
 nightly backup. It is the same script that ran at boot and is safe to run again.

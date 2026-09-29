@@ -327,7 +327,11 @@ describes turning ads on points here rather than keeping a copy.
    - `PRIVACY_POLICY_URL`, the absolute `https://` address of that policy. The
      server refuses to start with AdSense configured and no policy, because an
      operator who serves ads without one is in breach of Google's terms from the
-     first impression.
+     first impression. It is linked from the sign-in and sign-up screens and
+     from every page, and it is worth setting whether or not you serve ads:
+     California's online privacy law expects a policy conspicuous where
+     somebody's information is collected, and the sign-up form is where that
+     starts.
    - `SB_BILLING_ENABLED=true` with the five `STRIPE_*` settings, because an ad
      is shown only where a limited plan is in force. Without them the ids widen
      the policy and serve `/ads.txt`, and nobody is shown an ad; the process
@@ -363,6 +367,67 @@ shows the plan, how much of the account limit is used, the price read from
 Stripe, and the controls to change or cancel. Stripe's script loads there and
 nowhere else, and only once there is something to confirm — a payment or a
 card — so no other page fetches it, sign-in included.
+
+**It takes a card or Link, and Link only where the account has it on.**
+**Change payment method** is the one request that names the two: its SetupIntent
+sends `card` and `link` as the methods the account's configuration may offer,
+with Apple Pay and Google Pay riding on the card, so a method turned on in the
+Stripe dashboard later never reaches it untried. It narrows rather than demands,
+and the distinction is the whole of it: the parameter Stripe reads as a demand
+refuses the request whole over a type the account has not turned on, and Link is
+off until somebody turns it on under Wallets and is not offered at all in India,
+so demanding it would take the form away from the past-due subscriber whose way
+back it is. A first payment names no methods at all, for the same reason — a
+subscription's payment settings have only the demanding form — so it and **Pay
+now** offer what Stripe works out for the invoice from the account's invoice
+settings and the method the subscription already bills, narrowed to that
+subscription's currency. Keeping that list to the same two is the operator's
+job, and `docs/billing-operations.md` step 6 has the detail. A card that pays a
+failed renewal with **Pay now** becomes the card billed from then on, and a
+payment method saved while something is owed says whether it paid it. A
+subscriber whose plan is set to end presses **Keep my plan** before changing
+interval, because renewing again is the consent the renewal terms below are
+shown for, and it is that button's to give.
+
+**The renewal terms are stated where the consent is asked for.** Beside the
+Annual and Monthly buttons, beside the payment form's confirm button for the
+plan being paid for, beside **Keep my plan**, which turns renewal back on after
+a cancellation, and beside **Stay on the annual plan** (or monthly), which lets
+a scheduled switch go and so decides which price renews, the tab says in a boxed
+paragraph that Premium renews automatically until canceled, what each plan
+charges and how often, in the figures Stripe returns and the buttons show; that
+if the price changes, or tax is added to what a renewal costs, you will email
+the subscriber between 7 and 30 days before the change takes effect, saying what
+it will cost and how to cancel, and that they may cancel before it does; and
+that canceling is **Cancel at period end** on this tab, with the plan running to
+the end of the period paid for. Each of those buttons names that paragraph as
+its description, so a screen reader reads it on the button too. California's
+Automatic Renewal Law (Business and Professions Code 17602(a)(1)) asks for those
+terms clear and conspicuous and in visual proximity to the request for consent,
+and a site's terms of use cannot put them there. With `TERMS_OF_USE_URL` set,
+the paragraph links your terms, and the sign-up form and the **Continue with
+Google** button each say that creating an account accepts them.
+
+**A plan Stripe cannot price is not offered.** The recurring charge is one of
+the terms (17601(b)(3)), so when Stripe cannot be reached, or holds no such
+price, the tab offers neither that plan's button nor a first payment for it,
+and says which plan it could not price. Everything that sells nothing new
+still works without a price: paying what is owed, replacing a card, canceling,
+keeping a plan and letting a scheduled switch go.
+
+**The price-change email is yours to send.** The sentence about it is a promise
+this software makes on your behalf and nothing in it keeps: it sends no notice
+when a price changes, because a price changes at Stripe, where you point
+`STRIPE_PRICE_*_ID` at a new one. Changing what anybody pays, or starting to add
+tax to it, means emailing every subscriber it affects between 7 and 30 days
+before the change takes effect, saying what the renewal will cost and how to
+cancel. That window is the one 17602(g)(2) sets for a contract from July 1,
+2025 (17602(j)), no less than 7 days and no more than 30, which is why the
+sentence is shown whether or not you set `TERMS_OF_USE_URL`: an operator with no
+terms of their own owes the same notice. It covers only a change you make. A
+switch a subscriber asks for takes effect when the tab says it does, and no
+notice is owed for it. If your terms promise something else, the plan tab
+disagrees with them.
 
 Settings and the plan tab are two documents with a tab strip across them rather
 than two panels on one page, and the strip navigates with plain anchors.

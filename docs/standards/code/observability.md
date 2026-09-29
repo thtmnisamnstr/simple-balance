@@ -146,7 +146,7 @@ by something it is refusing.
 ### 2.1 One gate, and nothing names `console`
 
 **Binding, with one named exception.** Every line goes through `log`
-(`src/server/log.ts:53`), which reads `LOG_LEVEL` once and drops what sits below
+(`src/server/log.ts:57`), which reads `LOG_LEVEL` once and drops what sits below
 it. `error` is the top of the order and is never silenced.
 
 The rule is about the identifier, not the call. `console.info(` was banned and
@@ -154,6 +154,18 @@ nothing said `console.info(`; two modules took `logger = console` as a default
 parameter and logged through it, so "SIGTERM received, shutting down" printed at
 every level including the one an operator chose to silence it with. A default is
 a call site one hop away, and the hop was enough to hide it for a release.
+
+A library that logs for itself is the same hop one step further out, where the
+check cannot look: Better Auth called `console` from `node_modules` at a level
+it was merely told, until `src/server/auth.ts` handed it a `log` function. Its
+lines go through `log.fromLibrary` now, which 2.4 describes. Its router had a
+second hop of its own: an error that was not the library's own `APIError` fell
+through to `console.error("# SERVER_ERROR: ", error)`, whole, bound parameters
+and all. `authReporting`'s `onAPIError` throws that error on to Hono's handler,
+which narrows it through `log.failure` like any other. What is left outside the
+gate is a few notices about the library's own setup, written through a
+module-level logger no option reaches, none of them carrying anything from a
+request.
 
 **The exception is the configuration layer**, and it is three files —
 `config.ts`, `config-files.ts` and `config-limits.ts`, with `log.ts` itself on
@@ -224,7 +236,7 @@ bound query parameter. The operator reading the log is frequently not the person
 whose ledger it describes, and a log is a copy of whatever it names that
 outlives the request by however long the container's logs are kept.
 
-The four sites that show what the rule costs, each with the thing it
+The five sites that show what the rule costs, each with the thing it
 deliberately leaves out:
 
 - **A request** logs the method, the path and the status
@@ -240,10 +252,29 @@ deliberately leaves out:
 - **A failed query** logs the statement and never its bound parameters, because
   one of those parameters is the OAuth access token the MCP token endpoint looks
   a grant up by, and the rest are somebody's payees and amounts. That narrowing
-  is `log.failure` (`src/server/log.ts:71-97`) rather than a line at each
+  is `log.failure` (`src/server/log.ts:75-101`) rather than a line at each
   transport, because for a release it *was* a line at one transport: the HTTP
   handler narrowed the error and the MCP tool path logged it whole, so an
   agent's failing call wrote what a browser's failing call did not.
+- **A line the auth library writes** goes through `log.fromLibrary`
+  (`src/server/log.ts:145`), tagged `[Better Auth]`, with every email address
+  in the message and in whatever is passed beside it replaced by
+  `[email address]`, and a failed query cut to its statement the way
+  `log.failure` cuts one. Better Auth wrote to `console` on its own, outside the
+  gate, and at `info` it wrote `Sign-up attempt for existing email: <address>`
+  for every sign-up naming an account already here. Redacted by the address's
+  shape rather than that one line dropped, because a match on a library's
+  wording holds until the release that rewords it and then fails with nothing
+  to say so, and the line itself is worth keeping: a run of them is what
+  probing for accounts looks like, and the sign-up response hides it. The
+  message may be an error rather than a string, whatever the library's type
+  says: its OAuth sign-up catch hands over the error itself, and reading that
+  as a string threw inside the catch and turned a refused Google sign-up into
+  an empty 500. Nothing in it may throw, for the same reason. The pattern is
+  anchored where a run of characters begins, because part of what it reads is
+  the request — the social sign-in route logs the provider name it was sent —
+  and unanchored it was quadratic: 63 KiB held the thread for 2.4 seconds. Each
+  string is cut at 4 KiB, after redacting and never before.
 
 **An id is allowed, and the difference from a metric label is the point.** A
 label costs a time series per distinct value and must stay bounded; a line costs
@@ -266,7 +297,13 @@ catch through it costs nothing when the doubt was wrong.
 request line, the search term is absent from it, the payee an agent filtered by
 is absent from the tool line, and — serializing the call rather than
 stringifying it, because `String(error)` hides the difference — that a failing
-statement is logged while the values bound into it are not. And
+statement is logged while the values bound into it are not.
+`tests/auth-log.test.ts` drives the logger Better Auth builds from
+`src/server/auth.ts` with the sentence its sign-up route writes, spying on
+`console.log` as well as the gate's four methods because that is where the
+library's own fallback wrote, and
+`tests/integration/multi-tenant-registration.integration.test.ts` makes the
+real sign-up and reads the line back without the address. And
 `tests/mail-logging.test.ts` for the rule this paragraph used to write out and
 leave to a person: no `log.error` call anywhere in `src/server` receives, as a
 bare argument, an identifier bound by a `catch` in the same file. `log.failure`
@@ -295,7 +332,7 @@ was designed to avoid in the first place.
 
 An empty `catch` is for a case where nothing went wrong, and it says which in a
 comment. There are two in `src/server`, both canceling a request body the peer
-may have closed already (`src/server/http-security.ts:459` and `:943`), and both
+may have closed already (`src/server/http-security.ts:467` and `:951`), and both
 carry that sentence.
 
 *Checked by:* `tests/log-level.test.ts`, which finds every `catch` whose body is

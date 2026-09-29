@@ -3,7 +3,7 @@ import * as pulumi from "@pulumi/pulumi";
 
 import * as single from "../single-common";
 
-import { PLACEHOLDER_VOLUME_ID, userDataBase64 } from "./platform";
+import { PLACEHOLDER_VOLUME_ID, requireRegion, userDataBase64 } from "./platform";
 
 /**
  * Its own Pulumi project, and that is the point rather than an accident of
@@ -24,10 +24,18 @@ const size = settings.size;
 // network has been built. The real render below checks again.
 userDataBase64(settings, PLACEHOLDER_VOLUME_ID);
 
-const region = aws.config.region;
-if (!region) {
-  throw new Error("No AWS region. Set one with `pulumi config set aws:region us-west-2`.");
-}
+// Read from the stack's own key rather than `aws.config.region`, which falls
+// back to the shell's AWS_REGION, so the region checked and exported is the one
+// the stack says. Checked before anything is declared, because
+// `pulumi up --skip-preview` creates whatever was registered before a program
+// throws.
+const awsRegion = requireRegion(new pulumi.Config("aws").get("region"));
+
+// What it protects and how to lift it is at the data volume. Read up here with
+// the other settings, because a value that is not a boolean throws, and thrown
+// below the network it would leave `--skip-preview` building the network first.
+const protectDataVolume =
+  new pulumi.Config("simple-balance").getBoolean("protectDataVolume") ?? true;
 
 const tags = { Project: "simple-balance", Profile: "single", PulumiStack: pulumi.getStack() };
 const name = `simple-balance-${pulumi.getStack()}`;
@@ -220,17 +228,47 @@ const availabilityZone = subnet.availabilityZone;
  * `ignoreChanges`, or `pulumi up --replace` after the machine went wrong —
  * destroys the root volume and leaves this one, and cloud-init formats it only
  * when it is not already a filesystem. So a rebuild keeps all three.
+ *
+ * And so it is the one resource here the next `pulumi up` cannot rebuild, and
+ * the one with Pulumi's `protect` unless `simple-balance:protectDataVolume` is
+ * false. While it is set, `pulumi destroy` fails at its preview and deletes
+ * nothing, and so does any `up` that would replace the volume — a new
+ * `aws:region` is the one setting that does, since the provider records a
+ * region on every resource. A resize is an update rather than a replacement
+ * and goes through, and so does replacing the machine, which the volume was
+ * built before and does not depend on. The console and the `aws` CLI are
+ * outside it.
+ *
+ * `pulumi destroy --exclude-protected` and `--skip-preview` keep this volume
+ * and the subnet and VPC it was built in, because Pulumi keeps what a
+ * protected resource depends on, and delete everything else, the machine and
+ * the Elastic IP included; the next `up` builds those again and attaches this
+ * volume, on a new address. A new region under `--skip-preview` is worse: the
+ * network is rebuilt there before Pulumi reaches the volume and refuses, and
+ * what is left is a stack no `up` sets right, which is why the region is
+ * required in the stack rather than read from a shell.
+ *
+ * A switch in the stack rather than a constant, so tearing down on purpose is
+ * a decision recorded where the stack's others are rather than an edit to the
+ * program, which is what Pulumi's refusal suggests: set it to false and run
+ * `pulumi up`, which changes no resource and only the flag in Pulumi's state,
+ * then `pulumi destroy`. `pulumi state unprotect` clears the flag for one
+ * destroy instead, and the next `up` sets it again while the setting is true.
  */
-const dataVolume = new aws.ebs.Volume(name, {
-  availabilityZone,
-  size: size.dataGib,
-  // gp3 rather than gp2: the baseline 3,000 IOPS comes with the volume instead
-  // of being earned by making it bigger, which on a 20 GiB disk is the
-  // difference between 3,000 and 60.
-  type: "gp3",
-  encrypted: true,
-  tags: { ...tags, Name: `${name}-data` },
-});
+const dataVolume = new aws.ebs.Volume(
+  name,
+  {
+    availabilityZone,
+    size: size.dataGib,
+    // gp3 rather than gp2: the baseline 3,000 IOPS comes with the volume instead
+    // of being earned by making it bigger, which on a 20 GiB disk is the
+    // difference between 3,000 and 60.
+    type: "gp3",
+    encrypted: true,
+    tags: { ...tags, Name: `${name}-data` },
+  },
+  { protect: protectDataVolume },
+);
 
 // The device path is built from the volume's own id, which is why this is an
 // apply rather than a plain string; `dataDevice` in ./platform.ts says why it
@@ -302,8 +340,9 @@ const attachment = new aws.ec2.VolumeAttachment(
     // that is still attached elsewhere, so that order fails the update with
     // two machines and the volume on the old one. Removing first detaches it,
     // stopping the old instance as the line above asks, and then attaches it to
-    // the new one. That can take longer than the two minutes firstboot waits
-    // for the volume, and the README says what to do when it does.
+    // the new one. firstboot waits for the device as long as this provider
+    // gives the stop, the detach and the attach together, and the README says
+    // what to do when a move fails outright.
     deleteBeforeReplace: true,
   },
 );
@@ -327,11 +366,13 @@ new aws.ec2.EipAssociation(
   },
 );
 
+export const region = awsRegion;
 export const publicIp = address.publicIp;
 export const instanceId = instance.id;
+export const dataVolumeId = dataVolume.id;
 export const url = `https://${settings.hostname}`;
 export const machine = `${instanceType} — ${size.vcpu} vCPU, ${size.memoryGib} GiB, ${size.dataGib} GiB data`;
-export const shell = pulumi.interpolate`aws ssm start-session --target ${instance.id} --region ${region}`;
+export const shell = pulumi.interpolate`aws ssm start-session --target ${instance.id} --region ${awsRegion}`;
 
 /** What is left for a person to do, printed where they will read it. */
 export const nextSteps = pulumi.interpolate`
@@ -339,9 +380,13 @@ export const nextSteps = pulumi.interpolate`
    Caddy cannot obtain a certificate until it resolves, and it retries until it does.
 2. Reach the machine:  ${shell}
    then wait for the first boot to finish:  sudo cloud-init status --wait
-3. Give it a database. None was created: put the connection string in env.local,
+3. Give it a database. None was created: install the certificate of the CA that
+   signed the database's, then put the connection string in env.local,
+     sudo install -m 0644 ca.pem /var/lib/simple-balance/tls/db-ca.pem
+         (Amazon RDS: https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem;
+         for a public CA, skip this and leave &sslrootcert=... off the URL)
      sudo nano /var/lib/simple-balance/env.local
-         DATABASE_URL='postgresql://user:password@host:5432/simple_balance?sslmode=no-verify'
+         DATABASE_URL='postgresql://user:password@<FQDN>:5432/simple_balance?sslmode=verify-full&sslrootcert=/var/lib/simple-balance/tls/db-ca.pem'
    and, if that URL goes through a transaction pooler, DIRECT_DATABASE_URL beside it,
    the same database past the pooler, for the migrations and the first-account claim.
    Then run
@@ -349,9 +394,10 @@ export const nextSteps = pulumi.interpolate`
    which starts the deployment and its nightly backup. Until then it is installed and
    stopped, and /etc/motd says so. journalctl -u simple-balance -f follows it from here.
 4. Find the setup code:   sudo docker compose -f /opt/simple-balance/compose.yml logs app | grep -i setup
-5. Optional settings — SMTP, Stripe, AdSense and the PRIVACY_POLICY_URL it requires —
-   go in /var/lib/simple-balance/env.local, which is on the data volume and survives
-   a rebuild. Once the deployment has started, a setting is an edit to it, then
+5. Optional settings — SMTP, Stripe, AdSense and the PRIVACY_POLICY_URL it requires,
+   TERMS_OF_USE_URL — go in /var/lib/simple-balance/env.local, which is on the data
+   volume and survives a rebuild. Once the deployment has started,
+   a setting is an edit to it, then
    sudo systemctl restart simple-balance.
 6. A later 'pulumi up' does not re-run the machine's setup. How to apply a change
    is at the top of what it ran:   sudo cloud-init query userdata | head -16

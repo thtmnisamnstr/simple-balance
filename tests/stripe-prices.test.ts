@@ -38,9 +38,30 @@ const retrieve = vi.fn(async (id: string) => {
   if (answer === undefined) throw new Error(`no answer for ${id}`);
   return answer;
 });
+/**
+ * The one-item lists the startup probe reads, and the one write a key can be
+ * refused for approval on. Nothing else of the SDK exists here, so a probe that
+ * wrote anything would throw rather than pass.
+ */
+const lists = {
+  customers: vi.fn(),
+  subscriptions: vi.fn(),
+  subscriptionSchedules: vi.fn(),
+  setupIntents: vi.fn(),
+  invoices: vi.fn(),
+  paymentIntents: vi.fn(),
+  prices: vi.fn(),
+};
+const cancel = vi.fn();
 vi.mock("stripe", () => ({
   default: class {
-    prices = { retrieve };
+    prices = { retrieve, list: lists.prices };
+    customers = { list: lists.customers };
+    subscriptions = { list: lists.subscriptions, cancel };
+    subscriptionSchedules = { list: lists.subscriptionSchedules };
+    setupIntents = { list: lists.setupIntents };
+    invoices = { list: lists.invoices };
+    paymentIntents = { list: lists.paymentIntents };
   },
 }));
 
@@ -67,6 +88,8 @@ const load = async () => {
 beforeEach(() => {
   answers.clear();
   retrieve.mockClear();
+  for (const list of Object.values(lists)) list.mockReset().mockResolvedValue({ data: [] });
+  cancel.mockReset();
 });
 
 /**
@@ -273,6 +296,165 @@ describe("reading the prices, and keeping the verdict", () => {
       expect(retrieve).toHaveBeenCalledTimes(4);
       expect(error).toHaveBeenCalledTimes(1);
       expect(error).toHaveBeenCalledWith(expect.stringContaining("one-time price"));
+    } finally {
+      error.mockRestore();
+    }
+  });
+});
+
+/** What Stripe throws for a key that lacks a permission, as the sandbox threw it. */
+const lacking = () =>
+  Object.assign(
+    new Error(
+      "The provided key 'rk_test_***' does not have the required permissions for this endpoint.",
+    ),
+    { type: "StripePermissionError", code: "more_permissions_required", statusCode: 403 },
+  );
+
+/**
+ * A restricted key missing a permission started cleanly and failed later, at
+ * the call that needed it, and Stripe did not always say which: a key without
+ * PaymentIntents made a first subscription fail as "An unknown error occurred".
+ * So the key is asked at startup what it may read, with one-item lists that
+ * write nothing, and whatever it cannot is named in one line.
+ */
+describe("what a restricted key may read, asked at startup", () => {
+  const withKey = async <T>(key: string, run: () => Promise<T>) => {
+    const original = process.env.STRIPE_SECRET_KEY;
+    process.env.STRIPE_SECRET_KEY = key;
+    try {
+      return await run();
+    } finally {
+      process.env.STRIPE_SECRET_KEY = original;
+    }
+  };
+  const spy = (level: "error" | "warn" | "info") =>
+    vi.spyOn(console, level).mockImplementation(() => {});
+
+  it("names every resource the key cannot read, in one line, and carries on", async () => {
+    lists.invoices.mockRejectedValue(lacking());
+    lists.paymentIntents.mockRejectedValue(lacking());
+    const error = spy("error");
+    try {
+      const refused = await withKey("rk_test_access", async () =>
+        (await load()).checkStripeAccess(),
+      );
+
+      expect(refused).toEqual(["Invoices", "PaymentIntents"]);
+      expect(error).toHaveBeenCalledTimes(1);
+      expect(error).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /cannot read Invoices, PaymentIntents.*docs\/billing-operations\.md step 2/,
+        ),
+      );
+      for (const list of Object.values(lists)) expect(list).toHaveBeenCalledWith({ limit: 1 });
+      expect(cancel).not.toHaveBeenCalled();
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it("says it could not look when Stripe does not answer, and never throws", async () => {
+    for (const list of Object.values(lists)) list.mockRejectedValue(new Error("connect ETIMEDOUT"));
+    const error = spy("error");
+    const warn = spy("warn");
+    try {
+      await expect(
+        withKey("rk_test_access", async () => (await load()).checkStripeAccess()),
+      ).resolves.toEqual([]);
+      expect(error).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("could not be asked"));
+    } finally {
+      error.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
+  it("says once that the key can read everything", async () => {
+    const info = spy("info");
+    try {
+      await withKey("rk_test_access", async () => (await load()).checkStripeAccess());
+      expect(info).toHaveBeenCalledWith(expect.stringContaining("can read everything"));
+    } finally {
+      info.mockRestore();
+    }
+  });
+
+  it("asks nothing of a standard secret key, which holds every permission", async () => {
+    await expect((await load()).checkStripeAccess()).resolves.toEqual([]);
+    for (const list of Object.values(lists)) expect(list).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A call Stripe refuses because of the key rather than the request. The dump
+ * the request's error handler writes is forty lines of headers with the code
+ * and the operation two words among them, and Stripe's message names neither
+ * this product's call nor, sometimes, the permission. One line names both, and
+ * the fix.
+ */
+describe("a call Stripe refuses because of the key", () => {
+  it("names the call, the code and the fix for a missing permission", async () => {
+    answers.set("price_monthly", lacking());
+    answers.set("price_yearly", recurring("price_yearly", "year"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { fetchPlanPrices } = await load();
+      await expect(fetchPlanPrices()).rejects.toMatchObject({ code: "more_permissions_required" });
+      expect(error).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /Stripe refused price\.retrieve .*\(more_permissions_required\).*docs\/billing-operations\.md step 2/,
+        ),
+      );
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  /**
+   * An agent-tagged key has its writes held for a person to approve, and by
+   * default that includes canceling a subscription — which this product does,
+   * with nobody to approve it, when somebody abandons an unpaid first payment.
+   *
+   * Both ways out are asserted, not just the sentence. The line used to offer
+   * one — replace the key — and `docs/billing-operations.md` step 2 offers two,
+   * so an operator reading the log at the moment a cancel failed was sent to
+   * rotate a working key by the page that then told them to delete a rule. A
+   * refusal and the page it cites saying different things is the failure this
+   * holds shut, and only the halves can hold it: matching the whole sentence
+   * would break on every rewording and say nothing about what is missing.
+   */
+  it("names both ways out when Stripe holds a call for approval", async () => {
+    cancel.mockRejectedValue(
+      Object.assign(new Error("This action requires human approval before it can be completed."), {
+        type: "StripePermissionError",
+        code: "approval_required",
+      }),
+    );
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { cancelStripeSubscriptionNow } = await load();
+      await expect(cancelStripeSubscriptionNow("sub_1", "key")).rejects.toMatchObject({
+        code: "approval_required",
+      });
+      expect(error).toHaveBeenCalledTimes(1);
+      const [line] = error.mock.calls[0] as [string];
+      expect(line).toMatch(/held subscription\.cancel .*\(approval_required\)/);
+      expect(line, "the key half").toMatch(/create the key without that intended use/);
+      expect(line, "the rule half").toMatch(/delete the rule .*Settings > Approvals > Rules/);
+      expect(line, "where the two are written out").toMatch(/docs\/billing-operations\.md step 2/);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it("adds nothing to a failure that is not about the key", async () => {
+    cancel.mockRejectedValue(new Error("connect ETIMEDOUT"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { cancelStripeSubscriptionNow } = await load();
+      await expect(cancelStripeSubscriptionNow("sub_1", "key")).rejects.toThrow(/ETIMEDOUT/);
+      expect(error).not.toHaveBeenCalled();
     } finally {
       error.mockRestore();
     }

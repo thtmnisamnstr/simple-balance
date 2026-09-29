@@ -264,6 +264,22 @@ describe("what the single-machine programs send", () => {
     }
   });
 
+  it("runs every compose file it sends, the certificate's overlay included", () => {
+    // COMPOSE_FILE is the only thing that makes an overlay part of the
+    // deployment. The certificate's is an overlay so a hand install without
+    // the directory still starts; these machines always have the directory,
+    // made by firstboot on the data volume, so an overlay sent and not named
+    // here is a DATABASE_URL naming a file the application cannot see.
+    const document = cloudInit({ settings: longSettings("small"), dataDevice: oci.DATA_DEVICE });
+    const defaults = writtenFile(document, "/etc/default/simple-balance");
+    const named = /^COMPOSE_FILE=(.*)$/m.exec(defaults)?.[1]?.split(":");
+    expect(named).toEqual(["compose.yml", "compose.caddy.yml", "compose.db-tls.yml"]);
+    const sent = EMBEDDED_FILES.map((file) => file.target)
+      .filter((target) => /^\/opt\/simple-balance\/compose[\w.-]*\.yml$/.test(target))
+      .map((target) => path.basename(target));
+    expect([...sent].sort()).toEqual([...named!].sort());
+  });
+
   it("installs the drop-in that makes a restart fold env.local in", () => {
     const document = cloudInit({ settings: longSettings("small"), dataDevice: oci.DATA_DEVICE });
     const dropIn = writtenFile(document, "/etc/systemd/system/simple-balance.service.d/env.conf");

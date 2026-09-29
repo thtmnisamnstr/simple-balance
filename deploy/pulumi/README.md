@@ -92,8 +92,11 @@ Except where a line says otherwise, this applies to all four.
   policy for the plan page keys on. Ads are the same shape: `ADSENSE_CLIENT_ID`,
   `ADSENSE_BANNER_SLOT_ID`, `ADSENSE_FOOTER_SLOT_ID`, `ADSENSE_CONSENT_MANAGED`
   and `PRIVACY_POLICY_URL` — which the server refuses to start without once
-  AdSense is set — in `config.extraEnv`, and `frontend.adsConfigured: true`. The
-  `single` programs take all of it through `env.local`.
+  AdSense is set — in `config.extraEnv`, and `frontend.adsConfigured: true`.
+  `TERMS_OF_USE_URL` goes in `config.extraEnv` too, and so does
+  `PRIVACY_POLICY_URL` on a deployment with no ads: both are optional there, and
+  linked from the sign-in screen and every page once set. The `single` programs
+  take all of it through `env.local`.
 - **No monitoring, alerting, or log retention policy** beyond what EKS and GKE
   switch on themselves. EKS control plane logs go to CloudWatch and stay there
   until you say otherwise.
@@ -122,11 +125,18 @@ Except where a line says otherwise, this applies to all four.
   (`gcloud components install gke-gcloud-auth-plugin`).
 - For `aws-single/`: an AWS account whose credentials the Pulumi AWS provider
   can find, and the `aws` CLI with the Session Manager plugin for the shell.
+  The credentials may come from the environment or a profile; the region may
+  not: the program requires `aws:region` in the stack and refuses to run
+  without it, so the machine is built where the stack says rather than
+  wherever the `AWS_REGION` of whoever runs `pulumi up` points.
 - For `oci-single/`: an Oracle Cloud tenancy, a compartment other than the root
   one (its OCID is `simple-balance:compartmentOcid`), and an API signing key for
   the provider. `oci setup config`, or Console → your profile → API keys → Add
   API key, writes the `[DEFAULT]` profile of `~/.oci/config` — `user`,
-  `fingerprint`, `tenancy`, `region` and `key_file` — which the provider reads.
+  `fingerprint`, `tenancy`, `region` and `key_file` — which the provider reads
+  for everything but the region: the program requires `oci:region` in the
+  stack and refuses to run without it, so the machine is built where the stack
+  says rather than wherever the profile of whoever runs `pulumi up` points.
   Or give it the same values as `oci:tenancyOcid`, `oci:userOcid`,
   `oci:fingerprint` and `oci:privateKeyPath` (or `oci:privateKey`), and
   `oci:configFileProfile` picks a profile other than `DEFAULT`. `pulumi up`
@@ -174,14 +184,15 @@ deploy/pulumi/
   aws-single/index.ts   VPC, one subnet, security group, EBS data volume,
                         Elastic IP, an instance role granting a shell
                         through Session Manager rather than SSH
-  aws-single/platform.ts  the user data it sends
+  aws-single/platform.ts  the user data it sends, the region
   oci-single/Pulumi.yaml  the simple-balance-oci-single project
   oci-single/index.ts   VCN, one subnet, security list, block volume, an
                         ephemeral public IP (promote it to reserved in the
                         console to outlive the instance), an Ampere A1
                         shape, and optionally a private database subnet
-  oci-single/platform.ts  the disk floor, the availability domain, the
-                        metadata it sends
+  oci-single/platform.ts  the disk floor, the availability domain and when
+                        the data volume refuses a new one, the region,
+                        the metadata it sends
 ```
 
 The two `platform.ts` files and `cloud-init.ts` import nothing from Pulumi, so
@@ -228,7 +239,8 @@ tables below say which.
 | `simple-balance:schedulerMaxReplicas` | no | `2` | |
 | `simple-balance:maxConnections` | no | `100` | What your database allows. See below. |
 | `simple-balance:kubernetesVersion` | no | the cloud's default | EKS only. GKE takes its version from the regular release channel. |
-| `simple-balance:trustedProxyCidr` | no | the chart's `127.0.0.1`, which believes nobody | The range the frontend's nginx believes `X-Forwarded-For` from: the ingress controller's pods, and nothing wider. Passed as the chart's `frontend.trustedProxyCidr`. See [things that will surprise you](#things-that-will-surprise-you) for what else each cloud needs. |
+| `simple-balance:trustedProxyCidr` | no | the program's own: on AWS the VPC's `10.0.0.0/16`, recursion off; on GCP `130.211.0.0/22`, `35.191.0.0/16` and the Ingress's reserved address, recursion on | What the frontend's nginx believes `X-Forwarded-For` from: one address or CIDR, or several separated by commas or spaces, each a proxy's own and nothing wider. Passed as the chart's `frontend.trustedProxyCidr`. Set, it replaces the program's list whole, with recursion off unless `simple-balance:realIpRecursive` says otherwise. Leave it unset unless you have changed what sits in front: the program's list is worked out for the network it built, and [things that will surprise you](#things-that-will-surprise-you) says why each cloud's is what it is. |
+| `simple-balance:realIpRecursive` | no | the program's (AWS off, GCP on); off beside your own `trustedProxyCidr` | Passed as the chart's `frontend.realIpRecursive`. On, nginx walks `X-Forwarded-For` from the right past every trusted address to the first that is not, which a chain of proxies that each append needs; off, it takes the last entry, which is right behind one that replaces the header. Set, it wins over the program's choice either way. |
 | `aws:region` | yes, AWS | | |
 | `gcp:project`, `gcp:region` | yes, GCP | | |
 
@@ -249,10 +261,10 @@ What it builds: a VPC across three availability zones with public and private
 subnets, one NAT gateway, an EKS cluster using access entries rather than the
 deprecated `aws-auth` ConfigMap, a managed node group of `t3.large` instances
 that scales from two to six, the AWS Load Balancer Controller, ingress-nginx
-behind a network load balancer, the Kubernetes cluster autoscaler, cert-manager,
-a Let's Encrypt ClusterIssuer, and the chart.
+behind a network load balancer that speaks proxy protocol to it, the Kubernetes
+cluster autoscaler, cert-manager, a Let's Encrypt ClusterIssuer, and the chart.
 
-Two things worth knowing about the shape of it:
+Three things worth knowing about the shape of it:
 
 - **ingress-nginx sits behind the load balancer controller rather than instead
   of it.** An ALB can only serve a certificate that lives in ACM, and
@@ -264,6 +276,22 @@ Two things worth knowing about the shape of it:
 - **The cluster autoscaler needs no ASG tags from this program.** EKS tags a
   managed node group's autoscaling group with the two keys auto-discovery looks
   for.
+- **The load balancer hands ingress-nginx the visitor's address by proxy
+  protocol.** An NLB with IP targets connects from its own address and passes
+  nothing on, so without it ingress-nginx sees the load balancer and every
+  visitor's sign-in attempts count against one allowance. The program turns
+  proxy protocol v2 on at both ends in the one ingress-nginx release — the
+  Service's `aws-load-balancer-proxy-protocol: "*"` and the controller's
+  `use-proxy-protocol` — because each end refuses what the other sends without
+  it. ingress-nginx believes the header only from the three public subnets
+  (`proxy-real-ip-cidr`), which are where the load balancer's nodes take their
+  addresses, and never from the private subnets every pod is in, so a pod that
+  writes a header of its own is counted as itself. It then replaces
+  `X-Forwarded-For` with the visitor's address, and the frontend trusts the
+  VPC's range, where ingress-nginx's pods are, with recursion off. The load
+  balancer's health check is HTTP `/healthz` on port 80 rather than the
+  controller's 10254: AWS sends the proxy protocol header on health checks too,
+  and the controller's own server on 10254 cannot parse it.
 
 Exports: `ingressAddress` (the load balancer hostname to point a CNAME at),
 `egressAddress` (the NAT gateway's address, for a database that allows by
@@ -295,7 +323,7 @@ that scales from one to three per zone, node auto-provisioning for pods that fit
 in no existing pool, a reserved global address for the ingress, cert-manager, a
 Let's Encrypt ClusterIssuer, and the chart.
 
-Two things worth knowing about the shape of it:
+Three things worth knowing about the shape of it:
 
 - **The ingress controller is a GKE addon, not a Helm release.** There is
   nothing to install for it. The program keeps `httpLoadBalancing` explicitly
@@ -304,6 +332,17 @@ Two things worth knowing about the shape of it:
   its own. On GKE a new Ingress means a new load balancer on a new address,
   which is not the address your DNS record names, and the challenge would go
   unanswered forever.
+- **The frontend's Service names container-native load balancing**,
+  `cloud.google.com/neg: '{"ingress": true}'`, rather than inheriting GKE's
+  default, which holds only while the cluster keeps four properties this one
+  has. Through network endpoint groups Google's front ends connect to the
+  frontend pod itself; through instance groups kube-proxy would hand the pod a
+  node's address instead. The load balancer connects from `130.211.0.0/22` and
+  `35.191.0.0/16` and appends `<client-ip>,<load-balancer-ip>` to whatever
+  `X-Forwarded-For` the visitor sent, so the frontend trusts both ranges and the
+  Ingress's reserved address, with recursion on: nginx walks past the load
+  balancer's address and stops at the one the load balancer wrote from its own
+  socket, and never reads anything the visitor wrote before it.
 
 Exports: `ingressIpAddress` (the reserved address to point an A record at, known
 before anything else finishes), `egressAddress` (Cloud NAT's address, for a
@@ -334,9 +373,12 @@ the machine runs the application and Caddy and connects out to yours.
 | `imageRepository` | | `ghcr.io/thtmnisamnstr/simple-balance` | For a private mirror |
 | `timezone` | | `Etc/UTC` | The machine's clock. Not the application's — that is each person's own setting |
 | `backupKeep` | | `14` | How many daily dumps to retain on the data disk |
+| `aws:region` | on AWS | | The region to build in, such as `us-west-2`, exported as `region`. Required in the stack, and `preview` stops before anything is declared without it: otherwise the provider takes `AWS_REGION` or `AWS_DEFAULT_REGION` from the shell, so where the machine and its data volume live would depend on who runs `pulumi up`. Version 7 of the provider records a region on every resource, so a stack run from a shell pointed at another region plans to replace every one of them there, the data volume included. Set it once and never change it: see [tearing down on AWS](#tearing-down-on-aws) for what a new one does. Any region is accepted |
+| `oci:region` | on OCI | | The region to build in, such as `us-ashburn-1`, exported as `region`. Required in the stack even when `~/.oci/config` names one, and `preview` stops before anything is declared without it: otherwise the provider takes `TF_VAR_region`, `OCI_REGION` or the profile's region, so where the machine and its data volume live would depend on who runs `pulumi up`, and a stack run from another shell would look for its resources somewhere they are not. For Always Free it is the tenancy's home region, because Ampere A1 capacity is free there and nowhere else; the home region is chosen at sign-up and cannot be changed afterward, and Profile → Tenancy in the console shows it. A paid tenancy may name any region it subscribes to. The hosted Simple Balance deployment builds in a US home region because its privacy policy says its data is stored in the United States — a promise that deployment makes, not one this program enforces, so any region is accepted |
 | `compartmentOcid` | OCI only | | Which compartment to build in. OCI has no default and the root compartment is a poor choice, since policies cannot be scoped to it |
-| `availabilityDomain` | | the first | OCI only. Which availability domain to build the machine and its data volume in, by full name or by number from 1. Try another when the launch fails with `Out of host capacity` — another domain rather than another region, because Always Free covers the tenancy's home region only. Set it before the first successful `up` and leave it: changing it afterward replaces the data volume, and the secret, `env.local` and the backups go with the old one |
+| `availabilityDomain` | | the first | OCI only. Which availability domain to build the machine and its data volume in, by full name or by number from 1. Try another when the launch fails with `Out of host capacity` — another domain rather than another region, because Always Free covers the tenancy's home region only. Set it before the first successful `up` and leave it: changing it afterward would replace the data volume, and the secret, `env.local` and the backups would go with the old one, so while `protectDataVolume` is `true` the program refuses that `up` before it touches the machine or the volume, and names the domain to set back. Until a launch succeeds it is free to change: the volume is built after the machine, so a launch refused for capacity leaves nothing in the domain |
 | `databaseSubnet` | | `false` | OCI only. `true` adds a private subnet to the stack's network that answers on 5432 to the machine's subnet and nothing else, and exports its OCID as `databaseSubnetId`, for [a database for Oracle Cloud](#a-database-for-oracle-cloud) to be created in. The database itself is not created |
+| `protectDataVolume` | | `true` | Marks the data volume with Pulumi's `protect`, so `pulumi destroy` fails at its preview and deletes nothing, and so does an `up` that would replace the volume. On Oracle Cloud a new `availabilityDomain` is refused before the machine or the volume is touched, `--skip-preview` included; on AWS the one setting that replaces the volume is a new `aws:region`, which the preview refuses at the volume. Either would otherwise take the generated secret, `env.local` and every backup with it. A resize and a replaced machine still go through. `false` is how to mean it — see [tearing down on AWS](#tearing-down-on-aws) and [on Oracle Cloud](#tearing-down-on-oracle-cloud) |
 
 There are deliberately **no secret keys here.** `AUTH_SECRET` is generated on the
 machine at first boot and kept on the data volume at `0600`, so it enters neither
@@ -348,14 +390,15 @@ that reattaches the same volume finds the same one.
 cd deploy/pulumi
 npm install
 
-# AWS
+# AWS. The region is required, in the stack, before the first up.
 pulumi -C aws-single stack init books
 pulumi -C aws-single config set aws:region us-west-2
 pulumi -C aws-single config set simple-balance:hostname books.example.com
 pulumi -C aws-single up
 
-# Oracle Cloud. The provider reads ~/.oci/config unless the oci: namespace
-# carries the credentials instead. The key is required, before the first up.
+# Oracle Cloud. The provider reads its credentials from ~/.oci/config unless the
+# oci: namespace carries them instead. The region and the key are required, in
+# the stack, before the first up; for Always Free the region is the home region.
 pulumi -C oci-single stack init books
 pulumi -C oci-single config set oci:region us-ashburn-1
 pulumi -C oci-single config set simple-balance:compartmentOcid ocid1.compartment.oc1..xxxx
@@ -390,11 +433,20 @@ the database as the upgrade's migrations left it. The data volume is a separate
 resource and is formatted only when it is not already a filesystem, so either
 replacement destroys the root disk and leaves the backups, the generated
 `AUTH_SECRET` and `env.local` alone. Pulumi moves the volume across once the new
-machine is running, and the new machine's first boot waits two minutes for it.
+machine is running, and the new machine's first boot waits up to forty
+minutes for it, which is as long as the providers give Pulumi to finish the
+move before failing the `up`; on Oracle Cloud a first launch waits the same way
+for the volume to be built.
 If the move takes longer, `sudo cloud-init status` there reports an error: run
-`sudo /usr/local/sbin/simple-balance-firstboot`, which is safe to run again.
-Two things take the volume with it: `pulumi destroy`, and on Oracle Cloud a new
-`availabilityDomain`. The ledger was never on the machine; it is in the database
+`sudo /usr/local/sbin/simple-balance-firstboot`, which is safe to run again,
+once a `pulumi up` has finished the move.
+Two things take the volume with it: `pulumi destroy`, and a change that
+replaces the volume — a new `aws:region` on AWS, a new `availabilityDomain` on
+Oracle Cloud — though neither does while `simple-balance:protectDataVolume` is
+`true`, the default: the destroy fails at its preview, and so does the change,
+which on Oracle Cloud is refused before the machine or the volume is touched.
+[Tearing down on AWS](#tearing-down-on-aws) and
+[on Oracle Cloud](#tearing-down-on-oracle-cloud) are how to mean it. The ledger was never on the machine; it is in the database
 `DATABASE_URL` names. On Oracle Cloud a replacement also comes up on a new
 public address. Promoting the old one to reserved keeps it in the tenancy but
 does not move it: delete the new instance's ephemeral address and assign the
@@ -449,8 +501,9 @@ arrives as user data. The first boot therefore leaves the deployment enabled and
 stopped, with the instructions in `/etc/motd`:
 
 ```sh
+sudo install -m 0644 ca.pem /var/lib/simple-balance/tls/db-ca.pem   # the database's CA, below
 sudo nano /var/lib/simple-balance/env.local
-#   DATABASE_URL='postgresql://user:password@host:5432/simple_balance?sslmode=no-verify'
+#   DATABASE_URL='postgresql://user:password@host:5432/simple_balance?sslmode=verify-full&sslrootcert=/var/lib/simple-balance/tls/db-ca.pem'
 sudo /usr/local/sbin/simple-balance-firstboot
 ```
 
@@ -473,20 +526,45 @@ other setting.
 
 Settings that genuinely come from outside — an SMTP password, a Stripe key, the
 AdSense ids and the `PRIVACY_POLICY_URL` the server refuses to start without
-once they are set — go in `/var/lib/simple-balance/env.local` too. It is on the
-data volume rather than the boot disk, and it is folded into the `.env` Compose
-reads every time the deployment starts: cloud-init installs a drop-in beside the
-unit that runs `/usr/local/sbin/simple-balance-env` first. So a setting is an
-edit and a restart. `/opt` is destroyed when the instance is rebuilt; the data
-volume is not.
+once they are set, the optional `TERMS_OF_USE_URL` — go in
+`/var/lib/simple-balance/env.local` too. It is on the data volume rather than
+the boot disk, and it is folded into the `.env` Compose reads every time the
+deployment starts: cloud-init installs a drop-in beside the unit that runs
+`/usr/local/sbin/simple-balance-env` first. So a setting is an edit and a
+restart. `/opt` is destroyed when the instance is rebuilt; the data volume is
+not.
 
-Use `sslmode=no-verify` for a database whose certificate is not from a public
-certificate authority, which is most managed ones, OCI's included. The backup
-and restore scripts rewrite it to libpq's `require`, which is the same
-guarantee — encrypted, not verified — in the spelling `pg_dump` accepts. Do not
-use `verify-full` on this profile yet: the nightly dump runs from the
-`postgres:18` image, which carries no certificate authorities, so it fails there
-even where the application's own connection would pass.
+Use `sslmode=verify-full`, and name the certificate of the CA that signed the
+database's with `sslrootcert=/var/lib/simple-balance/tls/db-ca.pem`. Most
+managed databases, OCI's and Amazon RDS's included, are signed by a CA of the
+provider's own that neither the container nor the backup trusts until it is
+handed that file; `deploy/compose/single/README.md`, "The database's
+certificate", says where each provider publishes it. The directory is on the
+data volume, first boot makes it before anything starts, and
+`compose.db-tls.yml`, which `COMPOSE_FILE` in `/etc/default/simple-balance`
+names on these machines, mounts it into the application at the same path. The
+nightly backup and the restore mount the same file into their `postgres:18`
+client, which carries no certificate authorities of its own, so the one URL is
+checked the same way by all three. Leave `sslrootcert` out for a certificate
+from a public CA: the application checks it against Node's roots and the backup
+against the machine's CA bundle. The host has to be a name the certificate
+carries, not an IP address, because node-postgres checks an address against
+the name `localhost`.
+
+`sslmode=no-verify` still works: encrypted, and nothing checks who answers. The
+backup and restore hand libpq `require` in its place, which is the same
+guarantee in the spelling `pg_dump` accepts. `verify-ca` with no `sslrootcert`
+is refused by the backup and the restore, because libpq would then take a
+certificate any public CA issued, for any host, as the database's.
+
+A machine these programs built before `compose.db-tls.yml` existed has neither
+the overlay nor the directory, and a second `pulumi up` will not add them. Copy
+`deploy/compose/single/compose.db-tls.yml` to `/opt/simple-balance`, append
+`:compose.db-tls.yml` to `COMPOSE_FILE` in `/etc/default/simple-balance`, run
+`sudo install -d -m 0755 /var/lib/simple-balance/tls`, and install the current
+`simple-balance-backup` and `simple-balance-restore` in `/usr/local/bin` and
+`simple-balance-firstboot` in `/usr/local/sbin`, all from `deploy/systemd/`,
+before naming a file.
 
 ### Reaching the Oracle Cloud machine
 
@@ -540,23 +618,34 @@ in the console under Databases → PostgreSQL → DB systems, create one:
 3. An administrator user and password. The password rules require a special
    character, so expect the URL to need it encoded.
 4. Once it is active, the DB system's page shows its private endpoint: a
-   hostname and a private IP address. Either works from the machine.
+   hostname (its FQDN) and a private IP address. Use the FQDN. The certificate
+   names it, and under `verify-full` node-postgres checks an IP address against
+   the name `localhost`, which fails.
+5. The same page's **Connection details** has the CA certificate that signed
+   the service's. Download it, or print it where the `oci` CLI runs:
+   `oci psql connection-details get --db-system-id <DB system OCID> --query 'data."ca-certificate"' --raw-output > ca.pem`.
+   Copy it to the machine the way you reach it.
 
 Then, on the machine:
 
 ```sh
+sudo install -m 0644 ca.pem /var/lib/simple-balance/tls/db-ca.pem
 sudo nano /var/lib/simple-balance/env.local
-#   DATABASE_URL='postgresql://admin:<password, URL-encoded>@<private endpoint hostname>:5432/simple_balance?sslmode=no-verify'
+#   DATABASE_URL='postgresql://admin:<password, URL-encoded>@<private endpoint FQDN>:5432/simple_balance?sslmode=verify-full&sslrootcert=/var/lib/simple-balance/tls/db-ca.pem'
 sudo /usr/local/sbin/simple-balance-firstboot
 ```
 
-`sslmode=no-verify` because the service's certificate is signed by an Oracle
-certificate authority the container does not trust: the connection is encrypted
-and the certificate is not checked, and the backups get the same through
-libpq's `require`. The application creates the `simple_balance` database on its
-first start if the server has none, which the administrator user may do; to use
-a less privileged role instead, create the database first and make that role
-its owner. `docs/deployment-sizing.md` has the server settings per machine size.
+`verify-full` with `sslrootcert`, because the service's certificate is issued by
+a private CA that OCI manages, which neither the container nor the backup's
+client trusts until it is handed that CA's certificate. With it, the
+application, the nightly backup and the restore all check that the server
+answering is the DB system. `sslmode=no-verify` still works in its place, with
+no file: the connection is encrypted and the certificate is not checked, and
+the backups get the same through libpq's `require`. The application creates the
+`simple_balance` database on its first start if the server has none, which the
+administrator user may do; to use a less privileged role instead, create the
+database first and make that role its owner. `docs/deployment-sizing.md` has
+the server settings per machine size.
 
 The program does not create the DB system itself, for the reason `DATABASE_URL`
 is not a stack setting: its administrator password would be in Pulumi's state.
@@ -564,7 +653,136 @@ is not a stack setting: its administrator password would be in Pulumi's state.
 **Or any PostgreSQL 15 or later the machine can reach over TLS** — another
 cloud's managed service, or a server you already keep. The machine's egress is
 open, so all it needs is to be admitted by the database's own firewall, by the
-address `publicIp` reports. The same URL shape and the same `sslmode` apply.
+address `publicIp` reports. The same URL shape applies: `verify-full`, with
+`sslrootcert` naming the provider's CA certificate unless it is a public CA's.
+
+### Tearing down on Oracle Cloud
+
+The data volume is the one thing in `oci-single`'s stack the next `pulumi up`
+cannot rebuild: it holds the generated `AUTH_SECRET`, `env.local` and every
+nightly dump. The ledger is not on it — it is in the database `DATABASE_URL`
+names, which no `pulumi destroy` touches — but a new volume means a new secret,
+which signs everybody out, a `DATABASE_URL` and every other setting typed in
+again, and no backups at all. So the program marks it with Pulumi's
+[`protect`](https://www.pulumi.com/docs/iac/concepts/options/protect/) option
+unless `simple-balance:protectDataVolume` is `false`, and while it is marked:
+
+- `pulumi destroy` fails at its preview and deletes nothing. Pulumi's message
+  suggests removing `protect` from the program; here the setting below is that
+  edit.
+- A new `availabilityDomain`, which would replace the volume, is refused before
+  the machine or the volume is touched, with or without a preview, and the
+  message names the domain to set back. The program finds the volume by its
+  name, `simple-balance-<stack>-data`, because a program cannot read its own
+  state, so a volume of that name left behind by a removed stack of the same
+  name is refused the same way; rename it or delete it in the console.
+- A new `size` grows the volume in place, which is an update and goes through.
+- `pulumi destroy --exclude-protected` and `pulumi destroy --skip-preview`
+  delete only the volume's attachment. Pulumi keeps everything a protected
+  resource was built after, and the volume is built after the machine, so the
+  network and the running machine stay, and the machine is without its disk
+  until the next `pulumi up` attaches it again and a reboot mounts it. Neither
+  is a way to keep the volume and drop the rest.
+- It stops Pulumi and nothing else. The console and the `oci` CLI can still
+  delete the volume.
+
+To take it all down on purpose, first copy off what you want to keep — the
+dumps are in `/var/lib/simple-balance/backups` — or take a volume backup, which
+outlives the volume and counts toward the five volume backups Always Free
+includes. `dataVolumeId` is the volume's OCID:
+
+```sh
+oci bv backup create --volume-id "$(pulumi -C oci-single stack output dataVolumeId)" --type FULL
+```
+
+Then say so in the stack, deploy the setting, and destroy:
+
+```sh
+pulumi -C oci-single config set simple-balance:protectDataVolume false
+pulumi -C oci-single up        # changes no resource: it clears the flag in Pulumi's state
+pulumi -C oci-single destroy
+```
+
+Or clear the flag for one destroy without changing the setting. The next
+`pulumi up` sets it again. `pulumi -C oci-single stack --show-urns` lists the
+volume's URN if the one below does not match.
+
+```sh
+stack=$(pulumi -C oci-single stack --show-name)
+pulumi -C oci-single state unprotect \
+  "urn:pulumi:${stack}::simple-balance-oci-single::oci:Core/volume:Volume::simple-balance-${stack}"
+pulumi -C oci-single destroy
+```
+
+A stack left at `false` builds its next volume unprotected, so run
+`pulumi -C oci-single config rm simple-balance:protectDataVolume` before
+building it again.
+
+### Tearing down on AWS
+
+The data volume is the one thing in `aws-single`'s stack the next `pulumi up`
+cannot rebuild, for the same reasons as on Oracle Cloud above: it holds the
+generated `AUTH_SECRET`, `env.local` and every nightly dump, and a new one
+means everybody signed out, every setting typed in again and no backups. So
+the program marks it with Pulumi's
+[`protect`](https://www.pulumi.com/docs/iac/concepts/options/protect/) option
+unless `simple-balance:protectDataVolume` is `false`, and while it is marked:
+
+- `pulumi destroy` fails at its preview and deletes nothing.
+- A new `size` grows the volume in place, and `pulumi up --replace` on the
+  instance replaces the machine, its attachment and its address association
+  and leaves the volume alone: the volume was built before the machine and
+  takes nothing from it.
+- A new `aws:region` is refused at the volume by the preview. It is the one
+  setting that replaces the volume, because the provider records a region on
+  every resource. Under `--skip-preview` Pulumi has already rebuilt much of the
+  network in the new region, the Elastic IP included, by the time it reaches
+  the volume, and a stack left like that is one no `pulumi up` sets right, in
+  either region: each plans to replace the volume, and the protection refuses.
+  Never change it: build a new stack in the other region and restore a dump
+  into it.
+- `pulumi destroy --exclude-protected` and `pulumi destroy --skip-preview` keep
+  the volume and the subnet and VPC it was built in, because Pulumi keeps what
+  a protected resource was built from, and delete everything else — the
+  machine and the Elastic IP included. `--skip-preview` then exits with an
+  error about the volume. The next `pulumi up` builds the rest again and
+  attaches the same volume, on a new address, so the A record has to follow.
+- It stops Pulumi and nothing else. The console and the `aws` CLI can still
+  delete the volume.
+
+To take it all down on purpose, first copy off what you want to keep — the
+dumps are in `/var/lib/simple-balance/backups` — or take a snapshot, which
+outlives the volume and is billed by the gigabyte-month until you delete it.
+`dataVolumeId` is the volume's id and `region` its region:
+
+```sh
+aws ec2 create-snapshot --region "$(pulumi -C aws-single stack output region)" \
+  --volume-id "$(pulumi -C aws-single stack output dataVolumeId)" \
+  --description "simple-balance data volume before teardown"
+```
+
+Then say so in the stack, deploy the setting, and destroy:
+
+```sh
+pulumi -C aws-single config set simple-balance:protectDataVolume false
+pulumi -C aws-single up        # changes no resource: it clears the flag in Pulumi's state
+pulumi -C aws-single destroy
+```
+
+Or clear the flag for one destroy without changing the setting. The next
+`pulumi up` sets it again. `pulumi -C aws-single stack --show-urns` lists the
+volume's URN if the one below does not match.
+
+```sh
+stack=$(pulumi -C aws-single stack --show-name)
+pulumi -C aws-single state unprotect \
+  "urn:pulumi:${stack}::simple-balance-aws-single::aws:ebs/volume:Volume::simple-balance-${stack}"
+pulumi -C aws-single destroy
+```
+
+A stack left at `false` builds its next volume unprotected, so run
+`pulumi -C aws-single config rm simple-balance:protectDataVolume` before
+building it again.
 
 ## After the first `pulumi up`
 
@@ -620,21 +838,46 @@ the due rows between them.
 
 ## Things that will surprise you
 
-- **Sign-in rate limiting counts every visitor as one.** The frontend's nginx
-  replaces `X-Forwarded-For` with the address it saw, which behind an ingress is
-  the ingress. `TRUST_PROXY` is on, so the allowance the API applies per address
-  is shared by everybody. The setting that fixes it is
-  `simple-balance:trustedProxyCidr` — the chart's `frontend.trustedProxyCidr`,
-  `SB_TRUSTED_PROXY_CIDR` in the image — set to the range the ingress
-  controller's pods run in. No image rebuild, and recursion stays off, for the
-  reason `deploy/docker/nginx.conf.template` gives. It is not the whole answer
-  on either cloud as these programs build them. On AWS the network load balancer
-  in front of ingress-nginx uses IP targets, which do not pass the visitor's
-  address on unless client IP preservation or proxy protocol is turned on, and
-  `aws/index.ts` turns on neither, so ingress-nginx itself sees the load
-  balancer. On GCP the Google load balancer connects from more than one range
-  and appends its own address after the visitor's, which one trusted range with
-  recursion off cannot see past.
+- **Until the deployed image is 0.2.0, sign-in rate limiting still counts every
+  visitor as one.** Both programs now carry the visitor's address from the load
+  balancer to the API — the [AWS](#aws) and [GCP](#gcp) sections say how — and
+  pass the chart the trusted list and the recursion that go with it, as
+  `frontend.trustedProxyCidr` and `frontend.realIpRecursive`. But the last hop
+  is the frontend image's own nginx, and every program deploys the pinned
+  release, which is 0.1.6 until 0.2.0 is released. That frontend reads neither
+  value and reports the ingress's address for everybody, so the `TRUST_PROXY`
+  allowance the API applies per address is still shared. On AWS the load
+  balancer's half takes effect at the next `pulumi up`; the frontend's half,
+  on either cloud, arrives with an image of 0.2.0 or later.
+- **On AWS, the first `pulumi up` that turns proxy protocol on interrupts the
+  site for seconds to about a minute.** nginx expecting the header refuses a
+  connection without one, nginx not expecting it answers the binary header with
+  a `400`, and the target groups' change and ingress-nginx's reload do not land
+  at the same instant. A new stack starts with both ends on and is not
+  affected. Schedule it for a stack that is serving people.
+- **A stack's own `simple-balance:trustedProxyCidr` replaces the program's list
+  whole, with recursion off.** That is right for a proxy you added in front and
+  wrong on GCP as the program builds it, where recursion off takes the load
+  balancer's address for everybody. Leave the setting unset unless something
+  else is in front, or set `simple-balance:realIpRecursive=true` with a list
+  that keeps the program's three entries. On AWS, a value set to the load
+  balancer's public subnets as a workaround brings the shared allowance back:
+  the frontend's peer is now an ingress-nginx pod in the private subnets.
+- **A pod inside the cluster can still name its own address.** On AWS the
+  frontend trusts the whole VPC, because ingress-nginx's pods draw addresses
+  from the same subnets as every other pod, so a pod that connects to the
+  frontend directly can write its own `X-Forwarded-For`. That reaches nothing a
+  pod could not reach before: on both clouds a pod can connect to the API
+  directly, and with `TRUST_PROXY` on the API believes that header from anyone
+  who can reach its Service. Neither is a way in from the internet. The chart's
+  `networkPolicy.enabled` closes
+  them, with `frontendIngressFrom` naming whatever really reaches the frontend
+  — on AWS the `ingress-nginx` namespace — on a cluster whose network plugin
+  enforces policies, which on EKS means the VPC CNI with its network policy
+  agent turned on. A pod the policy then sends around through ingress-nginx is
+  counted as itself, because ingress-nginx believes a proxy protocol header from
+  the load balancer's subnets alone. The policy is off in both programs because
+  one naming the wrong source takes the site down without a word.
 - **On GCP the site answers on plain HTTP as well as HTTPS.** `allow-http` has
   to stay on for the ACME challenge, which is answered on this Ingress every
   time the certificate renews, and neither program adds a redirect. HSTS, which
@@ -646,7 +889,10 @@ the due rows between them.
   outside Kubernetes.
 - **`pulumi destroy` leaves nothing behind except what it never made**, which is
   your database. Delete the stack and the cluster goes with it, certificates and
-  load balancer included.
+  load balancer included. The single-machine programs are the exception: each
+  refuses while its data volume is protected, which it is by default — see
+  [tearing down on AWS](#tearing-down-on-aws) and
+  [on Oracle Cloud](#tearing-down-on-oracle-cloud).
 
 ## Version pins
 

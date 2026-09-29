@@ -736,7 +736,7 @@ the same number.
   somebody maps its columns (`src/server/services/import-export.ts:116-124`).
 - **The request envelope.** A CSV route and `/mcp` are sized at six times
   `CSV_MAX_BYTES` plus 64 KiB, the six being the worst case for JSON string
-  escaping (`src/server/http-security.ts:374-375`, `:984`).
+  escaping (`src/server/http-security.ts:382-383`, `:992`).
 - **Rows.** Counted after blank lines are skipped, so a trailing newline is not
   a row.
 

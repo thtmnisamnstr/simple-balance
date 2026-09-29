@@ -33,11 +33,19 @@ export interface Settings {
   maxConnections: number;
   kubernetesVersion?: string;
   /**
-   * The range the frontend's nginx believes X-Forwarded-For from: the ingress
-   * controller's pods, and nothing wider. Unset leaves the chart's 127.0.0.1,
-   * which believes nobody.
+   * What the frontend's nginx believes X-Forwarded-For from, as the operator
+   * wrote it: one address or CIDR, or several separated by commas or spaces,
+   * each a proxy's own and nothing wider. Unset leaves the answer to the
+   * program, which knows the network it built — see {@link TrustedProxies}.
    */
   trustedProxyCidr?: string;
+  /**
+   * Whether nginx walks X-Forwarded-For past those addresses. Unset means off
+   * beside an operator's own list — one written before recursion existed was
+   * written for a header that is replaced — and the program's choice beside
+   * the program's list.
+   */
+  realIpRecursive?: boolean;
   databaseUrl: pulumi.Output<string>;
   authSecret: pulumi.Output<string>;
   directDatabaseUrl?: pulumi.Output<string>;
@@ -67,6 +75,7 @@ export function readSettings(): Settings {
     maxConnections: cfg.getNumber("maxConnections") ?? 100,
     kubernetesVersion: cfg.get("kubernetesVersion"),
     trustedProxyCidr: cfg.get("trustedProxyCidr"),
+    realIpRecursive: cfg.getBoolean("realIpRecursive"),
     databaseUrl: cfg.requireSecret("databaseUrl"),
     authSecret: cfg.requireSecret("authSecret"),
     directDatabaseUrl: cfg.getSecret("directDatabaseUrl"),
@@ -193,10 +202,61 @@ export function certManager(args: CertManagerArgs): CertManager {
   return { release, clusterIssuer, issuerName };
 }
 
+/**
+ * Who the frontend's nginx should believe on the network one program built,
+ * used when the operator set no `simple-balance:trustedProxyCidr`.
+ *
+ * A default rather than a requirement, because the program is the one party
+ * that knows the answer. Left to the chart's 127.0.0.1 — which is what these
+ * programs did before — every visitor's sign-in attempts counted against one
+ * allowance, and one stranger could spend it for everybody, on every stack
+ * whose operator had not read far enough to find the setting.
+ */
+export interface TrustedProxies {
+  /** Every hop's own address or range. Outputs are fine: the chart takes a list. */
+  addresses: pulumi.Input<string>[];
+  /** Whether those hops append to X-Forwarded-For rather than replacing it. */
+  recursive: boolean;
+}
+
+/**
+ * The two chart values that decide whose word the frontend takes for an
+ * address. The operator's list wins whenever there is one, with recursion off
+ * unless they asked for it; otherwise the program's. An explicit
+ * `simple-balance:realIpRecursive` wins over the program's choice either way,
+ * because it is a decision and the program's is a default.
+ */
+function frontendTrust(settings: Settings, cloud?: TrustedProxies): Record<string, unknown> {
+  if (settings.trustedProxyCidr) {
+    return {
+      trustedProxyCidr: settings.trustedProxyCidr,
+      realIpRecursive: settings.realIpRecursive ?? false,
+    };
+  }
+  if (cloud) {
+    return {
+      trustedProxyCidr: cloud.addresses,
+      realIpRecursive: settings.realIpRecursive ?? cloud.recursive,
+    };
+  }
+  return settings.realIpRecursive === undefined
+    ? {}
+    : { realIpRecursive: settings.realIpRecursive };
+}
+
 export interface AppArgs {
   provider: k8s.Provider;
   settings: Settings;
   issuerName: string;
+  /** What to trust when the operator named nothing. See {@link TrustedProxies}. */
+  trustedProxies?: TrustedProxies;
+  /**
+   * On the frontend Service, which is what the ingress points at. The GCP
+   * program names container-native load balancing here rather than relying on
+   * GKE's default, because what the frontend trusts depends on which of the two
+   * paths the load balancer takes.
+   */
+  frontendServiceAnnotations?: Record<string, pulumi.Input<string>>;
   /**
    * Left out for a controller that does not read `spec.ingressClassName`.
    * GKE's built-in controller is one: it honors only the legacy
@@ -280,12 +340,18 @@ export function simpleBalance(args: AppArgs): App {
         frontend: {
           image: image("frontend"),
           autoscaling: { enabled: true, maxReplicas: settings.frontendMaxReplicas },
-          // Only when set, so the chart's own default stays the answer
-          // otherwise; its schema refuses anything that is not an address or a
-          // CIDR. Behind the ingress every request arrives from the controller,
-          // so until this names it the API counts every visitor's sign-in
-          // attempts against one allowance.
-          ...(settings.trustedProxyCidr ? { trustedProxyCidr: settings.trustedProxyCidr } : {}),
+          // The operator's list, or else the one the program worked out for the
+          // network it built. The chart's schema refuses an entry that is not an
+          // address or a CIDR, and the image refuses it again at startup. Behind
+          // the ingress every request arrives from a proxy, so until this names
+          // it the API counts every visitor's sign-in attempts against one
+          // allowance.
+          ...frontendTrust(settings, args.trustedProxies),
+          // Annotations only: Helm merges this into the chart's own
+          // frontend.service, so the port stays the chart's to decide.
+          ...(args.frontendServiceAnnotations
+            ? { service: { annotations: args.frontendServiceAnnotations } }
+            : {}),
         },
         scheduler: {
           image: image("scheduler"),

@@ -105,9 +105,12 @@ x-app-env: &app-env
   ADSENSE_BANNER_SLOT_ID: ${ADSENSE_BANNER_SLOT_ID:-}
   ADSENSE_FOOTER_SLOT_ID: ${ADSENSE_FOOTER_SLOT_ID:-}
   ADSENSE_CONSENT_MANAGED: ${ADSENSE_CONSENT_MANAGED:-false}
-  # Required, as an absolute https:// address, the moment the AdSense ids are
+  # Optional, and linked from sign-in and every page whenever it is set;
+  # required, as an absolute https:// address, the moment the AdSense ids are
   # set: both processes refuse to start without it.
   PRIVACY_POLICY_URL: ${PRIVACY_POLICY_URL:-}
+  # Optional, the same shape, linked beside the policy and the renewal terms.
+  TERMS_OF_USE_URL: ${TERMS_OF_USE_URL:-}
 
 x-logging: &logging
   driver: json-file

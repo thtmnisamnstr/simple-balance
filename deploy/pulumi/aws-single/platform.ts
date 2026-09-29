@@ -33,3 +33,36 @@ export const PLACEHOLDER_VOLUME_ID = "vol-0123456789abcdef0";
 export function userDataBase64(settings: MachineSettings, volumeId: string): string {
   return awsUserDataBase64(cloudInit({ settings, dataDevice: dataDevice(volumeId) }));
 }
+
+/**
+ * The region, which has to be written in the stack.
+ *
+ * `aws.config.region` does not insist: with `aws:region` unset it takes
+ * AWS_REGION or AWS_DEFAULT_REGION from the shell, and the provider records
+ * that value as if the stack had said it. So the stack would build wherever
+ * the shell running `pulumi up` happened to point, and version 7 of the
+ * provider records a region on every resource, so an existing stack run from a
+ * shell pointed elsewhere plans to replace every one of them in the other
+ * region — the data volume included, with the secret, env.local and the backups
+ * on it. Where a machine holding somebody's data runs is a decision, and it
+ * belongs with the stack's other decisions rather than in one laptop's
+ * environment. Set in the stack, it also wins over both variables.
+ *
+ * Refused rather than defaulted, because no region is right for everybody, and
+ * any region is accepted for the same reason. The message says what a stack
+ * built before this was required should set: the region the provider recorded
+ * then, which set again in the stack changes nothing.
+ */
+export function requireRegion(region: string | undefined): string {
+  if (!region?.trim()) {
+    throw new Error(
+      "aws:region is required, in this stack: pulumi config set aws:region <region>, for example " +
+        "us-west-2. Unset, the provider takes AWS_REGION or AWS_DEFAULT_REGION from the shell running " +
+        "`pulumi up`, so where the machine and its data volume live would depend on the shell rather " +
+        "than the stack, and a shell pointed at another region would plan to replace every resource " +
+        "there. A stack that was built before this was required is in the region it was built in, " +
+        "which `pulumi stack output shell` names after --region: set that one, never another.",
+    );
+  }
+  return region;
+}

@@ -50,12 +50,71 @@ mode when you go live, because nothing made in one mode exists in the other.
    | Subscription schedules | Write | A move to the monthly price waits for the renewal on a schedule, which is created, updated and released |
    | SetupIntents | Write | Created when somebody replaces a card, and read when it is confirmed |
    | Invoices | Write | Read to find a subscription's open invoice and the secret that confirms it, and paid with a replaced card |
+   | PaymentIntents | Write | Read with every subscription created and every payment resumed, because the invoice's confirmation secret is its PaymentIntent's; read on the plan tab to say why a payment failed; updated before **Pay now** or **Pay what is owed** so the card that pays a renewal is kept as the one billed; and confirmed when a replaced card pays what is owed |
    | PaymentMethods | Read | Read, never written, to tell which card Stripe is billing |
    | Prices | Read | The two prices, read for the plan tab and checked as above |
 
-   Stripe refuses a call the key cannot make with a message naming the
-   permission it lacked, and the log carries that message beside the failed
-   request.
+   **A key tagged for an agent is tagged when you create it.** Stripe asks a
+   restricted key's intended use in the form that creates it, and choosing
+   **Authorizing agent access to your account** is the whole of what tags it
+   (`docs.stripe.com/keys` §API keys for autonomous agents). It is a choice made
+   at creation rather than a permission added after, so replacing the key
+   changes nothing on its own: a new one created the same way is tagged the same
+   way. You can tell which you have without waiting for a call to fail: a
+   tagged key carries an **Agent** badge in the API keys list
+   (`docs.stripe.com/mcp` §Authenticate Stripe MCP).
+
+   **The tag breaks one path here for certain.** Stripe keeps *default approval
+   rules* for agent-tagged keys, which hold a call for a person to approve, and
+   there are exactly two: "Refund is created" and "Subscription is canceled"
+   (`docs.stripe.com/account/approvals`). This deployment issues no refund
+   through the API — a refund is yours to make in the dashboard — and it cancels
+   a subscription in one place only: abandoning an unpaid subscription when
+   somebody asks for the other interval before paying for this one. So that
+   press is what fails, with `StripePermissionError` and `approval_required`
+   ("This action requires human approval before it can be completed…"), nothing
+   happens, and Stripe submits an approval request for a reviewer, which expires
+   by itself after fourteen days. What a *second* press does is not written
+   down, so do not plan on it finding the first request rather than filing
+   another.
+
+   **One more path is unsettled rather than safe.** Deleting an account never
+   makes that call: it deletes the Stripe customer, and Stripe ends the
+   subscriptions that customer owned. Whether a rule keyed to "Subscription is
+   canceled" fires on cancellations another action cascades is the one thing
+   neither page says — `docs.stripe.com/account/approvals` describes a rule as
+   interrupting an *action* without settling whether the action is the request
+   or its effect — and nobody has tried it here. If it does fire, the customer
+   delete fails, `closeBillingForDeletion` reads that as a Stripe it could not
+   get an answer from, and the deletion is refused whole with "Your subscription
+   could not be canceled, so the account was not deleted. Try again in a few
+   minutes." — a retry that would never come good, because a rule answers the
+   same way every time. Nobody would be able to delete their own account. Both
+   ways out below settle it, which is why the answer is not worth waiting for.
+
+   **Two ways out, and which one is yours to pick.** Either create the key
+   without that intended use, or keep the tagged key and delete the
+   "Subscription is canceled" rule under **Settings → Approvals → Rules**, where
+   a default rule can be modified or deleted like any other. Do it again in live
+   mode either way, and look rather than assume: a key belongs to one mode, so
+   the intended use is a question you answer afresh for the live one, but
+   whether an approval rule is per-mode or account-wide Stripe does not say. The
+   Approvals page in live mode is where you find out which.
+
+   Stripe does not always say which permission a key lacked. Sometimes it
+   does — "Having payment_intent_read would allow this request to continue"
+   — and sometimes it does not: `subscriptions.create` from a key without
+   PaymentIntents answered only "An unknown error occurred". So the server
+   asks for itself. At startup, beside the price check, a restricted key is
+   asked for one item of each resource above bar PaymentMethods, which writes
+   nothing; the log names in one error line every one it cannot read, and the
+   process starts either way. A standard `sk_…` key holds every permission and
+   is not asked. That proves reads only: a key with Read where the table says
+   Write passes it, and so does an agent-tagged key, because the call an
+   approval rule holds is a write and the probe makes none. Those are named
+   when they happen — any call Stripe refuses with `more_permissions_required`
+   or `approval_required` writes one line naming the call, the code and the
+   fix, beside the error the request logs.
 
 3. **The webhook endpoint**, at `https://your-host/api/billing/webhook`, for
    events on your own account, with snapshot payloads rather than thin ones —
@@ -68,7 +127,10 @@ mode when you go live, because nothing made in one mode exists in the other.
    `charge.dispute.funds_withdrawn`. `docs/deployment.md` §The webhook, and
    which events it has to be sent says what each is for, and a missing one
    fails in silence. Copy the endpoint's signing secret, `whsec_…`, into
-   `STRIPE_WEBHOOK_SECRET`.
+   `STRIPE_WEBHOOK_SECRET`. A `setup_intent.succeeded` for a payment method
+   this deployment does not offer, or one the subscription refuses to bill in
+   its currency, is recorded and left alone, and the card Stripe bills stays
+   as it was: either would be refused the same way on every retry.
 
 4. **Customer emails.** The plan tab promises that receipts and invoices come
    from Stripe by email, and this deployment sends no billing mail of its own,
@@ -104,6 +166,28 @@ mode when you go live, because nothing made in one mode exists in the other.
    in live mode and in each sandbox you use. Cards work without it; registering
    it is what turns on Link, Apple Pay and Google Pay in the payment form, and
    Apple Pay needs it outright.
+
+   Replace card offers those and nothing else, whatever else the dashboard
+   enables: its SetupIntent filters the account's methods down to `card` and
+   `link`, and Apple Pay and Google Pay are wallets on a card. Left to the
+   dashboard, a card replacement offered Satispay, Kakao Pay and Naver Pay
+   beside a USD subscription, which a SetupIntent cannot filter by currency,
+   and saving one pointed the customer at a method the subscription then
+   refused to bill. The first payment and Pay now offer what Stripe works out
+   for the invoice instead: the methods the account allows for invoices,
+   narrowed to the subscription's currency, and the card the subscription
+   already bills. Keep those to card and Link. A bank debit, Klarna or Cash App
+   Pay turned on for invoices reaches those two forms, and nobody has tried
+   one here.
+
+   Link is optional. It is off until you turn it on under Wallets in the
+   payment method settings, and Stripe does not offer it in India. With it
+   off, every form offers a card, with Apple Pay and Google Pay where the
+   domain is registered, and nothing is refused. Neither kind of request names
+   Link as a method it needs: Stripe refuses a request that names a method the
+   account has not turned on, so naming one would stop Subscribe and Replace
+   card outright on an account without it. Replace card only filters by
+   those types, and a subscription names none.
 
 7. **Tax: nothing to set, because this release collects none.** No subscription
    is created with automatic tax and no address is asked for, so turning Stripe
@@ -246,6 +330,47 @@ If the answer is that they keep it, do nothing; they already have it.
 A dispute that Stripe resolves by canceling the subscription needs nothing
 either. That cancellation is a `customer.subscription.updated` like any other.
 
+A cancellation you set in the dashboard, at the end of the period or on a
+custom day inside it, shows on the plan tab exactly as one made there: "ending"
+and the day, with **Keep my plan** beside it, which clears either kind. Stripe
+stores a custom day as `cancel_at` and leaves `cancel_at_period_end` false, and
+the server reads the two as one. A `cancel_at` further out than the current
+period leaves that period renewing, and the tab says so until the period it
+falls in.
+
+While a cancellation is pending, neither plan button changes the interval: a
+press is refused with "Your plan is set to end. Press Keep my plan before
+changing it." A move to monthly would have gone through a schedule that
+quietly replaced the cancellation, and a move to annual kept it and charged the
+difference for a year set to end. Paying what is owed still works.
+
+## When a payment is owed
+
+**Pay now** on a failed renewal and **Pay what is owed** on an unpaid one hand
+the browser the invoice's own PaymentIntent, and the server first marks it to
+keep the card that pays it, so that card becomes the one the subscription bills
+from then on. Stripe makes a renewal's PaymentIntent without that, and before
+this a card typed into Pay now paid once and was never attached, and the next
+renewal went back to the card that had failed. It needs PaymentIntents Write
+(§Setting up Stripe, step 2); without it the payment still works, the old card
+stays the one billed, and the log says `billing.payment.card_not_kept`. The
+customer's own default is left alone, which is harmless: the subscription's
+default outranks it.
+
+**Replacing a card** while something is owed pins the new card and pays the
+open invoice with it at once, and the answer says which of four things
+happened — nothing was owed, the invoice was paid, the card was declined (with
+Stripe's sentence for the cardholder), or the bank wants the payment
+confirmed. That last one Stripe does not retry by itself: only **Pay now**,
+with the person present, can confirm it. The plan tab reads the same facts on
+every load that owes money, so it can say a renewal is waiting on the bank
+rather than that Stripe is retrying, and when Stripe will next try one it is.
+
+A move to annual while a renewal is failing waits for the renewal rather than
+charging the difference now, because the difference would be a second charge
+on a card that is already failing. Paying what is owed first, then moving,
+charges it now.
+
 ## When a webhook was missed
 
 Nothing has to be replayed by hand. Every live subscription is re-read from
@@ -271,8 +396,13 @@ protection working rather than a limitation, and it is why the sweep rather than
 a replay is the general answer.
 
 Anything the person can reach themselves also forces a re-read: opening the plan
-tab re-reads a subscription that is waiting for payment, and replacing a card
-re-reads it afterward.
+tab re-reads a subscription that owes a payment — a first payment not yet made,
+a renewal that failed, or one Stripe has given up on — and asks Stripe where
+that payment has got to, and replacing a card re-reads it afterward. That is
+one or two reads per plan-tab load, and only while money is owed; it is what
+lets the tab show **Active** the moment **Pay now** succeeds rather than after
+`invoice.paid` lands, and say why a declined first payment failed after a
+reload.
 
 ## Changing a price
 
@@ -301,8 +431,11 @@ interval is unrecognized, whichever button they press — deliberately, because
 the immediate path bills the difference on the spot, and charging somebody now
 and moving a renewal date they have already been billed against is not a thing
 to do off a value that means "I do not recognize this". Nothing here ever moves
-somebody to a new price on their behalf; doing that is a Stripe-side decision
-with whatever notice your terms promise attached to it.
+somebody to a new price on their behalf; doing that is a Stripe-side decision,
+and the plan tab has already promised them the notice that goes with it: an
+email between 7 and 30 days before the change takes effect, saying what the
+renewal will cost and how to cancel. Nothing here sends it.
+`docs/monetization.md` §Where the plan is managed has the reason for the window.
 
 **And the repository half, in the same commit.** `docs/product/facts.json`
 declares the price to the marketing site, which is a separate repository that
@@ -345,7 +478,7 @@ keeps its settings in `/opt/simple-balance/.env`.
 | ------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
 | New subscriptions, interval changes, and finishing a first payment  | Refused, `409`: each of them is a sale                                           |
 | Canceling                                                           | **Still works.** Trapping people is not a pause                                  |
-| Replacing a card                                                    | Still works, and pays the outstanding invoice with it                            |
+| Replacing a card                                                    | Still works, pays the outstanding invoice with it, and says when it cannot       |
 | Paying a renewal's open invoice (**Pay now**, **Pay what is owed**) | Still works. It settles a subscription that already exists and sells nothing new |
 | Choosing the current plan again, to let go of a pending switch      | Still works. It keeps the plan already paid for and sells nothing                |
 | The account limit                                                   | Not enforced — nobody is held to a plan that is not for sale                     |
@@ -395,6 +528,13 @@ That refusal is the right one. The `billing_customer` row cascades away with the
 account, so a subscription that outlived the deletion would belong to nobody:
 still charging a card, invisible to the sweep, and unreachable from anything left
 in the database.
+
+Deleting the customer cancels at once, with no proration and no credit, so what
+was left of the period paid for is not refunded. The paid invoices keep the
+customer's email and name after the customer is gone, so you can find the
+charge in the dashboard and refund it by hand if you decide to. The deletion
+confirmation says a paid plan is canceled only where one was paid for at least
+once; a first payment that never went through is dropped with the account.
 
 If it keeps failing, cancel the subscription in Stripe's dashboard and delete the
 customer there, then ask them to try again. The second attempt finds the

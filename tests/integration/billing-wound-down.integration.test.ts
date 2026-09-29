@@ -34,6 +34,8 @@ const stripe = vi.hoisted(() => ({
   createStripeSubscription: vi.fn(),
   fetchSubscriptionSnapshot: vi.fn(),
   fetchSubscriptionClientSecret: vi.fn(),
+  keepCardThatPays: vi.fn(),
+  fetchOwedPayment: vi.fn(),
 }));
 vi.mock("../../src/server/stripe.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/server/stripe.js")>()),
@@ -77,6 +79,8 @@ beforeEach(() => {
   stripe.fetchPlanPrices.mockResolvedValue({ monthly: null, yearly: null });
   stripe.stripeCustomerStanding.mockResolvedValue("present");
   stripe.fetchSubscriptionClientSecret.mockResolvedValue("pi_owed_secret");
+  stripe.keepCardThatPays.mockResolvedValue(false);
+  stripe.fetchOwedPayment.mockResolvedValue(null);
 });
 
 /**
@@ -103,11 +107,28 @@ integration("paying what is owed on a deployment that has stopped selling", () =
   it("takes payment of a renewal that is owed, and offers it", async () => {
     for (const status of ["past_due", "unpaid"]) {
       const actor = await seed(`wound-down-${status}`, status);
+      // The plan tab re-reads a row that owes, so Stripe has to say it still does.
+      stripe.fetchSubscriptionSnapshot.mockImplementation(async (id: string) => ({
+        stripeSubscriptionId: id,
+        status,
+        priceId: "price_yearly",
+        currentPeriodEnd: new Date("2027-01-01T00:00:00.000Z"),
+        cancelAtPeriodEnd: false,
+        scheduledPriceId: null,
+        scheduledAt: null,
+        syncedAt: new Date(),
+        stripeCustomerId: null,
+      }));
 
       await expect(setSubscription(actor, request())).resolves.toMatchObject({
         status,
         clientSecret: "pi_owed_secret",
       });
+      // Paying what is owed keeps the card that pays it, selling or not.
+      expect(stripe.keepCardThatPays).toHaveBeenLastCalledWith(
+        `sub_${actor.userId}`,
+        expect.any(String),
+      );
       const shown = await getBillingStatus(actor);
       expect(shown.selling).toBe(false);
       expect(shown.subscription?.payable).toBe(true);

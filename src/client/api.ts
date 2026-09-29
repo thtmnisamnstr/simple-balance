@@ -301,6 +301,15 @@ export type PlanPrice = {
  * be null when Stripe could not be reached or has no such price, and the tab
  * still renders — somebody whose card expired has to reach the payment form
  * whether or not Stripe can say what a year costs today.
+ *
+ * Everything the route learned to say after this type was first written is
+ * optional: where an owed payment has got to, and how many accounts a plan
+ * freezes. The server sends each of them on every load, so the option is not
+ * about the server withholding one — it is about which bundle is running. A
+ * bundle built from this commit can be served by a container from before the
+ * field existed, and reading a missing value as nothing to say — no retry
+ * date, nothing frozen — is the only reading that does not crash the tab on
+ * the release somebody upgrades through.
  */
 export type BillingStatus = {
   /** False where nothing is for sale, and where the prices are known not to fit. */
@@ -312,6 +321,24 @@ export type BillingStatus = {
   };
   entitlement: Entitlement;
   accountsUsed: number | null;
+  /** Live accounts frozen now; absent or null where no limit is in force. */
+  accountsFrozen?: number | null;
+  /** Every live account wherever a plan is sold, the paid plan included. */
+  accountsLive?: number | null;
+  /** The one-time choice of which accounts stay usable is still open. */
+  activeChoicePending?: boolean;
+  /**
+   * How many live accounts would be frozen if the paid plan ended now — the
+   * shared `frozenAccountIds` under the entitlement somebody has once it does,
+   * an operator's grant still in force then included — and 0 where nothing
+   * would be. The server's answer rather than live minus the free limit: the
+   * rule keeps the accounts marked in use, so somebody who chose three of five
+   * before upgrading gets the same two frozen again, and one who then archived
+   * one of the three gets two frozen and not one.
+   */
+  accountsFrozenOnFree?: number | null;
+  /** Whether that ending would leave the one-time choice open (`activeChoicePending`). */
+  activeChoicePendingOnFree?: boolean;
   subscription: {
     status: string;
     interval: BillingInterval | null;
@@ -327,6 +354,14 @@ export type BillingStatus = {
      * whether anything is for sale.
      */
     payable: boolean;
+    /** Stripe's sentence for the last failed attempt at what is owed. */
+    lastPaymentError?: string | null;
+    /** The bank wants what is owed confirmed with 3-D Secure, which Stripe never retries. */
+    awaitingAuthentication?: boolean;
+    /** When Stripe next tries what is owed by itself; null where it will not. */
+    nextRetryAt?: string | null;
+    /** When an unfinished first payment lapses, with nothing charged. */
+    expiresAt?: string | null;
   } | null;
   /** `plan` is the wire value; `PLAN_LABELS` is the word a person reads. */
   override: { plan: Plan; expiresAt: string | null } | null;
@@ -355,8 +390,12 @@ export type AuthPublicOptions = {
   /** Whether this deployment sells a plan, and whether it serves ads. */
   billingAvailable: boolean;
   adsAvailable: boolean;
-  /** Absent where the deployment has no privacy policy configured. */
+  /**
+   * The deployment's own documents, each absent where the operator has not
+   * configured it. Linked from the sign-in screen, the sidebar and the plan tab.
+   */
   privacyPolicyUrl?: string;
+  termsOfUseUrl?: string;
   emailVerificationRequired: boolean;
   minimumPasswordLength: number;
 };

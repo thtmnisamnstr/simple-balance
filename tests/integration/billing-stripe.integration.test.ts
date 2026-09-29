@@ -20,12 +20,14 @@ Object.assign(process.env, billingEnvironment);
 
 import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Actor } from "../../src/shared/domain.js";
+import { type Actor, PLAN_ENDING_REFUSAL } from "../../src/shared/domain.js";
 import { getDb } from "../../src/server/db/client.js";
 import {
   billingCustomers,
+  billingOverrides,
   billingSubscriptions,
   billingWebhookEvents,
+  ledgerAccounts,
   user,
 } from "../../src/server/db/schema.js";
 import { scratchDatabase } from "./support/scratch-database.js";
@@ -60,6 +62,8 @@ const stripe = vi.hoisted(() => ({
   setStripeDefaultPaymentMethod: vi.fn(),
   openStripeInvoiceFor: vi.fn(),
   payStripeInvoice: vi.fn(),
+  keepCardThatPays: vi.fn(),
+  fetchOwedPayment: vi.fn(),
 }));
 vi.mock("../../src/server/stripe.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/server/stripe.js")>()),
@@ -86,8 +90,10 @@ vi.mock("../../src/server/services/helpers.js", async (importOriginal) => {
 import { deleteOwnAccount } from "../../src/server/services/account-deletion.js";
 import {
   applySetupIntentSucceeded,
+  confirmPaymentSetup,
   createPaymentSetup,
   getBillingStatus,
+  hasLiveSubscription,
   runBillingReconciliation,
   setSubscription,
 } from "../../src/server/services/billing.js";
@@ -216,6 +222,13 @@ beforeEach(() => {
   stripe.scheduleStripeSubscriptionPrice.mockResolvedValue("sub_sched_new");
   stripe.fetchSubscriptionClientSecret.mockResolvedValue(null);
   stripe.createStripeSetupIntent.mockResolvedValue({ id: "seti_new", clientSecret: "seti_secret" });
+  // What Stripe answers an upgrade with: the annual price, read a moment
+  // before the resync that follows it, so that read is the newer.
+  stripe.switchStripeSubscriptionNow.mockImplementation(async ({ subscriptionId }) =>
+    snapshotOf(subscriptionId, { syncedAt: new Date(Date.now() - 500) }),
+  );
+  stripe.keepCardThatPays.mockResolvedValue(false);
+  stripe.fetchOwedPayment.mockResolvedValue(null);
 });
 
 /**
@@ -261,6 +274,10 @@ integration("refusing a sale the prices cannot carry", () => {
       });
       stripe.lastPriceCheck.mockReturnValue(misfit);
       stripe.fetchSubscriptionClientSecret.mockResolvedValue(`pi_owed_${status}`);
+      // The plan tab re-reads a row that owes, so Stripe has to say it still does.
+      stripe.fetchSubscriptionSnapshot.mockImplementation(async (id: string) =>
+        snapshotOf(id, { status }),
+      );
 
       const result = await setSubscription(actor, {
         interval: "yearly",
@@ -952,5 +969,708 @@ integration("pinning a card from a setup_intent.succeeded delivery", () => {
     ).resolves.toBe("ignored");
     expect(stripe.setStripeDefaultPaymentMethod).not.toHaveBeenCalled();
     expect(await claimed("evt_setup_late")).toBe(true);
+  });
+});
+
+/**
+ * Pay now on a renewal that failed, and Pay what is owed on one Stripe gave up
+ * on. A renewal's PaymentIntent is one Stripe made by itself, with nothing set
+ * to keep the card that pays it, so a card typed into Pay now paid once and was
+ * thrown away and the next renewal charged the card that had failed. The
+ * PaymentIntent is marked before its secret is handed out, because a card used
+ * unattached can never be attached afterward.
+ */
+integration("paying an owed renewal on the plan tab", () => {
+  beforeAll(async () => {
+    await database.create();
+  }, 60_000);
+  afterAll(async () => {
+    await database.drop();
+  });
+
+  it("marks the owed renewal to keep the card that pays it, before handing out its secret", async () => {
+    for (const status of ["past_due", "unpaid"] as const) {
+      const actor = await seed(`keep-card-${status}`);
+      await mapCustomer(actor.userId, `cus_keep_${status}`);
+      await subscribe(actor.userId, { status, pastDueSince: new Date() });
+      stripe.fetchSubscriptionClientSecret.mockResolvedValue(`pi_${status}_secret`);
+
+      const result = await setSubscription(actor, {
+        interval: "monthly",
+        idempotencyKey: idempotencyKey(),
+      });
+
+      expect(result.clientSecret).toBe(`pi_${status}_secret`);
+      expect(stripe.keepCardThatPays).toHaveBeenLastCalledWith(
+        `sub_keep-card-${status}`,
+        expect.stringMatching(/:keep-card$/),
+      );
+      const kept = stripe.keepCardThatPays.mock.invocationCallOrder.at(-1)!;
+      const handed = stripe.fetchSubscriptionClientSecret.mock.invocationCallOrder.at(-1)!;
+      expect(kept).toBeLessThan(handed);
+    }
+  });
+
+  it("leaves a first payment's intent alone, which Stripe already set up to keep the card", async () => {
+    const actor = await seed("keep-card-incomplete");
+    await mapCustomer(actor.userId, "cus_keep_incomplete");
+    await subscribe(actor.userId, { status: "incomplete" });
+    stripe.fetchSubscriptionClientSecret.mockResolvedValue("pi_first_secret");
+    stripe.fetchSubscriptionSnapshot.mockImplementation(async (id: string) =>
+      snapshotOf(id, { status: "incomplete", priceId: "price_monthly" }),
+    );
+
+    await setSubscription(actor, { interval: "monthly", idempotencyKey: idempotencyKey() });
+
+    expect(stripe.keepCardThatPays).not.toHaveBeenCalled();
+  });
+
+  /** A key that may not update PaymentIntents still lets somebody pay what they owe. */
+  it("still hands out the payment when the card cannot be marked", async () => {
+    const actor = await seed("keep-card-refused");
+    await mapCustomer(actor.userId, "cus_keep_refused");
+    await subscribe(actor.userId, { status: "past_due", pastDueSince: new Date() });
+    stripe.keepCardThatPays.mockRejectedValue(
+      Object.assign(new Error("does not have the required permissions"), {
+        code: "more_permissions_required",
+      }),
+    );
+    stripe.fetchSubscriptionClientSecret.mockResolvedValue("pi_still_secret");
+
+    await expect(
+      setSubscription(actor, { interval: "monthly", idempotencyKey: idempotencyKey() }),
+    ).resolves.toMatchObject({ clientSecret: "pi_still_secret" });
+  });
+});
+
+/**
+ * The plan tab asks Stripe about every subscription that owes money, not only
+ * one waiting for its first payment. The page's one re-read after Pay now lands
+ * before `invoice.paid`, and served from the books it went on saying "Payment
+ * failed" beside a live Pay now until somebody reloaded.
+ */
+integration("the plan tab's read of a subscription that owes", () => {
+  beforeAll(async () => {
+    await database.create();
+  }, 60_000);
+  afterAll(async () => {
+    await database.drop();
+  });
+
+  it("answers a renewal just paid in the browser as paid, before the delivery lands", async () => {
+    for (const status of ["past_due", "unpaid"] as const) {
+      const actor = await seed(`paid-just-now-${status}`);
+      await subscribe(actor.userId, {
+        status,
+        priceId: "price_monthly",
+        pastDueSince: status === "past_due" ? new Date() : null,
+      });
+      stripe.fetchSubscriptionSnapshot.mockImplementation(async (id: string) =>
+        snapshotOf(id, { status: "active", priceId: "price_monthly" }),
+      );
+
+      const shown = await getBillingStatus(actor);
+
+      expect(shown.subscription).toMatchObject({ status: "active", payable: false });
+      expect(shown.entitlement).toMatchObject({ plan: "plus" });
+    }
+  });
+
+  it("keeps when the grace began, where Stripe still says the renewal is failing", async () => {
+    const actor = await seed("still-failing");
+    const began = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    await subscribe(actor.userId, {
+      status: "past_due",
+      priceId: "price_monthly",
+      pastDueSince: began,
+      syncedAt: new Date(Date.now() - 60_000),
+    });
+    stripe.fetchSubscriptionSnapshot.mockImplementation(async (id: string) =>
+      snapshotOf(id, { status: "past_due", priceId: "price_monthly" }),
+    );
+
+    const shown = await getBillingStatus(actor);
+
+    expect(shown.subscription?.pastDueSince).toBe(began.toISOString());
+    expect(shown.subscription?.payable).toBe(true);
+  });
+
+  /**
+   * A first payment declined in the form and then reloaded read exactly like
+   * one nobody had tried, because the decline lived only in the form's state.
+   */
+  it("says why a first payment failed, and when the unfinished subscription lapses", async () => {
+    const actor = await seed("first-declined");
+    await subscribe(actor.userId, { status: "incomplete", priceId: "price_yearly" });
+    const created = new Date("2026-09-24T21:36:00.000Z");
+    stripe.fetchSubscriptionSnapshot.mockImplementation(async (id: string) =>
+      snapshotOf(id, { status: "incomplete", latestInvoiceId: "in_first", createdAt: created }),
+    );
+    stripe.fetchOwedPayment.mockResolvedValue({
+      invoiceId: "in_first",
+      failureMessage: "Your card has insufficient funds.",
+      awaitingAuthentication: false,
+      nextAttemptAt: null,
+      intent: {
+        id: "pi_first",
+        status: "requires_payment_method",
+        setupFutureUsage: "off_session",
+      },
+    });
+
+    const shown = await getBillingStatus(actor);
+
+    expect(stripe.fetchOwedPayment).toHaveBeenCalledWith("in_first");
+    expect(shown.subscription).toMatchObject({
+      status: "incomplete",
+      lastPaymentError: "Your card has insufficient funds.",
+      awaitingAuthentication: false,
+      nextRetryAt: null,
+      expiresAt: "2026-09-25T20:36:00.000Z",
+    });
+  });
+
+  it("says a renewal is waiting on the bank, and when Stripe will try again", async () => {
+    const actor = await seed("renewal-waiting");
+    await subscribe(actor.userId, { status: "past_due", pastDueSince: new Date() });
+    stripe.fetchSubscriptionSnapshot.mockImplementation(async (id: string) =>
+      snapshotOf(id, { status: "past_due", priceId: "price_monthly", latestInvoiceId: "in_due" }),
+    );
+    stripe.fetchOwedPayment.mockResolvedValue({
+      invoiceId: "in_due",
+      failureMessage: null,
+      awaitingAuthentication: true,
+      nextAttemptAt: new Date("2026-09-28T00:00:00.000Z"),
+      intent: { id: "pi_due", status: "requires_action", setupFutureUsage: null },
+    });
+
+    const shown = await getBillingStatus(actor);
+
+    expect(shown.subscription).toMatchObject({
+      awaitingAuthentication: true,
+      nextRetryAt: "2026-09-28T00:00:00.000Z",
+      expiresAt: null,
+    });
+  });
+
+  /**
+   * The status is worth rendering even where the payment could not be read,
+   * and so is what the subscription itself said: an unfinished first payment
+   * still has the moment it lapses.
+   */
+  it("still answers where Stripe could not say where the payment got to", async () => {
+    const actor = await seed("payment-unread");
+    await subscribe(actor.userId, { status: "incomplete", priceId: "price_yearly" });
+    stripe.fetchSubscriptionSnapshot.mockImplementation(async (id: string) =>
+      snapshotOf(id, {
+        status: "incomplete",
+        latestInvoiceId: "in_x",
+        createdAt: new Date("2026-09-24T00:00:00.000Z"),
+      }),
+    );
+    stripe.fetchOwedPayment.mockRejectedValue(new Error("connect ETIMEDOUT"));
+
+    const shown = await getBillingStatus(actor);
+
+    expect(shown.subscription).toMatchObject({
+      status: "incomplete",
+      lastPaymentError: null,
+      awaitingAuthentication: false,
+      expiresAt: "2026-09-24T23:00:00.000Z",
+    });
+  });
+
+  it("asks Stripe nothing about a subscription that owes nothing", async () => {
+    const actor = await seed("owes-nothing");
+    await subscribe(actor.userId);
+
+    const shown = await getBillingStatus(actor);
+
+    expect(stripe.fetchSubscriptionSnapshot).not.toHaveBeenCalled();
+    expect(stripe.fetchOwedPayment).not.toHaveBeenCalled();
+    expect(shown.subscription).toMatchObject({
+      lastPaymentError: null,
+      awaitingAuthentication: false,
+      nextRetryAt: null,
+      expiresAt: null,
+    });
+  });
+});
+
+/**
+ * Two Annual presses that overlap. The upgrade stored nothing until after the
+ * lock was let go, so the press waiting on it read monthly again and sent Stripe
+ * a second anchor-now update, which moved the renewal a second time and left a
+ * zero-amount proration on the next invoice.
+ */
+integration("two Annual presses at once", () => {
+  beforeAll(async () => {
+    await database.create();
+  }, 60_000);
+  afterAll(async () => {
+    await database.drop();
+  });
+
+  it("upgrades once, and answers the second press from the upgraded row", async () => {
+    const actor = await seed("double-upgrade");
+    await mapCustomer(actor.userId, "cus_double_upgrade");
+    await subscribe(actor.userId, { priceId: "price_monthly" });
+    let release: () => void = () => {};
+    const slow = new Promise<void>((resolve) => (release = resolve));
+    stripe.switchStripeSubscriptionNow.mockImplementation(async ({ subscriptionId }) => {
+      await slow;
+      return snapshotOf(subscriptionId, { status: "active", priceId: "price_yearly" });
+    });
+
+    const first = setSubscription(actor, { interval: "yearly", idempotencyKey: idempotencyKey() });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const second = setSubscription(actor, { interval: "yearly", idempotencyKey: idempotencyKey() });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    release();
+    const [a, b] = await Promise.all([first, second]);
+
+    expect(stripe.switchStripeSubscriptionNow).toHaveBeenCalledTimes(1);
+    expect(a).toMatchObject({ status: "active", clientSecret: null });
+    expect(b).toMatchObject({ status: "active", clientSecret: null });
+    expect((await storedSubscription(actor.userId))?.priceId).toBe("price_yearly");
+  });
+});
+
+/**
+ * A change of interval while a cancellation is pending. A move to monthly
+ * quietly turned renewal back on, and a move to annual charged the difference
+ * for a year set to end; renewing again is Keep my plan's to agree to.
+ */
+integration("changing plan while it is set to end", () => {
+  beforeAll(async () => {
+    await database.create();
+  }, 60_000);
+  afterAll(async () => {
+    await database.drop();
+  });
+
+  it("refuses either change of interval, and sends Stripe nothing", async () => {
+    for (const [on, asked] of [
+      ["price_monthly", "yearly"],
+      ["price_yearly", "monthly"],
+    ] as const) {
+      const actor = await seed(`ending-${asked}`);
+      await mapCustomer(actor.userId, `cus_ending_${asked}`);
+      await subscribe(actor.userId, { priceId: on, cancelAtPeriodEnd: true });
+
+      await expect(
+        setSubscription(actor, { interval: asked, idempotencyKey: idempotencyKey() }),
+      ).rejects.toMatchObject({
+        code: "CONFLICT",
+        status: 409,
+        message: PLAN_ENDING_REFUSAL,
+        details: { cancelAtPeriodEnd: true },
+      });
+    }
+    expect(stripe.stripeCustomerStanding).not.toHaveBeenCalled();
+    expect(stripe.switchStripeSubscriptionNow).not.toHaveBeenCalled();
+    expect(stripe.scheduleStripeSubscriptionPrice).not.toHaveBeenCalled();
+    expect(stripe.releaseStripeSchedule).not.toHaveBeenCalled();
+  });
+
+  it("still takes payment of what is owed, and a repeat of the plan they are on", async () => {
+    const actor = await seed("ending-owes");
+    await mapCustomer(actor.userId, "cus_ending_owes");
+    await subscribe(actor.userId, {
+      status: "past_due",
+      pastDueSince: new Date(),
+      cancelAtPeriodEnd: true,
+    });
+    stripe.fetchSubscriptionClientSecret.mockResolvedValue("pi_owed_while_ending");
+
+    await expect(
+      setSubscription(actor, { interval: "monthly", idempotencyKey: idempotencyKey() }),
+    ).resolves.toMatchObject({ clientSecret: "pi_owed_while_ending" });
+
+    const paidUp = await seed("ending-repeat");
+    await mapCustomer(paidUp.userId, "cus_ending_repeat");
+    await subscribe(paidUp.userId, { cancelAtPeriodEnd: true });
+    await expect(
+      setSubscription(paidUp, { interval: "monthly", idempotencyKey: idempotencyKey() }),
+    ).resolves.toMatchObject({ clientSecret: null });
+  });
+});
+
+/**
+ * Replacing a card while a renewal is owed, and what the answer says about the
+ * invoice. `paidInvoice: false` meant both "nothing was owed" and "the new card
+ * was declined for it", so the page closed the form as a success over a card
+ * that had just failed.
+ */
+integration("confirming a replacement card", () => {
+  beforeAll(async () => {
+    await database.create();
+  }, 60_000);
+  afterAll(async () => {
+    await database.drop();
+  });
+
+  const replacing = async (id: string, status = "past_due", type = "card") => {
+    const actor = await seed(id);
+    await mapCustomer(actor.userId, `cus_${id}`);
+    await subscribe(actor.userId, {
+      status,
+      pastDueSince: status === "past_due" ? new Date() : null,
+    });
+    stripe.fetchStripeSetupIntent.mockResolvedValue({
+      status: "succeeded",
+      customerId: `cus_${id}`,
+      paymentMethodId: "pm_replacement",
+      paymentMethodCreated: new Date(),
+      paymentMethodType: type,
+    });
+    stripe.fetchSubscriptionSnapshot.mockImplementation(async (sub: string) =>
+      snapshotOf(sub, { status, priceId: "price_monthly" }),
+    );
+    return actor;
+  };
+  const confirming = (actor: Actor) =>
+    confirmPaymentSetup(actor, {
+      setupIntentId: "seti_replacement",
+      idempotencyKey: idempotencyKey(),
+    });
+
+  it("says the new card paid what was owed", async () => {
+    const actor = await replacing("replace-paid");
+    stripe.openStripeInvoiceFor.mockResolvedValue("in_owed");
+
+    await expect(confirming(actor)).resolves.toEqual({
+      attached: true,
+      paidInvoice: true,
+      invoice: "paid",
+      declineMessage: null,
+    });
+    expect(stripe.payStripeInvoice).toHaveBeenCalledWith(
+      "in_owed",
+      expect.stringMatching(/:invoice$/),
+    );
+  });
+
+  it("says the new card was declined for what is owed, in Stripe's words", async () => {
+    const actor = await replacing("replace-declined");
+    stripe.openStripeInvoiceFor.mockResolvedValue("in_owed");
+    stripe.payStripeInvoice.mockRejectedValue(
+      Object.assign(new Error("Your card was declined."), {
+        type: "StripeCardError",
+        code: "card_declined",
+      }),
+    );
+
+    await expect(confirming(actor)).resolves.toEqual({
+      attached: true,
+      paidInvoice: false,
+      invoice: "declined",
+      declineMessage: "Your card was declined.",
+    });
+  });
+
+  it("says the bank wants the payment confirmed, which only Pay now can do", async () => {
+    const actor = await replacing("replace-authenticate");
+    stripe.openStripeInvoiceFor.mockResolvedValue("in_owed");
+    stripe.payStripeInvoice.mockRejectedValue(
+      Object.assign(new Error("This payment requires additional user action."), {
+        code: "invoice_payment_intent_requires_action",
+      }),
+    );
+
+    await expect(confirming(actor)).resolves.toMatchObject({
+      invoice: "needs_authentication",
+      declineMessage: null,
+    });
+  });
+
+  it("never says nothing was owed where it could not find out and the row says something is", async () => {
+    const actor = await replacing("replace-unread");
+    stripe.openStripeInvoiceFor.mockRejectedValue(new Error("connect ETIMEDOUT"));
+
+    await expect(confirming(actor)).resolves.toMatchObject({
+      paidInvoice: false,
+      invoice: "declined",
+      declineMessage: null,
+    });
+  });
+
+  it("says nothing was owed where nothing was", async () => {
+    const actor = await replacing("replace-nothing-owed", "active");
+    stripe.openStripeInvoiceFor.mockResolvedValue(null);
+
+    await expect(confirming(actor)).resolves.toEqual({
+      attached: true,
+      paidInvoice: false,
+      invoice: "none",
+      declineMessage: null,
+    });
+  });
+
+  it("turns away a method this product does not offer before anything is written", async () => {
+    const actor = await replacing("replace-satispay", "past_due", "satispay");
+
+    await expect(confirming(actor)).rejects.toMatchObject({
+      code: "CONFLICT",
+      details: { paymentMethodType: "satispay" },
+    });
+    expect(stripe.setStripeDefaultPaymentMethod).not.toHaveBeenCalled();
+    expect(stripe.payStripeInvoice).not.toHaveBeenCalled();
+  });
+
+  it("answers a method the subscription refuses to bill with a sentence, and pays nothing", async () => {
+    const actor = await replacing("replace-refused");
+    stripe.setStripeDefaultPaymentMethod.mockRejectedValue(
+      Object.assign(
+        new Error("The payment method type `kakao_pay` does not support the currency usd."),
+        {
+          statusCode: 400,
+          param: "default_payment_method",
+        },
+      ),
+    );
+
+    await expect(confirming(actor)).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: expect.stringMatching(/cannot pay this subscription/),
+    });
+    expect(stripe.payStripeInvoice).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A saved card's delivery that no retry can make good: a method this product
+ * does not offer, or one the subscription refuses to bill in its currency. Each
+ * was a 500 on every one of Stripe's retries for three days, while Stripe held
+ * back the account's other invoices.
+ */
+integration("a setup_intent.succeeded delivery that cannot be pinned", () => {
+  beforeAll(async () => {
+    await database.create();
+  }, 60_000);
+  afterAll(async () => {
+    await database.drop();
+  });
+
+  const delivery = (eventId: string) => ({
+    id: eventId,
+    type: "setup_intent.succeeded",
+    data: { object: { id: `seti_${eventId}`, object: "setup_intent" } },
+  });
+  const claimed = async (eventId: string) =>
+    (
+      await getDb()
+        .select()
+        .from(billingWebhookEvents)
+        .where(eq(billingWebhookEvents.eventId, eventId))
+    ).length > 0;
+  const saved = async (id: string, type: string) => {
+    const actor = await seed(id);
+    await mapCustomer(actor.userId, `cus_${id}`);
+    await subscribe(actor.userId);
+    stripe.fetchStripeSetupIntent.mockResolvedValue({
+      status: "succeeded",
+      customerId: `cus_${id}`,
+      paymentMethodId: "pm_saved",
+      paymentMethodCreated: new Date(),
+      paymentMethodType: type,
+    });
+    stripe.currentStripeDefaultPaymentMethod.mockResolvedValue(null);
+    return actor;
+  };
+
+  it("records a method this product does not offer and leaves the card Stripe bills alone", async () => {
+    const actor = await saved("setup-unoffered", "naver_pay");
+
+    await expect(applySetupIntentSucceeded(actor.userId, delivery("evt_unoffered"))).resolves.toBe(
+      "ignored",
+    );
+    expect(stripe.setStripeDefaultPaymentMethod).not.toHaveBeenCalled();
+    expect(await claimed("evt_unoffered")).toBe(true);
+  });
+
+  it("records a method the subscription refuses, rather than failing every retry", async () => {
+    const actor = await saved("setup-refused", "card");
+    stripe.setStripeDefaultPaymentMethod.mockRejectedValue(
+      Object.assign(
+        new Error("The payment method type `satispay` does not support the currency usd."),
+        {
+          statusCode: 400,
+          param: "default_payment_method",
+        },
+      ),
+    );
+
+    await expect(applySetupIntentSucceeded(actor.userId, delivery("evt_refused"))).resolves.toBe(
+      "ignored",
+    );
+    expect(await claimed("evt_refused")).toBe(true);
+    await expect(applySetupIntentSucceeded(actor.userId, delivery("evt_refused"))).resolves.toBe(
+      "duplicate",
+    );
+  });
+});
+
+/**
+ * The deletion note names the paid plan it cancels. A first payment that never
+ * went through is a current subscription on the free plan, and its owner was
+ * told their paid plan would be canceled.
+ */
+integration("whether deleting an account cancels a paid plan", () => {
+  beforeAll(async () => {
+    await database.create();
+  }, 60_000);
+  afterAll(async () => {
+    await database.drop();
+  });
+
+  it("counts every subscription paid for at least once, and not an unfinished first payment", async () => {
+    for (const [status, answer] of [
+      ["incomplete", false],
+      ["active", true],
+      ["past_due", true],
+      ["unpaid", true],
+    ] as const) {
+      const actor = await seed(`deleting-${status}`);
+      await subscribe(actor.userId, { status });
+      expect(await hasLiveSubscription(actor), status).toBe(answer);
+    }
+  });
+});
+
+/**
+ * What the plan tab can say about frozen accounts. The count of places in use
+ * reads the same with none frozen or two, and on the paid plan there was no
+ * count at all, so a subscriber about to cancel could not be told what freezes.
+ */
+integration("the plan tab's count of accounts", () => {
+  beforeAll(async () => {
+    await database.create();
+  }, 60_000);
+  afterAll(async () => {
+    await database.drop();
+  });
+
+  const accounts = async (userId: string, count: number) => {
+    for (let index = 0; index < count; index += 1) {
+      await getDb()
+        .insert(ledgerAccounts)
+        .values({
+          userId,
+          name: `Account ${index + 1}`,
+          type: "cash",
+          currency: "USD",
+          openingDate: "2026-01-01",
+          createdAt: new Date(Date.UTC(2026, 0, index + 1)),
+        });
+    }
+  };
+
+  it("counts the frozen accounts on the free plan, and says the choice is still open", async () => {
+    const actor = await seed("counts-free");
+    await accounts(actor.userId, 5);
+
+    const shown = await getBillingStatus(actor);
+
+    expect(shown).toMatchObject({
+      accountsUsed: 3,
+      accountsFrozen: 2,
+      accountsLive: 5,
+      activeChoicePending: true,
+      // Nothing is being ended here, and the pair is still answered: the tab
+      // is one page whichever plan is in force, so the fields do not come and
+      // go with the subscription.
+      accountsFrozenOnFree: 2,
+      activeChoicePendingOnFree: true,
+    });
+  });
+
+  it("says what ending a live subscription would freeze, while nothing is frozen yet", async () => {
+    // The case the plan tab exists for: on the paid plan there is no count of
+    // frozen accounts to show, because none is frozen, and the person about to
+    // press Cancel is the one who needs the number.
+    const actor = await seed("counts-ending");
+    await accounts(actor.userId, 5);
+    await subscribe(actor.userId);
+
+    expect(await getBillingStatus(actor)).toMatchObject({
+      accountsUsed: null,
+      accountsFrozen: null,
+      accountsLive: 5,
+      accountsFrozenOnFree: 2,
+      activeChoicePendingOnFree: true,
+    });
+  });
+
+  it("counts under a grant that runs out before the paid period does", async () => {
+    // The grant keeps the limit off today and not on the day the plan ends,
+    // so the count has to be asked of the period end rather than of now. Asked
+    // of now it answered null and the tab said nothing whatever about the two
+    // accounts that freeze the moment the subscription lapses.
+    const actor = await seed("counts-grant-lapses");
+    await accounts(actor.userId, 5);
+    await subscribe(actor.userId);
+    await getDb()
+      .insert(billingOverrides)
+      .values({
+        userId: actor.userId,
+        plan: "plus",
+        expiresAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
+        reason: "test",
+        operator: "test",
+      });
+
+    expect(await getBillingStatus(actor)).toMatchObject({
+      accountsFrozen: null,
+      accountsLive: 5,
+      accountsFrozenOnFree: 2,
+      activeChoicePendingOnFree: true,
+    });
+  });
+
+  it("says nothing would freeze while a second subscription is live", async () => {
+    // Canceling one of two. The count drops the row the Cancel button ends and
+    // keeps the rest, because dropping every subscription answers "what if
+    // this person had none" — a different question, and the wrong one here.
+    const actor = await seed("counts-two-live");
+    await accounts(actor.userId, 5);
+    await subscribe(actor.userId);
+    await subscribe(actor.userId, {
+      stripeSubscriptionId: `sub_${actor.userId}_trial`,
+      status: "trialing",
+      syncedAt: new Date(Date.now() - 60_000),
+    });
+
+    expect(await getBillingStatus(actor)).toMatchObject({
+      accountsLive: 5,
+      accountsFrozenOnFree: null,
+      activeChoicePendingOnFree: false,
+    });
+  });
+
+  it("counts the live accounts on the paid plan, where none is frozen", async () => {
+    const actor = await seed("counts-premium");
+    await accounts(actor.userId, 5);
+    await getDb().insert(billingOverrides).values({
+      userId: actor.userId,
+      plan: "plus",
+      expiresAt: null,
+      reason: "test",
+      operator: "test",
+    });
+
+    const shown = await getBillingStatus(actor);
+
+    expect(shown).toMatchObject({
+      accountsUsed: null,
+      accountsFrozen: null,
+      accountsLive: 5,
+      activeChoicePending: false,
+      // The grant has no end date, so it outlives any subscription and no
+      // limit would be in force once one ended. Null, not zero: "how many
+      // would freeze" has no answer rather than the answer none.
+      accountsFrozenOnFree: null,
+      activeChoicePendingOnFree: false,
+    });
   });
 });

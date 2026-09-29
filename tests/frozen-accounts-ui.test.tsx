@@ -27,6 +27,7 @@ import {
   MAX_FREE_ACCOUNTS,
   restoreAllowance,
 } from "../src/shared/domain.js";
+import { blocks, stylesheet } from "./support/css.js";
 import "./support/dialog.js";
 
 /**
@@ -132,6 +133,49 @@ afterEach(() => {
   vi.unstubAllGlobals();
   window.history.replaceState(null, "", "/");
 });
+
+/**
+ * The opacity a viewer actually sees on an element: the one the stylesheet
+ * gives it, times every one it gives an ancestor.
+ *
+ * Opacity composites down the subtree, and that is the whole reason this is
+ * here. `web.md` 1.5 says a disabled control in a family that paints itself
+ * dims to `0.5` to say so — but a row that is already at `0.5` because the
+ * entry is voided, or a card at `0.65` because the account is archived, makes
+ * that `0.25` and `0.325`, which is not a dim but a disappearance. Both
+ * combinations are reachable and neither is visible to a test that reads the
+ * stylesheet as text: jsdom computes no cascade, so `getComputedStyle` here
+ * reports the inline style and nothing else.
+ *
+ * Matching is jsdom's own, against the real rendered tree, so the answer is
+ * about the markup the page produces rather than one written out again here.
+ * Where two rules match, the later one wins: specificity is not computed, and
+ * the stylesheet is ordered so that a narrowing exception follows the family
+ * it narrows — which is also the higher specificity, so the two agree.
+ */
+function seenOpacity(element: Element): number {
+  const rules = blocks(stylesheet()).filter(
+    (block) => block.context.length === 0 && /(^|[;\s])opacity\s*:/.test(block.body),
+  );
+  let seen = 1;
+  for (let at: Element | null = element; at; at = at.parentElement) {
+    let own = 1;
+    for (const rule of rules) {
+      const matches = rule.selector.split(",").some((one) => {
+        // A selector jsdom cannot parse — a pseudo-element, say — matches
+        // nothing here rather than stopping the walk.
+        try {
+          return at!.matches(one.trim());
+        } catch {
+          return false;
+        }
+      });
+      if (matches) own = Number(/opacity:\s*([\d.]+)/.exec(rule.body)?.[1] ?? 1);
+    }
+    seen *= own;
+  }
+  return seen;
+}
 
 const selectValues = (container: HTMLElement) =>
   [...container.querySelectorAll("select")].map((select) => select.value);
@@ -272,6 +316,336 @@ describe("the transaction list, with frozen accounts in the ledger", () => {
   });
 });
 
+describe("entries on a frozen account, in the transaction list", () => {
+  const entry = (id: string, payee: string, over: Record<string, unknown>): Transaction =>
+    ({
+      id,
+      type: "withdrawal",
+      date: "2026-07-10",
+      payee,
+      description: null,
+      sourceAccountId: LIVE.id,
+      sourceAccount: { id: LIVE.id, name: LIVE.name, currency: "USD" },
+      sourceAmount: "12.34",
+      sourceCurrency: "USD",
+      version: 3,
+      legs: [],
+      ...over,
+    }) as unknown as Transaction;
+  const onFrozen = { sourceAccountId: FROZEN.id, sourceAccount: FROZEN };
+  const ON_FROZEN = entry("44444444-4444-4444-8444-000000000001", "Frozen market", onFrozen);
+  const ON_LIVE = entry("44444444-4444-4444-8444-000000000002", "Live market", {});
+  // Into the frozen account from a live one: the frozen side is the second.
+  const TOP_UP = entry("44444444-4444-4444-8444-000000000003", "Top up", {
+    type: "transfer",
+    destinationAccountId: FROZEN.id,
+    destinationAccount: FROZEN,
+    destinationAmount: "50.00",
+    destinationCurrency: "USD",
+  });
+  const VOIDED = entry("44444444-4444-4444-8444-000000000004", "Old refund", {
+    ...onFrozen,
+    deletedAt: "2026-07-11T00:00:00.000Z",
+  });
+  // The server's sentence, naming the account it is about.
+  const reason = frozenAccountRefusal(MAX_FREE_ACCOUNTS, FROZEN.name);
+
+  function mountList(
+    items: readonly Transaction[],
+    extra?: (url: URL, init?: RequestInit) => Response | undefined,
+  ) {
+    stubFetch(
+      [FROZEN, LIVE, OTHER],
+      (url, init) =>
+        extra?.(url, init) ??
+        (url.pathname === "/api/v1/transactions"
+          ? Response.json({
+              ...emptyPage,
+              items,
+              pageSize: items.length,
+              totalCount: items.length,
+            })
+          : undefined),
+    );
+    mountBrowser(2);
+  }
+
+  const rowOf = async (payee: string) =>
+    within((await screen.findByRole("link", { name: payee })).closest("tr")!);
+
+  it("disables Edit and Delete on them with the refusal's sentence, and names the account", async () => {
+    mountList([ON_FROZEN, ON_LIVE]);
+    const frozen = await rowOf("Frozen market");
+    // After the accounts list has arrived, which is what says the row is frozen.
+    await waitFor(() => expect(frozen.getByRole("button", { name: "Edit" })).toBeDisabled());
+    for (const name of ["Edit", "Delete"]) {
+      const button = frozen.getByRole("button", { name });
+      expect(button).toBeDisabled();
+      expect(button).toHaveAccessibleDescription(reason);
+    }
+    expect(frozen.getByText("Frozen")).toBeInTheDocument();
+
+    // Beside it, an entry on an account in use keeps both, with nothing to explain.
+    const live = await rowOf("Live market");
+    for (const name of ["Edit", "Delete"]) {
+      const button = live.getByRole("button", { name });
+      expect(button).toBeEnabled();
+      expect(button).not.toHaveAccessibleDescription();
+    }
+    expect(live.queryByText("Frozen")).not.toBeInTheDocument();
+  });
+
+  it("disables them when the frozen account is the other side of a transfer", async () => {
+    mountList([TOP_UP]);
+    const row = await rowOf("Top up");
+    await waitFor(() => expect(row.getByRole("button", { name: "Delete" })).toBeDisabled());
+    expect(row.getByRole("button", { name: "Edit" })).toHaveAccessibleDescription(reason);
+  });
+
+  it("disables Restore on a deleted one, because restoring posts to it too", async () => {
+    mountList([VOIDED]);
+    const row = await rowOf("Old refund");
+    await waitFor(() => expect(row.getByRole("button", { name: "Restore" })).toBeDisabled());
+    expect(row.getByRole("button", { name: "Restore" })).toHaveAccessibleDescription(reason);
+  });
+
+  it("leaves that Restore as dim as its voided row and no dimmer", async () => {
+    // The row is the only place a frozen entry and a dimmed container meet: a
+    // voided row shows Restore alone, so the dim that says "disabled" would
+    // land on the row's only remaining action, on top of the dim that says
+    // "voided". Nothing above says which two numbers those are — the point is
+    // that they do not multiply.
+    mountList([VOIDED, ON_FROZEN]);
+    const voided = await rowOf("Old refund");
+    const restore = voided.getByRole("button", { name: "Restore" });
+    await waitFor(() => expect(restore).toBeDisabled());
+    const row = restore.closest("tr")!;
+    expect(seenOpacity(row), "a voided row is dimmed").toBeLessThan(1);
+    expect(seenOpacity(restore), "and its dead action is not dimmed again").toBe(seenOpacity(row));
+
+    // And the dim is still doing its job one row along, where nothing above the
+    // control is dimming: without this, deleting the rule outright would pass.
+    const ordinary = await rowOf("Frozen market");
+    const edit = ordinary.getByRole("button", { name: "Edit" });
+    expect(edit).toBeDisabled();
+    expect(seenOpacity(edit.closest("tr")!), "an ordinary row is not dimmed").toBe(1);
+    expect(seenOpacity(edit), "and a dead action in it is").toBeLessThan(1);
+  });
+
+  it("disables the selection's Delete and Edit while a selected entry is on one", async () => {
+    mountList([ON_FROZEN, ON_LIVE]);
+    const live = await rowOf("Live market");
+    await waitFor(() => expect(live.getByRole("button", { name: "Edit" })).toBeEnabled());
+    fireEvent.click(live.getByRole("checkbox"));
+    expect(screen.getByRole("button", { name: "Delete selected" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Edit selected" })).toBeEnabled();
+
+    fireEvent.click((await rowOf("Frozen market")).getByRole("checkbox"));
+    for (const name of ["Delete selected", "Edit selected"]) {
+      const button = screen.getByRole("button", { name });
+      expect(button).toBeDisabled();
+      expect(button).toHaveAccessibleDescription(reason);
+    }
+  });
+
+  // A selection that outlives the page it was made on: two rows a page, a
+  // list longer than one, and the preview a filter selection is counted by.
+  const PAGE_TWO = entry("44444444-4444-4444-8444-000000000005", "Page two market", {});
+  function mountPages(pageOf: (url: URL) => readonly Transaction[], totalCount: number) {
+    const bulkCalls: string[] = [];
+    mountList([], (url, init) => {
+      if (url.pathname === "/api/v1/transactions") {
+        return Response.json({
+          ...emptyPage,
+          items: pageOf(url),
+          page: Number(url.searchParams.get("page") ?? 1),
+          pageSize: 2,
+          totalCount,
+          totalPages: Math.ceil(totalCount / 2),
+        });
+      }
+      if (url.pathname === "/api/v1/transactions/bulk-selection") {
+        const { excludedIds } = JSON.parse(String(init?.body)) as { excludedIds: string[] };
+        const count = totalCount - excludedIds.length;
+        return Response.json({
+          count,
+          fingerprint: "d".repeat(64),
+          activeCount: count,
+          deletedCount: 0,
+          transferCount: 0,
+          splitCount: 0,
+          currencies: ["USD"],
+        });
+      }
+      if (url.pathname.startsWith("/api/v1/transactions/bulk-")) bulkCalls.push(url.pathname);
+      return undefined;
+    });
+    return bulkCalls;
+  }
+  const byPage = (url: URL) =>
+    url.searchParams.get("page") === "2" ? [PAGE_TWO] : [ON_FROZEN, ON_LIVE];
+  const expectBulkBlocked = () => {
+    for (const name of ["Delete selected", "Edit selected"]) {
+      const button = screen.getByRole("button", { name });
+      expect(button).toBeDisabled();
+      expect(button).toHaveAccessibleDescription(reason);
+    }
+  };
+  const expectBulkOffered = () => {
+    for (const name of ["Delete selected", "Edit selected"]) {
+      expect(screen.getByRole("button", { name })).toBeEnabled();
+    }
+  };
+
+  it("keeps them disabled when Select all matching takes in a frozen row on screen", async () => {
+    // A filter selection read only the account filter, and this view has none,
+    // so both buttons went live beside a row still ticked and badged Frozen.
+    const bulkCalls = mountPages(byPage, 5);
+    const live = await rowOf("Live market");
+    await waitFor(() => expect(live.getByRole("button", { name: "Edit" })).toBeEnabled());
+    fireEvent.click(live.getByRole("checkbox"));
+    expectBulkOffered();
+    fireEvent.click(screen.getByRole("button", { name: "Select all 5 matching" }));
+    await screen.findByText("5 transactions matching this view selected");
+    expect((await rowOf("Frozen market")).getByRole("checkbox")).toBeChecked();
+    expectBulkBlocked();
+
+    // Excluding it is what the reason asks for, and it is enough.
+    fireEvent.click((await rowOf("Frozen market")).getByRole("checkbox"));
+    await screen.findByText("4 transactions matching this view selected");
+    expectBulkOffered();
+    expect(bulkCalls).toEqual([]);
+  });
+
+  it("remembers a frozen row ticked on page one after the page turns", async () => {
+    // `versions` goes on sending the row from page two, so the server refuses
+    // the whole request; the check read only the rows on screen and forgot it.
+    mountPages(byPage, 3);
+    const frozen = await rowOf("Frozen market");
+    await waitFor(() => expect(frozen.getByRole("button", { name: "Edit" })).toBeDisabled());
+    fireEvent.click(frozen.getByRole("checkbox"));
+    fireEvent.click((await rowOf("Live market")).getByRole("checkbox"));
+    expectBulkBlocked();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    await rowOf("Page two market");
+    expect(screen.getByText("2 transactions selected")).toBeVisible();
+    expectBulkBlocked();
+
+    // Unticked, it no longer holds the selection back from another page.
+    fireEvent.click(screen.getByRole("button", { name: "Previous page" }));
+    fireEvent.click((await rowOf("Frozen market")).getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    await rowOf("Page two market");
+    expect(screen.getByText("1 transaction selected")).toBeVisible();
+    expectBulkOffered();
+  });
+
+  it("remembers a frozen row a filter selection showed on a page it has left", async () => {
+    mountPages(byPage, 3);
+    const live = await rowOf("Live market");
+    await waitFor(() => expect(live.getByRole("button", { name: "Edit" })).toBeEnabled());
+    fireEvent.click(live.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "Select all 3 matching" }));
+    await screen.findByText("3 transactions matching this view selected");
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    await rowOf("Page two market");
+    expectBulkBlocked();
+  });
+
+  it("blocks a filter selection once a page it turns to shows a frozen row", async () => {
+    // Taken in by the selection without ever being ticked or remembered: it
+    // arrives on screen already selected, so the rows on screen are read in
+    // this mode too.
+    mountPages(
+      (url) => (url.searchParams.get("page") === "2" ? [ON_FROZEN] : [ON_LIVE, PAGE_TWO]),
+      3,
+    );
+    const live = await rowOf("Live market");
+    await waitFor(() => expect(live.getByRole("button", { name: "Edit" })).toBeEnabled());
+    fireEvent.click(live.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "Select all 3 matching" }));
+    await screen.findByText("3 transactions matching this view selected");
+    expectBulkOffered();
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    expect((await rowOf("Frozen market")).getByRole("checkbox")).toBeChecked();
+    expectBulkBlocked();
+  });
+
+  it("remembers a frozen row shown before a reorder took it off the page", async () => {
+    // Seen but never ticked: it joins the selection only when every matching
+    // row does, which is after the sort has already replaced the page.
+    mountPages(
+      (url) => (url.searchParams.get("sort") === "payee" ? [ON_LIVE, PAGE_TWO] : byPage(url)),
+      3,
+    );
+    await waitFor(async () =>
+      expect((await rowOf("Frozen market")).getByRole("button", { name: "Edit" })).toBeDisabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Payee/ }));
+    await rowOf("Page two market");
+    fireEvent.click((await rowOf("Live market")).getByRole("checkbox"));
+    expectBulkOffered();
+    fireEvent.click(screen.getByRole("button", { name: "Select all 3 matching" }));
+    await screen.findByText("3 transactions matching this view selected");
+    expectBulkBlocked();
+  });
+
+  it("names the entry when a delete is refused anyway", async () => {
+    // The list said the account was in use and the server has since frozen
+    // it — the one way a refusal still reaches the list-level alert.
+    const refusal = frozenAccountRefusal(MAX_FREE_ACCOUNTS, LIVE.name);
+    mountList([ON_LIVE], (url) =>
+      url.pathname.endsWith("/deleted")
+        ? Response.json({ error: { code: "VALIDATION_ERROR", message: refusal } }, { status: 422 })
+        : undefined,
+    );
+    const live = await rowOf("Live market");
+    await waitFor(() => expect(live.getByRole("button", { name: "Delete" })).toBeEnabled());
+    fireEvent.click(live.getByRole("button", { name: "Delete" }));
+    const dialog = screen.getByRole("dialog", { name: "Delete this transaction?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    expect(await screen.findByText(`“Live market” was not deleted. ${refusal}`)).toBeVisible();
+  });
+});
+
+describe("a frozen account's card on the Accounts page", () => {
+  const CASH = account("11111111-1111-4111-8111-000000000004", "Cash");
+
+  async function menuOf(name: string) {
+    stubFetch([FROZEN, LIVE, OTHER, CASH]);
+    render(
+      <QueryClientProvider client={queryClient()}>
+        <BrowserRouter>
+          <AccountsPage session={session(MAX_FREE_ACCOUNTS)} />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+    const trigger = await screen.findByLabelText(`Actions for ${name}`);
+    return within(trigger.closest("details") as HTMLElement);
+  }
+
+  it("says why Edit, Archive and Delete are unavailable, in the refusal's own sentence", async () => {
+    const menu = await menuOf(FROZEN.name);
+    for (const name of ["Edit", "Archive", "Delete if unused"]) {
+      const item = menu.getByRole("button", { name, hidden: true });
+      expect(item).toBeDisabled();
+      expect(item).toHaveAccessibleDescription(
+        frozenAccountRefusal(MAX_FREE_ACCOUNTS, FROZEN.name),
+      );
+    }
+  });
+
+  it("leaves an account in use with all three and nothing to explain", async () => {
+    const menu = await menuOf(LIVE.name);
+    for (const name of ["Edit", "Archive", "Delete if unused"]) {
+      const item = menu.getByRole("button", { name, hidden: true });
+      expect(item).toBeEnabled();
+      expect(item).not.toHaveAccessibleDescription();
+    }
+  });
+});
+
 describe("a frozen account's own page", () => {
   it("says it is frozen and offers no new entry", async () => {
     stubFetch([FROZEN, LIVE], (url) =>
@@ -331,6 +705,19 @@ describe("restoring an archived account", () => {
   it("is offered while a place is free", async () => {
     const restore = await openArchived(MAX_FREE_ACCOUNTS - 1);
     expect(restore).toBeEnabled();
+  });
+
+  it("leaves the refused item as dim as the archived card and no dimmer", async () => {
+    // The second place a disabled control sits inside something already dimmed.
+    // An archived card is at 0.65, and a menu item dimmed again inside it is
+    // the same disappearance a voided row's icon was.
+    const restore = await openArchived(MAX_FREE_ACCOUNTS);
+    const card = restore.closest("article")!;
+    expect(card.className, "the card is the archived one").toContain("archived");
+    expect(seenOpacity(card), "an archived card is dimmed").toBeLessThan(1);
+    expect(seenOpacity(restore), "and its refused item is not dimmed again").toBe(
+      seenOpacity(card),
+    );
   });
 });
 

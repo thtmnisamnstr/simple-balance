@@ -70,6 +70,24 @@ jobs:
           docker compose -f compose.yml -f compose.caddy.yml config \
             | grep -q 'TRUST_PROXY: "true"'
           echo "the overlay turns TRUST_PROXY on"
+          # The certificate's overlay, in the order the cloud programs name it
+          # in COMPOSE_FILE, and what Compose makes of its one mount: the
+          # directory at the path it has on the host, because DATABASE_URL
+          # names the file once and the backup's client mounts that same path.
+          # create_host_path is left to tests/systemd-scripts.test.ts, which
+          # pins the file's text, because Compose versions disagree about how
+          # to print it: 5.5 omits it when true, Ubuntu's 2.40 when false, and
+          # `bind: {}` means opposite things on the two.
+          docker compose -f compose.yml -f compose.caddy.yml -f compose.db-tls.yml config >/dev/null
+          echo "the certificate overlay interpolates"
+          docker compose -f compose.yml -f compose.db-tls.yml config --format json \
+            | jq -e '[.services.app.volumes[]? | select(.target == "/var/lib/simple-balance/tls")]
+                     | length == 1 and (.[0] | .type == "bind" and .source == .target and .read_only == true)' \
+            >/dev/null || {
+            echo "::error::compose.db-tls.yml does not mount /var/lib/simple-balance/tls read-only at the path it has on the host"
+            exit 1
+          }
+          echo "the certificate overlay mounts the directory read-only at its own path"
           # And that each required setting is genuinely required, since a `:?`
           # that was softened to `:-` is invisible until somebody deploys
           # without it.
@@ -134,3 +152,19 @@ jobs:
                      deploy/systemd/simple-balance-firstboot \
                      deploy/systemd/simple-balance-env
           echo "shellcheck passed all four scripts"
+
+      # Not the single profile's, but linted here for the reason at the top of
+      # this file: verify.yml's images job is where the script would otherwise
+      # go, and a linter pointed at a checkout path in that workflow is one of
+      # the shapes CodeQL reported there. The image's entrypoint sources it on
+      # every start, before nginx reads a line, and an `exit` in it stops the
+      # container — so a quoting bug in it is an outage rather than a warning.
+      - name: The frontend image's entrypoint script lints clean
+        run: |
+          set -euo pipefail
+          command -v shellcheck >/dev/null || {
+            echo "::error::shellcheck is not installed, so the script was not checked"
+            exit 1
+          }
+          shellcheck deploy/docker/nginx-real-ip.envsh
+          echo "shellcheck passed the frontend's entrypoint script"

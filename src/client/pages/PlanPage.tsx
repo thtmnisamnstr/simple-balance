@@ -1,5 +1,16 @@
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
-import { BILLING_GRACE_DAYS, PLAN_LABELS, subscriptionAction } from "../../shared/domain.js";
+import {
+  BILLING_GRACE_DAYS,
+  graceEndsAt,
+  MAX_FREE_ACCOUNTS,
+  PLAN_ENDING_REFUSAL,
+  PLAN_LABELS,
+  periodIsPaid,
+  planChangeTakesEffect,
+  subscriptionAction,
+  type OwedInvoiceOutcome,
+  type SubscriptionAction,
+} from "../../shared/domain.js";
 // The `pure` entry, and the difference is the whole promise below. The default
 // entry injects Stripe's script one microtask after it is *imported*, whether or
 // not `loadStripe` is ever called — and this module is imported by the app shell,
@@ -8,10 +19,10 @@ import { BILLING_GRACE_DAYS, PLAN_LABELS, subscriptionAction } from "../../share
 // the policy it ran, fraud signals and all; everywhere else the policy refused it
 // and the console said so on every load. `pure` loads it only when called.
 import { loadStripe } from "@stripe/stripe-js/pure";
-import type { Stripe } from "@stripe/stripe-js";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { Stripe, StripeError } from "@stripe/stripe-js";
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { CreditCard, ShieldCheck } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type ComponentProps, type FormEvent } from "react";
 import {
   api,
   json,
@@ -25,6 +36,281 @@ import { newIdempotencyKey } from "../idempotency.js";
 import { formatTimestamp } from "../money.js";
 import { useTimezone } from "../timezone.js";
 import type { BillingInterval } from "../../shared/domain.js";
+
+type PlanSubscription = NonNullable<BillingStatus["subscription"]>;
+
+/**
+ * What confirming a saved payment method answers.
+ *
+ * `invoice` is what became of anything owed, and it is optional for the reason
+ * `BillingStatus`'s later fields are — a bundle can be served by a container
+ * from before the field existed — and one more: a replay of an idempotency key
+ * stored before the server said it hands back only the first two fields.
+ * `paidInvoice` alone cannot tell "nothing was owed" from "the new method was
+ * declined", which is how a declined replacement closed the form as though it
+ * had worked.
+ */
+type CardConfirmation = {
+  readonly attached: boolean;
+  readonly paidInvoice: boolean;
+  readonly invoice?: OwedInvoiceOutcome;
+  readonly declineMessage?: string | null;
+};
+
+/**
+ * The sentence the Your plan panel says about what just happened, and whether
+ * it takes focus.
+ *
+ * It takes focus when the control somebody used has gone or has let go of it,
+ * which on this tab is every time: a payment or a saved method closes the form
+ * its button was in, and every other button here disables itself while it
+ * works, which makes the browser blur it. Focus then fell to `<body>`, so the
+ * next Tab started from the top of the page (`web.md` 13.3). Not on a page
+ * load, though — coming back from a bank's page is a fresh document, and
+ * moving focus into the middle of one skips everything above it.
+ */
+type Notice = {
+  readonly kind: NonNullable<ComponentProps<typeof Alert>["kind"]>;
+  readonly text: string;
+  readonly focus: boolean;
+};
+
+/** What the form confirmed, for the page to say and to act on. */
+type Confirmed =
+  | { readonly kind: "payment"; readonly processing: boolean }
+  | {
+      readonly kind: "setup";
+      readonly setupIntentId: string | null;
+      readonly processing: boolean;
+    };
+
+/**
+ * What Stripe puts on the address when a confirmation leaves the tab — a bank's
+ * page, a wallet's — and sends the person back to `return_url`. The client
+ * secret is among them, so none of them outlives the load that reads them.
+ */
+const STRIPE_RETURN_PARAMS = [
+  "setup_intent",
+  "setup_intent_client_secret",
+  "payment_intent",
+  "payment_intent_client_secret",
+  "redirect_status",
+] as const;
+
+/** A confirmation that came back by redirect, read off the address it came back to. */
+type StripeReturn = {
+  readonly intent: PendingConfirmation["kind"];
+  readonly id: string;
+  readonly status: string;
+};
+
+function stripeReturn(search: string): StripeReturn | null {
+  const params = new URLSearchParams(search);
+  const status = params.get("redirect_status");
+  if (!status) return null;
+  const setupIntent = params.get("setup_intent");
+  if (setupIntent) return { intent: "setup", id: setupIntent, status };
+  const paymentIntent = params.get("payment_intent");
+  if (paymentIntent) return { intent: "payment", id: paymentIntent, status };
+  return null;
+}
+
+/** This address without what Stripe added to it, and with everything else kept. */
+function withoutStripeReturn(location: Location) {
+  const params = new URLSearchParams(location.search);
+  for (const name of STRIPE_RETURN_PARAMS) params.delete(name);
+  const search = params.toString();
+  return `${location.pathname}${search ? `?${search}` : ""}${location.hash}`;
+}
+
+const PAYMENT_PROCESSING =
+  "Your payment is still being processed. This tab shows the plan as paid once it clears, and " +
+  "nothing more is needed from you.";
+const METHOD_PROCESSING =
+  "Your new payment method is still being confirmed. Renewals charge it once it is, and nothing " +
+  "more is needed from you.";
+
+/**
+ * What a return from a redirect says before anything else is asked, or null
+ * where a saved method still has to be confirmed and that answer is the one to
+ * say. A payment needs nothing more asked: the load that brought somebody back
+ * reads the plan from Stripe as it is.
+ */
+function returnNotice(returned: StripeReturn): Notice | null {
+  if (returned.intent === "payment") {
+    if (returned.status === "succeeded") {
+      return { kind: "success", text: "Payment received.", focus: false };
+    }
+    if (returned.status === "processing") {
+      return { kind: "info", text: PAYMENT_PROCESSING, focus: false };
+    }
+    return {
+      kind: "error",
+      text: "That payment did not go through, and nothing was charged.",
+      focus: false,
+    };
+  }
+  if (returned.status === "succeeded") return null;
+  if (returned.status === "processing") {
+    return { kind: "info", text: METHOD_PROCESSING, focus: false };
+  }
+  return {
+    kind: "error",
+    text: "Your new payment method could not be saved, so nothing was changed and the one before it is still charged.",
+    focus: false,
+  };
+}
+
+/**
+ * The button on this tab that pays what is owed, by the name it is drawn with,
+ * or null where it draws none: the conditions `payableInterval` and
+ * `finishInterval` render those two by, for a sentence that has to name one.
+ */
+function owedPaymentButton(subscription: PlanSubscription | null | undefined) {
+  if (!subscription?.payable || !subscription.interval) return null;
+  if (subscription.status === "past_due") return "Pay now";
+  if (subscription.status === "unpaid") return "Pay what is owed";
+  return null;
+}
+
+/**
+ * What saving a new payment method did about anything owed, in words.
+ *
+ * Read after the plan has been read again, so the button it points at is the
+ * one on screen. A declined method and one whose bank wants the payment
+ * confirmed are both still saved — the part somebody asked for happened — so
+ * neither undoes it, and neither is silent: both closed the form as though
+ * everything had worked, beside an alert saying that replacing the card fixes
+ * it right away.
+ */
+function savedNotice(result: CardConfirmation, subscription: PlanSubscription | null | undefined) {
+  const button = owedPaymentButton(subscription);
+  const invoice = result.invoice ?? (result.paidInvoice ? "paid" : null);
+  if (invoice === "paid") {
+    return {
+      kind: "success",
+      text: "Your new payment method is saved, and it paid what was owed.",
+    } as const;
+  }
+  if (invoice === "declined") {
+    return {
+      kind: "error",
+      text: [
+        "Your new payment method is saved, but it could not pay what is owed.",
+        result.declineMessage,
+        button
+          ? `Press ${button} to pay with a different one, or change the payment method again.`
+          : "Change the payment method again to try a different one.",
+      ]
+        .filter(Boolean)
+        .join(" "),
+    } as const;
+  }
+  if (invoice === "needs_authentication") {
+    return {
+      kind: "info",
+      text: [
+        "Your new payment method is saved, but its bank wants to confirm the payment that is " +
+          "owed, and Stripe will not charge it until that happens.",
+        button ? `Press ${button} to confirm it.` : null,
+      ]
+        .filter(Boolean)
+        .join(" "),
+    } as const;
+  }
+  if (invoice === "none") {
+    return {
+      kind: "success",
+      text: "Your new payment method is saved. Renewals charge it from now on.",
+    } as const;
+  }
+  return { kind: "success", text: "Your new payment method is saved." } as const;
+}
+
+const planWord = (interval: BillingInterval) => (interval === "yearly" ? "annual" : "monthly");
+
+/**
+ * What a change of plan that asked for no payment did, in words.
+ *
+ * Every one of these presses disabled its button while it worked, and the one
+ * letting a switch go took its button away with the switch, so focus fell to
+ * `<body>` and nothing but a badge said the press had done anything — a charge
+ * for the difference included. Worded by what the press was, which is the
+ * shared rule asked of the plan the page showed: the server acts by the same
+ * rule, and where the two read different plans — a second tab got there
+ * first — the server's answer is `none`, or a refusal said as one, and each
+ * sentence here is still true of the plan somebody is now on. Any date is the one the plan read after the
+ * press says, never the one on screen before it.
+ *
+ * Null for a press that hands back a payment, where the form is the answer,
+ * unless the plan is plainly the one asked for and paid for.
+ */
+function changedNotice(
+  action: SubscriptionAction["kind"],
+  requested: BillingInterval,
+  fresh: PlanSubscription | null | undefined,
+  timezone: string,
+): string | null {
+  const plan = planWord(requested);
+  if (action === "upgrade") {
+    return `You are on the ${plan} plan now, and the difference was charged to your payment method.`;
+  }
+  if (action === "schedule") {
+    const at =
+      fresh?.scheduledInterval === requested && fresh.scheduledAt
+        ? formatTimestamp(fresh.scheduledAt, timezone)
+        : "your next renewal";
+    return `Your switch to the ${plan} plan is set for ${at}.`;
+  }
+  if (action === "release") {
+    return `You are staying on the ${plan} plan, and the switch is canceled.`;
+  }
+  return fresh?.interval === requested && periodIsPaid(fresh.status)
+    ? `You are on the ${plan} plan.`
+    : null;
+}
+
+/**
+ * What canceling, or taking the cancellation back, did, in words: the same
+ * silence as a change of plan, for the same reason, since Cancel at period end
+ * and Keep my plan disable themselves while they work.
+ *
+ * The date is a day the plan runs to only where the period has been paid for
+ * (`periodIsPaid`), as on the status line. Keep my plan is named only once the
+ * read says the plan is set to end, because that is when it is drawn.
+ */
+function cancellationNotice(
+  ending: boolean,
+  fresh: PlanSubscription | null | undefined,
+  timezone: string,
+) {
+  const date =
+    fresh?.currentPeriodEnd && periodIsPaid(fresh.status)
+      ? formatTimestamp(fresh.currentPeriodEnd, timezone)
+      : null;
+  if (!ending) {
+    return date ? `Your plan renews again on ${date}.` : "Your plan is no longer set to end.";
+  }
+  return [
+    date ? `Your plan is set to end on ${date}.` : "Your plan is set to end.",
+    fresh?.cancelAtPeriodEnd ? "Press Keep my plan to keep it." : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/**
+ * Reads the plan and the session again, and nothing else.
+ *
+ * Both, and in this order: the plan tab is the authority on the subscription
+ * and the session carries the ceiling every other page reads off it, so
+ * refreshing one and not the other leaves the accounts page still refusing a
+ * fourth account to somebody who has just paid.
+ */
+async function reread(queryClient: QueryClient) {
+  await queryClient.invalidateQueries({ queryKey: ["billing"] });
+  await queryClient.invalidateQueries({ queryKey: ["session"] });
+}
 
 /**
  * Stripe.js, fetched once for the life of the tab.
@@ -65,6 +351,100 @@ function priceLabel(price: PlanPrice | null) {
   if (!amount) return null;
   const per = perInterval(price);
   return per ? `${amount} ${per}` : amount;
+}
+
+/**
+ * What one plan charges at each renewal, for the renewal terms: "$30.00 a
+ * year", in the button's own words, wherever Stripe said both halves.
+ *
+ * Never a figure of its own. Where Stripe gave an amount and no interval this
+ * says the amount and no frequency, which is what the button beside it does;
+ * where it gave nothing, it names the plan's price and the frequency the plan is
+ * sold at rather than inventing a number nobody would be charged. Only a
+ * payment on a plan already running reaches that last case: nothing on the tab
+ * starts one at a price Stripe did not give.
+ */
+function renewalCharge(interval: BillingInterval, price: PlanPrice | null) {
+  const amount = formatPrice(price);
+  const per = perInterval(price);
+  if (amount && per) return `${amount} ${per}`;
+  if (amount) return `${amount} each period`;
+  return interval === "yearly" ? "its price once a year" : "its price once a month";
+}
+
+/**
+ * The automatic renewal terms, beside the request that consents to them.
+ *
+ * California's Automatic Renewal Law (Business and Professions Code
+ * 17602(a)(1)) wants them clear and conspicuous — larger or contrasting type,
+ * or set off from the text around them (17601(a)(2)-(3)) — and in visual
+ * proximity to the request for consent: that the plan renews until canceled,
+ * what it charges and how often, that the charge can change, and how to cancel.
+ * Two things on this tab ask for that consent, the plan buttons and the payment
+ * form's confirm button, so it is drawn beside both. Each of those buttons names
+ * it as its description as well, so somebody who tabs straight to the button on
+ * a screen reader hears the terms the sighted reader has in front of them.
+ *
+ * Set off by its box and in ink rather than the muted 12px of the notes around
+ * it, which is the conspicuousness the statute describes. The figures are the
+ * ones the buttons render, read from Stripe.
+ *
+ * The price-change sentence is the clause the hosted service's terms of use
+ * are being changed to, word for word, and the window in it is the law's
+ * rather than a choice: 17602(g)(2) wants notice of a fee change no less than 7
+ * and no more than 30 days before it takes effect, for a contract from July 1,
+ * 2025 (17602(j)). So it is not conditional on `TERMS_OF_USE_URL` — an operator
+ * with no terms of their own owes the same notice — and it names only a change
+ * the operator makes. A switch somebody asks for themselves takes effect when
+ * the note under the plan buttons says it does, and nothing sends a notice of
+ * it. Nothing in this code sends this one either, so an operator who changes a
+ * price sends it; `docs/monetization.md` says so to the operator.
+ */
+function RenewalTerms({
+  id,
+  charges,
+  termsOfUseUrl,
+}: {
+  id: string;
+  charges: readonly (readonly [BillingInterval, PlanPrice | null])[];
+  termsOfUseUrl: string | undefined;
+}) {
+  const charged = charges
+    .map(
+      ([interval, price]) =>
+        `${interval === "yearly" ? "Annual" : "Monthly"} charges ${renewalCharge(interval, price)}`,
+    )
+    .join(" and ");
+  return (
+    <div className="plan-renewal-terms" id={id}>
+      <p>
+        {/* "Payment method" rather than "card": the form takes Link, which
+            can be funded from a bank account, so "card" was not always what
+            is charged. */}
+        <strong>{PLAN_LABELS.plus} renews automatically until you cancel.</strong> {charged}, to
+        your payment method at the start of each period.
+      </p>
+      <p>
+        If we change the price, or tax is added to what a renewal costs, we'll email you between 7
+        and 30 days before the change takes effect, saying what it will cost and how to cancel, and
+        you may cancel before it does.
+      </p>
+      <p>
+        To cancel, press Cancel at period end here on the Plan and billing tab in Settings, whenever
+        you like. A canceled plan runs to the end of the period you paid for.
+        {termsOfUseUrl ? (
+          <>
+            {" "}
+            The{" "}
+            <a href={termsOfUseUrl} target="_blank" rel="noreferrer">
+              terms of use
+            </a>{" "}
+            cover the rest.
+          </>
+        ) : null}
+      </p>
+    </div>
+  );
 }
 
 /** An amount as Stripe holds it: minor units, and a currency that says how many. */
@@ -146,6 +526,12 @@ type PendingConfirmation =
        * charge on the page that takes it.
        */
       readonly purpose: PaymentPurpose;
+      /**
+       * Which plan the money is for, so the renewal terms beside the button
+       * name that plan's charge and not both. Carried for the reason `purpose`
+       * is: the secret says nothing about it.
+       */
+      readonly interval: BillingInterval;
     }
   | { readonly secret: string; readonly kind: "setup" };
 
@@ -153,7 +539,7 @@ type PendingConfirmation =
 type PaymentPurpose = "upgrade" | "settle";
 
 /**
- * The card form, mounted only when there is something to confirm.
+ * The payment form, mounted only when there is something to confirm.
  *
  * Everything in here runs inside Stripe's iframe: no card number reaches this
  * app, this server, or this deployment's logs, which is the whole reason for
@@ -161,16 +547,49 @@ type PaymentPurpose = "upgrade" | "settle";
  */
 function PaymentStep({
   pending,
+  prices,
+  termsOfUseUrl,
   onDone,
 }: {
   pending: PendingConfirmation;
-  onDone: (setupIntentId: string | null) => void | Promise<void>;
+  prices: BillingStatus["prices"];
+  termsOfUseUrl: string | undefined;
+  /** Never rejects: whatever goes wrong after Stripe has confirmed is the page's to say. */
+  onDone: (confirmed: Confirmed) => Promise<void>;
 }) {
   const stripe = useStripe();
   const elements = useElements();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const renewalTermsId = useId();
   const paying = pending.kind === "payment";
+  // A first payment is the consent to a plan that renews, and it is not taken
+  // beside terms that cannot say what the plan charges. Nothing opens this form
+  // for one at an unknown price; this is the refresh that follows the press,
+  // asking Stripe again and hearing nothing back.
+  const unpriced =
+    pending.kind === "payment" &&
+    pending.purpose === "upgrade" &&
+    formatPrice(pending.interval === "yearly" ? prices.yearly : prices.monthly) === null;
+
+  /**
+   * Stripe's refusal, said once.
+   *
+   * Stripe's own sentence, not ours: it knows why a card was declined and says
+   * it in the person's language, and anything written here would be a worse
+   * version of it. Except a `validation_error`, which the element has already
+   * drawn inline beside the field it is about and clears by itself once that
+   * field is right — a copy of it here was the one left behind, saying
+   * "Please select a payment method" beside a Link wallet that had just been
+   * unlocked. Focus goes to the element, where that sentence is.
+   */
+  const refused = (refusal: StripeError, fallback: string) => {
+    if (refusal.type === "validation_error") {
+      elements?.getElement("payment")?.focus();
+      return;
+    }
+    setError(refusal.message ?? fallback);
+  };
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -181,16 +600,22 @@ function PaymentStep({
       // Two methods, because Stripe has two. `confirmPayment` against a
       // SetupIntent does not fall back or approximate — it throws an
       // IntegrationError naming `confirmSetup`, which is a blank screen to
-      // anybody who is not looking at a console. Saving a card for later and
-      // paying an invoice now are different operations and this is where they
-      // part.
+      // anybody who is not looking at a console. Saving a payment method for
+      // later and paying an invoice now are different operations and this is
+      // where they part.
       //
       // `return_url` is given to both even though `redirect: "if_required"`
-      // means it is usually unused: a payment that does need a redirect — 3-D
-      // Secure, or a non-card method — is refused before anything is charged
-      // when there is nowhere to come back to. Coming back to this same tab is
-      // right, because the page reads its state from the server on load.
-      const confirmParams = { return_url: window.location.href };
+      // means it is usually unused: a payment that does need a redirect — a
+      // bank's page, a wallet's — is refused before anything is charged when
+      // there is nowhere to come back to. Coming back to this same tab is
+      // right, because the page reads its state from the server on load and
+      // finishes a redirected confirmation from the address. The path alone,
+      // not `href`: Stripe appends its own parameters, the client secret among
+      // them, and `href` carried the last return's set into the next one, so
+      // they piled up and a stale `redirect_status` was the first one read.
+      const confirmParams = {
+        return_url: `${window.location.origin}${window.location.pathname}`,
+      };
       if (paying) {
         const result = await stripe.confirmPayment({
           elements,
@@ -198,13 +623,13 @@ function PaymentStep({
           redirect: "if_required",
         });
         if (result.error) {
-          // Stripe's own sentence, not ours. It knows why a card was declined
-          // and says it in the person's language; anything written here would
-          // be a worse version of it.
-          setError(result.error.message ?? "That could not be completed.");
+          refused(result.error, "That could not be completed.");
           return;
         }
-        await onDone(null);
+        await onDone({
+          kind: "payment",
+          processing: result.paymentIntent?.status === "processing",
+        });
         return;
       }
       const result = await stripe.confirmSetup({
@@ -213,13 +638,17 @@ function PaymentStep({
         redirect: "if_required",
       });
       if (result.error) {
-        setError(result.error.message ?? "That card could not be saved.");
+        refused(result.error, "That payment method could not be saved.");
         return;
       }
-      // The id goes back, because saving the card is only half of it: Stripe
-      // has attached it to the customer and still bills whatever it billed
-      // before. The server reads the intent back and pins it.
-      await onDone(result.setupIntent?.id ?? null);
+      // The id goes back, because saving the method is only half of it:
+      // Stripe has attached it to the customer and still bills whatever it
+      // billed before. The server reads the intent back and pins it.
+      await onDone({
+        kind: "setup",
+        setupIntentId: result.setupIntent?.id ?? null,
+        processing: result.setupIntent?.status === "processing",
+      });
     } catch (thrown) {
       // Stripe.js throws rather than returning an error for a whole class of
       // integration mistakes. Without this the promise rejects, the `finally`
@@ -233,64 +662,144 @@ function PaymentStep({
 
   return (
     <form onSubmit={submit} className="panel-stack">
-      <PaymentElement />
-      {error ? <Alert kind="error">{error}</Alert> : null}
+      {/* Cleared once the element holds a method it could confirm, because
+          the element clears its own copy then and this one stayed. Only on
+          `complete`: the element also reports an incomplete change in the
+          middle of a declined confirm, which would erase the decline. */}
+      <PaymentElement
+        onChange={(event) => {
+          if (event.complete) setError(null);
+        }}
+      />
+      {/* Takes focus although the button is still here, because the button
+          no longer has it: it was disabled while it worked, which makes the
+          browser blur it, and Stripe's 3-D Secure window never hands focus
+          back to anything. `submit` clears the error first, so a second
+          failure remounts this and takes focus again even when the sentence
+          is the same. */}
+      {error ? (
+        <Alert kind="error" takeFocus>
+          {error}
+        </Alert>
+      ) : null}
+      {/* A payment is consent to a plan that renews, whether it starts one or
+          settles the one somebody is on. Saving a payment method consents to
+          nothing new, so it has no terms to draw. */}
+      {pending.kind === "payment" ? (
+        <RenewalTerms
+          id={renewalTermsId}
+          charges={[
+            [pending.interval, pending.interval === "yearly" ? prices.yearly : prices.monthly],
+          ]}
+          termsOfUseUrl={termsOfUseUrl}
+        />
+      ) : null}
       <div className="form-actions">
         <Button
           type="submit"
           loading={busy}
-          disabled={!stripe}
-          disabledReason="Stripe's payment form is still loading."
+          disabled={!stripe || unpriced}
+          disabledReason={
+            unpriced
+              ? "Stripe could not say what this plan costs just now. Reload the page to try again."
+              : "Stripe's payment form is still loading."
+          }
+          aria-describedby={pending.kind === "payment" ? renewalTermsId : undefined}
         >
           {pending.kind === "setup"
-            ? "Save this card"
+            ? "Save this payment method"
             : pending.purpose === "settle"
               ? "Pay now"
               : "Pay and upgrade"}
         </Button>
       </div>
       <Note>
-        Your card details go straight to Stripe. They never reach this app, and nothing about them
-        is stored here.
+        Your payment details go straight to Stripe. They never reach this app, and nothing about
+        them is stored here.
       </Note>
     </form>
   );
 }
 
-export function PlanPage({ session }: { session: Session }) {
+export function PlanPage({
+  session,
+  termsOfUseUrl,
+}: {
+  session: Session;
+  /** The deployment's terms of use, linked from the renewal terms where one is set. */
+  termsOfUseUrl?: string | undefined;
+}) {
   const timezone = useTimezone();
+  const renewalTermsId = useId();
+  const keepTermsId = useId();
+  const releaseTermsId = useId();
+  const paymentHeadingId = useId();
+  const paymentPanel = useRef<HTMLElement>(null);
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<PendingConfirmation | null>(null);
-  const [failure, setFailure] = useState<string | null>(null);
+  const openSecret = pending?.secret ?? null;
+  // Read once, at mount, and without touching the address: a state initializer
+  // runs twice under StrictMode and must not have side effects. The effect
+  // below strips it.
+  const [returned] = useState(() => stripeReturn(window.location.search));
+  const [notice, setNotice] = useState<Notice | null>(() =>
+    returned ? returnNotice(returned) : null,
+  );
+  const returnHandled = useRef(false);
 
   const status = useQuery({
     queryKey: ["billing"],
     queryFn: () => api<BillingStatus>("/api/v1/billing"),
   });
 
+  /** Closes the form and reads the plan again. */
   const refresh = async () => {
     setPending(null);
-    // Both, and in this order: the plan tab is the authority on the
-    // subscription and the session carries the ceiling every other page reads
-    // off it, so refreshing one and not the other leaves the accounts page
-    // still refusing a fourth account to somebody who has just paid.
-    await queryClient.invalidateQueries({ queryKey: ["billing"] });
-    await queryClient.invalidateQueries({ queryKey: ["session"] });
+    await reread(queryClient);
   };
 
+  /**
+   * A refusal, said, and then the plan read again.
+   *
+   * A refusal is the moment the page learns its picture of the plan was out of
+   * date — a sale that closed, a price that stopped fitting, a subscription
+   * changed in another tab — and it read nothing, so pressing the same stale
+   * button repeated the same refusal. Not `refresh()`, which closes an open
+   * payment form along with it.
+   */
+  const refusedWith = async (error: Error, focus = true) => {
+    setNotice({ kind: "error", text: error.message, focus });
+    await reread(queryClient);
+  };
+  // Cleared as each action starts, so an answer to the last one is never left
+  // beside the next, and a refusal repeated word for word still remounts its
+  // alert and takes focus again.
+  const starting = () => setNotice(null);
+
+  /** The plan as the read after a press left it, for the sentence about the press. */
+  const freshSubscription = () =>
+    queryClient.getQueryData<BillingStatus>(["billing"])?.subscription;
+
   const choose = useMutation({
-    mutationFn: ({ interval }: { interval: BillingInterval; purpose: PaymentPurpose }) =>
+    mutationFn: ({
+      interval,
+    }: {
+      interval: BillingInterval;
+      purpose: PaymentPurpose;
+      /** What the press was by the shared rule, for the sentence saying what it did. */
+      action: SubscriptionAction["kind"];
+    }) =>
       api<SubscriptionResult>("/api/v1/billing/subscription", {
         ...json({ interval, idempotencyKey: newIdempotencyKey() }),
         method: "PUT",
       }),
-    onSuccess: async (result, { purpose }) => {
-      setFailure(null);
+    onMutate: starting,
+    onSuccess: async (result, { interval, purpose, action }) => {
       // A secret means there is a payment left to make; its absence means the
       // change was arranged without one, which is every case but a first
       // subscription.
       if (result.clientSecret) {
-        setPending({ secret: result.clientSecret, kind: "payment", purpose });
+        setPending({ secret: result.clientSecret, kind: "payment", purpose, interval });
         // Refreshed as well, and this is the part that is easy to leave out.
         // Without it the page still believes there is no subscription, so it
         // goes on offering both priced buttons directly under the open card
@@ -299,9 +808,13 @@ export function PlanPage({ session }: { session: Session }) {
         // it clears the pending confirmation, which would unmount the form
         // that was just created.
         await queryClient.invalidateQueries({ queryKey: ["billing"] });
-      } else await refresh();
+        return;
+      }
+      await refresh();
+      const text = changedNotice(action, interval, freshSubscription(), timezone);
+      if (text) setNotice({ kind: "success", text, focus: true });
     },
-    onError: (error: Error) => setFailure(error.message),
+    onError: (error: Error) => refusedWith(error),
   });
 
   const setCancellation = useMutation({
@@ -310,21 +823,34 @@ export function PlanPage({ session }: { session: Session }) {
         ...json({ cancelAtPeriodEnd, idempotencyKey: newIdempotencyKey() }),
         method: "PUT",
       }),
-    onSuccess: async () => {
-      setFailure(null);
+    onMutate: starting,
+    onSuccess: async (_result, cancelAtPeriodEnd) => {
       await refresh();
+      setNotice({
+        kind: "success",
+        text: cancellationNotice(cancelAtPeriodEnd, freshSubscription(), timezone),
+        focus: true,
+      });
     },
-    onError: (error: Error) => setFailure(error.message),
+    onError: (error: Error) => refusedWith(error),
   });
 
   const confirmCard = useMutation({
-    mutationFn: (setupIntentId: string) =>
-      api<{ attached: boolean; paidInvoice: boolean }>(
+    mutationFn: ({
+      setupIntentId,
+      idempotencyKey,
+    }: {
+      setupIntentId: string;
+      idempotencyKey: string;
+      focus: boolean;
+    }) =>
+      api<CardConfirmation>(
         "/api/v1/billing/payment-setups/confirmations",
-        json({ setupIntentId, idempotencyKey: newIdempotencyKey() }),
+        json({ setupIntentId, idempotencyKey }),
       ),
-    onError: (error: Error) => setFailure(error.message),
+    onError: (error: Error, { focus }) => refusedWith(error, focus),
   });
+  const { mutateAsync: confirmSaved } = confirmCard;
 
   const replaceCard = useMutation({
     mutationFn: () =>
@@ -332,12 +858,100 @@ export function PlanPage({ session }: { session: Session }) {
         "/api/v1/billing/payment-setups",
         json({ idempotencyKey: newIdempotencyKey() }),
       ),
+    onMutate: starting,
     onSuccess: (result) => {
-      setFailure(null);
       if (result.clientSecret) setPending({ secret: result.clientSecret, kind: "setup" });
     },
-    onError: (error: Error) => setFailure(error.message),
+    onError: (error: Error) => refusedWith(error),
   });
+
+  /**
+   * The form's answer, once Stripe has confirmed it.
+   *
+   * A payment's sentence mounts in the same render that removes the form, so
+   * focus has somewhere to go the moment its button does. A saved method's
+   * waits for the plan to be read again, because what it says about anything
+   * owed names the button that pays it, and that is the button on screen once
+   * the read is back. Nothing here throws: a refusal from the confirmation is
+   * said by its `onError`, and the form closes either way, because the intent
+   * it holds has been used and a second try needs a fresh one.
+   */
+  const confirmed = async (done: Confirmed, paid: PendingConfirmation) => {
+    if (done.kind === "payment") {
+      setNotice({
+        kind: done.processing ? "info" : "success",
+        // By what the money was for, which the form was opened with: a first
+        // payment and an upgrade's charge put somebody on a plan, and a
+        // settled renewal keeps them on the one they had.
+        text: done.processing
+          ? PAYMENT_PROCESSING
+          : paid.kind === "payment" && paid.purpose === "upgrade"
+            ? `Payment received, and you are on the ${paid.interval === "yearly" ? "annual" : "monthly"} plan.`
+            : "Payment received, and what was owed is paid.",
+        focus: true,
+      });
+      await refresh();
+      return;
+    }
+    // Stripe has not finished with it yet, so there is nothing to pin: the
+    // `setup_intent.succeeded` delivery does that once it has.
+    if (!done.setupIntentId || done.processing) {
+      setNotice({ kind: "info", text: METHOD_PROCESSING, focus: true });
+      await refresh();
+      return;
+    }
+    const result = await confirmSaved({
+      setupIntentId: done.setupIntentId,
+      idempotencyKey: newIdempotencyKey(),
+      focus: true,
+    }).catch(() => null);
+    await refresh();
+    if (result) setNotice({ ...savedNotice(result, freshSubscription()), focus: true });
+  };
+
+  // Coming back from a confirmation that left the tab. Stripe sends the person
+  // to `return_url` with the intent's id, its client secret and how it went on
+  // the address, and nothing read them: a method saved on a bank's or a
+  // wallet's page was never pinned by this tab, so it said nothing, and the
+  // secret stayed in the address bar and in the history entry. The address
+  // loses them before anything else happens. Then a saved method goes through
+  // the same confirmation an in-page one does, under a key made from the
+  // intent, so a second run of this — StrictMode, a restored page — replays
+  // the first rather than repeating it; the ref is what stops the second run
+  // here. A payment needs nothing asked: this load reads the plan from Stripe.
+  useEffect(() => {
+    if (!returned || returnHandled.current) return;
+    returnHandled.current = true;
+    window.history.replaceState(window.history.state, "", withoutStripeReturn(window.location));
+    if (returned.intent !== "setup" || returned.status !== "succeeded") return;
+    void (async () => {
+      const result = await confirmSaved({
+        setupIntentId: returned.id,
+        idempotencyKey: `return:${returned.id}`,
+        focus: false,
+      }).catch(() => null);
+      await reread(queryClient);
+      if (result) {
+        const fresh = queryClient.getQueryData<BillingStatus>(["billing"])?.subscription;
+        setNotice({ ...savedNotice(result, fresh), focus: false });
+      }
+    })();
+  }, [returned, confirmSaved, queryClient]);
+
+  // Into the form, the moment one opens. Only a press opens one — a return from
+  // a redirect never does — so this never takes focus on a page load. The
+  // button pressed is gone or has let go: Pay now, Finish your payment and Pay
+  // what is owed are hidden while the form is open, a first subscription's
+  // plan buttons go with the read that follows, and Change payment method is
+  // disabled while it works, which blurs it. Focus fell to `<body>`, and the
+  // form somebody had just asked for was a Tab from the top of the page away
+  // (`web.md` 13.3). The region rather than its heading, for the reason
+  // `<main>` is the target on a route change: entering it announces the panel
+  // and reads it from the top, and the next Tab is Stripe's first field.
+  // Keyed on the secret, so a second form replacing the first moves focus too.
+  useEffect(() => {
+    if (openSecret) paymentPanel.current?.focus();
+  }, [openSecret]);
 
   if (status.isPending) return <Skeleton height={320} label="Loading your plan" />;
   if (status.isError) {
@@ -350,7 +964,39 @@ export function PlanPage({ session }: { session: Session }) {
   const subscription = billing.subscription;
   const monthly = priceLabel(billing.prices.monthly);
   const yearly = priceLabel(billing.prices.yearly);
-  const busy = choose.isPending || setCancellation.isPending || replaceCard.isPending;
+  const priceOf = (interval: BillingInterval) =>
+    interval === "yearly" ? billing.prices.yearly : billing.prices.monthly;
+  // Whether Stripe said what a plan costs, which is what the renewal terms
+  // beside any request to start one have to state: 17601(b)(3) makes the
+  // recurring charge one of the terms, and "its price once a year" is not it.
+  const priced = (interval: BillingInterval) => formatPrice(priceOf(interval)) !== null;
+  const busy =
+    choose.isPending || setCancellation.isPending || replaceCard.isPending || confirmCard.isPending;
+  // A payment form is open. It is the one way to pay while it is: the buttons
+  // that open it — Finish your payment, Pay what is owed, Pay now — stayed
+  // drawn beside it as a second primary button for the same payment, one of
+  // them under the same name as the form's own submit. Pressing one fetched
+  // the secret already on screen and changed nothing, and it stayed pressable
+  // while the form was confirming. They come back when the form closes, which
+  // a decline does not do, so no way to pay goes missing. A card form is not
+  // this: Pay now beside it is a different way to pay, and stays.
+  const paymentOpen = pending?.kind === "payment";
+  // What each plan button would do, asked of the shared rule the server acts
+  // by, with the pending cancellation in it: the tab previews the answer and
+  // the server enforces the same one (`AGENTS.md`).
+  const current = subscription
+    ? {
+        status: subscription.status,
+        interval: subscription.interval,
+        scheduled: subscription.scheduledInterval,
+        cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+      }
+    : null;
+  const actionFor = (requested: BillingInterval) => subscriptionAction({ current, requested });
+  const takesEffect = (requested: BillingInterval) => planChangeTakesEffect(actionFor(requested));
+  /** Every press that asks for a plan, carrying what the press is for the sentence after it. */
+  const press = (interval: BillingInterval, purpose: PaymentPurpose) =>
+    choose.mutate({ interval, purpose, action: actionFor(interval).kind });
   // A subscription waiting for its first payment. Stripe holds it for 23 hours
   // and then expires it, so this state is not rare — it is what a closed tab or
   // a declined card leaves behind — and it needs a way back to the form rather
@@ -373,8 +1019,19 @@ export function PlanPage({ session }: { session: Session }) {
   // asked of `selling` here, the flag the heading above the button reads,
   // because "Finish your payment" under "not selling subscriptions" is the page
   // contradicting itself whichever of the two is behind.
+  //
+  // And a first payment only at a price Stripe has given: finishing it is the
+  // consent to a plan that renews. Paying what is owed on a plan already
+  // running asks for no new consent, so a price Stripe could not say does not
+  // hold that up.
+  const finishingFirst =
+    subscription?.status === "incomplete" && subscription.payable && billing.selling
+      ? owingInterval
+      : null;
   const finishInterval =
-    subscription?.payable && (billing.selling || subscription.status !== "incomplete")
+    subscription?.payable &&
+    (billing.selling || subscription.status !== "incomplete") &&
+    (finishingFirst === null || priced(finishingFirst))
       ? owingInterval
       : null;
   // The plan they are on, where pressing it lets a scheduled switch go in the
@@ -385,14 +1042,7 @@ export function PlanPage({ session }: { session: Session }) {
   const releaseInterval =
     subscription?.interval &&
     subscription.scheduledInterval &&
-    subscriptionAction({
-      current: {
-        status: subscription.status,
-        interval: subscription.interval,
-        scheduled: subscription.scheduledInterval,
-      },
-      requested: subscription.interval,
-    }).kind === "release"
+    actionFor(subscription.interval).kind === "release"
       ? subscription.interval
       : null;
   // A renewal, or an upgrade's charge, that Stripe is still retrying. Kept apart
@@ -405,6 +1055,216 @@ export function PlanPage({ session }: { session: Session }) {
   // anything is for sale, because paying what is owed is not a sale.
   const payableInterval =
     subscription?.status === "past_due" && subscription.payable ? subscription.interval : null;
+  // The plans the tab would sell, and the ones it does: only at a price Stripe
+  // gave, because a button whose terms cannot say what it charges is asking for
+  // consent to an amount nobody has been told. A price Stripe could not say is
+  // named instead, so a plan does not vanish with no word why.
+  const offers: BillingInterval[] = billing.selling && !owing ? ["yearly", "monthly"] : [];
+  const offered = offers.filter(priced);
+  const unpricedPlan =
+    finishingFirst !== null && !priced(finishingFirst)
+      ? "your plan"
+      : offers.length > 0 && offered.length === 0
+        ? "either plan"
+        : offered.length < offers.length
+          ? offers.find((interval) => !priced(interval)) === "yearly"
+            ? "Annual"
+            : "Monthly"
+          : null;
+  // Undoing a cancellation turns renewal back on, which is the consent the
+  // renewal terms are for, so the button doing it has them too: the plan
+  // buttons' where those are drawn and name this plan, and its own otherwise.
+  // Otherwise includes a deployment selling nothing, because keeping a plan
+  // sells nothing new and is offered either way. Only at a price Stripe gave,
+  // for the reason the plan buttons are.
+  const keptInterval =
+    subscription?.cancelAtPeriodEnd &&
+    !owing &&
+    subscription.interval &&
+    priced(subscription.interval)
+      ? subscription.interval
+      : null;
+  const keptTermsShared = keptInterval !== null && offered.includes(keptInterval);
+  // Letting a scheduled switch go is consent of the same kind: it decides what
+  // the next renewal charges — $30.00 a year rather than $3.00 a month — and
+  // 17601(b)(3) makes the recurring charge a term. So Stay on the … plan has
+  // the terms as Keep my plan does: the plan buttons' where those name this
+  // plan, its own otherwise, and only at a price Stripe gave. Before it had a
+  // button of its own the release was the priced plan button, which carried
+  // them; the button that replaced it had lost them.
+  const releaseTermsInterval =
+    releaseInterval !== null && priced(releaseInterval) ? releaseInterval : null;
+  const releaseTermsShared =
+    releaseTermsInterval !== null && offered.includes(releaseTermsInterval);
+  const releaseTermsOwn = releaseTermsInterval !== null && !releaseTermsShared;
+  // A plan set to end with a switch still scheduled, which only a change made
+  // in Stripe's dashboard leaves (canceling here lets the switch go): both
+  // buttons keep the plan somebody is on, so one copy of its terms, above the
+  // first of them, serves both rather than the same terms drawn twice.
+  const keptTermsOwn = keptInterval !== null && !keptTermsShared && !releaseTermsOwn;
+
+  // Whether a plan button can be pressed, and why not, from what the press
+  // would be. `planChangeTakesEffect` is null exactly where the press changes
+  // no interval — the plan they are on (paid already, or owed and paid by the
+  // button named for that), a switch already set, a release (its own button,
+  // below), a plan set to end — so those are disabled and every other press
+  // is not. The buttons asked a narrower question than the server did: an
+  // annual subscriber with a switch to monthly already set had an enabled
+  // Monthly that the server answered with nothing, and while the plan was set
+  // to end one button quietly dropped the cancellation and the other charged
+  // for a year that was going to end.
+  const planButton = (interval: BillingInterval) => {
+    const action = actionFor(interval);
+    const set = subscription?.interval !== interval && subscription?.scheduledInterval === interval;
+    return {
+      disabled: planChangeTakesEffect(action) === null,
+      reason:
+        action.kind === "ending"
+          ? PLAN_ENDING_REFUSAL
+          : set
+            ? `Your switch to the ${planWord(interval)} plan is already set${
+                subscription?.scheduledAt
+                  ? ` for ${formatTimestamp(subscription.scheduledAt, timezone)}`
+                  : ""
+              }.`
+            : `You are on the ${planWord(interval)} plan already.`,
+    };
+  };
+  const annualButton = planButton("yearly");
+  const monthlyButton = planButton("monthly");
+
+  // When a change of plan takes effect, asked of the same rule the press is
+  // decided by. The note said "takes effect now and charges the difference"
+  // from a condition of its own that left out `past_due`, where the press
+  // schedules the switch for the renewal instead of charging a failing card a
+  // second time; and "at your next renewal" to somebody whose plan was set to
+  // end and had none. Somebody with no plan yet reads both halves of it as the
+  // description of what a later change would do.
+  const moving: string[] = [];
+  if (!subscription) {
+    moving.push(
+      "Moving from monthly to annual takes effect now and charges the difference.",
+      "Moving the other way takes effect at your next renewal, because the period you are in has been paid for.",
+    );
+  } else if (subscription.interval === "monthly") {
+    const annual = takesEffect("yearly");
+    if (annual === "now") {
+      moving.push("Moving from monthly to annual takes effect now and charges the difference.");
+    } else if (annual === "renewal") {
+      moving.push(
+        "While a payment is owed, moving to annual waits for your next renewal rather than " +
+          "charging now. Pay what is owed first to move now.",
+      );
+    }
+  } else if (subscription.interval === "yearly") {
+    if (takesEffect("monthly") === "renewal") {
+      moving.push(
+        `Moving to monthly takes effect at your next renewal${
+          periodIsPaid(subscription.status)
+            ? ", because the period you are in has been paid for"
+            : ""
+        }.`,
+      );
+    }
+  } else {
+    // A price this deployment no longer sells: every move waits for the
+    // renewal, whichever button it is.
+    const waiting = offers.filter((interval) => takesEffect(interval) === "renewal");
+    if (waiting.length === 2)
+      moving.push("Moving to either plan takes effect at your next renewal.");
+    else if (waiting[0]) {
+      moving.push(`Moving to ${planWord(waiting[0])} takes effect at your next renewal.`);
+    }
+  }
+
+  // The period end is a date the plan runs to only where the period has been
+  // paid for (`periodIsPaid`). Stripe dates every period from its start, paid
+  // or not: a first payment nobody finished carries an end a month or a year
+  // out from the second it was made, and a failed renewal's end is the close
+  // of the period whose invoice failed. The tab said "renews" beside both,
+  // which told somebody the day after a declined card that they were paid up
+  // for a year. For those, what is true is said instead: a first payment that
+  // lapses, a grace that ends, a plan that is not in force.
+  const periodEnd = !subscription
+    ? ""
+    : subscription.currentPeriodEnd && periodIsPaid(subscription.status)
+      ? `${subscription.cancelAtPeriodEnd ? ", ending" : ", renews"} ${formatTimestamp(
+          subscription.currentPeriodEnd,
+          timezone,
+        )}`
+      : subscription.cancelAtPeriodEnd
+        ? ", set to end"
+        : "";
+
+  // The past-due alert, from what Stripe says about the payment rather than
+  // one sentence for all of them. A payment the bank wants confirmed with
+  // 3-D Secure is never retried by Stripe, so "while Stripe retries" was false
+  // for exactly the renewal that most needed the person, and a replaced card
+  // pays off-session and meets the same question. The date the plan runs to
+  // is `graceEndsAt`, the moment `resolveEntitlement` drops it, rather than
+  // arithmetic left to the reader beside a "renews" date nobody had paid for.
+  let pastDue: string | null = null;
+  if (subscription?.pastDueSince) {
+    const graceEnds = graceEndsAt(subscription.pastDueSince);
+    const graceEnd = formatTimestamp(graceEnds.toISOString(), timezone);
+    const waitingOnBank = subscription.awaitingAuthentication === true;
+    pastDue = [
+      `A payment failed on ${formatTimestamp(subscription.pastDueSince, timezone)}.`,
+      subscription.lastPaymentError,
+      waitingOnBank
+        ? "Your bank wants you to confirm it, and Stripe will not try it again until you do."
+        : null,
+      // Against the moment the plan was read rather than the clock during
+      // render, which would make the sentence change with no new answer.
+      graceEnds.getTime() > status.dataUpdatedAt
+        ? `Your plan continues for ${GRACE_IN_WORDS} from then, until ${graceEnd}.`
+        : `The ${GRACE_IN_WORDS} your plan continued for ended on ${graceEnd}, so it is on ` +
+          `${PLAN_LABELS.free} until what is owed is paid.`,
+      !waitingOnBank && subscription.nextRetryAt
+        ? `Stripe tries it again on ${formatTimestamp(subscription.nextRetryAt, timezone)}.`
+        : null,
+      // Paying now is named only beside a button that does it: a price this
+      // deployment no longer sells has none, and changing the payment method
+      // is then the way to pay — except for a bank that asks again.
+      waitingOnBank
+        ? payableInterval
+          ? "Press Pay now to confirm it."
+          : "Changing the payment method below fixes it only if the new one's bank does not ask as well."
+        : payableInterval
+          ? "Paying now, or changing the payment method below, fixes it right away."
+          : "Changing the payment method below fixes it right away.",
+    ]
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  // Accounts a plan freezes, said on the tab where the plan is. It said "3 of
+  // 3 places in use" whether two more were frozen or none, and nothing before
+  // a cancellation said what it would freeze. A frozen account is still read
+  // and counted everywhere; only changes stop. The free plan's limit is the
+  // one a plan ending lands on.
+  //
+  // What ending freezes is the server's count, never this page's: it said
+  // "live minus three" and "you choose which three", and the shared rule keeps
+  // the accounts marked in use instead. Somebody who chose three of five and
+  // then upgraded has the same two frozen again, with no choice to make; one
+  // who then archived one of the three has two frozen, not one. The count also
+  // knows about an operator's grant — none where one outlasts the plan, and
+  // the usual number where it has already expired, which `!billing.override`
+  // here had hidden. A server that sends no count says nothing freezes, and
+  // the tab says nothing rather than guessing.
+  const frozen = billing.accountsFrozen ?? 0;
+  const live = billing.accountsLive ?? 0;
+  const freezes =
+    plan === "plus" && subscription !== null && periodIsPaid(subscription.status)
+      ? (billing.accountsFrozenOnFree ?? 0)
+      : 0;
+  const freezeWord = freezes === 1 ? "freezes" : "freeze";
+  // Who picks the ones that stay usable once it has. The choice cannot be made
+  // before then — nothing is frozen on the paid plan, so there is nothing to
+  // choose — and where the accounts marked in use already fit, there is none
+  // after it either: the ones chosen before stay.
+  const choosesOnEnd = billing.activeChoicePendingOnFree === true;
 
   return (
     <>
@@ -444,6 +1304,23 @@ export function PlanPage({ session }: { session: Session }) {
               </p>
             ) : null}
 
+            {/* A plain anchor, not the router's link: leaving the plan tab is a
+                document load either way, for the policy `router.tsx` explains. */}
+            {limit !== null && frozen > 0 ? (
+              <p>
+                {frozen} of your accounts {frozen === 1 ? "is" : "are"} frozen: still readable and
+                counted in every total, and closed to changes
+                {billing.activeChoicePending
+                  ? ` until you choose which ${limit} stay usable. `
+                  : ". "}
+                <a href="/accounts">
+                  {billing.activeChoicePending
+                    ? "Choose which accounts stay usable"
+                    : "See them on Accounts"}
+                </a>
+              </p>
+            ) : null}
+
             {billing.override ? (
               <Note>
                 An operator granted you {PLAN_LABELS[billing.override.plan]}
@@ -469,13 +1346,44 @@ export function PlanPage({ session }: { session: Session }) {
                       // Saying "Monthly" to an annual subscriber would be a
                       // figure and a renewal date that are simply wrong.
                       "On a price this deployment no longer sells"}
-                {subscription.currentPeriodEnd
-                  ? subscription.cancelAtPeriodEnd
-                    ? `, ending ${formatTimestamp(subscription.currentPeriodEnd, timezone)}`
-                    : `, renews ${formatTimestamp(subscription.currentPeriodEnd, timezone)}`
-                  : ""}
-                .
+                {periodEnd}.
               </p>
+            ) : null}
+
+            {/* Stripe expires an unfinished first payment 23 hours after it
+                was made, and charges nothing; the period end it carries is a
+                date that only comes true if it is paid. */}
+            {subscription?.status === "incomplete" ? (
+              <Note>
+                Nothing has been charged yet, and {PLAN_LABELS.plus} starts once the first payment
+                goes through.{" "}
+                {subscription.expiresAt
+                  ? `If it is not finished by ${formatTimestamp(subscription.expiresAt, timezone)}, it lapses and nothing is charged.`
+                  : "If it is not finished within a day, it lapses and nothing is charged."}
+              </Note>
+            ) : null}
+
+            {subscription?.status === "unpaid" ? (
+              <Note>
+                Stripe has stopped retrying the payment, so the plan is not in force until what is
+                owed is paid.
+              </Note>
+            ) : null}
+
+            {freezes > 0 && subscription?.cancelAtPeriodEnd && subscription.currentPeriodEnd ? (
+              <Note>
+                When the plan ends on {formatTimestamp(subscription.currentPeriodEnd, timezone)},{" "}
+                {freezes} of your {live} accounts {freezeWord}: still readable and counted in every
+                total, and closed to changes.{" "}
+                {choosesOnEnd ? (
+                  <>
+                    You then choose which {MAX_FREE_ACCOUNTS} stay usable, on{" "}
+                    <a href="/accounts">Accounts</a>.
+                  </>
+                ) : (
+                  "The ones you chose to keep before stay usable."
+                )}
+              </Note>
             ) : null}
 
             {subscription?.scheduledInterval && subscription.scheduledAt ? (
@@ -483,45 +1391,48 @@ export function PlanPage({ session }: { session: Session }) {
                 Switching to the{" "}
                 {subscription.scheduledInterval === "yearly" ? "annual" : "monthly"} price on{" "}
                 {formatTimestamp(subscription.scheduledAt, timezone)}. Nothing changes before then
-                {/* Each way out is named only beside the button that takes it.
-                    Letting the switch go is a button whether or not anything is
-                    for sale, because it sells nothing. Replacing it, on a price
-                    this deployment no longer sells, is a new schedule and so a
-                    sale, which the plan buttons offer only while selling. */}
+                {/* Each way out is named only beside the button that takes it,
+                    and by that button's name. Letting the switch go is a button
+                    whether or not anything is for sale, because it sells
+                    nothing. Replacing it, on a price this deployment no longer
+                    sells, is a new schedule and so a sale, which the plan
+                    buttons offer only while selling. */}
                 {releaseInterval
-                  ? ", and choosing your current plan again cancels the switch."
-                  : !subscription.interval && billing.selling && !owing
+                  ? `, and pressing Stay on the ${planWord(releaseInterval)} plan cancels the switch.`
+                  : !subscription.interval && offered.length > 0
                     ? ", and choosing the other plan replaces the switch."
                     : "."}
               </Note>
             ) : null}
 
-            {subscription?.pastDueSince ? (
-              <Alert kind="info">
-                A payment failed on {formatTimestamp(subscription.pastDueSince, timezone)}. Your
-                plan continues for {GRACE_IN_WORDS} from then while Stripe retries.{" "}
-                {/* Paying now is named only beside a button that does it: a
-                    price this deployment no longer sells has none, and the
-                    card is then the way to pay. */}
-                {payableInterval
-                  ? "Paying now, or replacing the card below, fixes it right away."
-                  : "Replacing the card below fixes it right away."}
+            {pastDue ? <Alert kind="info">{pastDue}</Alert> : null}
+
+            {notice ? (
+              <Alert kind={notice.kind} takeFocus={notice.focus}>
+                {notice.text}
               </Alert>
             ) : null}
-
-            {failure ? <Alert kind="error">{failure}</Alert> : null}
           </section>
         </div>
 
         <div className="settings-column">
           {pending ? (
-            <section className="panel panel-stack">
+            <section
+              className="panel panel-stack"
+              ref={paymentPanel}
+              tabIndex={-1}
+              aria-labelledby={paymentHeadingId}
+            >
               <header className="section-title">
                 <span>
                   <CreditCard size={19} />
                 </span>
                 <div>
-                  <h2>{pending.kind === "payment" ? "Payment" : "Your card"}</h2>
+                  {/* "Payment method", not "card": Link is offered beside a
+                      card, and can be funded from a bank account. */}
+                  <h2 id={paymentHeadingId}>
+                    {pending.kind === "payment" ? "Payment" : "Payment method"}
+                  </h2>
                   <p>Handled entirely by Stripe.</p>
                 </div>
               </header>
@@ -535,13 +1446,12 @@ export function PlanPage({ session }: { session: Session }) {
               >
                 <PaymentStep
                   pending={pending}
-                  onDone={async (setupIntentId) => {
-                    // Saving a card is two steps and the second is this one.
-                    // Stripe has attached it to the customer; until the server
-                    // pins it, dunning goes on retrying the card that failed.
-                    if (setupIntentId) await confirmCard.mutateAsync(setupIntentId);
-                    await refresh();
-                  }}
+                  prices={billing.prices}
+                  termsOfUseUrl={termsOfUseUrl}
+                  // Saving a payment method is two steps and the second is in
+                  // here. Stripe has attached it to the customer; until the
+                  // server pins it, dunning goes on retrying the one that failed.
+                  onDone={(done) => confirmed(done, pending)}
                 />
               </Elements>
             </section>
@@ -562,71 +1472,99 @@ export function PlanPage({ session }: { session: Session }) {
               </div>
             </header>
 
-            {finishInterval ? (
+            {/* Why the last attempt failed, from Stripe on this load rather than
+                from the form that saw it, which a reload unmounted: a declined
+                first payment came back looking like one nobody had tried. */}
+            {finishInterval && !paymentOpen && subscription?.lastPaymentError ? (
+              <Alert kind="info">
+                The last attempt to pay did not go through. {subscription.lastPaymentError}
+              </Alert>
+            ) : null}
+
+            {finishInterval && !paymentOpen ? (
               <div className="form-actions">
                 {subscription?.status === "unpaid" ? (
-                  <Button
-                    onClick={() => choose.mutate({ interval: finishInterval, purpose: "settle" })}
-                    loading={busy}
-                  >
+                  <Button onClick={() => press(finishInterval, "settle")} loading={busy}>
                     Pay what is owed
                   </Button>
                 ) : (
-                  <Button
-                    onClick={() => choose.mutate({ interval: finishInterval, purpose: "upgrade" })}
-                    loading={busy}
-                  >
+                  <Button onClick={() => press(finishInterval, "upgrade")} loading={busy}>
                     Finish your payment
                   </Button>
                 )}
               </div>
             ) : null}
 
-            {payableInterval ? (
+            {payableInterval && !paymentOpen ? (
               <div className="form-actions">
-                <Button
-                  onClick={() => choose.mutate({ interval: payableInterval, purpose: "settle" })}
-                  loading={busy}
-                >
+                <Button onClick={() => press(payableInterval, "settle")} loading={busy}>
                   Pay now
                 </Button>
               </div>
             ) : null}
 
-            {billing.selling && !owing ? (
+            {unpricedPlan ? (
+              <Note>
+                Stripe could not say what {unpricedPlan} costs just now, and nothing is sold here
+                without its price beside it. Reload the page to try again.
+              </Note>
+            ) : null}
+
+            {offered.length > 0 ? (
+              <RenewalTerms
+                id={renewalTermsId}
+                charges={offered.map((interval) => [interval, priceOf(interval)] as const)}
+                termsOfUseUrl={termsOfUseUrl}
+              />
+            ) : null}
+
+            {offered.length > 0 ? (
               <div className="form-actions">
-                <Button
-                  onClick={() => choose.mutate({ interval: "yearly", purpose: "upgrade" })}
-                  loading={busy}
-                  // Pressable while a switch to the other price is pending,
-                  // because pressing the plan you are on is how a scheduled
-                  // switch is abandoned — which the note above says in so many
-                  // words, and which the server handles. Only where that press
-                  // is a release: on a renewal that is owed it would hand back
-                  // the invoice under "Pay and upgrade", beside the Pay now
-                  // button that already does it under its own name.
-                  disabled={subscription?.interval === "yearly" && !releaseInterval}
-                  disabledReason="You are on the annual plan already."
-                >
-                  {yearly ? `Annual — ${yearly}` : "Annual"}
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => choose.mutate({ interval: "monthly", purpose: "upgrade" })}
-                  loading={busy}
-                  disabled={subscription?.interval === "monthly" && !releaseInterval}
-                  disabledReason="You are on the monthly plan already."
-                >
-                  {monthly ? `Monthly — ${monthly}` : "Monthly"}
-                </Button>
+                {/* The plan somebody is on stays disabled even while a switch
+                    away from it is pending. Pressing it did let the switch go,
+                    and it was the only thing that did while anything was for
+                    sale: a filled "Annual — $30.00 a year" that bought
+                    something in one state and canceled a switch for nothing
+                    in the other. Letting it go has its own button now. */}
+                {offered.includes("yearly") ? (
+                  <Button
+                    onClick={() => press("yearly", "upgrade")}
+                    loading={busy}
+                    aria-describedby={renewalTermsId}
+                    disabled={annualButton.disabled}
+                    disabledReason={annualButton.reason}
+                  >
+                    {yearly ? `Annual — ${yearly}` : "Annual"}
+                  </Button>
+                ) : null}
+                {offered.includes("monthly") ? (
+                  <Button
+                    variant="secondary"
+                    onClick={() => press("monthly", "upgrade")}
+                    loading={busy}
+                    aria-describedby={renewalTermsId}
+                    disabled={monthlyButton.disabled}
+                    disabledReason={monthlyButton.reason}
+                  >
+                    {monthly ? `Monthly — ${monthly}` : "Monthly"}
+                  </Button>
+                ) : null}
               </div>
             ) : null}
 
-            {/* The one change of plan left while nothing is for sale. Letting
-                a scheduled switch go keeps the plan already paid for and sells
-                nothing, so the server takes it, and without this button the
-                note above would name a way out the page did not offer. */}
-            {!billing.selling && releaseInterval ? (
+            {/* Letting a scheduled switch go, by name, whenever the shared rule
+                says the press on the plan somebody is on is a release — for
+                sale or not, priced or not, because it keeps the plan already
+                paid for and sells nothing new. Its renewal terms directly
+                above it where the plan buttons' do not name this plan. */}
+            {releaseInterval && releaseTermsOwn ? (
+              <RenewalTerms
+                id={releaseTermsId}
+                charges={[[releaseInterval, priceOf(releaseInterval)]]}
+                termsOfUseUrl={termsOfUseUrl}
+              />
+            ) : null}
+            {releaseInterval ? (
               <div className="form-actions">
                 <Button
                   variant="secondary"
@@ -635,9 +1573,16 @@ export function PlanPage({ session }: { session: Session }) {
                     // secret. `settle` because it is about the plan they are
                     // on, so a secret, were one ever sent, would not be named
                     // an upgrade.
-                    choose.mutate({ interval: releaseInterval, purpose: "settle" })
+                    press(releaseInterval, "settle")
                   }
                   loading={busy}
+                  aria-describedby={
+                    releaseTermsShared
+                      ? renewalTermsId
+                      : releaseTermsOwn
+                        ? releaseTermsId
+                        : undefined
+                  }
                 >
                   {releaseInterval === "yearly"
                     ? "Stay on the annual plan"
@@ -646,24 +1591,49 @@ export function PlanPage({ session }: { session: Session }) {
               </div>
             ) : null}
 
-            {billing.selling && yearly && monthly && !owing ? (
+            {billing.selling && yearly && monthly && !owing && moving.length > 0 ? (
+              <Note>{moving.join(" ")}</Note>
+            ) : null}
+
+            {keptInterval && keptTermsOwn ? (
+              <RenewalTerms
+                id={keepTermsId}
+                charges={[[keptInterval, priceOf(keptInterval)]]}
+                termsOfUseUrl={termsOfUseUrl}
+              />
+            ) : null}
+
+            {/* What canceling freezes, before the press rather than after it:
+                nothing else on the tab said so until the plan had ended. */}
+            {freezes > 0 && subscription && !subscription.cancelAtPeriodEnd ? (
               <Note>
-                Moving from monthly to annual takes effect now and charges the difference. Moving
-                the other way takes effect at your next renewal, because the period you are in has
-                been paid for.
+                If the plan ends, {freezes} of your {live} accounts {freezeWord}: still readable and
+                counted in every total, and closed to changes.{" "}
+                {choosesOnEnd
+                  ? `You then choose which ${MAX_FREE_ACCOUNTS} stay usable.`
+                  : "The ones you chose to keep before stay usable."}
               </Note>
             ) : null}
 
             {subscription && !owing ? (
               <div className="form-actions">
                 <Button variant="secondary" onClick={() => replaceCard.mutate()} loading={busy}>
-                  Replace card
+                  Change payment method
                 </Button>
                 {subscription.cancelAtPeriodEnd ? (
                   <Button
                     variant="secondary"
                     onClick={() => setCancellation.mutate(false)}
                     loading={busy}
+                    aria-describedby={
+                      keptInterval
+                        ? keptTermsShared
+                          ? renewalTermsId
+                          : keptTermsOwn
+                            ? keepTermsId
+                            : releaseTermsId
+                        : undefined
+                    }
                   >
                     Keep my plan
                   </Button>

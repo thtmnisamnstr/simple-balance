@@ -467,6 +467,15 @@ test.describe("the budgets page in a browser", () => {
    */
   test("the skip link is the first stop and lands in the main region", async () => {
     await page.goto("/budgets");
+    // Every other test here follows `goto` with a locator action, which waits
+    // for the element by itself. A key press waits for nothing, so this one has
+    // to name what it is waiting for: while the session query is still in
+    // flight the app renders a loading screen holding no focusable thing at
+    // all, and the first Tab then lands nowhere, leaving `activeElement` as
+    // `<body>` — whose text is the loading screen's. That read the assertion as
+    // "Opening your ledger…" on a busy machine and as the skip link on an idle
+    // one, which is the shape of a test that passes wherever it was written.
+    await page.locator("main#main").waitFor();
     await page.keyboard.press("Tab");
     const first = await page.evaluate(() => document.activeElement?.textContent?.trim());
     expect(first).toBe("Skip to main content");

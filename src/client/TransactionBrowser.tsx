@@ -93,9 +93,39 @@ const typeMeta = {
   transfer: { label: "Transfer", icon: ArrowLeftRight },
 };
 
+/**
+ * The accounts named by each row this page has shown under the current filter
+ * and then taken off screen, by row id. Kept inside the selection so that
+ * every reset of one is a reset of the other.
+ *
+ * A selection outlives the page it was made on. `versions` goes on naming a
+ * row after Next page has taken it away, and a filter selection goes on
+ * holding every row it showed and did not exclude, so a check that read only
+ * the rows on screen forgot a frozen one the moment the page turned and
+ * offered a mass edit the server then refused whole. Rows seen and not ticked
+ * are kept too, because "Select all matching" takes them in afterward.
+ *
+ * Written when a page is turned or the list reordered, the two handlers that
+ * take rows away, and not on each tick: a ticked row is on screen, where the
+ * check reads it directly, until one of those two moves it. A re-read that
+ * pushes a ticked row onto another page is the one way out that neither sees,
+ * and that is left to the server's refusal. Account ids rather than the
+ * answer, because whether an account is frozen is read off the accounts list
+ * at every render, and that can change while the row stays selected.
+ */
+type RowAccounts = Readonly<Record<string, readonly string[]>>;
+
 type SelectionState =
-  | { mode: "ids"; versions: Record<string, number> }
-  | { mode: "filter"; excludedIds: Set<string> };
+  | { mode: "ids"; versions: Record<string, number>; rowAccounts: RowAccounts }
+  | { mode: "filter"; excludedIds: Set<string>; rowAccounts: RowAccounts };
+
+const accountsOfRows = (rows: readonly Transaction[]): RowAccounts =>
+  Object.fromEntries(
+    rows.map((row) => [
+      row.id,
+      [row.sourceAccountId, row.destinationAccountId].filter((id): id is string => Boolean(id)),
+    ]),
+  );
 
 type BulkEditRequest = {
   selection: TransactionBulkEditSelection;
@@ -105,7 +135,7 @@ type BulkEditRequest = {
   dryRun: false;
 };
 
-const emptySelection = (): SelectionState => ({ mode: "ids", versions: {} });
+const emptySelection = (): SelectionState => ({ mode: "ids", versions: {}, rowAccounts: {} });
 
 export function TransactionBrowser({
   heading,
@@ -218,12 +248,6 @@ export function TransactionBrowser({
     field: "date",
     direction: "desc",
   });
-  // Reordering re-cuts the pages, so the row that was at the top of page three
-  // is no longer there. Going back to the first page is the honest answer.
-  const applySort = (next: SortState<TransactionSortField>) => {
-    setSort(next);
-    setPage(1);
-  };
   const transactions = useQuery({
     queryKey: ["transactions", params, page, sort],
     queryFn: () =>
@@ -326,6 +350,25 @@ export function TransactionBrowser({
     },
   });
   const items = transactions.data?.items ?? [];
+  // Called by every handler that takes the rows on screen away — a page turned
+  // or the list reordered — so the selection keeps what they touched after
+  // they are gone. See `RowAccounts`.
+  const rememberLoadedRows = () =>
+    setSelection((current) => ({
+      ...current,
+      rowAccounts: { ...current.rowAccounts, ...accountsOfRows(items) },
+    }));
+  const turnPage = (next: number) => {
+    rememberLoadedRows();
+    setPage(next);
+  };
+  // Reordering re-cuts the pages, so the row that was at the top of page three
+  // is no longer there. Going back to the first page is the honest answer.
+  const applySort = (next: SortState<TransactionSortField>) => {
+    rememberLoadedRows();
+    setSort(next);
+    setPage(1);
+  };
   const totalMatching = transactions.data?.totalCount ?? items.length;
   const stagedRows = staged.data?.items ?? [];
   // The accounts a write may name, which is what both the bulk edit's picker
@@ -336,20 +379,52 @@ export function TransactionBrowser({
     (account) => !account.archivedAt && !account.frozen,
   );
   const entitlement = session.data?.plan?.entitlement;
-  // The server's own sentence for a new entry on a frozen account. The
-  // fallback is the only limit any plan freezes under, for a browser rendered
-  // before the session has loaded.
-  const cannotAdd = accounts.data?.length
-    ? frozenAccountRefusal(
-        (entitlement?.billing ? entitlement.accountLimit : null) ?? MAX_FREE_ACCOUNTS,
-      )
-    : "Create an account first.";
-  const activeCategories = (categories.data ?? []).filter((category) => !category.archivedAt);
-  const selectedLoadedItems = items.filter((transaction) =>
-    selection.mode === "filter"
-      ? !selection.excludedIds.has(transaction.id)
-      : Object.hasOwn(selection.versions, transaction.id),
+  // The server's own sentence for a write to a frozen account. The fallback is
+  // the only limit any plan freezes under, for a browser rendered before the
+  // session has loaded.
+  const frozenLimit = (entitlement?.billing ? entitlement.accountLimit : null) ?? MAX_FREE_ACCOUNTS;
+  const frozenSentence = frozenAccountRefusal(frozenLimit);
+  // Unnamed, and the one caller that stays so: this button is dead because
+  // *every* account is frozen, so there is no one of them to name.
+  const cannotAdd = accounts.data?.length ? frozenSentence : "Create an account first.";
+  // Read off `frozen`, which is `frozenAccountIds` answered by the server
+  // against the rows and the entitlement it enforces with. Running the rule
+  // again here would be the second copy `Account.frozen` exists to prevent,
+  // and it would disagree with the server whenever the session this page holds
+  // is older than the accounts list.
+  const frozenAccounts = new Map(
+    (accounts.data ?? [])
+      .filter((account) => account.frozen)
+      .map((account) => [account.id, account]),
   );
+  const frozenAmong = (accountIds: readonly (string | null | undefined)[]) =>
+    accountIds
+      .map((id) => (id ? frozenAccounts.get(id) : undefined))
+      .find((account) => account !== undefined);
+  /**
+   * The frozen account an entry touches, if either side is one.
+   *
+   * Either side, because the server checks both: editing, deleting and
+   * restoring an entry each move money on every account the stored row names,
+   * so a transfer out of a frozen account is refused as surely as a withdrawal
+   * from one. Until this was asked, Edit opened a whole form and Delete asked
+   * to be confirmed before the 422 arrived — as one alert above the list,
+   * saying "This account" about no account in particular.
+   */
+  const frozenAccountOf = (transaction: Transaction) =>
+    frozenAmong([transaction.sourceAccountId, transaction.destinationAccountId]);
+  // The refusal's own sentence, naming the account the way the server now
+  // names it: a row with two accounts needs to say which of them is meant, and
+  // building a prefix of our own here made the disabled control's sentence a
+  // longer one than the 422's rather than the same one.
+  const frozenReason = (account: Account) => frozenAccountRefusal(frozenLimit, account.name);
+  const frozenRowReasonId = useId();
+  const activeCategories = (categories.data ?? []).filter((category) => !category.archivedAt);
+  const isSelected = (id: string) =>
+    selection.mode === "filter"
+      ? !selection.excludedIds.has(id)
+      : Object.hasOwn(selection.versions, id);
+  const selectedLoadedItems = items.filter((transaction) => isSelected(transaction.id));
   const explicitSelectedCount =
     selection.mode === "ids" ? Object.keys(selection.versions).length : 0;
   const explicitSelectionHasMissingRows =
@@ -387,6 +462,25 @@ export function TransactionBrowser({
     selection.mode === "filter"
       ? bulkFilter.includeDeleted
       : selectedLoadedItems.some((transaction) => Boolean(transaction.deletedAt));
+  // A mass edit or delete touching a frozen account is refused whole, so the
+  // two buttons say so before the dialog rather than after it, wherever the
+  // page can know: the selected rows on screen, and the selected rows it
+  // showed before a page turn or a reorder took them away, which `rowAccounts`
+  // keeps. Both in either mode. This chose by mode and lost one each way: a
+  // filter selection read only the account filter, so "Select all matching"
+  // beside a visibly frozen row left both buttons live, and an explicit one
+  // read only this page's rows, so a frozen row ticked on page one was
+  // forgotten on page two while `versions` still sent it. The account filter
+  // needs no case of its own once the rows are read: every row a filter
+  // narrowed to a frozen account shows names it. What stays with the server's
+  // refusal is a filter selection reaching rows this page never showed — the
+  // preview counts them and does not say whose they are.
+  const frozenInSelection =
+    selectedLoadedItems.map(frozenAccountOf).find((account) => account !== undefined) ??
+    Object.entries(selection.rowAccounts)
+      .filter(([id]) => isSelected(id))
+      .map(([, accountIds]) => frozenAmong(accountIds))
+      .find((account) => account !== undefined);
   const selectedBulkAccount = writableAccounts.find(
     (account) => account.id === bulkValues.accountId,
   );
@@ -447,6 +541,12 @@ export function TransactionBrowser({
               : typeChangeBlocked
                 ? "A transfer cannot become a deposit or a withdrawal."
                 : undefined;
+  // The selection bar's two buttons, in the same first-unmet order.
+  const bulkActionBlockedBecause = !filterSelectionReady
+    ? "Wait for the selection to be counted."
+    : frozenInSelection
+      ? frozenReason(frozenInSelection)
+      : undefined;
   // Stable so that the reset below can name it as a dependency and still run
   // only when the filter changes. Rebuilt on every render it would look like a
   // new filter on every render, and the reset writes a fresh empty selection
@@ -590,36 +690,38 @@ export function TransactionBrowser({
   const toggleLoadedSelection = (checked: boolean) => {
     if (selection.mode === "filter") discardBulkSelectionSnapshots();
     setSelection((current) => {
+      const { rowAccounts } = current;
       if (current.mode === "filter") {
         const excludedIds = new Set(current.excludedIds);
         for (const transaction of items) {
           if (checked) excludedIds.delete(transaction.id);
           else excludedIds.add(transaction.id);
         }
-        return { mode: "filter", excludedIds };
+        return { mode: "filter", excludedIds, rowAccounts };
       }
       const versions = { ...current.versions };
       for (const transaction of items) {
         if (checked) versions[transaction.id] = transaction.version;
         else delete versions[transaction.id];
       }
-      return { mode: "ids", versions };
+      return { mode: "ids", versions, rowAccounts };
     });
   };
 
   const toggleTransactionSelection = (transaction: Transaction, checked: boolean) => {
     if (selection.mode === "filter") discardBulkSelectionSnapshots();
     setSelection((current) => {
+      const { rowAccounts } = current;
       if (current.mode === "filter") {
         const excludedIds = new Set(current.excludedIds);
         if (checked) excludedIds.delete(transaction.id);
         else excludedIds.add(transaction.id);
-        return { mode: "filter", excludedIds };
+        return { mode: "filter", excludedIds, rowAccounts };
       }
       const versions = { ...current.versions };
       if (checked) versions[transaction.id] = transaction.version;
       else delete versions[transaction.id];
-      return { mode: "ids", versions };
+      return { mode: "ids", versions, rowAccounts };
     });
   };
 
@@ -812,7 +914,11 @@ export function TransactionBrowser({
                 variant="secondary"
                 onClick={() => {
                   discardBulkSelectionSnapshots();
-                  setSelection({ mode: "filter", excludedIds: new Set() });
+                  setSelection((current) => ({
+                    mode: "filter",
+                    excludedIds: new Set(),
+                    rowAccounts: current.rowAccounts,
+                  }));
                 }}
               >
                 {`Select all ${totalMatching} matching`}
@@ -824,12 +930,13 @@ export function TransactionBrowser({
                 variant="secondary"
                 onClick={() => {
                   discardBulkSelectionSnapshots();
-                  setSelection({
+                  setSelection((current) => ({
                     mode: "ids",
                     versions: Object.fromEntries(
                       items.map((transaction) => [transaction.id, transaction.version]),
                     ),
-                  });
+                    rowAccounts: current.rowAccounts,
+                  }));
                 }}
               >
                 Select only this page
@@ -839,8 +946,8 @@ export function TransactionBrowser({
               type="button"
               variant="danger"
               onClick={submitBulkDelete}
-              disabled={!filterSelectionReady}
-              disabledReason="Wait for the selection to be counted."
+              disabled={Boolean(bulkActionBlockedBecause)}
+              disabledReason={bulkActionBlockedBecause}
               loading={bulkDeleteMutation.isPending}
             >
               Delete selected
@@ -848,8 +955,8 @@ export function TransactionBrowser({
             <Button
               type="button"
               onClick={openBulkEditor}
-              disabled={!filterSelectionReady}
-              disabledReason="Wait for the selection to be counted."
+              disabled={Boolean(bulkActionBlockedBecause)}
+              disabledReason={bulkActionBlockedBecause}
             >
               Edit selected
             </Button>
@@ -870,6 +977,14 @@ export function TransactionBrowser({
       ) : null}
       {deleteMutation.error ? (
         <Alert>
+          {/* One alert for the whole list, so it names the entry it is about.
+              The refusal alone said "This account is frozen" above a page of
+              rows, and left the person to work out which one had been meant. */}
+          {deleteMutation.variables
+            ? `“${deleteMutation.variables.transaction.payee}” was not ${
+                deleteMutation.variables.deleted ? "deleted" : "restored"
+              }. `
+            : null}
           {deleteMutation.error.message}
           {deleteMutation.error instanceof ApiClientError &&
           deleteMutation.error.code === "DUPLICATE" &&
@@ -1038,10 +1153,20 @@ export function TransactionBrowser({
                     transaction.type === "transfer"
                       ? `${transaction.sourceAccount?.name} → ${transaction.destinationAccount?.name}`
                       : (transaction.sourceAccount?.name ?? transaction.destinationAccount?.name);
-                  const transactionSelected =
-                    selection.mode === "filter"
-                      ? !selection.excludedIds.has(transaction.id)
-                      : Object.hasOwn(selection.versions, transaction.id);
+                  const transactionSelected = isSelected(transaction.id);
+                  // Edit, Delete and Restore each write to every account the
+                  // entry names, so a frozen one disables all three. The icons
+                  // have no room for a sentence under them: the reason is a
+                  // description each points at, a tooltip for a pointer, and
+                  // the Frozen badge in the Account column for everyone else.
+                  const frozenAccount = frozenAccountOf(transaction);
+                  const rowReason = frozenAccount ? frozenReason(frozenAccount) : undefined;
+                  const rowReasonId = `${frozenRowReasonId}-${transaction.id}`;
+                  const rowBlock = {
+                    disabled: Boolean(rowReason),
+                    title: rowReason,
+                    "aria-describedby": rowReason ? rowReasonId : undefined,
+                  };
                   return (
                     <tr
                       key={transaction.id}
@@ -1085,7 +1210,16 @@ export function TransactionBrowser({
                           </div>
                         </div>
                       </th>
-                      <td>{accountLabel}</td>
+                      <td>
+                        {frozenAccount ? (
+                          <div className="transaction-payee">
+                            <span>{accountLabel}</span>
+                            <Badge tone="amber">Frozen</Badge>
+                          </div>
+                        ) : (
+                          accountLabel
+                        )}
+                      </td>
                       <td>
                         {transaction.legs.length ? (
                           // The largest share names the row, with a badge for
@@ -1135,9 +1269,15 @@ export function TransactionBrowser({
                         ) : null}
                       </td>
                       <td className="row-actions">
+                        {rowReason ? (
+                          <span className="sr-only" id={rowReasonId}>
+                            {rowReason}
+                          </span>
+                        ) : null}
                         {transaction.deletedAt ? (
                           <button
                             aria-label="Restore"
+                            {...rowBlock}
                             onClick={() =>
                               deleteMutation.mutate({
                                 transaction,
@@ -1149,11 +1289,16 @@ export function TransactionBrowser({
                           </button>
                         ) : (
                           <>
-                            <button aria-label="Edit" onClick={() => setEditing(transaction)}>
+                            <button
+                              aria-label="Edit"
+                              {...rowBlock}
+                              onClick={() => setEditing(transaction)}
+                            >
                               <Pencil size={16} />
                             </button>
                             <button
                               aria-label="Delete"
+                              {...rowBlock}
                               onClick={() =>
                                 rowDeletion.ask(transaction, () =>
                                   deleteMutation.mutate({
@@ -1195,7 +1340,7 @@ export function TransactionBrowser({
               totalPages={transactions.data?.totalPages ?? 1}
               busy={transactions.isFetching}
               itemLabel="transactions"
-              onPageChange={setPage}
+              onPageChange={turnPage}
             />
           </div>
         </>

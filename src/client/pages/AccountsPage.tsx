@@ -19,6 +19,8 @@ import {
   type AccountType,
   accountAllowance,
   activeChoicePending,
+  frozenAccountRefusal,
+  MAX_FREE_ACCOUNTS,
   restoreAllowance,
 } from "../../shared/domain.js";
 import { api, json, type Account, type Session } from "../api.js";
@@ -204,6 +206,18 @@ export default function AccountsPage({ session }: { session: Session }) {
                 const liability = liabilityAccountTypes.has(account.type);
                 const noPlace = Boolean(account.archivedAt) && !restore.ok;
                 const noPlaceId = `${reasonId}-${account.id}`;
+                // The sentence the server refuses all three items with, so a
+                // frozen card says why its menu is gray instead of leaving the
+                // person to find out from a 422. Said once, under the last
+                // item, because one reason covers all three. The fallback is
+                // the only limit any plan freezes under, for a session that
+                // arrived without one. The Restore wiring never meets this: an
+                // archived account is never frozen.
+                const frozenReason = account.frozen
+                  ? frozenAccountRefusal(activeLimit ?? MAX_FREE_ACCOUNTS, account.name)
+                  : null;
+                const frozenId = `${reasonId}-frozen-${account.id}`;
+                const describedBy = frozenReason ? frozenId : undefined;
                 return (
                   <article
                     className={`account-card ${account.archivedAt ? "archived" : ""}`}
@@ -217,12 +231,16 @@ export default function AccountsPage({ session }: { session: Session }) {
                         {account.archivedAt ? <Badge>Archived</Badge> : null}
                         {account.frozen ? <Badge tone="amber">Frozen</Badge> : null}
                         <RowMenu label={`Actions for ${account.name}`}>
-                          <button disabled={account.frozen} onClick={() => setEditing(account)}>
+                          <button
+                            disabled={account.frozen}
+                            aria-describedby={describedBy}
+                            onClick={() => setEditing(account)}
+                          >
                             <Pencil size={15} /> Edit
                           </button>
                           <button
                             disabled={account.frozen || noPlace}
-                            aria-describedby={noPlace ? noPlaceId : undefined}
+                            aria-describedby={noPlace ? noPlaceId : describedBy}
                             onClick={() => {
                               // Archiving moves money: the balance is posted
                               // out to equity so the account ends at zero.
@@ -263,6 +281,7 @@ export default function AccountsPage({ session }: { session: Session }) {
                           <button
                             className="danger"
                             disabled={account.frozen}
+                            aria-describedby={describedBy}
                             onClick={() => {
                               removal.ask(account, () =>
                                 mutation.mutate({ account, action: "delete" }),
@@ -271,6 +290,11 @@ export default function AccountsPage({ session }: { session: Session }) {
                           >
                             <Trash2 size={15} /> Delete if unused
                           </button>
+                          {frozenReason ? (
+                            <small className="button-reason menu-reason" id={frozenId}>
+                              {frozenReason}
+                            </small>
+                          ) : null}
                         </RowMenu>
                       </div>
                     </header>
@@ -424,8 +448,21 @@ export function ActiveAccountChooser({
   const queryClient = useQueryClient();
   const live = useMemo(() => accounts.filter((account) => !account.archivedAt), [accounts]);
   const [chosen, setChosen] = useState<ReadonlySet<string> | null>(null);
+  // Where the selection starts: the accounts that work right now, which before
+  // the choice is the ordering rule standing in for one.
   const current = useMemo(
     () => new Set(live.filter((account) => !account.frozen).map((account) => account.id)),
+    [live],
+  );
+  // What the server has stored, which is what a save is compared against. The
+  // two are the same set once the choice is made — the accounts marked active
+  // are exactly the ones not frozen — and different before it, when every
+  // live account is still marked active. Comparing against `current` read the
+  // untouched default as nothing to save, so the one-time choice could be
+  // closed only by an agent: the three the page had already picked were the
+  // one set it would not send, although `activeAccountChange` accepts it.
+  const stored = useMemo(
+    () => new Set(live.filter((account) => account.active !== false).map((account) => account.id)),
     [live],
   );
   // A choice is held by id, and the list under it can change while the panel
@@ -465,8 +502,10 @@ export function ActiveAccountChooser({
   // the one-time choice the default already holds exactly `limit` accounts —
   // so comparing sizes disabled every full first choice and told the person
   // there was nothing to save, which is the one thing this panel is for.
-  const unchanged =
-    selection.size === current.size && [...selection].every((id) => current.has(id));
+  // Against `stored`, for the reason given where it is built: while the
+  // choice is open it holds more than the limit and no savable selection
+  // does, so any selection within the limit is a change, the default included.
+  const unchanged = selection.size === stored.size && [...selection].every((id) => stored.has(id));
 
   return (
     <section className="panel panel-stack">

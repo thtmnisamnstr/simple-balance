@@ -134,6 +134,10 @@ export function AdSlot({
     // accessibility that is really concealment. The region names itself so
     // somebody navigating by landmark can skip it, which is the honest version.
     <aside className="ad-slot" aria-label={label}>
+      {/* `display: block` inline, as Google documents the tag. When Google has
+          nothing to fill it with it marks the unit `data-ad-status="unfilled"`,
+          and `styles.css` collapses the unit and this slot on that attribute —
+          with `!important`, the one thing that outranks this inline style. */}
       <ins
         className="adsbygoogle"
         style={{ display: "block" }}

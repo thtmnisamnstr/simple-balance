@@ -510,20 +510,32 @@ a {
   cursor: pointer;
 }
 
-/* The privacy link in the sidebar foot. Quiet by default: it is a thing
-   somebody looks for rather than a thing that should compete with the
-   navigation, and it sits beside the two icon buttons rather than in the
-   nav list because it leaves the application. */
-.privacy-link {
-  font-size: 0.78rem;
+/* The privacy policy and terms of use, on the sign-in screen and under the
+   sidebar foot. Quiet by default: they are things somebody looks for rather
+   than things that should compete with the navigation, and they sit outside
+   the nav list because both leave the application. A row that wraps with a
+   12px gap rather than a stack, so each link's 24px target circle clears the
+   other's (web.md 13.4) at a size two stacked lines of small type would not. */
+.legal-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  font-size: 12px;
+}
+
+.legal-links a {
   color: var(--muted);
   text-decoration: none;
   white-space: nowrap;
 }
 
-.privacy-link:hover {
+.legal-links a:hover {
   color: var(--ink);
   text-decoration: underline;
+}
+
+.sidebar-legal {
+  padding: 12px 2px 0;
 }
 
 .sign-out:hover,
@@ -717,6 +729,34 @@ a {
      both bars. A left-aligned sentence under a right-aligned row reads as a
      note about the panel rather than about the button. */
   text-align: right;
+}
+
+/* The same lift in a form's action row and a modal's footer, where the column
+   above is right and the centering is what is wrong. Both rows are
+   `align-items: center`, so the one wrapper showing a reason — button, 4px,
+   the sentence — is the tallest thing in the row and sets its height, and
+   every button beside it is centered in that height: half the reason lower
+   than the one it sits next to, 8.5px with a one-line reason and 15px with a
+   two-line one on a phone. The plan tab showed it on every visit, because one
+   of its two plan buttons is always disabled with a reason; a ghost Cancel
+   beside a disabled submit in a modal is the same row.
+
+   Lined up on the tops instead, and only while a reason is showing: every
+   `.button` is `min-height: 39px`, so equal tops are equal midlines, and the
+   reason goes on hanging under its own button. Not for every row, because a
+   row with no reason is centered correctly and a line of text in one would
+   be lifted off the buttons' midline. The one row that holds text beside a
+   captioned button — the count beside Save on Accounts — gives that text a
+   button's height, centered in it, so it keeps the line it had. */
+.form-actions:has(> .button-with-reason > .button-reason),
+.modal-footer:has(> .button-with-reason > .button-reason) {
+  align-items: flex-start;
+}
+
+.form-actions > .subtle {
+  display: inline-flex;
+  min-height: 39px;
+  align-items: center;
 }
 
 .button-secondary {
@@ -1724,8 +1764,26 @@ input[type="radio"] {
   cursor: pointer;
 }
 
-.menu-popover button:hover {
+/* Narrowed rather than answered by a later rule repainting the hover fill: two
+   rules fighting leaves both spellings live, and the next hover state added
+   here would have to remember the second one. */
+.menu-popover button:hover:not(:disabled) {
   background: var(--fill-subtle);
+}
+
+/* A menu item paints its own color and background and sets its own cursor, so
+   the rendering the browser gives a disabled button never shows and a dead
+   item was pixel-identical to a live one down to the hover fill — the defect
+   --field-disabled closed for fields, one family along, and freezing an
+   account is what started disabling these. Opacity is the house answer for a
+   button and it is right here where it was wrong for a field: an item sits on
+   the popover's own surface rather than a colored row, so dimming it states
+   the condition instead of letting something through. 0.5, which is
+   .button:disabled's value; the pagination controls' 0.45 is the odd one out
+   and not the number to copy. */
+.menu-popover button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .menu-popover button.danger {
@@ -2102,9 +2160,42 @@ input[type="radio"] {
   position: relative;
 }
 
-.row-actions button:hover {
+.row-actions button:hover:not(:disabled) {
   color: var(--ink);
   background: var(--fill-subtle);
+}
+
+/* The same as the menu item above, for the same reason: this button sets its
+   own color, background and cursor, so a frozen row's Edit and Delete icons
+   looked and hovered exactly like live ones. The 44px touch overlay stays
+   where it is — a disabled button takes no taps, and moving it would change a
+   live row's target to fix a dead one. */
+.row-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Where the house dim is the wrong number: a control inside something that is
+   already dimmed. Opacity composites down the subtree, so the two multiply.
+   A voided row is at 0.5 (`.row-deleted` above) and an archived account card at
+   0.65 (`.account-card.archived`), which put a disabled control at 0.25 and
+   0.325 — `--muted` at 1.39:1 and `--ink-soft` at 1.75:1 on `--surface`, a
+   control that has vanished rather than one stating a condition, which is the
+   opposite of what the dim is for.
+
+   Both are reachable and both are what disabling these families created: a
+   voided entry on a frozen account shows Restore alone, and an archived card's
+   Restore is refused while every place is in use. Dropped rather than scaled to
+   a product of 0.5, because the container's dim is already the whole answer the
+   eye gets in there, and a control dimmer than the row it sits in reads as
+   missing. What still separates a dead control from a live one inside a dimmed
+   container is the cursor, the hover that does not light, and the reason it
+   points at. The next container that dims a subtree joins this list; nothing
+   else can be done about it in CSS, because a descendant combinator cannot say
+   "no ancestor dims". */
+.row-deleted .row-actions button:disabled,
+.account-card.archived .menu-popover button:disabled {
+  opacity: 1;
 }
 
 .checkbox-cell {
@@ -2563,6 +2654,27 @@ input[type="radio"] {
   min-width: 0;
 }
 
+/* The plan tab's automatic renewal terms, beside a request to pay. Set off by a
+   rule and a fill, and in ink at 13px where the notes around it are muted at
+   12px, because California's automatic renewal law asks for exactly that where
+   consent is asked for: type larger than or contrasting with the text around
+   it, or set off from it. */
+.plan-renewal-terms {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  color: var(--ink);
+  background: var(--surface-soft);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.plan-renewal-terms p {
+  margin: 0;
+}
+
 /* A panel whose contents stack. Named for what it does rather than for the page
    it was born on: it was `.settings-section` and Categories used it too, which
    is the same naming debt `.settings-note` carried before it became `Note`. */
@@ -2911,6 +3023,29 @@ input[type="radio"] {
   text-align: center;
 }
 
+/* What creating an account agrees to, directly above the button. Its links
+   keep the anchor color rather than the muted one `.legal-links` uses, because
+   here they are part of the sentence saying what the press accepts. */
+.auth-terms {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+/* The one above "Continue with Google" sits in the card itself rather than in
+   a form, where `.auth-card > p` would make it body text. */
+.auth-card > .auth-terms {
+  margin-top: 12px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.auth-legal {
+  justify-content: center;
+  margin-top: 28px;
+}
+
 /* The categories report's per-row menu sits beside the label without pushing
    the column wide, and the exclusion pills read as a sentence. */
 .report-row-heading {
@@ -2965,8 +3100,21 @@ input[type="radio"] {
   text-decoration: underline;
 }
 
-.link-button:hover {
+/* Narrowed the same way as the two families above, and for the same reason:
+   a second rule putting the underline back would leave both spellings live. */
+.link-button:hover:not(:disabled) {
   text-decoration: none;
+}
+
+/* The third family that ships disabled, found by looking for the defect rather
+   than waiting for it: "Add a category" in the split editor goes dead at the
+   fifty-leg cap (`MAX_TRANSACTION_LEGS`), and this rule sets its own color and
+   cursor, so a dead link was pixel-identical to a live one — measured in
+   Chrome 152 as `opacity: 1, cursor: pointer`, the same underline and the same
+   green. The house answer, read off `.button:disabled` like the others. */
+.link-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .auth-divider {
@@ -3355,6 +3503,26 @@ input[type="radio"] {
 .ad-slot {
   overflow: hidden;
   max-width: 100%;
+}
+
+/* An ad unit Google had nothing to fill, collapsed rather than left as blank
+   space. AdSense marks the `<ins>` with `data-ad-status="unfilled"` once it
+   knows, and its help page on hiding unfilled ad units gives exactly this rule
+   for it, `!important` included: the unit carries `display: block` inline,
+   which is what the tag is documented with and what `ads.tsx` renders, and
+   only an important declaration outranks an inline one. Left alone, an
+   unfilled responsive unit kept its 280px: a blank band at the foot of the
+   page, which is the reserved box the rule above refuses by another route.
+
+   The slot goes with it, because an empty `<aside>` is still a block in
+   `.main-column`'s stack and would keep the stack's gap on both sides of
+   nothing. The landmark goes too, which is right: there is no ad to skip. */
+.ad-slot ins.adsbygoogle[data-ad-status="unfilled"] {
+  display: none !important;
+}
+
+.ad-slot:has(> ins.adsbygoogle[data-ad-status="unfilled"]) {
+  display: none;
 }
 
 

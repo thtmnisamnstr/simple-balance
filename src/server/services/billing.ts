@@ -1,15 +1,20 @@
 import { and, eq, inArray, isNull, lt } from "drizzle-orm";
 import {
   type Actor,
+  activeChoicePending,
   type BillingInterval,
   cancellationPutSchema,
   type Entitlement,
+  freezeOnPlanEnd,
   frozenAccountIds,
   intervalOfPrice,
   liveSubscriptionStatuses,
+  type OwedInvoiceOutcome,
   owesPaymentStatuses,
+  paidForSubscriptionStatuses,
   paymentSetupConfirmSchema,
   type Plan,
+  PLAN_ENDING_REFUSAL,
   paymentSetupCreateSchema,
   resolveEntitlement,
   subscriptionAction,
@@ -31,9 +36,15 @@ import {
   createStripeCustomer,
   createStripeSetupIntent,
   currentStripeDefaultPaymentMethod,
+  fetchOwedPayment,
   fetchStripeSetupIntent,
+  invoicePaymentRefusal,
   isMissingStripeResource,
+  isOfferedPaymentMethodType,
+  isUnusableDefaultPaymentMethod,
+  keepCardThatPays,
   lastPriceCheck,
+  type OwedPayment,
   stripeCustomerStanding,
   openStripeInvoiceFor,
   payStripeInvoice,
@@ -81,8 +92,36 @@ export async function getEntitlement(
   transaction?: DbTransaction,
 ): Promise<Entitlement> {
   if (!billingEnabled()) return { billing: false };
-  const db = transaction ?? getDb();
+  const facts = await readEntitlementFacts(actor, transaction ?? getDb());
+  return resolveEntitlement({ billingEnabled: true, ...facts, now: new Date() });
+}
 
+/** The two rows a plan is decided from, and nothing worked out from them. */
+type EntitlementFacts = {
+  readonly override: { readonly plan: Plan; readonly expiresAt: Date | null } | undefined;
+  readonly subscriptions: readonly {
+    readonly status: string;
+    readonly pastDueSince: Date | null;
+    // Neither decides the plan in force; both are how the tab's second
+    // question is asked. `syncedAt` picks the row a cancellation would end —
+    // `liveSubscription`, the same rule the tab renders — and its
+    // `currentPeriodEnd` is the moment the plan would end on.
+    readonly currentPeriodEnd: Date | null;
+    readonly syncedAt: Date;
+  }[];
+};
+
+/**
+ * The reads behind `getEntitlement`, separated from the deciding.
+ *
+ * Because the plan tab asks two questions of the same rows — what the plan is
+ * now, and what it would be with the subscription gone — and reading the
+ * override a second time to answer the second would be a query added to the
+ * one load that already makes the most of them. It is also the only way the
+ * two answers can be resolved against a single `now`: an override expiring
+ * between them would otherwise be in force for one and not the other.
+ */
+async function readEntitlementFacts(actor: Actor, db: Executor): Promise<EntitlementFacts> {
   const [override] = await db
     .select({ plan: billingOverrides.plan, expiresAt: billingOverrides.expiresAt })
     .from(billingOverrides)
@@ -96,16 +135,12 @@ export async function getEntitlement(
     .select({
       status: billingSubscriptions.status,
       pastDueSince: billingSubscriptions.pastDueSince,
+      currentPeriodEnd: billingSubscriptions.currentPeriodEnd,
+      syncedAt: billingSubscriptions.syncedAt,
     })
     .from(billingSubscriptions)
     .where(eq(billingSubscriptions.userId, actor.userId));
-
-  return resolveEntitlement({
-    billingEnabled: true,
-    override,
-    subscriptions,
-    now: new Date(),
-  });
+  return { override, subscriptions };
 }
 
 /**
@@ -125,10 +160,52 @@ export async function getEntitlement(
 export async function getPlanSummary(
   actor: Actor,
 ): Promise<{ entitlement: Entitlement; accountsUsed: number | null }> {
-  const entitlement = await getEntitlement(actor);
-  if (!entitlement.billing || entitlement.accountLimit === null) {
-    return { entitlement, accountsUsed: null };
-  }
+  const { entitlement, accountsUsed } = await countPlaces(actor, false);
+  return { entitlement, accountsUsed };
+}
+
+/** The plan, and every count of accounts the plan tab says anything about. */
+type PlaceCounts = {
+  readonly entitlement: Entitlement;
+  /** Live accounts not frozen, or null where no limit is in force. */
+  readonly accountsUsed: number | null;
+  /** Live accounts frozen now, or null where no limit is in force. */
+  readonly accountsFrozen: number | null;
+  /** Every live account, or null where no plan is sold or none was asked for. */
+  readonly accountsLive: number | null;
+  readonly activeChoicePending: boolean;
+  /** Live accounts the paid plan ending would freeze — `freezeOnPlanEnd`. */
+  readonly accountsFrozenOnFree: number | null;
+  /** Whether that ending would leave the one-time choice open. */
+  readonly activeChoicePendingOnFree: boolean;
+};
+
+/**
+ * The counts behind `getPlanSummary`, and the rest of them for the plan tab.
+ *
+ * `everyPlan` is the plan tab asking for the live count on the paid plan too,
+ * which the session read does not: somebody canceling Premium with five
+ * accounts is about to have two frozen, and that is the one screen that can
+ * tell them before it happens. The session read keeps what it cost before —
+ * no query at all where no limit is in force.
+ */
+async function countPlaces(actor: Actor, everyPlan: boolean): Promise<PlaceCounts> {
+  const nothingCounted = {
+    accountsUsed: null,
+    accountsFrozen: null,
+    accountsLive: null,
+    activeChoicePending: false,
+    accountsFrozenOnFree: null,
+    activeChoicePendingOnFree: false,
+  } as const;
+  if (!billingEnabled()) return { entitlement: { billing: false }, ...nothingCounted };
+  // One read and one `now` for both questions the tab asks — see
+  // `readEntitlementFacts`.
+  const now = new Date();
+  const facts = await readEntitlementFacts(actor, getDb());
+  const entitlement = resolveEntitlement({ billingEnabled: true, ...facts, now });
+  const limit = entitlement.billing ? entitlement.accountLimit : null;
+  if (limit === null && !everyPlan) return { entitlement, ...nothingCounted };
   // The places in use, which is what the limit is now about: live accounts
   // that are not frozen. Counted from the rows and the entitlement already in
   // hand rather than through the service helper, which needs a transaction.
@@ -136,9 +213,40 @@ export async function getPlanSummary(
     .select()
     .from(ledgerAccounts)
     .where(and(eq(ledgerAccounts.userId, actor.userId), isNull(ledgerAccounts.systemKind)));
+  const live = rows.filter((row) => row.archivedAt === null);
+  // Only live accounts are ever frozen, so the set's size is the count.
   const frozen = frozenAccountIds(entitlement, rows);
-  const active = rows.filter((row) => row.archivedAt === null && !frozen.has(row.id)).length;
-  return { entitlement, accountsUsed: active };
+  // The subscription the tab's Cancel button would end, which is the one the
+  // second question is about. Picked with the rule the tab itself renders, so
+  // the warning and the row it sits under are never about different rows.
+  const canceling = liveSubscription(facts.subscriptions);
+  // When the plan would end: a cancellation takes effect at the end of the
+  // paid period rather than on the press, and that is the moment an operator's
+  // grant and a remaining grace have to be judged against. Never earlier than
+  // now — a period end read from a stale row is in the past, and judging an
+  // expiry against a past moment would keep a grant that has already lapsed.
+  const endsAt =
+    canceling?.currentPeriodEnd && canceling.currentPeriodEnd > now
+      ? canceling.currentPeriodEnd
+      : now;
+  return {
+    entitlement,
+    accountsUsed: limit === null ? null : live.filter((row) => !frozen.has(row.id)).length,
+    accountsFrozen: limit === null ? null : frozen.size,
+    accountsLive: live.length,
+    activeChoicePending: activeChoicePending(limit, live),
+    // The same rows under the entitlement that would be in force once that
+    // subscription is gone, which is not always the free plan and is why this
+    // is not `accountsLive - MAX_FREE_ACCOUNTS`. Only that row is dropped:
+    // somebody holding a second live subscription keeps the plan either way.
+    ...freezeOnPlanEnd({
+      billingEnabled: true,
+      override: facts.override,
+      subscriptions: facts.subscriptions.filter((row) => row !== canceling),
+      endsAt,
+      accounts: rows,
+    }),
+  };
 }
 
 /**
@@ -627,7 +735,9 @@ function pricesUnsellable(): boolean {
  * `createPaymentSetup` and canceling are kept out of for the same reason. A
  * first payment left unfinished (`incomplete`) is the other kind: finishing it
  * starts a subscription, which is a sale. `none` sends nothing, and `release`
- * lets go of a pending change and keeps what is already paid for.
+ * lets go of a pending change and keeps what is already paid for. `ending` is
+ * a change of interval, which would be a sale were it not refused anyway, so a
+ * deployment that has stopped selling says that first.
  */
 function sellsSomething(action: SubscriptionAction, status: string | null): boolean {
   if (action.kind === "resume") return status === "incomplete";
@@ -638,7 +748,7 @@ function sellsSomething(action: SubscriptionAction, status: string | null): bool
  * What a request for `requested` means against one stored subscription.
  *
  * The whole branch decision, in the shared pure function the browser previews
- * with. Seven outcomes, each tested against every Stripe status in
+ * with. Eight outcomes, each tested against every Stripe status in
  * `tests/subscription-action.test.ts`.
  */
 function actionFor(row: SubscriptionRow, requested: BillingInterval): SubscriptionAction {
@@ -648,10 +758,14 @@ function actionFor(row: SubscriptionRow, requested: BillingInterval): Subscripti
       status: row.status,
       interval: intervalOfPrice(row.priceId, billing),
       scheduled: intervalOfPrice(row.scheduledPriceId, billing),
+      cancelAtPeriodEnd: row.cancelAtPeriodEnd,
     },
     requested,
   });
 }
+
+/** The refusal `subscriptionAction` answers `ending` with. */
+const planEnding = () => conflict(PLAN_ENDING_REFUSAL, { cancelAtPeriodEnd: true });
 
 /**
  * Whether a "no such customer" or "no such subscription" from this key can be
@@ -715,6 +829,28 @@ type SubscriptionRow = {
   syncedAt: Date;
 };
 
+/**
+ * The one subscription among somebody's rows that the product is about.
+ *
+ * Newest read wins among live rows, which only matters in the window where a
+ * cancellation and its replacement are both live. Ordered here rather than in
+ * SQL because there are never more than a handful and the filter is in this
+ * file's own vocabulary rather than the database's.
+ *
+ * Generic over the columns because two callers need it of two different
+ * selections and the rule must not be written twice: the plan tab renders this
+ * row and its Cancel button ends it, while `countPlaces` has to take the same
+ * row out to say what ending it would freeze. A second spelling of "the
+ * current one" could pick a different row, and the warning would then be about
+ * a subscription nobody is canceling.
+ */
+function liveSubscription<T extends { readonly status: string; readonly syncedAt: Date }>(
+  rows: readonly T[],
+): T | null {
+  const live = rows.filter((row) => liveStatuses.has(row.status));
+  return live.sort((a, b) => b.syncedAt.getTime() - a.syncedAt.getTime())[0] ?? null;
+}
+
 /** Somebody's current subscription, or null when they have none. */
 async function currentSubscription(
   actor: Actor,
@@ -734,12 +870,7 @@ async function currentSubscription(
     })
     .from(billingSubscriptions)
     .where(eq(billingSubscriptions.userId, actor.userId));
-  const live = rows.filter((row) => liveStatuses.has(row.status));
-  // Newest read wins among live rows, which only matters in the window where a
-  // cancellation and its replacement are both live. Ordered here rather than in
-  // SQL because there are never more than a handful and the filter is in this
-  // file's own vocabulary rather than the database's.
-  return live.sort((a, b) => b.syncedAt.getTime() - a.syncedAt.getTime())[0] ?? null;
+  return liveSubscription(rows);
 }
 
 /**
@@ -844,9 +975,41 @@ export type BillingStatus = {
   };
   readonly entitlement: Entitlement;
   readonly accountsUsed: number | null;
+  /**
+   * Live accounts frozen now, or null where no limit is in force. The plan tab
+   * is where somebody learns why a ledger stopped taking entries, and it said
+   * nothing: the count of places in use reads the same with none frozen or two.
+   */
+  readonly accountsFrozen: number | null;
+  /**
+   * Every live account, frozen or not, wherever a plan is sold — the paid plan
+   * included, so a subscriber about to cancel can be told how many of theirs
+   * will freeze when it ends. Null where nothing is sold.
+   */
+  readonly accountsLive: number | null;
+  /** The one-time choice of which accounts stay usable is still open. */
+  readonly activeChoicePending: boolean;
+  /**
+   * How many live accounts the paid plan ending would freeze, and whether that
+   * ending would leave the one-time choice open — `freezeOnPlanEnd`, which
+   * says why the answer is not the free limit subtracted from the live count.
+   * Null and false where no limit would be in force then: a deployment that
+   * sells nothing, or an operator's grant that outlives the subscription.
+   *
+   * Sent on every load rather than only to a subscriber, because the tab is
+   * the same page whichever plan is in force and a field the server withholds
+   * on some loads is a field the browser has to guess the meaning of.
+   */
+  readonly accountsFrozenOnFree: number | null;
+  readonly activeChoicePendingOnFree: boolean;
   readonly subscription: {
     readonly status: string;
     readonly interval: BillingInterval | null;
+    /**
+     * Stripe's period end, whatever the status. It is a date the plan runs to
+     * only where `periodIsPaid(status)` says so; for a status that owes money
+     * it is the end of the period nobody has paid for.
+     */
     readonly currentPeriodEnd: string | null;
     readonly cancelAtPeriodEnd: boolean;
     readonly pastDueSince: string | null;
@@ -858,9 +1021,37 @@ export type BillingStatus = {
      * by, so the tab never offers a payment the server turns down.
      */
     readonly payable: boolean;
+    /**
+     * Stripe's own sentence for why the last attempt at what is owed failed —
+     * "Your card has insufficient funds." — or null where nothing is owed,
+     * nothing has been tried, or Stripe could not be asked. Read from Stripe on
+     * every load that owes money, so a first payment declined in the form is
+     * still said after a reload rather than living only in the form's state.
+     */
+    readonly lastPaymentError: string | null;
+    /**
+     * The bank wants the person to confirm what is owed with 3-D Secure.
+     * Stripe does not retry that by itself, so the page must not say it is
+     * retrying, and paying off-session — a replaced card — meets the same
+     * question; Pay now answers it.
+     */
+    readonly awaitingAuthentication: boolean;
+    /** When Stripe will next try what is owed by itself, or null where it will not. */
+    readonly nextRetryAt: string | null;
+    /**
+     * When an unfinished first payment lapses — Stripe expires an
+     * `incomplete` subscription 23 hours after making it, and nothing is
+     * charged — or null for every other status and where it is not known.
+     */
+    readonly expiresAt: string | null;
   } | null;
   readonly override: { readonly plan: Plan; readonly expiresAt: string | null } | null;
 };
+
+/** How long Stripe holds an `incomplete` subscription for its first payment. */
+const INCOMPLETE_LIFETIME_MS = 23 * 60 * 60 * 1000;
+
+const owesPayment = (status: string) => (owesPaymentStatuses as readonly string[]).includes(status);
 
 /**
  * Everything the plan tab needs, in one read.
@@ -881,20 +1072,43 @@ export async function getBillingStatus(actor: Actor): Promise<BillingStatus> {
   // "Waiting for payment" and "Free: up to 3 accounts" on the screen they were
   // returned to. Asking Stripe directly is not trusting the client — the client
   // said nothing, and Stripe is still the authority for the answer. Bounded to
-  // a plan-tab load that already has an unpaid row, and tolerant of failure the
-  // way the price lookup below is, because a subscription nobody can re-read is
+  // a plan-tab load that already owes money, and tolerant of failure the way
+  // the price lookup below is, because a subscription nobody can re-read is
   // still a subscription worth rendering.
+  //
+  // Every status that owes, not only a first payment. Pay now on a failed
+  // renewal and Pay what is owed on an unpaid one confirm in the browser just
+  // the same, and asked only about `incomplete` the tab went on saying
+  // "Payment failed" beside a live Pay now for as long as it stayed open —
+  // the one re-read the page makes lands before `invoice.paid` does. The same
+  // read says where the owed payment has got to, which the stored row cannot:
+  // a first payment declined and then reloaded looked never tried.
   const stale = await currentSubscription(actor);
-  if (stale && stale.status === "incomplete") {
+  let owed: { readonly subscriptionId: string; readonly payment: OwedPayment | null } | null = null;
+  let createdAt: Date | null = null;
+  if (stale && owesPayment(stale.status)) {
     try {
-      await resync(actor.userId, stale.stripeSubscriptionId);
+      const snapshot = await fetchSubscriptionSnapshot(stale.stripeSubscriptionId);
+      await reconcileSubscription(actor.userId, snapshot);
+      createdAt = snapshot.createdAt ?? null;
+      let payment: OwedPayment | null = null;
+      if (owesPayment(snapshot.status) && snapshot.latestInvoiceId) {
+        try {
+          payment = await fetchOwedPayment(snapshot.latestInvoiceId);
+        } catch (error) {
+          // The status is stored either way; only the sentence about the
+          // payment is missing, and the tab has one without it.
+          log.warn("billing.status.payment_unread", { error: String(error) });
+        }
+      }
+      owed = { subscriptionId: stale.stripeSubscriptionId, payment };
     } catch (error) {
       log.warn("billing.status.resync_failed", { error: String(error) });
     }
   }
 
   const [summary, row, override, prices] = await Promise.all([
-    getPlanSummary(actor),
+    countPlaces(actor, true),
     currentSubscription(actor),
     getDb()
       .select({ plan: billingOverrides.plan, expiresAt: billingOverrides.expiresAt })
@@ -934,6 +1148,17 @@ export async function getBillingStatus(actor: Actor): Promise<BillingStatus> {
     row !== null &&
     owedAction?.kind === "resume" &&
     (selling || !sellsSomething(owedAction, row.status));
+  // Only about the row it was read for, and only while that row still owes: a
+  // subscription paid, replaced or abandoned between the read and here has no
+  // payment left to describe.
+  const payment =
+    row && owed?.subscriptionId === row.stripeSubscriptionId && owesPayment(row.status)
+      ? owed.payment
+      : null;
+  const lapses =
+    row?.status === "incomplete" && owed?.subscriptionId === row.stripeSubscriptionId && createdAt
+      ? new Date(createdAt.getTime() + INCOMPLETE_LIFETIME_MS)
+      : null;
 
   return {
     selling,
@@ -941,6 +1166,11 @@ export async function getBillingStatus(actor: Actor): Promise<BillingStatus> {
     prices: { monthly: shown(prices.monthly), yearly: shown(prices.yearly) },
     entitlement: summary.entitlement,
     accountsUsed: summary.accountsUsed,
+    accountsFrozen: summary.accountsFrozen,
+    accountsLive: summary.accountsLive,
+    activeChoicePending: summary.activeChoicePending,
+    accountsFrozenOnFree: summary.accountsFrozenOnFree,
+    activeChoicePendingOnFree: summary.activeChoicePendingOnFree,
     subscription: row
       ? {
           status: row.status,
@@ -951,6 +1181,10 @@ export async function getBillingStatus(actor: Actor): Promise<BillingStatus> {
           scheduledInterval: intervalOfPrice(row.scheduledPriceId, billing),
           scheduledAt: row.scheduledAt?.toISOString() ?? null,
           payable,
+          lastPaymentError: payment?.failureMessage ?? null,
+          awaitingAuthentication: payment?.awaitingAuthentication ?? false,
+          nextRetryAt: payment?.nextAttemptAt?.toISOString() ?? null,
+          expiresAt: lapses?.toISOString() ?? null,
         }
       : null,
     override: override[0]
@@ -1108,10 +1342,12 @@ export async function setSubscription(actor: Actor, input: unknown): Promise<Sub
   // only so a request that will be refused makes no Stripe customer on the way;
   // the locked read below is the one that decides.
   const refusal = await saleRefusal();
-  if (refusal) {
-    const row = await currentSubscription(actor);
-    if (!row || sellsSomething(actionFor(row, parsed.interval), row.status)) throw refusal;
+  const early = await currentSubscription(actor);
+  const earlyAction = early ? actionFor(early, parsed.interval) : null;
+  if (refusal && (!early || !earlyAction || sellsSomething(earlyAction, early.status))) {
+    throw refusal;
   }
+  if (earlyAction?.kind === "ending") throw planEnding();
 
   return underIdempotency(
     actor,
@@ -1157,12 +1393,27 @@ export async function setSubscription(actor: Actor, input: unknown): Promise<Sub
 
         const action = actionFor(row, parsed.interval);
         if (refusal && sellsSomething(action, row.status)) throw refusal;
+        if (action.kind === "ending") throw planEnding();
 
         if (action.kind === "resume") {
+          // A renewal that is owed — Pay now, Pay what is owed — has its
+          // PaymentIntent marked to keep the card that pays it, before the
+          // secret leaves here; `keepCardThatPays` says why it cannot wait
+          // until after. Not a first payment, whose intent Stripe already set
+          // up that way. Best effort: a key that may not update PaymentIntents
+          // still lets somebody pay what they owe, as before, and says so.
+          if (row.status !== "incomplete") {
+            try {
+              await keepCardThatPays(row.stripeSubscriptionId, `${stripeKey}:keep-card`);
+            } catch (error) {
+              log.warn("billing.payment.card_not_kept", { error: String(error) });
+            }
+          }
           return {
             subscriptionId: row.stripeSubscriptionId,
             clientSecret: await fetchSubscriptionClientSecret(row.stripeSubscriptionId),
-            // Nothing was changed at Stripe, so there is nothing to re-read.
+            // The subscription itself is unchanged at Stripe, so there is
+            // nothing to re-read.
             resync: false,
           };
         }
@@ -1207,7 +1458,7 @@ export async function setSubscription(actor: Actor, input: unknown): Promise<Sub
           await releaseAnySchedule(row.stripeSubscriptionId, stripeKey);
           const item = await stripeSubscriptionItem(row.stripeSubscriptionId);
           if (!item) throw new Error("Stripe returned a subscription with no items");
-          await switchStripeSubscriptionNow(
+          const switched = await switchStripeSubscriptionNow(
             {
               subscriptionId: row.stripeSubscriptionId,
               itemId: item.itemId,
@@ -1215,6 +1466,14 @@ export async function setSubscription(actor: Actor, input: unknown): Promise<Sub
             },
             stripeKey,
           );
+          // Stored under the lock, for the reason a first subscription is. Two
+          // Annual presses that overlapped — two tabs, a double click the page
+          // had not yet disabled — both read monthly: the second waited here,
+          // found the row unchanged, and sent Stripe a second anchor-now
+          // update that moved the renewal again and left a zero-amount
+          // proration on the next invoice. Stored, the waiting press reads
+          // annual and is `none`, or `resume` for a charge still owed.
+          await reconcileSubscription(actor.userId, switched, tx);
           return {
             subscriptionId: row.stripeSubscriptionId,
             clientSecret: null,
@@ -1370,11 +1629,17 @@ export async function createPaymentSetup(
  * Not refused where nothing is for sale, for the same reason `createPaymentSetup`
  * is not: this is how somebody whose card expired stays a customer on a
  * deployment that has stopped taking new ones.
+ *
+ * The answer says what became of what was owed, not only whether it was paid.
+ * `paidInvoice` alone was false both where nothing was owed and where the new
+ * card was declined for it, so a past-due subscriber who replaced a card with
+ * one that also failed was shown the form closing as a success. `invoice` and
+ * `declineMessage` are the rest, beside the field every earlier client reads.
  */
 export async function confirmPaymentSetup(
   actor: Actor,
   input: unknown,
-): Promise<{ attached: boolean; paidInvoice: boolean }> {
+): Promise<PaymentSetupConfirmation> {
   const parsed = paymentSetupConfirmSchema.parse(input);
   return underIdempotency(
     actor,
@@ -1401,37 +1666,81 @@ export async function confirmPaymentSetup(
       if (!intent.paymentMethodId) {
         throw conflict("That payment setup carries no card", { status: intent.status });
       }
+      // Before anything is written, so a method this product does not offer
+      // changes nothing — an intent made before the offer was narrowed, or one
+      // an operator made in the dashboard, can still arrive here.
+      if (!isOfferedPaymentMethodType(intent.paymentMethodType)) {
+        throw unusablePaymentMethod(intent.paymentMethodType);
+      }
 
       const row = await currentSubscription(actor);
-      await setStripeDefaultPaymentMethod(
-        {
-          customerId: customer.stripeCustomerId,
-          subscriptionId: row?.stripeSubscriptionId ?? null,
-          paymentMethodId: intent.paymentMethodId,
-        },
-        stripeKey,
-      );
+      try {
+        await setStripeDefaultPaymentMethod(
+          {
+            customerId: customer.stripeCustomerId,
+            subscriptionId: row?.stripeSubscriptionId ?? null,
+            paymentMethodId: intent.paymentMethodId,
+          },
+          stripeKey,
+        );
+      } catch (error) {
+        // The subscription refused it, which it does first, so nothing was
+        // changed; a sentence rather than a 500 somebody can do nothing with.
+        if (isUnusableDefaultPaymentMethod(error)) {
+          throw unusablePaymentMethod(intent.paymentMethodType);
+        }
+        throw error;
+      }
 
       // And pay what is outstanding, so replacing a card fixes a failed renewal
       // now rather than at Stripe's next retry — which may be days away and may
-      // be after the fifteen-day grace has run out. Best effort: the card is
-      // attached and pinned either way, and Stripe retries on its own schedule,
-      // so a failure here costs the person nothing they had.
-      let paidInvoice = false;
+      // be after the fifteen-day grace has run out. The card stays attached and
+      // pinned whatever happens here, and Stripe still retries a decline on its
+      // own schedule — but not a payment the bank wants authenticated, which
+      // waits for the person — so a failure is reported, never thrown: the
+      // part the person asked for, the new card, has happened.
+      let invoice: OwedInvoiceOutcome = "none";
+      let declineMessage: string | null = null;
       if (row) {
+        let invoiceId: string | null = null;
         try {
-          const invoiceId = await openStripeInvoiceFor(row.stripeSubscriptionId);
+          invoiceId = await openStripeInvoiceFor(row.stripeSubscriptionId);
           if (invoiceId) {
             await payStripeInvoice(invoiceId, `${stripeKey}:invoice`);
-            paidInvoice = true;
+            invoice = "paid";
           }
         } catch (error) {
           log.warn("billing.invoice.retry_failed", { error: String(error) });
+          // Not knowing whether anything is owed is not "nothing owed": where
+          // the row says money is, it is still owed.
+          if (invoiceId || owesPayment(row.status)) {
+            const refusal = invoicePaymentRefusal(error);
+            invoice = refusal.outcome;
+            declineMessage = refusal.message;
+          }
         }
         await resync(actor.userId, row.stripeSubscriptionId);
       }
-      return { attached: true, paidInvoice };
+      return { attached: true, paidInvoice: invoice === "paid", invoice, declineMessage };
     },
+  );
+}
+
+/** What confirming a replacement card answers. */
+export type PaymentSetupConfirmation = {
+  readonly attached: true;
+  /** Kept for every client that reads it; true exactly where `invoice` is `paid`. */
+  readonly paidInvoice: boolean;
+  readonly invoice: OwedInvoiceOutcome;
+  /** Stripe's sentence for a declined card, written for the cardholder, or null. */
+  readonly declineMessage: string | null;
+};
+
+/** The refusal for a saved method this product does not offer or cannot bill. */
+function unusablePaymentMethod(type: string | null) {
+  return conflict(
+    "That payment method cannot pay this subscription. Use a card or Link instead. Nothing was changed.",
+    { paymentMethodType: type },
   );
 }
 
@@ -1787,11 +2096,22 @@ async function isWebhookEventClaimed(eventId: string): Promise<boolean> {
  * Pins a card somebody saved, from Stripe's own delivery.
  *
  * The same work `confirmPaymentSetup` does, reached the other way. Both exist
- * because neither is sufficient alone: the request path fails when a 3-D Secure
- * redirect lands somewhere the browser never comes back from, and the delivery
- * fails when a deployment's Stripe endpoint is not subscribed to
- * `setup_intent.succeeded` — which is dashboard configuration this repository
- * cannot see.
+ * because neither is sufficient alone: the request path fails when the page
+ * that confirmed the card never asks — a redirect that returns to a tab that
+ * does not look, a tab closed on the confirmation — and the delivery fails
+ * when a deployment's Stripe endpoint is not subscribed to
+ * `setup_intent.succeeded`, which is dashboard configuration this repository
+ * cannot see. This half does not pay the owed invoice the way the request half
+ * does: where both run, two attempts on a card that is declined are two
+ * declines on somebody's statement, and Stripe's own retry of a decline, which
+ * this pin points at the new card, is already scheduled.
+ *
+ * A method this product does not offer, and one the subscription refuses to
+ * bill, are recorded and left alone rather than answered 500. Both are
+ * definite and permanent — the refusal is the same on every retry, and Stripe
+ * retries for three days while it delays the account's other invoices — and
+ * the card Stripe bills is left as it was, which the subscription-first pin
+ * guarantees.
  *
  * The claim comes last, after the work it records, and that order is the one
  * `claimWebhookEvent` warns about getting wrong. The work here is two Stripe
@@ -1834,6 +2154,10 @@ export async function applySetupIntentSucceeded(
   if (intent.status !== "succeeded" || !paymentMethodId || !customerId) {
     return "ignored";
   }
+  if (!isOfferedPaymentMethodType(intent.paymentMethodType)) {
+    log.info("billing.setup.unoffered_method", { paymentMethodType: intent.paymentMethodType });
+    return (await claimWebhookEvent(event.id, event.type)) ? "ignored" : "duplicate";
+  }
 
   const [row] = await getDb()
     .select({ stripeSubscriptionId: billingSubscriptions.stripeSubscriptionId })
@@ -1855,10 +2179,19 @@ export async function applySetupIntentSucceeded(
     return (await claimWebhookEvent(event.id, event.type)) ? "ignored" : "duplicate";
   }
 
-  await setStripeDefaultPaymentMethod(
-    { customerId, subscriptionId, paymentMethodId },
-    `setup:${setupIntentId}`,
-  );
+  try {
+    await setStripeDefaultPaymentMethod(
+      { customerId, subscriptionId, paymentMethodId },
+      `setup:${setupIntentId}`,
+    );
+  } catch (error) {
+    if (!isUnusableDefaultPaymentMethod(error)) throw error;
+    log.warn("billing.setup.unusable_method", {
+      paymentMethodType: intent.paymentMethodType,
+      error: String(error),
+    });
+    return (await claimWebhookEvent(event.id, event.type)) ? "ignored" : "duplicate";
+  }
   if (!(await claimWebhookEvent(event.id, event.type))) return "duplicate";
 
   // After the claim and outside it, because the card is pinned either way and
@@ -2028,11 +2361,20 @@ export type AdPlacement = {
  * without naming the one item that costs money: the subscription goes with the
  * account, immediately, and nothing brings a canceled one back.
  *
+ * A subscription paid for at least once — `paidForSubscriptionStatuses` — and
+ * not merely a current one: a first payment that never went through is a
+ * current subscription on the free plan, and the note told its owner their
+ * paid plan would be canceled. The deletion itself does not ask this and still
+ * deletes the Stripe customer whatever it owns.
+ *
  * False without a word to Stripe when no Stripe is configured, which is the
  * default — the confirmation must not become a network call for a deployment
  * that sells nothing.
  */
 export async function hasLiveSubscription(actor: Actor): Promise<boolean> {
   if (!getConfig().billing) return false;
-  return (await currentSubscription(actor)) !== null;
+  const current = await currentSubscription(actor);
+  return (
+    current !== null && (paidForSubscriptionStatuses as readonly string[]).includes(current.status)
+  );
 }

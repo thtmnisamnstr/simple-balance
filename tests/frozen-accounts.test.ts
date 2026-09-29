@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DbTransaction } from "../src/server/db/client.js";
-import { setActiveAccounts } from "../src/server/services/accounts.js";
+import { assertAccountsWritable, setActiveAccounts } from "../src/server/services/accounts.js";
 import {
   accountAllowance,
   accountsToMarkActive,
@@ -8,9 +8,11 @@ import {
   activeChoicePending,
   type Entitlement,
   type FreezableAccount,
+  freezeOnPlanEnd,
   frozenAccountIds,
   frozenAccountRefusal,
   MAX_FREE_ACCOUNTS,
+  type Plan,
   resolveEntitlement,
   restoreAllowance,
 } from "../src/shared/domain.js";
@@ -174,6 +176,189 @@ describe("what a frozen account says", () => {
     // one has to name the move that does not cost money, because an agent
     // meeting it cannot buy a plan.
     expect(message.toLowerCase()).toContain("active");
+  });
+
+  it("names the account, and says the same thing after it", () => {
+    // The half of the sentence that changes, and the half that must not: the
+    // browser had prefixed the name itself, so the two sides were one sentence
+    // and a longer one instead of the same sentence.
+    const named = frozenAccountRefusal(MAX_FREE_ACCOUNTS, "Checking");
+    const general = frozenAccountRefusal(MAX_FREE_ACCOUNTS);
+    expect(named.startsWith('"Checking" is frozen.')).toBe(true);
+    expect(named).not.toContain("This account is frozen");
+    expect(named.slice('"Checking" is frozen.'.length)).toBe(
+      general.slice("This account is frozen.".length),
+    );
+  });
+
+  it("falls back to the general sentence where no one account is meant", () => {
+    // The Add button that is dead because *every* account is frozen. Naming
+    // one of them there would be worse than naming none.
+    expect(frozenAccountRefusal(MAX_FREE_ACCOUNTS, undefined)).toBe(
+      frozenAccountRefusal(MAX_FREE_ACCOUNTS),
+    );
+  });
+
+  it("is what the service throws, with the name it already had", () => {
+    // `assertAccountsWritable` is handed the ids and the names together for
+    // this: a transfer names two accounts and a bulk delete names none, so a
+    // refusal that said "this account" left the person to guess which.
+    const freeze = {
+      frozen: new Map([
+        ["acct_1", "Checking"],
+        ["acct_2", "Savings"],
+      ]),
+      limit: MAX_FREE_ACCOUNTS,
+    };
+    expect(() => assertAccountsWritable(freeze, ["acct_3", "acct_2"])).toThrow(
+      frozenAccountRefusal(MAX_FREE_ACCOUNTS, "Savings"),
+    );
+    expect(() => assertAccountsWritable(freeze, ["acct_3"])).not.toThrow();
+    // Nothing frozen at all, which is every deployment that sells nothing.
+    expect(() =>
+      assertAccountsWritable({ frozen: new Map(), limit: null }, ["acct_1"]),
+    ).not.toThrow();
+  });
+});
+
+/**
+ * What the plan tab says a cancellation will cost, before the press.
+ *
+ * The count is the server's because the rule is the shared one, and the ways
+ * to get it wrong are all about the entitlement it is asked of: "live minus
+ * three" ignores the choice somebody already made, "the free plan" ignores an
+ * operator's grant that is still running once the plan has ended, and asking
+ * at the wrong moment — or with every subscription dropped rather than the one
+ * ending — answers a question nobody asked.
+ */
+describe("what ending the paid plan would freeze", () => {
+  const now = new Date("2026-03-01T12:00:00Z");
+  const five = ["a", "b", "c", "d", "e"].map((id, index) =>
+    account(id, { createdAt: day(index + 1) }),
+  );
+  const ending = (
+    accounts: FreezableAccount[],
+    override?: { plan: Plan; expiresAt: Date | null },
+  ) => freezeOnPlanEnd({ billingEnabled: true, override, endsAt: now, accounts });
+
+  it("counts what the shared rule freezes, not every account past the limit", () => {
+    expect(ending(five)).toEqual({ accountsFrozenOnFree: 2, activeChoicePendingOnFree: true });
+    // Three of five chosen before the upgrade: the same two freeze again, and
+    // there is nothing left to choose.
+    const chosen = five.map((entry) => ({ ...entry, active: ["a", "b", "c"].includes(entry.id) }));
+    expect(ending(chosen)).toEqual({ accountsFrozenOnFree: 2, activeChoicePendingOnFree: false });
+    // One of the three then archived: four live, and still two frozen, which
+    // is where "live minus three" would have said one.
+    const archived = chosen.map((entry) =>
+      entry.id === "a" ? { ...entry, archivedAt: day(20) } : entry,
+    );
+    expect(ending(archived)).toEqual({ accountsFrozenOnFree: 2, activeChoicePendingOnFree: false });
+  });
+
+  it("has no answer where a grant would still be running by then", () => {
+    // Null rather than zero: nothing would be frozen *because no limit would
+    // be in force*, and the tab says nothing rather than promising it.
+    expect(ending(five, { plan: "plus", expiresAt: new Date("2026-04-01T12:00:00Z") })).toEqual({
+      accountsFrozenOnFree: null,
+      activeChoicePendingOnFree: false,
+    });
+    expect(ending(five, { plan: "plus", expiresAt: null })).toEqual({
+      accountsFrozenOnFree: null,
+      activeChoicePendingOnFree: false,
+    });
+    expect(
+      freezeOnPlanEnd({ billingEnabled: false, endsAt: now, accounts: five }),
+      "a deployment that sells nothing",
+    ).toEqual({ accountsFrozenOnFree: null, activeChoicePendingOnFree: false });
+  });
+
+  it("counts under a grant that has expired, or one that grants the free plan", () => {
+    // The two that an "is there an override?" test gets wrong, and it got the
+    // first of them wrong on the page: a grant that ended in January hid the
+    // count from somebody canceling in March.
+    expect(ending(five, { plan: "plus", expiresAt: new Date("2026-01-01T12:00:00Z") })).toEqual({
+      accountsFrozenOnFree: 2,
+      activeChoicePendingOnFree: true,
+    });
+    expect(ending(five, { plan: "free", expiresAt: null })).toEqual({
+      accountsFrozenOnFree: 2,
+      activeChoicePendingOnFree: true,
+    });
+  });
+
+  it("judges a grant against the day the plan ends, not today", () => {
+    // A grant running two more days beside a period running a month. Asked at
+    // `now` it resolved to `plus` and the tab said nothing at all, so the two
+    // accounts that really do freeze on April 1 were never mentioned.
+    const periodEnd = new Date("2026-04-01T12:00:00Z");
+    expect(
+      freezeOnPlanEnd({
+        billingEnabled: true,
+        override: { plan: "plus", expiresAt: new Date("2026-03-03T12:00:00Z") },
+        endsAt: periodEnd,
+        accounts: five,
+      }),
+    ).toEqual({ accountsFrozenOnFree: 2, activeChoicePendingOnFree: true });
+    // The same grant outliving the period is still the case with no answer:
+    // the moment moved, not the rule.
+    expect(
+      freezeOnPlanEnd({
+        billingEnabled: true,
+        override: { plan: "plus", expiresAt: new Date("2026-05-01T12:00:00Z") },
+        endsAt: periodEnd,
+        accounts: five,
+      }),
+    ).toEqual({ accountsFrozenOnFree: null, activeChoicePendingOnFree: false });
+  });
+
+  it("keeps the subscriptions that are not the one ending", () => {
+    // Canceling one of two. Dropping every row answered "what if this person
+    // had none", and promised two frozen accounts to somebody whose trial
+    // keeps the plan open.
+    expect(
+      freezeOnPlanEnd({
+        billingEnabled: true,
+        subscriptions: [{ status: "trialing", pastDueSince: null }],
+        endsAt: now,
+        accounts: five,
+      }),
+    ).toEqual({ accountsFrozenOnFree: null, activeChoicePendingOnFree: false });
+    // A row that does not entitle keeps nothing open, so the count is the
+    // ordinary one rather than a null.
+    expect(
+      freezeOnPlanEnd({
+        billingEnabled: true,
+        subscriptions: [{ status: "canceled", pastDueSince: null }],
+        endsAt: now,
+        accounts: five,
+      }),
+    ).toEqual({ accountsFrozenOnFree: 2, activeChoicePendingOnFree: true });
+    // And the moment settles a remaining grace too: fifteen days from the
+    // failure, which covers today and has run out by the period end.
+    const stillInGrace = { status: "past_due", pastDueSince: now };
+    expect(
+      freezeOnPlanEnd({
+        billingEnabled: true,
+        subscriptions: [stillInGrace],
+        endsAt: now,
+        accounts: five,
+      }),
+    ).toEqual({ accountsFrozenOnFree: null, activeChoicePendingOnFree: false });
+    expect(
+      freezeOnPlanEnd({
+        billingEnabled: true,
+        subscriptions: [stillInGrace],
+        endsAt: new Date("2026-04-01T12:00:00Z"),
+        accounts: five,
+      }),
+    ).toEqual({ accountsFrozenOnFree: 2, activeChoicePendingOnFree: true });
+  });
+
+  it("freezes nothing where the live accounts already fit", () => {
+    expect(ending(five.slice(0, 3))).toEqual({
+      accountsFrozenOnFree: 0,
+      activeChoicePendingOnFree: false,
+    });
   });
 });
 

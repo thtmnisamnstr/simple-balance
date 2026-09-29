@@ -24,6 +24,13 @@ and this release moves it from 16 to 18. A PostgreSQL container cannot read the
 previous major version's data directory — it refuses to start and says so — so
 this one needs a hand before you pull. The procedure is below.
 
+**And one interruption to schedule, if you run the `aws` Pulumi program.** Its
+next `pulumi up` turns proxy protocol on between the network load balancer and
+ingress-nginx, which is what finally lets the API see who is signing in, and
+the public address answers nothing, or a `400`, for seconds to about a minute
+while the two ends change over. The `gcp` program moves no load balancer.
+Both are below.
+
 ### What runs automatically
 
 **Three migrations, none of which rewrites a row on a single PostgreSQL, and on
@@ -158,7 +165,8 @@ nothing in this release requires 18.
 **One thing is worth doing, if you run the split containers behind anything
 that terminates TLS**, which under Kubernetes is always. Set
 `SB_TRUSTED_PROXY_CIDR` on the frontend — `frontend.trustedProxyCidr` in the
-chart — to the range that terminator connects from.
+chart — to the range that terminator connects from, or to several, separated by
+commas or spaces, when more than one proxy connects.
 
 Without it the frontend tells the API that every request came from the
 terminator, so with `TRUST_PROXY` on, every sign-in attempt in the deployment
@@ -170,14 +178,57 @@ is on.
 
 Name the terminator's range and nothing wider. This decides whose word is taken
 for a visitor's address, so a range that includes callers lets a caller choose
-their own. `docs/deployment-profiles.md` has the reasoning and the measurement.
+their own. Leave `SB_REAL_IP_RECURSIVE` — `frontend.realIpRecursive` — off
+unless every proxy in front appends to `X-Forwarded-For` and is in the list.
+`docs/deployment-profiles.md` has the reasoning and the measurement.
 
-The `aws` and `gcp` Pulumi programs pass it through as
-`simple-balance:trustedProxyCidr`, and on neither cloud is the setting the whole
-answer as those programs build it: AWS's network load balancer does not hand the
-visitor's address on to the ingress, and Google's appends its own after it.
-`deploy/pulumi/README.md` §Things that will surprise you says what else each
-needs.
+**If you run the `aws` Pulumi program, take the next `pulumi up` at a quiet
+hour.** It changes the ingress-nginx release in three ways at once, because
+each end of the hop fails without the other: the controller's Service gains
+`service.beta.kubernetes.io/aws-load-balancer-proxy-protocol: "*"`, which is
+proxy protocol v2 on every target group; ingress-nginx's configuration gains
+`use-proxy-protocol: "true"` and `proxy-real-ip-cidr` naming the three public
+subnets, `10.0.0.0/24,10.0.1.0/24,10.0.2.0/24`; and the load balancer's health
+check moves from port 10254 to 80, still HTTP on `/healthz`, because AWS sends
+the header on health checks too and the controller's own server on 10254
+cannot read it. nginx expecting the header refuses a connection that has none,
+nginx not expecting it answers the header with a `400`, and the target groups'
+change and ingress-nginx's reload do not land at the same instant — hence the
+interruption above. Take a dump first, as before any upgrade.
+
+What it buys is the visitor's own address at ingress-nginx, which it then puts
+in `X-Forwarded-For` in place of whatever the visitor sent. It believes a proxy
+protocol header only from the public subnets, where the load balancer's nodes
+take their addresses, so a pod that sends one is counted as itself. The
+frontend's default trust becomes the VPC's range, `10.0.0.0/16`, with recursion
+off, because ingress-nginx's pods take their addresses there. A
+`simple-balance:trustedProxyCidr` of your own is kept, with recursion off, and
+replaces that default. If you set it to the load balancer's public subnets as a
+way around the shared allowance, unset it: the frontend's peer is now an
+ingress-nginx pod in the private subnets, and that value brings the shared
+allowance back.
+
+**If you run the `gcp` Pulumi program**, the next `pulumi up` moves no load
+balancer. The frontend's Service gains
+`cloud.google.com/neg: '{"ingress": true}'`, which GKE already applies on the
+cluster the program builds, so no backend changes; it is written down because
+what the frontend trusts depends on it. The frontend's default trust becomes
+`130.211.0.0/22`, `35.191.0.0/16` and the Ingress's reserved address, with
+recursion on, because Google's load balancer appends its own address after the
+visitor's and only a walk past it reaches the visitor. A
+`simple-balance:trustedProxyCidr` of your own is kept, with recursion off, and
+on this load balancer that still takes its address for everybody: unset it, or
+set `simple-balance:realIpRecursive=true` with a list that keeps those three.
+
+**On either cloud, the frontend's half waits for the image.** Both programs
+deploy the release image their checkout pins, which is 0.1.6 until 0.2.0 is
+released, and that frontend reads neither setting. On AWS the ingress half
+takes effect at the next `pulumi up`, but the 0.1.6 frontend still reports
+ingress-nginx's pod to the API, so the allowance stays shared until the image
+is 0.2.0 or later; on GCP nothing about the frontend changes until then.
+`deploy/pulumi/README.md` §Things that will surprise you has what is still
+open, including the pods inside the cluster that only the chart's
+`NetworkPolicy` shuts out.
 
 **Two new deployment profiles exist, and neither is anything you have to do.**
 `vps` is a machine per service with the database among them
@@ -191,10 +242,100 @@ container has always been; what is new there is a recipe for it —
 `deploy/compose/single/`, `deploy/systemd/`, and the `aws-single` and
 `oci-single` Pulumi programs — which you can adopt or ignore.
 
+**If you built one of those from this release's branch before it was cut, five
+things changed under it.** None of this touches a 0.1.6 deployment, because none
+of these programs or files was in 0.1.6.
+
+**`oci-single` now requires `oci:region` in the stack.** Its next
+`pulumi preview` or `pulumi up` stops before anything is declared, and changes
+nothing, until the stack sets it, with a message that says so. Set it to the
+region the stack is already in: the region of the `~/.oci/config` profile it
+was built with, unless `TF_VAR_region` or `OCI_REGION` was set in that shell,
+and the instance's OCID (`pulumi stack output instanceId`,
+`ocid1.instance.oc1.<region>…`) names it. Adding the key replaces nothing.
+Never set a different region: the provider would then look for the stack's
+resources where they are not. This is the one place in the release where a
+configuration that ran before is refused, and it does not break the rule that
+a release starts on the configuration the previous one accepted, because no
+release accepted it — `oci-single` is new here. It is also the refusal that
+prevents the harm: left to fall back to the shell's region, a stack run from
+another machine would build, or look, somewhere else.
+
+**The same `pulumi up` protects its data volume.** It shows `[diff: ~protect]`
+with every resource unchanged, makes no call to OCI beyond one more read
+(`ListVolumes`, which the README's `manage volume-family` policy already
+grants), and adds the outputs `region` and `dataVolumeId`. From then on
+`pulumi destroy` fails at its preview and deletes nothing, so anything scripted
+as `pulumi destroy --yes` now exits 1; a new `availabilityDomain` is refused
+before the machine or the volume is touched, with or without a preview; and a
+resize goes through as before. `pulumi destroy --exclude-protected` and
+`--skip-preview` delete only the volume's attachment and leave the machine
+running without its disk, so neither is a way to tear down.
+`deploy/pulumi/README.md` §Tearing down on Oracle Cloud is the way, and
+`simple-balance:protectDataVolume=false` the setting. A stack that already took
+a `pulumi up --skip-preview` to a new domain under the earlier program has its
+machine in the new domain and its volume in the old one, and the new program
+refuses to go further: set `availabilityDomain` back to the volume's domain and
+run `pulumi up`, which relaunches the machine there and reattaches the volume,
+and on Always Free may meet `Out of host capacity` first.
+
+**`aws-single` now requires `aws:region` in the stack, and protects its data
+volume the same way.** Its next `pulumi preview` or `pulumi up` stops before
+anything is declared, and changes nothing, until the stack sets it. Set it to
+the region the stack was built in, which `pulumi stack output shell` names after
+`--region`: whether that came from `aws:region` or from the shell's
+`AWS_REGION`, the provider recorded it, and the same region set in the stack
+changes nothing — run against the provider on a stand-in of this program, every
+resource came back unchanged. Never set another: version 7 of the provider
+records a region on every resource, so a different one plans to replace all of
+them in that region, the data volume included, which is also what running the
+earlier program from a shell pointed elsewhere planned. That `up` marks the
+EBS data volume with `protect`, which changes no resource, and adds the outputs
+`region` and `dataVolumeId`. From then on `pulumi destroy` fails at its preview
+and deletes nothing, so anything scripted as `pulumi destroy --yes` now exits 1;
+a new `aws:region` is refused at the volume; a resize and a replaced machine go
+through as before. `pulumi destroy --exclude-protected` and `--skip-preview`
+keep the volume and the VPC and subnet it was built in, and delete everything
+else, the Elastic IP included, so the next `pulumi up` comes back on a new
+address. `deploy/pulumi/README.md` §Tearing down on AWS is the way, and
+`simple-balance:protectDataVolume=false` the setting. Refusing a stack whose
+region came from the shell alone is the same narrowing as `oci-single`'s, and
+acceptable for the same reason: no release carried `aws-single`.
+
+**A `single` machine can now verify its database.** A `DATABASE_URL` of
+`?sslmode=verify-full&sslrootcert=/var/lib/simple-balance/tls/db-ca.pem` is
+checked by the application, the nightly backup and the restore alike, where
+before the backup could not use `verify-full` at all. A machine built before the
+`compose.db-tls.yml` overlay existed needs it by hand, since a second
+`pulumi up` does not reconfigure a machine: install the current
+`simple-balance-backup` and `simple-balance-restore` in `/usr/local/bin` (0755)
+and `simple-balance-firstboot` in `/usr/local/sbin` (0700) from
+`deploy/systemd/` — the current firstboot also waits up to forty minutes for
+the data volume, as long as the providers give Pulumi to attach it, where the
+earlier one gave up after two — copy `deploy/compose/single/compose.db-tls.yml` to
+`/opt/simple-balance` (0644), change `COMPOSE_FILE` in
+`/etc/default/simple-balance` to
+`compose.yml:compose.caddy.yml:compose.db-tls.yml`, run
+`sudo install -d -m 0755 /var/lib/simple-balance/tls`, install the CA
+certificate there as `db-ca.pem` (0644), edit `DATABASE_URL` in
+`/var/lib/simple-balance/env.local`, then
+`sudo systemctl restart simple-balance` and
+`sudo systemctl start simple-balance-backup.service` to see a verified dump. A
+hand install does the same with its own copies. `sslmode=no-verify` goes on
+working exactly as it did, so none of this is required.
+
+**The backup and the restore refuse `sslmode=verify-ca` with no `sslrootcert`**,
+with exit status 2 and before any client runs, because libpq would then take a
+certificate any public CA issued, for any host, as the database's. They never
+worked with it — libpq looked for a root file the client image does not have —
+so no backup that runs today stops. The application still accepts that URL and
+reads it as `verify-full`; writing `verify-full` means the same to both.
+
 ### What changed under you
 
 The bundled PostgreSQL in `deploy/compose/compose.distributed.yml` moved from 16
-to 18, which is the one change in this release that an operator cannot ignore;
+to 18, which is one of the two changes in this release that an operator cannot
+ignore; the other is the `aws` Pulumi program's proxy protocol, above, and
 everything else here is opt-in. `docs/deployment-profiles.md` has the reasoning,
 and the short version is that where a deployment owns its database it runs the
 newest version the `ha` cluster can also run.
@@ -202,10 +343,27 @@ newest version the `ha` cluster can also run.
 Otherwise no setting changes meaning unless you opt in. `SB_TRUSTED_PROXY_CIDR`
 defaults to `127.0.0.1`, which is the off position rather than a trusted range —
 nothing reaches the container from loopback — so a deployment that sets nothing
-behaves exactly as it did before the setting existed. Two new settings groups
-exist and both default to absent: the five `STRIPE_*` settings with
-`SB_BILLING_ENABLED`, and the `ADSENSE_*` settings. `docs/monetization.md` has
-the table of what each combination turns on. Two names join the seven that
+behaves exactly as it did before the setting existed, and one address or CIDR
+renders exactly the configuration it did before a list was accepted.
+`SB_REAL_IP_RECURSIVE` defaults to off, the only behavior the image ever had,
+and the chart's `frontend.realIpRecursive` to false; the two compose recipes
+with a frontend pass it through from the same `.env` as
+`SB_TRUSTED_PROXY_CIDR`, off when it is not set. The frontend refuses to
+start on a trusted entry that is not an address, a CIDR or `unix:`, and on a
+recursion value other than on, off, true or false; no release before this one
+had either setting, so that narrows nothing that was accepted. The chart now
+takes `frontend.trustedProxyCidr` as a YAML list as well as a string, and
+`--set frontend.trustedProxyCidr=null` renders the off position where it
+rendered an empty value and a pod that never started. The one default that
+moves is the Pulumi programs': `simple-balance:trustedProxyCidr` left unset now
+means the list each program works out for the network it built, above, rather
+than the chart's `127.0.0.1`. Three new settings groups
+exist and all three default to absent. Two are the five `STRIPE_*` settings with
+`SB_BILLING_ENABLED` and the `ADSENSE_*` settings, and `docs/monetization.md` has
+the table of what each combination turns on. The third is `PRIVACY_POLICY_URL`
+with `TERMS_OF_USE_URL`, the addresses of your own privacy policy and terms of
+use: each is linked from the sign-in screen and every page once it is set, and
+refused at startup unless it is absolute and https. Two names join the seven that
 already take a `_FILE` form, `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`,
 taking that list to nine.
 
@@ -224,7 +382,7 @@ and no word about it — and passes the new `PRIVACY_POLICY_URL`, without which 
 deployment that turns AdSense on refuses to start. An older copy drops both in
 silence.
 
-**The split deployment has four new frontend settings.** nginx serves the
+**The split deployment has five new frontend settings.** nginx serves the
 application shell in that shape, so it — not the API — decides the headers each
 page arrives with. Two of them are the ones easiest to miss, because no
 `.env.example` carries them: `SB_BILLING_CONFIGURED` and `SB_ADS_CONFIGURED`
@@ -237,9 +395,41 @@ settings you are already providing, and so does the Helm chart:
 `SB_ADS_CONFIGURED` the same way from `ADSENSE_CLIENT_ID` and
 `frontend.adsConfigured`. Set a switch by hand only where its key lives in an
 `existingSecret`, which the render never sees. Only a hand-assembled deployment
-has to set both itself. The other two are `SB_TRUSTED_PROXY_CIDR`, above, and
-`SB_CSP_REPORT_ONLY`, the plan tab's rehearsal, which the frontend needs as well
-as the server. `docs/deployment.md` lists all seven frontend settings.
+has to set both itself. The other three are `SB_TRUSTED_PROXY_CIDR` and
+`SB_REAL_IP_RECURSIVE`, above, and `SB_CSP_REPORT_ONLY`, the plan tab's
+rehearsal, which the frontend needs as well as the server. `docs/deployment.md`
+lists every frontend setting.
+
+**Building the frontend image yourself now needs BuildKit**, for the
+`COPY --chmod` that makes the script checking the trusted-proxy settings
+executable. It is Docker's builder by default since 23.0 and what `buildx` and
+Compose use, and the published images are built with it, so only a build forced
+onto the legacy builder notices: it stops with `the --chmod option requires
+BuildKit`.
+
+**The auth library's log lines look different, and carry no address.** Better
+Auth's lines arrived as `<timestamp> INFO [Better Auth]: <message>`, written by
+the library itself; they now come through this product's logger as
+`[Better Auth] <message>`, at whatever `LOG_LEVEL` allows, with every email
+address in them replaced by `[email address]`. At `info` the library used to log
+the address of every sign-up that named an account already here. A log alert or
+filter that matches the old prefix is the one thing that notices.
+
+An unexpected failure inside an auth route changes with it. It was written to
+the console as `# SERVER_ERROR:` and the whole error, and answered with an empty
+500; it is now logged as `Request failed:` and the statement that failed,
+without its values, and answered with the `INTERNAL_ERROR` body every other
+route sends. An alert on `# SERVER_ERROR` stops matching, and the status is 500
+either way.
+
+**The refusal a TLS database meets at startup says something else.** When
+node-postgres cannot verify the server's certificate, the process still refuses
+to start, and the message now leads with naming the CA's certificate —
+`?sslmode=verify-full&sslrootcert=/path/to/ca.pem` — and offers
+`sslmode=no-verify` only where there is no certificate to name. For an expired
+certificate it says a renewal is what fixes it, and for a name the certificate
+does not carry that the CA is not what failed. A log alert that matches the old
+wording word for word is the one thing that notices.
 
 **If you do turn advertising on**, know what the policy costs before you do.
 AdSense publishes no list of the hosts it loads from, so every page but the plan
@@ -264,6 +454,47 @@ first: setting up the Stripe account in order, going live from test mode,
 granting a plan by hand, what a refund does and does not change, what
 `SB_BILLING_ENABLED=false` stops and what it deliberately does not, and the
 order to shut billing down in.
+
+**Two things about the key itself, because Stripe will not always tell you.**
+§Setting up Stripe step 2 builds a restricted key, `rk_…`, and its table of
+permissions now includes **PaymentIntents: Write**. That one is not optional
+and was not in an earlier draft of the table: paying a failed renewal from the
+plan tab marks the invoice's PaymentIntent so the card that pays it becomes the
+card the subscription bills, and without the grant the next renewal goes back
+to the card that had already failed. And **a key is tagged for an agent when
+you create it**, by answering Stripe's question about the key's intended use
+with *Authorizing agent access to your account*, so a replacement key made the
+same way is tagged the same way. The tag brings Stripe's default approval
+rules, which cover exactly two actions — a refund created and a subscription
+canceled — of which this deployment makes only the second, in one place:
+abandoning an unpaid first payment when somebody asks for the other interval.
+That press fails with `approval_required` rather than happening. Create the key
+without that intended use, or keep it and delete the "Subscription is canceled"
+rule under **Settings → Approvals → Rules**; step 2 has both. Both are also
+visible after the fact, which is what answers *is the replacement key tagged
+too*: a tagged key carries an **Agent** badge in the API keys list
+(`docs.stripe.com/mcp`), and the rules are listed on that Approvals page, where
+any of them can be deactivated or deleted at any time
+(`docs.stripe.com/account/approvals`). A key belongs to one mode, so the
+intended use is answered again when you make the live one; whether the rules
+are per-mode Stripe does not say, so look at that page in live mode rather than
+assume it either way. Stripe also sometimes answers a missing permission with
+nothing more useful than "An unknown error occurred", which is why the process
+now checks at startup and names any refusal as it happens;
+§What to check afterwards has the lines.
+
+**What this deployment asks Stripe for, in payment methods.** Changing a
+payment method narrows the account's own list to a card — which is how Apple
+Pay and Google Pay arrive — and Link, and it narrows rather than demands, so a
+Stripe account with Link turned off offers a card and nothing is refused. Link
+is off until it is turned on under **Wallets**, and is not offered at all in
+India. Starting a subscription names no methods, so its invoices offer whatever
+the Stripe account allows for invoices, narrowed to the currency. That is the
+one list this deployment does not control, so keep it to cards and Link:
+anything else an operator enables for invoices — a bank debit, a
+buy-now-pay-later — can reach the first payment and **Pay now** untried, and a
+saved method the subscription cannot be billed with is refused with a sentence
+rather than charged. `docs/billing-operations.md` step 6 has it.
 
 **Know what it does to anybody who already has more than three accounts,
 because it happens the moment the process starts.** `SB_BILLING_ENABLED=true`
@@ -295,18 +526,47 @@ thousand ledgers and thirty million transactions inside the stated times.
 variables, the process refuses to start on a half-configured pair and names the
 missing half, so a clean start is itself the check.
 
-If you turned billing on, four more. **Read the log for the prices first.** Both
+On the split containers, this release's frontend says what it trusts in the
+first lines of its log — `18-sb-real-ip.envsh: believing X-Forwarded-For from
+10.0.0.0/16, real_ip_recursive off`, say — and stops before nginx starts, naming
+the entry, when a trusted address is one it cannot read. After the `aws`
+program's `pulumi up`, the load balancer's target groups show every
+ingress-nginx pod healthy on port 80; a target unhealthy there after a few
+minutes is an end of the hop that did not get the change.
+
+If you turned billing on, five more. **Read the log for the prices first.** Both
 price ids are checked against Stripe when the API and the scheduler start, again
 at most every ten minutes when they are read, before every subscription is
 started, and on every reconciliation sweep — and the first check that succeeds
 says `Stripe is configured, and both prices fit the plans they are sold as.` A
 price that does not fit is an error line saying what is wrong with it, and until
 it is fixed nothing is for sale: the plan tab offers no plan, and starting a
-subscription answers `409` and charges nobody. Replacing a card, canceling,
-paying a renewal's open invoice and letting go of a switch still waiting for the
-renewal keep working, because none of them sells anything.
+subscription answers `409` and charges nobody. Changing the payment method,
+canceling, paying a renewal's open invoice and letting go of a switch still
+waiting for the renewal keep working, because none of them sells anything.
 `docs/billing-operations.md` §Setting up Stripe says what the two prices have to
 be.
+
+**Then read the log for the key.** A restricted key is asked at startup, once,
+whether it can read the seven things this deployment reads — customers,
+subscriptions, subscription schedules, setup intents, invoices, payment intents
+and prices. It asks for one item of each, writes nothing, and never refuses to
+start. A key that can read them all says
+`STRIPE_SECRET_KEY can read everything this deployment uses at Stripe.` One
+that cannot gets a single error line naming every resource it was refused —
+`STRIPE_SECRET_KEY cannot read PaymentIntents, and this deployment uses each of
+them, so the plan tab will fail where it reaches one` — and the fix is step 2's
+table. A Stripe that did not answer gets a warning instead, naming what it
+could not ask about; that is a slow network rather than a bad key, and the
+process carries on. A standard secret key, `sk_…`, is asked nothing, because it
+can already read everything.
+
+The probe proves reads and cannot prove writes, so the other half is per call:
+any call Stripe refuses for a missing permission logs one error line naming the
+call, the code and the fix, and a call Stripe *holds* — `approval_required`,
+which means the key is agent-tagged and that rule is still in place — says so
+and says it has not happened. If either line appears, the key or a rule is
+wrong rather than the deployment; nothing retries it for you.
 
 `SB_CSP_REPORT_ONLY=true` is worth one pass before you rely on the plan tab: it
 makes that page report what its content security policy would have blocked
@@ -583,6 +843,11 @@ So rolling back an `ha` deployment means restoring a dump taken before the
 cluster into a single PostgreSQL and running 0.1.6 against that. **Take that dump
 before you distribute**, not after: once the keys are widened, every dump you
 take carries the widened schema.
+
+**The `aws` program's proxy protocol is outside the schema.** A `pulumi up` from
+the previous checkout turns it off at both ends again, and the frontend's trust
+back to the chart's `127.0.0.1`, with the same seconds-to-a-minute interruption
+the upgrade had, and the shared sign-in allowance returns with it.
 
 **Stripe is outside all of this.** A subscription that exists at Stripe goes on
 existing after a rollback, and 0.1.6 has no code that knows about it — nobody is

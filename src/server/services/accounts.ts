@@ -7,6 +7,7 @@ import {
   activeAccountChange,
   activeAccountsSchema,
   type Actor,
+  type Entitlement,
   type FreezableAccount,
   frozenAccountIds,
   frozenAccountRefusal,
@@ -727,11 +728,34 @@ async function assertAccountAllowance(tx: DbTransaction, actor: Actor) {
  * this reads them; with it, a ten-thousand-row import pays nothing per row.
  */
 export type AccountFreeze = {
-  readonly frozen: ReadonlySet<string>;
+  /**
+   * Each frozen account's id, mapped to its name.
+   *
+   * A map rather than a set because the refusal names the account, and one
+   * structure rather than a set beside a lookup because two could disagree
+   * about which ids are in it. Membership is still the question every caller
+   * asks, and `has` answers it the same way it did.
+   */
+  readonly frozen: ReadonlyMap<string, string>;
   readonly limit: number | null;
 };
 
-const NOTHING_FROZEN: AccountFreeze = { frozen: new Set(), limit: null };
+const NOTHING_FROZEN: AccountFreeze = { frozen: new Map(), limit: null };
+
+/**
+ * The frozen ids with the names the refusal quotes, from rows already read.
+ *
+ * `frozenAccountIds` answers in ids because that is all the browser needs and
+ * all the rule depends on; the name is beside it in the row either way, so
+ * carrying it here costs nothing and saves the refusal a second read.
+ */
+function frozenWithNames(
+  entitlement: Entitlement,
+  rows: readonly (typeof ledgerAccounts.$inferSelect)[],
+): ReadonlyMap<string, string> {
+  const frozen = frozenAccountIds(entitlement, rows);
+  return new Map(rows.filter((row) => frozen.has(row.id)).map((row) => [row.id, row.name]));
+}
 
 /**
  * The same answer for a read that holds no transaction.
@@ -748,7 +772,7 @@ export async function readAccountFreeze(actor: Actor): Promise<AccountFreeze> {
     .select()
     .from(ledgerAccounts)
     .where(and(eq(ledgerAccounts.userId, actor.userId), isNull(ledgerAccounts.systemKind)));
-  return { frozen: frozenAccountIds(entitlement, rows), limit: entitlement.accountLimit };
+  return { frozen: frozenWithNames(entitlement, rows), limit: entitlement.accountLimit };
 }
 
 export async function accountFreeze(
@@ -764,7 +788,7 @@ export async function accountFreeze(
         .select()
         .from(ledgerAccounts)
         .where(and(eq(ledgerAccounts.userId, actor.userId), isNull(ledgerAccounts.systemKind)));
-  return { frozen: frozenAccountIds(entitlement, rows), limit: entitlement.accountLimit };
+  return { frozen: frozenWithNames(entitlement, rows), limit: entitlement.accountLimit };
 }
 
 /**
@@ -792,11 +816,17 @@ export async function countActiveAccounts(tx: DbTransaction, actor: Actor): Prom
  * an issue on the staged row, so a frozen account makes an import row
  * repairable instead of killing the batch it arrived in. It is also what
  * archiving already throws, and a frozen account is the same kind of no.
+ *
+ * The refusal names the account. "This account is frozen" was unanswerable
+ * where the caller had named two — a transfer's two sides, or a bulk edit's
+ * whole selection — and the browser had grown a prefix of its own to say what
+ * the server would not, which is the divergence `errors.md` 4 exists to stop.
  */
 export function assertAccountsWritable(freeze: AccountFreeze, ids: Iterable<string>) {
   if (freeze.limit === null) return;
   for (const id of ids) {
-    if (freeze.frozen.has(id)) throw validationError(frozenAccountRefusal(freeze.limit));
+    const name = freeze.frozen.get(id);
+    if (name !== undefined) throw validationError(frozenAccountRefusal(freeze.limit, name));
   }
 }
 

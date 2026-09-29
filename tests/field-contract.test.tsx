@@ -351,3 +351,118 @@ describe("a disabled button", () => {
     expect(computedDisabledButtons().length).toBeGreaterThan(15);
   });
 });
+
+/**
+ * The same rule where `Button` cannot reach it: a plain `<button>`.
+ *
+ * `RowMenu` holds bare buttons rather than `Button`s, because the popover lays
+ * its own items out and a `Button` inside one would bring a variant, its
+ * padding and a reason block the menu has nowhere to put. So the census above
+ * cannot see them, and the three accounts items that gray out on a frozen
+ * account were gray and silent for a release. 12.3 is about the control, not
+ * about which component rendered it.
+ *
+ * Two places a plain button goes gray, and both are in scope: inside a
+ * `<RowMenu>`, and behind a spread anywhere. `TransactionBrowser` builds one
+ * `rowBlock` per row and spreads it into Edit, Delete and Restore, which is the
+ * construct a text census cannot see through — and a spread is the only way an
+ * attribute reaches a tag without being written on it, so it is the one thing
+ * worth widening to. It is resolved rather than excused by name: the object the
+ * spread names is read out of the file and answers for the button only where it
+ * really sets the key. Naming the file would have excused whatever it adds
+ * next, and the pairing is what makes the spread trustworthy in the first
+ * place — `disabled` and `aria-describedby` are set in one literal, so they
+ * cannot come apart the way two attributes typed separately can.
+ */
+describe("a disabled button that is not a `Button`", () => {
+  type PlainButton = { where: string; tag: string; source: string };
+
+  /**
+   * Every `<button>` a row menu holds, and every one fed by a spread.
+   *
+   * Brace depth to find where the tag itself ends, for the reason the census
+   * above gives: `onClick={() => …}` carries a `>` a regex would stop at.
+   */
+  const plainButtons = (): PlainButton[] => {
+    const found: PlainButton[] = [];
+    for (const path of globSync("src/client/**/*.tsx")) {
+      const source = readFileSync(path, "utf8");
+      // Row menus do not nest, so each one runs to the next closing tag.
+      const menus = [...source.matchAll(/<RowMenu\b/g)].map((match) => {
+        const close = source.indexOf("</RowMenu>", match.index);
+        return { open: match.index, close: close === -1 ? source.length : close };
+      });
+      for (let at = source.indexOf("<button"); at !== -1; at = source.indexOf("<button", at + 1)) {
+        let depth = 0;
+        let close = -1;
+        for (let scan = at; scan < source.length; scan += 1) {
+          const character = source[scan];
+          if (character === "{") depth += 1;
+          else if (character === "}") depth -= 1;
+          else if (character === ">" && depth === 0) {
+            close = scan;
+            break;
+          }
+        }
+        if (close === -1) continue;
+        const tag = source.slice(at, close + 1);
+        const inMenu = menus.some((menu) => at > menu.open && at < menu.close);
+        if (!inMenu && !tag.includes("{...")) continue;
+        found.push({ where: `${path}:${source.slice(0, at).split("\n").length}`, tag, source });
+      }
+    }
+    return found;
+  };
+
+  /**
+   * Whether the object a `{...name}` spread names sets `key`.
+   *
+   * Read brace-balanced from its `const`, so an object nested inside it cannot
+   * end the search early and let the rest of the literal go unread.
+   */
+  const spreadSets = (source: string, tag: string, key: string) =>
+    [...tag.matchAll(/\{\.\.\.([A-Za-z_$][\w$]*)\}/g)].some(([, name]) => {
+      const declared = source.indexOf(`const ${name} = {`);
+      if (declared === -1) return false;
+      let depth = 0;
+      for (let scan = source.indexOf("{", declared); scan < source.length; scan += 1) {
+        if (source[scan] === "{") depth += 1;
+        else if (source[scan] === "}") {
+          depth -= 1;
+          if (depth === 0) {
+            return new RegExp(`[\\s{,]"?${key}"?\\s*:`).test(source.slice(declared, scan + 1));
+          }
+        }
+      }
+      return false;
+    });
+
+  /**
+   * Whether this button ends up carrying `key`, in all three spellings: the
+   * attribute on the tag, a key in an object spread inline on it, and a key in
+   * the object a named spread points at.
+   */
+  const carries = (button: PlainButton, key: string) =>
+    new RegExp(`\\s${key}=[{"]`).test(button.tag) ||
+    new RegExp(`[\\s{,]"?${key}"?\\s*:`).test(button.tag) ||
+    spreadSets(button.source, button.tag, key);
+
+  const goesGray = (button: PlainButton) => carries(button, "disabled");
+
+  it("points at the reason it is gray", () => {
+    const silent = plainButtons().filter(
+      (button) => goesGray(button) && !carries(button, "aria-describedby"),
+    );
+    expect(
+      silent.map((button) => button.where),
+      "a disabled button says why, whatever element it is",
+    ).toEqual([]);
+    // Four of the buttons in scope are disabled on the tag itself and three
+    // more only through `rowBlock`, so a floor above four is the spread
+    // resolver's own proof: break it and this counts 4 where it should count 7.
+    expect(
+      plainButtons().filter(goesGray).length,
+      "the census is really finding them, spreads included",
+    ).toBeGreaterThan(4);
+  });
+});

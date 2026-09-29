@@ -162,6 +162,17 @@ export type AppConfig = {
    * bundle keeps a `default-src 'self'` content security policy.
    */
   ads?: AdSettings;
+  /**
+   * Where this deployment's own privacy policy and terms of use live.
+   *
+   * Either, both or neither, and each is published the moment it is set: on
+   * the sign-in and sign-up screens, in the sidebar of every page, and — for
+   * the terms — beside the renewal terms on the plan tab. The privacy policy is
+   * the one of the two that can also be required, which `parseAdSettings`
+   * decides, because it is Google's terms that require it and not this
+   * product's.
+   */
+  legal: LegalDocuments;
   port: number;
   logLevel: LogLevel;
   trustProxy: boolean;
@@ -327,6 +338,7 @@ export function getConfig(): AppConfig {
     ADSENSE_FOOTER_SLOT_ID: process.env.ADSENSE_FOOTER_SLOT_ID,
     ADSENSE_CONSENT_MANAGED: process.env.ADSENSE_CONSENT_MANAGED,
     PRIVACY_POLICY_URL: process.env.PRIVACY_POLICY_URL,
+    TERMS_OF_USE_URL: process.env.TERMS_OF_USE_URL,
   };
   if (isProduction) {
     productionSchema.parse(values);
@@ -338,6 +350,7 @@ export function getConfig(): AppConfig {
   }
   const mail = parseMailSettings(values);
   const billing = parseBillingSettings(values, isProduction);
+  const legal = parseLegalDocuments(values);
   const ads = parseAdSettings(values);
   const registration = parseRegistrationRule(values.ALLOWED_EMAILS);
   if (googleAuthEnabled && registration.kind === "closed") {
@@ -362,6 +375,7 @@ export function getConfig(): AppConfig {
     mail,
     billing,
     ads,
+    legal,
     port,
     logLevel,
     trustProxy,
@@ -709,15 +723,6 @@ export function parseBillingSettings(
 export type AdSettings = {
   readonly clientId: string;
   readonly bannerSlotId: string;
-  /**
-   * Where this deployment's privacy policy lives. Required whenever ads are
-   * configured, because Google's program policies require one on any site
-   * serving their ads — see `parseAdSettings`.
-   *
-   * It sits on the ad settings rather than beside them, so that "ads are on"
-   * and "there is a policy to link to" cannot become two facts that disagree.
-   */
-  readonly privacyPolicyUrl: string;
   /** Off unless asked for: one banner is the whole placement by default. */
   readonly footerSlotId?: string;
   /**
@@ -809,12 +814,15 @@ export function parseAdSettings(env: {
    * ads simply not rendering.
    *
    * So it is refused at startup, in the same place and the same shape as the
-   * half-configured refusals above. This is the one setting in this product
-   * that exists because somebody else's terms demand it, which is why the
-   * message says whose terms they are.
+   * half-configured refusals above. The message says whose terms demand it,
+   * because that is the only reason a setting that is otherwise optional
+   * stops being so.
+   *
+   * Only the demand lives here. The address itself is read and published by
+   * `parseLegalDocuments`, ads or no ads, and checked by the one function both
+   * go through, so a policy this refuses is the policy that one refuses.
    */
-  const privacyPolicyUrl = env.PRIVACY_POLICY_URL?.trim();
-  if (!privacyPolicyUrl) {
+  if (!env.PRIVACY_POLICY_URL?.trim()) {
     throw new Error(
       "PRIVACY_POLICY_URL must be set when AdSense is configured. Google's " +
         "program policies require a privacy policy on any site serving their " +
@@ -822,17 +830,7 @@ export function parseAdSettings(env: {
         "this at yours.",
     );
   }
-  let parsedPrivacyUrl: URL;
-  try {
-    parsedPrivacyUrl = new URL(privacyPolicyUrl);
-  } catch {
-    throw new Error(`PRIVACY_POLICY_URL must be an absolute URL, not "${privacyPolicyUrl}".`);
-  }
-  if (parsedPrivacyUrl.protocol !== "https:") {
-    // A policy served over plain http is one a reader cannot trust arrived
-    // unmodified, on a page that is about what happens to their data.
-    throw new Error("PRIVACY_POLICY_URL must be https.");
-  }
+  documentUrl("PRIVACY_POLICY_URL", env.PRIVACY_POLICY_URL);
 
   const consentManaged = z
     .enum(["true", "false"], { error: () => "ADSENSE_CONSENT_MANAGED must be true or false" })
@@ -842,10 +840,68 @@ export function parseAdSettings(env: {
   return {
     clientId,
     bannerSlotId,
-    privacyPolicyUrl,
     ...(footerSlotId ? { footerSlotId } : {}),
     consentManaged,
   };
+}
+
+/**
+ * The documents a person is owed a link to before they hand this deployment
+ * anything: its privacy policy and its terms of use. Undefined is a document
+ * the operator has not published, and the link is then simply not drawn.
+ *
+ * Neither lives on the ad settings. The privacy policy did while this release
+ * was being written, published only while AdSense was configured, and that tied
+ * the link California's online privacy law expects to be conspicuous wherever
+ * information is collected to whether the deployment also served an ad: one
+ * that sold a plan and showed no advertising collected names, email addresses
+ * and payments and linked its policy nowhere. Where a policy exists it is
+ * shown; whether one is *required* is a separate question, and
+ * `parseAdSettings` is where it is asked.
+ */
+export type LegalDocuments = {
+  readonly privacyPolicyUrl?: string;
+  readonly termsOfUseUrl?: string;
+};
+
+/** Reads both addresses, each optional, each held to the same rule. */
+export function parseLegalDocuments(env: {
+  PRIVACY_POLICY_URL?: string;
+  TERMS_OF_USE_URL?: string;
+}): LegalDocuments {
+  const privacyPolicyUrl = documentUrl("PRIVACY_POLICY_URL", env.PRIVACY_POLICY_URL);
+  const termsOfUseUrl = documentUrl("TERMS_OF_USE_URL", env.TERMS_OF_USE_URL);
+  return {
+    ...(privacyPolicyUrl ? { privacyPolicyUrl } : {}),
+    ...(termsOfUseUrl ? { termsOfUseUrl } : {}),
+  };
+}
+
+/**
+ * An address a link will be drawn to, or undefined where none is set.
+ *
+ * Absolute, because this application serves no such document of its own: a
+ * relative address resolves against this deployment's origin and opens the app
+ * rather than a policy. And https, because a document about what happens to
+ * somebody's data, or about what they agree to by paying, is one a reader
+ * cannot trust arrived unmodified over plain http.
+ *
+ * Blank reads as unset rather than as a mistake, because every compose recipe
+ * passes `${NAME:-}` and an operator who set nothing sends an empty string.
+ */
+function documentUrl(name: string, value: string | undefined): string | undefined {
+  const address = value?.trim();
+  if (!address) return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(address);
+  } catch {
+    throw new Error(`${name} must be an absolute URL, not "${address}".`);
+  }
+  if (parsed.protocol !== "https:") {
+    throw new Error(`${name} must be https.`);
+  }
+  return address;
 }
 
 /**

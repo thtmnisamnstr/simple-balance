@@ -1,0 +1,43 @@
+# The database's CA certificate, for compose.yml, where DATABASE_URL names one
+# to check the database's certificate against:
+#
+#   ?sslmode=verify-full&sslrootcert=/var/lib/simple-balance/tls/db-ca.pem
+#
+#   sudo install -d -m 0755 /var/lib/simple-balance/tls
+#   sudo install -m 0644 ca.pem /var/lib/simple-balance/tls/db-ca.pem
+#   docker compose -f deploy/compose/single/compose.yml \
+#                  -f deploy/compose/single/compose.db-tls.yml up -d --wait
+#
+# node-postgres reads sslrootcert as a path and trusts that file and nothing
+# else, so the file has to be in the application's container. The same path on
+# both sides, because it is written once, in a URL two programs read: this
+# container, and the postgres client simple-balance-backup and -restore run,
+# which mount that same host path at that same place. Mounted anywhere else,
+# one string would mean two files, and the backup would be the one to find out.
+#
+# An overlay rather than a line in compose.yml, because a bind mount is
+# something the daemon has to be able to satisfy before the container can
+# start at all. A rootless daemon runs as its user and cannot make a directory
+# under /var/lib, so the same line in compose.yml stopped every such deployment
+# from starting — a URL that names no file included — for a reason that said
+# only that a directory could not be made. Here it is only the deployments that
+# asked for it. A certificate from a public CA needs no file and no overlay: the
+# application checks it against the roots Node carries. The cloud programs name
+# this file in COMPOSE_FILE, in /etc/default/simple-balance, because first boot
+# makes the directory on the data volume before anything starts.
+#
+# The directory rather than the file, read-only, and never made by Docker. A
+# missing source otherwise becomes a directory, empty and root's, which for a
+# file mount leaves a directory called db-ca.pem for the certificate to be
+# copied into. With create_host_path off, a missing directory is a refusal at
+# `up` that names it, rather than an application that starts, cannot open the
+# file, and exits.
+services:
+  app:
+    volumes:
+      - type: bind
+        source: /var/lib/simple-balance/tls
+        target: /var/lib/simple-balance/tls
+        read_only: true
+        bind:
+          create_host_path: false

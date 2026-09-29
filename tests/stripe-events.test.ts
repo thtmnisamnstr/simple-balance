@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { intervalOfPrice } from "../src/shared/domain.js";
 import { isNoteworthyEvent, subscriptionIdForEvent } from "../src/server/services/billing.js";
+import { snapshotOfSubscription } from "../src/server/stripe.js";
 
 const event = (type: string, object: unknown) => ({ type, data: { object } });
 
@@ -141,5 +142,73 @@ describe("reading an interval off a price id", () => {
     // rather than a guess. The plan tab shows the status without an interval.
     expect(intervalOfPrice("price_retired", prices)).toBeNull();
     expect(intervalOfPrice(null, prices)).toBeNull();
+  });
+});
+
+/**
+ * How a subscription Stripe sends is stored, for the one field that has two
+ * spellings. A dashboard's "cancel on a custom date" and `cancel_at:
+ * "min_period_end"` both end a subscription with `cancel_at_period_end` still
+ * false; read as that flag alone, the plan tab said "renews" and hid Keep my
+ * plan for a subscription that was ending.
+ */
+describe("reading a pending cancellation off a subscription", () => {
+  const seconds = (iso: string) => Math.floor(Date.parse(iso) / 1000);
+  const subscription = (over: Record<string, unknown>, periodEnd = "2026-10-25T04:47:46.000Z") =>
+    ({
+      id: "sub_1",
+      status: "active",
+      customer: "cus_1",
+      created: seconds("2026-09-25T04:47:46.000Z"),
+      cancel_at_period_end: false,
+      cancel_at: null,
+      latest_invoice: "in_1",
+      schedule: null,
+      items: {
+        data: [{ price: { id: "price_monthly" }, current_period_end: seconds(periodEnd) }],
+      },
+      ...over,
+    }) as unknown as Parameters<typeof snapshotOfSubscription>[0];
+  const at = new Date("2026-09-26T00:00:00.000Z");
+
+  it("reads a cancellation dated inside the current period as pending, as Stripe does", () => {
+    // Stripe moves the period's end onto the custom date, which is why the tab's
+    // "ending" date needs nothing more than the flag.
+    const custom = seconds("2026-10-05T04:47:46.000Z");
+    expect(
+      snapshotOfSubscription(subscription({ cancel_at: custom }, "2026-10-05T04:47:46.000Z"), at),
+    ).toMatchObject({
+      cancelAtPeriodEnd: true,
+      currentPeriodEnd: new Date("2026-10-05T04:47:46.000Z"),
+    });
+    const periodEnd = seconds("2026-10-25T04:47:46.000Z");
+    expect(
+      snapshotOfSubscription(subscription({ cancel_at: periodEnd }), at).cancelAtPeriodEnd,
+    ).toBe(true);
+  });
+
+  it("leaves a period that really does renew as renewing", () => {
+    const nextYear = seconds("2027-06-01T00:00:00.000Z");
+    expect(
+      snapshotOfSubscription(subscription({ cancel_at: nextYear }), at).cancelAtPeriodEnd,
+    ).toBe(false);
+    expect(snapshotOfSubscription(subscription({}), at).cancelAtPeriodEnd).toBe(false);
+    expect(
+      snapshotOfSubscription(subscription({ cancel_at_period_end: true }), at).cancelAtPeriodEnd,
+    ).toBe(true);
+  });
+
+  it("carries the owed invoice and when Stripe made the subscription, in either shape", () => {
+    expect(snapshotOfSubscription(subscription({}), at)).toMatchObject({
+      latestInvoiceId: "in_1",
+      createdAt: new Date("2026-09-25T04:47:46.000Z"),
+    });
+    expect(
+      snapshotOfSubscription(subscription({ latest_invoice: { id: "in_expanded" } }), at)
+        .latestInvoiceId,
+    ).toBe("in_expanded");
+    expect(
+      snapshotOfSubscription(subscription({ latest_invoice: null }), at).latestInvoiceId,
+    ).toBeNull();
   });
 });

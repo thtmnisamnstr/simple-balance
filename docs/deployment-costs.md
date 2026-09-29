@@ -92,8 +92,12 @@ pulumi -C oci-single up
 ```
 
 Settle it before the first `up` that succeeds and leave it there, because the
-data volume lives in the domain, and changing it afterward replaces the volume
-along with the secret, `env.local` and the backups on it.
+data volume lives in the domain, and changing it afterward would replace the
+volume along with the secret, `env.local` and the backups on it. While
+`simple-balance:protectDataVolume` is on, as it is by default, the program
+refuses that `up` before it touches the machine or the volume. Until a launch
+succeeds the domain is free to change, because the volume is built only after
+the machine. For Always Free, `oci:region` has to name that same home region.
 
 That helps only in a home region with more than one domain. Many have exactly
 one, and the program then refuses any other value, naming the one there is.

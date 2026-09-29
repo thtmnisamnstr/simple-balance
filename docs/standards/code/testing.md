@@ -5,10 +5,10 @@ keeping.
 
 | Tier | Files | Runs with | Needs |
 | --- | --- | --- | --- |
-| Unit (node) | 112 | `npm test` | nothing |
-| Unit (jsdom) | 47 | `npm test` | nothing |
+| Unit (node) | 119 | `npm test` | nothing |
+| Unit (jsdom) | 50 | `npm test` | nothing |
 | Integration | 68 | `npm test` **or** `npm run test:integration` | PostgreSQL |
-| Browser | 1 | `npm run test:browser` | PostgreSQL, Chromium |
+| Browser | 2 | `npm run test:browser` | PostgreSQL, Chromium |
 
 **`npm test` collects the integration tier too**, which surprises people and is
 worth stating plainly. `vitest.config.ts` excludes only `tests/browser`, so
@@ -18,14 +18,14 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 160 pass, 67 skip | **1,726 pass, 766 skip** |
-| `npm test`, database set | 227 pass | **2,492 pass** |
-| `npm run test:integration` | 68 pass | 767 pass |
+| `npm test`, no database | 170 pass, 67 skip | **2,004 pass, 794 skip** |
+| `npm test`, database set | 237 pass | **2,798 pass** |
+| `npm run test:integration` | 68 pass | 795 pass |
 
-The integration tier reports 767 tests on its own and 766 skips inside a
+The integration tier reports 795 tests on its own and 794 skips inside a
 database-less `npm test`, and the one-test difference is not an error: one case
 in that tier needs no database and so runs either way. It is counted among the
-1,726 rather than among the skips, which is why the two rows add up to 2,492
+2,004 rather than among the skips, which is why the two rows add up to 2,798
 both times.
 
 The third row is one test larger than the first row's skip count, and the odd
@@ -33,7 +33,7 @@ one out is worth knowing: `bulk-transactions-mcp.integration.test.ts` has one
 `describe` outside the database guard, because discovering which tools a scope
 exposes needs no ledger. It runs on every `npm test`, database or not.
 
-The first row is what CI and `npm run verify` see, and 1,726 is the number that
+The first row is what CI and `npm run verify` see, and 1,994 is the number that
 actually gates a change by default. The second is what a developer with a local
 PostgreSQL sees, and it is strictly better. Reporting the second as though it
 were the first overstates what the gate covers, which is a mistake worth naming
@@ -82,10 +82,15 @@ two assumptions with nothing watching.
 ### 1.2 The browser tier is small on purpose
 
 **House.** Twenty-three tests, one file, one worker, against a real API and a real
-PostgreSQL. It is slow and it is the only tier that proves the whole stack
-works, so it covers a path per capability rather than a case per branch.
-`tests/testing-guide-counts.test.ts` holds this number to the file, because it
-sat at eleven while the file grew to eighteen and nothing noticed.
+PostgreSQL — that file is `budgets.spec.ts`. `plan-buttons.spec.ts` is the
+second, one test, and it is here rather than in jsdom for the reason 1.1 gives:
+what it measures is an offset between two buttons, which needs a layout engine.
+The tier is slow and it is the only one that proves the whole stack works, so
+it covers a path per capability rather than a case per branch.
+`tests/testing-guide-counts.test.ts` holds the first of those numbers to the
+file it counts, because it sat at eleven while the file grew to eighteen and
+nothing noticed; the second file's own count is held by nothing finer than the
+tier table above.
 
 Everything it asserts that a cheaper tier could assert is a test in the wrong
 place.
@@ -107,10 +112,10 @@ one. A browser spec that only passes once is a spec that will be declared flaky
 and deleted.
 
 *Checked by:* `tests/testing-guide-counts.test.ts` for the size, which counts
-`tests/browser` on disk against the tier table at the top of this page: a second
-spec file cannot appear without somebody editing the sentence that says why
-there is one. What the eighteen tests choose to assert is nobody's check but a
-reviewer's.
+`tests/browser` on disk against the tier table at the top of this page: a spec
+file cannot appear without somebody editing the sentences that say how many
+there are, which is how the second one came to be named above. What the
+twenty-three tests choose to assert is nobody's check but a reviewer's.
 
 ## 2. What makes a test worth keeping
 
@@ -269,6 +274,17 @@ It is not wired into `npm run verify` — it is slow and it is a review techniqu
 rather than a gate. Use it when a piece of code matters and the tests feel
 generous to themselves. Both defects that survived two review rounds were found
 this way.
+
+The plan tab and the Stripe seam were done this way throughout, which is the
+largest use of it here: every behavior change broken on purpose, the named test
+watched to fail, the file restored, the test watched to pass. It paid for
+itself the way this section predicts — five tests were green and proving
+nothing, among them one that accepted any wording where the wording was the
+point, and one that never rendered under `StrictMode`, where a guard against
+the double invoke was the whole of what it claimed to hold. Each was
+strengthened before the mutation was thrown away, which is the
+half worth insisting on: a survivor is a finding about the test, and deleting
+the mutation without fixing the test converts it back into nothing.
 
 ### 3.2 Property testing
 

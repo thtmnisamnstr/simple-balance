@@ -204,8 +204,10 @@ integration("a frozen account", () => {
         },
         nextKey(),
       );
-    await expect(transfer(ids.First!, ids.Fourth!)).rejects.toThrow(/frozen/i);
-    await expect(transfer(ids.Fourth!, ids.First!)).rejects.toThrow(/frozen/i);
+    // Named, and named the same way whichever side it is on: "this account"
+    // was unanswerable about a request that had given two.
+    await expect(transfer(ids.First!, ids.Fourth!)).rejects.toThrow(/"Fourth" is frozen/);
+    await expect(transfer(ids.Fourth!, ids.First!)).rejects.toThrow(/"Fourth" is frozen/);
   });
 
   it("refuses every change to the account itself", async () => {
@@ -224,8 +226,10 @@ integration("a frozen account", () => {
     await paidUntil(new Date("2099-01-01"));
     const entry = await spend(ids.Fourth!, "25");
     await paidUntil(null);
+    // And the refusal names the account the request did not, which is the
+    // whole reason the name travels with the freeze.
     await expect(setTransactionDeleted(actor, entry.id, entry.version, true)).rejects.toThrow(
-      /frozen/i,
+      /"Fourth" is frozen/,
     );
   });
 

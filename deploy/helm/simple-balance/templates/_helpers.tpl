@@ -119,6 +119,21 @@ refuses and 0.1.6 rendered.
 {{- end }}
 
 {{/*
+frontend.trustedProxyCidr as the one string SB_TRUSTED_PROXY_CIDR carries. A
+YAML list is joined with commas, which the image splits on; a string passes
+through as written, so a values file that set one CIDR renders exactly the
+value it always did. The deployment and NOTES.txt both read it from here, so
+the warning about the off position cannot disagree with what the pod receives.
+A key removed with null is the off position, where it used to render nothing
+and a pod that would not start; the schema refuses an empty string or list
+before this is reached, so `default` changes nothing else.
+*/}}
+{{- define "simple-balance.trustedProxies" -}}
+{{- $trusted := .Values.frontend.trustedProxyCidr | default "127.0.0.1" -}}
+{{- if kindIs "slice" $trusted }}{{ join ", " $trusted }}{{ else }}{{ trim (toString $trusted) }}{{ end -}}
+{{- end }}
+
+{{/*
 The Secret holding the credentials, whichever way it got there. Refusing both at
 once is the point: an operator who names an existing Secret and leaves create on
 would otherwise get a chart-built Secret alongside it and no sign of which one
@@ -246,6 +261,21 @@ never sees.
 {{- $csvBodyBytes := add (mul (int64 $c.csvMaxBytes) 6) 65536 }}
 {{- if lt (int64 $uploadBytes) $csvBodyBytes }}
 {{- fail (printf "frontend.maxUploadSize (%s) is below what config.csvMaxBytes needs: a CSV travels as a JSON string, so the API accepts up to %d bytes on the import routes and nginx must too. Raise frontend.maxUploadSize to at least that." $upload (int64 $csvBodyBytes)) }}
+{{- end }}
+{{/*
+The one combination of the frontend's trust settings the image refuses that
+the schema cannot see, because it spans two values: a range holding every
+address with recursion on. nginx would then walk the whole header and take its
+leftmost entry, which is the one the caller wrote, and the pod would exit at
+startup saying so. Refused here instead, where it is a render error rather than
+a rollout that never becomes ready.
+*/}}
+{{- if .Values.frontend.realIpRecursive }}
+{{- range regexSplit "[\\s,]+" (include "simple-balance.trustedProxies" .) -1 }}
+{{- if hasSuffix "/0" . }}
+{{- fail (printf "frontend.trustedProxyCidr holds %s with frontend.realIpRecursive on, which believes whatever address a caller writes first in X-Forwarded-For. Name the proxies' own ranges, or turn recursion off." .) }}
+{{- end }}
+{{- end }}
 {{- end }}
 {{- if and .Values.database.enabled .Values.secret.databaseUrl }}
 {{- fail "database.enabled and secret.databaseUrl are both set. One runs a Citus cluster in this release and the other points at a database somebody else runs; pick the one you meant rather than letting the chart choose." }}

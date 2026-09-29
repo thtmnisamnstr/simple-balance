@@ -7,6 +7,8 @@ import {
   chooseAvailabilityDomain,
   dataVolumeGb,
   instanceMetadata,
+  requireDataVolumeDomain,
+  requireRegion,
   requireSshPublicKey,
 } from "./platform";
 
@@ -34,6 +36,12 @@ const settings = single.readSingleSettings();
 const size = settings.size;
 requireSshPublicKey(settings.sshPublicKey);
 
+// Read from the key the default provider is configured from, so the region
+// checked and exported is the one every resource below is built in. Checked
+// before anything is declared, because `pulumi up --skip-preview` creates
+// whatever was registered before a program throws.
+const ociRegion = requireRegion(new pulumi.Config("oci").get("region"));
+
 // OCI has no notion of a default compartment: every resource is created in one,
 // and the tenancy's root compartment is a poor choice because its policies
 // cannot be scoped. Required rather than defaulted for that reason.
@@ -42,6 +50,17 @@ const compartmentId = cfg.require("compartmentOcid");
 
 const name = `simple-balance-${pulumi.getStack()}`;
 const tags = { Project: "simple-balance", Profile: "single", PulumiStack: pulumi.getStack() };
+
+// The volume's name and the name the availability domain looks it up by, as
+// one value: renamed in one place only, the lookup would find nothing and the
+// refusal it exists for would quietly stop.
+const dataVolumeName = `${name}-data`;
+
+// What it protects and how to lift it is at the data volume. Read up here with
+// the other settings, because a value that is not a boolean throws, and thrown
+// below the network it would leave `--skip-preview` building the network first.
+// The availability domain reads it too.
+const protectDataVolume = cfg.getBoolean("protectDataVolume") ?? true;
 
 /**
  * One availability domain, chosen rather than spread across.
@@ -52,16 +71,29 @@ const tags = { Project: "simple-balance", Profile: "single", PulumiStack: pulumi
  *
  * The first, unless `simple-balance:availabilityDomain` names another, by name
  * or by number. Set it before the first successful `pulumi up` and leave it: the
- * data volume lives in the domain, so changing it afterward replaces the
- * volume, and the secret, env.local and the backups on it go with the old one.
+ * data volume lives in the domain, so changing it afterward would replace the
+ * volume, and the secret, env.local and the backups on it would go with the old
+ * one. While the volume is protected, below, that change is refused here, by
+ * `requireDataVolumeDomain` finding the volume in its old domain, and the
+ * machine and the volume are left as they are, with or without a preview.
+ * Until a launch succeeds it is free to change, which is the point of asking:
+ * the volume is built only after the machine, so a launch refused for capacity
+ * leaves nothing in the domain to replace, and nothing for the lookup to find.
  */
 const requestedDomain = cfg.get("availabilityDomain") ?? "";
-const availabilityDomain = oci.identity
-  .getAvailabilityDomainsOutput({ compartmentId })
-  .apply((result) =>
-    chooseAvailabilityDomain(
-      (result.availabilityDomains ?? []).map((domain) => domain.name),
-      requestedDomain,
+const availabilityDomain = pulumi
+  .all([
+    oci.identity.getAvailabilityDomainsOutput({ compartmentId }),
+    oci.core.getVolumesOutput({ compartmentId, displayName: dataVolumeName }),
+  ])
+  .apply(([domains, existing]) =>
+    requireDataVolumeDomain(
+      chooseAvailabilityDomain(
+        (domains.availabilityDomains ?? []).map((domain) => domain.name),
+        requestedDomain,
+      ),
+      existing.volumes ?? [],
+      protectDataVolume,
     ),
   );
 
@@ -253,25 +285,6 @@ const image = oci.core
     return images[0]!.id;
   });
 
-/**
- * The data disk, separate from the boot volume and outliving it.
- *
- * It holds the generated secret, env.local and the nightly dumps — not the
- * ledger, which is in the database DATABASE_URL names. Replacing the instance
- * destroys the boot volume and leaves this one, and the first-boot script
- * formats it only when it is not already a filesystem, so a rebuild keeps all
- * three. Never smaller than OCI's 50 GB floor, which the shared table's
- * `small` is under.
- */
-const dataGb = dataVolumeGb(size);
-const dataVolume = new oci.core.Volume(name, {
-  compartmentId,
-  availabilityDomain,
-  displayName: `${name}-data`,
-  sizeInGbs: String(dataGb),
-  freeformTags: tags,
-});
-
 const instance = new oci.core.Instance(
   name,
   {
@@ -333,6 +346,77 @@ const instance = new oci.core.Instance(
   },
 );
 
+/**
+ * The data disk, separate from the boot volume and outliving it.
+ *
+ * It holds the generated secret, env.local and the nightly dumps — not the
+ * ledger, which is in the database DATABASE_URL names. Replacing the instance
+ * destroys the boot volume and leaves this one, and the first-boot script
+ * formats it only when it is not already a filesystem, so a rebuild keeps all
+ * three. Never smaller than OCI's 50 GB floor, which the shared table's
+ * `small` is under.
+ */
+const dataGb = dataVolumeGb(size);
+
+/**
+ * Protected unless the stack says otherwise, because it is the one resource
+ * here that the next `pulumi up` cannot rebuild. A destroyed network or machine
+ * comes back from configuration; the secret, env.local and the dumps exist
+ * nowhere else unless somebody copied them.
+ *
+ * `protect` makes Pulumi refuse any deployment that would delete the volume:
+ * `pulumi destroy`, which fails at its preview and deletes nothing, and a
+ * replacement, which is what a new availabilityDomain asks for. Pulumi refuses
+ * that one only on reaching the volume, after the instance, which under
+ * `--skip-preview` is too late for the machine, so the program refuses it
+ * first, at the availability domain. A resize is an update rather than a
+ * delete and goes through. The console and the `oci` CLI are outside it.
+ *
+ * Built after the instance, which it has no other use for, so that it exists
+ * only once a machine has launched. `Out of host capacity` is how an Always
+ * Free launch usually fails, and the answer `docs/deployment-costs.md` gives is
+ * another availabilityDomain. Built alongside the network, the volume would
+ * already be there when the launch failed, empty and protected, and that retry
+ * would be refused for guarding nothing — on every domain tried, since each
+ * attempt leaves a new one. Built after, a failed launch leaves no volume
+ * anywhere, and the protection starts when there is first something on the
+ * disk to protect.
+ *
+ * The cost is at teardown. Pulumi keeps everything a protected resource was
+ * built after, so `pulumi destroy --exclude-protected` deletes only the
+ * attachment, and so does `--skip-preview` before it stops at the volume. The
+ * machine and the network stay, and the machine goes on running without its
+ * disk until the next `up` attaches it again and a reboot mounts it. Neither
+ * flag is a way to keep the volume and drop the rest.
+ *
+ * A switch in the stack rather than a constant, so tearing down on purpose is
+ * a decision recorded where the stack's others are rather than an edit to the
+ * program, which is what Pulumi's refusal suggests: set
+ * `simple-balance:protectDataVolume` to false and run `pulumi up`, which
+ * changes no resource and only the flag in Pulumi's state, then `pulumi
+ * destroy`. `pulumi state unprotect` clears the flag for one destroy instead,
+ * and the next `up` sets it again while the setting is true.
+ */
+const dataVolume = new oci.core.Volume(
+  name,
+  {
+    compartmentId,
+    availabilityDomain,
+    displayName: dataVolumeName,
+    sizeInGbs: String(dataGb),
+    freeformTags: tags,
+  },
+  {
+    protect: protectDataVolume,
+    // An ordering and nothing more. Taking it from a property of the instance
+    // instead, its availabilityDomain say, would make the volume a dependent
+    // replacement of the instance: every `pulumi up --replace` of the machine
+    // would then refuse while the volume is protected, and delete it while it
+    // is not.
+    dependsOn: [instance],
+  },
+);
+
 new oci.core.VolumeAttachment(
   name,
   {
@@ -349,9 +433,10 @@ new oci.core.VolumeAttachment(
     // replacement before removing the old one. OCI refuses to attach a volume
     // that is still attached elsewhere, so that order fails the update with
     // two machines and the volume on the old one. Removing first detaches it
-    // and then attaches it to the new one. That can take longer than the two
-    // minutes firstboot waits for the volume, and the README says what to do
-    // when it does.
+    // and then attaches it to the new one. firstboot waits for the device as
+    // long as this provider gives the attachment, and the volume's creation
+    // before it on a first launch, and the README says what to do when a move
+    // fails outright.
     deleteBeforeReplace: true,
   },
 );
@@ -388,9 +473,11 @@ const vnic = oci.core
 const publicIpAddress = vnic.apply((details) => details.publicIpAddress);
 const privateIpAddress = vnic.apply((details) => details.privateIpAddress);
 
+export const region = ociRegion;
 export const publicIp = publicIpAddress;
 export const privateIp = privateIpAddress;
 export const instanceId = instance.id;
+export const dataVolumeId = dataVolume.id;
 export const subnetId = subnet.id;
 export const databaseSubnetId = databaseSubnet?.id;
 export const url = `https://${settings.hostname}`;
@@ -419,9 +506,13 @@ export const nextSteps = pulumi.interpolate`
    The address is ephemeral: promote it to reserved in the OCI console if the record
    has to outlive this instance.
 ${reach}
-3. Give it a database. None was created: put the connection string in env.local,
+   Once in, wait for the first boot to finish:  sudo cloud-init status --wait
+3. Give it a database. None was created: install the certificate of the CA that
+   signed the database's, then put the connection string in env.local,
+     sudo install -m 0644 ca.pem /var/lib/simple-balance/tls/db-ca.pem
+         (the DB system's CA certificate: its Connection details, or oci psql connection-details get)
      sudo nano /var/lib/simple-balance/env.local
-         DATABASE_URL='postgresql://user:password@host:5432/simple_balance?sslmode=no-verify'
+         DATABASE_URL='postgresql://user:password@<FQDN>:5432/simple_balance?sslmode=verify-full&sslrootcert=/var/lib/simple-balance/tls/db-ca.pem'
    and, if that URL goes through a transaction pooler, DIRECT_DATABASE_URL beside it,
    the same database past the pooler, for the migrations and the first-account claim.
    Then run
@@ -430,9 +521,10 @@ ${reach}
    stopped, and /etc/motd says so. The README's "A database for Oracle Cloud" has the
    steps for one, and simple-balance:databaseSubnet the subnet.
 4. Find the setup code:   sudo docker compose -f /opt/simple-balance/compose.yml logs app | grep -i setup
-5. Optional settings — SMTP, Stripe, AdSense and the PRIVACY_POLICY_URL it requires —
-   go in /var/lib/simple-balance/env.local, which is on the data volume and survives
-   a rebuild. Once the deployment has started, a setting is an edit to it, then
+5. Optional settings — SMTP, Stripe, AdSense and the PRIVACY_POLICY_URL it requires,
+   TERMS_OF_USE_URL — go in /var/lib/simple-balance/env.local, which is on the data
+   volume and survives a rebuild. Once the deployment has started,
+   a setting is an edit to it, then
    sudo systemctl restart simple-balance.
 6. A later 'pulumi up' does not re-run the machine's setup. How to apply a change
    is at the top of what it ran:   sudo cloud-init query userdata | head -16

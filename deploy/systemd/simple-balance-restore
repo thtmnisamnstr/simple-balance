@@ -12,11 +12,12 @@
 set -eu
 
 # The machine's own settings, as every other script here reads them: the
-# client image, and the COMPOSE_FILE that names the Caddy overlay. Exported,
+# client image, and the COMPOSE_FILE that names the overlays. Exported,
 # because docker compose reads COMPOSE_FILE from the environment — without it
 # the restart at the end brings the application back from compose.yml alone,
-# without the overlay's TRUST_PROXY, and every visitor shares one sign-in
-# allowance until the next restart of the unit.
+# without the Caddy overlay's TRUST_PROXY, and every visitor shares one sign-in
+# allowance until the next restart of the unit. Without compose.db-tls.yml's
+# mount, an application whose DATABASE_URL names a CA file does not start.
 if [ -r /etc/default/simple-balance ]; then
 	set -a
 	# shellcheck disable=SC1091  # written by cloud-init, absent at lint time
@@ -61,15 +62,15 @@ fi
 
 # libpq's spelling of DATABASE_URL, for the postgres client. The application
 # reads the same string with node-postgres, and the two disagree about sslmode:
-# `no-verify`, which docs/deployment.md recommends for a server that signed its
-# own certificate, is node-postgres's word, and libpq refuses it outright with
-# `invalid sslmode value` — so a deployment configured exactly as recommended
-# could be neither dumped nor restored. libpq's `require` is the same
-# guarantee, encrypted and not verified, and the client image carries no root
-# certificate that would quietly turn it into verify-ca. `uselibpqcompat`,
-# which tells node-postgres to read `require` libpq's way, is an unknown URI
+# `no-verify`, node-postgres's word for encrypted and not verified, is not
+# libpq's, and libpq refuses it outright with `invalid sslmode value` — so a
+# deployment configured that way could be neither dumped nor restored. libpq's
+# `require` is the same guarantee, and nothing below mounts a root certificate
+# for it that would quietly turn it into verify-ca. `uselibpqcompat`, which
+# tells node-postgres to read `require` libpq's way, is an unknown URI
 # parameter to libpq and is refused the same way, so it is dropped. Every other
-# parameter passes through untouched.
+# parameter passes through untouched, `sslrootcert` included: libpq_root_cert
+# below is what makes the file it names readable to the client.
 #
 # The same function, spelled the same way, is in the other script of the pair;
 # tests/systemd-scripts.test.ts holds the two to each other and to its cases.
@@ -79,6 +80,91 @@ libpq_url() {
 		-e 's/\([?&]\)sslmode=no-verify&/\1sslmode=require\&/' \
 		-e 's/[?&]uselibpqcompat=[^&]*$//' \
 		-e 's/\([?&]\)uselibpqcompat=[^&]*&/\1/'
+}
+
+# The file of trusted certificates the client container has to be able to read
+# for libpq to check the database's, or nothing when it has no need of one.
+#
+# The client is a stock postgres image, and it trusts nothing: it has no CA
+# bundle at all, and `sslrootcert=system` there means OpenSSL's default path,
+# which in that image is a symlink to a file that is not installed. So a
+# verified connection has to bring its roots with it, and there are two
+# places they can come from.
+#
+# The file DATABASE_URL names in `sslrootcert`, mounted at that same path. That
+# is what makes one string mean one file to both readers: node-postgres reads
+# `sslrootcert` as a path and loads it as the only CA it trusts, libpq does the
+# same, and compose.db-tls.yml mounts /var/lib/simple-balance/tls into the
+# application at the path it has here.
+#
+# Otherwise this machine's own CA bundle, for a database whose certificate is
+# from a public authority: the application checks that against the roots Node
+# carries, and this is the nearest thing the client can have. SB_PG_CA_BUNDLE
+# names it where it is in none of the usual places. Under verify-full only.
+# verify-ca checks the chain and not the name, and a chain to some public CA
+# is what anybody can get for a host they control, so the bundle under
+# verify-ca would take any such server's certificate for the database's —
+# which is why libpq refuses verify-ca with sslrootcert=system, the same trust
+# by another name. The application reads verify-ca as verify-full and checks
+# the name, so there it would be the backup alone handing the password over.
+#
+# Only for verify-ca and verify-full, and never for the modes that worked
+# before them. `no-verify` reaches libpq as `require`, and libpq handed a root
+# file under `require` checks the chain with it — so mounting the file there
+# would refuse a server the application does not check, and a backup that ran
+# last night would stop. Under every other mode nothing is mounted and the URL
+# passes through as it always did: a `sslrootcert` libpq cannot find inside the
+# container is one it goes on without. Under a verify mode it would refuse
+# instead, with a message about a path in a container nobody can see, so this
+# refuses first and says which path, on this machine, it looked for.
+#
+# Printed on stdout, reasons on stderr, and the same in both scripts.
+libpq_root_cert() {
+	sb_mode=$(printf '%s\n' "$1" | sed -n 's/^[^?]*?\(.*&\)\{0,1\}sslmode=\([^&]*\).*$/\2/p')
+	case "$sb_mode" in
+	verify-ca | verify-full) ;;
+	*) return 0 ;;
+	esac
+	sb_root=$(printf '%s\n' "$1" | sed -n 's/^[^?]*?\(.*&\)\{0,1\}sslrootcert=\([^&]*\).*$/\2/p')
+	if [ -n "$sb_root" ]; then
+		# A comma would end --mount's source. A %XX is decoded by both readers,
+		# and a + into a space by node-postgres alone, so each names a file
+		# other than the one that would be mounted.
+		case "$sb_root" in
+		/*[%,+]*) sb_why="has a %, a + or a comma in it; write the path as it is on disk" ;;
+		/*)
+			if [ -f "$sb_root" ] && [ -r "$sb_root" ]; then
+				printf '%s\n' "$sb_root"
+				return 0
+			fi
+			sb_why="is not a file this machine has, or not one root can read"
+			;;
+		*) sb_why="is not an absolute path. The application reads sslrootcert as a file too, so \`system\` and a relative name fail there as well" ;;
+		esac
+		echo "${0##*/}: sslrootcert=$sb_root in DATABASE_URL $sb_why." >&2
+		echo "  Put the database's CA certificate in /var/lib/simple-balance/tls/db-ca.pem and name that." >&2
+		return 1
+	fi
+	if [ "$sb_mode" = verify-ca ]; then
+		echo "${0##*/}: sslmode=verify-ca in DATABASE_URL, with no sslrootcert, would take a certificate any public CA issued, for any name, as the database's." >&2
+		echo "  Use sslmode=verify-full, which is how the application reads it already, or put the database's CA certificate in /var/lib/simple-balance/tls/db-ca.pem and name that." >&2
+		return 1
+	fi
+	if [ -n "${SB_PG_CA_BUNDLE:-}" ]; then
+		set -- "$SB_PG_CA_BUNDLE"
+	else
+		set -- /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt \
+			/etc/ssl/ca-bundle.pem /etc/ssl/cert.pem
+	fi
+	for sb_bundle in "$@"; do
+		if [ -f "$sb_bundle" ] && [ -r "$sb_bundle" ]; then
+			printf '%s\n' "$sb_bundle"
+			return 0
+		fi
+	done
+	echo "${0##*/}: sslmode=$sb_mode in DATABASE_URL, with no sslrootcert, and no CA bundle on this machine at $*." >&2
+	echo "  Name the database's CA certificate with sslrootcert, or the bundle with SB_PG_CA_BUNDLE." >&2
+	return 1
 }
 
 if [ "$database_in_project" = no ]; then
@@ -91,20 +177,37 @@ if [ "$database_in_project" = no ]; then
 		exit 2
 	fi
 	pg_url=$(libpq_url "$DATABASE_URL")
+	# Before the archive is even read, because a certificate that cannot be
+	# found would otherwise be found by the first connection to the server. The
+	# maintenance URL below keeps the same query string, so the one file serves
+	# both connections.
+	pg_ca_file=$(libpq_root_cert "$pg_url") || exit 2
 	# The database this restores into, and the one to connect to while it does
 	# not exist. Dropping a database means not being connected to it. Both from
 	# libpq's spelling, so the maintenance connection carries the same sslmode.
+	#
+	# The database is the last path segment before the `?`, and only before it:
+	# `sslrootcert` puts slashes in the query string, and a match that reached
+	# past the `?` for the last slash renamed the certificate instead, leaving
+	# a maintenance URL whose root file was /var/lib/simple-balance/tls/postgres.
 	restore_db=$(printf '%s' "$pg_url" | sed 's/[?].*$//; s#.*/##')
-	maintenance_url=$(printf '%s' "$pg_url" | sed 's#\(.*\)/[^/?]*\(?.*\)\{0,1\}$#\1/postgres\2#')
+	maintenance_url=$(printf '%s' "$pg_url" | sed 's#^\([^?]*\)/[^/?]*#\1/postgres#')
 	if [ -z "$restore_db" ]; then
 		echo "simple-balance-restore: DATABASE_URL names no database." >&2
 		exit 2
 	fi
 fi
 
+# How a postgres client is run, the same function as simple-balance-backup's.
+# See that script for why each part of it is there.
 pg() {
 	if [ "$database_in_project" = yes ]; then
 		docker compose exec -T postgres "$@"
+	elif [ -n "${pg_ca_file:-}" ]; then
+		docker run --rm -i --network host -e PGCONNECT_TIMEOUT=15 \
+			--mount "type=bind,source=$pg_ca_file,target=$pg_ca_file,readonly" \
+			-e "PGSSLROOTCERT=$pg_ca_file" \
+			"$SB_PG_CLIENT_IMAGE" "$@"
 	else
 		docker run --rm -i --network host -e PGCONNECT_TIMEOUT=15 \
 			"$SB_PG_CLIENT_IMAGE" "$@"
@@ -142,6 +245,18 @@ if [ "$database_in_project" = no ]; then
 		echo "$server_num" >&2
 		exit 1
 	fi
+	# A number, or nothing happens. The capture above takes stderr too, so a
+	# warning printed beside the answer makes it text, and `[ text -lt 170000 ]`
+	# is an error that `if` reads as "not older" — which would send a 16 server
+	# down the direct path below, to be dropped and then refused the first
+	# statement.
+	case "$server_num" in
+	'' | *[!0-9]*)
+		echo "simple-balance-restore: the server's version did not come back as a number. Nothing was changed." >&2
+		echo "$server_num" >&2
+		exit 1
+		;;
+	esac
 	client_major=$(pg pg_restore --version | sed -n 's/.*PostgreSQL) \([0-9][0-9]*\).*/\1/p')
 	if [ "${client_major:-0}" -ge 17 ] && [ "$server_num" -lt 170000 ]; then
 		umask 077

@@ -74,7 +74,7 @@ compares every write against this origin, so the two have to be the same host.
 Fix config.appBaseUrl unless something else in front is doing the translating.
 {{- end }}
 
-{{- if and .Values.config.trustProxy .Values.ingress.enabled (eq .Values.frontend.trustedProxyCidr "127.0.0.1") }}
+{{- if and .Values.config.trustProxy .Values.ingress.enabled (eq (include "simple-balance.trustedProxies" .) "127.0.0.1") }}
 
 WARNING: every sign-in attempt in this cluster counts against one allowance.
 The frontend's nginx tells the API which address a request came from, and behind
@@ -88,7 +88,17 @@ Set frontend.trustedProxyCidr to the pod CIDR your ingress controller runs in:
 
 Name the controller's range and nothing wider. This decides whose word is taken
 for a visitor's address, so a range that includes callers lets a caller choose
-their own.
+their own. Behind a chain of proxies that each append to X-Forwarded-For, such
+as Google's load balancer where it is the ingress, list every hop's range and
+set frontend.realIpRecursive=true:
+
+  --set 'frontend.trustedProxyCidr={<range>,<range>}' --set frontend.realIpRecursive=true
+
+A cloud load balancer in front of ingress-nginx is not such a chain: ingress-nginx
+replaces the header with the address it saw unless use-forwarded-headers and
+compute-full-forwarded-for are both on, so the frontend sees one entry, the load
+balancer's. Fix that at the ingress, with proxy protocol as the aws Pulumi
+program does, and leave recursion off.
 {{- end }}
 
 Database connections. This release peaks at {{ $serverPeak }} API and {{ $schedulerPeak }} scheduler

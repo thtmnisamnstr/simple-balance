@@ -55,6 +55,44 @@ render time and says which.
    plus overhead. Set this lower and nginx refuses a file the API would have
    taken.
 
+## Where a request came from
+
+The API counts sign-in attempts per client address, and the address it sees is
+whatever the frontend's nginx puts in `X-Forwarded-For`. Behind an ingress that
+is the ingress, for every visitor, until nginx is told whose word to take:
+
+- **`frontend.trustedProxyCidr`** — the addresses nginx believes about where a
+  request came from. One address or CIDR, or several: a string separated by
+  commas or spaces, or a YAML list
+  (`--set 'frontend.trustedProxyCidr={10.0.0.0/16,10.1.0.0/16}'`). Every entry
+  is an IPv4 or IPv6 address, a CIDR, or `unix:`; the schema refuses anything
+  else, and the image refuses it again at startup, because nginx would resolve
+  a host name here and trust whatever it answered. Name the proxies' own
+  ranges and nothing wider. `127.0.0.1`, the default, is the off position and
+  trusts nobody, and `helm install` prints a warning while it is left there.
+- **`frontend.realIpRecursive`** — off by default. Leave it off behind an
+  ingress that replaces `X-Forwarded-For`, which ingress-nginx does unless
+  `use-forwarded-headers` and `compute-full-forwarded-for` are both on: the
+  last entry is the visitor. Turn it on
+  behind a chain whose every hop appends and is in the list — Google's load
+  balancer appends `<client-ip>,<load-balancer-ip>` — so nginx walks past the
+  trusted hops to the client's address, which the load balancer wrote, and never
+  reads anything the client wrote before it. A range holding every address is
+  refused with it on.
+
+The `aws` and `gcp` Pulumi programs set both for the network they build, unless
+the stack names its own `simple-balance:trustedProxyCidr`, and on each cloud
+that takes more than these two values. On AWS the program also turns proxy
+protocol on between the network load balancer and ingress-nginx, which would
+otherwise see the load balancer rather than the visitor; the frontend then
+trusts the VPC's range, where ingress-nginx's pods take their addresses, with
+recursion off. On GCP it trusts Google's two front-end ranges, `130.211.0.0/22`
+and `35.191.0.0/16`, and the Ingress's reserved address, with recursion on, and
+names container-native load balancing on the frontend Service, since through
+instance groups the pod would see a node's address instead. Only a frontend
+image of 0.2.0 or later reads either value; the 0.1.6 image ignores both and
+keeps the shared allowance.
+
 ## Claiming the first account
 
 Set `secret.setupToken` to choose the one-time code, or leave it empty and read
@@ -117,7 +155,9 @@ Both arrive through `config.extraEnv`, with their secrets in the Secret:
 `STRIPE_PRICE_*_ID` values in `config.extraEnv`, and `secret.stripeSecretKey`
 and `secret.stripeWebhookSecret`. The `ADSENSE_*` ids go in `config.extraEnv`
 too, with `PRIVACY_POLICY_URL` beside them, because the server refuses to start
-with AdSense configured and no policy to link to.
+with AdSense configured and no policy to link to. `PRIVACY_POLICY_URL` and
+`TERMS_OF_USE_URL` are optional otherwise and go there as well; either is linked
+from the sign-in screen and every page once it is set.
 
 nginx serves every page here, so it decides the content security policy each
 arrives with, and Stripe's payment form and AdSense each need a wider one than

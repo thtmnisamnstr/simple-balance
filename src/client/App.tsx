@@ -21,7 +21,7 @@ import {
   UserRound,
   X,
 } from "lucide-react";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import {
   addressCarriesLedgerText,
   isPlanSurfacePath,
@@ -98,6 +98,86 @@ export function samePagePath(path: string) {
   return /^\/[^/\\]/.test(path) ? path : "/";
 }
 
+/**
+ * The deployment's privacy policy and terms of use, as links, or nothing.
+ *
+ * One function for both places that draw them, the sign-in screen and the
+ * sidebar, so the words and their order cannot drift apart between the screen
+ * somebody signs up on and the pages they use afterward. The words are the
+ * documents' names in full: California's online privacy law asks for a link
+ * that says "privacy", and "Terms" alone is a word somebody has to guess at.
+ *
+ * A new tab, as the privacy link always opened, because both are read partway
+ * through something — a form half filled in, a ledger open — that following
+ * the link should not throw away.
+ */
+function LegalLinks({
+  documents,
+  className,
+}: {
+  documents: AuthPublicOptions | undefined;
+  className: string;
+}) {
+  const privacy = documents?.privacyPolicyUrl;
+  const terms = documents?.termsOfUseUrl;
+  if (!privacy && !terms) return null;
+  return (
+    <div className={`legal-links ${className}`}>
+      {privacy ? (
+        <a href={privacy} target="_blank" rel="noreferrer">
+          Privacy policy
+        </a>
+      ) : null}
+      {terms ? (
+        <a href={terms} target="_blank" rel="noreferrer">
+          Terms of use
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * What creating an account accepts, in one sentence, for the button that does
+ * the creating: the email form's "Create account", and "Continue with Google".
+ *
+ * One function for both so the two cannot come to say different things. Google
+ * gets its own because that button creates an account too: config refuses to
+ * start with Google on and an `ALLOWED_EMAILS` that admits nobody, so whoever
+ * the list admits and has no account yet gets one from that press, with no
+ * form in between. Only where there are terms to accept: a deployment with no
+ * terms asks nobody to agree to any.
+ */
+function TermsAcceptance({
+  id,
+  withGoogle = false,
+  documents,
+}: {
+  id: string;
+  withGoogle?: boolean;
+  documents: AuthPublicOptions;
+}) {
+  if (!documents.termsOfUseUrl) return null;
+  return (
+    <p className="auth-terms" id={id}>
+      By creating an account{withGoogle ? " with Google" : ""} you accept the{" "}
+      <a href={documents.termsOfUseUrl} target="_blank" rel="noreferrer">
+        terms of use
+      </a>
+      {documents.privacyPolicyUrl ? (
+        <>
+          , and the{" "}
+          <a href={documents.privacyPolicyUrl} target="_blank" rel="noreferrer">
+            privacy policy
+          </a>{" "}
+          says how your information is used
+        </>
+      ) : null}
+      .
+    </p>
+  );
+}
+
 function SignIn({ error }: { error?: Error }) {
   const location = useLocation();
   const [name, setName] = useState("");
@@ -106,6 +186,8 @@ function SignIn({ error }: { error?: Error }) {
   const [confirmation, setConfirmation] = useState("");
   const [setupToken, setSetupToken] = useState("");
   const confirmationInput = useRef<HTMLInputElement>(null);
+  const termsNotice = useId();
+  const googleTermsNotice = useId();
   const [localFormError, setLocalFormError] = useState("");
   // Null until somebody picks, so the screen can open on whichever form is
   // the likely one once the server says which deployment this is.
@@ -395,7 +477,16 @@ function SignIn({ error }: { error?: Error }) {
             ) : null}
             {localFormError ? <Alert>{localFormError}</Alert> : null}
             {localAuth.error ? <Alert>{localAuth.error.message}</Alert> : null}
-            <Button type="submit" loading={localAuth.isPending}>
+            {/* Directly above the button it is about, so it is read before
+                the press rather than after, and tied to the button as its
+                description, so somebody who tabs straight to it on a screen
+                reader is told the same thing. */}
+            {setup ? <TermsAcceptance id={termsNotice} documents={options.data} /> : null}
+            <Button
+              type="submit"
+              loading={localAuth.isPending}
+              aria-describedby={setup && options.data.termsOfUseUrl ? termsNotice : undefined}
+            >
               {setup ? "Create account" : "Sign in"}
             </Button>
             {/* Only offered when there is a mail server to send the link. */}
@@ -441,8 +532,14 @@ function SignIn({ error }: { error?: Error }) {
                 <span>or</span>
               </div>
             ) : null}
+            {/* Whichever form is showing, because this press creates an
+                account on either: signing in with Google as somebody the list
+                admits and nobody has seen yet is signing up. Above the button
+                and its description, as the email form's is. */}
+            <TermsAcceptance id={googleTermsNotice} withGoogle documents={options.data} />
             <Button
               className="google-button"
+              aria-describedby={options.data.termsOfUseUrl ? googleTermsNotice : undefined}
               onClick={() =>
                 authClient.signIn.social({
                   provider: "google",
@@ -484,6 +581,10 @@ function SignIn({ error }: { error?: Error }) {
             </small>
           </>
         ) : null}
+        {/* On the screen where an address is first asked for, whichever form
+            is showing, which is where California's online privacy law expects
+            the policy to be conspicuous. */}
+        <LegalLinks documents={options.data} className="auth-legal" />
       </section>
       <aside className="auth-art" aria-hidden>
         <div className="auth-orbit orbit-one" />
@@ -665,9 +766,10 @@ function useAdoptBrowserRegion(session: Session) {
 
 function Shell({ session }: { session: Session }) {
   /*
-   * The deployment's capabilities, for the privacy link below. This is the
-   * same `["auth-methods"]` query the sign-in screen ran, so it is served
-   * from the cache rather than fetched again.
+   * The deployment's capabilities, for the privacy and terms links below and
+   * the terms the plan tab links. This is the same `["auth-methods"]` query
+   * the sign-in screen ran, so it is served from the cache rather than fetched
+   * again.
    */
   const deployment = useQuery({
     queryKey: ["auth-methods"],
@@ -847,19 +949,6 @@ function Shell({ session }: { session: Session }) {
           >
             {theme.resolved === "dark" ? <Sun size={17} /> : <Moon size={17} />}
           </button>
-          {/* Reachable from every page, which is what Google's policy asks
-              of a deployment serving ads — and what anybody looking for it
-              expects anyway. Absent when the operator has configured none. */}
-          {deployment.data?.privacyPolicyUrl ? (
-            <a
-              className="privacy-link"
-              href={deployment.data.privacyPolicyUrl}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Privacy
-            </a>
-          ) : null}
           <button
             className="sign-out"
             aria-label="Sign out"
@@ -875,6 +964,13 @@ function Shell({ session }: { session: Session }) {
             <LogOut size={17} />
           </button>
         </div>
+        {/* Reachable from every page, which is what Google's policy asks of a
+            deployment serving ads — and what anybody looking for either
+            document expects anyway. Under the foot rather than in it: the row
+            had room for one short link between two icon buttons, and every
+            pixel a second one took came out of the name beside the avatar.
+            Absent when the operator has configured neither. */}
+        <LegalLinks documents={deployment.data} className="sidebar-legal" />
       </aside>
       {mobileNav ? (
         <button
@@ -934,7 +1030,12 @@ function Shell({ session }: { session: Session }) {
                   served with, so reaching this by a client-side push would keep
                   the strict one and Elements would fail to load with nothing to
                   say why. The link into it is a plain anchor for that reason. */}
-              <Route path="/settings/plan" element={<PlanPage session={session} />} />
+              <Route
+                path="/settings/plan"
+                element={
+                  <PlanPage session={session} termsOfUseUrl={deployment.data?.termsOfUseUrl} />
+                }
+              />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </TimezoneProvider>

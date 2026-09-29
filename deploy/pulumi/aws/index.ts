@@ -411,6 +411,53 @@ const ingressNginx = new k8s.helm.v3.Release(
     values: {
       controller: {
         replicaCount: 2,
+        // The visitor's address, carried across the load balancer. An NLB with
+        // IP targets connects from its own private address and says nothing
+        // about who connected to it — AWS leaves client IP preservation off
+        // for IP targets over TCP — so without this ingress-nginx sees the load
+        // balancer, sets X-Forwarded-For to it, and every visitor shares one
+        // sign-in allowance however the frontend is configured behind it.
+        //
+        // Proxy protocol v2 rather than client IP preservation. Preserved
+        // addresses arrive from the whole internet, which the node security
+        // group would then have to admit on 80 and 443; proxy protocol keeps
+        // the load balancer as the only peer and carries the visitor in a
+        // header ingress-nginx parses. Both ends are switched in this one
+        // release because each is a hard failure without the other: nginx
+        // expecting the header refuses a connection that lacks one, and nginx
+        // not expecting it reads the binary header as a request line. The
+        // trap proxy protocol usually sets — kube-proxy routing a pod's
+        // request for the load balancer's address straight to ingress-nginx,
+        // with no header, which breaks cert-manager's HTTP-01 self-check — is
+        // not set here: this controller reports the NLB by hostname only, and
+        // kube-proxy short-circuits addresses, not names.
+        //
+        // `proxy-real-ip-cidr` narrows whose header is believed from
+        // ingress-nginx's default of 0.0.0.0/0 to the public subnets, because
+        // that is where the load balancer's nodes take their addresses: the
+        // controller puts an internet-facing NLB in the subnets tagged
+        // kubernetes.io/role/elb, which are those three and nothing else, and
+        // with client IP preservation off each node connects from its own
+        // address there. Not the whole VPC, although that reads as the same
+        // fence: every pod takes its address from the private subnets inside
+        // it, and a pod that opens a connection to ingress-nginx with a PROXY
+        // header naming any address it likes is then believed, so the cluster
+        // could pick its own sign-in addresses through the ingress, where no
+        // NetworkPolicy on the chart reaches. Narrowed to the load balancer, a
+        // header from anywhere else is ignored and the connection is counted
+        // as the pod it came from. ingress-nginx splits this on commas.
+        //
+        // X-Forwarded-For toward the frontend is then `$remote_addr`, the
+        // visitor, *replacing* anything the visitor sent — ingress-nginx
+        // replaces unless use-forwarded-headers and compute-full-forwarded-for
+        // are both on, and neither is on here — so the frontend's recursion
+        // stays off below.
+        config: {
+          "use-proxy-protocol": "true",
+          "proxy-real-ip-cidr": pulumi
+            .all(publicSubnets.map((subnet) => subnet.cidrBlock))
+            .apply((cidrs) => cidrs.join(",")),
+        },
         service: {
           annotations: {
             "service.beta.kubernetes.io/aws-load-balancer-type": "external",
@@ -418,11 +465,30 @@ const ingressNginx = new k8s.helm.v3.Release(
             "service.beta.kubernetes.io/aws-load-balancer-scheme": "internet-facing",
             "service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled":
               "true",
+            // `*` is the only value the controller accepts, and it means
+            // version 2 on every target group this Service gets.
+            "service.beta.kubernetes.io/aws-load-balancer-proxy-protocol": "*",
             // A TCP health check calls a controller healthy the moment nginx
             // has the socket open, which is before it has any configuration.
+            //
+            // Port 80 rather than the controller's own 10254. AWS sends the
+            // proxy protocol header on health check connections too, and says
+            // a target that cannot parse it fails them with a 400
+            // (docs.aws.amazon.com/elasticloadbalancing/latest/network/
+            // edit-target-group-attributes.html#health-check-connections). The
+            // controller's Go server on 10254 does not parse it, so every
+            // target would go unhealthy the moment proxy protocol came on —
+            // kubernetes/ingress-nginx#10982 is exactly that. On 80 nginx
+            // parses the header and answers /healthz from the default server
+            // the controller renders, whose template says it is there for
+            // cloud health checks. That default server exists only once the
+            // controller has written a configuration — the image's own
+            // nginx.conf listens on nothing — so this still cannot pass early,
+            // and the pod's readiness probe stays on 10254 and still decides
+            // which pods are registered at all.
             "service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol": "http",
             "service.beta.kubernetes.io/aws-load-balancer-healthcheck-path": "/healthz",
-            "service.beta.kubernetes.io/aws-load-balancer-healthcheck-port": "10254",
+            "service.beta.kubernetes.io/aws-load-balancer-healthcheck-port": "80",
           },
         },
         resources: {
@@ -448,6 +514,28 @@ const app = sb.simpleBalance({
   settings,
   issuerName: certManager.issuerName,
   ingressClassName: "nginx",
+  // What connects to the frontend is an ingress-nginx pod, and under the VPC
+  // CNI a pod's address is an address in this VPC — the private subnets carved
+  // out of it above. The whole VPC rather than the three subnets because
+  // ingress-nginx's pods and every other pod draw from the same subnets, so the
+  // narrower list would trust exactly the same pods and break the day a subnet
+  // is added.
+  //
+  // What that trusts beyond ingress-nginx is any pod in the cluster that
+  // connects to the frontend and writes its own X-Forwarded-For. It is not a
+  // new reach: the chart's NetworkPolicy is off unless asked for, and with
+  // TRUST_PROXY on the API believes X-Forwarded-For from anything that can
+  // reach its Service — which, with the policy off, is every pod here. Turning
+  // networkPolicy on with frontendIngressFrom naming ingress-nginx's namespace
+  // narrows both, on a cluster whose CNI enforces policies; the VPC CNI does so
+  // only with its network policy agent enabled. It narrows them only because
+  // ingress-nginx itself believes a PROXY header from the load balancer's
+  // subnets alone, above: a pod the policy sends round through the ingress is
+  // counted as itself there.
+  //
+  // Recursion off: ingress-nginx replaces the header, so its last entry is the
+  // visitor already.
+  trustedProxies: { addresses: [vpc.cidrBlock], recursive: false },
   dependsOn: [certManager.clusterIssuer, ingressNginx, clusterAutoscaler, metricsServer],
 });
 

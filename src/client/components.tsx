@@ -304,7 +304,10 @@ export function Button({
    * Wired with `aria-describedby` rather than left as a neighboring
    * paragraph: a sighted person reads what is next to the button, and somebody
    * on a screen reader is told the button's name and its state and then has to
-   * go looking. The description is what makes "disabled" say why.
+   * go looking. The description is what makes "disabled" say why. Added to
+   * a description the caller gave rather than replacing it: the plan tab's pay
+   * button is described by the renewal terms, and it is disabled while
+   * Stripe's form loads, which is exactly when somebody is reading them.
    */
   disabledReason?: string;
 }) {
@@ -319,7 +322,10 @@ export function Button({
       {...props}
       disabled={loading || props.disabled}
       aria-busy={loading || undefined}
-      aria-describedby={explained ? reasonId : props["aria-describedby"]}
+      aria-describedby={
+        [explained ? reasonId : null, props["aria-describedby"]].filter(Boolean).join(" ") ||
+        undefined
+      }
       className={`button button-${variant} ${className}`}
     >
       {loading ? <LoaderCircle size={16} className="animate-spin" /> : null}

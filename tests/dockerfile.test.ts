@@ -399,12 +399,23 @@ describe("the labels on every image", () => {
  *
  * An `ENV` default in the image is what makes the name present, and it is what
  * makes `docker run`, Compose and Helm all work without each repeating it.
+ *
+ * The template is not the only reader. The image sources
+ * `nginx-real-ip.envsh` before envsubst runs, and it reads the operator's
+ * trusted list and recursion switch to rewrite them into what the template
+ * needs, so the census counts both files: a name only the script read would
+ * otherwise be a setting none of these three checks could see.
  */
 describe("the nginx template and the image that renders it", () => {
   const template = readFileSync(
     new URL("../deploy/docker/nginx.conf.template", import.meta.url),
     "utf8",
   );
+  const entrypointScript = readFileSync(
+    new URL("../deploy/docker/nginx-real-ip.envsh", import.meta.url),
+    "utf8",
+  );
+  const readers = `${template}\n${entrypointScript}`;
   const dockerfile = readFileSync(
     new URL("../deploy/docker/frontend.Dockerfile", import.meta.url),
     "utf8",
@@ -415,7 +426,7 @@ describe("the nginx template and the image that renders it", () => {
     // `${SB_NAME}`, so a census that knew only the braced form would miss a
     // reference written the other way — and reproduce the container-will-not-
     // start defect this guard exists to prevent, while passing.
-    const referenced = [...template.matchAll(/\$\{?(SB_[A-Z0-9_]+)\}?/g)].map((match) => match[1]!);
+    const referenced = [...readers.matchAll(/\$\{?(SB_[A-Z0-9_]+)\}?/g)].map((match) => match[1]!);
     const defined = new Set(
       [...dockerfile.matchAll(/^ENV (SB_[A-Z0-9_]+)=/gm)].map((match) => match[1]!),
     );
@@ -434,7 +445,7 @@ describe("the nginx template and the image that renders it", () => {
   it("reads every SB_ default the image declares", () => {
     const defined = [...dockerfile.matchAll(/^ENV (SB_[A-Z0-9_]+)=/gm)].map((match) => match[1]!);
     const referenced = new Set(
-      [...template.matchAll(/\$\{?(SB_[A-Z0-9_]+)\}?/g)].map((match) => match[1]!),
+      [...readers.matchAll(/\$\{?(SB_[A-Z0-9_]+)\}?/g)].map((match) => match[1]!),
     );
     const unread = defined.filter((name) => !referenced.has(name));
     expect(unread, "defaulted in the image and read by nothing").toEqual([]);
@@ -458,7 +469,7 @@ describe("the nginx template and the image that renders it", () => {
    */
   it("lets both deployment shapes set every SB_ name", () => {
     const referenced = [
-      ...new Set([...template.matchAll(/\$\{?(SB_[A-Z0-9_]+)\}?/g)].map((match) => match[1]!)),
+      ...new Set([...readers.matchAll(/\$\{?(SB_[A-Z0-9_]+)\}?/g)].map((match) => match[1]!)),
     ];
     for (const [label, relative] of [
       ["the chart", "../deploy/helm/simple-balance/templates/frontend-deployment.yaml"],

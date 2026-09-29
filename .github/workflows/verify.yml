@@ -256,6 +256,67 @@ jobs:
             exit 1
           fi
           echo "rendered a null config.extraEnv as the defaults"
+          # Whose word the frontend's nginx takes for a visitor's address, read
+          # back from its Deployment for the same reason as the switches above.
+          # The helper is the part no schema can see: a YAML list has to arrive
+          # as the one string the image splits, a key removed with null as the
+          # image's off position rather than an empty value it refuses, and
+          # recursion in nginx's spelling. A range holding every address still
+          # renders with recursion off, because it rendered before recursion
+          # existed.
+          trust() {
+            local cidr="$1"; local recursive="$2"; local what="$3"; shift 3
+            helm template release /charts/simple-balance \
+              --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+              --set secret.authSecret=0123456789012345678901234567890123456789 \
+              --set config.appBaseUrl=https://books.example.org \
+              "$@" > /tmp/rendered-trust.yaml
+            if ! grep -A1 'name: SB_TRUSTED_PROXY_CIDR' /tmp/rendered-trust.yaml | grep -qF "value: \"$cidr\"" \
+              || ! grep -A1 'name: SB_REAL_IP_RECURSIVE' /tmp/rendered-trust.yaml | grep -qF "value: \"$recursive\""; then
+              echo "::error::$what should tell the frontend SB_TRUSTED_PROXY_CIDR=\"$cidr\" and SB_REAL_IP_RECURSIVE=\"$recursive\""
+              grep -A1 -E 'name: SB_(TRUSTED_PROXY_CIDR|REAL_IP_RECURSIVE)' /tmp/rendered-trust.yaml
+              exit 1
+            fi
+            echo "trusted=\"$cidr\" recursive=$recursive: $what"
+          }
+          trust "127.0.0.1" off "the defaults"
+          trust "127.0.0.1" off "a trustedProxyCidr removed with null" \
+            --set frontend.trustedProxyCidr=null
+          trust "10.4.0.0/14" off "one CIDR" \
+            --set frontend.trustedProxyCidr=10.4.0.0/14
+          trust "10.0.0.0/16, 10.1.0.0/16" on "a YAML list with recursion" \
+            --set 'frontend.trustedProxyCidr={10.0.0.0/16,10.1.0.0/16}' \
+            --set frontend.realIpRecursive=true
+          trust "0.0.0.0/0" off "every address, with recursion off" \
+            --set frontend.trustedProxyCidr=0.0.0.0/0
+          # NOTES.txt is not part of a template render, so the warning that
+          # nothing is trusted is read from a client-side dry run. It has to
+          # show for a list holding only loopback, which is still the off
+          # position, and not once a range is named. Written to a file first so
+          # a dry run that fails stops the step rather than reading as "no
+          # warning".
+          notes() {
+            helm install release /charts/simple-balance --dry-run=client \
+              --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+              --set secret.authSecret=0123456789012345678901234567890123456789 \
+              --set config.appBaseUrl=https://books.example.org \
+              --set ingress.enabled=true \
+              --set ingress.host=books.example.org \
+              "$@" > /tmp/rendered-notes.txt
+          }
+          warning='every sign-in attempt in this cluster counts against one allowance'
+          notes
+          grep -qF "$warning" /tmp/rendered-notes.txt \
+            || { echo "::error::the defaults install without the off-position warning"; exit 1; }
+          notes --set 'frontend.trustedProxyCidr={127.0.0.1}'
+          grep -qF "$warning" /tmp/rendered-notes.txt \
+            || { echo "::error::a list holding only loopback installs without the off-position warning"; exit 1; }
+          notes --set 'frontend.trustedProxyCidr={10.4.0.0/14}'
+          if grep -qF "$warning" /tmp/rendered-notes.txt; then
+            echo "::error::a named range still prints the off-position warning"
+            exit 1
+          fi
+          echo "the off-position warning shows for loopback alone and not for a named range"
 
       # The guards are the reason a misconfigured install fails at render rather
       # than as a crashlooping pod, so a release must not be able to lose them
@@ -315,6 +376,32 @@ jobs:
             --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
             --set secret.authSecret=0123456789012345678901234567890123456789 \
             --set config.appBaseUrl=http://books.example.org
+          # Whose word the frontend takes for an address. nginx resolves a host
+          # name or a short-form address here at startup and trusts whatever
+          # comes back, so the schema refuses both, in either form. A range
+          # holding every address with recursion on spans two values, so it is
+          # the helper's to refuse.
+          refuses "a host name as the trusted proxy" "/frontend/trustedProxyCidr" \
+            --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+            --set secret.authSecret=0123456789012345678901234567890123456789 \
+            --set config.appBaseUrl=https://books.example.org \
+            --set frontend.trustedProxyCidr=localhost
+          refuses "a host name in a list of trusted proxies" "/frontend/trustedProxyCidr" \
+            --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+            --set secret.authSecret=0123456789012345678901234567890123456789 \
+            --set config.appBaseUrl=https://books.example.org \
+            --set 'frontend.trustedProxyCidr={10.0.0.0/16,ingress-nginx.svc}'
+          refuses "a short-form address the resolver would pad out" "/frontend/trustedProxyCidr" \
+            --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+            --set secret.authSecret=0123456789012345678901234567890123456789 \
+            --set config.appBaseUrl=https://books.example.org \
+            --set frontend.trustedProxyCidr=10.0.0
+          refuses "every address with recursion on" "believes whatever address a caller writes first" \
+            --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+            --set secret.authSecret=0123456789012345678901234567890123456789 \
+            --set config.appBaseUrl=https://books.example.org \
+            --set 'frontend.trustedProxyCidr={10.0.0.0/8,0.0.0.0/0}' \
+            --set frontend.realIpRecursive=true
 
       # The `single` profile's material, which no unit test can run: a compose
       # file is only known to interpolate once Compose has interpolated it, a
@@ -463,3 +550,50 @@ jobs:
           curl -fsS -D - -o /dev/null http://127.0.0.1:8099/accounts | grep -qi "js.stripe.com" \
             && { echo "::error::the Stripe policy leaked onto an ordinary page"; exit 1; }
           echo "the plan page carries the Stripe policy and no other page does"
+          docker rm -f frontend-probe
+          # A list of trusted proxies with recursion on. Only the entrypoint
+          # script turns that into what nginx reads, so only a started container
+          # shows the script is installed where the entrypoint sources it and
+          # that nginx takes what it writes: a script the entrypoint skipped
+          # hands nginx the list as one directive, which it refuses.
+          docker run -d --name frontend-probe \
+            -e SB_API_ORIGIN=http://127.0.0.1:3000 \
+            -e 'SB_TRUSTED_PROXY_CIDR=10.0.0.0/8, 172.16.0.0/12' \
+            -e SB_REAL_IP_RECURSIVE=true \
+            -p 127.0.0.1:8099:8080 simple-balance-frontend:test
+          for _ in $(seq 1 30); do
+            if curl -fsS -o /dev/null http://127.0.0.1:8099/; then break; fi
+            sleep 1
+          done
+          if [ "$(docker inspect -f '{{.State.Running}}' frontend-probe)" != true ]; then
+            echo "::error::the frontend did not start with a list of trusted proxies and recursion on"
+            exit 1
+          fi
+          config=$(docker exec frontend-probe nginx -T 2>/dev/null)
+          test "$(printf '%s\n' "$config" | grep -cxE 'set_real_ip_from (10\.0\.0\.0/8|172\.16\.0\.0/12);')" = 2 \
+            || { echo "::error::a list of trusted proxies did not become one set_real_ip_from each"; exit 1; }
+          printf '%s\n' "$config" | grep -qx 'real_ip_recursive on;' \
+            || { echo "::error::SB_REAL_IP_RECURSIVE=true did not become real_ip_recursive on"; exit 1; }
+          docker rm -f frontend-probe
+          # And a host name, which nginx would resolve at startup and trust, has
+          # to stop the container before nginx serves anything. Detached and
+          # waited on for a bounded time, because the failure being looked for
+          # is a container that starts, and a foreground one that started would
+          # hold this step until the job timed out.
+          docker run -d --name frontend-probe \
+            -e SB_API_ORIGIN=http://127.0.0.1:3000 \
+            -e SB_TRUSTED_PROXY_CIDR=localhost \
+            simple-balance-frontend:test
+          for _ in $(seq 1 30); do
+            if [ "$(docker inspect -f '{{.State.Status}}' frontend-probe)" = exited ]; then break; fi
+            sleep 1
+          done
+          if [ "$(docker inspect -f '{{.State.Status}}' frontend-probe)" != exited ] \
+            || [ "$(docker inspect -f '{{.State.ExitCode}}' frontend-probe)" -eq 0 ]; then
+            echo "::error::the frontend started with a host name as its trusted proxy"
+            exit 1
+          fi
+          docker logs frontend-probe > /tmp/frontend-refusal.log 2>&1
+          grep -qF 'is not an IPv4 or IPv6 address' /tmp/frontend-refusal.log \
+            || { echo "::error::the frontend refused a host name, but not for the stated reason"; exit 1; }
+          echo "the frontend trusts a list with recursion on and refuses a host name"

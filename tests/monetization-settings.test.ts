@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { parseAdSettings, parseBillingSettings } from "../src/server/config.js";
+import {
+  parseAdSettings,
+  parseBillingSettings,
+  parseLegalDocuments,
+} from "../src/server/config.js";
 
 /** All five Stripe names, so a case can leave exactly one of them out. */
 const stripe = {
@@ -218,9 +222,13 @@ describe("the privacy policy an ad deployment owes", () => {
     ).toThrow(/must be https/);
   });
 
-  it("keeps the policy on the ad settings, so the two cannot disagree", () => {
+  it("takes ads once the policy is there, and leaves publishing it to the legal documents", () => {
+    // The address used to ride on the ad settings, which made it exist only
+    // while ads did. It is read in one place now, so the two cannot disagree
+    // by being read twice.
     const settings = parseAdSettings({ ...ads, PRIVACY_POLICY_URL: "https://smpl.money/privacy/" });
-    expect(settings?.privacyPolicyUrl).toBe("https://smpl.money/privacy/");
+    expect(settings).toBeDefined();
+    expect(settings).not.toHaveProperty("privacyPolicyUrl");
   });
 
   it("asks for nothing when ads are off", () => {
@@ -228,4 +236,57 @@ describe("the privacy policy an ad deployment owes", () => {
     // it would be this product inventing a requirement.
     expect(parseAdSettings({})).toBeUndefined();
   });
+});
+
+/**
+ * The privacy policy and the terms of use, which a deployment publishes
+ * whether or not it serves an ad.
+ *
+ * The policy was read only inside the ad settings, so a deployment that sold a
+ * plan and showed no advertising linked no policy anywhere, on the screens that
+ * collect an address and a payment. Both are optional here; what can make the
+ * policy required is ads, and that is the block above.
+ */
+describe("the documents a deployment links to", () => {
+  it("publishes a privacy policy with no ads configured at all", () => {
+    expect(
+      parseLegalDocuments({
+        PRIVACY_POLICY_URL: " https://smpl.money/privacy/ ",
+      }),
+    ).toEqual({
+      privacyPolicyUrl: "https://smpl.money/privacy/",
+    });
+  });
+
+  it("publishes the terms of use beside it, and either without the other", () => {
+    expect(
+      parseLegalDocuments({
+        PRIVACY_POLICY_URL: "https://smpl.money/privacy/",
+        TERMS_OF_USE_URL: "https://smpl.money/terms/",
+      }),
+    ).toEqual({
+      privacyPolicyUrl: "https://smpl.money/privacy/",
+      termsOfUseUrl: "https://smpl.money/terms/",
+    });
+    expect(parseLegalDocuments({ TERMS_OF_USE_URL: "https://smpl.money/terms/" })).toEqual({
+      termsOfUseUrl: "https://smpl.money/terms/",
+    });
+  });
+
+  it("reads a blank value as unset, the way every compose recipe passes one", () => {
+    expect(parseLegalDocuments({})).toEqual({});
+    expect(parseLegalDocuments({ PRIVACY_POLICY_URL: "", TERMS_OF_USE_URL: "  " })).toEqual({});
+  });
+
+  it.each(["PRIVACY_POLICY_URL", "TERMS_OF_USE_URL"] as const)(
+    "holds %s to an absolute https address, and names it when it is not",
+    (name) => {
+      expect(() => parseLegalDocuments({ [name]: "/terms" })).toThrow(
+        new RegExp(`^${name} must be an absolute URL`),
+      );
+      expect(() => parseLegalDocuments({ [name]: "http://smpl.money/terms/" })).toThrow(
+        new RegExp(`^${name} must be https`),
+      );
+    },
+  );
 });

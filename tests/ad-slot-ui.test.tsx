@@ -5,6 +5,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AdSlot } from "../src/client/ads.js";
 import { isPlanSurfacePath } from "../src/client/router.js";
+import { blocks, stylesheet } from "./support/css.js";
 
 /**
  * The property the whole ad design rests on: given nothing, render nothing and
@@ -243,5 +244,40 @@ describe("which paths the shell will render an ad on", () => {
     for (const path of ["/settings", "/settings/plans", "/settings/plan/extra", "/", "/accounts"]) {
       expect(isPlanSurfacePath(path), path).toBe(false);
     }
+  });
+});
+
+/**
+ * A unit Google had nothing for.
+ *
+ * AdSense marks such an `<ins>` `data-ad-status="unfilled"`, and until it was
+ * collapsed an unfilled responsive unit held 280px of blank space at the foot
+ * of the page. Google's help on hiding unfilled units gives the rule, and its
+ * `!important` is load-bearing: the unit carries `display: block` inline, which
+ * nothing short of an important declaration outranks. The slot around it goes
+ * too, or the page stack keeps a gap either side of an empty landmark.
+ */
+describe("an unfilled ad unit", () => {
+  const rules = () => blocks(stylesheet()).filter((block) => block.context.length === 0);
+
+  it("is collapsed, over the unit's own inline display", () => {
+    const unit = rules().find(
+      (rule) => rule.selector === '.ad-slot ins.adsbygoogle[data-ad-status="unfilled"]',
+    );
+    expect(unit?.body).toMatch(/display:\s*none\s*!important/);
+
+    // The inline style it has to outrank is really there.
+    const placement = placementFor();
+    render(<AdSlot placement={placement} slotId={placement.bannerSlotId} label="Advertisement" />);
+    expect(screen.getByLabelText("Advertisement").querySelector("ins")).toHaveStyle({
+      display: "block",
+    });
+  });
+
+  it("takes its slot with it", () => {
+    const slot = rules().find(
+      (rule) => rule.selector === '.ad-slot:has(> ins.adsbygoogle[data-ad-status="unfilled"])',
+    );
+    expect(slot?.body).toMatch(/display:\s*none/);
   });
 });

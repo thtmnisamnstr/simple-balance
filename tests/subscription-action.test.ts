@@ -3,6 +3,9 @@ import {
   type BillingInterval,
   liveSubscriptionStatuses,
   owesPaymentStatuses,
+  paidForSubscriptionStatuses,
+  periodIsPaid,
+  planChangeTakesEffect,
   subscriptionAction,
 } from "../src/shared/domain.js";
 
@@ -24,6 +27,13 @@ const on = (
   interval: BillingInterval | null,
   scheduled: BillingInterval | null = null,
 ) => ({ status, interval, scheduled });
+
+/** The same, with a cancellation pending. */
+const ending = (
+  status: string,
+  interval: BillingInterval | null,
+  scheduled: BillingInterval | null = null,
+) => ({ ...on(status, interval, scheduled), cancelAtPeriodEnd: true });
 
 describe("what a request to change plan means", () => {
   it("makes a subscription for somebody who has none", () => {
@@ -162,10 +172,126 @@ describe("what a request to change plan means", () => {
     for (const status of liveSubscriptionStatuses) {
       for (const requested of ["monthly", "yearly"] as const) {
         for (const interval of ["monthly", "yearly", null] as const) {
-          const action = subscriptionAction({ current: on(status, interval), requested });
-          expect(action.kind, `${status}/${interval}/${requested}`).toBeTruthy();
+          for (const current of [on(status, interval), ending(status, interval)]) {
+            const action = subscriptionAction({ current, requested });
+            expect(action.kind, `${status}/${interval}/${requested}`).toBeTruthy();
+          }
         }
       }
     }
+  });
+});
+
+/**
+ * A change of interval while a cancellation is pending.
+ *
+ * A move to monthly went through a schedule that carried the cancellation into
+ * its phases and replaced it, so the plan renewed forever at the monthly price;
+ * a move to annual kept the cancellation and charged the difference for a year
+ * set to end. Neither was shown beforehand. Renewing again is Keep my plan's
+ * to agree to, so both are refused until it is pressed.
+ */
+describe("changing plan while it is set to end", () => {
+  it("refuses a change of interval either way", () => {
+    expect(
+      subscriptionAction({ current: ending("active", "monthly"), requested: "yearly" }),
+    ).toEqual({ kind: "ending" });
+    expect(
+      subscriptionAction({ current: ending("active", "yearly"), requested: "monthly" }),
+    ).toEqual({ kind: "ending" });
+    expect(
+      subscriptionAction({ current: ending("past_due", "monthly"), requested: "yearly" }),
+    ).toEqual({ kind: "ending" });
+    expect(subscriptionAction({ current: ending("active", null), requested: "yearly" })).toEqual({
+      kind: "ending",
+    });
+  });
+
+  it("still pays what is owed, repeats the plan they are on, and lets a switch go", () => {
+    for (const status of owesPaymentStatuses) {
+      expect(
+        subscriptionAction({ current: ending(status, "monthly"), requested: "monthly" }),
+        status,
+      ).toEqual({ kind: "resume" });
+    }
+    expect(
+      subscriptionAction({ current: ending("active", "monthly"), requested: "monthly" }),
+    ).toEqual({ kind: "none" });
+    expect(
+      subscriptionAction({ current: ending("active", "yearly", "monthly"), requested: "yearly" }),
+    ).toEqual({ kind: "release" });
+    expect(
+      subscriptionAction({ current: ending("active", "yearly", "monthly"), requested: "monthly" }),
+    ).toEqual({ kind: "none" });
+  });
+
+  it("reads a caller that does not say as nothing pending", () => {
+    expect(subscriptionAction({ current: on("active", "monthly"), requested: "yearly" })).toEqual({
+      kind: "upgrade",
+    });
+    expect(
+      subscriptionAction({
+        current: { ...on("active", "yearly"), cancelAtPeriodEnd: false },
+        requested: "monthly",
+      }),
+    ).toEqual({ kind: "schedule" });
+  });
+});
+
+/**
+ * When a plan button's change takes effect, for the sentence beside it.
+ *
+ * The plan tab wrote its own rule and told a past-due monthly subscriber that
+ * annual "takes effect now and charges the difference"; the press scheduled it
+ * for the renewal, which is what the shared rule answers there.
+ */
+describe("when a change of plan takes effect", () => {
+  const timing = (
+    current: Parameters<typeof subscriptionAction>[0]["current"],
+    requested: BillingInterval,
+  ) => planChangeTakesEffect(subscriptionAction({ current, requested }));
+
+  it("is now only for an upgrade from a paid-up monthly, or a subscription that starts on payment", () => {
+    expect(timing(on("active", "monthly"), "yearly")).toBe("now");
+    expect(timing(null, "yearly")).toBe("now");
+    expect(timing(on("incomplete", "monthly"), "yearly")).toBe("now");
+  });
+
+  it("is the renewal for a past-due monthly, a move to monthly, and a retired price", () => {
+    expect(timing(on("past_due", "monthly"), "yearly")).toBe("renewal");
+    expect(timing(on("unpaid", "monthly"), "yearly")).toBe("renewal");
+    expect(timing(on("active", "yearly"), "monthly")).toBe("renewal");
+    expect(timing(on("active", null), "yearly")).toBe("renewal");
+  });
+
+  it("is nothing where the press changes no interval, or is refused", () => {
+    expect(timing(on("active", "monthly"), "monthly")).toBeNull();
+    expect(timing(on("past_due", "monthly"), "monthly")).toBeNull();
+    expect(timing(on("active", "yearly", "monthly"), "yearly")).toBeNull();
+    expect(timing(on("active", "monthly", "yearly"), "yearly")).toBeNull();
+    expect(timing(ending("active", "monthly"), "yearly")).toBeNull();
+  });
+});
+
+/**
+ * Which statuses mean the period somebody is in has been paid for. Stripe
+ * dates every period from the moment it begins, so a first payment never
+ * finished and a renewal that failed both carry a period end that the plan
+ * tab called the renewal date.
+ */
+describe("whether the current period has been paid for", () => {
+  it("is paid only while the plan is granted for it", () => {
+    expect(periodIsPaid("active")).toBe(true);
+    expect(periodIsPaid("trialing")).toBe(true);
+    for (const status of ["incomplete", "past_due", "unpaid", "paused", "canceled"]) {
+      expect(periodIsPaid(status), status).toBe(false);
+    }
+  });
+
+  it("counts every live subscription paid for at least once, and not an unfinished first payment", () => {
+    expect(paidForSubscriptionStatuses).not.toContain("incomplete");
+    expect([...paidForSubscriptionStatuses, "incomplete"].sort()).toEqual(
+      [...liveSubscriptionStatuses].sort(),
+    );
   });
 });

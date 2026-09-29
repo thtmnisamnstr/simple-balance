@@ -189,6 +189,35 @@ server about what is allowed.
 The rule for deciding: if the browser can tell in advance, it must, and the
 sentence must be the same one.
 
+Three more arrived with the plan and the frozen account, and each was a screen
+that let somebody start something the server would refuse.
+`PLAN_ENDING_REFUSAL` is thrown by `PUT /api/v1/billing/subscription` and is
+what the plan tab disables both plan buttons with, imported rather than
+retyped. `subscriptionAction` decides on both sides which of the moves a press
+is, so a button is disabled exactly where the route would refuse it.
+`frozenAccountRefusal` (`src/shared/domain.ts:3822`) is thrown by
+`assertAccountsWritable` (`src/server/services/accounts.ts:825`) and is the
+reason an account card's **Edit**, **Archive** and **Delete** now carry, and a
+transaction row's **Edit**, **Delete** and **Restore** with them.
+
+**The third of those took two rounds to become one sentence, and the shape of
+the mistake is the lesson.** It began as a browser prefix — a transaction row
+wrote `` `${account.name}: ` `` in front of the shared refusal, because a
+transfer has two sides and the shared sentence named neither, while the
+server's named no account at all. That is a second sentence about one rule,
+which is what this section exists to prevent, so the name moved to the shared
+side: `frozenAccountRefusal(limit, name?)`, with `assertAccountsWritable`
+passing the name it already had. The optional half is not a hedge — the one
+caller that still leaves it off is **Add transaction**, which is dead because
+*every* account is frozen, so there is no one account to name.
+
+**Landing it on one surface and not the other was the same defect again.** The
+transaction row read the named sentence and the account card went on building
+the unnamed one, so two screens a person reaches from the same page disagreed
+about what the server would say. A refusal that moves to the shared side has
+to move at every call site in the same change, or the divergence has simply
+changed address.
+
 ### 4.1 A check constraint has a Zod twin, and the twin names the field
 
 **Binding.** What the database would refuse, the schema refuses first, as a 422

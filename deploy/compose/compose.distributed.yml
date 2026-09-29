@@ -147,11 +147,14 @@ x-app-config: &app-config
   ADSENSE_BANNER_SLOT_ID: ${ADSENSE_BANNER_SLOT_ID:-}
   ADSENSE_FOOTER_SLOT_ID: ${ADSENSE_FOOTER_SLOT_ID:-}
   ADSENSE_CONSENT_MANAGED: ${ADSENSE_CONSENT_MANAGED:-false}
-  # Required, as an absolute https:// address, the moment the AdSense ids are
+  # Optional, and linked from sign-in and every page whenever it is set;
+  # required, as an absolute https:// address, the moment the AdSense ids are
   # set, and both processes refuse to start without it. This block once left it
   # out, so a value in .env never arrived and turning AdSense on stopped the
   # server and the scheduler with a message asking for a variable already set.
   PRIVACY_POLICY_URL: ${PRIVACY_POLICY_URL:-}
+  # Optional, the same shape, linked beside the policy and the renewal terms.
+  TERMS_OF_USE_URL: ${TERMS_OF_USE_URL:-}
   METRICS_TOKEN: ${METRICS_TOKEN:-}
 
 services:
@@ -313,11 +316,21 @@ services:
       # The moment a TLS terminator goes in front — which is what reaching this
       # from another machine means — set this to the terminator's address or
       # range, or the API counts every sign-in attempt in the deployment
-      # against that one address.
+      # against that one address. One address or CIDR, or several separated by
+      # commas or spaces when more than one proxy connects; anything that is
+      # not an address, a CIDR or unix: stops the container, because nginx
+      # would resolve a host name at startup and trust whatever it answered.
       #
       # The terminator's own range, never the visitors'. This is what decides
       # whose claim about an address is believed.
       SB_TRUSTED_PROXY_CIDR: ${SB_TRUSTED_PROXY_CIDR:-127.0.0.1}
+      # Off unless every proxy in front appends to X-Forwarded-For and is in
+      # the list above, as Google's load balancer does. A TLS terminator that
+      # replaces the header, Caddy or nginx with $remote_addr, leaves a single
+      # address, which off already reads, so on gains nothing there, and off
+      # stays right if one of them turns out to append after all. Takes on or
+      # off, true or false meaning the same.
+      SB_REAL_IP_RECURSIVE: ${SB_REAL_IP_RECURSIVE:-off}
     <<: *hardening
     read_only: true
     tmpfs:
