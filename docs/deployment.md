@@ -4,17 +4,17 @@ Simple Balance is one container and one PostgreSQL database. There is no Redis,
 no sidecar, no object store, and nothing it needs to write to disk.
 
 PostgreSQL 15 or newer. Every release is tested against 15 and 18 — the floor
-and the version the profiles that run their own database deploy — on Node 22
-and 24. Nothing else is assumed about the server.
+for a server you bring, and the version both deployment profiles run where they
+provision one — on Node 22 and 24. Nothing else is assumed about the server.
 
 This page is the settings and the contract: what every variable does, what a
 reverse proxy has to send, and what the split containers have to agree about.
 For a deployment that runs somewhere and survives a reboot, read
 [`deployment-profiles.md`](deployment-profiles.md) beside it — it compares the
-two shapes, gives the firewall and DNS, and points at the material that stands
-each one up. [`deployment-sizing.md`](deployment-sizing.md) says how big the
-machine has to be and [`deployment-costs.md`](deployment-costs.md) what it
-costs.
+two profiles, gives the encryption guarantees, the firewall and DNS, and points
+at the material that stands each one up.
+[`deployment-sizing.md`](deployment-sizing.md) says how big the machines have to
+be and [`deployment-costs.md`](deployment-costs.md) what they cost.
 
 ## Settings
 
@@ -25,7 +25,7 @@ the ones that matter.
 
 | Variable | What it is |
 | --- | --- |
-| `DATABASE_URL` | PostgreSQL 15+ connection string. Encrypt it when the database is not on the same host; see TLS below for which `sslmode` to use. The database it names is created if the server does not have it yet. |
+| `DATABASE_URL` | PostgreSQL 15+ connection string. Encrypt and verify it whenever the connection leaves the host, which in both deployment profiles it does; see TLS below for which `sslmode` to use. The database it names is created if the server does not have it yet. |
 | `AUTH_SECRET` | At least 32 random characters. `openssl rand -base64 32`. Keep it: changing it signs everyone out. A value published in this project's own files, including whatever `.env.example` carried, is refused by name. |
 | `APP_BASE_URL` | Your canonical public origin, exactly as the browser sees it. HTTPS anywhere but localhost. |
 | `NODE_ENV` | `production`. Every image sets it for you; a host running `npm start` does not, and unset reads as development. See below for what that costs. |
@@ -395,9 +395,68 @@ goes in `/var/lib/simple-balance/tls/`, and the `compose.db-tls.yml` overlay
 mounts that directory into the application, so add it to `COMPOSE_FILE` (the
 cloud programs already do). `deploy/compose/single/README.md`, "The database's
 certificate", has the steps for OCI, Amazon RDS and a public CA. The Helm chart
-has no value that mounts a file into its API and scheduler pods, so there
-`sslrootcert` needs a volume added by a Helm post-renderer, or a database whose
-certificate is from a public CA, which needs no file.
+mounts the CA it generates into its API and scheduler pods at
+`/etc/simple-balance/db-ca.pem` and writes that path into the `DATABASE_URL` it
+derives, so under `database.enabled` there is nothing to arrange; a chart
+pointed at a database you bring still needs either a public CA, which needs no
+file, or a volume added by a Helm post-renderer.
+
+### A database this deployment runs itself
+
+Both profiles provision one, and in both the certificate is generated rather
+than obtained, because there is nobody to obtain it from: the database is
+reachable only from inside one VPC, VCN or cluster, and no public CA will issue
+for a name that resolves nowhere else.
+
+**In the `single` profile**, `pulumi up` issues a private CA and a server
+certificate with `@pulumi/tls` at plan time, before either machine exists. The
+CA's private key stays in Pulumi state and reaches neither machine. The server
+certificate and its key go to the database node in its own cloud-init; the CA
+certificate, which is public, goes to the application node in its own. The
+generated `DATABASE_URL` is
+
+```
+postgresql://simple_balance:<password>@<the node's internal DNS name>:5432/simple_balance?sslmode=verify-full&sslrootcert=/var/lib/simple-balance/tls/db-ca.pem
+```
+
+and the certificate's SAN is that same internal name —
+`db.db.simplebalance.oraclevcn.com` on Oracle Cloud,
+`ip-10-20-1-10.<region>.compute.internal` on AWS, and
+`ip-10-20-1-10.ec2.internal` in `us-east-1`, which spells it differently and is
+a real trap. The node's private address is pinned so the name is known before
+the machine is built. It is also in the certificate as an IP SAN, for an
+operator running `psql "host=… sslmode=verify-full"` by hand — but the URL uses
+the name, for the reason in the previous section: node-postgres sends no server
+name for an address, so `verify-full` against an IP literal checks the
+certificate against `localhost` and fails however many IP SANs it carries.
+
+**The server is what enforces it, not the client.** `pg_hba.conf` is mounted
+into the container and named with `-c hba_file=`, rather than left to the one
+the image generates, and every line in it that crosses a machine boundary is
+`hostssl`. A client that dropped `sslmode` is refused —
+`no pg_hba.conf entry for host "…", user "simple_balance", … no encryption` —
+rather than served in the clear. The superuser is refused over the network
+entirely, even under TLS; it exists to run `initdb` and to be reached over the
+container's own socket. The application signs in as `simple_balance`, which is
+not a superuser and owns only its own database.
+
+**In the `ha` profile**, the chart generates the same pair and keeps them in the
+release's database Secret, mounts the CA into the API and scheduler pods, sets
+`ssl = on`, and writes `hostssl` on every non-loopback `pg_hba` line. The
+coordinator reaches its workers and the standbys stream with `verify-ca` rather
+than `verify-full`, deliberately: Patroni registers members by pod address,
+which no certificate can promise, so a name check would fail a healthy cluster.
+
+**Rotation is by hand in both**, and `docs/deployment-profiles.md` §Encryption
+says why — in the `single` profile a re-issued certificate would sit in Pulumi
+state and never reach a running machine, because the instances ignore changes to
+their user data. `deploy/pulumi/README.md` §Rotating the database's certificate
+is the procedure.
+
+**And nothing that was accepted is refused.** A `DATABASE_URL` with
+`sslmode=disable`, or with none at all, still works exactly as it did;
+`simple-balance-env` warns about it in the journal on every start and carries
+on.
 
 **What the backups make of it.** `pg_dump`, `psql` and `pg_restore` are libpq,
 and read `sslmode` libpq's way rather than node-postgres's: `no-verify` is not a
@@ -737,13 +796,19 @@ default `postgres` superuser has. Without it you get a message naming the
 database and the statement to run, rather than a driver error. Nothing else
 about the server is assumed or altered.
 
+Where a deployment profile provisions the database, the role it hands you is
+not a superuser and does not have `CREATEDB` — it owns the one database it was
+made for, which is what the schema needs and no more. The database is created
+before the application ever connects, so there is nothing for `CREATEDB` to do.
+`docs/deployment-profiles.md` has both shapes.
+
 ## Splitting it into separate containers
 
 One container is the supported way to run this, and the rest of this document
 assumes it. `deploy/compose/single/` is that container as a deployment — with
-TLS, backups and a systemd unit, against a PostgreSQL somebody else runs — and
-is what [`deployment-profiles.md`](deployment-profiles.md) calls the `single`
-profile.
+TLS, backups and a systemd unit, against a PostgreSQL 18 on a second machine
+that the same `pulumi up` builds — and is what
+[`deployment-profiles.md`](deployment-profiles.md) calls the `single` profile.
 
 If you are running under Kubernetes and want to scale the web tier,
 `deploy/docker/` holds three Dockerfiles that split it up, and three things
@@ -796,9 +861,10 @@ AdSense settings so the two sides cannot disagree. The ones an operator
 chooses are in the compose example anyway, commented out: `SB_CSP_REPORT_ONLY`,
 which the server reads too and so is in the root file as well, and
 `SB_TRUSTED_PROXY_CIDR` and `SB_REAL_IP_RECURSIVE`, which depend on what is in
-front. The `vps`
-profile's frontend machine has an example of its own,
-`deploy/compose/vps/.env.frontend.example`. The defaults above are baked into
+front. Under the Helm chart they are `frontend.trustedProxyCidr` and
+`frontend.realIpRecursive`, which both `ha` shapes leave at the chart's
+defaults unless the cluster's ingress needs otherwise. The defaults above are
+baked into
 `deploy/docker/frontend.Dockerfile`, so a deployment changing none of them has
 nothing to set. Every `SB_` name the template reads has a default there, and
 `tests/dockerfile.test.ts` holds it to that: an absent one is not a fallback but

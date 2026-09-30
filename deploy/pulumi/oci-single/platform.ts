@@ -1,5 +1,10 @@
-import { cloudInit, ociMetadata } from "../single-common/cloud-init";
-import type { MachineSettings, Size } from "../single-common/cloud-init";
+import { cloudInit, databaseCloudInit, ociMetadata } from "../single-common/cloud-init";
+import type {
+  ApplicationDatabase,
+  DatabaseCloudInitArgs,
+  MachineSettings,
+  Size,
+} from "../single-common/cloud-init";
 
 /**
  * What `./index.ts` decides about Oracle Cloud that is not a resource: the disk
@@ -29,6 +34,44 @@ export const DATA_DEVICE = "/dev/oracleoci/oraclevdb";
 export const PLATFORM_COMMANDS = [
   '["/bin/sh", "-c", "iptables -I INPUT 1 -p tcp --dport 80 -j ACCEPT && iptables -I INPUT 2 -p tcp --dport 443 -j ACCEPT && iptables -I INPUT 3 -p udp --dport 443 -j ACCEPT && netfilter-persistent save"]',
 ];
+
+/**
+ * The same half of the firewall on the database node, for its one port.
+ *
+ * Without it the machine comes up, PostgreSQL reports itself healthy, the
+ * security list allows 5432 from the application's subnet, and every connection
+ * times out — the security list opens the cloud and the host still refuses. The
+ * application then fails its migrations with a message about the database being
+ * unreachable, which sends an operator to look at the subnet they can see
+ * rather than at the ruleset they cannot.
+ *
+ * Only 5432, and nothing for 80 or 443: this machine serves neither, has no
+ * public address, and a rule for a port nothing listens on is an invitation to
+ * put something there later.
+ */
+export const DATABASE_PLATFORM_COMMANDS = [
+  '["/bin/sh", "-c", "iptables -I INPUT 1 -p tcp --dport 5432 -j ACCEPT && netfilter-persistent save"]',
+];
+
+/**
+ * The VCN resolver's name for the database node, which is what the certificate
+ * is issued for and what DATABASE_URL dials.
+ *
+ * OCI composes it from three labels — the VNIC's hostname, the subnet's DNS
+ * label and the VCN's — so it is known before the instance exists, which is
+ * exactly what the certificate needs. Built from the same constants the
+ * resources take rather than written out as a literal, because a subnet
+ * relabelled in one place and not the other is a certificate that verifies
+ * against nothing, found at the first connection rather than at
+ * `pulumi preview`.
+ *
+ * It needs no private DNS zone, no /etc/hosts and no `extra_hosts`: Docker's
+ * embedded resolver forwards what it cannot answer to the host's, which on OCI
+ * is the VCN resolver.
+ */
+export function databaseHost(vcnLabel: string, subnetLabel: string, hostLabel: string): string {
+  return `${hostLabel}.${subnetLabel}.${vcnLabel}.oraclevcn.com`;
+}
 
 /**
  * OCI's smallest block volume. The shared table's `small` asks for 20, which
@@ -178,9 +221,30 @@ export function requireSshPublicKey(sshPublicKey: string): void {
 export function instanceMetadata(
   settings: MachineSettings,
   sshPublicKey: string,
+  database?: ApplicationDatabase,
 ): Record<string, string> {
   return ociMetadata(
-    cloudInit({ settings, dataDevice: DATA_DEVICE, platformCommands: PLATFORM_COMMANDS }),
+    cloudInit({
+      settings,
+      dataDevice: DATA_DEVICE,
+      platformCommands: PLATFORM_COMMANDS,
+      database,
+    }),
+    sshPublicKey,
+  );
+}
+
+/** The database instance's metadata, measured against the same ceiling. */
+export function databaseInstanceMetadata(
+  args: Omit<DatabaseCloudInitArgs, "dataDevice" | "platformCommands">,
+  sshPublicKey: string,
+): Record<string, string> {
+  return ociMetadata(
+    databaseCloudInit({
+      ...args,
+      dataDevice: DATA_DEVICE,
+      platformCommands: DATABASE_PLATFORM_COMMANDS,
+    }),
     sshPublicKey,
   );
 }

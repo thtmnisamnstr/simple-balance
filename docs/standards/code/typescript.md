@@ -33,7 +33,7 @@ The last of those cost five lines. `AppError` and `ApiClientError` both declared
 their fields in the constructor signature, which is TypeScript-only syntax that
 emits assignments. They now declare fields and assign them
 (`src/server/services/errors.ts:31-61`,
-`src/client/api.ts:34-51`).
+`src/client/api.ts:35-52`).
 
 The gain is not stylistic. It means `node --experimental-strip-types` and every
 other type-stripping runtime can run this source directly, and it means reading

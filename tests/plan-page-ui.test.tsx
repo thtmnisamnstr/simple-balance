@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -16,6 +18,7 @@ import {
   graceEndsAt,
   MAX_FREE_ACCOUNTS,
   PLAN_ENDING_REFUSAL,
+  PLAN_LABELS,
 } from "../src/shared/domain.js";
 
 /**
@@ -326,6 +329,27 @@ describe("the plan tab", () => {
   });
 
   /**
+   * Stripe makes the row the moment a price is pressed and holds it 23 hours,
+   * so `incomplete` is what a closed tab or a declined card leaves behind:
+   * nothing charged, the entitlement still Free, and one button here, which
+   * finishes that payment. The heading over it asked only whether a row
+   * existed, and offered to change a plan nobody had. `past_due` is the case
+   * that keeps the question off `periodIsPaid`: a renewal whose card failed is
+   * a plan, and its subscriber really is changing one.
+   */
+  it("offers to upgrade, not to change a plan, while a first payment is unfinished", async () => {
+    mount(status({ subscription: subscription({ status: "incomplete", payable: true }) }));
+    expect(
+      await screen.findByRole("heading", { name: `Upgrade to ${PLAN_LABELS.plus}` }),
+    ).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Change your plan" })).toBeNull();
+    cleanup();
+
+    mount(status({ subscription: pastDue() }));
+    expect(await screen.findByRole("heading", { name: "Change your plan" })).toBeVisible();
+  });
+
+  /**
    * Letting a scheduled switch go sells nothing, so the server takes it while
    * nothing is for sale, and the tab keeps the one button that sends it. The
    * sentence naming it stays beside it, and only there.
@@ -544,6 +568,30 @@ describe("the plan tab", () => {
     expect(annual).toHaveAccessibleDescription(including(PLAN_ENDING_REFUSAL));
   });
 
+  /**
+   * The other spelling. An operator who dates a cancellation past this period
+   * in Stripe's dashboard leaves `cancelAtPeriodEnd` false — that period
+   * really does renew — and the tab read the flag alone, so the buttons stayed
+   * live on a plan Stripe was about to stop and Cancel at period end was
+   * offered where Keep my plan belonged, which would have pulled the
+   * operator's chosen day forward. The status line keeps naming the renewal,
+   * which is the one date it can print.
+   */
+  it("holds both plans for a cancellation dated past the period end too", async () => {
+    mount(status({ subscription: subscription({ cancelAt: "2027-06-01T00:00:00.000Z" }) }));
+    const monthly = await screen.findByRole("button", { name: /Monthly —/ });
+    expect(monthly).toBeDisabled();
+    expect(monthly).toHaveAccessibleDescription(including(PLAN_ENDING_REFUSAL));
+    expect(screen.getByRole("button", { name: /Annual —/ })).toBeDisabled();
+    const keep = screen.getByRole("button", { name: "Keep my plan" });
+    expect(keep).toBeEnabled();
+    // The press turns renewal back on, which is the consent the terms are for,
+    // so it carries them here exactly as it does for the flag (17602(a)(1)).
+    expect(keep).toHaveAccessibleDescription(/renews automatically until you cancel/);
+    expect(screen.queryByRole("button", { name: "Cancel at period end" })).toBeNull();
+    expect(statusLine("Active")).toHaveTextContent(`renews ${shown("2027-01-01T00:00:00.000Z")}.`);
+  });
+
   /** How a change of plan takes effect is said only where a plan can be changed. */
   it("describes moving between plans only while they are for sale", async () => {
     mount(status({ selling: false, subscription: subscription({ interval: "monthly" }) }));
@@ -586,6 +634,21 @@ describe("the plan tab", () => {
     expect(await screen.findByText(/Moving to monthly takes effect/)).not.toHaveTextContent(
       /has been paid for/,
     );
+  });
+
+  /**
+   * Somebody with no plan reads both halves as the description of a later
+   * change, which they carry only while neither half asserts anything about
+   * them. The second one ended "because the period you are in has been paid
+   * for", to a reader who has never paid for one — the clause the subscriber's
+   * own sentence above appends only under `periodIsPaid`, guarded there in
+   * both directions and here in neither.
+   */
+  it("claims no paid period of a reader who has never paid", async () => {
+    mount(status({ subscription: null }));
+    const note = await screen.findByText(/Moving from monthly to annual/);
+    expect(note).toHaveTextContent("Moving the other way takes effect at your next renewal.");
+    expect(note).not.toHaveTextContent(/has been paid for/);
   });
 
   /**
@@ -796,7 +859,12 @@ describe("the renewal terms", () => {
       }),
     );
     expect(await screen.findByRole("button", { name: "Pay what is owed" })).toBeVisible();
-    expect(screen.queryByText(/Stripe could not say/)).toBeNull();
+    expect(screen.queryByText(/Stripe could not say what your plan costs/)).toBeNull();
+    // The other interval is a sale, and it is on offer here now, so the note
+    // names that plan: what is owed is not held up by it, which is what this
+    // case is about, and before the tab offered anything while a payment was
+    // outstanding there was no plan to name at all.
+    expect(screen.getByText(/Stripe could not say what Monthly costs/)).toBeVisible();
   });
 
   /**
@@ -985,6 +1053,172 @@ describe("the renewal terms", () => {
 });
 
 /**
+ * A way out of the price somebody pressed by mistake.
+ *
+ * Both priced buttons were removed while a payment was outstanding, which is
+ * exactly where the shared rule answers `replace` — abandon the subscription
+ * nobody has paid for and make the one they asked for — or `schedule`. The
+ * runbook documents that path and the service implements it, and the tab was
+ * the only thing that never offered it: somebody who pressed Annual and did
+ * not pay could pay $30.00 for the year they did not want or wait up to 23
+ * hours for Stripe to expire it. Billing has no MCP tool, so that press had no
+ * front door anywhere in the product.
+ *
+ * The interval they chose is not drawn beside it: the button above pays for
+ * that one under its own name, and a disabled "You are on the annual plan
+ * already" would be a claim about a plan nobody has bought.
+ */
+describe("the plan buttons while a payment is outstanding", () => {
+  it("offers the interval they are not on, beside the button that finishes this one", async () => {
+    const requests = mount(
+      status({ subscription: subscription({ status: "incomplete", payable: true }) }),
+    );
+    const monthly = await screen.findByRole("button", { name: /Monthly — \$3\.00 a month/ });
+    expect(monthly).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Finish your payment" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: /Annual —/ })).toBeNull();
+    // A priced button is a request for consent wherever it is drawn, so the
+    // renewal terms are beside it and name the plan it sells (17602(a)(1)).
+    expect(monthly).toHaveAccessibleDescription(/renews automatically until you cancel/);
+    const terms = renewalTermsIn(document.body);
+    expect(terms).toHaveTextContent("Monthly charges $3.00 a month, to your payment method");
+    expect(terms).not.toHaveTextContent(/Annual/);
+
+    fireEvent.click(monthly);
+    await waitFor(() =>
+      expect(requests.find((r) => r.path === "/api/v1/billing/subscription")?.body).toMatchObject({
+        interval: "monthly",
+      }),
+    );
+  });
+
+  /** What the press does, before it is pressed: it throws away an unpaid subscription. */
+  it("says the press abandons the payment nobody has made", async () => {
+    mount(status({ subscription: subscription({ status: "incomplete", payable: true }) }));
+    expect(await screen.findByText(/Choosing the monthly plan/)).toHaveTextContent(
+      "Choosing the monthly plan abandons this unfinished payment and starts that plan in its " +
+        "place. Nothing has been charged for this one.",
+    );
+    // Not the sentence written from `planChangeTakesEffect`, which answers
+    // "now" for a `replace` and would promise a difference nobody is charged.
+    expect(screen.queryByText(/charges the difference/)).toBeNull();
+  });
+
+  it("mirrors it for a first payment on the monthly plan", async () => {
+    mount(
+      status({
+        subscription: subscription({ status: "incomplete", interval: "monthly", payable: true }),
+      }),
+    );
+    expect(await screen.findByRole("button", { name: /Annual — \$30\.00 a year/ })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /Monthly —/ })).toBeNull();
+    expect(screen.getByText(/Choosing the annual plan/)).toBeVisible();
+  });
+
+  /**
+   * Once the retries have run out the subscription has been paid for before,
+   * so the same press is a `schedule` and nothing is abandoned.
+   */
+  it("schedules rather than abandons once the retries have run out", async () => {
+    mount(status({ subscription: subscription({ status: "unpaid", payable: true }) }));
+    expect(await screen.findByRole("button", { name: /Monthly —/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Pay what is owed" })).toBeVisible();
+    expect(screen.getByText(/While a payment is owed/)).toHaveTextContent(
+      "While a payment is owed, moving to monthly waits for your next renewal rather than " +
+        "charging now. Pay what is owed first to move now.",
+    );
+    expect(screen.queryByText(/abandons/)).toBeNull();
+  });
+
+  /** A replace is a new sale, so it waits on what a sale waits on. */
+  it("offers it only while there is something to sell, at a price Stripe gave", async () => {
+    mount(
+      status({
+        selling: false,
+        subscription: subscription({ status: "incomplete", payable: true }),
+      }),
+    );
+    await screen.findByText(/not selling subscriptions/);
+    expect(screen.queryByRole("button", { name: /Monthly —|Annual —/ })).toBeNull();
+    cleanup();
+
+    mount(
+      status({
+        prices: {
+          monthly: null,
+          yearly: { id: "price_yearly", unitAmount: 3000, currency: "usd", interval: "year" },
+        },
+        subscription: subscription({ status: "incomplete", payable: true }),
+      }),
+    );
+    expect(
+      await screen.findByText(/Stripe could not say what Monthly costs just now/),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: /Monthly/ })).toBeNull();
+    expect(screen.queryByText(/renews automatically/)).toBeNull();
+    expect(screen.queryByText(/Choosing the monthly plan/)).toBeNull();
+  });
+});
+
+/**
+ * The row about a plan that is running, and the two states where there is none.
+ *
+ * "Change payment method" and the Keep/Cancel pair sit behind `subscription &&
+ * !owing`, and the `!owing` half is the one nothing watched. `incomplete` is a
+ * row Stripe makes the moment a price is pressed and holds for 23 hours:
+ * nothing has been charged, the entitlement is still Free, and "Cancel at
+ * period end" on it is a press about a plan nobody has. The server would take
+ * that press — `setSubscriptionCancellation` refuses only where there is no
+ * subscription row at all, never on its status — so the browser is the only
+ * thing standing between it and Stripe.
+ *
+ * This is the untested half of the mistake `hasPlanToChange` fixed one row up,
+ * where the heading asked only whether a row existed and offered to change a
+ * plan nobody had. That one shipped. Unlike the heading, this row carries a
+ * press that reaches Stripe.
+ *
+ * Each absence is paired with a presence in a state where the row IS drawn,
+ * because three `queryByRole` nulls pass just as well on a renamed button.
+ */
+describe("the plan tab's account controls", () => {
+  it("draws none of them while a payment is outstanding", async () => {
+    mount(status({ subscription: subscription({ status: "incomplete", payable: true }) }));
+    await screen.findByRole("button", { name: "Finish your payment" });
+    expect(screen.queryByRole("button", { name: "Change payment method" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel at period end" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Keep my plan" })).toBeNull();
+    cleanup();
+
+    // Retries run out, and a cancellation already pending, so the Keep
+    // spelling of the row is the one that would be drawn if the guard went.
+    mount(
+      status({
+        subscription: subscription({ status: "unpaid", payable: true, cancelAtPeriodEnd: true }),
+      }),
+    );
+    await screen.findByRole("button", { name: "Pay what is owed" });
+    expect(screen.queryByRole("button", { name: "Change payment method" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Keep my plan" })).toBeNull();
+    cleanup();
+
+    // The control. `past_due` is deliberately not owing — the plan is still
+    // running while Stripe retries — so the row is drawn and these are the
+    // live names. Without it the absences above pass on a typo.
+    mount(status({ subscription: pastDue() }));
+    expect(await screen.findByRole("button", { name: "Change payment method" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Cancel at period end" })).toBeVisible();
+  });
+
+  it("draws none of them for somebody with no plan", async () => {
+    mount(status());
+    await screen.findByRole("button", { name: /Annual —/ });
+    expect(screen.queryByRole("button", { name: "Change payment method" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel at period end" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Keep my plan" })).toBeNull();
+  });
+});
+
+/**
  * One way to pay at a time.
  *
  * The buttons that open a payment — Finish your payment, Pay what is owed, Pay
@@ -1026,6 +1260,63 @@ describe("a payment form that is open", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Change payment method" }));
     await paymentForm("Payment method");
     expect(screen.getByRole("button", { name: "Pay now" })).toBeVisible();
+  });
+
+  /**
+   * The state the form spends its first moments in, and the one every other
+   * test in this file silently runs under.
+   *
+   * The form is drawn from a client secret this app already holds, so it is on
+   * screen before Stripe.js has finished loading and `useStripe()` still
+   * answers null. The button is held for that, and a held button with no
+   * sentence is the defect `Button.disabledReason` exists for: nothing was
+   * typed wrongly and nothing was submitted, so there is no field error and no
+   * summary — the control simply does not respond. The price is present in
+   * both halves below, which makes `unpriced` false and leaves the loading
+   * branch as the only one that can speak.
+   */
+  it("says why it cannot be confirmed while Stripe.js is still loading", async () => {
+    // The setup form first, because saving a card consents to nothing new and
+    // so draws no renewal terms. Its description is the reason and nothing
+    // else, which is the one place in this file an exact string can be read.
+    mount(status({ subscription: subscription() }), "seti_card_secret_1");
+    fireEvent.click(await screen.findByRole("button", { name: "Change payment method" }));
+    const save = await within(await paymentForm("Payment method")).findByRole("button", {
+      name: "Save this payment method",
+    });
+
+    expect(save).toBeDisabled();
+    expect(save).toHaveAccessibleDescription("Stripe's payment form is still loading.");
+
+    // And the payment form, where the reason is added in front of the renewal
+    // terms rather than replacing them — a person reading what the plan
+    // charges is exactly who is waiting on this button.
+    cleanup();
+    mount(status(), "pi_first_secret_1");
+    fireEvent.click(await screen.findByRole("button", { name: /Monthly/ }));
+    const pay = await within(await paymentForm()).findByRole("button", {
+      name: "Pay and upgrade",
+    });
+
+    expect(pay).toBeDisabled();
+    expect(pay).toHaveAccessibleDescription(including("Stripe's payment form is still loading."));
+    expect(pay).toHaveAccessibleDescription(including("renews automatically until you cancel"));
+  });
+
+  it("goes quiet the moment Stripe arrives", async () => {
+    // Set before the mount, not after: `useStripe()` is read while the form
+    // renders, and the bindings here are a plain mock with nothing to
+    // re-render on. This is the half that stops the fix for the case above
+    // being "always disabled, always explained".
+    stripeAnswers({});
+    mount(status({ subscription: subscription() }), "seti_card_secret_1");
+    fireEvent.click(await screen.findByRole("button", { name: "Change payment method" }));
+    const save = await within(await paymentForm("Payment method")).findByRole("button", {
+      name: "Save this payment method",
+    });
+
+    expect(save).toBeEnabled();
+    expect(save).not.toHaveAccessibleDescription();
   });
 });
 
@@ -1234,6 +1525,19 @@ describe("frozen accounts on the plan tab", () => {
       "href",
       "/accounts",
     );
+    cleanup();
+
+    // A cancellation an operator dated past this period ends the plan on its
+    // own day, which is the day this note is about. Asked of the flag alone it
+    // fell through to "if the plan ends" — an "if" about an ending that is
+    // already settled — and named no day at all.
+    mount(
+      status({ ...opened, subscription: subscription({ cancelAt: "2027-03-01T00:00:00.000Z" }) }),
+    );
+    expect(await screen.findByText(/When the plan ends on/)).toHaveTextContent(
+      `When the plan ends on ${shown("2027-03-01T00:00:00.000Z")}, 2 of your 5 accounts freeze`,
+    );
+    expect(screen.queryByText(/If the plan ends/)).toBeNull();
     cleanup();
 
     // Three fit on the free plan, so ending it freezes nothing.
@@ -1639,6 +1943,18 @@ describe("a change that needs no payment", () => {
     await focusedOn("Your plan is set to end. Press Keep my plan to keep it.");
     cleanup();
 
+    // A read that carries the day rather than the flag draws Keep my plan just
+    // the same, so the sentence goes on naming it.
+    changing(
+      status({ subscription: subscription() }),
+      status({ subscription: subscription({ cancelAt: "2027-02-01T00:00:00.000Z" }) }),
+    );
+    await pressFocused("Cancel at period end");
+    await focusedOn(
+      `Your plan is set to end on ${shown("2027-01-01T00:00:00.000Z")}. Press Keep my plan to keep it.`,
+    );
+    cleanup();
+
     // A read that does not show it yet names no button it does not draw.
     changing(status({ subscription: subscription() }), status({ subscription: subscription() }));
     await pressFocused("Cancel at period end");
@@ -1662,15 +1978,47 @@ describe("a change that needs no payment", () => {
     await focusedOn("Your plan is no longer set to end.");
   });
 
-  it("says an upgrade is in force and was charged for, with focus", async () => {
-    changing(
-      status({ subscription: subscription({ interval: "monthly" }) }),
-      status({ subscription: subscription() }),
-    );
+  /**
+   * The sentence was picked from the button that was pressed, so it said the
+   * difference had been charged whether or not anything had been. Stripe caps
+   * the new term at a pending cancellation, raises no invoice and parks the
+   * difference for later, and the person was told money had left their account
+   * when none had. The server reports the invoice it watched Stripe raise, and
+   * each of the four answers has its own sentence.
+   */
+  it("says what the upgrade billed, from the invoice Stripe raised", async () => {
+    const upgraded = (result: Record<string, unknown>) =>
+      changing(
+        status({ subscription: subscription({ interval: "monthly" }) }),
+        status({ subscription: subscription() }),
+        { subscriptionId: "sub_1", clientSecret: null, status: "active", ...result },
+      );
+
+    upgraded({ changeInvoice: "paid" });
     await pressFocused(/Annual —/);
     await focusedOn(
       "You are on the annual plan now, and the difference was charged to your payment method.",
     );
+    cleanup();
+
+    upgraded({ changeInvoice: "none" });
+    await pressFocused(/Annual —/);
+    await focusedOn(
+      "You are on the annual plan now. Nothing has been charged for the difference, and it goes " +
+        "on your next invoice.",
+    );
+    cleanup();
+
+    upgraded({ changeInvoice: "owed" });
+    await pressFocused(/Annual —/);
+    await focusedOn("You are on the annual plan now, and the difference is still to pay.");
+    cleanup();
+
+    // A container from before the field, or an idempotency key stored before
+    // it: the plan alone, and no claim about money either way.
+    upgraded({});
+    await pressFocused(/Annual —/);
+    await focusedOn("You are on the annual plan now.");
   });
 
   it("says when a scheduled switch happens, by the date the read after it gave", async () => {
@@ -1872,5 +2220,33 @@ describe("the plan buttons' row", () => {
     const text = rules.find((rule) => selectors(rule).includes(".form-actions > .subtle"));
     expect(text?.body).toMatch(/min-height:\s*39px/);
     expect(rules.find((rule) => rule.selector === ".button")?.body).toMatch(/min-height:\s*39px/);
+  });
+});
+
+/**
+ * The document the payment form is mounted in.
+ *
+ * Stripe.js reads the viewport meta itself, and the Financial Connections
+ * flow — the bank-authentication step Link offers beside a card, which this
+ * tab is the only way into — refuses to lay itself out without
+ * `minimum-scale=1`, saying so in the console on every load. The risk it names
+ * is a phone that zooms into a field inside Stripe's modal and cannot be
+ * zoomed back out to 100%. Nothing else in the suite reads this line, which is
+ * how it shipped without the token, so a tidy-up cannot quietly take the Bank
+ * option's layout with it again.
+ */
+describe("the viewport the payment form needs", () => {
+  it("bounds zooming out for Stripe, and leaves zooming in alone", () => {
+    // From the working directory rather than `import.meta.dirname`, which
+    // jsdom hands back as a URL with no file path in it.
+    const html = readFileSync(join(process.cwd(), "index.html"), "utf8");
+    const viewport = /<meta name="viewport" content="([^"]*)"/.exec(html);
+    expect(viewport, "index.html declares a viewport").not.toBeNull();
+    const content = viewport![1];
+    expect(content).toMatch(/\bwidth=device-width\b/);
+    expect(content).toMatch(/\bminimum-scale=1\b/);
+    // Neither of the two that bound zooming *in*, which is the one WCAG 1.4.4
+    // is about and the reason this token costs nothing.
+    expect(content).not.toMatch(/maximum-scale|user-scalable/);
   });
 });

@@ -28,8 +28,11 @@ this one needs a hand before you pull. The procedure is below.
 next `pulumi up` turns proxy protocol on between the network load balancer and
 ingress-nginx, which is what finally lets the API see who is signing in, and
 the public address answers nothing, or a `400`, for seconds to about a minute
-while the two ends change over. The `gcp` program moves no load balancer.
-Both are below.
+while the two ends change over. That same `up` also turns on envelope encryption
+of Kubernetes Secrets, **which EKS cannot turn back off**, and rolls the VPC CNI
+once so a `NetworkPolicy` is actually enforced. The `gcp` program moves no load
+balancer and changes nothing unless you ask it for an in-cluster database. All
+of it is below.
 
 ### What runs automatically
 
@@ -230,21 +233,91 @@ is 0.2.0 or later; on GCP nothing about the frontend changes until then.
 open, including the pods inside the cluster that only the chart's
 `NetworkPolicy` shuts out.
 
-**Two new deployment profiles exist, and neither is anything you have to do.**
-`vps` is a machine per service with the database among them
-(`deploy/compose/vps/`); `ha` is a Kubernetes cluster whose database is sharded
-with Citus (`deploy/helm/`, with `database.enabled`). Both are new shapes rather
-than changes to yours: the chart still expects a `DATABASE_URL` you supply unless
-you ask it for a database, and it refuses to render if you set both.
-`docs/deployment-profiles.md` compares the three and says plainly that `single`
-is still the one to pick unless you have a reason. `single` is the shape one
-container has always been; what is new there is a recipe for it —
-`deploy/compose/single/`, `deploy/systemd/`, and the `aws-single` and
-`oci-single` Pulumi programs — which you can adopt or ignore.
+**And two more things the `aws` program's next `pulumi up` does to an existing
+cluster, neither of which stops it serving.** Both are about the Secrets holding
+your `DATABASE_URL`, `AUTH_SECRET` and any Stripe key, and about whether a
+`NetworkPolicy` is enforced at all:
 
-**If you built one of those from this release's branch before it was cut, five
-things changed under it.** None of this touches a 0.1.6 deployment, because none
-of these programs or files was in 0.1.6.
+- **Envelope encryption of Secrets in etcd is turned on, and it cannot be turned
+  off again.** The program creates a KMS key and sets `encryptionConfigKeyArn`.
+  EKS applies that to a running cluster in place — no node moves, no pod
+  restarts — but it has no operation to remove it afterward. If that is not
+  something you want on this cluster, take it out of `aws/index.ts` before the
+  `up`, because there is no undoing it after.
+- **The VPC CNI stops being the default managed add-on** so the program can turn
+  its network policy agent on, which is what makes a `NetworkPolicy` mean
+  anything on EKS. The `aws-node` DaemonSet is adopted and rolled once: pods keep
+  running, and address assignment pauses per node while each one restarts.
+
+**If you run the `gcp` program, nothing changes until you ask for an in-cluster
+database.** `datapathProvider: ADVANCED_DATAPATH` is set only with
+`simple-balance:database: in-cluster`, and the provider treats it as a property
+that **replaces the cluster** — so an existing stack that switches will see a
+replacement in `pulumi preview`. Do not take it. Run
+`gcloud container clusters update <name> --enable-dataplane-v2` first, wait for
+it, and then set the stack setting: the plan is a no-op after that.
+
+**Moving an existing chart deployment onto the in-cluster database is a dump and
+a restore, not a setting.** `simple-balance:database: in-cluster` and
+`database.enabled` build a new, empty Citus cluster; nothing copies your data
+into it. And the copying is not a plain `pg_dump` restore either, because `0023`
+widens fourteen primary keys on the way in —
+`docs/citus-runbook.md` §Moving an existing database onto a cluster is the
+procedure, and **the dump has to be taken before the keys are widened**, because
+every dump after that carries the widened schema. If you have no reason to move,
+do not: `database: external` is the default and is exactly what you have now.
+
+**Two deployment profiles exist, and neither is anything you have to do.**
+`single` is two machines — the application container and Caddy on one, a
+PostgreSQL 18 container on a second with no public address — stood up by one
+`pulumi up` from `deploy/pulumi/aws-single/` or `oci-single/`, out of
+`deploy/compose/single/` and `deploy/systemd/`. `ha` is a Kubernetes cluster
+(`deploy/helm/simple-balance/`), and it has two shapes: one node per service and
+fully redundant, which differ by a values file rather than by a migration. Both
+are new shapes rather than changes to yours: **the chart's `database.enabled`
+stays `false`**, so a values file written for 0.1.6 renders exactly what it
+rendered before — no Citus cluster appears underneath anybody, and no pod
+template churns. Verified by rendering 0.1.6's own values against both the old
+chart and this one and diffing: byte-identical, in both the
+`secret.databaseUrl` shape and the `secret.create: false` + `existingSecret`
+shape the Pulumi programs use. `docs/deployment-profiles.md` compares the two
+and says plainly that `single` is still the one to pick unless you have a
+reason.
+
+**There was a third, `vps`, on this release's branch, and it is gone.** It was a
+machine per service with the database among them, in `deploy/compose/vps/`. It
+never shipped — 0.1.6 carried none of those files — so this breaks nobody, and
+what it was for is now the `ha` profile's one-node-per-service shape: the same
+chart at one replica, which grows into the redundant shape by changing a values
+file rather than by moving the data. Its PostgreSQL recipe was not thrown away:
+it is `deploy/compose/single/compose.postgres.yml`, the `single` profile's
+database machine, with TLS added and the application no longer connecting as the
+superuser.
+
+**If you built a `single` stack from this release's branch before it was cut,
+six things changed under it.** None of this touches a 0.1.6 deployment, because
+none of these programs or files was in 0.1.6.
+
+**The `single` profile grew a second machine, and it is on by default.** A stack
+built from an earlier state of this branch has one machine and a `DATABASE_URL`
+you wrote in `env.local`. Its next `pulumi up` will build a database node, a
+private subnet, a NAT gateway, a second data volume and a certificate — and on
+AWS the NAT gateway is roughly $33 a month. The application node keeps using
+your `env.local` either way, because `simple-balance-env` folds `env.db` before
+`env.local` and the last assignment wins, so you would be paying for a database
+nothing connects to. Decide before the `up`:
+
+- **Keep bringing your own:** `pulumi config set simple-balance:databaseNode false`
+  first, and the plan is what it was.
+- **Move onto the database node:** let it build, take a dump from your old
+  database, restore it into the new one, and then delete the `DATABASE_URL` line
+  from `/var/lib/simple-balance/env.local` so the generated one in `env.db`
+  takes effect, followed by `sudo systemctl restart simple-balance`.
+  `deploy/compose/single/README.md` has the restore command.
+
+`simple-balance:databaseSubnet`, which some branch READMEs described, is
+accepted and superseded: it logs a line naming `databaseNode` and carries on.
+It is never refused.
 
 **`oci-single` now requires `oci:region` in the stack.** Its next
 `pulumi preview` or `pulumi up` stops before anything is declared, and changes
@@ -817,32 +890,50 @@ This is the reason step 2 is not optional.
 ### Rolling back from 0.2.0
 
 Three of this release's changes decide how far back you can go, and they are
-different for each profile. The short version: **on `single` and `vps` a
-rollback is the ordinary restore above; on `ha` it is not a rollback at all.**
+different for each profile. The short version: **on `single`, and on `ha` while
+its database is one you brought, a rollback is the ordinary restore above; on an
+`ha` whose ledger is distributed it is not a rollback at all.**
 
-**`single` and `vps`.** `0022` is additive — five tables the older image does not
-read — and `0024` adds one column the older image never names: its inserts leave
-`ledger_account.active` to the default and nothing it reads mentions it. So
-0.1.6 runs against a 0.2.0 schema unchanged. `0023` did nothing on these
-profiles. You can put the older image back without restoring anything, and the
-five billing tables and the new column sit unread until you upgrade again. The
-one thing to undo separately is the compose recipe's PostgreSQL version if you
-moved it: a 16-series container cannot read an 18-series data directory either,
-so going back there is a dump and a restore in the other direction.
+**`single`, and `ha` with `database: external`.** `0022` is additive — five
+tables the older image does not read — and `0024` adds one column the older
+image never names: its inserts leave `ledger_account.active` to the default and
+nothing it reads mentions it. So 0.1.6 runs against a 0.2.0 schema unchanged.
+`0023` did nothing where there is no Citus extension, which is every
+single-node PostgreSQL. You can put the older image back without restoring
+anything, and the five billing tables and the new column sit unread until you
+upgrade again.
 
-**`ha` cannot be rolled back to 0.1.6 by putting the old image back**, and this
-is the one worth knowing before you distribute anything. `0023` widens fourteen
-primary keys to carry the owner, and PostgreSQL then refuses a `GROUP BY` that
-names only part of a key while the select list reads other columns — which is
-what 0.1.6's balances, register, dashboard, category-group and import-batch
-queries all do. They were corrected in this release precisely so the widened key
-would be safe, and the older image does not have those corrections. It will
-start, pass its health check, and fail those five reads.
+Two things to undo separately on `single`. The compose recipe's PostgreSQL
+version, if you moved it: a 16-series container cannot read an 18-series data
+directory either, so going back there is a dump and a restore in the other
+direction. And, if you moved from a database you brought onto the profile's own
+database node, the older image is fine but the data is now on the new machine —
+rolling the image back does not move it back, and pointing 0.1.6 at the old
+database gives you the ledger as it was when you copied it.
 
-So rolling back an `ha` deployment means restoring a dump taken before the
+**An `ha` deployment whose ledger is distributed cannot be rolled back to 0.1.6
+by putting the old image back**, and this is the one worth knowing before you
+distribute anything. That is `database.enabled` in either of its two shapes:
+one node per service and highly available run the same Citus schema, so this
+applies to both equally — the small shape is not a lesser case. `0023` widens
+fourteen primary keys to carry the owner, and PostgreSQL then refuses a
+`GROUP BY` that names only part of a key while the select list reads other
+columns — which is what 0.1.6's balances, register, dashboard, category-group
+and import-batch queries all do. They were corrected in this release precisely
+so the widened key would be safe, and the older image does not have those
+corrections. It will start, pass its health check, and fail those five reads.
+
+So rolling back a distributed deployment means restoring a dump taken before the
 cluster into a single PostgreSQL and running 0.1.6 against that. **Take that dump
 before you distribute**, not after: once the keys are widened, every dump you
 take carries the widened schema.
+
+**Moving between the two `ha` shapes is not a rollback and needs none of this.**
+`-f values-node-per-service.yaml` and `-f values-ha.yaml` are the same chart,
+the same images and the same schema at different replica counts, so going either
+way is a `helm upgrade` and a rollout. Going down, from the redundant shape to
+the small one, does shed standbys and a worker group, so let a rebalance finish
+first — `docs/citus-runbook.md` has it.
 
 **The `aws` program's proxy protocol is outside the schema.** A `pulumi up` from
 the previous checkout turns it off at both ends again, and the frontend's trust
@@ -863,14 +954,18 @@ each claim, with a second table of what is outstanding. Read that before the
 steps below: three of its open rows are gates that no amount of work in this
 repository closes.
 
-1. `npm run set-version 0.2.0`, which sets the version in the twenty-two files
+1. `npm run set-version 0.2.0`, which sets the version in the twenty files
    where it has to agree: the three manifests and their three lockfiles, all
    four Dockerfiles' default build argument, the chart's `appVersion` and its
    own `version`, the constant the MCP server reports, the product backlog, the
    release the three product-kit files in `docs/product/` say they describe,
-   and the pinned image tags in the split compose file, the `single` profile,
-   the `vps` profile's `compose.app.yml` and `compose.frontend.yml`, the Pulumi
-   README and the single-machine Pulumi programs. `tests/version.test.ts` checks every one of
+   and the pinned image tags in the split compose file, the `single` profile's
+   `compose.yml`, the Pulumi README and the single-machine Pulumi programs.
+   Twenty rather than the twenty-two of the branch's earlier state: the `vps`
+   profile's `compose.app.yml` and `compose.frontend.yml` went with the
+   profile, and `deploy/compose/single/compose.postgres.yml` does not replace
+   them — it runs `postgres:18`, which carries no tag of ours to rewrite.
+   `tests/version.test.ts` checks every one of
    those against `package.json`, asserts the script names each, and runs the
    script over a scratch copy of the files to prove it rewrites them, so a
    location the script forgets fails the suite rather than shipping.

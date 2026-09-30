@@ -137,6 +137,30 @@ const nodeRolePolicies = [
     }),
 );
 
+// Envelope encryption for the Secrets in etcd, which is where DATABASE_URL,
+// AUTH_SECRET, STRIPE_SECRET_KEY and — with an in-cluster database — the four
+// PostgreSQL passwords and the cluster's own private key all end up.
+//
+// A customer-managed key here and nowhere else, and the difference from the EBS
+// volumes is worth stating because the surrounding argument is that
+// provider-managed keys are the right default. EKS offers no AWS-managed option
+// for this: envelope encryption is either a key of your own or nothing at all.
+// The lock-yourself-out risk that rules a customer-managed key out for a data
+// volume is also much smaller here — every Secret in this cluster is
+// reproducible from Pulumi config and from the chart, so losing the key costs a
+// reinstall rather than the ledger.
+//
+// Rotation is on because the cost is nothing: AWS re-wraps with a new key
+// version yearly and keeps every earlier one for decryption.
+const secretsKey = new aws.kms.Key("simple-balance-secrets", {
+  description: "Simple Balance: envelope encryption for Kubernetes Secrets in EKS",
+  enableKeyRotation: true,
+  // Long enough to notice a `pulumi destroy` nobody meant, which is the only
+  // way this key is ever scheduled for deletion.
+  deletionWindowInDays: 30,
+  tags: { ...tags, Name: "simple-balance-secrets" },
+});
+
 const cluster = new eks.Cluster("simple-balance", {
   vpcId: vpc.id,
   publicSubnetIds: publicSubnets.map((s) => s.id),
@@ -155,6 +179,31 @@ const cluster = new eks.Cluster("simple-balance", {
   createOidcProvider: true,
   endpointPrivateAccess: true,
   endpointPublicAccess: true,
+  // Unset leaves EKS's own default, which is 0.0.0.0/0 — what every release so
+  // far has had, so an existing stack plans no change here. Narrowing it is the
+  // operator's to do, because only they know which address they run `pulumi up`
+  // from, and a wrong guess locks the stack out of its own control plane.
+  publicAccessCidrs: settings.controlPlaneCidrs.length > 0 ? settings.controlPlaneCidrs : undefined,
+  // Adding this to a cluster that already exists is an in-place AWS operation
+  // and takes a few minutes; the cluster keeps serving throughout. It cannot be
+  // undone afterwards — EKS has no way to turn envelope encryption back off —
+  // so it is worth knowing about before the first `pulumi up` on this release
+  // rather than after.
+  encryptionConfigKeyArn: secretsKey.arn,
+  // The VPC CNI is what does or does not enforce a NetworkPolicy on EKS, and
+  // out of the box it does not: it hands out addresses and ignores the objects
+  // entirely. The chart's four policies would render, install, and protect
+  // nothing — which is worse than having none, because the cluster then looks
+  // guarded in `kubectl get networkpolicy`.
+  //
+  // Managing the CNI here rather than leaving EKS's default in place is what
+  // `useDefaultVpcCni: false` means, and it is the combination the component
+  // documents for passing any CNI option at all. On a cluster that already
+  // exists this adopts the aws-node DaemonSet EKS installed and rolls it once;
+  // pods keep running through it, and address assignment pauses for the
+  // seconds each node's agent takes to come back.
+  useDefaultVpcCni: false,
+  vpcCniOptions: { enableNetworkPolicy: true },
   enabledClusterLogTypes: ["api", "audit", "authenticator"],
   tags,
 });
@@ -189,7 +238,12 @@ function serviceAccountRole(
   name: string,
   namespace: string,
   serviceAccount: string,
-  policy: pulumi.Input<string>,
+  policy?: pulumi.Input<string>,
+  // Only the EBS CSI driver uses this. Its permissions are a long list that
+  // grows a new condition key whenever EBS learns one, and AWS maintains that
+  // list as a managed policy; the inline documents above are hand-written
+  // because no managed policy says what they say.
+  managedPolicyArns: string[] = [],
 ): aws.iam.Role {
   const role = new aws.iam.Role(name, {
     assumeRolePolicy: pulumi.jsonStringify({
@@ -211,10 +265,88 @@ function serviceAccountRole(
     tags,
   });
 
-  new aws.iam.RolePolicy(`${name}-policy`, { role: role.id, policy });
+  if (policy) {
+    new aws.iam.RolePolicy(`${name}-policy`, { role: role.id, policy });
+  }
+
+  for (const policyArn of managedPolicyArns) {
+    new aws.iam.RolePolicyAttachment(`${name}-${policyArn.split("/").pop()}`, {
+      role: role.name,
+      policyArn,
+    });
+  }
 
   return role;
 }
+
+// Without this addon a PersistentVolumeClaim on EKS 1.23 or later simply sits
+// Pending: the in-tree EBS provisioner was removed from Kubernetes and nothing
+// replaces it unless it is installed. Nothing else in this deployment claims a
+// volume, so the gap shows only once the chart runs its own database.
+//
+// Installed whether or not the database is in this cluster, and deliberately: a
+// Kubernetes cluster that cannot attach a disk is broken for anything anybody
+// puts on it, not only for this chart, and the StorageClass below is where
+// `encrypted` stops being an account-wide setting somebody forgot to turn on.
+const ebsCsiRole = serviceAccountRole(
+  "simple-balance-ebs-csi",
+  "kube-system",
+  "ebs-csi-controller-sa",
+  undefined,
+  // The managed policy carries the KMS grants the driver needs to cut an
+  // encrypted volume, conditioned on the grant being for EBS. Spelled out by
+  // hand those conditions are the part that goes wrong, and AWS keeps this one
+  // current.
+  ["arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"],
+);
+
+const ebsCsiDriver = new aws.eks.Addon("simple-balance-ebs-csi", {
+  clusterName: cluster.eksCluster.name,
+  addonName: "aws-ebs-csi-driver",
+  // No addonVersion: EKS picks the default for the cluster's Kubernetes
+  // version, which is the one pairing AWS tests. A pinned version here would
+  // have to be raised by hand at every control-plane upgrade or the addon would
+  // fall out of support quietly.
+  serviceAccountRoleArn: ebsCsiRole.arn,
+  resolveConflictsOnCreate: "OVERWRITE",
+  resolveConflictsOnUpdate: "PRESERVE",
+  tags,
+});
+
+// The class the ledger's volumes are cut from, and the only place at-rest
+// encryption for them is decided.
+//
+// `encrypted: "true"` is the whole guarantee on AWS and is not a default:
+// EBS encryption-by-default is an account-level setting that is off on a fresh
+// account, so a volume cut without this is a plaintext volume. That is the
+// difference between this and the boot disks, and it is why the property is
+// written even though the surrounding clouds encrypt much of this anyway.
+//
+// gp3 rather than gp2: baseline throughput comes with the volume rather than
+// scaling with its size, which for a database of a few tens of gigabytes is the
+// difference between 125 MB/s and 16.
+const databaseStorageClass = new k8s.storage.v1.StorageClass(
+  "simple-balance-gp3-encrypted",
+  {
+    metadata: { name: "simple-balance-gp3-encrypted" },
+    provisioner: "ebs.csi.aws.com",
+    parameters: { type: "gp3", encrypted: "true" },
+    // A volume lives in one availability zone and a pod that needs it has to be
+    // scheduled there. Binding immediately would cut the volume in whichever
+    // zone the provisioner happened to pick and then hope a node was free in
+    // it; waiting means the scheduler chooses first and the volume follows.
+    volumeBindingMode: "WaitForFirstConsumer",
+    // Growing a PersistentVolumeClaim is the only way to give a StatefulSet's
+    // pod more disk without rebuilding it, and it is off unless asked for.
+    allowVolumeExpansion: true,
+    // Retain rather than Delete. A released claim taking the ledger's volume
+    // with it is not a risk worth the tidiness — `kubectl delete pvc` by
+    // mistake is one keystroke, and an orphaned EBS volume costs a few dollars
+    // a month until somebody removes it on purpose.
+    reclaimPolicy: "Retain",
+  },
+  { provider: k8sProvider, dependsOn: [ebsCsiDriver] },
+);
 
 // AWS publishes this as a statement-by-statement document that grows a new
 // action whenever the controller learns one. This says the same thing by
@@ -536,7 +668,17 @@ const app = sb.simpleBalance({
   // Recursion off: ingress-nginx replaces the header, so its last entry is the
   // visitor already.
   trustedProxies: { addresses: [vpc.cidrBlock], recursive: false },
-  dependsOn: [certManager.clusterIssuer, ingressNginx, clusterAutoscaler, metricsServer],
+  databaseStorageClass: databaseStorageClass.metadata.name,
+  dependsOn: [
+    certManager.clusterIssuer,
+    ingressNginx,
+    clusterAutoscaler,
+    metricsServer,
+    // Named even with an external database, where nothing claims a volume: the
+    // dependency costs an ordering edge and removing it would make the
+    // in-cluster case depend on a setting the graph cannot see.
+    databaseStorageClass,
+  ],
 });
 
 // Read back rather than exported from the release, because the address is the

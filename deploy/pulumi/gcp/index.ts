@@ -60,6 +60,45 @@ const nat = new gcp.compute.RouterNat("simple-balance", {
   sourceSubnetworkIpRangesToNat: "ALL_SUBNETWORKS_ALL_IP_RANGES",
 });
 
+const inClusterDatabase = settings.database === "in-cluster";
+
+// Envelope encryption for the Secrets in etcd — GKE calls it application-layer
+// secrets encryption — which is where DATABASE_URL, AUTH_SECRET,
+// STRIPE_SECRET_KEY and, with an in-cluster database, the four PostgreSQL
+// passwords and the cluster's own private key all end up.
+//
+// A key of this project's own, because GKE offers no Google-managed option for
+// this one: it is a Cloud KMS key or nothing. Everything else here — node boot
+// disks, persistent disks, the etcd volume itself — is already encrypted at
+// rest with Google-managed keys and needs no property to say so.
+const keyRing = new gcp.kms.KeyRing("simple-balance", {
+  name: "simple-balance",
+  location: region,
+});
+
+const secretsKey = new gcp.kms.CryptoKey("simple-balance-secrets", {
+  name: "secrets",
+  keyRing: keyRing.id,
+  rotationPeriod: "7776000s",
+  // A KeyRing and a CryptoKey cannot be deleted in Cloud KMS at all — only
+  // their versions can be destroyed — so the provider's default of refusing to
+  // remove one from state would leave `pulumi destroy` permanently stuck on an
+  // object no API can remove.
+  destroyScheduledDuration: "86400s",
+});
+
+// GKE encrypts with this key as its own service agent, not as the operator, so
+// without this grant the cluster update fails with a permission error naming an
+// account nobody created. The agent's address is derived from the project
+// number rather than the project id, which is why the lookup is here.
+const projectDetails = gcp.organizations.getProjectOutput({ projectId: project });
+
+const secretsKeyGrant = new gcp.kms.CryptoKeyIAMMember("simple-balance-secrets", {
+  cryptoKeyId: secretsKey.id,
+  role: "roles/cloudkms.cryptoKeyEncrypterDecrypter",
+  member: pulumi.interpolate`serviceAccount:service-${projectDetails.number}@container-engine-robot.iam.gserviceaccount.com`,
+});
+
 const nodeServiceAccount = new gcp.serviceaccount.Account("simple-balance-node", {
   accountId: "simple-balance-node",
   displayName: "Simple Balance GKE nodes",
@@ -96,6 +135,28 @@ const cluster = new gcp.container.Cluster(
     // setting and is ignored on GKE.
     releaseChannel: { channel: "REGULAR" },
     networkingMode: "VPC_NATIVE",
+    databaseEncryption: { state: "ENCRYPTED", keyName: secretsKey.id },
+    // Dataplane V2 is what enforces a NetworkPolicy on GKE. The legacy datapath
+    // enforces none, so the chart's four policies would install and guard
+    // nothing — which is worse than having none, because the cluster then looks
+    // guarded in `kubectl get networkpolicy`.
+    //
+    // Not Calico, which is the other way to get enforcement here and is the one
+    // this program must not take: `addonsConfig.networkPolicyConfig` turns off
+    // container-native load balancing, and the frontend's whole
+    // client-address story below depends on the load balancer reaching pods
+    // through network endpoint groups rather than through a node port.
+    //
+    // Tied to the in-cluster database rather than turned on for everybody,
+    // which is the opposite of the choice the AWS program makes about its CNI,
+    // and the reason is what each costs. Adopting the VPC CNI addon is an
+    // in-place change; GKE has no way to swap a running cluster's datapath, so
+    // the provider replaces the cluster instead. `pulumi preview` says
+    // "replace" plainly, and an operator who wants this on a cluster that
+    // already exists should migrate it with `gcloud container clusters update
+    // --enable-dataplane-v2` first and then set this, so that the plan is a
+    // no-op rather than a rebuild.
+    datapathProvider: inClusterDatabase ? "ADVANCED_DATAPATH" : undefined,
     ipAllocationPolicy: {
       clusterSecondaryRangeName: "pods",
       servicesSecondaryRangeName: "services",
@@ -107,6 +168,20 @@ const cluster = new gcp.container.Cluster(
       enablePrivateEndpoint: false,
       masterIpv4CidrBlock: "172.16.0.0/28",
     },
+    // Unset leaves the endpoint open to the internet, which is what every
+    // release so far has had, so an existing stack plans no change. Narrowing
+    // it is the operator's to do: this program cannot know which address they
+    // run `pulumi up` from, and a wrong guess locks the stack out of the
+    // control plane it would need in order to fix itself.
+    masterAuthorizedNetworksConfig:
+      settings.controlPlaneCidrs.length > 0
+        ? {
+            cidrBlocks: settings.controlPlaneCidrs.map((cidrBlock) => ({
+              cidrBlock,
+              displayName: "simple-balance:controlPlaneCidrs",
+            })),
+          }
+        : undefined,
     workloadIdentityConfig: { workloadPool: `${project}.svc.id.goog` },
     addonsConfig: {
       // This addon is the ingress controller on GKE. There is no Helm release
@@ -135,7 +210,9 @@ const cluster = new gcp.container.Cluster(
     // destroyed by accident.
     deletionProtection: false,
   },
-  { dependsOn: [nat, ...nodeRoles] },
+  // The KMS grant has to be in place before the cluster asks to encrypt with
+  // the key, or creation fails on a permission the operator cannot see.
+  { dependsOn: [nat, secretsKeyGrant, ...nodeRoles] },
 );
 
 const nodePool = new gcp.container.NodePool("simple-balance", {
@@ -195,6 +272,37 @@ users:
 
 const k8sProvider = new k8s.Provider("gke", { kubeconfig }, { dependsOn: [nodePool] });
 
+// The class the ledger's volumes are cut from.
+//
+// No `disk-encryption-kms-key`, and that is the decision rather than an
+// omission: Google encrypts every persistent disk at rest with keys it manages,
+// and a key of our own here would buy a key policy to get wrong and a way to
+// lock a deployment permanently out of its own ledger volume. The etcd Secrets
+// above are the one place that trade comes out the other way, because GKE
+// offers no managed option there and a lost Secret is reproducible.
+//
+// What this class is for, then, is the three properties GKE's own `standard-rwo`
+// does not set the way a database wants them.
+const databaseStorageClass = new k8s.storage.v1.StorageClass(
+  "simple-balance-pd-balanced",
+  {
+    metadata: { name: "simple-balance-pd-balanced" },
+    provisioner: "pd.csi.storage.gke.io",
+    parameters: { type: "pd-balanced" },
+    // A disk lives in one zone and a pod that needs it has to be scheduled
+    // there. On a regional cluster, binding immediately would cut the disk in
+    // whichever zone the provisioner picked and then hope a node was free in
+    // it.
+    volumeBindingMode: "WaitForFirstConsumer",
+    allowVolumeExpansion: true,
+    // Retain rather than Delete, because `kubectl delete pvc` by mistake is one
+    // keystroke and a stray disk costs a few dollars a month until somebody
+    // removes it on purpose.
+    reclaimPolicy: "Retain",
+  },
+  { provider: k8sProvider },
+);
+
 const certManager = sb.certManager({
   provider: k8sProvider,
   settings,
@@ -250,7 +358,8 @@ const app = sb.simpleBalance({
     addresses: ["130.211.0.0/22", "35.191.0.0/16", ingressAddress.address],
     recursive: true,
   },
-  dependsOn: [certManager.clusterIssuer],
+  databaseStorageClass: databaseStorageClass.metadata.name,
+  dependsOn: [certManager.clusterIssuer, databaseStorageClass],
 });
 
 export const clusterName = cluster.name;

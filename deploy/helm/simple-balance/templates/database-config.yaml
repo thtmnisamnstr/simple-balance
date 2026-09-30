@@ -53,10 +53,16 @@ data:
         # committed at all until a standby has it — and that is a real guarantee
         # rather than a threshold.
         maximum_lag_on_failover: 1048576
-{{- if .Values.database.synchronousReplication }}
+{{- if include "simple-balance.databaseSynchronous" . }}
         # Every commit waits for a standby to have the WAL, so a promotion cannot
         # lose an acknowledged transaction. This is the trade this profile makes
         # for money: writes pay a network round trip inside the cluster.
+        #
+        # Derived from the replica count rather than read straight off the
+        # setting. A group of one has no standby to wait for, and with the
+        # non-strict fallback below that would be a cluster claiming a guarantee
+        # it silently never gives; `validate` refuses the combination outright,
+        # and this is what makes the file honest if it ever arrives another way.
         synchronous_mode: true
         # Not strict, and this is the half worth arguing. Strict mode refuses
         # writes when no standby is available, which turns one lost pod into a
@@ -121,18 +127,86 @@ data:
         # Left to the container rather than initdb so that a pod moved to a node
         # with a different clock policy does not disagree with its own data.
         timezone: UTC
+        # TLS, and it lives in this section rather than in `bootstrap.dcs` above
+        # on purpose: that block is applied once and then owned by the cluster,
+        # so a certificate named there would never reach a cluster that already
+        # exists. These are read at every start, which is what makes a rotated
+        # certificate arrive with a pod restart.
+        #
+        # The base image ships no certificate and PostgreSQL defaults `ssl` off,
+        # which is why this was not merely unset before: with ssl off, Citus's
+        # own default of `sslmode=require` between nodes cannot connect at all.
+        ssl: "on"
+        ssl_cert_file: {{ include "simple-balance.databaseTlsDir" . }}/tls.crt
+        ssl_key_file: {{ include "simple-balance.databaseTlsDir" . }}/tls.key
+        # No `ssl_ca_file`. It is what a server needs in order to verify a
+        # *client* certificate, and nothing here presents one — every role
+        # authenticates with scram-sha-256. Set anyway it would make the server
+        # ask every connecting client for a certificate it does not have and
+        # will not check, which is a handshake round trip spent on nothing. The
+        # CA is still mounted beside the key, because the two connections that
+        # do verify a peer — Citus to a worker, a standby to its primary — read
+        # it from there.
+        # How the coordinator reaches a worker, and the one place node-to-node
+        # encryption is actually decided. Citus opens these connections itself,
+        # for every distributed query and every propagated DDL statement.
+        #
+        # `verify-ca` and not `verify-full`, and the difference is the address.
+        # Patroni registers each member with the coordinator by pod IP — an
+        # address no certificate can promise in advance and that changes when a
+        # pod moves — so a name check would fail on a cluster that is working
+        # perfectly. What is checkable is that the peer holds a certificate this
+        # cluster's own CA signed, which is what verify-ca asks. Citus's own
+        # default is `sslmode=require`: encrypted, and satisfied by any
+        # certificate at all, including one an attacker generated a minute ago.
+        citus.node_conninfo: "sslmode=verify-ca sslrootcert={{ include "simple-balance.databaseTlsDir" . }}/ca.crt"
+      authentication:
+        replication:
+          # A standby streams from its primary by pod address for the same
+          # reason, so the same answer: encrypted, and verified against this
+          # cluster's CA rather than against a name nothing can promise.
+          sslmode: verify-ca
+          sslrootcert: {{ include "simple-balance.databaseTlsDir" . }}/ca.crt
       pg_hba:
         # Replication and the Citus node-to-node connections are the only things
         # that reach a pod directly; everything else arrives at the coordinator.
         # scram-sha-256 throughout: `trust` inside a namespace is still trust.
+        #
+        # `hostssl` rather than `host` for everything that crosses a pod
+        # boundary, which is what turns TLS from something the client may ask for
+        # into something the server requires: a plaintext connection from another
+        # pod matches no line here and is refused, rather than being served and
+        # counted as fine. This is the enforcement half — the application asking
+        # for `verify-full` is the other half, and on its own it would protect
+        # only clients that already meant to be protected.
         - local all all peer
-        - host replication {{ .Values.database.replication.username }} 0.0.0.0/0 scram-sha-256
-        - host replication {{ .Values.database.replication.username }} ::/0 scram-sha-256
-        - host all all 0.0.0.0/0 scram-sha-256
-        - host all all ::/0 scram-sha-256
+        # Loopback is exempt, and deliberately. Patroni's own connection to the
+        # PostgreSQL it supervises goes over TCP to the listen address, and so
+        # does anything an operator runs with `kubectl exec`; both stay inside
+        # this pod's network namespace, where there is no wire to listen on. The
+        # `single` profile makes the same argument about Caddy and the
+        # application sharing one machine's namespace.
+        - host all all 127.0.0.1/32 scram-sha-256
+        - host all all ::1/128 scram-sha-256
+        - hostssl replication {{ .Values.database.replication.username }} 0.0.0.0/0 scram-sha-256
+        - hostssl replication {{ .Values.database.replication.username }} ::/0 scram-sha-256
+        - hostssl all all 0.0.0.0/0 scram-sha-256
+        - hostssl all all ::/0 scram-sha-256
 
     restapi:
       listen: "0.0.0.0:{{ .Values.database.restApiPort }}"
+      # The credentials are not here. This is a ConfigMap, so a password written
+      # into it is a password in plain sight of anything that can read a
+      # ConfigMap; Patroni takes PATRONI_RESTAPI_USERNAME and
+      # PATRONI_RESTAPI_PASSWORD from the environment instead, and the
+      # StatefulSet reads them out of the cluster's Secret.
+      #
+      # What this protects is every method that changes something: /switchover,
+      # /failover, /restart, /reinitialize and the configuration endpoints.
+      # /liveness, /readiness and the health views stay open, which is what keeps
+      # the kubelet's probes working without handing them a credential. Before
+      # this existed, any pod in the namespace could promote a standby over a
+      # live primary with one POST.
 
     # A cluster that has lost its leader and cannot elect one should stay down
     # rather than come up divided. This is Patroni's default and is named here

@@ -299,18 +299,33 @@
   `0016_category_groups.sql`, `0017_budget_perimeter.sql`,
   `0018_incremental_taper.sql`, `0019_budget_target_pair.sql`,
   `0020_reference_indexes.sql` and `0021_idempotency_retention.sql` in 0.1.6.
-  `0022_plans_and_billing.sql`, `0023_citus_distribution.sql` and
-  `0024_active_accounts.sql` are on disk and **unreleased**, so they are the
-  three migrations here that may still be regenerated: nobody has run any of
-  them. They freeze when 0.2.0 ships, and until then the rule to keep is that
-  everything through `0021` is somebody else's history and `0022` through
-  `0024` are still ours. The next schema change after them starts at `0025`.
+  `0022_plans_and_billing.sql`, `0023_citus_distribution.sql`,
+  `0024_active_accounts.sql` and `0025_subscription_cancel_at.sql` are on disk
+  and **unreleased**, so they are the four migrations here that may still be
+  regenerated: no deployment has run any of them. They freeze when 0.2.0 ships,
+  and until then the rule to keep is that everything through `0021` is somebody
+  else's history and `0022` through `0025` are still ours. The next schema
+  change after them starts at `0026`. Permitted is not the same as free, and it
+  is this branch's own databases that pay: drizzle's migrator runs a file only
+  where the recorded timestamp is older than the folder's and never compares the
+  hash, so a database that has already run one records the regenerated one as
+  done, migrates clean, and then fails at the first read of whatever was added,
+  with no signal at startup. `0025` is a column on `billing_subscription` that
+  was briefly folded into `0022` for that reason and then unfolded, after the
+  fold left the browser tier's database a migration behind its own schema. So:
+  regenerate one only while no database anywhere has run it, and add a file
+  wherever one has.
   `0024` adds one column with a constant default, which rewrites no rows on any
-  PostgreSQL and which Citus propagates to the shards without a gate. `0023` is
+  PostgreSQL and which Citus propagates to the shards without a gate; `0025`
+  adds a nullable one with no default, which is metadata-only for the same
+  reason. `0023` is
   the one migration that does nothing on most
   deployments and says so at the top: it distributes the ledger and is gated on
-  the Citus extension being installed, so the `single` and `vps` profiles record
-  it as run and keep the schema they had. It is also the only place the cluster's
+  the Citus extension being installed, so the `single` profile — whose database
+  machine runs a plain PostgreSQL 18 — records it as run and keeps the schema it
+  had, and so does any deployment pointed at a database of its own. That gate is
+  what let the profile grow a database of its own with no migration at all. It
+  is also the only place the cluster's
   schema is written down, which is why `deploy/citus/` no longer holds a second
   copy — `docs/citus-runbook.md` points an operator at the migration itself for
   the by-hand path. `0016` is the
@@ -334,6 +349,23 @@
   in the field. `docs/standards/writing.md` has the reasoning.
 - Startup must remain the only production migration path. Keep migrations safe
   under the advisory lock and fail readiness on migration failure.
+- Where a deployment provisions the database, nothing on the internet may reach
+  it and the **server** is what insists on TLS. `hostssl` in a `pg_hba.conf` the
+  deployment mounts, never the image's generated `host` lines, and never a
+  client remembering to ask: an `sslmode` is in a URL an operator may edit, so a
+  client-side rule is one that can be dropped in a hurry and never noticed. The
+  application connects as a role that is not the superuser and owns only its own
+  database, so one leaked connection string cannot drop every database on the
+  machine. A generated connection string names the host and never its address,
+  because node-postgres sends no server name for an IP literal and checks the
+  certificate against `localhost` instead — so `verify-full` against an address
+  fails however many IP SANs the certificate carries. Every volume that holds
+  data says it is encrypted even where the provider encrypts by default, because
+  a default is that provider's current behavior in one region rather than a
+  promise to this deployment, it is invisible in a plan while a property is not,
+  and a property can be tested. None of this is enforced in `src/`: a URL that
+  was accepted stays accepted, warned about rather than refused, per the rule
+  above.
 - No metric label carries somebody's identity: not a user id, an email, an
   account name or an amount. A metric is read by whoever can reach the scrape
   endpoint, which is not the person whose ledger it counts, and the same rule
@@ -361,7 +393,7 @@ disagreement rather than quietly losing it.
 Two habits from those guides are worth knowing before the first edit, because
 both look like mistakes:
 
-- **Comments are dense on purpose** — 24.6% of non-blank lines in `src`. They
+- **Comments are dense on purpose** — 25.1% of non-blank lines in `src`. They
   carry why the obvious alternative is wrong. Do not tidy them away.
   (`docs/standards/code/comments.md`.)
 - **Some loops must not be parallelized.** Legs resolve one at a time so two

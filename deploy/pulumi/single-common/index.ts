@@ -1,6 +1,6 @@
 import * as pulumi from "@pulumi/pulumi";
 
-import type { MachineSettings, Size } from "./cloud-init";
+import type { DatabaseSettings, MachineSettings, Size } from "./cloud-init";
 
 /**
  * The `single` profile on a cloud VM, in the parts both clouds share.
@@ -22,9 +22,14 @@ import type { MachineSettings, Size } from "./cloud-init";
  * the program that implements it is worse than no table: the reader sizes their
  * machine from the document and gets whatever the code says.
  *
- * The PostgreSQL settings are for the server DATABASE_URL names, which is not
- * on this machine; nothing here applies them. The data disk holds the backups,
- * the generated secret and env.local, and OCI raises it to its own 50 GB floor.
+ * One table, read twice: `simple-balance:size` picks the application node's row
+ * and `simple-balance:databaseSize` the database node's, because the two want
+ * opposite things — the application is a Node process that is mostly idle, and
+ * PostgreSQL would take every byte of memory on the machine. The five
+ * PostgreSQL settings in each row are applied by the database node's compose
+ * file as `-c` flags. The data disk holds the backups, the generated secret and
+ * env.local on the application node and PGDATA on the database node, and OCI
+ * raises it to its own 50 GB floor on both.
  */
 export const SIZES: Record<string, Size> = {
   // One household, and comfortably more than a ledger of a few thousand
@@ -85,7 +90,35 @@ export interface SingleSettings extends MachineSettings {
   sshCidr: string;
   /** The key that opening the port would otherwise be useless without. */
   sshPublicKey: string;
+  /**
+   * Undefined when `simple-balance:databaseNode` is false, which builds no
+   * database node, no private subnet and no NAT gateway: the machine is what
+   * it is without them, and the operator writes a DATABASE_URL of their own
+   * into env.local, which firstboot waits for. That is the escape hatch for
+   * somebody who already keeps a PostgreSQL, and on AWS it is also how to
+   * avoid the NAT gateway's monthly charge.
+   */
+  database?: DatabaseSettings;
 }
+
+/**
+ * What a password may contain, and it is deliberately narrower than what
+ * PostgreSQL would accept.
+ *
+ * The value travels through a URL, a Compose `.env` file and a shell script
+ * before it reaches the server, and each of those has its own escape rules: `@`
+ * `:` `/` `?` `#` and `%` end a URL's userinfo, `$` is expanded by Compose and
+ * by sh, and a quote ends a string in both. Letters and digits pass all three
+ * untouched, which is why `random.RandomPassword` is asked for `special: false`
+ * and why an operator's own value is held to the same rule rather than
+ * percent-encoded on the way past — an encoding applied in one of those three
+ * places and not the others is a password that works until the nightly backup
+ * runs.
+ */
+const PASSWORD_CHARACTERS = /^[A-Za-z0-9]+$/;
+
+/** Short enough to brute-force is short enough to refuse. */
+const MIN_PASSWORD_LENGTH = 16;
 
 export function readSingleSettings(): SingleSettings {
   const cfg = new pulumi.Config("simple-balance");
@@ -153,6 +186,57 @@ export function readSingleSettings(): SingleSettings {
     );
   }
 
+  // On by default, and that is safe because no `single` stack has ever
+  // shipped: there is no deployment in the field for a new database node to
+  // appear underneath. The default is the shape the profile is for — a person
+  // who wants a ledger, not a person who wants to shop for a managed
+  // PostgreSQL first — and false is the escape hatch rather than the norm.
+  const databaseNode = cfg.getBoolean("databaseNode") ?? true;
+
+  // Defaulted to the application node's size rather than to `small`, so a stack
+  // that asked for `medium` and said nothing else gets a database that can keep
+  // up with the machine in front of it. Named separately because the two rarely
+  // want the same row for long.
+  const databaseSizeName = cfg.get("databaseSize") ?? sizeName;
+  const databaseSize = SIZES[databaseSizeName];
+  if (databaseNode && !databaseSize) {
+    throw new Error(
+      `simple-balance:databaseSize is "${databaseSizeName}"; it is one of ${Object.keys(SIZES).join(", ")}. ` +
+        "Unset it to size the database node the same as the application node.",
+    );
+  }
+
+  // Ten is the floor rather than one, because DATABASE_POOL_SIZE defaults to 10
+  // and a ceiling under the pool is a deployment that starts, serves a few
+  // requests and then refuses connections under the first import — a failure
+  // that looks like the application rather than like this number.
+  const databaseMaxConnections = cfg.getNumber("databaseMaxConnections") ?? 50;
+  if (!Number.isInteger(databaseMaxConnections) || databaseMaxConnections < 10) {
+    throw new Error(
+      `simple-balance:databaseMaxConnections is ${databaseMaxConnections}; it is a whole number ` +
+        "and at least 10, which is DATABASE_POOL_SIZE's own default.",
+    );
+  }
+
+  // Refused here rather than percent-encoded on the way into the URL, for the
+  // reason PASSWORD_CHARACTERS gives: the value passes through three escaping
+  // rules and an encoding that satisfies one of them breaks the other two.
+  const databasePassword = cfg.get("databasePassword") ?? "";
+  if (databasePassword && !PASSWORD_CHARACTERS.test(databasePassword)) {
+    throw new Error(
+      "simple-balance:databasePassword has a character outside A-Z a-z 0-9. It is carried in a " +
+        "connection string, a Compose .env file and a shell script, which escape differently, so " +
+        "the set is narrowed rather than encoded. Unset it and the program generates one: " +
+        "pulumi config rm simple-balance:databasePassword",
+    );
+  }
+  if (databasePassword && databasePassword.length < MIN_PASSWORD_LENGTH) {
+    throw new Error(
+      `simple-balance:databasePassword is ${databasePassword.length} characters; it is at least ` +
+        `${MIN_PASSWORD_LENGTH}. Unset it and the program generates 32.`,
+    );
+  }
+
   return {
     size,
     sizeName,
@@ -167,5 +251,13 @@ export function readSingleSettings(): SingleSettings {
     sshPublicKey,
     timezone: cfg.get("timezone") ?? "Etc/UTC",
     backupKeep,
+    database: databaseNode
+      ? {
+          size: databaseSize!,
+          sizeName: databaseSizeName,
+          maxConnections: databaseMaxConnections,
+          password: databasePassword,
+        }
+      : undefined,
   };
 }

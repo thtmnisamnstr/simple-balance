@@ -213,6 +213,32 @@ export const billingSweeps = new Counter({
   registers: [registry],
 });
 
+/**
+ * What the Stripe webhook did with each delivery it was handed.
+ *
+ * Beside the sweep's counter because the two answer the same operator question
+ * from the two ends, and only one of them could answer it: five of the route's
+ * exits reply `200 {"received":true}`, so `http_requests_total` — route, method
+ * and status — cannot tell a delivery that granted or revoked an entitlement
+ * from one that was acknowledged and ignored. `docs/deployment.md` therefore
+ * sent anybody asking "did the subscription path work?" to the *sweep*, which
+ * is the wrong instrument: the sweep is the twelve-hourly catch-up, so reading
+ * it as the answer reports a webhook that has been silently failing for hours
+ * as healthy right up to the tick that repairs it.
+ *
+ * `outcome` is a closed set the route enumerates and nothing else can widen. It
+ * names a branch, never a customer, an event id, an amount or an address, so
+ * the identity rule and the cardinality it also protects both hold: the series
+ * count is the branch count whatever arrives on the public URL, which is the
+ * one route an unauthenticated caller supplies the body of.
+ */
+export const billingWebhookDeliveries = new Counter({
+  name: `${prefix}billing_webhook_deliveries_total`,
+  help: "Stripe deliveries answered, by what the handler did with each.",
+  labelNames: ["outcome"] as const,
+  registers: [registry],
+});
+
 export const ledgerWrites = new Counter({
   name: `${prefix}ledger_writes_total`,
   help: "Writes that changed the books, by operation.",

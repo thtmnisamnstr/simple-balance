@@ -18,26 +18,36 @@ row into it during bootstrap — this adds the same thing for the application ro
 It cannot be done in Patroni's `post_init`: that hook runs before Patroni
 installs the Citus extension, so the table does not exist yet. Hence a Job.
 
-The application may briefly crash-loop if it reaches its first migration before
-this has run. That is the right failure — loud, self-healing on the next restart,
-and impossible to mistake for success.
+**Not a Helm hook, and that is the correction that makes the `ha` profile
+installable at all.** As a `post-install` hook this ran after Helm had finished
+waiting on the main resources — and what Helm waits for includes the API
+Deployment becoming ready, which needs the first migration, which needs this
+row. The two waited on each other until the Pulumi release's 900 seconds ran
+out, and the install failed with a cluster that was working and an application
+that could not use it.
+
+A plain release resource is created alongside everything else, so it makes
+progress while the API is still starting. The API may crash-loop once or twice
+in the meantime; that is the right failure — loud, self-healing on the next
+restart, and impossible to mistake for success. Helm waits for this Job to
+complete as well, so a release that reports success has really written the row.
+
+The release revision is in the name because a Job's pod template is immutable:
+`helm upgrade` cannot edit one in place, and the row has to be rewritten
+whenever the application password changes. A new name each revision is created
+and the previous one pruned, which is the same effect the hook's
+`before-hook-creation` policy had.
 */}}
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ include "simple-balance.databaseName" . }}-authinfo
+  name: {{ include "simple-balance.databaseName" . }}-authinfo-{{ .Release.Revision }}
   labels:
     {{- include "simple-balance.componentLabels" (dict "root" . "component" "database") | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
   annotations:
-    "helm.sh/hook": post-install,post-upgrade
-    # Re-run on upgrade, because the row has to be rewritten if the application
-    # password ever changes, and deleted first so a previous Job's completed pod
-    # does not block the new one.
-    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
-    "helm.sh/hook-weight": "5"
-    {{- with .Values.commonAnnotations }}
     {{- toYaml . | nindent 4 }}
-    {{- end }}
+  {{- end }}
 spec:
   backoffLimit: 6
   template:
@@ -68,6 +78,17 @@ spec:
           env:
             - name: PGHOST
               value: {{ include "simple-balance.databaseGroupName" (dict "root" . "group" 0) | quote }}
+            # This connection crosses a pod boundary, and `pg_hba` has no plain
+            # `host` line for anything that does. Named rather than left to
+            # libpq's `prefer`, which would fall back to plaintext if TLS were
+            # ever turned off and write a superuser password onto the wire
+            # without saying so. `verify-full`, because unlike Citus's
+            # node-to-node connections this one does address the coordinator by
+            # a name the certificate carries.
+            - name: PGSSLMODE
+              value: verify-full
+            - name: PGSSLROOTCERT
+              value: {{ include "simple-balance.databaseTlsDir" . }}/ca.crt
             - name: PGUSER
               value: {{ .Values.database.superuser.username | quote }}
             - name: PGDATABASE
@@ -111,4 +132,17 @@ spec:
               on conflict (nodeid, rolename) do update set authinfo = excluded.authinfo;
               SQL
               echo "pg_dist_authinfo carries a row for $SB_APP_USER on every node."
+          volumeMounts:
+            # Only the CA, and only to verify the coordinator with. The key and
+            # certificate in the same Secret belong to the database pods.
+            - name: tls
+              mountPath: {{ include "simple-balance.databaseTlsDir" . }}
+              readOnly: true
+      volumes:
+        - name: tls
+          secret:
+            secretName: {{ include "simple-balance.databaseSecretName" . }}
+            items:
+              - key: ca.crt
+                path: ca.crt
 {{- end }}

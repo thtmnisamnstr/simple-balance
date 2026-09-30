@@ -376,7 +376,19 @@ describe("changing which accounts are active", () => {
   it("refuses more than the plan keeps", () => {
     const refusal = change(four, ["a", "b", "c", "d"]);
     expect(refusal.ok).toBe(false);
-    if (!refusal.ok) expect(refusal.message).toContain("3");
+    if (!refusal.ok) {
+      // `reason` as a bare string and never a reference back to the union in
+      // `domain.ts`, or the assertion inherits whatever that file now says.
+      // It is the only thing `setActiveAccounts` branches on to choose which
+      // of two sentences an agent is handed, and "nothing-frozen" tells it to
+      // stop calling — which is the wrong move here, where the fix is to name
+      // fewer accounts.
+      expect(refusal.reason).toBe("over-limit");
+      // Drawn from the input rather than from the limit: `toContain("3")` is
+      // satisfied by the nothing-frozen message too, which also names 3, so it
+      // could not tell the two branches apart.
+      expect(refusal.message).toContain("this names 4");
+    }
   });
 
   it("refuses giving up an account in use to make room for another", () => {
@@ -385,7 +397,10 @@ describe("changing which accounts are active", () => {
     const chosen = four.map((entry) => ({ ...entry, active: entry.id !== "d" }));
     const refusal = change(chosen, ["a", "b", "d"]);
     expect(refusal.ok).toBe(false);
-    if (!refusal.ok) expect(refusal.message.toLowerCase()).toContain("stays active");
+    if (!refusal.ok) {
+      expect(refusal.reason).toBe("swap");
+      expect(refusal.message.toLowerCase()).toContain("stays active");
+    }
   });
 
   it("lets a frozen account into a place that has opened up", () => {
@@ -423,6 +438,31 @@ describe("changing which accounts are active", () => {
     // answer to the question being asked now.
     expect(activeChoicePending(MAX_FREE_ACCOUNTS, secondDowngrade)).toBe(true);
     expect(change(secondDowngrade, ["a", "b", "e"])).toEqual({ ok: true });
+  });
+
+  /**
+   * The wire contract at `domain.ts`' `activeChoicePending`: `active` is
+   * optional because a 0.1.x server sends no such field, and the column it
+   * stands for defaults to true. One `!== false` is the whole of it.
+   *
+   * Written without the `account()` helper on purpose — supplying an explicit
+   * `active: true` the way every other fixture here does is exactly what hides
+   * the branch, and makes `!== false` and a plain truthy read the same
+   * function under test.
+   */
+  it("reads an account with no `active` field as active, the way a 0.1.x server sends it", () => {
+    const noField: readonly { readonly active?: boolean }[] = [{}, {}, {}, {}];
+    // A truthy read counts these as not in use, which would answer false here
+    // and close the one free choice a downgrade owes the person: they would be
+    // left with whichever three the ordering picked and no way to say.
+    expect(activeChoicePending(3, noField), "four unmarked against three places").toBe(true);
+    // And not merely "a non-empty list is pending": at the limit it is settled.
+    expect(activeChoicePending(3, noField.slice(0, 3))).toBe(false);
+    // Mixed, because a partial answer is where an absent field really arrives.
+    expect(activeChoicePending(3, [{}, {}, {}, { active: false }])).toBe(false);
+    // Literal 3 rather than `MAX_FREE_ACCOUNTS`: the constant is not what is
+    // under test, and a limit of null is the other half of the contract.
+    expect(activeChoicePending(null, noField)).toBe(false);
   });
 
   it("does not reopen the choice when the paid spell opened nothing", () => {

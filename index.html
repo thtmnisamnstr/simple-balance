@@ -2,7 +2,13 @@
 <html lang="en-US">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- `minimum-scale=1` is Stripe.js's requirement, not decoration: the
+         Financial Connections flow the plan tab reaches through Link refuses to
+         lay itself out without it and says so in the console on every load. It
+         bounds zooming *out*, not in, so unlike `maximum-scale` or
+         `user-scalable=no` it costs nothing against WCAG 1.4.4 and leaves the
+         320px reflow alone. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1" />
     <!-- The page's own ground, so a phone's browser chrome matches the app
          rather than framing the page in a color it never uses. One per theme,
          because a single meta cannot answer for two, and `media` is what picks

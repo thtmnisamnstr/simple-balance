@@ -76,18 +76,61 @@ describe("reading the billing settings", () => {
     );
   });
 
-  it("refuses a product id where a price id belongs", () => {
-    // Stripe shows both on the same dashboard page and they differ by a prefix.
+  /**
+   * Every one of the five slots, each holding a value that is a perfectly good
+   * Stripe value belonging to a different slot.
+   *
+   * That is the mistake an operator actually makes: Stripe prints all of these
+   * on adjacent dashboard pages, so a paste from the neighbour is far likelier
+   * than a typo, and a same-mode paste is invisible to every other check in
+   * this function. `stripeMode` reads a `sk_test_…` sitting in the publishable
+   * slot as "test" beside a `sk_test_…` secret, so the mismatch refusal below
+   * sees no mismatch at all; it reads `whsec_…` as nothing, which that refusal
+   * is deliberately written to ignore. This loop is the only thing refusing
+   * either, and the price rows are the only two with a second guard anywhere
+   * (`planPriceProblems`, which asks Stripe whether the price exists).
+   *
+   * Matched from the start of the message rather than by the name alone: the
+   * half-configured refusal above ends by listing all five names, so a bare
+   * /NAME/ matches that message too and would pass while the wrong variable
+   * was blamed. It is the trap the case above already works around.
+   *
+   * The loop runs before the live/test comparison, which is what lets a
+   * same-mode substitute be refused here rather than for the wrong reason, and
+   * the fixture is otherwise valid, so only the substituted slot can trip it.
+   */
+  it.each([
+    // The publishable key pasted into the secret slot: nothing can charge.
+    ["STRIPE_SECRET_KEY", "pk_test_example"],
+    // The worst of the six, and the reason this row is not cosmetic. The
+    // publishable key is copied into the /api/v1/billing response and handed
+    // to loadStripe() by the plan tab, so a secret key here is a secret key
+    // delivered to every browser that opens it.
+    ["STRIPE_PUBLISHABLE_KEY", "sk_test_example"],
+    ["STRIPE_PUBLISHABLE_KEY", "whsec_example"],
+    ["STRIPE_WEBHOOK_SECRET", "sk_test_example"],
+    // Stripe shows a product and its price on one page, differing by a prefix.
     // Left to fail at runtime it fails at somebody's first upgrade attempt.
-    expect(() =>
-      parseBillingSettings({ ...stripe, STRIPE_PRICE_MONTHLY_ID: "prod_notaprice" }, true),
-    ).toThrow(/STRIPE_PRICE_MONTHLY_ID/);
+    ["STRIPE_PRICE_MONTHLY_ID", "prod_notaprice"],
+    ["STRIPE_PRICE_YEARLY_ID", "sk_test_example"],
+  ] as const)("refuses %s holding %s, which belongs in another slot", (name, value) => {
+    expect(() => parseBillingSettings({ ...stripe, [name]: value }, true)).toThrow(
+      new RegExp(`^${name} does not look like a Stripe value`),
+    );
   });
 
   it("refuses a live key beside a test one, in either direction", () => {
     expect(() =>
       parseBillingSettings({ ...stripe, STRIPE_SECRET_KEY: "sk_live_example" }, true),
     ).toThrow(/live key and STRIPE_PUBLISHABLE_KEY is a test key/);
+    // The other direction, and the one the title has been claiming. A test
+    // secret key beside a live publishable key lets the browser tokenize a
+    // real card against a server that cannot charge it: the sale looks made
+    // from every side except Stripe's. Asserted against the message's own
+    // asymmetric half, so the sk_live + pk_test case above cannot satisfy it.
+    expect(() =>
+      parseBillingSettings({ ...stripe, STRIPE_PUBLISHABLE_KEY: "pk_live_example" }, true),
+    ).toThrow(/test key and STRIPE_PUBLISHABLE_KEY is a live key/);
     expect(() =>
       parseBillingSettings(
         { ...stripe, STRIPE_SECRET_KEY: "sk_live_x", STRIPE_PUBLISHABLE_KEY: "pk_live_x" },
@@ -172,8 +215,40 @@ describe("reading the ad settings", () => {
   });
 
   it("refuses a slot id that is not a slot id", () => {
-    for (const bad of ["slot-1", "1a", ""]) {
-      expect(() => parseAdSettings({ ...ads, ADSENSE_BANNER_SLOT_ID: bad })).toThrow();
+    // Asserted against the slot-id sentence rather than with a bare toThrow():
+    // this one call site can raise three different refusals, and "something
+    // threw" passes for whichever of them fires, including the one about a
+    // setting being absent rather than malformed.
+    //
+    // "987654321a" and "9876 54321" are the cases a length check alone lets
+    // through — ten characters, one of them not a digit — and they are the
+    // mistake that starts cleanly and then earns nobody anything, which is
+    // exactly what the comment above the regex says the check exists to stop.
+    for (const bad of ["slot-1", "1a", "987654321a", "9876 54321"]) {
+      expect(() => parseAdSettings({ ...ads, ADSENSE_BANNER_SLOT_ID: bad }), bad).toThrow(
+        /ADSENSE_BANNER_SLOT_ID must be an ad unit's slot id, which is ten digits/,
+      );
+    }
+    // The footer goes through the same loop and is the half nothing watched.
+    // The message interpolates the name, so a check that only ever sees the
+    // banner cannot tell whether the footer is checked at all: dropping the
+    // footer from that loop left every assertion here passing.
+    expect(() => parseAdSettings({ ...ads, ADSENSE_FOOTER_SLOT_ID: "987654321a" })).toThrow(
+      /ADSENSE_FOOTER_SLOT_ID must be an ad unit's slot id, which is ten digits/,
+    );
+  });
+
+  it("reads a blank slot id as one that was never filled in", () => {
+    // `ADSENSE_BANNER_SLOT_ID=` in a .env file is an operator who has not
+    // finished, not one who typed a bad slot, so it trims to absent and earns
+    // the half-configured sentence. Asserted here rather than inside the
+    // malformed-slot loop above, where it was passing for the other refusal's
+    // reason and hiding that the loop had one fewer real case than it looked.
+    for (const blank of ["", "   "]) {
+      expect(
+        () => parseAdSettings({ ...ads, ADSENSE_BANNER_SLOT_ID: blank }),
+        JSON.stringify(blank),
+      ).toThrow(/ADSENSE_CLIENT_ID and ADSENSE_BANNER_SLOT_ID must be set together/);
     }
   });
 
@@ -190,8 +265,69 @@ describe("reading the ad settings", () => {
       expect(() => parseAdSettings({ ...ads, ADSENSE_CLIENT_ID: bad }), bad).toThrow(/sixteen/);
     }
     for (const bad of ["1", "987654321", "98765432101"]) {
-      expect(() => parseAdSettings({ ...ads, ADSENSE_BANNER_SLOT_ID: bad }), bad).toThrow(/ten/);
+      expect(() => parseAdSettings({ ...ads, ADSENSE_BANNER_SLOT_ID: bad }), bad).toThrow(
+        "ADSENSE_BANNER_SLOT_ID must be an ad unit's slot id, which is ten digits.",
+      );
     }
+    /*
+     * The footer goes through the same loop, and reaching its entry needs a
+     * valid banner beside it: a bad footer on its own exits at the "addition to
+     * the banner" refusal above, which is why this cannot be folded into that
+     * case and why the loop's second entry had nothing reaching it.
+     *
+     * Both halves match the message whole rather than /ten/, because the
+     * interpolated name is the only thing telling an operator which of the two
+     * ids to retype, and a check that accepted either name would pass a
+     * refusal that sent them to the wrong variable.
+     *
+     * Only lengths here. A ten-character footer with a letter in it is a shape
+     * failure and is asserted in the shape case above, so each of the two keeps
+     * to the half it is named for.
+     */
+    for (const bad of ["1", "987654321", "98765432101"]) {
+      expect(() => parseAdSettings({ ...ads, ADSENSE_FOOTER_SLOT_ID: bad }), bad).toThrow(
+        "ADSENSE_FOOTER_SLOT_ID must be an ad unit's slot id, which is ten digits.",
+      );
+    }
+  });
+
+  /**
+   * The consent flag, whose two directions fail differently.
+   *
+   * Off by mistake only costs money: every ad request then carries
+   * `requestNonPersonalizedAds`, which earns less and has no symptom an
+   * operator can see. On by mistake serves personalized ads to EEA, UK and
+   * Swiss visitors from a deployment that collected no consent, which Google
+   * suspends a publisher account for rather than simply not filling. Nothing in
+   * this process can check that a consent platform exists, so the value is an
+   * operator's assertion about the deployment and is read strictly: a typo
+   * stops the process instead of quietly asserting a platform that is not
+   * there.
+   */
+  it("refuses a consent flag that is not a boolean", () => {
+    // The empty string is in the list because `??` catches only `undefined`, so
+    // a compose file passing `${ADSENSE_CONSENT_MANAGED:-}` reaches the enum
+    // with one. Keeping that spelling out of the recipes this repository ships
+    // is `tests/env-example.test.ts`'s job, and this is the refusal it counts
+    // on for every deployment written by hand.
+    for (const bad of ["yes", "1", "on", ""])
+      expect(() => parseAdSettings({ ...ads, ADSENSE_CONSENT_MANAGED: bad }), bad).toThrow(
+        "ADSENSE_CONSENT_MANAGED must be true or false",
+      );
+  });
+
+  it("leaves consent unmanaged unless it is asked for, and takes it however it is spelled", () => {
+    // Unset is the safe answer rather than the profitable one: non-personalized
+    // ads, which Google serves to a deployment that has no consent platform at
+    // all.
+    expect(parseAdSettings(ads)?.consentManaged).toBe(false);
+    expect(parseAdSettings({ ...ads, ADSENSE_CONSENT_MANAGED: "false" })?.consentManaged).toBe(
+      false,
+    );
+    expect(parseAdSettings({ ...ads, ADSENSE_CONSENT_MANAGED: "true" })?.consentManaged).toBe(true);
+    // Case-folded, like the other booleans this file reads, so an operator who
+    // wrote the word the way a person writes it is not turned away by it.
+    expect(parseAdSettings({ ...ads, ADSENSE_CONSENT_MANAGED: "TRUE" })?.consentManaged).toBe(true);
   });
 });
 

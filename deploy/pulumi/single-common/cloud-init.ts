@@ -1,3 +1,4 @@
+import * as crypto from "crypto";
 import * as fs from "fs";
 import * as path from "path";
 import * as zlib from "zlib";
@@ -28,6 +29,17 @@ export interface Size {
   workMem: string;
   maintenanceWorkMem: string;
   maxWalSize: string;
+}
+
+/**
+ * What the database node's render reads. `./index.ts` reads them from the
+ * stack, and `password` empty is what makes the program generate one.
+ */
+export interface DatabaseSettings {
+  size: Size;
+  sizeName: string;
+  maxConnections: number;
+  password: string;
 }
 
 /** What the render reads from a stack's settings. `./index.ts` reads them. */
@@ -62,6 +74,33 @@ export interface CloudInitArgs {
    * machine that answers SSH and times out on the web. AWS needs nothing here.
    */
   platformCommands?: string[];
+  /**
+   * The database node this stack built, when it built one.
+   *
+   * Absent is `simple-balance:databaseNode: false`, and then the machine is
+   * exactly what it was before this profile grew a second node: no env.db, no
+   * CA on the boot disk, and firstboot's `grep -q '^DATABASE_URL=..*'` gate
+   * stopping the deployment until an operator writes a URL of their own into
+   * env.local. That gate is untouched by any of this; with a database node it
+   * simply never fires, because cloud-init supplied one.
+   */
+  database?: ApplicationDatabase;
+}
+
+/** What the application node is told about the database node. */
+export interface ApplicationDatabase {
+  /**
+   * The whole connection string, built by the program because the password is
+   * a Pulumi output and this module is deliberately Pulumi-free. `databaseUrl`
+   * below is the one place its shape is decided.
+   */
+  url: string;
+  /**
+   * The CA certificate in PEM, which is public: a CA certificate is what a
+   * server hands every client that asks. It is the server's private key that
+   * must not be in this document, and it is not.
+   */
+  caCertificate: string;
 }
 
 // ------------------------------------------------------------ comments ---
@@ -76,7 +115,7 @@ export interface CloudInitArgs {
  * it is, because a copy that is a few hundred bytes longer is a better failure
  * than a script that means something different on the machine.
  */
-export type CommentSyntax = "shell" | "yaml" | "systemd" | "caddyfile";
+export type CommentSyntax = "shell" | "yaml" | "systemd" | "caddyfile" | "hash";
 
 /**
  * The file with its whole-line comments removed, or unchanged where that is
@@ -106,7 +145,27 @@ function removableLines(lines: string[], syntax: CommentSyntax): Set<number> | n
       return systemdComments(lines);
     case "caddyfile":
       return caddyfileComments(lines);
+    case "hash":
+      return hashComments(lines);
   }
+}
+
+/**
+ * A line-oriented file whose only structure is `#`: pg_hba.conf, which is the
+ * one the database node sends.
+ *
+ * The simplest reader here, and it is simple because the format is. A
+ * pg_hba.conf record is one line, there is no quoting that spans lines, no
+ * heredoc and no continuation — PostgreSQL's own parser reads a `#` as the
+ * start of a comment wherever it appears and ends the record at the newline.
+ * So a line whose first non-blank character is `#` is a comment, always, and
+ * nothing can make it content. Nothing is ever refused, which is why this
+ * returns a set rather than null.
+ */
+function hashComments(lines: string[]): Set<number> {
+  const removable = new Set<number>();
+  for (const [index, line] of lines.entries()) if (isCommentLine(line)) removable.add(index);
+  return removable;
 }
 
 const isCommentLine = (line: string) => line.trimStart().startsWith("#");
@@ -364,17 +423,37 @@ export function repoFile(relative: string): string {
   return fs.readFileSync(file, "utf8");
 }
 
-/**
- * Every repository file the machine receives, where it goes, and how it
- * comments. One list, so the render and the test that checks each stripped
- * file still parses cannot disagree about which files there are.
- */
-export const EMBEDDED_FILES: readonly {
+/** One repository file on its way to a machine. */
+export interface EmbeddedFile {
   source: string;
   target: string;
   permissions: string;
   syntax: CommentSyntax;
-}[] = [
+}
+
+/**
+ * Every repository file the application node receives, where it goes, and how
+ * it comments. One list, so the render and the test that checks each stripped
+ * file still parses cannot disagree about which files there are.
+ *
+ * Split from `DATABASE_FILES` rather than sent to both machines, and the reason
+ * is not tidiness: each document is measured against the provider's cap on its
+ * own, and a database node carrying the Caddyfile, the backup script and the
+ * restore script would be paying for three files it has no service to run. The
+ * split is also what makes "the server key is in one document and not the
+ * other" a thing a test can check rather than a thing somebody remembers.
+ */
+export const APP_FILES: readonly EmbeddedFile[] = [
+  {
+    // Both machines get it. On the database machine DATABASE_URL is unset, so
+    // it waits for nothing and exits immediately; shipping it to one machine
+    // only would make the unit's ExecStartPre a file that exists on one host
+    // and not the other, which is a start failure rather than a no-op.
+    source: "deploy/systemd/simple-balance-waitdb",
+    target: "/usr/local/sbin/simple-balance-waitdb",
+    permissions: "0755",
+    syntax: "shell",
+  },
   {
     source: "deploy/compose/single/compose.yml",
     target: "/opt/simple-balance/compose.yml",
@@ -444,6 +523,85 @@ export const EMBEDDED_FILES: readonly {
 ];
 
 /**
+ * Every repository file the database node receives.
+ *
+ * Five files and no more, because that machine runs one service. It does not
+ * get the backup or the restore script: the backups are taken from the
+ * application node over the network onto its protected data volume, which is
+ * what keeps `simple-balance-backup`'s "is postgres a service in this project"
+ * branch answering the same thing it answers today. Nor the env drop-in, since
+ * nothing on this machine folds an env.local — there is no setting a person
+ * adds to a database node by hand that is not already in the compose file.
+ *
+ * The unit is the same `simple-balance.service` the application node runs, with
+ * a different COMPOSE_FILE in /etc/default. That is the whole of the
+ * difference, and it is deliberate: one unit means one place where the start
+ * order, the `--wait`, and the six-hundred-second start timeout are decided.
+ */
+export const DATABASE_FILES: readonly EmbeddedFile[] = [
+  {
+    // Both machines get it. On the database machine DATABASE_URL is unset, so
+    // it waits for nothing and exits immediately; shipping it to one machine
+    // only would make the unit's ExecStartPre a file that exists on one host
+    // and not the other, which is a start failure rather than a no-op.
+    source: "deploy/systemd/simple-balance-waitdb",
+    target: "/usr/local/sbin/simple-balance-waitdb",
+    permissions: "0755",
+    syntax: "shell",
+  },
+  {
+    source: "deploy/compose/single/compose.postgres.yml",
+    target: "/opt/simple-balance/compose.postgres.yml",
+    permissions: "0644",
+    syntax: "yaml",
+  },
+  {
+    // Mounted as PostgreSQL's `hba_file` rather than left to the image, which
+    // generates `host ... scram-sha-256` lines that accept a connection with no
+    // TLS at all. A file this repository owns is what makes `hostssl` the only
+    // way in, so the encryption is enforced by the server rather than requested
+    // by the client.
+    source: "deploy/compose/single/pg_hba.conf",
+    target: "/opt/simple-balance/pg_hba.conf",
+    permissions: "0644",
+    syntax: "hash",
+  },
+  {
+    // Beside the compose file and under this name, because that is the bind
+    // source compose.postgres.yml names; the entrypoint sees it at
+    // /docker-entrypoint-initdb.d/10-application-role.sh, which is where the
+    // number that fixes its order lives.
+    source: "deploy/compose/single/db-init.sh",
+    target: "/opt/simple-balance/db-init.sh",
+    permissions: "0755",
+    syntax: "shell",
+  },
+  {
+    source: "deploy/systemd/simple-balance.service",
+    target: "/etc/systemd/system/simple-balance.service",
+    permissions: "0644",
+    syntax: "systemd",
+  },
+  {
+    // The same fold as the application node, and it has to be the same file:
+    // simple-balance-db-firstboot runs it to build this machine's .env from
+    // env.base, env.db and the superuser password it has just generated. A
+    // second copy here would be a second place the precedence order — the one
+    // that keeps env.local winning — could quietly differ.
+    source: "deploy/systemd/simple-balance-env",
+    target: "/usr/local/sbin/simple-balance-env",
+    permissions: "0700",
+    syntax: "shell",
+  },
+  {
+    source: "deploy/systemd/simple-balance-db-firstboot",
+    target: "/usr/local/sbin/simple-balance-db-firstboot",
+    permissions: "0700",
+    syntax: "shell",
+  },
+];
+
+/**
  * The only line of the compose file a stack changes: which image to run.
  *
  * Matched rather than assumed, and refused when it is missing. The compose file
@@ -463,6 +621,125 @@ function composeWithImage(compose: string, image: string): string {
   return compose.replace(PINNED_IMAGE, `image: ${image}`);
 }
 
+/** The files of one list, as a cloud-config `write_files` fragment. */
+function writeFiles(
+  files: readonly EmbeddedFile[],
+  transform: (file: EmbeddedFile, text: string) => string,
+): string {
+  return files
+    .map((file) => {
+      const text = transform(file, repoFile(file.source));
+      return `  - path: ${file.target}
+    permissions: "${file.permissions}"
+    content: |
+${block(stripComments(text, file.syntax), 6)}`;
+    })
+    .join("\n\n");
+}
+
+/** One generated file, in the same shape as an embedded one. */
+function generatedFile(target: string, permissions: string, contents: string): string {
+  return `  - path: ${target}
+    permissions: "${permissions}"
+    content: |
+${block(contents, 6)}`;
+}
+
+// ------------------------------------------------------------ database ---
+
+/**
+ * The role, the database and the port, which are the same on every stack.
+ *
+ * Not settings, and that is the point: they appear in the connection string,
+ * in pg_hba.conf, in db-init.sh and in the backup script's `psql`, and a name
+ * that can differ is a name four files have to agree about. `simple_balance`
+ * rather than `postgres` because the application is not a superuser: the
+ * entrypoint creates the database as `postgres` and db-init.sh hands it over,
+ * so a SQL injection that got as far as the driver still cannot read
+ * `pg_authid` or write outside this database.
+ */
+export const DATABASE_ROLE = "simple_balance";
+export const DATABASE_NAME = "simple_balance";
+export const DATABASE_PORT = 5432;
+
+/**
+ * Where the CA certificate is on the application node, and it is one path on
+ * purpose.
+ *
+ * It is the host path firstboot creates on the data volume, the container path
+ * compose.db-tls.yml mounts it at, and the `sslrootcert` in the URL. Those are
+ * three readers of one string: mount it anywhere else and the application
+ * verifies against a file the backup cannot see, or the other way round, and
+ * the nightly dump is what finds out.
+ */
+export const APPLICATION_CA_PATH = "/var/lib/simple-balance/tls/db-ca.pem";
+
+/**
+ * Where cloud-init leaves the CA before firstboot installs it.
+ *
+ * On the boot disk, and that is forced rather than chosen: `write_files` runs
+ * before firstboot mounts the data volume, so anything written under
+ * /var/lib/simple-balance would be shadowed the moment the mount happened and
+ * the application would look at an empty directory. firstboot copies it across
+ * after the mount, and only when the destination is absent, so a CA an
+ * operator installed by hand survives a machine being rebuilt.
+ */
+export const STAGED_CA_PATH = "/opt/simple-balance/db-ca.pem";
+
+/** Where the database node keeps the certificate it presents. */
+export const SERVER_CERTIFICATE_PATH = "/opt/simple-balance/db-tls/server.crt";
+export const SERVER_KEY_PATH = "/opt/simple-balance/db-tls/server.key";
+
+/**
+ * The connection string, and the one place its shape is decided.
+ *
+ * `sslmode=verify-full`, not `require`, and the difference is the whole point
+ * of the certificate above it. pg-connection-string returns `ssl: {}` for both
+ * spellings, so node-postgres applies Node's defaults either way and verifies
+ * the chain — but `verify-full` is also what `psql`, `pg_dump` and
+ * `simple-balance-restore` read, and for libpq `require` checks nothing at all.
+ * One string is read by two client libraries with different defaults, so it
+ * says what it means.
+ *
+ * `sslrootcert` names a file rather than leaning on the system trust store,
+ * because this CA is in no system trust store and putting it in one would mean
+ * trusting it for every TLS connection the machine makes rather than for this
+ * one.
+ */
+/**
+ * The host is always a DNS name and never an address, whatever the caller has
+ * to hand.
+ *
+ * node-postgres sets the TLS `servername` only for a host `net.isIP` calls 0,
+ * so an address here sends no SNI and Node verifies against the literal string
+ * `localhost`, which no certificate this program issues names. The failure is
+ * `Hostname/IP does not match certificate's altnames` at the first connection,
+ * after `pulumi up` has reported success. libpq is the other way round and
+ * verifies an IP SAN quite happily, which is why the backup scripts can dial
+ * the address and the application cannot — so the asymmetry is real, and it
+ * cuts against the one client that matters most.
+ */
+function requireDnsName(host: string): string {
+  if (/^[\d.]+$/.test(host) || host.includes(":")) {
+    throw new Error(
+      `DATABASE_URL would name ${host}, which is an address rather than a DNS name. ` +
+        "node-postgres sends no SNI for an address and then verifies the certificate against " +
+        '"localhost", so sslmode=verify-full fails at the first connection whatever subject ' +
+        "alternative names the certificate carries. Use the provider's internal DNS name for the " +
+        "database node — `databaseHost` in each program's platform.ts builds it.",
+    );
+  }
+  return host;
+}
+
+export function databaseUrl(host: string, password: string): string {
+  requireDnsName(host);
+  return (
+    `postgresql://${DATABASE_ROLE}:${password}@${host}:${DATABASE_PORT}/${DATABASE_NAME}` +
+    `?sslmode=verify-full&sslrootcert=${APPLICATION_CA_PATH}`
+  );
+}
+
 // ---------------------------------------------------------- the render ---
 
 /**
@@ -473,12 +750,20 @@ function composeWithImage(compose: string, image: string): string {
  * deployment and a change to it reaches the cloud programs without anybody
  * remembering to copy it.
  *
- * No secret appears in this text, and that is a deliberate design rather than
- * an omission. AUTH_SECRET is generated on the machine at first boot and kept on
- * the data volume, so it never enters user data — which is readable by anyone
- * who can describe the instance — and never enters Pulumi's state file either.
- * Nothing outside the machine needs to know it. The settings that genuinely come
- * from outside — DATABASE_URL, an SMTP password, a Stripe key — are added to
+ * One secret appears in this text and exactly one: the application role's
+ * password, inside DATABASE_URL, and only when this stack built the database
+ * node. It has to be here, because it is the one credential that has to reach
+ * this machine before anybody logs in, and it is the least dangerous one to
+ * carry: it grants exactly one role on one database on a machine with no
+ * public address, reachable only from this instance's security group.
+ *
+ * Everything else is deliberately absent. AUTH_SECRET is generated on the
+ * machine at first boot and kept on the data volume, so it never enters user
+ * data — which is readable by anyone who can describe the instance — and never
+ * enters Pulumi's state file either. The database's superuser password is
+ * generated on the database node and never leaves it. The CA's private key
+ * exists only in Pulumi's state. The settings that genuinely come from outside
+ * — an SMTP password, a Stripe key — are added to
  * /var/lib/simple-balance/env.local afterward; the README says so, because
  * putting them here would undo the whole point.
  *
@@ -494,18 +779,22 @@ function composeWithImage(compose: string, image: string): string {
  *   folds env.local into it, so without the drop-in a restart re-read the old
  *   file and a new setting silently did nothing. It is written here, for the
  *   machines these programs build, and not into the shared unit: that unit also
- *   serves the hand-installed `single` and `vps` profiles, whose .env is written
+ *   serves a hand-installed `single` profile, whose .env is written
  *   by hand and has no env.base to be assembled from. RequiresMountsFor because
  *   fstab mounts the data volume `nofail`, and at boot the fold would otherwise
  *   race the mount and find no secrets.env.
- * - env.base has no DATABASE_URL, and its absence is the design rather than an
- *   omission. This profile's database is somebody else's, so the connection
- *   string carries a password, and everything here arrives as user data. It
- *   goes in env.local by hand, the way an SMTP password or a Stripe key does;
- *   firstboot leaves the deployment enabled-but-stopped and says so until it is
- *   there. Nor are there POSTGRES_* tuning settings: nothing on the machine
- *   reads them, and docs/deployment-sizing.md has the numbers to set on
- *   whichever PostgreSQL this is pointed at.
+ * - DATABASE_URL is in env.db and not in env.base, and the split is what keeps a
+ *   hand-written setting winning. simple-balance-env folds env.base, then
+ *   env.db, then secrets.env, then env.local, and the last file to name a
+ *   variable is the one Compose reads — so an operator who points this machine
+ *   at a database of their own by writing DATABASE_URL into env.local still gets
+ *   theirs, with nothing to turn off first. env.base is 0644 and holds nothing
+ *   secret; env.db is 0600 and holds one line. With no database node there is no
+ *   env.db at all, and firstboot's gate leaves the deployment
+ *   enabled-but-stopped until somebody writes one.
+ * - There are no POSTGRES_* tuning settings here. They belong to the database
+ *   node, whose own render applies them as `-c` flags on the server; nothing on
+ *   this machine would read them.
  * - COMPOSE_FILE names compose.db-tls.yml, which mounts the directory the
  *   database's CA certificate goes in, and a hand install does not unless it
  *   asks. The mount needs its directory to exist before anything starts, and
@@ -514,19 +803,21 @@ function composeWithImage(compose: string, image: string): string {
  *   starting at all.
  */
 export function cloudInit(args: CloudInitArgs): string {
-  const { settings, dataDevice } = args;
+  const { settings, dataDevice, database } = args;
   const image = `${settings.imageRepository}:${settings.imageTag}`;
 
-  const files = EMBEDDED_FILES.map((file) => {
-    const original = repoFile(file.source);
-    const text = file.source.endsWith("/compose.yml")
-      ? composeWithImage(original, image)
-      : original;
-    return `  - path: ${file.target}
-    permissions: "${file.permissions}"
-    content: |
-${block(stripComments(text, file.syntax), 6)}`;
-  }).join("\n\n");
+  const files = writeFiles(APP_FILES, (file, text) =>
+    file.source.endsWith("/compose.yml") ? composeWithImage(text, image) : text,
+  );
+
+  // Two files and neither is optional-looking: without the CA the URL below
+  // names a file that is not there and every connection fails verification,
+  // and without the URL firstboot stops the deployment and writes /etc/motd.
+  // So they are written together or not at all.
+  const databaseFiles = database
+    ? `\n\n${generatedFile(STAGED_CA_PATH, "0644", database.caCertificate)}\n
+${generatedFile("/opt/simple-balance/env.db", "0600", `DATABASE_URL=${database.url}\n`)}`
+    : "";
 
   return `#cloud-config
 # Generated by deploy/pulumi/single-common and applied once, when this machine
@@ -553,7 +844,7 @@ packages:
   - unattended-upgrades
 
 write_files:
-${files}
+${files}${databaseFiles}
 
   - path: /etc/systemd/system/simple-balance.service.d/env.conf
     permissions: "0644"
@@ -588,6 +879,205 @@ ${(args.platformCommands ?? []).map((command) => `  - ${command}`).join("\n")}
   - [/usr/local/sbin/simple-balance-firstboot]
 `;
 }
+
+/** What the database node's cloud-init needs that the stack cannot state. */
+export interface DatabaseCloudInitArgs {
+  /** The application node's settings, read only for the timezone. */
+  settings: MachineSettings;
+  database: DatabaseSettings;
+  dataDevice: string;
+  /**
+   * This machine's own private address, which the compose file publishes
+   * PostgreSQL on and nowhere else. Known here because the program pins it —
+   * it has to, since the certificate's SAN is decided before the machine
+   * exists.
+   */
+  bindAddress: string;
+  /**
+   * The application node's subnet, which db-firstboot writes into pg_hba's one
+   * network line in place of `all`. The third line of defence, after the
+   * provider's firewall and the bound address, and the only one of the three
+   * the database itself enforces.
+   */
+  applicationCidr: string;
+  /**
+   * The application role's password, resolved: the stack's own, or the one the
+   * program generated. This is the value the other machine's DATABASE_URL
+   * carries, and the two are written from one source for that reason.
+   */
+  applicationPassword: string;
+  serverCertificate: string;
+  serverKey: string;
+  platformCommands?: string[];
+}
+
+/**
+ * The whole of the database node's configuration, as cloud-init.
+ *
+ * A second render rather than a flag on the first, and the reason is that
+ * almost nothing is shared: this machine runs one service, has no Caddy, no
+ * ACME, no backup timer and no env.local anybody edits, and it is measured
+ * against the provider's cap on its own. A single render with branches would
+ * be a document whose size depended on a boolean, which is exactly the thing
+ * `tests/cloud-init.test.ts` measures and the thing a provider refuses late.
+ *
+ * Two secrets are in this text and both have to be: the server's private key,
+ * because PostgreSQL cannot present a certificate without one and this machine
+ * has no other way to receive it, and the application role's password, because
+ * only the program can decide a value both machines agree on. Neither is the
+ * dangerous one. The superuser password is generated by
+ * simple-balance-db-firstboot on this machine and exists nowhere else, and the
+ * CA's private key is in Pulumi's state and in neither document — so nobody
+ * holding this user data can mint a certificate for this database or sign in
+ * as the cluster's owner.
+ *
+ * The certificate and the key stay on the boot disk and are bind-mounted
+ * read-only. Nothing copies them to the data volume, because a rebuild is
+ * handed them again; the volume holds the cluster and the superuser password,
+ * which a rebuild is not handed and must not lose.
+ *
+ * It gets the same drop-in the application node does, and `RequiresMountsFor`
+ * is the half that matters here. fstab mounts the data volume `nofail`, so
+ * without it systemd is free to start the deployment first — and the compose
+ * file's PGDATA bind has `create_host_path: false` precisely so that a missing
+ * directory is a refusal rather than an empty one on the boot disk that a brand
+ * new empty cluster is initialised into. The ordering is what stops the
+ * question being asked; the refusal is what makes the wrong answer loud. The
+ * `ExecStartPre` comes with it because `simple-balance-env` reads the
+ * superuser password off that same volume, so a start that raced the mount
+ * would fold a .env without it and hand the container nothing.
+ *
+ * Its header is exactly as many lines as the application node's, and that is a
+ * constraint rather than a coincidence: both programs' last step tells an
+ * operator to read the header with one `head -16`, and two machines whose
+ * headers were different lengths would need two instructions or one that cut
+ * the longer short. `tests/cloud-init.test.ts` holds them equal, so a paragraph
+ * added to either is a line taken out of it or a number changed in three
+ * places on purpose.
+ */
+export function databaseCloudInit(args: DatabaseCloudInitArgs): string {
+  const { settings, database, dataDevice, bindAddress, applicationCidr } = args;
+  const size = database.size;
+
+  const files = writeFiles(DATABASE_FILES, (_file, text) => text);
+
+  return `#cloud-config
+# Generated by deploy/pulumi/single-common and applied once, when this database
+# machine first booted. The files below are the repository's own, from
+# deploy/compose/single and deploy/systemd, with their comment lines left out
+# to fit the provider's limit on user data; the commented originals are there.
+#
+# This machine has no public address. It answers 5432 to the application
+# machine and nothing else; a shell on it comes from the provider's own agent —
+# Session Manager on AWS, a Bastion on Oracle Cloud — which opens no port.
+#
+# A later \`pulumi up\` neither re-runs this nor replaces the machine when it
+# changes. So apply a change here, not there:
+#   a PostgreSQL setting     edit /opt/simple-balance/env.base, then
+#                            sudo /usr/local/sbin/simple-balance-db-firstboot
+#   the certificate          replace /opt/simple-balance/db-tls/server.crt and
+#                            its .key, then run that same script.
+timezone: ${settings.timezone}
+
+package_update: true
+packages:
+  - docker.io
+  - docker-compose-v2
+  - unattended-upgrades
+
+write_files:
+${files}
+
+  - path: /etc/systemd/system/simple-balance.service.d/env.conf
+    permissions: "0644"
+    content: |
+      [Unit]
+      RequiresMountsFor=/var/lib/simple-balance
+
+      [Service]
+      ExecStartPre=/usr/local/sbin/simple-balance-env
+
+${generatedFile(SERVER_CERTIFICATE_PATH, "0644", args.serverCertificate)}
+
+${generatedFile(SERVER_KEY_PATH, "0600", args.serverKey)}
+
+  - path: /etc/default/simple-balance
+    permissions: "0644"
+    content: |
+      COMPOSE_FILE=compose.postgres.yml
+      SB_DATA_DEVICE=${dataDevice}
+      SB_APP_CIDR=${applicationCidr}
+
+  - path: /opt/simple-balance/env.base
+    permissions: "0644"
+    content: |
+      SB_BIND_ADDRESS=${bindAddress}
+      POSTGRES_SHARED_BUFFERS=${size.sharedBuffers}
+      POSTGRES_EFFECTIVE_CACHE_SIZE=${size.effectiveCacheSize}
+      POSTGRES_WORK_MEM=${size.workMem}
+      POSTGRES_MAINTENANCE_WORK_MEM=${size.maintenanceWorkMem}
+      POSTGRES_MAX_WAL_SIZE=${size.maxWalSize}
+      POSTGRES_MAX_CONNECTIONS=${database.maxConnections}
+
+${generatedFile("/opt/simple-balance/env.db", "0600", `POSTGRES_APP_PASSWORD=${args.applicationPassword}\n`)}
+
+runcmd:
+${(args.platformCommands ?? []).map((command) => `  - ${command}`).join("\n")}
+  - [/usr/local/sbin/simple-balance-db-firstboot]
+`;
+}
+
+// -------------------------------------------------------- measuring it ---
+
+/**
+ * Stand-ins for the three values that only exist once Pulumi has run, so that
+ * both programs can measure their documents against the provider's cap at
+ * `pulumi preview` rather than at the launch that fails.
+ *
+ * The password is generated by `random.RandomPassword` and the two PEMs by
+ * `@pulumi/tls`, and all three are Pulumi outputs: their real text is not known
+ * until the deployment is under way, by which time the network and the disks
+ * have been built around a machine the provider is about to refuse. So the
+ * check runs twice — here with these, and again inside the apply with the real
+ * values, where it is a last resort rather than the first line.
+ *
+ * Deliberately *larger* than the real thing, so the early check is
+ * conservative: a P-256 certificate is around 700 bytes of PEM and its key
+ * around 240, against the 1,024 and 512 below. A stand-in that undershot would
+ * pass here and fail there, which is the failure this exists to move.
+ *
+ * And deliberately incompressible, which is the part that is easy to get
+ * wrong. The document is measured after gzip, and a thousand bytes of `A`
+ * compress to nothing at all — a filler made that way would measure as zero and
+ * the check would silently stop meaning anything. A chain of SHA-256 digests
+ * has no structure to compress and, unlike random bytes, is the same on every
+ * render, which is what lets the test suite compare two renders for equality.
+ */
+function incompressible(bytes: number): string {
+  const chunks: Buffer[] = [];
+  let digest = crypto.createHash("sha256").update("simple-balance size check").digest();
+  for (let size = 0; size < bytes; size += digest.length) {
+    chunks.push(digest);
+    digest = crypto.createHash("sha256").update(digest).digest();
+  }
+  return Buffer.concat(chunks).subarray(0, bytes).toString("base64");
+}
+
+/** A PEM of a given size, in the shape `write_files` will carry. */
+function pemStandIn(label: string, bytes: number): string {
+  // 64 characters to the line, which is what every PEM encoder emits and what
+  // decides how many newlines the document carries.
+  const body = incompressible(bytes)
+    .match(/.{1,64}/g)!
+    .join("\n");
+  return `-----BEGIN ${label}-----\n${body}\n-----END ${label}-----\n`;
+}
+
+/** As long as the longest `random.RandomPassword` this profile asks for. */
+export const PLACEHOLDER_PASSWORD = "0".repeat(32);
+
+export const PLACEHOLDER_CERTIFICATE = pemStandIn("CERTIFICATE", 1024);
+export const PLACEHOLDER_KEY = pemStandIn("PRIVATE KEY", 512);
 
 // ------------------------------------------------------------- sending ---
 

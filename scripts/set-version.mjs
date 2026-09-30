@@ -146,15 +146,20 @@ function rewriteEvery(relative, pattern, replacement, describe) {
 // list went stale exactly once — the `single` profile added two more and nothing
 // noticed, because both checks walked a hardcoded pair.
 //
-// And written out in every one of them. The `vps` files pinned
-// `${SB_VERSION:-0.1.6}`, which neither this pattern nor the sweep could see, so
-// they sat outside both and a cut would have left that profile pulling the
-// release before; the sweep now refuses that spelling outright.
+// And written out in every one of them, rather than as `${SB_VERSION:-0.1.6}`
+// or any other indirection: the deleted `vps` files pinned their images that
+// way, which neither this pattern nor the sweep could see, so they sat outside
+// both and a cut would have left that profile pulling the release before. The
+// sweep refuses that spelling outright now, and those two files are gone with
+// the profile.
+//
+// `deploy/compose/single/compose.postgres.yml` is deliberately not here. The
+// database machine runs `postgres:18`, which is somebody else's image on
+// somebody else's release cycle, so it carries no tag of ours to rewrite and
+// `rewriteEvery` would exit 1 finding none.
 for (const relative of [
   "deploy/compose/compose.distributed.yml",
   "deploy/compose/single/compose.yml",
-  "deploy/compose/vps/compose.app.yml",
-  "deploy/compose/vps/compose.frontend.yml",
   "deploy/pulumi/README.md",
   "deploy/pulumi/single-common/index.ts",
 ]) {

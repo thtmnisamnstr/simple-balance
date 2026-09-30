@@ -1,15 +1,48 @@
-# The `single` profile as a systemd unit, so the machine brings the deployment
-# up in the right order after a reboot and an operator has one place to start
-# and stop it.
+# The `single` profile as a systemd unit, so a machine brings its half of the
+# deployment up in the right order after a reboot and an operator has one place
+# to start and stop it.
+#
+# One unit for both machines, because what it does — bring this directory's
+# Compose project up and wait for it — is the same on each. What differs is
+# COMPOSE_FILE in /etc/default/simple-balance, and that is the only thing that
+# has to differ.
+#
+# Both lists install simple-balance-waitdb, and it is the one line in them that
+# looks optional and is not: ExecStartPre below names it with no `-` prefix, so
+# systemd fails the unit with 203/EXEC when it is absent rather than skipping
+# it. A `-` would be the wrong repair — it would silently skip the wait on a
+# cloud machine where the file failed to land, which is the machine that needs
+# it. The database machine installs it too: it has no DATABASE_URL, so the
+# script waits for nothing and exits 0, and one unit that runs on both hosts
+# cannot name a path that exists on only one of them.
+#
+# The application machine:
 #
 #   sudo cp deploy/systemd/*.service deploy/systemd/*.timer /etc/systemd/system/
 #   sudo cp deploy/systemd/simple-balance.env /etc/default/simple-balance
 #   sudo install -d -m 0755 /opt/simple-balance
 #   sudo cp deploy/compose/single/{compose.yml,compose.caddy.yml,compose.db-tls.yml,Caddyfile} /opt/simple-balance/
 #   sudo cp deploy/compose/single/.env.example /opt/simple-balance/.env  # then edit it
-#   sudo cp deploy/systemd/simple-balance-backup /usr/local/bin/
+#   sudo install -m 0755 deploy/systemd/simple-balance-waitdb /usr/local/sbin/
+#   sudo install -m 0755 deploy/systemd/simple-balance-backup /usr/local/bin/
+#   sudo install -m 0755 deploy/systemd/simple-balance-restore /usr/local/bin/
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable --now simple-balance.service simple-balance-backup.timer
+#
+# The database machine, which runs the same unit over a different project and
+# no backup timer — the nightly dump is taken from the application machine,
+# over the network, onto the volume that is already protected:
+#
+#   sudo cp deploy/systemd/simple-balance.service /etc/systemd/system/
+#   sudo cp deploy/systemd/simple-balance.env /etc/default/simple-balance
+#   sudo sed -i 's/^COMPOSE_FILE=.*/COMPOSE_FILE=compose.postgres.yml/' /etc/default/simple-balance
+#   sudo install -d -m 0755 /opt/simple-balance
+#   sudo cp deploy/compose/single/{compose.postgres.yml,pg_hba.conf,db-init.sh} /opt/simple-balance/
+#   sudo install -d -m 0755 /opt/simple-balance/db-tls   # then put server.crt and server.key in it
+#   sudo cp deploy/compose/single/.env.postgres.example /opt/simple-balance/.env  # then edit it
+#   sudo install -m 0755 deploy/systemd/simple-balance-waitdb /usr/local/sbin/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now simple-balance.service
 #
 # deploy/compose/single/README.md is the long version.
 [Unit]
@@ -47,16 +80,39 @@ WorkingDirectory=/opt/simple-balance
 # natively and splits it on colons.
 EnvironmentFile=/etc/default/simple-balance
 
-# There is deliberately no ExecStartPre creating a database directory. This unit
-# serves both profiles that use Compose, and neither needs one here: `single`
-# has no database on this machine at all, and `vps` runs the database in a
-# project of its own on a machine of its own, where the volume is Docker's.
+# There is deliberately no ExecStartPre creating a database directory, although
+# the database machine's project needs one. It is made by
+# simple-balance-db-firstboot instead, and the difference is *when*: that script
+# makes it after it has mounted the data volume, and an ExecStartPre makes it
+# whenever systemd reaches this unit. On a machine whose block device is late —
+# which is every first boot on both clouds — those are two different disks, and
+# the one an ExecStartPre would have picked is the boot disk, where PostgreSQL
+# would initialise a new empty cluster and report itself healthy.
+#
+# compose.postgres.yml says the same thing from the other side with
+# `create_host_path: false`: a directory that is not there is a refusal naming
+# the path, never a directory Docker made.
 #
 # Nor one assembling .env. The machines the cloud programs build add that in a
 # drop-in beside this unit, simple-balance.service.d/env.conf, which runs
 # simple-balance-env first so a restart folds in what was added to env.local.
 # Here it would overwrite the .env a hand install writes, which has no parts to
 # assemble it from.
+
+# The one ExecStartPre there is, and it is ordering rather than crash recovery
+# — the distinction this unit's comment above draws. On a two-machine
+# deployment both machines boot together and the database machine takes about
+# four minutes longer; without this the application's health check fails,
+# `--wait` below aborts the rest of the project, and Caddy is created and never
+# started — a machine serving nothing on 80 or 443 with no second attempt
+# coming. Waits for nothing when DATABASE_URL names somewhere already
+# listening, or is not set at all, which is what makes it safe on the database
+# machine and on a hand install pointed at a database that is already up.
+#
+# No `-` prefix, so a machine that does not have the script fails loudly here
+# rather than skipping the wait and failing later in a way that names Caddy.
+# Both installation recipes in this file's header install it for that reason.
+ExecStartPre=/usr/local/sbin/simple-balance-waitdb
 
 # `--wait`, and it is the difference between a unit that means something and one
 # that does not. Without it `up -d` returns as soon as the containers are

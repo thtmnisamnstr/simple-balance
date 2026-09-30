@@ -14,30 +14,45 @@ about a minute while it does.
 
 ### Added
 
-**An `ha` deployment profile: PostgreSQL sharded with Citus, run by Patroni.**
-`deploy/helm/` now provisions the database as well as the application — a
-StatefulSet per Citus group, the coordinator and its workers, each a primary with
-streaming standbys. Synchronous replication is on by default, because a
-promotion that loses an acknowledged transaction is not something a ledger can
-offer; it falls back to asynchronous rather than refusing writes when no standby
-is available. Citus supplies no high availability of its own, so Patroni is what
-promotes, and it registers each node with the cluster unaided. Off unless
-`database.enabled` is set: every deployment that does not ask for it keeps the
-`DATABASE_URL` it already had. `docs/citus.md` is what distributing the ledger
-costs and `docs/citus-runbook.md` is how to run it — adding a worker,
-rebalancing, what a failover does, and how to move an existing database onto a
-cluster.
+**An `ha` deployment profile: PostgreSQL sharded with Citus, run by Patroni, in
+two shapes.** `deploy/helm/` now provisions the database as well as the
+application — a StatefulSet per Citus group, the coordinator and its workers,
+each a primary with streaming standbys. Citus supplies no high availability of
+its own, so Patroni is what promotes, and it registers each node with the
+cluster unaided. Off unless `database.enabled` is set, and it stays `false` in
+`values.yaml`: every deployment that does not ask for it keeps the
+`DATABASE_URL` it already had, and a 0.1.6 values file renders byte for byte
+what it rendered before. Two values files turn it on and they are **the same
+profile, not two** — `values-node-per-service.yaml` is one of everything, five
+pods with no redundancy anywhere; `values-ha.yaml` is three Citus groups at two
+replicas with the web tier autoscaling. Everything in the two that is not a
+replica count is identical, which is the point: growing from one to the other is
+a rollout rather than a migration from one arrangement of the data to another.
+That is why there is no separate small-cluster profile, and the Kubernetes
+overhead of five pods is what buys never having to do that move.
+`docs/citus.md` is what distributing the ledger costs and
+`docs/citus-runbook.md` is how to run it — adding a worker, rebalancing, what a
+failover does, and how to move an existing database onto a cluster.
 
-**A `vps` deployment profile: one machine per service, database included.**
-`deploy/compose/vps/` is a compose file per machine, with the firewall written as
-a table of rules between them, what DNS has to resolve before a certificate can
-be issued, and the order to start them in. The smallest shape that owns its whole
-stack: nothing in it is somebody else's managed anything. The API and the
-scheduler share one file selected by a Compose profile, because they are the same
-application differing only in which half they run. Each file pins its image to a
-release written out in full, so moving to another is that tag changed to the
-same value on every machine, and the firewall table lets the scheduler as well as
-the API reach Stripe, because the reconciliation sweep runs there.
+**Synchronous replication is derived rather than defaulted.** It was `true` with
+nothing tying it to the replica count, and Patroni's `synchronous_mode_strict`
+is off, so a group with no standby degraded silently to asynchronous — a setting
+claiming a guarantee it could not give. It is now
+`synchronousReplication and replicasPerGroup > 1`, and asking for it at one
+replica fails the render with the reason named. At two replicas it is on for the
+reason it always was: a promotion that loses an acknowledged transaction is the
+books disagreeing with what somebody was shown.
+
+**Patroni's REST API now takes a password, and the database has a
+`NetworkPolicy`.** `restapi.listen` was `0.0.0.0:8008` with no authentication
+block and nothing in front of it, so any pod in the cluster could `POST`
+`/switchover`, `/failover`, `/restart` or `/reinitialize`. Both halves are
+closed: a fourth generated password in the database Secret, and a fourth policy
+admitting 5432 from the API and the scheduler only and the REST port from
+database pods only. The frontend is not a peer of either. Egress from the
+database pods stays open on purpose — Patroni keeps cluster state in the
+Kubernetes API, whose address the chart cannot know, and a restricted cluster
+that loses that rule stops failing over.
 
 **A PostgreSQL image this project builds, for the profile that needs one.**
 `deploy/docker/citus.Dockerfile` is PostgreSQL 18 pinned by digest with Citus
@@ -63,40 +78,129 @@ it moved. It refuses to finish otherwise, because a number measured against a
 ledger that does not balance is measuring rows the application could never have
 written.
 
-**A `single` deployment profile: one machine, and a database it does not run.**
-`deploy/compose/single/` runs the application container against a `DATABASE_URL`
-you supply — a managed PostgreSQL, or one of your own — with an overlay that adds
-Caddy and automatic TLS, and container logs capped so they cannot fill a boot
-disk. The two profiles that do own their database run PostgreSQL 18; this one
-states a floor of 15 instead, because it connects to whatever you already have.
-`deploy/systemd/` makes it a service that survives a reboot, with a daily
-`pg_dump` that is verified by being read back before it is kept, and a restore
-that refuses a dump it cannot parse before it touches the database.
-`deploy/pulumi/aws-single/` and `deploy/pulumi/oci-single/` stand the same thing
-up on one EC2 or Oracle Cloud instance. Neither provisions a database: the
-`DATABASE_URL` goes on the machine, in `/var/lib/simple-balance/env.local`, and
-their output walks through it. A data disk that outlives the machine holds the
-nightly backups, that file and the generated secret, so replacing the machine
-destroys the root volume and keeps all three; a resize is made in place.
-Neither carries a secret: `AUTH_SECRET` is generated on the machine at first
-boot and kept on that disk, so it is in no user data and no state file. Three
-new documents say which profile to pick, how big a machine has to be, and what
-it costs.
+**A `single` deployment profile: two machines, and a PostgreSQL 18 it runs
+itself.** `deploy/compose/single/` is the application container behind Caddy
+with automatic TLS on one machine, and `postgres:18` on a second with no public
+address at all, in a private subnet on the provider's own network. One
+`pulumi up` from `deploy/pulumi/aws-single/` or `deploy/pulumi/oci-single/`
+builds both. `deploy/systemd/` makes each a service that survives a reboot —
+one unit for both machines, switched by `COMPOSE_FILE` rather than by knowing
+which machine it is on — with a daily `pg_dump` that is verified by being read
+back before it is kept, and a restore that refuses a dump it cannot parse before
+it touches the database. The backups stay on the *application* node and are
+taken over the network, because a copy on the same disk as the original is not a
+backup. Each machine has a data disk that outlives it: the nightly backups, the
+generated secret and `env.local` on one, `PGDATA` on the other, so replacing
+either destroys its root volume and keeps what matters; a resize is made in
+place. Three new documents say which profile to pick, how big the machines have
+to be, and what they cost.
 
-On those two machines a setting is an edit to `env.local` and then
+**Bringing your own database is still supported, as a setting rather than a
+profile.** `simple-balance:databaseNode: false` builds no database node, no
+private subnet and no NAT gateway, and the application node waits for a
+`DATABASE_URL` in `/var/lib/simple-balance/env.local` exactly as it did before —
+the floor there is still PostgreSQL 15, because it connects to whatever you
+already have. The generated string lives in `/opt/simple-balance/env.db` at
+`0600`, and `simple-balance-env` folds `env.base`, `env.db`, `secrets.env` and
+`env.local` in that order, so a hand-written `DATABASE_URL` still wins on a
+machine whose program generated one, with nothing to turn off first.
+`simple-balance:databaseSubnet`, which the branch's Oracle program took for a
+managed database's private subnet, is superseded by `databaseNode` and accepted
+rather than refused.
+
+**New settings, all optional:** `databaseSize`, which indexes the same sizing
+table as `size` but for the database machine, because the two want opposite
+things; `databaseMaxConnections`, default 50 with a floor of 10, which is what
+makes the five PostgreSQL numbers in that table applied rather than advice —
+the database node's compose file passes every one of them as a `-c` flag; and
+`databasePassword`, which generates 32 alphanumerics when unset and holds an
+operator's own value to letters and digits, because the value crosses a URL, a
+Compose `.env` and a shell script and an encoding applied in one of the three
+works until the nightly backup runs. `protectDataVolume` now governs both
+volumes.
+
+**Neither machine carries a secret it does not need.** `AUTH_SECRET` is
+generated on the application node at first boot and kept on its disk; the
+database's superuser password is generated on the database node and kept on
+its disk, and only when the file is absent, so a rebuilt machine cannot rotate
+itself out of its own cluster. Neither is in user data or a state file. The CA's
+private key reaches neither machine and exists only in Pulumi's state. The one
+password the stack does hold is the unprivileged application role's, which has
+to reach the machine that puts it in a connection string.
+
+On both machines a setting is an edit to `env.local` and then
 `sudo systemctl restart simple-balance`, which is what every instruction they
-print says: a drop-in the machine is built with runs
+print says: a drop-in the machines are built with runs
 `/usr/local/sbin/simple-balance-env` before each start and folds the file into
 the `.env` Compose reads. The shared unit in `deploy/systemd/` carries no such
 step, so a machine installed by hand edits `/opt/simple-balance/.env` and
 restarts, as before. Running `simple-balance-firstboot` again on a live machine
 applies its settings too, because it ends with a restart. The Oracle program
 takes `simple-balance:availabilityDomain` — a full name, or a number from 1 —
-for the launch that fails with `Out of host capacity`, and
-`simple-balance:databaseSubnet` for a private subnet an Oracle database can sit
-in. It requires `simple-balance:sshPublicKey`, and reaches the machine through
-OCI's Bastion unless `simple-balance:sshCidr` opens port 22 to one address. Its
-public address is ephemeral, and a rebuild changes it.
+for the launch that fails with `Out of host capacity`. It requires
+`simple-balance:sshPublicKey`, and reaches the application node through OCI's
+Bastion unless `simple-balance:sshCidr` opens port 22 to one address, and the
+database node through a Bastion in that node's own subnet. Its public address is
+ephemeral, and a rebuild changes it.
+
+**The application node waits for the database before Compose is asked for
+anything.** Both machines boot at once and the database node takes about four
+minutes longer — it formats a volume, initializes a cluster and runs its own
+first-run SQL — while the application node is ready in ninety seconds. Without
+the wait, `docker compose up -d --wait` found nothing on 5432 and abandoned the
+rest of the project on its way out, so Caddy was created and never started: a
+healthy application on loopback, nothing on 80 or 443, and a unit in `failed`
+that nothing retried because `ExecStart` had already run. The wait does nothing
+where there is no remote database to wait for, because being wrong in that
+direction costs one boot and refusing would strand a machine that worked before
+the check existed.
+
+**Encryption at rest and in transit, stated as properties rather than left to
+defaults.** Every volume either single-machine program builds sets it
+explicitly — `encrypted: true` on both AWS data volumes and both root devices,
+four occurrences where there were two, because EBS encryption-by-default is an
+*account* setting that is off on a fresh account and the property is the whole
+guarantee. On Oracle Cloud there is deliberately no `kmsKeyId` and a test
+asserts its absence, so "OCI encrypts every volume with an Oracle-managed key"
+cannot quietly stop being what the program rests on.
+`isPvEncryptionInTransitEnabled` is set on both instance launches *and* both
+volume attachments, which was a real gap. On EKS the programs now install the
+`aws-ebs-csi-driver` add-on with its IRSA role and an encrypted gp3
+StorageClass — without the driver a claim from the database StatefulSet sat
+`Pending` forever — and turn on envelope encryption of Secrets in etcd; GKE gets
+the Cloud KMS equivalent and a StorageClass of its own. No customer-managed key
+on any data volume, deliberately: a key policy to get wrong, a monthly charge,
+and a documented way to lock yourself permanently out of your own ledger.
+
+**And the hop to the database is verified, not merely encrypted.** Both
+single-machine programs issue a private CA and a server certificate with
+`@pulumi/tls` at plan time, and the generated `DATABASE_URL` is
+`sslmode=verify-full` with an `sslrootcert` the overlay already mounts. The
+certificate's SAN is the provider's own internal name for the database node —
+`db.db.simplebalance.oraclevcn.com`, or `ip-10-20-1-10.<region>.compute.internal`
+with the `us-east-1` `ec2.internal` spelling branched for — which is knowable in
+advance because the node's private address is pinned. The URL names that name
+and never the address: node-postgres sends no server name for an IP literal, so
+`verify-full` against one checks the certificate against `localhost` and fails
+however many IP SANs it carries. The server is what insists: `pg_hba.conf` is
+mounted and named with `-c hba_file=`, every network line is `hostssl`, and the
+superuser is refused over the network entirely — the application signs in as an
+unprivileged role that owns only its own database. The chart does the same
+inside the cluster, with `verify-ca` for Citus's node-to-node and replication
+traffic, because Patroni registers members by pod address and a name check would
+fail a healthy cluster.
+
+**Only what has to be reachable is.** On both clouds the application node opens
+80, 443/tcp and 443/udp to the internet — it is the edge, because Caddy answers
+the ACME HTTP-01 challenge there and this profile has no load balancer — and 22
+only behind `simple-balance:sshCidr`. The database node opens 5432 to the
+application node and nothing else: one source-security-group rule on AWS, one
+subnet CIDR on Oracle Cloud, and not one rule from `0.0.0.0/0` on either. It has
+no public address twice over, the subnet refusing one and the instance asking
+for none, and no inbound rule for a shell on AWS at all, because Session Manager
+works through egress. On Oracle Cloud the host's own netfilter ruleset is opened
+for 5432 and nothing else, which is the half of the firewall that an operator
+meets as a timeout rather than a refusal.
 
 **The Oracle program builds where its stack says, and will not delete its data
 volume by accident.** It requires `oci:region` in the stack and stops at
@@ -528,10 +632,39 @@ a defect even when both are right.
 questions were being answered as one. What this application will *connect* to is
 a floor and it has not moved: PostgreSQL 15 and up, so a deployment already on 15
 or 16 keeps working and is not asked to move. What we *deploy* where the
-deployment owns the database is a choice, and it is now the newest version all
-three shapes can share. The cluster decides it: Citus 14.2 is the newest Citus
+deployment owns the database is a choice, and it is now the newest version both
+profiles can share. The cluster decides it: Citus 14.2 is the newest Citus
 and accepts 16, 17 and 18. Every release is now tested against both ends rather
-than the middle.
+than the middle. Debian rather than Alpine in both, because musl compares text
+byte by byte whatever collation is declared, and category and payee uniqueness
+here rests on the database's collation.
+
+**The chart's `envFrom` takes a list of Secrets rather than one.** It had to:
+with the database in the cluster, the chart derives a `DATABASE_URL` of its own
+while an operator's `existingSecret` still carries `AUTH_SECRET` and the rest,
+and the earlier rule made those two mutually exclusive — which is why
+`database.enabled` was unreachable from either Pulumi program. Both are
+permitted only when the chart runs the database, and the order is pinned with
+the operator's Secret last, because Kubernetes lets a later source win and
+theirs must. Every combination that rendered before renders byte for byte what
+it rendered before.
+
+**The Citus authinfo job is an ordinary release resource, not a post-install
+hook.** As a hook it was created only after Helm had finished waiting on
+everything else — while the server's first migration was waiting on
+`pg_dist_authinfo` to propagate DDL to the workers. Each was waiting for the
+other, and `pulumi`'s Helm release gives that 900 seconds before it gives up.
+It now runs alongside the rest, named by the release revision.
+
+**The EKS and GKE programs take `simple-balance:database`**, a closed set of
+`external` or `in-cluster`, defaulting to `external` — which is exactly what
+every release so far did, so an existing stack plans no change. `in-cluster`
+turns the chart's database on, refuses a `databaseUrl` set beside it at plan
+time rather than three minutes into a rollout, and derives the connection
+ceiling from the chart's own `max_connections` instead of a stock PostgreSQL's
+100. Both also take `simple-balance:controlPlaneCidrs`, which narrows the
+Kubernetes API endpoint and is unset by default, because a wrong guess locks a
+stack out of the control plane it would need to fix itself.
 
 **Three migrations run at startup, and on one PostgreSQL none rewrites a row.**
 `0022_plans_and_billing.sql` creates the five billing tables and alters nothing
@@ -540,7 +673,8 @@ constant default of true, which is one catalog change on any PostgreSQL this
 release supports, and every existing account arrives marked active.
 `0023_citus_distribution.sql` does nothing on most deployments: it distributes
 the ledger across a Citus cluster and is gated on the extension being installed,
-so the `single` and `vps` profiles record it as run and keep the schema they had.
+so the `single` profile's plain PostgreSQL 18, and any database you bring,
+record it as run and keep the schema they had.
 All three were verified on PostgreSQL 15 and 18, from an empty database and from
 one 0.1.6 left: twenty-five migrations recorded, and every primary and foreign
 key exactly as `0022` left it. On a cluster `0023` rewrites fourteen primary keys
@@ -566,11 +700,11 @@ now sweeps the repository for pinned references and fails until `set-version`
 rewrites every file carrying one. Adding the `single` profile found the gap
 immediately, which is the point.
 
-It writes twenty-two files now, and the test runs it over a scratch copy of every
+It writes twenty files now, and the test runs it over a scratch copy of every
 one of them to prove it, rather than only reading the tree afterward. Two sets
-had been out of its reach. The `vps` profile pinned its images as
+had been out of its reach. A compose file on this branch pinned its images as
 `${SB_VERSION:-0.1.6}`, which neither the rewrite nor the sweep could see, so a
-cut would have left it deploying 0.1.6; the pins are written out now and the
+cut would have left it deploying 0.1.6; every pin is written out now and the
 sweep refuses that spelling. And the product kit in `docs/product/` names the
 release it describes, which nothing wrote, so the first cut would have failed
 three kit tests with nothing in the procedure saying why. `set-version` stamps
@@ -774,8 +908,8 @@ brought the old images back up. It names the file once and builds the release.
 **Turning AdSense on no longer stops a compose deployment from starting.** No
 compose shape passed `PRIVACY_POLICY_URL` to the application, and the server
 refuses to start with the AdSense ids set and no policy — so following the
-instructions crash-looped the API and the scheduler on `single`, `vps` and the
-split recipe alike, the Oracle and AWS machines included. All three pass it now.
+instructions crash-looped the API and the scheduler on `single` and the
+split recipe alike, the Oracle and AWS machines included. Both pass it now.
 `tests/env-example.test.ts` holds every compose file that runs the server to
 exactly the names `src/server` reads, in both directions, which is the check
 that would have caught it.
@@ -784,13 +918,6 @@ that would have caught it.
 through the same test. The split recipe never passed it, so a deployment behind
 a pooler that set it got no bypass and no word about it. A pre-existing defect
 rather than anything this release introduced.
-
-**The `vps` profile's mail settings had the wrong names.** It passed
-`SMTP_SECURE` and `SMTP_FROM`, which the server does not read, so configuring
-mail refused to start both application machines. They are `SMTP_SSL` and
-`MAIL_FROM`, as everywhere else, with no alias because the profile has not been
-released; the file also passes the Google, `SETUP_TOKEN` and `MAIL_REPLY_TO`
-settings it had left out.
 
 **Neither single-machine Pulumi program could launch a machine.** Oracle caps
 instance metadata at 32,000 bytes and the user data was 67 KB; EC2 caps it at
@@ -1186,9 +1313,12 @@ that profile stopped bundling PostgreSQL, the scripts around it went on assuming
 one: every nightly dump would have failed, and so would the restore somebody
 reached for at three in the morning. Both now work out how to reach the database
 by reading the deployment's own service list — inside it where there is one, over
-the network where there is not — so the `vps` and `single` profiles share one
-script and no setting can disagree with the compose file about which database is
-being backed up.
+the network where there is not — so one script serves a machine with the database
+beside it and a machine without, and no setting can disagree with the compose
+file about which database is being backed up. That branch is what let the
+`single` profile grow a database of its own without a line changing: the
+database is on the *other* machine, so the application node's service list still
+holds no `postgres` and it still dumps over the network.
 
 **The development database and a `single` deployment no longer fight over the
 same containers.** Compose takes a project name from the directory when a file

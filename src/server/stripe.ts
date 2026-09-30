@@ -1,4 +1,5 @@
 import Stripe from "stripe";
+import type { PlanChangeInvoice } from "../shared/domain.js";
 import { getConfig, stripeMode } from "./config.js";
 import { log } from "./log.js";
 import { stripeDuration, stripeRequests } from "./metrics.js";
@@ -289,6 +290,12 @@ export type StripeSnapshot = {
   priceId: string;
   currentPeriodEnd: Date | null;
   cancelAtPeriodEnd: boolean;
+  /**
+   * The day the subscription stops, where one is set. `cancelAtPeriodEnd` says
+   * only whether that day is the one stored as `currentPeriodEnd`, so this is
+   * the field to ask whether a cancellation is pending at all.
+   */
+  cancelAt: Date | null;
   scheduledPriceId: string | null;
   scheduledAt: Date | null;
   syncedAt: Date;
@@ -355,6 +362,15 @@ export function snapshotOfSubscription(
   // stored end is already the day it stops. One further out leaves this period
   // renewing, which is true — and Keep my plan clears either, because Stripe
   // drops `cancel_at` when `cancel_at_period_end` is set false.
+  //
+  // So `cancelAtPeriodEnd` answers "does it end on the day we stored", which is
+  // the only thing the tab's date is true for, and the day itself is carried
+  // beside it rather than left to be inferred back out of that boolean. It
+  // cannot be: a cancellation dated past the period end reads as false there,
+  // and read as the whole answer it made the cancellation invisible — a
+  // downgrade press folded it into a schedule that replaced it, and an upgrade
+  // press billed a year against a subscription set to stop. `cancellationPending`
+  // in `src/shared/domain.ts` is the predicate that asks the other question.
   const cancelAt = subscription.cancel_at ?? null;
   const latestInvoice = subscription.latest_invoice;
   return {
@@ -365,6 +381,7 @@ export function snapshotOfSubscription(
     cancelAtPeriodEnd:
       subscription.cancel_at_period_end === true ||
       (cancelAt !== null && periodEnd !== null && cancelAt <= periodEnd),
+    cancelAt: cancelAt === null ? null : new Date(cancelAt * 1000),
     scheduledPriceId: pending?.priceId ?? null,
     scheduledAt: pending?.startsAt ?? null,
     syncedAt,
@@ -504,15 +521,28 @@ export async function createStripeSubscription(
  * while it still holds the lock — the reason `createStripeSubscription` does.
  * The schedule is not expanded and reads as none, which is true: the caller
  * let any schedule go before asking for this.
+ *
+ * And beside it, what the update actually raised, because "the difference was
+ * charged to your payment method" was being written from the button that was
+ * pressed rather than from anything Stripe did. `billing_cycle_anchor: "now"`
+ * bills on the spot in the ordinary case and the sentence was true there, but
+ * a subscription carrying a `cancel_at` has its new term capped at the
+ * cancellation, so Stripe raises no invoice at all and parks the proration as
+ * uninvoiced items for later. The person was told money had left their account
+ * when none had. `previousInvoiceId` is what tells the two apart: an invoice
+ * the update raised is a *different* invoice from the one the subscription
+ * already had, which is why the caller reads it before the update rather than
+ * this asking Stripe a second time.
  */
 export async function switchStripeSubscriptionNow(
   input: {
     readonly subscriptionId: string;
     readonly itemId: string;
     readonly priceId: string;
+    readonly previousInvoiceId: string | null;
   },
   idempotencyKey: string,
-): Promise<StripeSnapshot> {
+): Promise<{ snapshot: StripeSnapshot; invoice: PlanChangeInvoice }> {
   const updated = await measured("subscription.update", () =>
     getStripe().subscriptions.update(
       input.subscriptionId,
@@ -532,11 +562,31 @@ export async function switchStripeSubscriptionNow(
         // deciding whether to charge at all.
         payment_behavior: "allow_incomplete",
         billing_cycle_anchor: "now",
+        // Expanded rather than fetched afterward, because the invoice's status
+        // is the whole answer and a second read would be a second chance to
+        // fail on the path that has just taken somebody's money.
+        expand: ["latest_invoice"],
       },
       { idempotencyKey },
     ),
   );
-  return snapshotOfSubscription(updated, new Date());
+  const latest = updated.latest_invoice;
+  const raised =
+    latest && typeof latest !== "string" && latest.id !== input.previousInvoiceId ? latest : null;
+  return {
+    snapshot: snapshotOfSubscription(updated, new Date()),
+    // `uncollectible` and `void` are neither paid nor payable, and reporting
+    // them as owed would send the page to mount a form for an invoice Stripe
+    // has given up on. They say the same thing to the person as nothing raised:
+    // there is no payment to make here.
+    invoice: !raised
+      ? "none"
+      : raised.status === "paid"
+        ? "paid"
+        : raised.status === "open" || raised.status === "draft"
+          ? "owed"
+          : "none",
+  };
 }
 
 /**
@@ -963,6 +1013,61 @@ export type OwedPayment = {
   } | null;
 };
 
+/**
+ * Why the last attempt on this intent was refused, taken from the charge.
+ *
+ * Stripe clears `last_payment_error` on *any* write to a PaymentIntent — not
+ * only a write of that field — and `keepCardThatPays` makes one the moment Pay
+ * now is pressed, before the secret is handed out. So from that press onward
+ * the live intent has no reason on it and the past-due alert lost the one
+ * sentence saying which card to reach for, permanently: a reload does not bring
+ * it back, only Stripe's next failed retry does.
+ *
+ * The failed charge survives that write, so the reason is read from there
+ * instead. It cannot be folded into the expand above: the PaymentIntent is
+ * already four levels down, which is Stripe's limit. Capturing the message
+ * inside `keepCardThatPays` and carrying it would cover only the request that
+ * did the update, and a reload or a second tab would still show it stripped.
+ *
+ * **Read back through the PaymentIntent, never with `charges.retrieve`.** The
+ * direct call needs Charges and Refunds Read (`charge_read`), which this
+ * product has never asked for and `docs/billing-operations.md` step 2 does not
+ * list — so on a restricted key built from that table it is refused, and a
+ * refusal here would take the whole `OwedPayment` with it: the caller stores
+ * the status and drops the rest, losing the retry date the invoice had already
+ * given it. That is worse than the missing sentence this exists to restore.
+ * Expanded off the intent the same charge comes back under PaymentIntents
+ * Read, which the table does list; both were tried against this deployment's
+ * own `rk_` key, where `charges.retrieve` answered `more_permissions_required`
+ * and the expansion answered `status: failed, failure_message: "Your card was
+ * declined."`.
+ *
+ * Best-effort even so, because the reason is one sentence and everything else
+ * on the payment is load-bearing: anything Stripe refuses or fails to answer
+ * leaves the reason null and the rest intact.
+ *
+ * No `charges.list` fallback: an intent with no `latest_charge` has never been
+ * attempted, so there is no refusal to report.
+ */
+async function chargeRefusalOf(intent: Stripe.PaymentIntent): Promise<string | null> {
+  const latest = intent.latest_charge;
+  if (!latest) return null;
+  let charge = typeof latest === "string" ? null : latest;
+  if (!charge) {
+    try {
+      const reread = await measured("payment_intent.retrieve", () =>
+        getStripe().paymentIntents.retrieve(intent.id, { expand: ["latest_charge"] }),
+      );
+      const expanded = reread.latest_charge;
+      charge = typeof expanded === "string" ? null : expanded;
+    } catch (error) {
+      log.warn("billing.payment.refusal_unread", { error: String(error) });
+      return null;
+    }
+  }
+  return charge?.status === "failed" ? (charge.failure_message ?? null) : null;
+}
+
 /** The owed invoice's payment, or null where the invoice is not open. */
 export async function fetchOwedPayment(invoiceId: string): Promise<OwedPayment | null> {
   // Read off the invoice rather than expanded from the subscription: the
@@ -981,10 +1086,18 @@ export async function fetchOwedPayment(invoiceId: string): Promise<OwedPayment |
   const expanded = payment?.payment?.payment_intent;
   const intent = expanded && typeof expanded !== "string" ? expanded : null;
   const status = intent?.status ?? null;
+  // The live error where Stripe still has one, and the charge behind it where a
+  // write to the intent has since wiped it — `chargeRefusalOf` says why that
+  // happens and why the second read is the only way back to the sentence. The
+  // extra call is bounded to a load that already owes money and has no reason
+  // on the intent, which is the load that would otherwise say nothing at all.
+  const live =
+    status === "requires_payment_method" ? (intent?.last_payment_error?.message ?? null) : null;
+  const failureMessage =
+    live ?? (status === "requires_payment_method" && intent ? await chargeRefusalOf(intent) : null);
   return {
     invoiceId: invoice.id ?? invoiceId,
-    failureMessage:
-      status === "requires_payment_method" ? (intent?.last_payment_error?.message ?? null) : null,
+    failureMessage,
     awaitingAuthentication:
       (status === "requires_action" || status === "requires_confirmation") &&
       intent?.payment_method !== null &&
@@ -1083,15 +1196,29 @@ export async function fetchSubscriptionClientSecret(
   return confirmationSecretOf(subscription.latest_invoice);
 }
 
-/** The subscription item a price change has to name. */
+/**
+ * The subscription item a price change has to name, and the invoice the
+ * subscription already had before that change.
+ *
+ * The invoice comes from here because this read happens anyway: it is what lets
+ * `switchStripeSubscriptionNow` say whether the update raised an invoice of its
+ * own or left the last one standing, without a second round trip to ask.
+ */
 export async function stripeSubscriptionItem(
   subscriptionId: string,
-): Promise<{ itemId: string; priceId: string } | null> {
+): Promise<{ itemId: string; priceId: string; latestInvoiceId: string | null } | null> {
   const subscription = await measured("subscription.retrieve", () =>
     getStripe().subscriptions.retrieve(subscriptionId),
   );
   const item = subscription.items?.data?.[0];
-  return item ? { itemId: item.id, priceId: item.price.id } : null;
+  const latest = subscription.latest_invoice;
+  return item
+    ? {
+        itemId: item.id,
+        priceId: item.price.id,
+        latestInvoiceId: typeof latest === "string" ? latest : (latest?.id ?? null),
+      }
+    : null;
 }
 
 /** What one of the two configured prices costs, in Stripe's own words. */

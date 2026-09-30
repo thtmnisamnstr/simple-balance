@@ -168,8 +168,8 @@ describe("migration baseline", () => {
   /**
    * 0022 is the same shape as 0007 and 0008 — five tables the rest of the
    * product does not read yet — which is precisely when a migration slips
-   * through unasserted. It is also one of the three on disk that have not
-   * shipped, 0022 to 0024, so its assertions are among the few here that can
+   * through unasserted. It is also one of the four on disk that have not
+   * shipped, 0022 to 0025, so its assertions are among the few here that can
    * still change what a migration says rather than merely describe it.
    */
   it("adds the billing tables as pure additions, and cascades all but one", async () => {
@@ -341,6 +341,56 @@ describe("migration baseline", () => {
     // A constant default, so the add is metadata-only. A volatile one would
     // rewrite the table.
     expect(statements).not.toMatch(/DEFAULT\s+[a-z_]+\s*\(/i);
+    for (const forbidden of [
+      /^\s*UPDATE\s/im,
+      /^\s*DELETE\s/im,
+      /^\s*INSERT\s/im,
+      /\bDROP\b/i,
+      /\bALTER COLUMN\b/i,
+    ]) {
+      expect(statements, forbidden.source).not.toMatch(forbidden);
+    }
+  });
+
+  /**
+   * `cancel_at` is its own migration and not a column folded into the
+   * unreleased 0022, which is where it started.
+   *
+   * Drizzle's migrator runs a file only where the recorded timestamp is older
+   * than the folder's — `pg-core/dialect.js` — and never looks at the hash. So
+   * a database that has already run 0022 records a regenerated one as done,
+   * migrates clean, and then fails at the first billing read with `column
+   * "cancel_at" does not exist`, with nothing said at startup. That is not
+   * hypothetical: it happened to this branch's browser tier, which had all of
+   * 0000 to 0024 recorded and `billing_subscription` without the column.
+   *
+   * Both halves are asserted, because either one alone passes while the trap is
+   * back: the column is here, and it is not there.
+   */
+  it("adds cancel_at as its own migration, not a fold into 0022", async () => {
+    const folded = await readFile(
+      path.join(migrationDirectory, "0022_plans_and_billing.sql"),
+      "utf8",
+    );
+    expect(folded).toContain('"cancel_at_period_end" boolean');
+    expect(folded).not.toMatch(/"cancel_at"\s/);
+
+    const sql = await readFile(
+      path.join(migrationDirectory, "0025_subscription_cancel_at.sql"),
+      "utf8",
+    );
+    const statements = sql
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("--"))
+      .join("\n");
+
+    expect(statements).toMatch(
+      /ALTER TABLE "billing_subscription" ADD COLUMN "cancel_at" timestamp with time zone;/,
+    );
+    expect(statements.match(/ADD COLUMN/gi)).toHaveLength(1);
+    // Nullable and undefaulted, so PostgreSQL fills no row and Citus has a
+    // reference table to propagate rather than a rewrite to coordinate.
+    expect(statements).not.toMatch(/cancel_at.*(NOT NULL|DEFAULT)/i);
     for (const forbidden of [
       /^\s*UPDATE\s/im,
       /^\s*DELETE\s/im,

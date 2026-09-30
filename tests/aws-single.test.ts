@@ -1,8 +1,13 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { requireRegion } from "../deploy/pulumi/aws-single/platform.js";
+import {
+  AWS_SINGLE,
+  programCode,
+  readProgram,
+  resourceCalls,
+  resourceCallsCode,
+} from "./support/pulumi-source.js";
 
 /**
  * The two things an AWS single-machine stack cannot get back once they are
@@ -19,22 +24,10 @@ import { requireRegion } from "../deploy/pulumi/aws-single/platform.js";
  * `deploy/pulumi/README.md`, "Tearing down on AWS", is what came of it.
  */
 
-const root = path.resolve(import.meta.dirname, "..");
-const program = readFileSync(path.join(root, "deploy/pulumi/aws-single/index.ts"), "utf8");
+const program = readProgram(AWS_SINGLE);
 
-/** The program with its comment lines taken out, for what it does rather than says. */
-const code = program
-  .split("\n")
-  .filter((line) => !/^\s*(\/\/|\*|\/\*\*)/.test(line))
-  .join("\n");
-
-/** From `new <kind>(` to the `);` that closes it at the start of a line. */
-function resourceCall(kind: string): string {
-  const start = program.indexOf(`new ${kind}(`);
-  expect(start, kind).toBeGreaterThan(-1);
-  expect(program.indexOf(`new ${kind}(`, start + 1), `one ${kind}`).toBe(-1);
-  return program.slice(start, program.indexOf("\n);\n", start));
-}
+/** The program with its comments blanked, for what it does rather than says. */
+const code = programCode(program);
 
 /**
  * Where the program declares its first resource. A setting that refuses has to
@@ -100,9 +93,15 @@ describe("the data volume an AWS single-machine stack keeps", () => {
   const setting =
     'const protectDataVolume =\n  new pulumi.Config("simple-balance").getBoolean("protectDataVolume") ?? true;';
 
-  it("is protected unless the stack turns it off", () => {
+  it("protects both data volumes unless the stack turns it off", () => {
     expect(program).toContain(setting);
-    expect(resourceCall("aws.ebs.Volume")).toMatch(/\n {2}\{ protect: protectDataVolume \},$/);
+    const volumes = resourceCalls(program, "aws.ebs.Volume");
+    // Two: the application node's backups and secret, and the database node's
+    // cluster. One switch for both, because they are the same decision —
+    // whether this stack may delete somebody's data — and two settings would be
+    // a way to protect the backups and not the ledger they back up.
+    expect(volumes, "one data volume per machine").toHaveLength(2);
+    for (const volume of volumes) expect(volume).toContain("protect: protectDataVolume");
   });
 
   it("reads the switch before any resource is declared, so a malformed one builds nothing", () => {
@@ -110,28 +109,35 @@ describe("the data volume an AWS single-machine stack keeps", () => {
     expect(program.indexOf(setting)).toBeLessThan(firstResource);
   });
 
-  it("protects the volume and nothing else, so the machine can still be replaced", () => {
+  it("protects the volumes and nothing else, so either machine can still be replaced", () => {
     // The documented way back from a machine gone wrong is replacing it, and
     // its attachment and address association go with it. Any of them
     // protected would refuse that.
-    expect(code.match(/\bprotect:/g)).toHaveLength(1);
+    expect(code.match(/\bprotect:/g)).toHaveLength(2);
     for (const kind of ["aws.ec2.Instance", "aws.ec2.VolumeAttachment", "aws.ec2.EipAssociation"]) {
-      expect(resourceCall(kind), kind).not.toMatch(/\bprotect\b/);
+      for (const call of resourceCallsCode(program, kind)) {
+        expect(call, kind).not.toMatch(/\bprotect\b/);
+      }
     }
   });
 
-  it("is built before the machine and from nothing of it, so replacing the machine keeps it", () => {
-    // The machine's user data names the volume by its id, so the dependency
-    // runs from the instance to the volume. The other way round, a replaced
-    // machine would be a replaced volume, which the protection then refuses.
-    const volume = resourceCall("aws.ebs.Volume");
-    expect(volume).not.toMatch(/\binstance\b|dependsOn/);
+  it("is built before its machine and from nothing of it, so replacing the machine keeps it", () => {
+    // Each machine's user data names its volume by id, so the dependency runs
+    // from the instance to the volume. The other way round, a replaced machine
+    // would be a replaced volume, which the protection then refuses.
+    for (const volume of resourceCallsCode(program, "aws.ebs.Volume")) {
+      expect(volume).not.toMatch(/\binstance\b|dependsOn/);
+    }
     expect(program.indexOf("new aws.ebs.Volume(")).toBeLessThan(
       program.indexOf("new aws.ec2.Instance("),
     );
+    expect(program.indexOf("new aws.ebs.Volume(\n        `${name}-db`")).toBeLessThan(
+      program.indexOf("new aws.ec2.Instance(\n        `${name}-db`"),
+    );
   });
 
-  it("is named in the outputs, for the snapshot a teardown takes first", () => {
+  it("names both in the outputs, for the snapshot a teardown takes first", () => {
     expect(program).toContain("export const dataVolumeId = dataVolume.id;");
+    expect(program).toContain("export const databaseVolumeId = databaseVolume?.id;");
   });
 });

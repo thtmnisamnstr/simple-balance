@@ -2,10 +2,19 @@
 # also serves MCP), the nginx frontend that serves the browser bundle and
 # proxies everything the API owns, and the recurrence scheduler.
 #
-# The database is bring your own. This chart provisions no PostgreSQL and offers
-# no in-cluster StatefulSet: it takes a DATABASE_URL and nothing else. If the
-# database that string names does not exist the server creates it, which needs
-# the connecting role to hold CREATEDB.
+# The database is bring your own *by default*: left alone, this chart provisions
+# no PostgreSQL and takes a DATABASE_URL and nothing else, which is what every
+# release before 0.2.0 did and what a values file written against one still gets.
+# If the database that string names does not exist the server creates it, which
+# needs the connecting role to hold CREATEDB.
+#
+# `database.enabled` at the bottom of this file is the other half, and it is what
+# the `ha` profile turns on: PostgreSQL 18 with Citus, run by Patroni, in this
+# cluster. Two shapes ship as values files beside this one — values-ha.yaml and
+# values-node-per-service.yaml — and they differ only by replica counts. It stays
+# off here because a chart default that started running a database underneath a
+# deployment that already had one would be the worst upgrade this project could
+# ship.
 
 global:
   # Prefixed to every image repository below that names no registry of its own,
@@ -635,11 +644,23 @@ networkPolicy:
 # The `ha` profile's database: PostgreSQL 18 with Citus, run by Patroni.
 #
 # Off by default, and that is not a hedge. Every release before this one expected
-# a DATABASE_URL you supply, and the two other profiles still do — `single`
-# points at a database somebody else runs, `vps` at one beside it in Compose.
-# Turning this on is choosing to let the chart run your database, which is a
-# different undertaking from running the application, and `docs/citus-runbook.md`
-# is the operational half of it.
+# a DATABASE_URL you supply, and a values file written for one has no `database`
+# key at all: flipping this default would start a Citus cluster underneath a
+# deployment that already has a database, and the guard below would stop the
+# render of a values file that used to install cleanly. Turning it on is a choice
+# to let the chart run your database, which is a different undertaking from
+# running the application, and `docs/citus-runbook.md` is the operational half.
+#
+# The two shapes that turn it on are shipped rather than described:
+#
+#   helm upgrade --install simple-balance deploy/helm/simple-balance \
+#     -f deploy/helm/simple-balance/values-node-per-service.yaml   # five pods
+#   helm upgrade --install simple-balance deploy/helm/simple-balance \
+#     -f deploy/helm/simple-balance/values-ha.yaml                 # redundant
+#
+# They are the same profile. Moving from the first to the second is a change of
+# numbers rather than a migration: the same chart, the same Citus schema, the
+# same `0023`.
 #
 # Citus supplies no high availability of its own: `shard_replication_factor > 1`
 # is deprecated, documented as not an HA mechanism, and breaks
@@ -690,9 +711,41 @@ database:
   # The role the application connects as. Not the superuser: a ledger's
   # application role should not be able to rewrite the cluster's own metadata.
   # Created on first bootstrap and made owner of the database.
+  #
+  # A password set here becomes the userinfo of the derived DATABASE_URL, so the
+  # render refuses anything outside `A-Za-z0-9._~-`: an unencoded `@` or `/`
+  # would not fail, it would quietly point the connection somewhere else.
   application:
     username: simple_balance
     password: ""
+  # Not a PostgreSQL role. Patroni's REST API is how this cluster is failed over,
+  # switched over, restarted and reinitialized, and it listens on every interface
+  # in the pod; without a credential, any workload that can open a socket in the
+  # namespace can promote a standby over a live primary. Only the methods that
+  # change something are protected, so the kubelet's probes still need nothing.
+  restapi:
+    username: patroni
+    password: ""
+
+  # The certificate the database serves, and the CA the application verifies it
+  # against. Generated here and then kept — a regenerated certificate is a
+  # different identity, and every API pod holding the old CA would stop being
+  # able to connect at the moment of the upgrade.
+  #
+  # Set all three to bring your own, as PEM. Two of the three is refused: half a
+  # certificate is a database that starts without TLS while the application
+  # insists on it.
+  #
+  # There is no switch to turn TLS off. The application asks for
+  # `sslmode=verify-full` and `pg_hba` has `hostssl` for everything that crosses
+  # a pod boundary, so an off position would be two settings that have to agree
+  # and one outage when they do not. `docs/citus-runbook.md` has the rotation
+  # procedure, which is to delete `ca.crt`, `tls.crt` and `tls.key` from the
+  # cluster's Secret and upgrade.
+  tls:
+    ca: ""
+    cert: ""
+    key: ""
 
   persistence:
     enabled: true
@@ -731,6 +784,12 @@ database:
   # refusing writes, so one lost pod degrades the guarantee instead of stopping
   # the deployment. `docs/citus-runbook.md` says how to see which state you are
   # in, and how to make it strict if you would rather stop.
+  #
+  # Which is why this and `replicasPerGroup: 1` are refused together rather than
+  # quietly reconciled: a group of one has no standby to wait for, ever, so the
+  # fallback is the only state it is ever in and the setting would be promising
+  # a durability it cannot give. values-node-per-service.yaml turns it off in so
+  # many words for exactly that reason.
   synchronousReplication: true
 
   # Patroni's REST API, which is also how the pods find each other.

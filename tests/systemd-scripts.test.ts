@@ -82,43 +82,35 @@ describe("the connection string the backup and restore scripts give libpq", () =
         .filter((line) => /\bpg (pg_dump|pg_restore|psql)\b.*\s-d\s/.test(line));
       expect(clientCalls.length, "the database-by-URL calls").toBeGreaterThan(0);
       for (const call of clientCalls) {
-        // Either the vps profile's own database by name, or libpq's spelling.
-        expect(call, call.trim()).toMatch(
-          /-d (simple_balance|postgres|"\$pg_url"|"\$maintenance_url")(\s|$)/,
-        );
+        // Either the database machine's own database by name, or libpq's
+        // spelling. Never a maintenance URL: see the pg_hba test below.
+        expect(call, call.trim()).toMatch(/-d (simple_balance|postgres|"\$pg_url")(\s|$)/);
       }
       expect(text).toContain('pg_url=$(libpq_url "$DATABASE_URL")');
     });
   }
 
-  it("connects the restore's maintenance session with the same spelling", () => {
+  it("names the database it is restoring into, from libpq's spelling", () => {
     const text = read(SCRIPTS[1]!);
     const derivations = text
       .split("\n")
-      .filter((line) => /^\s*(restore_db|maintenance_url)=/.test(line))
+      .filter((line) => /^\s*restore_db=/.test(line))
       .map((line) => line.trim());
-    expect(derivations).toHaveLength(2);
+    expect(derivations).toHaveLength(1);
     for (const line of derivations) expect(line).toContain('"$pg_url"');
 
-    // And the real lines, run, give a maintenance URL libpq will accept.
     const fn = libpqUrlFunction(SCRIPTS[1]!);
     const derive = (url: string) =>
       sh(
-        `${fn}\nDATABASE_URL="$1"\npg_url=$(libpq_url "$DATABASE_URL")\n${derivations.join("\n")}\nprintf '%s %s' "$restore_db" "$maintenance_url"`,
+        `${fn}\nDATABASE_URL="$1"\npg_url=$(libpq_url "$DATABASE_URL")\n${derivations.join("\n")}\nprintf '%s' "$restore_db"`,
         url,
       ).stdout;
-    expect(derive("postgresql://u:p@db.example.com:5432/books?sslmode=no-verify")).toBe(
-      "books postgresql://u:p@db.example.com:5432/postgres?sslmode=require",
-    );
+    expect(derive("postgresql://u:p@db.example.com:5432/books?sslmode=no-verify")).toBe("books");
     // A query string with slashes in it, which sslrootcert always has. The
     // database is the path's last segment, never the certificate's file name.
     const ca = "sslmode=verify-full&sslrootcert=/var/lib/simple-balance/tls/db-ca.pem";
-    expect(derive(`postgresql://u:p@db.example.com:5432/books?${ca}`)).toBe(
-      `books postgresql://u:p@db.example.com:5432/postgres?${ca}`,
-    );
-    expect(derive("postgresql://u:p@db.example.com/books")).toBe(
-      "books postgresql://u:p@db.example.com/postgres",
-    );
+    expect(derive(`postgresql://u:p@db.example.com:5432/books?${ca}`)).toBe("books");
+    expect(derive("postgresql://u:p@db.example.com/books")).toBe("books");
   });
 });
 
@@ -146,7 +138,7 @@ describe("the restore into a server older than its client", () => {
     const rendered = at("pg pg_restore --no-owner --no-privileges -f -");
     expect(version).toBeLessThan(at("docker compose stop app"));
     expect(rendered).toBeLessThan(at("docker compose stop app"));
-    expect(rendered).toBeLessThan(at('drop database if exists \\"$restore_db\\"'));
+    expect(rendered).toBeLessThan(at("drop schema if exists public cascade;"));
   });
 
   it("takes out the one statement an older server refuses, and nothing else", () => {
@@ -223,6 +215,70 @@ const BUNDLE_CANDIDATES = [
  * that needs a second digit of seconds is a case to split.
  */
 const SCRIPT_RUN_TIMEOUT = 30_000;
+
+/**
+ * Who the two scripts sign in as when the database is a service in their own
+ * Compose project, and whether `pg_hba.conf` lets that role in at all.
+ *
+ * The two files are edited for different reasons by different people, and
+ * nothing connected them until this: when the database moved out of the
+ * deleted `vps` recipe its superuser stopped being called `simple_balance` and
+ * became `postgres`, while both scripts went on saying `-U simple_balance`.
+ * The result was a nightly dump that failed with `no pg_hba.conf entry for
+ * host "[local]", user "simple_balance"`, into a journal, with the last good
+ * backup quietly getting older. Reproduced against a real PostgreSQL 18 before
+ * this was written, and the fix verified the same way.
+ *
+ * Which role is not a detail. `pg_restore --no-owner` hands every object it
+ * creates to whoever connected, so a dump and restore taken as the superuser
+ * leaves a ledger owned by `postgres` that the application meets as
+ * `permission denied for table ledger_posting` — measured, not reasoned.
+ * Dropping and creating a database, on the other hand, needs CREATEDB, which
+ * the application's role deliberately does not have. So the split is exact.
+ */
+describe("the role the backup and restore use inside the database machine", () => {
+  const hba = read("deploy/compose/single/pg_hba.conf")
+    .split("\n")
+    .filter((line) => line.trim() !== "" && !line.startsWith("#"))
+    .map((line) => line.trim().split(/\s+/));
+  const socketRoles = hba.filter((rule) => rule[0] === "local").map((rule) => rule[2]);
+
+  it("signs in as a role pg_hba has a local line for, in both scripts", () => {
+    for (const script of SCRIPTS) {
+      const roles = [
+        ...new Set(
+          [...read(script).matchAll(/\bpg (?:psql|pg_dump|pg_restore) -U (\w+)/g)].map(
+            (match) => match[1]!,
+          ),
+        ),
+      ];
+
+      expect(roles.length, `${script} connects as somebody over the socket`).toBeGreaterThan(0);
+      for (const role of roles)
+        expect(socketRoles, `${script} signs in as ${role}, which pg_hba refuses`).toContain(role);
+    }
+  });
+
+  it("touches data as the application's role and never as the superuser", () => {
+    expect(read(SCRIPTS[0]!)).toContain("pg pg_dump -U simple_balance -d simple_balance");
+    expect(read(SCRIPTS[1]!)).toContain("pg pg_restore -U simple_balance -d simple_balance");
+    for (const script of SCRIPTS)
+      expect(read(script), script).not.toMatch(/pg (?:pg_dump|pg_restore) -U postgres/);
+  });
+
+  it("creates the database as the superuser and hands it straight to the application", () => {
+    // The one statement the application's role cannot run, because CREATEDB is
+    // not among the privileges `db-init.sh` gives it. The `owner` clause is
+    // what keeps the restore that follows able to create a table in `public`:
+    // from PostgreSQL 15 that schema follows the database's owner.
+    const restore = read(SCRIPTS[1]!);
+
+    expect(restore).toContain("pg psql -U postgres -d postgres");
+    expect(restore).toContain(
+      "create database simple_balance owner simple_balance template template0;",
+    );
+  });
+});
 
 describe("the certificate the backup and restore give libpq", () => {
   let dirs: string[] = [];
@@ -589,7 +645,7 @@ describe("the certificate the backup and restore give libpq", () => {
   );
 
   it(
-    "restores over verify-full, the maintenance session included, into a server of either age",
+    "restores over verify-full, every session included, into a server of either age",
     () => {
       for (const serverNum of ["180006", "160015"]) {
         const box = machine({ services: "noop", serverNum });
@@ -601,15 +657,19 @@ describe("the certificate the backup and restore give libpq", () => {
         for (const call of result.runs)
           expect(mountsForLibpq(call, box.ca), call.join(" ")).toBe(true);
 
+        // Every connection is to the ledger's own database. There is no second
+        // one: a session on the server's `postgres` database is what the
+        // database machine's pg_hba.conf refuses, and what the application's
+        // role could do nothing with if it were let in.
         const targets = result.runs
           .filter((call) => call.includes("-d"))
           .map((call) => call[call.indexOf("-d") + 1]);
-        const maintenance = databaseUrl.replace("/simple_balance?", "/postgres?");
-        expect(new Set(targets), serverNum).toEqual(new Set([maintenance, databaseUrl]));
-        const recreate = result.runs.find((call) =>
-          call.includes('drop database if exists "simple_balance";'),
+        expect(new Set(targets), serverNum).toEqual(new Set([databaseUrl]));
+        const empty = result.runs.find((call) =>
+          call.includes("drop schema if exists public cascade;"),
         );
-        expect(recreate?.[recreate.indexOf("-d") + 1]).toBe(maintenance);
+        expect(empty?.[empty.indexOf("-d") + 1]).toBe(databaseUrl);
+        expect(empty).toContain("create schema public authorization current_user;");
       }
       // The older server's restore went through the filter, as SQL, in one transaction.
       const older = machine({ services: "noop", serverNum: "160015" });
@@ -639,8 +699,57 @@ describe("the certificate the backup and restore give libpq", () => {
     );
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("did not come back as a number. Nothing was changed.");
+    expect(result.log).not.toContain("drop schema");
     expect(result.log).not.toContain("drop database");
   });
+
+  /**
+   * The restore over a network, held against the `pg_hba.conf` that machine
+   * actually runs.
+   *
+   * The script used to swap the database name for `postgres` and drop and
+   * create from there, which is how a restore is ordinarily written and is
+   * refused twice over here: `pg_hba.conf` has exactly one line that crosses a
+   * network and its DATABASE column is `simple_balance`, so a session on
+   * `postgres` matches no rule at all; and `db-init.sh` withholds CREATEDB on
+   * purpose, so the role could not have created one if it had got in. The
+   * backups live on the application machine and the restore script is not even
+   * shipped to the database machine, so the documented recovery ran nowhere.
+   * The existing coverage never saw it, because it only exercised the branch
+   * where the database is a service in this same project.
+   */
+  it(
+    "connects, over a network, only as a role and to a database pg_hba admits",
+    () => {
+      const network = read("deploy/compose/single/pg_hba.conf")
+        .split("\n")
+        .filter((line) => line.trim() !== "" && !line.startsWith("#"))
+        .map((line) => line.trim().split(/\s+/))
+        .filter((rule) => rule[0] === "hostssl" || rule[0] === "host")
+        .filter((rule) => rule[3] !== "127.0.0.1/32");
+      expect(network.length, "pg_hba has a line for the network").toBeGreaterThan(0);
+
+      const box = machine({ services: "noop" });
+      const databaseUrl = url(`sslmode=verify-full&sslrootcert=${box.ca}`);
+      const result = box.run(SCRIPTS[1]!, { DATABASE_URL: databaseUrl }, box.dump, "--yes");
+      expect(result.status).toBe(0);
+
+      const targets = result.runs
+        .filter((call) => call.includes("-d"))
+        .map((call) => call[call.indexOf("-d") + 1]!);
+      expect(targets.length).toBeGreaterThan(1);
+      for (const target of targets) {
+        // `url()` builds postgresql://ledger:...@host/<database>?..., and the
+        // role the profile's own DATABASE_URL carries is `simple_balance`.
+        const database = target.replace(/\?.*$/, "").replace(/^.*\//, "");
+        expect(
+          network.some((rule) => rule[1] === database || rule[1] === "all"),
+          `pg_hba admits a connection to ${database}`,
+        ).toBe(true);
+      }
+    },
+    SCRIPT_RUN_TIMEOUT,
+  );
 });
 
 describe("simple-balance-env, which builds the .env Compose reads", () => {
@@ -652,11 +761,18 @@ describe("simple-balance-env, which builds the .env Compose reads", () => {
   });
 
   /** A compose directory and a data volume, as the cloud programs lay them out. */
-  function machine(parts: { base?: string; secrets?: string; local?: string; env?: string }) {
+  function machine(parts: {
+    base?: string;
+    db?: string;
+    secrets?: string;
+    local?: string;
+    env?: string;
+  }) {
     const compose = mkdtempSync(path.join(tmpdir(), "sb-compose-"));
     const state = mkdtempSync(path.join(tmpdir(), "sb-state-"));
     dirs.push(compose, state);
     if (parts.base !== undefined) writeFileSync(path.join(compose, "env.base"), parts.base);
+    if (parts.db !== undefined) writeFileSync(path.join(compose, "env.db"), parts.db);
     if (parts.env !== undefined) writeFileSync(path.join(compose, ".env"), parts.env);
     if (parts.secrets !== undefined) writeFileSync(path.join(state, "secrets.env"), parts.secrets);
     if (parts.local !== undefined) writeFileSync(path.join(state, "env.local"), parts.local);
@@ -728,6 +844,243 @@ describe("simple-balance-env, which builds the .env Compose reads", () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("is the data volume mounted");
     expect(box.env()).toBe("A=0\nAUTH_SECRET=old\n");
+  });
+
+  /**
+   * The order the four parts are folded in, which is this profile's whole
+   * upgrade-safety story for a machine a cloud program built.
+   *
+   * Compose reads the *last* assignment of a name, so the order below is what
+   * decides who wins. An operator who writes their own DATABASE_URL — pointing
+   * at a database they already keep, or at a replica during a move — has to
+   * keep getting it on a machine whose program now generates one, with nothing
+   * to turn off first. That is the release rule at `docs/standards/writing.md`
+   * applied to a file rather than to a setting: what was accepted stays
+   * accepted.
+   */
+  const URL_FROM_THE_PROGRAM =
+    "DATABASE_URL=postgresql://simple_balance:generated@db.db.simplebalance.oraclevcn.com:5432/simple_balance?sslmode=verify-full&sslrootcert=/var/lib/simple-balance/tls/db-ca.pem\n";
+
+  it("folds the database credential after the base and before the secret", () => {
+    const box = machine({
+      base: "APP_BASE_URL=https://books.example.com\n",
+      db: URL_FROM_THE_PROGRAM,
+      secrets: "AUTH_SECRET=abc\n",
+      local: "",
+    });
+    expect(box.run().status).toBe(0);
+    expect(box.env()).toBe(
+      "APP_BASE_URL=https://books.example.com\n" +
+        "# --- the database credential this machine's program generated ---\n" +
+        `${URL_FROM_THE_PROGRAM}AUTH_SECRET=abc\n`,
+    );
+  });
+
+  it("lets a hand-written DATABASE_URL beat the generated one, which is what env.local is for", () => {
+    const mine =
+      "DATABASE_URL=postgresql://u:p@db.example.com/simple_balance?sslmode=verify-full\n";
+    const box = machine({
+      base: "A=1\n",
+      db: URL_FROM_THE_PROGRAM,
+      secrets: "AUTH_SECRET=abc\n",
+      local: mine,
+    });
+    expect(box.run().status).toBe(0);
+    // Both are present — nothing is filtered out, which would need this script
+    // to parse rather than concatenate — and the hand-written one is last.
+    const folded = box.env();
+    expect(folded).toContain(URL_FROM_THE_PROGRAM);
+    expect(folded.lastIndexOf("DATABASE_URL=")).toBe(folded.indexOf(mine));
+  });
+
+  it("carries on with no env.db at all, for a machine told to build no database node", () => {
+    // And for every machine built before this file existed, which is the same
+    // case: an upgrade must not need a file the old release never wrote.
+    const box = machine({ base: "A=1\n", secrets: "AUTH_SECRET=abc\n", local: "" });
+    expect(box.run().status).toBe(0);
+    expect(box.env()).toBe("A=1\nAUTH_SECRET=abc\n");
+    expect(box.env()).not.toContain("the database credential");
+  });
+
+  it("warns about a URL that encrypts nothing, and still writes it", () => {
+    // Said, never enforced. `sslmode=disable` in a hand-written env.local was
+    // accepted by the release before this one, so refusing here would stop a
+    // deployment that worked yesterday, on a machine whose operator is not
+    // watching, for a reason they would have to find in the journal anyway.
+    for (const [label, url] of [
+      ["disable", "postgresql://u:p@h/db?sslmode=disable"],
+      ["disable among others", "postgresql://u:p@h/db?application_name=x&sslmode=disable"],
+      ["no sslmode at all", "postgresql://u:p@h/db"],
+    ] as const) {
+      const box = machine({
+        base: "A=1\n",
+        secrets: "AUTH_SECRET=abc\n",
+        local: `DATABASE_URL=${url}\n`,
+      });
+      const result = box.run();
+      expect(result.status, label).toBe(0);
+      expect(result.stderr, label).toContain("sslmode=verify-full");
+      expect(box.env(), label).toContain(url);
+    }
+  });
+
+  it("says nothing about a URL that verifies, or on a machine with no URL at all", () => {
+    // It must never fire on what the cloud programs generate, or the warning is
+    // noise on every start of every machine and stops being read.
+    const verified = machine({
+      base: "A=1\n",
+      db: URL_FROM_THE_PROGRAM,
+      secrets: "AUTH_SECRET=abc\n",
+      local: "",
+    });
+    expect(verified.run().stderr).toBe("");
+    // The database machine, whose env.db holds the role's password rather than
+    // a URL: nothing here has an opinion to offer.
+    const database = machine({
+      base: "A=1\n",
+      db: "POSTGRES_APP_PASSWORD=abc\n",
+      secrets: "POSTGRES_PASSWORD=def\n",
+      local: "",
+    });
+    expect(database.run().stderr).toBe("");
+  });
+
+  it("reads the quoted spelling of a URL the same way Compose does", () => {
+    // An operator who quoted the value must get the same answer as one who did
+    // not, or the warning fires on exactly the deployments that were careful.
+    const box = machine({
+      base: "A=1\n",
+      secrets: "AUTH_SECRET=abc\n",
+      local: `DATABASE_URL="postgresql://u:p@h/db?sslmode=verify-full&sslrootcert=/x.pem"\n`,
+    });
+    expect(box.run().stderr).toBe("");
+  });
+});
+
+describe("the database machine's first-boot script", () => {
+  const script = read("deploy/systemd/simple-balance-db-firstboot");
+  const code = script
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith("#"))
+    .join("\n");
+  const appFirstboot = read("deploy/systemd/simple-balance-firstboot");
+
+  it("generates the superuser password only when there is none, so a rebuild cannot rotate it", () => {
+    // POSTGRES_PASSWORD is applied by initdb and by nothing afterwards. A
+    // rebuild that rotated it would hand the container a password the cluster
+    // on the volume has never had: the entrypoint starts, finds PGDATA already
+    // initialised, skips initdb entirely, and the two disagree until somebody
+    // looks. The guard is the file's absence, not a flag.
+    const guard = /if \[ ! -f "\$secrets" \]; then\n([\s\S]*?)\nfi\n/.exec(code);
+    expect(guard, "the secret is written under a guard").not.toBeNull();
+    expect(guard![1]).toContain("POSTGRES_PASSWORD=$(openssl rand -base64 48");
+    // And nowhere else, so there is one writer rather than a second path that
+    // forgot the guard.
+    expect(code.match(/POSTGRES_PASSWORD=\$\(openssl/g)).toHaveLength(1);
+  });
+
+  it("makes its secret the same way the application machine makes AUTH_SECRET", () => {
+    // One recipe on this profile rather than two: the `tr` deletes the newlines
+    // openssl wraps at and the three base64 characters that would need escaping
+    // in a URL or a compose file.
+    const recipe = /openssl rand -base64 48 \| tr -d '\\n\/\+=' \| cut -c1-48/;
+    expect(recipe.test(code)).toBe(true);
+    expect(recipe.test(appFirstboot)).toBe(true);
+  });
+
+  it("never generates the password the other machine has to agree about", () => {
+    // The role the application signs in as is decided by the Pulumi program,
+    // because both machines need the same value and only one of them can
+    // choose. A password generated here would be a plausible-looking secret the
+    // application machine has never heard of.
+    expect(code).not.toMatch(/POSTGRES_APP_PASSWORD=\$\(/);
+    expect(code).not.toContain("AUTH_SECRET=$(");
+  });
+
+  it("formats the volume only when it is not already a filesystem", () => {
+    // On this machine that one line is the difference between rebuilding the
+    // database host and erasing the ledger.
+    expect(code).toMatch(/if ! blkid "\$SB_DATA_DEVICE" >\/dev\/null 2>&1; then\n\tmkfs\.ext4/);
+    expect(code.match(/mkfs\./g)).toHaveLength(1);
+  });
+
+  it("waits for the volume as long as the application machine does, and for a worse reason", () => {
+    // Racing it here would leave PGDATA on the boot disk, an empty cluster
+    // initialised into it, and a machine that comes up healthy and empty.
+    const loop =
+      /while \[ ! -b "\$SB_DATA_DEVICE" \] && \[ "\$i" -lt (\d+) \]; do\n\ti=\$\(\(i \+ 1\)\)\n\tsleep (\d+)\ndone/;
+    const here = loop.exec(code);
+    const there = loop.exec(appFirstboot);
+    expect(here, "the loop that waits for the device").not.toBeNull();
+    expect([here![1], here![2]]).toEqual([there![1], there![2]]);
+  });
+
+  it("labels its volume differently from the application machine's, within ext4's sixteen bytes", () => {
+    // The two are never on one machine, but attaching the wrong one is a
+    // mistake somebody makes at three in the morning — and a label that does
+    // not match leaves the mount unsatisfied rather than starting PostgreSQL on
+    // top of somebody's backups.
+    //
+    // Sixteen bytes is checked rather than only reasoned about in the script's
+    // comment, because the failure of a seventeenth is silent at the point of
+    // the mistake: `mkfs.ext4 -L` truncates and carries on, and what an
+    // operator sees is the application on the other machine unable to connect.
+    // `simple-balance-db` is exactly seventeen, which is how that happened.
+    const label = /^SB_DATA_LABEL=(\S+)$/m.exec(code);
+    expect(label, "the database script sets SB_DATA_LABEL").not.toBeNull();
+    expect(Buffer.byteLength(label![1]!, "utf8")).toBeLessThanOrEqual(16);
+    expect(code).toContain(`LABEL=$SB_DATA_LABEL `);
+    expect(label![1]).toBe("sb-db-data");
+    expect(appFirstboot).toContain("LABEL=simple-balance ");
+    expect(code).not.toContain("LABEL=simple-balance ");
+  });
+
+  it("owns the data directory and the key by the image's own uid, which is the same number", () => {
+    // The entrypoint chowns PGDATA but not the parent it is mounted at, so a
+    // root-owned parent leaves the server unable to traverse into its own data
+    // directory; and PostgreSQL refuses a private key with group or world
+    // access on one the database user owns. Both failures are loud, which is
+    // the only reason a hard-coded number is tolerable at all.
+    expect(code).toContain("SB_POSTGRES_UID=999");
+    expect(code).toContain("SB_POSTGRES_GID=999");
+    expect(code).toMatch(/chown "\$SB_POSTGRES_UID:\$SB_POSTGRES_GID" "\$SB_PGDATA_DIR"/);
+    expect(code).toMatch(/chown "\$SB_POSTGRES_UID:\$SB_POSTGRES_GID" "\$tls\/server\.key"/);
+    expect(code).toMatch(/chmod 0600 "\$tls\/server\.key"/);
+  });
+
+  it("builds .env with the same script a restart runs, not a copy of it", () => {
+    expect(code).toMatch(/^\/usr\/local\/sbin\/simple-balance-env$/m);
+    expect(code).not.toMatch(/>\s*\/opt\/simple-balance\/\.env/);
+  });
+
+  it("stops short with an instruction rather than failing, when its half has not arrived", () => {
+    // Safe to run again is what makes the instruction in /etc/motd a real one,
+    // so the missing-credential path exits 0 after enabling the unit without
+    // starting it — the same shape as the application machine's missing
+    // DATABASE_URL, and for the same reason.
+    const stanza = /\nif \[ -n "\$missing" \]; then\n([\s\S]*?)\nfi\n/.exec(code);
+    expect(stanza, "the stanza that runs when a credential has not arrived").not.toBeNull();
+    expect(stanza![1]).toContain("systemctl enable simple-balance.service");
+    expect(stanza![1]).not.toMatch(/systemctl (?:start|restart|enable --now)/);
+    expect(stanza![1].trimEnd().endsWith("exit 0")).toBe(true);
+    // And the way out is in /etc/motd, where somebody who logs in meets it.
+    expect(script).toContain("sudo /usr/local/sbin/simple-balance-db-firstboot");
+  });
+
+  it("restarts rather than starts at the end, so running it again applies a new setting", () => {
+    // A start does nothing to a oneshot unit that is already active, which on a
+    // live machine would rebuild .env and leave the container on the old one.
+    const end = code.slice(code.lastIndexOf(": >/etc/motd"));
+    expect(end).toContain("systemctl restart simple-balance.service");
+    expect(code).not.toMatch(/enable --now simple-balance\.service/);
+  });
+
+  it("starts no backup timer, because the nightly dump is taken from the other machine", () => {
+    // One copy of the ledger, on the volume that is already protected, rather
+    // than a second one on the machine whose loss is the thing being insured
+    // against.
+    expect(code).not.toContain("simple-balance-backup.timer");
+    expect(appFirstboot).toContain("simple-balance-backup.timer");
   });
 });
 
@@ -928,10 +1281,63 @@ describe("the units", () => {
 
   it("leaves the shared unit with no fold of its own, for the hand-installed profiles", () => {
     // The fold is the cloud programs' drop-in. Here it would overwrite the .env
-    // a hand install writes, or fail on the env.base it does not have.
+    // a hand install writes, or fail on the env.base it does not have. The wait
+    // beside it is the opposite case and belongs in the shared unit: a hand
+    // install whose DATABASE_URL names a machine that boots alongside this one
+    // meets exactly the ordering problem the cloud shape does.
     const service = read("deploy/systemd/simple-balance.service")
       .split("\n")
       .filter((line) => !line.trimStart().startsWith("#"));
-    expect(service.filter((line) => line.startsWith("ExecStartPre="))).toEqual([]);
+    expect(service.filter((line) => line.startsWith("ExecStartPre="))).toEqual([
+      "ExecStartPre=/usr/local/sbin/simple-balance-waitdb",
+    ]);
+    expect(service.join("\n")).not.toContain("simple-balance-env");
+  });
+
+  /**
+   * Every program the shared unit runs, installed by every recipe that installs
+   * the unit.
+   *
+   * `ExecStartPre=/usr/local/sbin/simple-balance-waitdb` shipped with nothing
+   * outside cloud-init putting that file on a machine, and the two install
+   * recipes in the unit's own header — which `deploy/compose/single/README.md`
+   * sends every hand installer to — copied the units, the defaults file, the
+   * compose files and `simple-balance-backup` and stopped. systemd treats an
+   * absent `ExecStartPre` binary as `status=203/EXEC`, not as a step to skip,
+   * so both documented hand installs failed at `systemctl enable --now` with a
+   * path nothing had told the operator to create. Nothing starts: not the
+   * application, not Caddy, and on the database machine not PostgreSQL.
+   */
+  it("installs every program it runs, in both of its own install recipes", () => {
+    const unit = read("deploy/systemd/simple-balance.service");
+    const header = unit.slice(0, unit.indexOf("[Unit]"));
+    const body = unit
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("#"))
+      .join("\n");
+
+    const programs = [...body.matchAll(/^Exec\w+=-?(\/usr\/local\/\S+)/gm)].map(
+      (match) => match[1]!,
+    );
+    expect(programs, "the unit runs something out of /usr/local").toContain(
+      "/usr/local/sbin/simple-balance-waitdb",
+    );
+
+    // The header is two recipes, one per machine, and the split is the sentence
+    // that introduces the second. Both have to install every program, because
+    // the same unit file is enabled on both hosts.
+    const split = header.indexOf("# The database machine");
+    expect(split, "the header describes the database machine too").toBeGreaterThan(-1);
+    const recipes = { application: header.slice(0, split), database: header.slice(split) };
+    for (const [machine, recipe] of Object.entries(recipes)) {
+      for (const program of programs) {
+        const name = path.basename(program);
+        expect(
+          recipe.includes(`${program.slice(0, program.lastIndexOf("/"))}/`) &&
+            recipe.includes(`deploy/systemd/${name}`),
+          `the ${machine} recipe installs ${program}`,
+        ).toBe(true);
+      }
+    }
   });
 });

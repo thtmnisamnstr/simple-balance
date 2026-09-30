@@ -1,9 +1,14 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import type { ListedVolume } from "../deploy/pulumi/oci-single/platform.js";
 import { requireDataVolumeDomain, requireRegion } from "../deploy/pulumi/oci-single/platform.js";
+import {
+  OCI_SINGLE,
+  programCode,
+  readProgram,
+  resourceCalls,
+  resourceCallsCode,
+} from "./support/pulumi-source.js";
 
 /**
  * The two things an Oracle Cloud stack cannot get back once they are wrong:
@@ -18,16 +23,7 @@ import { requireDataVolumeDomain, requireRegion } from "../deploy/pulumi/oci-sin
  * `tests/cloud-init.test.ts` reads the attachment's options.
  */
 
-const root = path.resolve(import.meta.dirname, "..");
-const program = readFileSync(path.join(root, "deploy/pulumi/oci-single/index.ts"), "utf8");
-
-/** From `new <kind>(` to the `);` that closes it at the start of a line. */
-function resourceCall(kind: string): string {
-  const start = program.indexOf(`new ${kind}(`);
-  expect(start, kind).toBeGreaterThan(-1);
-  expect(program.indexOf(`new ${kind}(`, start + 1), `one ${kind}`).toBe(-1);
-  return program.slice(start, program.indexOf("\n);\n", start));
-}
+const program = readProgram(OCI_SINGLE);
 
 /**
  * Where the program declares its first resource. A setting that refuses has to
@@ -84,31 +80,49 @@ describe("the region an Oracle Cloud stack is built in", () => {
 describe("the data volume an Oracle Cloud stack keeps", () => {
   const setting = 'const protectDataVolume = cfg.getBoolean("protectDataVolume") ?? true;';
 
-  /** The volume's inputs, and the resource options after them. */
-  function volume(): { inputs: string; options: string } {
-    const call = resourceCall("oci.core.Volume");
-    const split = call.lastIndexOf("\n  {\n");
-    return { inputs: call.slice(0, split), options: call.slice(split) };
+  /**
+   * Each volume's inputs, and the resource options after them. Two of them
+   * now: the application node's backups and secret, and the database node's
+   * cluster.
+   */
+  function volumes(): { inputs: string; options: string }[] {
+    const calls = resourceCallsCode(program, "oci.core.Volume");
+    expect(calls, "one data volume per machine").toHaveLength(2);
+    return calls.map((call) => {
+      // The options are the last argument, and `protect` is its first key on
+      // both volumes. Found by pattern rather than by an indent, because the
+      // database node's whole declaration sits inside a ternary.
+      const split = /\{\n\s*protect: protectDataVolume,/.exec(call);
+      expect(split, "the options follow the inputs").not.toBeNull();
+      return { inputs: call.slice(0, split!.index), options: call.slice(split!.index) };
+    });
   }
 
-  it("is protected unless the stack turns it off", () => {
+  it("protects both data volumes unless the stack turns it off", () => {
     expect(program).toContain(setting);
-    expect(volume().options).toMatch(/^\n {2}\{\n {4}protect: protectDataVolume,\n/);
+    // One switch for both, because they are the same decision — whether this
+    // stack may delete somebody's data — and two settings would be a way to
+    // protect the backups and not the ledger they back up.
+    for (const { options } of volumes()) {
+      expect(options).toMatch(/^\{\n\s+protect: protectDataVolume,\n/);
+    }
   });
 
-  it("is built only once a machine has launched, so a launch refused for capacity leaves none", () => {
+  it("is built only once its machine has launched, so a launch refused for capacity leaves none", () => {
     // Built beside the network, an empty protected volume was waiting in the
     // domain when the launch failed, and moving to another domain — what the
     // capacity error is answered with — was refused as a replacement of it.
-    const { inputs, options } = volume();
-    expect(options).toMatch(/\n {4}dependsOn: \[instance\],\n/);
+    const [application, database] = volumes();
+    expect(application!.options).toMatch(/\n {4}dependsOn: \[instance\],\n/);
+    expect(database!.options).toMatch(/\n {8}dependsOn: \[databaseInstance\],\n/);
     // By dependsOn alone. A property read off the instance would make every
     // replacement of the machine a replacement of the volume as well.
-    expect(inputs).not.toMatch(/\binstance\b/);
+    for (const { inputs } of volumes()) expect(inputs).not.toMatch(/\binstance\b/i);
   });
 
-  it("is named in the outputs, for the manual backup a teardown takes first", () => {
+  it("names both in the outputs, for the manual backup a teardown takes first", () => {
     expect(program).toContain("export const dataVolumeId = dataVolume.id;");
+    expect(program).toContain("export const databaseVolumeId = databaseVolume?.id;");
   });
 
   it("reads the switch before any resource is declared, so a malformed one builds nothing", () => {
@@ -116,12 +130,15 @@ describe("the data volume an Oracle Cloud stack keeps", () => {
     expect(program.indexOf(setting)).toBeLessThan(firstResource);
   });
 
-  it("protects the volume and nothing else, so the machine can still be replaced", () => {
+  it("protects the volumes and nothing else, so either machine can still be replaced", () => {
     // The documented way back from a machine gone wrong is replacing it, and
     // its attachment goes with it. Either one protected would refuse that.
-    expect(program.match(/\bprotect:/g)).toHaveLength(1);
-    expect(resourceCall("oci.core.Instance")).not.toMatch(/\bprotect\b/);
-    expect(resourceCall("oci.core.VolumeAttachment")).not.toMatch(/\bprotect\b/);
+    expect(programCode(program).match(/\bprotect:/g)).toHaveLength(2);
+    for (const kind of ["oci.core.Instance", "oci.core.VolumeAttachment"]) {
+      for (const call of resourceCallsCode(program, kind)) {
+        expect(call, kind).not.toMatch(/\bprotect\b/);
+      }
+    }
   });
 });
 
@@ -173,17 +190,30 @@ describe("an availability domain the kept data volume is not in", () => {
     const start = program.indexOf("const availabilityDomain = ");
     expect(start).toBeGreaterThan(-1);
     const domain = program.slice(start, program.indexOf(";\n", start));
+    // Both volumes, not just the application node's. The ledger is on the
+    // other one, and a check that guarded the backups and not the database
+    // they back up would be the wrong half.
     expect(domain).toContain(
       "oci.core.getVolumesOutput({ compartmentId, displayName: dataVolumeName })",
     );
-    expect(domain).toMatch(
-      /requireDataVolumeDomain\(\s+chooseAvailabilityDomain\([\s\S]+\),\s+existing\.volumes \?\? \[\],\s+protectDataVolume,\s+\)/,
+    expect(domain).toContain(
+      "oci.core.getVolumesOutput({ compartmentId, displayName: databaseVolumeName })",
     );
-    // One value names the volume and the lookup, so neither is renamed alone.
+    expect(domain).toMatch(
+      /requireDataVolumeDomain\(\s+chooseAvailabilityDomain\([\s\S]+\),\s+\[\.\.\.\(existing\.volumes \?\? \[\]\), \.\.\.\(existingDatabase\.volumes \?\? \[\]\)\],\s+protectDataVolume,\s+\)/,
+    );
+    // One value names each volume and its lookup, so neither is renamed alone.
     expect(program).toContain("const dataVolumeName = `${name}-data`;");
+    expect(program).toContain("const databaseVolumeName = `${name}-db-data`;");
+    // Every zoned resource on both machines takes the one domain, because a
+    // block volume cannot be attached across them.
     for (const kind of ["oci.core.Instance", "oci.core.Volume"]) {
-      expect(resourceCall(kind), kind).toMatch(/\n {4}availabilityDomain,\n/);
+      const calls = resourceCalls(program, kind);
+      expect(calls, kind).toHaveLength(2);
+      for (const call of calls) expect(call, kind).toMatch(/\n {4,10}availabilityDomain,\n/);
     }
-    expect(resourceCall("oci.core.Volume")).toContain("\n    displayName: dataVolumeName,\n");
+    const [application, database] = resourceCalls(program, "oci.core.Volume");
+    expect(application).toContain("\n    displayName: dataVolumeName,\n");
+    expect(database).toContain("\n        displayName: databaseVolumeName,\n");
   });
 });

@@ -286,9 +286,21 @@ integration("a frozen account", () => {
   it("refuses a swap once the choice has been made", async () => {
     // The rule, against a real database: Third is frozen and Fourth is in
     // use, and trading one for the other would be having both.
+    //
+    // The whole refusal and not only its sentence, mirroring the
+    // nothing-frozen case below. `agentMessage` is the half a person never
+    // sees and the half that decides what an MCP client does next: this branch
+    // has to send it to a different list, and the other one has to stop it
+    // calling at all. They are chosen by `reason` alone, which no assertion
+    // read until this one, so a mislabelled refusal told an agent to give up
+    // on a call that would have worked.
     await expect(
       setActiveAccounts(actor, { accountIds: [ids.First!, ids.Second!, ids.Third!] }),
-    ).rejects.toThrow(/stays active/i);
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: expect.stringMatching(/stays active/i),
+      agentMessage: expect.stringMatching(/name each one where it is false/),
+    });
     const accounts = await listAccounts(actor);
     expect(accounts.filter((account) => account.frozen).map((account) => account.name)).toEqual([
       "Third",
@@ -302,11 +314,19 @@ integration("a frozen account", () => {
   });
 
   it("refuses a choice larger than the plan allows", async () => {
+    // Naming four against a limit of three. The sentence alone cannot tell
+    // this from the nothing-frozen refusal, which also opens "A free plan
+    // keeps 3 accounts active" — so the half that distinguishes them is the
+    // hint, and it is the half an agent acts on.
     await expect(
       setActiveAccounts(actor, {
         accountIds: [ids.First!, ids.Second!, ids.Third!, ids.Fourth!],
       }),
-    ).rejects.toThrow(/keeps 3 accounts active/i);
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: expect.stringMatching(/keeps 3 accounts active, and this names 4/i),
+      agentMessage: expect.stringMatching(/name each one where it is false/),
+    });
   });
 
   it("unfreezes everything the moment the plan does, with nothing written", async () => {

@@ -13,6 +13,7 @@ import type {
   CategoryKind,
   PaginatedPage,
   Page,
+  PlanChangeInvoice,
   RecurrenceFrequencyName,
   RecurrenceSchedule,
   RecurrenceShape,
@@ -362,6 +363,19 @@ export type BillingStatus = {
     nextRetryAt?: string | null;
     /** When an unfinished first payment lapses, with nothing charged. */
     expiresAt?: string | null;
+    /**
+     * The day the plan stops, where one is set, and null where none is.
+     *
+     * Not the same fact as `cancelAtPeriodEnd`, which means "it stops on the
+     * day `currentPeriodEnd` names" and is false for a cancellation an
+     * operator dated further out — that period really does renew. Read off
+     * the flag alone a further-out one did not exist here at all, so the
+     * interval buttons stayed live on a plan Stripe was about to stop. Ask
+     * `cancellationPending` for whether one is pending; the status line goes
+     * on asking the flag, because its date is the only one printable as an
+     * ending.
+     */
+    cancelAt?: string | null;
   } | null;
   /** `plan` is the wire value; `PLAN_LABELS` is the word a person reads. */
   override: { plan: Plan; expiresAt: string | null } | null;
@@ -371,6 +385,18 @@ export type SubscriptionResult = {
   subscriptionId: string;
   clientSecret: string | null;
   status: string;
+  /**
+   * What the press raised to pay now, where it changed the interval on the
+   * spot, and null where it changed no interval.
+   *
+   * Optional for the two reasons `CardConfirmation.invoice` is: the container
+   * serving this bundle may be from before the field existed, and a replay of
+   * an idempotency key stored before it hands back what was stored. Absent is
+   * "nothing to say", which is the only reading that does not put "the
+   * difference was charged to your payment method" in front of somebody whose
+   * payment method was never touched.
+   */
+  changeInvoice?: PlanChangeInvoice | null;
 };
 
 export type { AuthMode };

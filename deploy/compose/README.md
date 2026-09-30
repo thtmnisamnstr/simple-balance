@@ -19,13 +19,22 @@ This is the shape `deploy/helm/simple-balance/` deploys, without Kubernetes. One
 container is still the supported way to run this in production; see
 [docs/deployment.md](../../docs/deployment.md).
 
-**This is not the `single` profile.** It runs the split containers on one
-machine to exercise the shape the Helm chart deploys, with a bundled
-PostgreSQL for convenience. For a deployment somebody's books live on — one
-container, a tuned database, TLS, backups and a systemd unit — read
-[`single/README.md`](single/README.md), and
-[`docs/deployment-profiles.md`](../../docs/deployment-profiles.md) for which
-of the two to pick.
+**This is not a deployment profile.** It runs the split containers on one
+machine to exercise the shape the Helm chart deploys, with a bundled PostgreSQL
+for convenience, and nothing in it holds a ledger anybody depends on. There are
+two profiles and this is neither:
+
+- **`single`**, in [`single/`](single/README.md) — the application container on
+  one machine with TLS, backups and a systemd unit, and PostgreSQL 18 on a
+  second machine with no public address. Two Compose projects, one per machine,
+  both in that directory.
+- **`ha`**, in [`../helm/simple-balance/`](../helm/simple-balance/README.md) —
+  the same three containers as this file, on Kubernetes, with PostgreSQL and
+  Citus underneath them. It has two shapes, one node per service and fully
+  redundant, and they differ by a values file rather than by a migration.
+
+[`docs/deployment-profiles.md`](../../docs/deployment-profiles.md) is which of
+the two to pick.
 
 ## Bring it up
 
@@ -138,10 +147,11 @@ images to Kubernetes with an Ingress, cert-manager, autoscaling and network
 policies. The differences here are the ones a single machine forces:
 
 - The chart provisions no database by default. A cluster's PostgreSQL is bring
-  your own unless `database.enabled` runs the `ha` profile's Citus cluster,
-  since whoever runs it owns its backups, its version and its
-  `max_connections`. Here it is a container, because a trial on one machine
-  should take one command.
+  your own unless `database.enabled` runs one, and it stays off in `values.yaml`
+  so that an upgrade from 0.1.6 finds the values it had; both of the `ha`
+  profile's shapes turn it on through a values file of their own, and get Citus
+  under Patroni. Here it is one plain container with no redundancy at all,
+  because a trial on one machine should take one command.
 - The chart runs two API replicas and one scheduler; this runs one API and two
   schedulers, which is the arrangement that shows the scheduler dividing work.
 - nginx's graceful stop is stated as `stop_signal: SIGQUIT` rather than the

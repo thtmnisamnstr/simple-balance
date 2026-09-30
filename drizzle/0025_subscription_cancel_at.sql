@@ -1,0 +1,23 @@
+-- The day a cancellation lands on, beside the flag saying it lands on the
+-- period end.
+--
+-- The two answer different questions and neither implies the other. An
+-- operator can set `cancel_at` in Stripe's dashboard for a day past the
+-- current period, and Stripe then reports `cancel_at_period_end: false` —
+-- so collapsing the pair into the flag made such a cancellation invisible,
+-- and the plan buttons went on offering changes that destroyed it.
+-- `cancellationPending` in `src/shared/domain.ts` is the one rule that reads
+-- both; the status line still reads the flag alone, because only that
+-- spelling ends on the day we store as `current_period_end`.
+--
+-- Its own migration rather than a column folded into the unreleased 0022:
+-- drizzle's migrator compares only the recorded timestamp against the
+-- folder's and never the file's hash, so every database that has already run
+-- 0022 — this branch's own test tiers among them — would record the
+-- regenerated one as done, migrate clean, and then fail at the first billing
+-- read with `column "cancel_at" does not exist`.
+--
+-- Metadata-only on any PostgreSQL: nullable, no default, so no row is
+-- rewritten. `billing_subscription` is a Citus reference table by 0023, and
+-- Citus propagates ADD COLUMN to every node, so this needs no gate.
+ALTER TABLE "billing_subscription" ADD COLUMN "cancel_at" timestamp with time zone;

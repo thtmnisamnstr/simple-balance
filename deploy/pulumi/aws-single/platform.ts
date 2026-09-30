@@ -1,5 +1,9 @@
-import { awsUserDataBase64, cloudInit } from "../single-common/cloud-init";
-import type { MachineSettings } from "../single-common/cloud-init";
+import { awsUserDataBase64, cloudInit, databaseCloudInit } from "../single-common/cloud-init";
+import type {
+  ApplicationDatabase,
+  DatabaseCloudInitArgs,
+  MachineSettings,
+} from "../single-common/cloud-init";
 
 /**
  * What `./index.ts` sends the EC2 instance, apart from the program and with no
@@ -30,8 +34,42 @@ export function dataDevice(volumeId: string): string {
 export const PLACEHOLDER_VOLUME_ID = "vol-0123456789abcdef0";
 
 /** The instance's `userDataBase64`: the cloud-init, gzipped, checked against EC2's cap. */
-export function userDataBase64(settings: MachineSettings, volumeId: string): string {
-  return awsUserDataBase64(cloudInit({ settings, dataDevice: dataDevice(volumeId) }));
+export function userDataBase64(
+  settings: MachineSettings,
+  volumeId: string,
+  database?: ApplicationDatabase,
+): string {
+  return awsUserDataBase64(cloudInit({ settings, dataDevice: dataDevice(volumeId), database }));
+}
+
+/** The database instance's `userDataBase64`, measured against the same cap. */
+export function databaseUserDataBase64(
+  args: Omit<DatabaseCloudInitArgs, "dataDevice">,
+  volumeId: string,
+): string {
+  return awsUserDataBase64(databaseCloudInit({ ...args, dataDevice: dataDevice(volumeId) }));
+}
+
+/**
+ * Amazon's own internal DNS name for an instance at a given private address,
+ * which is what the database node's certificate is issued for.
+ *
+ * Known before the instance exists, because the program pins the address — and
+ * that is the whole reason the address is pinned. The VPC has
+ * `enableDnsSupport` and `enableDnsHostnames`, so the Amazon-provided resolver
+ * answers this name for an instance in the VPC, and Docker's embedded resolver
+ * forwards to it. No Route 53 private zone is needed and none is created.
+ *
+ * us-east-1 is a real exception rather than a tidy-up: every other region spells
+ * it `ip-10-20-1-10.<region>.compute.internal`, and us-east-1 alone spells it
+ * `ip-10-20-1-10.ec2.internal`. Getting it wrong there produces a certificate
+ * whose SAN is a name that resolves nowhere, and the symptom is
+ * `ENOTFOUND` at the first connection rather than a verification error, which
+ * reads like a network fault.
+ */
+export function databaseHost(privateIp: string, region: string): string {
+  const label = `ip-${privateIp.replace(/\./g, "-")}`;
+  return region === "us-east-1" ? `${label}.ec2.internal` : `${label}.${region}.compute.internal`;
 }
 
 /**

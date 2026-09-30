@@ -52,8 +52,9 @@ fi
 cd "$SB_COMPOSE_DIR"
 
 # Where the database is, decided the same way `simple-balance-backup` decides
-# it: by reading this project's own service list. `vps` has it as a service here,
-# `single` points at one somebody else keeps. See that script for the reasoning.
+# it: by reading this project's own service list. The database machine has it as
+# a service here; an application machine points at one on another host. See that
+# script for the reasoning.
 if docker compose config --services 2>/dev/null | grep -qx postgres; then
 	database_in_project=yes
 else
@@ -178,20 +179,13 @@ if [ "$database_in_project" = no ]; then
 	fi
 	pg_url=$(libpq_url "$DATABASE_URL")
 	# Before the archive is even read, because a certificate that cannot be
-	# found would otherwise be found by the first connection to the server. The
-	# maintenance URL below keeps the same query string, so the one file serves
-	# both connections.
+	# found would otherwise be found by the first connection to the server.
 	pg_ca_file=$(libpq_root_cert "$pg_url") || exit 2
-	# The database this restores into, and the one to connect to while it does
-	# not exist. Dropping a database means not being connected to it. Both from
-	# libpq's spelling, so the maintenance connection carries the same sslmode.
-	#
-	# The database is the last path segment before the `?`, and only before it:
-	# `sslrootcert` puts slashes in the query string, and a match that reached
-	# past the `?` for the last slash renamed the certificate instead, leaving
-	# a maintenance URL whose root file was /var/lib/simple-balance/tls/postgres.
+	# The database this restores into, for the messages below. It is the last
+	# path segment before the `?`, and only before it: `sslrootcert` puts
+	# slashes in the query string, and a match that reached past the `?` for the
+	# last slash took the certificate's file name for the database's.
 	restore_db=$(printf '%s' "$pg_url" | sed 's/[?].*$//; s#.*/##')
-	maintenance_url=$(printf '%s' "$pg_url" | sed 's#^\([^?]*\)/[^/?]*#\1/postgres#')
 	if [ -z "$restore_db" ]; then
 		echo "simple-balance-restore: DATABASE_URL names no database." >&2
 		exit 2
@@ -236,13 +230,24 @@ fi
 # cannot be swapped for an older one either, because an older pg_restore cannot
 # read the archive a newer pg_dump wrote. So against an older server the dump is
 # rendered to SQL first, while nothing has changed, that one line is taken out,
-# and psql loads the rest in a single transaction. Only `single` needs asking:
-# on `vps` the client is the server's own image.
+# and psql loads the rest in a single transaction. Only a restore over the
+# network needs asking: where the database is a service in this project, the
+# client is the server's own image and the two cannot disagree.
 filter_sql=""
 if [ "$database_in_project" = no ]; then
-	if ! server_num=$(pg psql -d "$maintenance_url" -Atc 'show server_version_num' 2>&1); then
+	# Over the ledger's own connection string, never a maintenance session on
+	# the server's `postgres` database. That is not a style preference: the
+	# database machine's pg_hba.conf has exactly one line that crosses a
+	# network, `hostssl simple_balance simple_balance all`, so a connection to
+	# database `postgres` matches no rule and is refused with `no pg_hba.conf
+	# entry` — while the application beside it is connected to the same server
+	# perfectly well, which sends whoever reads that message off to look at the
+	# firewall. tests/systemd-scripts.test.ts runs this script and holds every
+	# database it names against the rules that file actually ships.
+	if ! server_num=$(pg psql -d "$pg_url" -Atc 'show server_version_num' 2>&1); then
 		echo "simple-balance-restore: could not reach the database to check its version. Nothing was changed." >&2
 		echo "$server_num" >&2
+		echo "  If the server has no \"$restore_db\" database yet, start the application once — it creates one — or run CREATE DATABASE \"$restore_db\"; as a role that may, then restore." >&2
 		exit 1
 	fi
 	# A number, or nothing happens. The capture above takes stderr too, so a
@@ -289,13 +294,14 @@ fi
 # been replaced. Stopping it also means nothing writes a transaction into the
 # half-restored ledger.
 #
-# Where the application is depends on the profile, and on `vps` it is not here:
-# that machine runs the database alone, and `docker compose stop app` against it
-# exits 1 with `no such service: app` — which under `set -e` would abort the
-# restore before it started. So it is stopped if it is in this project, and
-# named as the operator's job if it is not. Refusing to continue would be wrong
-# in the other direction: the application machines may already be stopped, and
-# this script cannot see them to find out.
+# Where the application is depends on which machine this runs on, and on the
+# database machine it is not here: that one runs the database alone, and
+# `docker compose stop app` against it exits 1 with `no such service: app` —
+# which under `set -e` would abort the restore before it started. So it is
+# stopped if it is in this project, and named as the operator's job if it is
+# not. Refusing to continue would be wrong in the other direction: the
+# application machines may already be stopped, and this script cannot see them
+# to find out.
 if docker compose config --services 2>/dev/null | grep -qx app; then
 	echo "simple-balance-restore: stopping the application"
 	docker compose stop app
@@ -303,7 +309,7 @@ if docker compose config --services 2>/dev/null | grep -qx app; then
 else
 	restart_app=no
 	echo "simple-balance-restore: no application in this Compose project."
-	echo "  On the vps profile the API and the scheduler are on machines of their own."
+	echo "  Run on the database machine, the application is on the other one."
 	echo "  Stop them before continuing, or this restore will fail on connections it"
 	echo "  cannot see: sudo systemctl stop simple-balance"
 	if [ "$assume_yes" != yes ]; then
@@ -313,30 +319,71 @@ else
 	fi
 fi
 
-# Dropped and recreated rather than restored over with --clean. A clean restore
+# Emptied and recreated rather than restored over with --clean. A clean restore
 # leaves behind anything the dump does not mention, which is exactly what a
-# restore is usually trying to get rid of. `template0` so the new database
-# inherits nothing that was added to template1.
-echo "simple-balance-restore: recreating the database"
+# restore is usually trying to get rid of.
+#
+# How it is emptied depends on where the database is, and the two branches are
+# not interchangeable: the database in this project is dropped whole, over a
+# socket, as the superuser; one across a network has its schema dropped from
+# inside, as the application's own role, because that role has no way to reach
+# the server's `postgres` database and no CREATEDB to use if it did. Each branch
+# says the rest of its reasoning where it is.
+echo "simple-balance-restore: emptying the database"
 if [ "$database_in_project" = yes ]; then
-	pg psql -U simple_balance -d postgres -v ON_ERROR_STOP=1 \
+	# As the superuser, and only for these two statements, because dropping and
+	# creating a database needs CREATEDB and the application's role deliberately
+	# does not have it — `db-init.sh` gives it ownership of one database and
+	# nothing else, so that a leaked connection string cannot make or destroy
+	# others. Reached over the container's own socket, which pg_hba trusts and
+	# the network cannot get to.
+	#
+	# `owner simple_balance` is the part that is easy to leave off and expensive
+	# to leave off: without it the new database belongs to `postgres`, and from
+	# PostgreSQL 15 the `public` schema follows the owner — so `pg_restore`
+	# below, which connects as `simple_balance`, could not create a single
+	# table in it. That is a restore that fails at the first row, which is at
+	# least loud; the quieter version is the one where it half works.
+	#
+	# `template0` so the new database inherits nothing that was added to
+	# template1.
+	pg psql -U postgres -d postgres -v ON_ERROR_STOP=1 \
 		-c "drop database if exists simple_balance;" \
-		-c "create database simple_balance template template0;"
+		-c "create database simple_balance owner simple_balance template template0;"
 else
-	# The same two statements against a database this deployment does not run,
-	# which needs the role to be able to create one. That is already true of any
-	# `single` deployment the application bootstrapped itself — it creates the
-	# database on first start when the server does not have one — and where it is
-	# not, the restore says so here rather than halfway through.
-	pg psql -d "$maintenance_url" -v ON_ERROR_STOP=1 \
-		-c "drop database if exists \"$restore_db\";" \
-		-c "create database \"$restore_db\" template template0;"
+	# The same emptying, done from inside the database instead, because over a
+	# network this script has neither of the two things dropping one needs. It
+	# cannot connect to the server's `postgres` database — the database machine's
+	# pg_hba.conf admits the application's role to its own database and nowhere
+	# else — and it could not create one if it did, because `db-init.sh`
+	# deliberately withholds CREATEDB so that a leaked connection string cannot
+	# make or destroy databases. Asking for either would have widened the role
+	# to fix a script.
+	#
+	# `drop schema public cascade` takes every table, view, sequence, function
+	# and type the ledger has with it, which is the whole of what `drop
+	# database` was for here: "leaves behind anything the dump does not
+	# mention". Everything this application owns lives in `public`.
+	#
+	# The role may do it because it *owns* the database: from PostgreSQL 15
+	# `public` belongs to `pg_database_owner`, which resolves to whoever owns
+	# the database, and `db-init.sh` hands that over with ALTER DATABASE ...
+	# OWNER TO. `authorization current_user` then recreates it owned by whoever
+	# connected — spelled that way rather than naming `simple_balance`, so a
+	# bring-your-own database whose role is called something else gets a schema
+	# it owns rather than one it cannot write to.
+	pg psql -d "$pg_url" -v ON_ERROR_STOP=1 \
+		-c "drop schema if exists public cascade;" \
+		-c "create schema public authorization current_user;"
 fi
 
-# --no-owner and --no-privileges to match how the dump was taken: this
-# deployment has exactly one role, so ownership recorded in the archive is
-# noise, and a restore that tries to reinstate a role that does not exist fails
-# row by row.
+# --no-owner and --no-privileges to match how the dump was taken: exactly one
+# role owns anything the application uses, so ownership recorded in the archive
+# is noise, and a restore that tries to reinstate a role that does not exist
+# fails row by row. What --no-owner does instead is give every object to the
+# role that connected — which is why the line below connects as the
+# application's role and not as the superuser, and why the schema it restores
+# into was created owned by that role just above, whichever branch made it.
 #
 # --exit-on-error, because pg_restore's default is to report errors and carry on
 # to the end, exit 0, and leave a partially restored ledger that nothing has

@@ -18,7 +18,9 @@ runs it — it wants a machine and the better part of an hour — so the claim a
 rests on the last person to have run it. It was false for three sessions once
 already: the `single` profile stopped bundling PostgreSQL, its compose began
 demanding `DATABASE_URL` before any overlay could supply one, and the documented
-invocation failed on the render rather than anywhere a suite would look. Run it
+invocation failed on the render rather than anywhere a suite would look. The
+profile has since grown a database again, on a machine of its own, and the
+harness is still its own compose file rather than that machine's. Run it
 before trusting this page, not after.
 
 ## The population
@@ -143,12 +145,13 @@ The `single` profile at `small`: 2 vCPU and 4 GiB, which
 enforces.
 
 **With the database on the same machine**, which that profile does not do — it
-points at one somebody else keeps. The harness supplies its own
+puts PostgreSQL on a second machine of its own. The harness supplies its own
 (`scripts/capacity/compose.capacity.yml`) and co-locates it deliberately: it is
 the harder case for the application, since the two then compete for one pair of
 cores, and the easier one to reproduce, since it needs nothing but this
-repository. A deployment whose database is elsewhere has strictly more of the
-machine for the application than these numbers assume. In the harness the two
+repository. A real `single` deployment has the whole of one machine for the
+application and the whole of another for PostgreSQL, so it has strictly more of
+both than these numbers assume. In the harness the two
 processes share it — PostgreSQL gets 1.5 cores and 3 GiB, the application 0.5
 and 1 GiB — and the remainder is the page cache `effective_cache_size` tells the
 planner to expect.
@@ -245,9 +248,11 @@ and `docs/deployment-sizing.md` sizes `small`'s disk at 20 GiB. So the machine
 that served this comfortably could not have stored it: ten thousand users needs
 `medium`'s disk at minimum, and only with dumps kept off the box — fourteen
 daily dumps of a 37 GB ledger is another 79 GB, which on one disk beside the
-ledger is past `large`. The `single` profile splits the two, which moves the
-problem rather than removing it: the database server wants `medium`'s disk, and
-the application machine's data disk, where the dumps land, wants `large`'s. The
+ledger is past `large`. The `single` profile splits the two across its two
+machines, which moves the problem rather than removing it: the database node
+wants `medium`'s disk, and the application node's data disk, where the dumps
+land, wants `large`'s. Sizing them apart is what
+`simple-balance:databaseSize` is for. The
 CPU and memory of `small` are ample for ten thousand users; the disks are not,
 and they are what should be sized from the table.
 

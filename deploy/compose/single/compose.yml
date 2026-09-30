@@ -1,20 +1,22 @@
-# Simple Balance on one machine, against a database somebody else keeps.
+# Simple Balance's application machine: everything but the database.
 #
 # The application container docs/deployment.md calls the supported way to run
-# this, and nothing else. No PostgreSQL here: point DATABASE_URL at a managed
-# service or a server you already run. That is what distinguishes this profile
-# from the `vps` one, where the database is one of the services.
+# this, and nothing else. No PostgreSQL here, and that is the point of the
+# machine rather than a gap in it — losing this one loses no data. Point
+# DATABASE_URL at the database machine beside it, which compose.postgres.yml in
+# this same directory runs, or at a managed service, or at a server you already
+# keep.
 #
 #   cp deploy/compose/single/.env.example deploy/compose/single/.env
 #   $EDITOR deploy/compose/single/.env
 #   docker compose -f deploy/compose/single/compose.yml up -d
 #
-# This is the `single` profile, and the name is about machines rather than
-# containers: one host holds the application and whatever terminates TLS, and it
-# grows by being given more CPU and memory. The other
-# profile is `ha`, which is Kubernetes. docs/deployment-profiles.md is the
-# comparison, docs/deployment-sizing.md says how big this machine has to be, and
-# docs/deployment-costs.md prices it.
+# This is the `single` profile, and the name is about *shape* rather than about
+# a machine count: one application node, one database node, no redundancy in
+# either, and it grows by being given more CPU and memory. The other profile is
+# `ha`, which is the Helm chart, in two shapes of its own.
+# docs/deployment-profiles.md is the comparison, docs/deployment-sizing.md says
+# how big each machine has to be, and docs/deployment-costs.md prices the pair.
 #
 # Not to be confused with ../compose.distributed.yml, which runs the *split*
 # containers on one machine. That file exists to exercise the shape the Helm
@@ -32,11 +34,28 @@ services:
     image: ghcr.io/thtmnisamnstr/simple-balance:0.1.6
     restart: unless-stopped
     ports:
-      # Loopback, always. Whatever terminates TLS is what the world reaches, and
-      # compose.caddy.yml removes this mapping entirely because Caddy reaches the
-      # application over this network instead. Publishing 3000 to 0.0.0.0 would
-      # serve the application over plain HTTP to anybody who found the address,
-      # with the session cookie on it.
+      # Loopback, always, and the bind address is what makes that true — not the
+      # Caddy overlay.
+      #
+      # This comment said for a release that compose.caddy.yml "removes this
+      # mapping entirely". It does not: an overlay merges lists rather than
+      # replacing them, so with Caddy in front the application is published on
+      # 127.0.0.1:3000 as well. That was harmless, because the address below is
+      # loopback — but it was harmless by accident, and the argument for not
+      # opening 3000 in either cloud firewall was resting on it.
+      #
+      # So the property to keep is this one: whatever is in front, the port is
+      # published to this machine and to nothing else. Publishing 3000 to
+      # 0.0.0.0 would serve the application over plain HTTP to anybody who found
+      # the address, with the session cookie on it, and neither cloud program
+      # opens 3000 to anything.
+      #
+      # `ports: !override []` in the Caddy overlay would drop the mapping
+      # properly and is deliberately not used: it needs Compose 2.24, this file
+      # is also a hand install recipe, and a YAML tag an older Compose does not
+      # know is a parse error rather than a fallback. Keeping the mapping also
+      # keeps `curl 127.0.0.1:3000/health/ready` working on the machine, which is
+      # the first thing anybody does when the site is down.
       - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-3000}:3000"
 
     # The whole of what reaches the container: .env only fills in the ${...},
@@ -48,15 +67,16 @@ services:
       # sign-in rate limiting, no secure cookies, and nothing said about it.
       NODE_ENV: production
 
-      # Somebody else's PostgreSQL, and that is the profile rather than a
-      # limitation. A single node runs the application; the database is a
-      # managed service, a server you already keep awake, or the machine next to
-      # this one. `docs/deployment.md` has always described this product as
-      # something you point at a database, and this is that sentence as a
-      # compose file.
+      # Never this machine's own PostgreSQL, and that is the profile rather
+      # than a limitation: losing this machine loses no data.
       #
-      # Where the database should live is the one thing this profile does not
-      # decide. What it does decide is that losing this machine loses no data.
+      # Where the database lives is the one thing this file does not decide. On
+      # the pair deploy/pulumi builds it is the database node, over the
+      # provider's private network, under sslmode=verify-full against a
+      # certificate that stack issued. It can equally be a managed service or a
+      # server you already keep awake. `docs/deployment.md` has always described
+      # this product as something you point at a database, and this is that
+      # sentence as a compose file.
       #
       # A URL that names the database's CA certificate with sslrootcert needs
       # compose.db-tls.yml beside this file, which mounts the certificate's

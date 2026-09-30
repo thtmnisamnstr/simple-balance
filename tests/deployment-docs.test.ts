@@ -205,8 +205,18 @@ describe("hardening, across every compose file", () => {
   it("finds every compose file in the tree", () => {
     // Without this the regex could stop matching and every assertion below would
     // pass over an empty population, which is the failure a list makes slowly.
-    expect(composeFiles.length).toBeGreaterThanOrEqual(8);
-    expect(composeFiles.map((file) => file.path)).toContain("deploy/compose/vps/compose.app.yml");
+    //
+    // Six, down from eight: the `vps` profile's four went with it, and the
+    // `single` profile's database machine brought one back. A floor rather than
+    // a count, because it is guarding the regex rather than the tree.
+    expect(composeFiles.length).toBeGreaterThanOrEqual(6);
+    // A named one, so "the regex still matches" is a claim about a real path
+    // rather than about a number. The database machine's, because it is the
+    // newest and the one whose service is not the application's — and so the
+    // one a pattern written around `simple-balance` would quietly drop.
+    expect(composeFiles.map((file) => file.path)).toContain(
+      "deploy/compose/single/compose.postgres.yml",
+    );
   });
 
   it("drops every capability from every Simple Balance service", () => {
@@ -246,22 +256,40 @@ describe("the single-machine programs, as the Pulumi README describes them", () 
     return readme.slice(start, end === -1 ? undefined : end);
   };
 
-  it("never says the machine runs its own database", () => {
+  /**
+   * Inverted, deliberately, from "never says the machine runs its own
+   * database".
+   *
+   * It used to be true and it was worth pinning: the sentence went missing once
+   * and an owner budgeted zero for a database the program did not build. The
+   * profile now builds one, on a second machine, so the same care points the
+   * other way — a description that still said "creates no database" would send
+   * somebody looking for a managed PostgreSQL they are already paying for, and
+   * would hide the machine with the ledger on it from anyone reading the
+   * project rather than the program.
+   */
+  it("says each program builds a database node, and how to have it build none", () => {
     for (const path of [
-      "deploy/pulumi/README.md",
       "deploy/pulumi/oci-single/Pulumi.yaml",
       "deploy/pulumi/aws-single/Pulumi.yaml",
     ]) {
-      expect(read(path), path).not.toMatch(
-        /runs its own PostgreSQL|PostgreSQL and\s+Caddy|the database lives on|reserved public IP/,
-      );
+      const description = read(path);
+      expect(description, path).not.toMatch(/creates no\s+database/);
+      expect(description, path).toMatch(/PostgreSQL 18 in\s+a container/);
+      // The machine with the ledger on it, and the two things that are true of
+      // it on both clouds: nothing reaches it from the internet, and the hop
+      // the application makes to it is verified rather than merely encrypted.
+      expect(description, path).toMatch(/no public address at all/);
+      expect(description, path).toContain("sslmode=verify-full");
+      // The escape hatch, named in the description because it is the answer to
+      // "I already have a PostgreSQL" and to the NAT gateway's bill.
+      expect(description, path).toContain("simple-balance:databaseNode to false");
     }
-    for (const path of [
-      "deploy/pulumi/oci-single/Pulumi.yaml",
-      "deploy/pulumi/aws-single/Pulumi.yaml",
-    ]) {
-      expect(read(path), path).toMatch(/creates no\s+database/);
-    }
+    // The README is another page's to update and is only held to the claims
+    // that were wrong once before.
+    expect(read("deploy/pulumi/README.md")).not.toMatch(
+      /runs its own PostgreSQL|PostgreSQL and\s+Caddy|the database lives on|reserved public IP/,
+    );
   });
 
   it("walks through a database for Oracle Cloud, and says it is not free", () => {

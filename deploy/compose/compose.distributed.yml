@@ -170,8 +170,10 @@ services:
     # Nothing in this file holds a ledger anybody depends on: 0.1.6 called this
     # database "a trial on one machine" and said to point DATABASE_URL at a real
     # server when it stopped being one, and 0.2.0 calls this whole file a
-    # demonstration of the shape the Helm chart deploys. The profile that runs
-    # these containers as a deployment is `deploy/compose/vps/`.
+    # demonstration of the shape the Helm chart deploys. Nothing runs these
+    # containers as a deployment any more: the `ha` profile is that shape on
+    # Kubernetes, in both of its sizes, and `deploy/helm/simple-balance` is
+    # where it lives.
     #
     # PostgreSQL 18, and Debian rather than Alpine.
     #

@@ -842,7 +842,7 @@ it means choosing which half to defer to anyway.
   because it is what a client builds its scope request from — the SDK joins
   `scopes_supported` verbatim, ahead of the client's own configured scope, in
   `client/auth.js`'s `resolvedScope` — and it publishes that same array
-  (`src/server/api.ts:980`, served at `:1005`).
+  (`src/server/api.ts:977`, served at `:1004`).
   **It was narrowed to `openid profile email offline_access ledger:read`
   earlier in this release and taken back out before the release shipped**, and
   the rule that took it out outranks the SHOULD: `AGENTS.md` has "A capability a

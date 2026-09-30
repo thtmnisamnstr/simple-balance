@@ -100,6 +100,46 @@ jobs:
             echo "refused without $name"
           done
           rm -f .env .env.missing
+          # The profile's other machine, checked the same way. `single` is two
+          # machines in this release and the database is the second of them, so
+          # a file that does not interpolate is half the profile failing to come
+          # up. The unit tests read this file closely — tests/compose-database-node.test.ts
+          # pins the pg_hba lines and the binds, tests/compose-bind-address.test.ts
+          # pins the `:?` on the address — but all of them read it as text, so
+          # none of them would notice YAML that Compose refuses to parse.
+          #
+          # `--env-file` rather than a `.env`, because Compose reads `.env` from
+          # the working directory and this machine's settings are not the
+          # application machine's: sharing one file is how the deleted `vps`
+          # recipe ended up with the application connecting as the superuser.
+          cat > .env.db <<'ENV'
+          POSTGRES_PASSWORD=0123456789012345678901234567890123456789
+          POSTGRES_APP_PASSWORD=9876543210987654321098765432109876543210
+          SB_BIND_ADDRESS=10.30.0.11
+          ENV
+          docker compose --env-file .env.db -f compose.postgres.yml config >/dev/null
+          echo "compose.postgres.yml interpolates"
+          # Only on the private address the operator names, and only on 5432.
+          # A `:?` softened to `:-0.0.0.0` here is the whole ledger on the
+          # internet, which is the one mistake in this file that cannot be
+          # taken back once somebody has scanned the host.
+          docker compose --env-file .env.db -f compose.postgres.yml config --format json \
+            | jq -e '.services.postgres.ports
+                     | length == 1 and (.[0] | .host_ip == "10.30.0.11" and .target == 5432)' \
+            >/dev/null || {
+            echo "::error::compose.postgres.yml does not publish 5432 on the operator's private address alone"
+            exit 1
+          }
+          echo "the database publishes one port, on the private address"
+          for name in POSTGRES_PASSWORD POSTGRES_APP_PASSWORD SB_BIND_ADDRESS; do
+            if grep -v "^$name=" .env.db > .env.db.missing && \
+               docker compose --env-file .env.db.missing -f compose.postgres.yml config >/dev/null 2>&1; then
+              echo "::error::compose.postgres.yml rendered without $name instead of refusing"
+              exit 1
+            fi
+            echo "refused without $name"
+          done
+          rm -f .env.db .env.db.missing
           cd ../../..
           # Fail loudly rather than skip. The first spelling of this check used
           # `|| true` and printed "parsed" for every unit on an image where the
@@ -150,8 +190,10 @@ jobs:
           shellcheck deploy/systemd/simple-balance-backup \
                      deploy/systemd/simple-balance-restore \
                      deploy/systemd/simple-balance-firstboot \
-                     deploy/systemd/simple-balance-env
-          echo "shellcheck passed all four scripts"
+                     deploy/systemd/simple-balance-env \
+                     deploy/systemd/simple-balance-db-firstboot \
+                     deploy/systemd/simple-balance-waitdb
+          echo "shellcheck passed all six scripts"
 
       # Not the single profile's, but linted here for the reason at the top of
       # this file: verify.yml's images job is where the script would otherwise
@@ -168,3 +210,24 @@ jobs:
           }
           shellcheck deploy/docker/nginx-real-ip.envsh
           echo "shellcheck passed the frontend's entrypoint script"
+
+      # The database machine's one script, and the only one in the profile that
+      # is not in deploy/systemd — so tests/systemd-scripts.test.ts, which holds
+      # the six-script list above to that directory, cannot see it. It runs once,
+      # inside the postgres container, at the moment the cluster is created:
+      # everything it does is `initdb` work that cannot be redone afterwards
+      # without throwing the data directory away, and a quoting bug in it is a
+      # database that comes up owned by the wrong role.
+      #
+      # Its own step rather than a second path on the command above, because
+      # that command's argument list is compared against deploy/systemd exactly,
+      # and a seventh path there would be a failure rather than a wider check.
+      - name: The database machine's first-boot script lints clean
+        run: |
+          set -euo pipefail
+          command -v shellcheck >/dev/null || {
+            echo "::error::shellcheck is not installed, so the script was not checked"
+            exit 1
+          }
+          shellcheck deploy/compose/single/db-init.sh
+          echo "shellcheck passed the database's first-boot script"

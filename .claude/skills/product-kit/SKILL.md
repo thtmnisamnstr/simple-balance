@@ -153,6 +153,16 @@ appears without being listed. What does *not* update itself is
 nobody will use, and a feature pointing at a screen that has gone fails the
 build. The test catches the second; the first is worth a thought.
 
+**The plan tab is the one screen the navigation does not reach.** It is
+reached from Settings, so the route walk misses it, and for a long time the
+kit carried no picture of the only screen that says what the paid plan costs.
+It is photographed now, but only where the deployment being photographed
+answers `billingAvailable` — so to get that picture, run the app with the five
+`STRIPE_*` settings and `SB_BILLING_ENABLED=true` before running this script.
+Without them the run says so and captures the other screens as before, because
+a picture of a tab reading "this deployment is not selling subscriptions at the
+moment" advertises the opposite of what it is for.
+
 ## 5. Finish
 
 The kit is committed, and `AGENTS.md` records it as this repository's public

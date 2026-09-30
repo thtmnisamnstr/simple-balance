@@ -54,7 +54,13 @@ import {
   withCountableClientAddress,
 } from "./http-security.js";
 import { handleMcpRequest } from "./mcp.js";
-import { httpDuration, httpRequests, setMetricsComponent, startDefaultMetrics } from "./metrics.js";
+import {
+  billingWebhookDeliveries,
+  httpDuration,
+  httpRequests,
+  setMetricsComponent,
+  startDefaultMetrics,
+} from "./metrics.js";
 import { serveMetrics } from "./metrics-route.js";
 import { runAsBootstrapClaim } from "./registration-context.js";
 import { APP_VERSION } from "../shared/version.js";
@@ -1143,6 +1149,27 @@ async function mcpTransport(c: Context<{ Variables: Variables }>) {
  */
 if (getConfig().billing) {
   app.post("/api/billing/webhook", async (c) => {
+    /**
+     * Every exit leaves through here, and that is why it is a function rather
+     * than a counter line copied onto each `return`.
+     *
+     * Five of the exits answer the same `200 {"received":true}`, so the generic
+     * HTTP counter above cannot tell them apart and four of them wrote nothing
+     * to the log either. Routing the answer through one place makes "counted
+     * exactly once" structural: a branch added later cannot return without
+     * naming what it did, because there is no other way out.
+     *
+     * `outcome` is the branch's name and nothing else. Not the customer, not
+     * the event id, not the event type — that last one is Stripe's vocabulary
+     * rather than a closed set, and it grows whenever Stripe ships an event,
+     * which is a series per event type on the one route whose body an
+     * unauthenticated caller supplies.
+     */
+    const answered = (outcome: string, acted: boolean) => {
+      billingWebhookDeliveries.inc({ outcome });
+      return c.json({ received: true, acted });
+    };
+
     const raw = await c.req.text();
     let event;
     try {
@@ -1153,6 +1180,7 @@ if (getConfig().billing) {
       // with the signature — an oracle that tells you how close you were is
       // worth more to somebody guessing than to an operator.
       log.warn("Refused a Stripe delivery whose signature did not verify");
+      billingWebhookDeliveries.inc({ outcome: "signature_refused" });
       return c.json(transportError("UNAUTHORIZED", "Signature verification failed"), 400);
     }
 
@@ -1164,7 +1192,7 @@ if (getConfig().billing) {
     // attempt to subscribe fail against a customer that does not exist.
     if (event.type === "customer.deleted" && customerId) {
       const outcome = await applyCustomerDeletion(customerId, event);
-      return c.json({ received: true, acted: outcome === "written" });
+      return answered("customer_deleted", outcome === "written");
     }
 
     // A card saved in a browser that then went away — a 3-D Secure redirect
@@ -1173,9 +1201,13 @@ if (getConfig().billing) {
     // the card would stay attached and unused.
     if (event.type === "setup_intent.succeeded" && customerId) {
       const owner = await userForStripeCustomer(customerId);
-      if (!owner) return c.json({ received: true, acted: false });
+      // The same `unknown_customer` as the subscription path's, because it is
+      // the same fact: a customer this deployment never mapped. Counted under
+      // one name so an operator watching that series sees every delivery it
+      // happened to, rather than the half that reached the later branch.
+      if (!owner) return answered("unknown_customer", false);
       const outcome = await applySetupIntentSucceeded(owner, event);
-      return c.json({ received: true, acted: outcome === "written" });
+      return answered("payment_method_pinned", outcome === "written");
     }
 
     // Money moved and no entitlement did. Said out loud because the decision
@@ -1183,11 +1215,16 @@ if (getConfig().billing) {
     // because nothing was done that a retry would repeat harmfully.
     if (isNoteworthyEvent(event.type)) {
       log.info(`A Stripe ${event.type} delivery arrived and changed no entitlement`);
-      return c.json({ received: true, acted: false });
+      return answered("noteworthy", false);
     }
 
     const subscriptionId = subscriptionIdForEvent(event);
-    if (!subscriptionId) return c.json({ received: true, acted: false });
+    // An event this route has no branch for and which names no subscription to
+    // re-read. Its own name rather than folded into `noteworthy`: this is the
+    // exit a Stripe endpoint subscribed to more than it needs takes, and an
+    // operator who sees it climbing can narrow the endpoint, while one whose
+    // `noteworthy` climbs has money to look at.
+    if (!subscriptionId) return answered("ignored", false);
 
     const userId = customerId ? await userForStripeCustomer(customerId) : null;
     if (!userId) {
@@ -1196,12 +1233,12 @@ if (getConfig().billing) {
       // Acknowledged and not claimed, so an operator who later maps it can
       // replay the event rather than find it marked handled.
       log.info("Ignored a Stripe delivery for a customer this deployment does not know");
-      return c.json({ received: true, acted: false });
+      return answered("unknown_customer", false);
     }
 
     const snapshot = await fetchSubscriptionSnapshot(subscriptionId);
     const outcome = await applyStripeDelivery(userId, event, snapshot);
-    return c.json({ received: true, acted: outcome === "written" });
+    return answered("reconciled", outcome === "written");
   });
 }
 

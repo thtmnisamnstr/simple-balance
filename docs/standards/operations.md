@@ -195,7 +195,7 @@ deliberately answers identically either way. `smtpFailure`
 refusing their credentials, or refusing this one message. `response` is the
 relay's own sentence and may quote the address inside it; that is the relay
 talking, and an operator who cannot read it has to reproduce the failure by
-hand. `src/server/api.ts:398-402` narrows a Drizzle error the same way for a
+hand. `src/server/api.ts:404-408` narrows a Drizzle error the same way for a
 harder reason: its message is built from the failing SQL and its bound
 parameters, one of which is an OAuth access token.
 
@@ -722,9 +722,19 @@ rather than an exemption.** `POSTGRES_PASSWORD` is the bundled
 there because a trial on one machine should take one command, and it goes away
 with that service when
 `DATABASE_URL` names a real server. It is documented at
-`deploy/compose/README.md:40-45`, beside the file that uses it. Putting another
+`deploy/compose/README.md:45-55`, beside the file that uses it. Putting another
 image's settings into this product's tables would make the tables less true, not
 more.
+
+**And the `single` profile's database machine is the same exception, twice
+over.** `deploy/compose/single/.env.postgres.example` carries
+`POSTGRES_PASSWORD` and `POSTGRES_APP_PASSWORD`, which are the `postgres:18`
+image's own variables and this repository's script's, not the application's —
+nothing in `src/` reads either, and the application reaches that machine only
+through a `DATABASE_URL` one of them ends up inside. Both are written on the
+machine at first boot rather than typed, which is why they are `${VAR:?}` in
+`compose.postgres.yml`: a refusal to start beats a database that comes up on a
+default nobody chose.
 
 *Checked by:* `tests/env-example.test.ts`, which pins the uncommented set in each
 file by name, so an optional variable added uncommented later fails with its own
@@ -901,7 +911,7 @@ shutdown deadline.
 succeeded, and stays closed until they have", and readiness never knew anything
 about configuration or migrations. Both now say what it does:
 `docs/deployment.md:941-946` and `README.md:137-140` describe one statement
-against the database and nothing else, and `src/server/api.ts:418-431` says the
+against the database and nothing else, and `src/server/api.ts:424-430` says the
 same beside the route. The difference matters to an operator designing alerting:
 a migration that succeeded on an older image leaves readiness green against a
 schema this build does not expect.
@@ -935,8 +945,10 @@ container with no initdb scripts closes it in milliseconds and the socket check
 looks fine for years; one that ships an initdb script holds it open for as long
 as that script takes. `deploy/docker/citus.Dockerfile` ships one to create the
 extension, which is why the Citus image is where this was finally noticed —
-after four other places had been written the wrong way, one of them the `vps`
-profile's own recipe.
+after four other places had been written the wrong way. The `single` profile's
+database machine is the case that proves the width: its initdb script creates
+the application's role and transfers the database's ownership, so a socket check
+there would report healthy while the application still had no account at all.
 
 *Checked by:* `tests/deployment-docs.test.ts` ("goes over TCP everywhere, never
 over the unix socket"), which reads every file in the repository rather than a
@@ -1154,13 +1166,27 @@ and closes the two routes a container escape usually takes. The Pulumi programs
 deploy the chart, so they inherit the Kubernetes spelling at
 `deploy/helm/simple-balance/values.yaml:241-255` and need nothing of their own.
 
-**The one exception, stated because an unstated one reads as an oversight.** The
-`postgres` service in the compose file gets `no-new-privileges` and keeps its
-capabilities. Its entrypoint starts as root, chowns the data directory and drops
-to the postgres user, which needs CAP_CHOWN, CAP_FOWNER, CAP_DAC_OVERRIDE and
-CAP_SETUID/SETGID; dropping them breaks the one-command trial that service exists
-for. It is not part of a real deployment, where `DATABASE_URL` names a database
-somebody else runs.
+**The one exception, stated because an unstated one reads as an oversight.**
+Every `postgres` service in this repository gets `no-new-privileges` and keeps
+its capabilities. The entrypoint starts as root, chowns the data directory and
+drops to the postgres user, which needs CAP_CHOWN, CAP_FOWNER, CAP_DAC_OVERRIDE
+and CAP_SETUID/SETGID; dropping them stops the container coming up at all.
+
+**And that exception is now in a real deployment, which is a change worth
+naming rather than leaving as an inherited comment.** It used to be true that
+the only `postgres` here was `compose.distributed.yml`'s one-command trial, and
+the sentence "it is not part of a real deployment" carried the argument. The
+`single` profile's database machine runs
+`deploy/compose/single/compose.postgres.yml` in production, so the exception has
+to stand on its own. It does, and on three things rather than on one: that
+machine has no public address and one inbound rule, 5432 from the application
+node alone; the container publishes only on the machine's private address, with
+`${SB_BIND_ADDRESS:?}` so an unset variable refuses to start rather than
+publishing to everything; and `pg_hba.conf` is a mounted file whose every
+network line is `hostssl`, with the superuser refused over the network entirely.
+The capabilities the entrypoint keeps are reachable only by something that is
+already on that machine, which is a different and much smaller claim than "this
+is not production".
 
 **House.** Every install in an image resolves from a committed lockfile, and the
 runtime stage carries production dependencies only.
@@ -1218,21 +1244,30 @@ open to be rediscovered.
 
 ### A deployment profile is a shape, not a setting
 
-**House.** Three profiles exist and the application does not know which one it is
+**House.** Two profiles exist and the application does not know which one it is
 running in. `docs/deployment-profiles.md` is the comparison; what belongs here is
-the property that makes three shapes maintainable at all.
+the property that makes several shapes maintainable at all.
 
-The differences are entirely about machines and where the database lives:
-`single` is one machine against a database somebody else keeps, `vps` is a
-machine per service with the database among them, and `ha` is a Kubernetes
-cluster whose database is sharded with Citus. Across all three the application
-reads the same settings, serves the same routes, and answers the same MCP
-surface. Nothing in `src/` names a profile, and nothing branches on one.
+The differences are entirely about machines and how the database is arranged:
+`single` is an application node against a PostgreSQL 18 on a second machine, and
+`ha` is a Kubernetes cluster whose database is sharded with Citus — in two
+shapes of its own, one node per service and fully redundant, which differ by
+replica counts alone. Across all of them the application reads the same
+settings, serves the same routes, and answers the same MCP surface. Nothing in
+`src/` names a profile, and nothing branches on one.
 
 That is what makes a dump portable between them — which is the property an
-operator actually cashes, moving from `single` to `vps` by restoring a file — and
-it is why `docs/deployment-profiles.md` can be a comparison rather than three
-manuals.
+operator actually cashes, moving from `single` to `ha` by restoring a file — and
+it is why `docs/deployment-profiles.md` can be a comparison rather than a manual
+per shape.
+
+**Two shapes of one profile is the same rule one level down**, and it is worth
+saying because it was nearly a third profile. The small `ha` shape was `vps`, a
+machine per service with a PostgreSQL of its own; it was deleted before it
+shipped and became the chart at one replica. The reason is this rule: a separate
+profile would have had a different database arrangement, so growing out of it
+would have been a dump and a restore rather than a values file. Some Kubernetes
+overhead at five pods is the price of that, and it is paid deliberately.
 
 The obvious alternative is a `SB_PROFILE` setting selecting behavior. It is
 wrong for the reason most mode flags are: every branch on it doubles the surface
@@ -1247,10 +1282,19 @@ Compose project's own service list. A setting there would be a second statement
 of something the compose file already makes true, and the failure when the two
 disagreed would be a backup that reported success against the wrong database.
 
+**That branch survived the `single` profile growing a database**, which is the
+test of it. The database is now on a machine this profile builds — but on a
+different machine, so the application node's service list still holds no
+`postgres` and the script still dumps over the network, with no line changed.
+Had it been a `SB_PROFILE=single` check instead, it would have been a lie the
+moment the profile stopped meaning "somebody else's database". One unit serves
+both machines for the same reason, switched by `COMPOSE_FILE` in
+`/etc/default/simple-balance` rather than by knowing which machine it is on.
+
 *Checked by:* nothing mechanical, and honestly so — "no source file names a
 profile" is greppable but would pass trivially and forever, which is a test that
-looks like a guard and is not. What holds it is that the three profiles share
-`src/`, and a branch on shape would have to be written on purpose.
+looks like a guard and is not. What holds it is that the profiles share `src/`,
+and a branch on shape would have to be written on purpose.
 
 ### An image we build for a dependency carries the dependency's version
 
@@ -1390,7 +1434,7 @@ working. That is why the freeze on the unprefixed names above is a real cost
 rather than a shrug, and it is the whole reason this guide takes a position on
 naming at all.
 
-*Checked by:* `tests/version.test.ts`, which pins every one of the fifteen
+*Checked by:* `tests/version.test.ts`, which pins every one of the twenty
 locations `npm run set-version` writes, and also checks that the script mentions
 each path, so a location the script forgets fails the suite. Nothing checks that
 a renamed variable moved the version.
@@ -1413,7 +1457,7 @@ a renamed variable moved the version.
 | Lockfile-only installs, production-only runtime, both lockfiles resolve alike | `tests/dockerfile.test.ts` |
 | Entrypoints name files the compiler emits; nginx proxies every API prefix | `tests/dockerfile.test.ts` |
 | Drain once, force-exit on deadline, force-exit on a second signal | `tests/server-lifecycle.test.ts` |
-| The version reaches all fifteen places | `tests/version.test.ts` |
+| The version reaches all twenty places | `tests/version.test.ts` |
 | The published placeholder secrets are refused in production | `tests/config.test.ts:317-331` |
 | The template reminder's subject is exactly `Reminder: <name>` | `tests/integration/notifications.integration.test.ts:216` |
 | Every message declares itself auto-generated | `tests/mail-headers.test.ts` |
@@ -1425,6 +1469,12 @@ a renamed variable moved the version.
 | The documented `docker run` carries all five hardening flags; the compose services carry both settings | `tests/deployment-docs.test.ts` |
 | Nine labels on all four images, `base.name` and `base.digest` matching each file's own runtime `FROM`, and no stage built on a tag that can move | `tests/dockerfile.test.ts` |
 | The scheduler checks its mail transport at startup and closes it on shutdown | `tests/scheduler-startup.test.ts` |
+| Encryption at rest is set explicitly on every volume the single-machine programs build, and on the cluster's StorageClass | `tests/single-encryption.test.ts`, `tests/cluster-pulumi-database.test.ts` |
+| Encryption in transit to the database: the generated URL is `verify-full`, its `sslrootcert` is a path something actually mounts, and every `pg_hba` line crossing a machine is `hostssl` | `tests/single-database-tls.test.ts`, `tests/compose-database-node.test.ts`, `tests/helm-database-tls.test.ts` |
+| Which ports each program opens, by source, exhaustively — nothing on the database node from `0.0.0.0/0`, nothing anywhere on 3000 | `tests/single-ingress.test.ts` |
+| Which address a published port binds to, in every compose file, with the three deliberately public ones named | `tests/compose-bind-address.test.ts` |
+| A `reverse_proxy` upstream names a service that exists in a compose file beside it, on a port it listens on | `tests/caddyfile-upstream.test.ts` |
+| The database's `NetworkPolicy` admits 5432 from the API and scheduler only, and Patroni's REST port from database pods only | `tests/helm-network-policy.test.ts` |
 
 Not checked mechanically, ranked by how cheap the check would be:
 
@@ -1473,5 +1523,5 @@ guide argues for and the code does not do:
 
 | What | Where | Why it is a row |
 | --- | --- | --- |
-| The `_FILE` secret form is unreachable through the orchestrated paths this guide argues from | `deploy/helm/simple-balance/templates/server-deployment.yaml:62-66`, `deploy/compose/compose.distributed.yml:50`, `:71`, `deploy/compose/vps/compose.app.yml` | The chart consumes an existing Secret through `envFrom` and declares no volume on either workload; both compose files write `DATABASE_URL` inline and make `AUTH_SECRET` a required interpolation. The application supports the form everywhere and a `docker run` reaches it with a bind mount, so this is the chart and the compose files rather than the resolver. A `secretFiles` values block mounting a Secret as a volume, and a commented `secrets:` stanza, are what would close it. The `vps` profile widened this rather than changing it: a third orchestrated path arrived in 0.2.0 and took the same shortcut |
+| The `_FILE` secret form is unreachable through the orchestrated paths this guide argues from | `deploy/helm/simple-balance/templates/server-deployment.yaml`, `deploy/compose/compose.distributed.yml:50`, `:71` | The chart consumes Secrets through `envFrom` and declares no volume for one on either workload; both compose files write `DATABASE_URL` inline and make `AUTH_SECRET` a required interpolation. The application supports the form everywhere and a `docker run` reaches it with a bind mount, so this is the chart and the compose files rather than the resolver. A `secretFiles` values block mounting a Secret as a volume, and a commented `secrets:` stanza, are what would close it. It narrowed rather than widened in 0.2.0: the `vps` profile that took the same shortcut was deleted, and the `single` profile's machines fold `env.db` and `secrets.env` into `.env` on every start, which is a file on disk doing the job `_FILE` would |
 | `METRICS_TOKEN_FILE` has no consumer-side proof | `src/server/config-files.ts:28-38` | Six of the seven `_FILE` names are read back through the consumer that has to end up holding the value. The seventh rests on the resolver's registry alone, so a name added there and never wired to the scrape endpoint would look identical |

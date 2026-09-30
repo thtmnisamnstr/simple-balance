@@ -33,6 +33,7 @@ import {
   setAccountArchived,
   setActiveAccounts,
 } from "../../src/server/services/accounts.js";
+import { getPlanSummary } from "../../src/server/services/billing.js";
 import { createTransaction } from "../../src/server/services/transactions.js";
 import { scratchDatabase } from "./support/scratch-database.js";
 
@@ -373,5 +374,66 @@ integration("the free plan's account limit", () => {
     });
     const frozen = (await listAccounts(owner)).filter((account) => account.frozen);
     expect(frozen, "the two over the limit are frozen, not gone").toHaveLength(2);
+  });
+
+  /**
+   * The count the session read carries, which is the one number the browser
+   * has to decide with: the plan tab and the Accounts page both draw the
+   * places-in-use figure from `getPlanSummary`, and MCP `whoami` reports the
+   * same one so an agent can explain a refusal it meets.
+   *
+   * It is counted on the server because freezing is derived rather than
+   * stored — a page counting the accounts it happened to fetch would offer the
+   * New account button to somebody whose next create the server will refuse.
+   * Nothing in the tree read this answer, so a null coming back out of it (the
+   * obvious "the session read costs nothing" simplification) changed no test.
+   */
+  it("reports the places in use, not the accounts opened", async () => {
+    const owner = actor("limit-summary");
+    await seedUser(owner.userId);
+    await makeAccount(owner, "One");
+    await makeAccount(owner, "Two");
+
+    const two = await getPlanSummary(owner);
+    expect(two.accountsUsed).toBe(2);
+    expect(two.entitlement.billing).toBe(true);
+
+    // Archiving frees a place, and the count says so rather than going on
+    // reporting every account ever opened.
+    const third = await makeAccount(owner, "Three");
+    expect((await getPlanSummary(owner)).accountsUsed).toBe(3);
+    await setAccountArchived(owner, third.id, third.version, true);
+    expect((await getPlanSummary(owner)).accountsUsed).toBe(2);
+  });
+
+  /**
+   * And a grandfathered ledger is where the two candidate numbers part
+   * company: five live accounts, three of them in use. Reporting five would
+   * tell the page the limit is already blown when three is what the refusal
+   * will name, and reporting the plan's own limit would be the constant-shaped
+   * assertion this repository has shipped before.
+   */
+  it("leaves the frozen accounts out of the places in use", async () => {
+    const owner = actor("limit-summary-frozen");
+    await seedUser(owner.userId);
+    await getDb().insert(billingOverrides).values({
+      userId: owner.userId,
+      plan: "plus",
+      expiresAt: null,
+      reason: "seeding beyond the limit",
+      operator: "tests",
+    });
+    for (let n = 0; n < MAX_FREE_ACCOUNTS + 2; n += 1) await makeAccount(owner, `Account ${n}`);
+    // On the paid plan there is no limit, so there is no count to make.
+    const lifted = await getPlanSummary(owner);
+    expect(lifted.accountsUsed).toBeNull();
+
+    await getDb().delete(billingOverrides).where(eq(billingOverrides.userId, owner.userId));
+
+    const summary = await getPlanSummary(owner);
+    const live = (await listAccounts(owner)).filter((account) => !account.archivedAt);
+    expect(live).toHaveLength(5);
+    expect(live.filter((account) => account.frozen)).toHaveLength(2);
+    expect(summary.accountsUsed).toBe(3);
   });
 });

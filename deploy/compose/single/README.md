@@ -1,16 +1,24 @@
 # The `single` profile
 
-One machine runs the application and whatever terminates TLS. The database is
-somebody else's — a managed PostgreSQL, or a server you already keep awake — and
-that is the profile rather than a gap in it: losing this machine loses no data.
+**Two machines.** One runs the application and whatever terminates TLS; the
+other runs PostgreSQL and has no public address at all. The application machine
+is the only thing in the profile the internet can reach, and losing it loses no
+data — that is what the split is for, and it is the same trade the profile has
+always made, with the database end now built by the same `pulumi up` instead of
+left to you.
 
-It grows by being given more CPU and memory, and there is nothing in it to scale
-out. If you want the database inside the deployment, that is the `vps` shape and
-`../compose.distributed.yml` is its starting point. That is the trade, and for one person, a
-household, or a team small enough to know each other's names it is the right
-one — `docs/deployment-profiles.md` is where the other profile is argued.
+Each grows by being given more CPU and memory, and there is nothing in either to
+scale out: one node lost is that half down until it comes back. The other
+profile is `ha`, which is the Helm chart, and
+[`docs/deployment-profiles.md`](../../../docs/deployment-profiles.md) is where the
+choice between them is argued.
 
-Three files and a Caddyfile:
+You can still bring your own database. Set `simple-balance:databaseNode: false`
+and the second machine is never built; write `DATABASE_URL` into
+`/var/lib/simple-balance/env.local` and the application machine behaves exactly
+as it did before this directory had a `compose.postgres.yml` in it.
+
+The application machine:
 
 | File | What it is |
 | --- | --- |
@@ -18,6 +26,17 @@ Three files and a Caddyfile:
 | `compose.caddy.yml` | An overlay that adds TLS, obtained and renewed by Caddy. |
 | `compose.db-tls.yml` | An overlay that mounts the database's CA certificate into the application, for a `DATABASE_URL` that names one. |
 | `Caddyfile` | What Caddy serves. Read by the Caddy overlay, not by `compose.yml`. |
+| `.env.example` | Copy to `.env` on that machine. |
+
+The database machine, which is a Compose project of its own and shares nothing
+with the one above but the directory it is kept in:
+
+| File | What it is |
+| --- | --- |
+| `compose.postgres.yml` | PostgreSQL 18, serving TLS, published on this machine's private address alone. |
+| `pg_hba.conf` | Who may connect and how. Mounted over the one `initdb` writes, so every line that crosses a network says `hostssl`. |
+| `db-init.sh` | Creates the unprivileged role the application signs in as, and hands it the database. Run once, by the entrypoint, on the boot that creates the cluster. |
+| `.env.postgres.example` | Copy to `.env` on that machine. |
 
 Skip the Caddy overlay if you already run nginx, HAProxy or a cloud load balancer.
 Point it at the loopback port `compose.yml` publishes, and set `TRUST_PROXY=true`
@@ -25,6 +44,11 @@ in `.env` yourself — that is the one thing the overlay was doing for you, and
 without it every visitor shares one sign-in allowance.
 
 ## Bring it up
+
+The database machine goes first — see the section below, which is written
+second because this is the machine you will spend your time on. The
+application's first start runs the migrations, so it has nothing to do until
+there is something to migrate.
 
 ```sh
 cp deploy/compose/single/.env.example deploy/compose/single/.env
@@ -47,6 +71,64 @@ docker compose -f compose.yml -f compose.caddy.yml up -d --wait
 The first start against an empty database creates the schema. There is no
 migration step to run and no `initdb` to perform: point the application at a
 PostgreSQL and it takes care of the rest, which is true however you run it.
+
+## Bring the database machine up
+
+On the other machine, and before the one above — the application waits for its
+migrations and will sit failing readiness until there is something to migrate.
+
+```sh
+cp deploy/compose/single/.env.postgres.example deploy/compose/single/.env
+$EDITOR deploy/compose/single/.env   # SB_BIND_ADDRESS, POSTGRES_PASSWORD, POSTGRES_APP_PASSWORD
+cd deploy/compose/single
+sudo install -d -m 0755 db-tls
+sudo install -m 0644 server.crt db-tls/server.crt
+sudo install -m 0600 -o 999 -g 999 server.key db-tls/server.key
+sudo install -d -m 0700 -o 999 -g 999 /var/lib/simple-balance/postgresql
+docker compose -f compose.postgres.yml up -d --wait
+```
+
+Four things there are not obvious and each one is a failure you would otherwise
+meet later:
+
+- **`999:999` on the key and the data directory.** That is the uid and gid the
+  `postgres` Debian image gives its own user. PostgreSQL refuses a private key
+  anybody but the database user or root can read — it exits with `private key
+  file "..." has group or world access` — and the entrypoint chowns `PGDATA`
+  but not the directory it is mounted at, so a root-owned parent leaves the
+  server unable to traverse into its own files. On a machine
+  `deploy/pulumi/` built, `simple-balance-db-firstboot` does both.
+- **The data directory must exist before `up`.** `compose.postgres.yml` sets
+  `create_host_path: false` on that bind, so a missing one is refused by name.
+  With it left on, Docker would make the directory — on the boot disk — and
+  PostgreSQL would initialise a brand new empty cluster into it and report
+  itself healthy. A deployment that comes up green with an empty ledger is the
+  worst thing this file could do.
+- **The certificate's name has to be the name `DATABASE_URL` uses, and that
+  name has to be a hostname.** The application connects under
+  `sslmode=verify-full`, which checks the subject alternative name against the
+  host in the URL. The Pulumi programs issue a certificate for the provider's
+  own internal DNS name for the machine and put the pinned private address in
+  it as well — but only one of those two spellings works from the application,
+  and it is the hostname. `node-postgres` sets the TLS server name from the
+  URL's host *only when that host is not an IP literal*
+  (`net.isIP(host) === 0`, `pg/lib/connection.js`), and Node then falls back to
+  checking the certificate against the string `localhost`, so a `DATABASE_URL`
+  written with the address fails `verify-full` with `Host: localhost. is not in
+  the cert's altnames` however many IP entries the certificate carries.
+  Measured against `pg` 8.23 and a real PostgreSQL 18, not read off anything.
+  `libpq` does verify an IP entry properly, which is what the second name is
+  for: `psql "host=10.30.1.10 ... sslmode=verify-full"` works, and so do
+  `simple-balance-backup` and `-restore`, which are `libpq` too.
+- **`POSTGRES_APP_PASSWORD` is the application's, not the superuser's.**
+  `POSTGRES_PASSWORD` belongs to `postgres`, which `pg_hba.conf` refuses over
+  the network entirely; the application signs in as `simple_balance`, which
+  `db-init.sh` creates and which owns the database and nothing else. The value
+  that goes in the application machine's `DATABASE_URL` is the second one.
+
+The five sizing numbers in `.env.postgres.example` are
+[`docs/deployment-sizing.md`](../../../docs/deployment-sizing.md)'s smallest row,
+applied as `-c` flags. Raise them with the machine.
 
 ## The database's certificate
 
@@ -284,11 +366,20 @@ To restore:
 sudo /usr/local/bin/simple-balance-restore /var/backups/simple-balance/simple-balance-20260914T031500Z.dump
 ```
 
-It reads the archive before it touches anything, stops the application so
-nothing writes into a half-restored ledger, drops and recreates the database,
-and starts the application again — which also applies any migration the dump
-predates. That last part is the supported way to restore an old backup onto a
-new release.
+Run it on the application machine, which is where the backups are. It reads the
+archive before it touches anything, stops the application so nothing writes into
+a half-restored ledger, empties the database, restores into it, and starts the
+application again — which also applies any migration the dump predates. That
+last part is the supported way to restore an old backup onto a new release.
+
+How it empties the database depends on where the database is, and the difference
+is worth knowing if you are watching the output. On a machine that runs the
+database as a service in its own Compose project, it drops and recreates the
+database over the container's socket as the superuser. Across the network — the
+two-machine shape — it connects as the application's own role and runs
+`drop schema public cascade` instead, because that role can reach exactly one
+database and has no `CREATEDB`. Both leave nothing the dump does not mention,
+and neither needs a privilege the profile does not already grant.
 
 ## Tear it down
 
@@ -322,8 +413,8 @@ wherever that is, which is a decision taken over there.
   path in both, and the overlay has to be one of the files the deployment
   runs.
 - **The database's PostgreSQL version.** 15 or newer is what this application
-  accepts; 18 is what the two profiles that own a database deploy, so a dump
-  from one of those restores into this one without a version in the way.
+  accepts; 18 is what both profiles deploy where they own the database, so a
+  dump from either restores into this one without a version in the way.
   `docs/deployment-profiles.md` separates the floor from the recommendation.
 - **The database's collation.** Whoever runs it should create it on a glibc
   build. Alpine's musl compares text byte by byte whatever collation is
@@ -333,13 +424,17 @@ wherever that is, which is a decision taken over there.
 
 ## How this differs from the rest of `deploy/`
 
-`../vps/` is the `vps` profile: the split containers with one machine each and
-the database among them. `../compose.distributed.yml` is the same containers on
-a single machine, which is a way to exercise that shape on one host rather than
-a way to deploy it.
+`../compose.distributed.yml` runs the three split containers on one machine.
+It is a way to read the shape the Helm chart deploys, on a host, rather than a
+way to deploy anything: nothing in it holds a ledger anybody depends on. There
+used to be a `vps` profile that deployed those containers one machine each, with
+the database among them; it is gone, and what it was for — a node per service —
+is now the smaller of the `ha` profile's two shapes, so that growing into the
+bigger one is a values file rather than a migration.
 
-This directory is the `single` profile: one container, no database, TLS,
-backups, log rotation, and a systemd unit.
+This directory is the `single` profile: the application container with TLS,
+backups, log rotation and a systemd unit on one machine, and PostgreSQL on
+another.
 
 `../../helm/` and `../../pulumi/aws/` and `../../pulumi/gcp/` are the `ha`
 profile's material. `../../pulumi/aws-single/` and `../../pulumi/oci-single/`

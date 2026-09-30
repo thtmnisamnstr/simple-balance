@@ -7,6 +7,7 @@ import {
   type RecurrenceSchedulerOptions,
 } from "../src/server/recurrence-scheduler.js";
 import type { TickSummary } from "../src/server/services/recurrences.js";
+import type { BillingSweepSummary } from "../src/server/services/billing.js";
 
 const nothing: TickSummary = {
   examined: 0,
@@ -340,6 +341,49 @@ describe("the recurrence scheduler loop", () => {
     // all four already correct did nothing worth an operator's log line, and
     // counting examined would make every tick on a selling deployment `info`.
     expect(String(busy.logger.info.mock.calls.at(-1))).toContain("re-read 4 subscriptions");
+  });
+
+  /**
+   * And the predicate the fourth job is handed is the live one, not `() => false`.
+   *
+   * `stopped` is passed separately to three of the four jobs on a tick, and
+   * only the recurrence tick's copy was ever asserted — the billing one could
+   * be replaced with a literal `false` and the whole file stayed green. It is
+   * the job that most needs it: `stop()` gives up after STOP_GRACE_MS and
+   * `closeDb()` then closes the pool, while the sweep is fifty sequential
+   * Stripe round trips that cannot finish in five seconds. A sweep that never
+   * hears about the stop runs on into a closed pool, and every row it has not
+   * reached is counted failed and stamped as read, which puts it to the back of
+   * a twelve-hour line for no reason but a restart.
+   */
+  it("tells a running billing sweep to stop, and not only the recurrence tick", async () => {
+    let observed: boolean | undefined;
+    let release: (summary: BillingSweepSummary) => void = () => {};
+    const sweeping = vi.fn(
+      (stopped: () => boolean) =>
+        new Promise<BillingSweepSummary>((resolve) => {
+          release = (summary) => {
+            observed = stopped();
+            resolve(summary);
+          };
+        }),
+    );
+    const harness = schedulerHarness({ runBillingSweep: sweeping });
+
+    harness.armed[0]!.fire();
+    // Fourth on the tick, so the three jobs in front of it have to resolve
+    // before the sweep is the thing `stop()` is interrupting. Waiting on the
+    // call rather than on a microtask or two, because how many of those the
+    // three ahead of it take is not this test's business.
+    await vi.waitFor(() => expect(sweeping).toHaveBeenCalled());
+    const stopping = harness.scheduler.stop();
+
+    release({ examined: 0, written: 0, failed: 0, capped: false, skipped: false });
+    await stopping;
+    // Read inside the sweep, after the stop: the predicate is live rather than
+    // a boolean sampled when the tick began, which is the other way to get this
+    // wrong and reads identically at the call site.
+    expect(observed).toBe(true);
   });
 
   /**

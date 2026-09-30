@@ -59,19 +59,32 @@ describe("what an example file leaves switched on", () => {
     );
   });
 
-  // The vps profile's two files shipped every optional setting present and
-  // empty, the same shape the compose file was corrected out of above.
-  // SB_BIND_ADDRESS is this machine's own address, which it always has.
-  it("assigns nothing in the vps application example but what both machines always have", () => {
-    expect(assignedIn("deploy/compose/vps/.env.app.example").sort()).toEqual(
-      ["APP_BASE_URL", "AUTH_SECRET", "DATABASE_URL", "SB_BIND_ADDRESS"].sort(),
+  // The database machine of the `single` profile. SB_BIND_ADDRESS is this
+  // machine's own private address, which it always has and which is the
+  // profile's stated security boundary; the two passwords are secrets, so they
+  // are present and empty. Everything else in that file — the data directory
+  // and the six tuning numbers — is commented out, because the compose file
+  // already applies a default for each and an uncommented line would read as a
+  // setting somebody chose.
+  it("assigns nothing in the database example but the address and the two passwords", () => {
+    expect(assignedIn("deploy/compose/single/.env.postgres.example").sort()).toEqual(
+      ["POSTGRES_APP_PASSWORD", "POSTGRES_PASSWORD", "SB_BIND_ADDRESS"].sort(),
     );
   });
 
-  it("assigns nothing in the vps frontend example but what that machine always has", () => {
-    expect(assignedIn("deploy/compose/vps/.env.frontend.example").sort()).toEqual(
-      ["SB_API_ORIGIN", "SITE_ADDRESS"].sort(),
-    );
+  it("keeps the two passwords apart, because only one of them may cross the network", () => {
+    // POSTGRES_PASSWORD is the superuser's and pg_hba refuses it over the
+    // network entirely; POSTGRES_APP_PASSWORD belongs to the unprivileged role
+    // the application signs in as, and it is the one that goes in the other
+    // machine's DATABASE_URL. The deleted `vps` recipe had a single password
+    // for a superuser the application connected as, so one leaked connection
+    // string could drop every database on the machine.
+    const file = read("deploy/compose/single/.env.postgres.example");
+    expect(
+      commentAbove("deploy/compose/single/.env.postgres.example", "POSTGRES_PASSWORD"),
+    ).toContain("superuser");
+    expect(file).toContain("POSTGRES_APP_PASSWORD=");
+    expect(file).not.toMatch(/^POSTGRES_USER=/m);
   });
 });
 
@@ -228,17 +241,16 @@ describe("what the compose example promises and the compose file delivers", () =
   });
 
   it("covers every recipe under deploy/compose", () => {
-    // Every example rather than every directory, because the vps profile keeps
-    // one per machine, named `.env.app.example` and so on — which the first
-    // spelling of this glob, `.env.example` exactly, never matched, so that
-    // whole profile sat outside the check. A file that nothing paired would
+    // Every example rather than every directory, because a directory can hold
+    // more than one: `single/` is two Compose projects that never run together,
+    // one per machine, and the machine with the database keeps its own example.
+    // The first spelling of this glob was `.env.example` exactly, which matched
+    // neither, so both sat outside the check. A file that nothing paired would
     // otherwise read as a pass.
     expect(recipes.map((recipe) => recipe.example).sort()).toEqual([
       "deploy/compose/.env.example",
       "deploy/compose/single/.env.example",
-      "deploy/compose/vps/.env.app.example",
-      "deploy/compose/vps/.env.frontend.example",
-      "deploy/compose/vps/.env.postgres.example",
+      "deploy/compose/single/.env.postgres.example",
     ]);
     for (const recipe of recipes)
       expect(recipe.delivered.length, recipe.directory).toBeGreaterThan(0);
@@ -305,7 +317,16 @@ describe("what the server reads and every compose file that runs it passes", () 
    * `compose.distributed.yml` bundles beside the application. Another image's
    * variables, so they are neither a name the server reads nor a defect.
    */
-  const bundledDatabase = ["POSTGRES_DB", "POSTGRES_USER", "POSTGRES_PASSWORD"];
+  const bundledDatabase = [
+    "POSTGRES_DB",
+    "POSTGRES_USER",
+    "POSTGRES_PASSWORD",
+    // Read by `db-init.sh`, which the entrypoint runs — so it is the postgres
+    // image's business in exactly the way the three above are, and it is never
+    // a name the server reads. The application meets the same value from the
+    // other end, inside DATABASE_URL.
+    "POSTGRES_APP_PASSWORD",
+  ];
 
   /**
    * Names the server reads that one process deliberately is not passed, each
@@ -322,7 +343,6 @@ describe("what the server reads and every compose file that runs it passes", () 
     "deploy/compose/compose.distributed.yml scheduler": {
       RECURRENCE_SCHEDULER: schedulerIgnoresIt,
     },
-    "deploy/compose/vps/compose.app.yml scheduler": { RECURRENCE_SCHEDULER: schedulerIgnoresIt },
   };
 
   /**
@@ -439,7 +459,6 @@ describe("what the server reads and every compose file that runs it passes", () 
     expect(runsTheServer.map((file) => file.path).sort()).toEqual([
       "deploy/compose/compose.distributed.yml",
       "deploy/compose/single/compose.yml",
-      "deploy/compose/vps/compose.app.yml",
     ]);
   });
 
@@ -457,7 +476,6 @@ describe("what the server reads and every compose file that runs it passes", () 
         ["postgres: database", "server: server", "frontend: frontend", "scheduler: server"],
       ],
       ["deploy/compose/single/compose.yml", ["app: server"]],
-      ["deploy/compose/vps/compose.app.yml", ["server: server", "scheduler: server"]],
     ]);
   });
 
@@ -493,7 +511,12 @@ describe("what the server reads and every compose file that runs it passes", () 
         .filter((service) => service.kind === "frontend")
         .map((service) => ({ ...service, at: `${file.path} ${service.name}` })),
     );
-    const databases = runsTheServer.flatMap((file) =>
+    // Every compose file, not just the ones that also run the server. The
+    // `single` profile's database machine is a project of its own, so reading
+    // only `runsTheServer` left the one PostgreSQL this repository actually
+    // deploys outside the rule — which is the shape of gap this whole file
+    // exists to close.
+    const databases = composeFiles.flatMap((file) =>
       file.services
         .filter((service) => service.kind === "database")
         .map((service) => ({ ...service, at: `${file.path} ${service.name}` })),
@@ -501,7 +524,10 @@ describe("what the server reads and every compose file that runs it passes", () 
 
     expect(frontends.map((service) => service.at).sort()).toEqual([
       "deploy/compose/compose.distributed.yml frontend",
-      "deploy/compose/vps/compose.frontend.yml frontend",
+    ]);
+    expect(databases.map((service) => service.at).sort()).toEqual([
+      "deploy/compose/compose.distributed.yml postgres",
+      "deploy/compose/single/compose.postgres.yml postgres",
     ]);
     for (const service of frontends)
       expect(

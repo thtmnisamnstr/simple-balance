@@ -8,21 +8,28 @@ Deploys the three images `deploy/docker/` builds as three workloads:
 | `frontend` | nginx, serving the bundle and proxying everything the API owns | 2, autoscaling to 6 |
 | `scheduler` | Proposes recurring transactions | 1, autoscaling to 2 |
 
+With `database.enabled` there is a fourth: one StatefulSet per Citus group,
+PostgreSQL 18 under Patroni. It is off by default and the section below is what
+turns it on.
+
 Only the frontend is reachable from outside. Cookies are set by the API and read
 by the browser, and both have to be on one origin — nginx — so a second way in
-would be a second origin the cookies do not belong to.
+would be a second origin the cookies do not belong to. Nothing else here takes a
+connection from outside the cluster, the database least of all.
 
-One container is still the supported way to run this in production. This chart is
-for people who are already running Kubernetes and want the web tier to scale. The
-contract all three deployment artifacts satisfy, and every environment variable
-the application reads, is in
+One container is still the supported way to run this in production, and the
+`single` profile is where a small deployment belongs. This chart is for people
+who are already running Kubernetes and want the web tier to scale, or who want
+the ledger distributed. The contract all the deployment artifacts satisfy, and
+every environment variable the application reads, is in
 [docs/deployment.md](../../../docs/deployment.md); this file is the chart, not
 the application.
 
 ## Install
 
-The database is bring your own. Nothing here provisions one, because whoever runs
-it owns its backups, its version and its `max_connections`.
+The database is bring your own unless you ask otherwise. Left alone the chart
+provisions no PostgreSQL, because whoever runs it owns its backups, its version
+and its `max_connections`:
 
 ```sh
 helm upgrade --install simple-balance deploy/helm/simple-balance \
@@ -36,6 +43,87 @@ Those three have no sensible default and the chart refuses to render without
 them. It also refuses an `authSecret` shorter than 32 characters, or one of the
 placeholders published in this repository — both would install cleanly and then
 crashloop every tier, which is a worse failure than a refusal.
+
+## The database this chart can run
+
+`database.enabled` runs PostgreSQL 18 with Citus in the cluster, under Patroni.
+It is off in `values.yaml` and stays off: a values file written for 0.1.6 has no
+`database` key at all, and a default that flipped would start a Citus cluster
+underneath a deployment that already has a database.
+
+Two shapes turn it on, and they are **the same profile**, not two:
+
+| | `-f values-node-per-service.yaml` | `-f values-ha.yaml` |
+| --- | --- | --- |
+| Pods | 5: frontend, API, scheduler, coordinator, one worker | frontend, API and scheduler autoscaling; 3 Citus groups |
+| Citus | 1 coordinator + 1 worker | 1 coordinator + 2 workers |
+| Replicas per group | 1 | 2 |
+| Commits wait for a standby | no — there is none | yes |
+| A node lost | that group's shards are gone until it returns | a failover, or a standby short |
+
+```sh
+helm upgrade --install simple-balance deploy/helm/simple-balance \
+  --namespace simple-balance --create-namespace \
+  -f deploy/helm/simple-balance/values-node-per-service.yaml \
+  --set config.appBaseUrl=https://books.example.com \
+  --set secret.authSecret="$(openssl rand -base64 32)"
+```
+
+Swap the values file for `values-ha.yaml` and everything above the line changes
+and nothing below it does: the same chart, the same Citus schema, the same
+`0023`, the same backups. Growing is a rollout rather than a migration, which is
+why the smaller shape is this chart at one replica instead of a profile with a
+database of its own. Five pods to run what one machine could is the price of
+never doing that migration, and it is deliberate; the `single` profile is there
+for anyone who would rather not pay it.
+
+`secret.databaseUrl` is refused alongside `database.enabled` — one runs a cluster
+and the other points at somebody else's, and the chart will not choose for you.
+The connection string is derived from the leader Service and the password the
+chart generated, so a failover moves the database without the application being
+redeployed.
+
+### What it encrypts, and what it does not
+
+Everything that crosses a pod boundary is TLS, and it is required rather than
+offered:
+
+- The API and the scheduler connect with `sslmode=verify-full` against a CA this
+  chart generates and mounts into their pods. A pod without that mount fails at
+  startup rather than connecting to something unverified.
+- `pg_hba` carries `hostssl` for every source but loopback, so a plaintext
+  connection from another pod matches no line and is refused.
+- Citus reaches a worker with `sslmode=verify-ca`, and a standby streams from its
+  primary the same way. `verify-ca` and not `verify-full` because both address
+  each other by pod IP — an address no certificate can promise in advance.
+
+The certificate is generated once and then kept, because a regenerated one is a
+different identity and every API pod holding the old CA would stop being able to
+connect at the moment of the upgrade. It lives in
+`<release>-db-credentials` alongside the passwords, which makes that Secret part
+of the backup: a restored volume and a regenerated CA do not know each other.
+`database.tls.ca`, `.cert` and `.key` bring your own instead, all three or none.
+Rotation is in [docs/citus-runbook.md](../../../docs/citus-runbook.md).
+
+Encryption **at rest** is the storage class's job, not the chart's. Name one that
+encrypts in `database.persistence.storageClass`; the `aws` Pulumi program creates
+an encrypted gp3 class and names it for you, and GKE's persistent disks are
+encrypted by Google by default.
+
+### Patroni's REST API
+
+Patroni's port is the cluster's control plane: `/switchover`, `/failover`,
+`/restart` and `/reinitialize` live on it. It now demands a credential for those
+— `database.restapi.username` and a password generated beside the other three.
+The read-only endpoints stay open, which is what keeps the kubelet's probes
+working without handing them a secret.
+
+`networkPolicy.enabled` is the other half, and both values files turn it on. It
+gives the database a policy of its own: 5432 from the API, the scheduler and the
+other database pods, the Patroni port from the database pods and the probe
+sources, and nothing else. A NetworkPolicy is only as real as the CNI under it,
+so the `aws` program turns on the VPC CNI's network policy agent and the `gcp`
+program asks for Dataplane V2 rather than assuming either.
 
 ## The three things that have to line up
 
@@ -109,6 +197,21 @@ account exists.
 With `secret.create=false` the chart renders no Secret at all, so
 `secret.setupToken` is not read — put `SETUP_TOKEN` in your own Secret instead,
 alongside `DATABASE_URL` and `AUTH_SECRET`.
+
+## Where the credentials come from
+
+`secret.create` builds one, `secret.existingSecret` names one you built, and
+naming both is refused — two sources of `DATABASE_URL` with no stated precedence
+is a deployment nobody can reason about.
+
+With `database.enabled` the two are allowed together, for one shape: the
+connection string can only be derived here, because the password is generated
+here, while the rest of the credentials should not travel through chart values,
+which land in the release Secret and in Helm's history. So the chart's Secret
+carries `DATABASE_URL` and yours carries everything else. The pods read the
+chart's first and yours second, and a duplicate key is won by the later source —
+so what you supplied beats what the chart worked out. That is what the `aws` and
+`gcp` Pulumi programs do with `simple-balance:database` set to `in-cluster`.
 
 ## Scaling
 

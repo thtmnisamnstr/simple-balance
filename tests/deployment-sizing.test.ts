@@ -9,11 +9,15 @@ const read = (relative: string) => readFileSync(path.join(root, relative), "utf8
  * The sizing table exists twice, and this holds the two together.
  *
  * `deploy/pulumi/single-common/index.ts` is where it is *executed*: both cloud
- * programs read it to choose an instance shape and a data disk, which
- * `oci-single` raises to OCI's 50 GB minimum. The five PostgreSQL settings are
- * what the document gives for the server `DATABASE_URL` names, and nothing on
- * the machine applies them. `docs/deployment-sizing.md` is where it is *read*,
- * by somebody deciding how big a machine to buy.
+ * programs read it twice, once for each machine — `simple-balance:size` picks
+ * the application node's row and `simple-balance:databaseSize` the database
+ * node's — to choose an instance shape and a data disk, which `oci-single`
+ * raises to OCI's 50 GB minimum. The five PostgreSQL settings used to be
+ * advice about a server somebody else ran, applied by nothing; the profile now
+ * owns a database, and the database node's render writes them into env.base
+ * for `compose.postgres.yml` to pass as `-c` flags.
+ * `docs/deployment-sizing.md` is where the table is *read*, by somebody
+ * deciding how big a machine to buy.
  *
  * A table that disagrees with the program implementing it is worse than no
  * table: the reader sizes their machine from the document, the program builds
@@ -111,5 +115,84 @@ describe("the sizing table, in the document and in the program", () => {
       const stated = `${(transactions / 1e6).toFixed(1)}M transactions`;
       expect(row(`\`${name}\``)[4], `${name} capacity`).toBe(stated);
     }
+  });
+});
+
+/**
+ * The five PostgreSQL numbers, which are no longer dead.
+ *
+ * They were in the table, in the document, and applied by nothing: advice about
+ * a machine this repository did not build. The database node applies them, and
+ * these are the two joints that would have to hold for that to stay true — the
+ * render has to write each one under the name the compose file reads, and the
+ * compose file has to pass each one to the server. A settings block whose names
+ * do not line up is five numbers that look applied and do nothing, which is
+ * exactly what the `vps` file did with an `environment:` block the postgres
+ * image never read.
+ */
+describe("the PostgreSQL settings the database machine actually runs on", () => {
+  const COMPOSE = read("deploy/compose/single/compose.postgres.yml");
+  const EXAMPLE = read("deploy/compose/single/.env.postgres.example");
+  const RENDER = read("deploy/pulumi/single-common/cloud-init.ts");
+
+  const applied = [
+    ["sharedBuffers", "POSTGRES_SHARED_BUFFERS", "shared_buffers"],
+    ["effectiveCacheSize", "POSTGRES_EFFECTIVE_CACHE_SIZE", "effective_cache_size"],
+    ["workMem", "POSTGRES_WORK_MEM", "work_mem"],
+    ["maintenanceWorkMem", "POSTGRES_MAINTENANCE_WORK_MEM", "maintenance_work_mem"],
+    ["maxWalSize", "POSTGRES_MAX_WAL_SIZE", "max_wal_size"],
+  ] as const;
+
+  it("passes each of the five to the server as a `-c` flag on the variable it is written as", () => {
+    for (const [, variable, setting] of applied) {
+      // `-c name=${VAR:-default}`, which is the only form the postgres image
+      // acts on: the image reads none of these names out of the environment.
+      expect(COMPOSE, setting).toMatch(new RegExp(`- ${setting}=\\$\\{${variable}:-[^}]+\\}`));
+    }
+  });
+
+  /**
+   * The defaults beside those flags, which are what a hand install actually
+   * runs on.
+   *
+   * Two of the five did not match `SIZES.small` and nothing saw it, because the
+   * check above reads only the variable name: `effective_cache_size` defaulted
+   * to 3GB against the table's 1536MB, and `max_wal_size` to 2GB against 4GB.
+   * Both files say in prose that the defaults *are* the smallest row, so a
+   * reader who left the lines commented as instructed had no way to notice —
+   * and a Pulumi-built machine, which writes all five, never met it.
+   */
+  it("defaults each of the five to the smallest row, which is what both files claim", () => {
+    for (const [key, variable, setting] of applied) {
+      const match = new RegExp(`- ${setting}=\\$\\{${variable}:-([^}]+)\\}`).exec(COMPOSE);
+      expect(match, setting).not.toBeNull();
+      expect(match![1], `${setting}'s default is SIZES.small.${key}`).toBe(field("small", key));
+      // And the commented copy an operator uncomments, which is the same claim
+      // written a third time.
+      expect(EXAMPLE, variable).toContain(`#${variable}=${field("small", key)}`);
+    }
+  });
+
+  it("writes each of the five from the row the database node was sized with", () => {
+    for (const [key, variable] of applied) {
+      expect(RENDER, variable).toContain(`${variable}=\${size.${key}}`);
+    }
+    // And the connection ceiling, which is a setting of its own rather than a
+    // column of the table: one application process at DATABASE_POOL_SIZE 10,
+    // plus one while it starts, plus psql and pg_dump, is eleven of it.
+    expect(RENDER).toContain("POSTGRES_MAX_CONNECTIONS=${database.maxConnections}");
+    expect(COMPOSE).toMatch(/- max_connections=\$\{POSTGRES_MAX_CONNECTIONS:-50\}/);
+    expect(SOURCE).toContain(
+      'const databaseMaxConnections = cfg.getNumber("databaseMaxConnections") ?? 50;',
+    );
+  });
+
+  it("sizes the database machine from the same table, by a setting of its own", () => {
+    // Defaulted to the application node's size rather than to `small`, so a
+    // stack that asked for `medium` and said nothing else gets a database that
+    // can keep up with the machine in front of it — and named separately
+    // because the two want opposite things.
+    expect(SOURCE).toContain('const databaseSizeName = cfg.get("databaseSize") ?? sizeName;');
+    expect(SOURCE).toContain("const databaseSize = SIZES[databaseSizeName];");
   });
 });

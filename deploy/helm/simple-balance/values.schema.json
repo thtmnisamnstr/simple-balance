@@ -934,6 +934,34 @@
             }
           }
         },
+        "restapi": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "username": {
+              "type": "string",
+              "minLength": 1
+            },
+            "password": {
+              "type": "string"
+            }
+          }
+        },
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ca": {
+              "type": "string"
+            },
+            "cert": {
+              "type": "string"
+            },
+            "key": {
+              "type": "string"
+            }
+          }
+        },
         "persistence": {
           "type": "object",
           "additionalProperties": false,
@@ -997,6 +1025,9 @@
         },
         "synchronousReplication": {
           "type": "boolean"
+        },
+        "resolvedTls": {
+          "type": "object"
         }
       }
     }

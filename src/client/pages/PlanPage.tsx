@@ -1,14 +1,17 @@
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import {
   BILLING_GRACE_DAYS,
+  cancellationPending,
   graceEndsAt,
   MAX_FREE_ACCOUNTS,
+  paidForSubscriptionStatuses,
   PLAN_ENDING_REFUSAL,
   PLAN_LABELS,
   periodIsPaid,
   planChangeTakesEffect,
   subscriptionAction,
   type OwedInvoiceOutcome,
+  type PlanChangeInvoice,
   type SubscriptionAction,
 } from "../../shared/domain.js";
 // The `pure` entry, and the difference is the whole promise below. The default
@@ -229,6 +232,10 @@ function savedNotice(result: CardConfirmation, subscription: PlanSubscription | 
 
 const planWord = (interval: BillingInterval) => (interval === "yearly" ? "annual" : "monthly");
 
+/** The other of the two intervals this deployment sells. */
+const otherThan = (interval: BillingInterval): BillingInterval =>
+  interval === "yearly" ? "monthly" : "yearly";
+
 /**
  * What a change of plan that asked for no payment did, in words.
  *
@@ -240,7 +247,9 @@ const planWord = (interval: BillingInterval) => (interval === "yearly" ? "annual
  * rule, and where the two read different plans — a second tab got there
  * first — the server's answer is `none`, or a refusal said as one, and each
  * sentence here is still true of the plan somebody is now on. Any date is the one the plan read after the
- * press says, never the one on screen before it.
+ * press says, never the one on screen before it. Money is the one thing the
+ * press cannot say: what was billed comes from `changeInvoice`, the invoice
+ * the server watched Stripe raise.
  *
  * Null for a press that hands back a payment, where the form is the answer,
  * unless the plan is plainly the one asked for and paid for.
@@ -248,12 +257,34 @@ const planWord = (interval: BillingInterval) => (interval === "yearly" ? "annual
 function changedNotice(
   action: SubscriptionAction["kind"],
   requested: BillingInterval,
+  invoice: PlanChangeInvoice | null | undefined,
   fresh: PlanSubscription | null | undefined,
   timezone: string,
 ): string | null {
   const plan = planWord(requested);
   if (action === "upgrade") {
-    return `You are on the ${plan} plan now, and the difference was charged to your payment method.`;
+    // What Stripe raised, never what the press meant. The upgrade anchors the
+    // period at now, which bills the difference on the spot in the ordinary
+    // case, and this sentence was written from the button alone — true until a
+    // cancellation is pending, where Stripe caps the new term at the
+    // cancellation, raises no invoice and parks the difference for later.
+    // Somebody was told money had left their account when none had.
+    if (invoice === "paid") {
+      return `You are on the ${plan} plan now, and the difference was charged to your payment method.`;
+    }
+    if (invoice === "none") {
+      return `You are on the ${plan} plan now. Nothing has been charged for the difference, and it goes on your next invoice.`;
+    }
+    // An invoice left open usually answers with its client secret, and the
+    // form is then the sentence; this is the press that raised one the secret
+    // could not be fetched for, where the charge really is still outstanding.
+    if (invoice === "owed") {
+      return `You are on the ${plan} plan now, and the difference is still to pay.`;
+    }
+    // Nothing said about an invoice — an older container, or an idempotency
+    // key stored before the field existed — is the plan alone, which is true
+    // whichever of the three happened.
+    return `You are on the ${plan} plan now.`;
   }
   if (action === "schedule") {
     const at =
@@ -293,7 +324,7 @@ function cancellationNotice(
   }
   return [
     date ? `Your plan is set to end on ${date}.` : "Your plan is set to end.",
-    fresh?.cancelAtPeriodEnd ? "Press Keep my plan to keep it." : null,
+    fresh && cancellationPending(fresh) ? "Press Keep my plan to keep it." : null,
   ]
     .filter(Boolean)
     .join(" ");
@@ -811,7 +842,13 @@ export function PlanPage({
         return;
       }
       await refresh();
-      const text = changedNotice(action, interval, freshSubscription(), timezone);
+      const text = changedNotice(
+        action,
+        interval,
+        result.changeInvoice,
+        freshSubscription(),
+        timezone,
+      );
       if (text) setNotice({ kind: "success", text, focus: true });
     },
     onError: (error: Error) => refusedWith(error),
@@ -990,6 +1027,11 @@ export function PlanPage({
         interval: subscription.interval,
         scheduled: subscription.scheduledInterval,
         cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+        // Both spellings of a cancellation, because the rule asks
+        // `cancellationPending` about them: leaving the day out here is the
+        // page and the server reading the same rule off different plans, which
+        // is the disagreement `AGENTS.md` keeps this one function for.
+        cancelAt: subscription.cancelAt ?? null,
       }
     : null;
   const actionFor = (requested: BillingInterval) => subscriptionAction({ current, requested });
@@ -1012,6 +1054,18 @@ export function PlanPage({
       ? subscription.interval
       : null;
   const owing = owingInterval !== null;
+  // Whether there is a plan to change, for the heading over the buttons.
+  // `incomplete` is a row Stripe makes the moment a price is pressed and holds
+  // for 23 hours: nothing was charged, the entitlement is still Free, and the
+  // only payment on offer is the first one — so "Change your plan" was the tab
+  // telling somebody on Free to change the plan they have not got.
+  // `paidForSubscriptionStatuses` is the set that already answers this, the one
+  // the settings page asks before warning that deleting an account cancels a
+  // plan. Not `periodIsPaid`, which is false for `past_due` too: a subscriber
+  // whose renewal card failed is changing a real plan.
+  const hasPlanToChange =
+    subscription !== null &&
+    (paidForSubscriptionStatuses as readonly string[]).includes(subscription.status);
   // The button itself, only where the server would take the payment — which
   // for `incomplete` is only where something is for sale, because finishing a
   // first payment starts a subscription. `payable` is the server's answer, so
@@ -1059,26 +1113,56 @@ export function PlanPage({
   // gave, because a button whose terms cannot say what it charges is asking for
   // consent to an amount nobody has been told. A price Stripe could not say is
   // named instead, so a plan does not vanish with no word why.
-  const offers: BillingInterval[] = billing.selling && !owing ? ["yearly", "monthly"] : [];
+  //
+  // While a first payment is outstanding, or the retries have run out, the
+  // plan they chose is paid for by the button above and the *other* one is a
+  // real press: `replace` on an `incomplete` — abandon the subscription nobody
+  // paid for and make the one they asked for, which voids its invoice and
+  // charges nothing — and `schedule` on an `unpaid`. Emptying this instead
+  // pinned somebody who pressed the wrong price to it, with nothing else on
+  // the tab to press, until Stripe expired the subscription 23 hours later.
+  // The plan they are on is left out rather than drawn disabled, because
+  // "You are on the annual plan already" is not true of one nobody has paid
+  // for, and the button above it takes that payment under its own name.
+  const offers: BillingInterval[] = !billing.selling
+    ? []
+    : owingInterval
+      ? [otherThan(owingInterval)]
+      : ["yearly", "monthly"];
   const offered = offers.filter(priced);
   const unpricedPlan =
     finishingFirst !== null && !priced(finishingFirst)
       ? "your plan"
-      : offers.length > 0 && offered.length === 0
+      : // "Either" only where either is the word: with a first payment
+        // outstanding one plan is on offer, and calling it both named a plan
+        // the tab was not offering anyway.
+        offers.length > 1 && offered.length === 0
         ? "either plan"
         : offered.length < offers.length
           ? offers.find((interval) => !priced(interval)) === "yearly"
             ? "Annual"
             : "Monthly"
           : null;
+  // The note under the buttons describes pressing the plans `offers` names, so
+  // it waits until every one of them has a price and a button. It asked for
+  // both prices by name, which was the same question only while both plans
+  // were always offered together, and the wrong one once a first payment
+  // leaves the other alone on the tab.
+  const movingDescribesButtons = offered.length > 0 && offered.length === offers.length;
   // Undoing a cancellation turns renewal back on, which is the consent the
   // renewal terms are for, so the button doing it has them too: the plan
   // buttons' where those are drawn and name this plan, and its own otherwise.
   // Otherwise includes a deployment selling nothing, because keeping a plan
   // sells nothing new and is offered either way. Only at a price Stripe gave,
   // for the reason the plan buttons are.
+  //
+  // Both spellings, because Keep my plan is what turns renewal back on and a
+  // cancellation an operator dated past this period is one to turn back on
+  // too. Off the flag alone the tab offered Cancel at period end in its place,
+  // which would have pulled the operator's chosen day forward.
   const keptInterval =
-    subscription?.cancelAtPeriodEnd &&
+    subscription &&
+    cancellationPending(subscription) &&
     !owing &&
     subscription.interval &&
     priced(subscription.interval)
@@ -1139,12 +1223,30 @@ export function PlanPage({
   // schedules the switch for the renewal instead of charging a failing card a
   // second time; and "at your next renewal" to somebody whose plan was set to
   // end and had none. Somebody with no plan yet reads both halves of it as the
-  // description of what a later change would do.
+  // description of what a later change would do, which they carry only while
+  // neither half asserts anything about them: the second one ended "because
+  // the period you are in has been paid for", said to a reader who has never
+  // paid for a period.
   const moving: string[] = [];
-  if (!subscription) {
+  if (owingInterval) {
+    // The one plan on offer while a payment is outstanding, and what pressing
+    // it does — which for a first payment is abandoning a subscription nobody
+    // has paid for, so the sentence says that before the press rather than
+    // after it. Asked of the press's own kind and not of `takesEffect`, which
+    // answers "now" for a `replace` and would have put "charges the
+    // difference" beside a press that charges nothing at all.
+    const other = otherThan(owingInterval);
+    moving.push(
+      actionFor(other).kind === "replace"
+        ? `Choosing the ${planWord(other)} plan abandons this unfinished payment and starts ` +
+            "that plan in its place. Nothing has been charged for this one."
+        : `While a payment is owed, moving to ${planWord(other)} waits for your next renewal ` +
+            "rather than charging now. Pay what is owed first to move now.",
+    );
+  } else if (!subscription) {
     moving.push(
       "Moving from monthly to annual takes effect now and charges the difference.",
-      "Moving the other way takes effect at your next renewal, because the period you are in has been paid for.",
+      "Moving the other way takes effect at your next renewal.",
     );
   } else if (subscription.interval === "monthly") {
     const annual = takesEffect("yearly");
@@ -1195,6 +1297,19 @@ export function PlanPage({
       : subscription.cancelAtPeriodEnd
         ? ", set to end"
         : "";
+
+  // The day the plan stops, for the note saying what ending it freezes:
+  // `currentPeriodEnd` where the flag says it stops there, which is what that
+  // flag means, and `cancelAt` where an operator dated it further out. That
+  // one is a real ending the flag is false for, and it had no note of its own
+  // while the note below went on asking "if the plan ends". The status line
+  // keeps asking the flag, because the date it prints beside "renews" is the
+  // renewal's and not the ending's (`docs/billing-operations.md`).
+  const endsOn = !subscription
+    ? null
+    : subscription.cancelAtPeriodEnd
+      ? subscription.currentPeriodEnd
+      : (subscription.cancelAt ?? null);
 
   // The past-due alert, from what Stripe says about the payment rather than
   // one sentence for all of them. A payment the bank wants confirmed with
@@ -1370,11 +1485,11 @@ export function PlanPage({
               </Note>
             ) : null}
 
-            {freezes > 0 && subscription?.cancelAtPeriodEnd && subscription.currentPeriodEnd ? (
+            {freezes > 0 && endsOn ? (
               <Note>
-                When the plan ends on {formatTimestamp(subscription.currentPeriodEnd, timezone)},{" "}
-                {freezes} of your {live} accounts {freezeWord}: still readable and counted in every
-                total, and closed to changes.{" "}
+                When the plan ends on {formatTimestamp(endsOn, timezone)}, {freezes} of your {live}{" "}
+                accounts {freezeWord}: still readable and counted in every total, and closed to
+                changes.{" "}
                 {choosesOnEnd ? (
                   <>
                     You then choose which {MAX_FREE_ACCOUNTS} stay usable, on{" "}
@@ -1463,7 +1578,7 @@ export function PlanPage({
                 <CreditCard size={19} />
               </span>
               <div>
-                <h2>{subscription ? "Change your plan" : `Upgrade to ${PLAN_LABELS.plus}`}</h2>
+                <h2>{hasPlanToChange ? "Change your plan" : `Upgrade to ${PLAN_LABELS.plus}`}</h2>
                 <p>
                   {billing.selling
                     ? "Cancel whenever you like. A canceled plan runs to the end of the period you paid for."
@@ -1591,9 +1706,7 @@ export function PlanPage({
               </div>
             ) : null}
 
-            {billing.selling && yearly && monthly && !owing && moving.length > 0 ? (
-              <Note>{moving.join(" ")}</Note>
-            ) : null}
+            {movingDescribesButtons && moving.length > 0 ? <Note>{moving.join(" ")}</Note> : null}
 
             {keptInterval && keptTermsOwn ? (
               <RenewalTerms
@@ -1605,7 +1718,7 @@ export function PlanPage({
 
             {/* What canceling freezes, before the press rather than after it:
                 nothing else on the tab said so until the plan had ended. */}
-            {freezes > 0 && subscription && !subscription.cancelAtPeriodEnd ? (
+            {freezes > 0 && subscription && !cancellationPending(subscription) ? (
               <Note>
                 If the plan ends, {freezes} of your {live} accounts {freezeWord}: still readable and
                 counted in every total, and closed to changes.{" "}
@@ -1620,7 +1733,7 @@ export function PlanPage({
                 <Button variant="secondary" onClick={() => replaceCard.mutate()} loading={busy}>
                   Change payment method
                 </Button>
-                {subscription.cancelAtPeriodEnd ? (
+                {cancellationPending(subscription) ? (
                   <Button
                     variant="secondary"
                     onClick={() => setCancellation.mutate(false)}

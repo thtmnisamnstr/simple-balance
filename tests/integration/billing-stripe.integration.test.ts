@@ -24,6 +24,7 @@ import { type Actor, PLAN_ENDING_REFUSAL } from "../../src/shared/domain.js";
 import { getDb } from "../../src/server/db/client.js";
 import {
   billingCustomers,
+  billingOperations,
   billingOverrides,
   billingSubscriptions,
   billingWebhookEvents,
@@ -96,6 +97,7 @@ import {
   hasLiveSubscription,
   runBillingReconciliation,
   setSubscription,
+  setSubscriptionCancellation,
 } from "../../src/server/services/billing.js";
 
 const connection = process.env.TEST_DATABASE_URL;
@@ -218,15 +220,21 @@ beforeEach(() => {
   });
   stripe.fetchSubscriptionSnapshot.mockImplementation(async (id: string) => snapshotOf(id));
   stripe.stripeScheduleFor.mockResolvedValue(null);
-  stripe.stripeSubscriptionItem.mockResolvedValue({ itemId: "si_1", priceId: "price_monthly" });
+  stripe.stripeSubscriptionItem.mockResolvedValue({
+    itemId: "si_1",
+    priceId: "price_monthly",
+    latestInvoiceId: "in_monthly",
+  });
   stripe.scheduleStripeSubscriptionPrice.mockResolvedValue("sub_sched_new");
   stripe.fetchSubscriptionClientSecret.mockResolvedValue(null);
   stripe.createStripeSetupIntent.mockResolvedValue({ id: "seti_new", clientSecret: "seti_secret" });
   // What Stripe answers an upgrade with: the annual price, read a moment
-  // before the resync that follows it, so that read is the newer.
-  stripe.switchStripeSubscriptionNow.mockImplementation(async ({ subscriptionId }) =>
-    snapshotOf(subscriptionId, { syncedAt: new Date(Date.now() - 500) }),
-  );
+  // before the resync that follows it, so that read is the newer — and beside
+  // it what the update raised, which is the ordinary case where it billed.
+  stripe.switchStripeSubscriptionNow.mockImplementation(async ({ subscriptionId }) => ({
+    snapshot: snapshotOf(subscriptionId, { syncedAt: new Date(Date.now() - 500) }),
+    invoice: "paid",
+  }));
   stripe.keepCardThatPays.mockResolvedValue(false);
   stripe.fetchOwedPayment.mockResolvedValue(null);
 });
@@ -441,6 +449,216 @@ integration("two first subscriptions pressed at once", () => {
   });
 });
 
+/**
+ * A first subscribe that loses the race for the Stripe customer.
+ *
+ * The race between two first-time requests is settled by the primary key on
+ * `billing_customer.user_id` rather than by a lock — no lock is held across the
+ * Stripe call — which is why this is an integration test and can be nothing
+ * else: the conflict is the database's to raise. The window is opened by the
+ * Stripe call itself writing the winner's row, so there is no concurrency here
+ * and no timing to be flaky about.
+ */
+integration("a first subscribe that loses the race for the customer", () => {
+  beforeAll(async () => {
+    await database.create();
+  }, 60_000);
+  afterAll(async () => {
+    await database.drop();
+  });
+
+  /**
+   * The subscription has to be created against the customer the books are
+   * mapped to, never the one this request happened to make. Billed to the
+   * loser, `userForStripeCustomer` finds nobody for it, every `invoice.paid`
+   * and `customer.subscription.updated` is acknowledged and dropped, and no
+   * `billing_subscription` row is ever written — so the sweep, which walks
+   * stored rows, never notices either. The card is charged and the person
+   * stays on Free.
+   */
+  it("subscribes the mapped customer and removes the one it made", async () => {
+    const actor = await seed("customer-race-loser");
+    stripe.createStripeCustomer.mockImplementation(async () => {
+      // The winner commits while this request is still at Stripe. The select
+      // before it found nothing, so the insert after it is the one that
+      // conflicts — which is exactly the production ordering.
+      await mapCustomer(actor.userId, "cus_winner");
+      return "cus_loser";
+    });
+
+    const result = await setSubscription(actor, {
+      interval: "yearly",
+      idempotencyKey: idempotencyKey(),
+    });
+
+    expect(stripe.createStripeSubscription).toHaveBeenCalledWith(
+      { customerId: "cus_winner", priceId: "price_yearly" },
+      expect.any(String),
+    );
+    // The orphan owns nothing and will never be found again, so it goes rather
+    // than sitting in an operator's dashboard forever.
+    expect(stripe.deleteStripeCustomer).toHaveBeenCalledWith("cus_loser");
+    expect(await storedCustomer(actor.userId)).toBe("cus_winner");
+    expect(result.subscriptionId).toBe("sub_created");
+  });
+
+  /**
+   * Tidying the orphan away is not worth failing the request the person
+   * actually made: the customer is empty and nothing will ever be billed to
+   * it, and the warn names it for an operator.
+   */
+  it("subscribes anyway when the orphan cannot be deleted", async () => {
+    const actor = await seed("customer-race-undeletable");
+    stripe.createStripeCustomer.mockImplementation(async () => {
+      await mapCustomer(actor.userId, "cus_winner_two");
+      return "cus_loser_two";
+    });
+    stripe.deleteStripeCustomer.mockRejectedValue(new Error("connect ETIMEDOUT"));
+    // Its own subscription id: `stripe_subscription_id` is unique across the
+    // whole table, and the case above already stored the default one.
+    stripe.createStripeSubscription.mockResolvedValue({
+      subscriptionId: "sub_created_undeletable",
+      clientSecret: "pi_created_undeletable_secret",
+      snapshot: snapshotOf("sub_created_undeletable", {
+        status: "incomplete",
+        syncedAt: new Date(Date.now() - 1000),
+      }),
+    });
+
+    await expect(
+      setSubscription(actor, { interval: "yearly", idempotencyKey: idempotencyKey() }),
+    ).resolves.toMatchObject({ subscriptionId: "sub_created_undeletable" });
+    expect(stripe.createStripeSubscription).toHaveBeenCalledWith(
+      { customerId: "cus_winner_two", priceId: "price_yearly" },
+      expect.any(String),
+    );
+  });
+
+  /**
+   * And where the mapping is gone again by the time it is read back, nothing
+   * is charged. There is no customer to be sure of, and carrying on with the
+   * one this request made is the failure the throw exists to prevent.
+   */
+  it("charges nobody when the winner is gone by the time it reads back", async () => {
+    const actor = await seed("customer-race-vanished");
+    stripe.createStripeCustomer.mockImplementation(async () => {
+      await mapCustomer(actor.userId, "cus_winner_three");
+      return "cus_loser_three";
+    });
+    // The account is deleted while the orphan is being tidied away, which is
+    // the one window there is between the conflict and the read that follows.
+    stripe.deleteStripeCustomer.mockImplementation(async () => {
+      await getDb().delete(billingCustomers).where(eq(billingCustomers.userId, actor.userId));
+    });
+    // Answered although it must never be reached, so that a build which
+    // carried on regardless fails here for having charged somebody rather
+    // than on a collision with the subscription id of the case above.
+    stripe.createStripeSubscription.mockResolvedValue({
+      subscriptionId: "sub_created_vanished",
+      clientSecret: "pi_created_vanished_secret",
+      snapshot: snapshotOf("sub_created_vanished", { status: "incomplete" }),
+    });
+
+    await expect(
+      setSubscription(actor, { interval: "yearly", idempotencyKey: idempotencyKey() }),
+    ).rejects.toThrow(/disappeared between insert and read/);
+    expect(stripe.createStripeSubscription).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Chose one interval, never paid, and has now pressed the other button.
+ *
+ * Stripe gives one person one subscription, so the unpaid one is canceled —
+ * which voids its open invoice, making the change of mind free — and a new one
+ * is made at the price actually asked for. Anything else here is somebody
+ * pressing a $3 button and being charged $30, or the reverse, so what is
+ * pinned is the choreography rather than the decision: which subscription is
+ * canceled, which price the replacement carries, that the two Stripe keys
+ * differ, and that the abandoned row is written back out of the live set
+ * instead of going on being offered as the payment to finish.
+ */
+integration("changing the interval before the first payment", () => {
+  beforeAll(async () => {
+    await database.create();
+  }, 60_000);
+  afterAll(async () => {
+    await database.drop();
+  });
+
+  it("cancels the unpaid subscription and starts the one that was asked for", async () => {
+    const actor = await seed("replace-unpaid");
+    await mapCustomer(actor.userId, "cus_replace");
+    await subscribe(actor.userId, {
+      status: "incomplete",
+      priceId: "price_monthly",
+      currentPeriodEnd: null,
+      syncedAt: new Date(Date.now() - 60_000),
+    });
+    stripe.cancelStripeSubscriptionNow.mockResolvedValue(undefined);
+    stripe.createStripeSubscription.mockResolvedValue({
+      subscriptionId: "sub_replacement",
+      clientSecret: "pi_replacement_secret",
+      snapshot: snapshotOf("sub_replacement", {
+        status: "incomplete",
+        priceId: "price_yearly",
+        syncedAt: new Date(Date.now() - 1000),
+      }),
+    });
+    // The old one comes back canceled; the new one is still waiting to be paid.
+    stripe.fetchSubscriptionSnapshot.mockImplementation(async (id: string) =>
+      id === "sub_replace-unpaid"
+        ? snapshotOf(id, { status: "canceled", priceId: "price_monthly" })
+        : snapshotOf(id, { status: "incomplete", priceId: "price_yearly" }),
+    );
+    // What a regression to `resume` would hand the browser instead: the secret
+    // of the monthly payment they have just changed their mind about.
+    stripe.fetchSubscriptionClientSecret.mockResolvedValue("pi_monthly_secret");
+
+    const result = await setSubscription(actor, {
+      interval: "yearly",
+      idempotencyKey: idempotencyKey(),
+    });
+
+    // The unpaid one is canceled, and it is that one.
+    expect(stripe.cancelStripeSubscriptionNow).toHaveBeenCalledTimes(1);
+    const [canceled, cancelKey] = stripe.cancelStripeSubscriptionNow.mock.calls[0]!;
+    expect(canceled).toBe("sub_replace-unpaid");
+    // The replacement is at the price that was pressed, against the mapped
+    // customer, and it is made after the old one is gone rather than beside it.
+    expect(stripe.createStripeSubscription).toHaveBeenCalledTimes(1);
+    const [request, createKey] = stripe.createStripeSubscription.mock.calls[0]!;
+    expect(request).toEqual({ customerId: "cus_replace", priceId: "price_yearly" });
+    expect(stripe.cancelStripeSubscriptionNow.mock.invocationCallOrder[0]!).toBeLessThan(
+      stripe.createStripeSubscription.mock.invocationCallOrder[0]!,
+    );
+    // Two distinct Stripe keys beneath this request's one key. Stripe scopes a
+    // key to one request and answers a repeat with the first call's stored
+    // reply, so one key for both hands the person pressing Yearly the monthly
+    // subscription that was just canceled.
+    expect(cancelKey).toMatch(/:abandon$/);
+    expect(createKey).toMatch(/:replace$/);
+    expect(cancelKey).not.toBe(createKey);
+    expect(cancelKey.replace(/:abandon$/, "")).toBe(createKey.replace(/:replace$/, ""));
+
+    // The browser is handed the replacement's own payment, never the abandoned
+    // one's, and the books agree about both subscriptions.
+    expect(result).toMatchObject({
+      subscriptionId: "sub_replacement",
+      clientSecret: "pi_replacement_secret",
+      status: "incomplete",
+    });
+    expect(stripe.fetchSubscriptionClientSecret).not.toHaveBeenCalled();
+    expect(await storedSubscription(actor.userId, "sub_replace-unpaid")).toMatchObject({
+      status: "canceled",
+    });
+    expect(await storedSubscription(actor.userId, "sub_replacement")).toMatchObject({
+      status: "incomplete",
+      priceId: "price_yearly",
+    });
+  });
+});
+
 integration("scheduling a change over one already pending", () => {
   beforeAll(async () => {
     await database.create();
@@ -485,6 +703,86 @@ integration("scheduling a change over one already pending", () => {
   });
 
   /**
+   * The plan tab's **Stay on the annual plan** — the browser's one control for
+   * cancelling a pending interval switch, since both priced buttons are
+   * disabled in that state. It has to let the schedule go and schedule nothing
+   * in its place. Falling through to the branch that schedules would create a
+   * fresh schedule onto the price they are already on, so the tab goes on
+   * saying a switch is coming, the one control for it never clears, and the
+   * next renewal is anchored a year out from a press that meant "leave it".
+   */
+  it("lets a pending switch go and schedules nothing in its place", async () => {
+    const actor = await seed("schedule-release");
+    await mapCustomer(actor.userId, "cus_schedule_release");
+    // On annual with a downgrade to monthly pending, asking for annual again.
+    await subscribe(actor.userId, {
+      priceId: "price_yearly",
+      scheduledPriceId: "price_monthly",
+      scheduledAt: new Date("2027-01-01T00:00:00.000Z"),
+      syncedAt: new Date(Date.now() - 60_000),
+    });
+    stripe.stripeScheduleFor.mockResolvedValue("sub_sched_pending");
+    // Stripe answers with whatever the last schedule call left behind, so the
+    // stored row is not free to agree with a release that did not happen.
+    stripe.fetchSubscriptionSnapshot.mockImplementation(async (id: string) =>
+      snapshotOf(id, {
+        priceId: "price_yearly",
+        scheduledPriceId:
+          stripe.scheduleStripeSubscriptionPrice.mock.calls.at(-1)?.[0]?.priceId ?? null,
+      }),
+    );
+
+    const result = await setSubscription(actor, {
+      interval: "yearly",
+      idempotencyKey: idempotencyKey(),
+    });
+
+    expect(stripe.releaseStripeSchedule).toHaveBeenCalledTimes(1);
+    const [released, releaseKey] = stripe.releaseStripeSchedule.mock.calls[0]!;
+    expect(released).toBe("sub_sched_pending");
+    expect(releaseKey).toMatch(/:release:sub_sched_pending$/);
+    expect(stripe.scheduleStripeSubscriptionPrice).not.toHaveBeenCalled();
+    expect(stripe.switchStripeSubscriptionNow).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ status: "active", clientSecret: null, changeInvoice: null });
+    expect(await storedSubscription(actor.userId)).toMatchObject({
+      priceId: "price_yearly",
+      scheduledPriceId: null,
+      scheduledAt: null,
+    });
+  });
+
+  /**
+   * And it goes through on a deployment whose prices have stopped it selling.
+   * Letting a pending switch go sells nothing — it keeps what has already been
+   * paid for — which is why `sellsSomething` exempts it, for the reason paying
+   * an owed renewal is exempt: refusing here would leave somebody stuck with a
+   * switch they no longer want and no control on the page that could undo it.
+   */
+  it("lets a pending switch go where the prices are refusing every sale", async () => {
+    const actor = await seed("schedule-release-unsold");
+    await mapCustomer(actor.userId, "cus_schedule_release_unsold");
+    await subscribe(actor.userId, {
+      priceId: "price_yearly",
+      scheduledPriceId: "price_monthly",
+      scheduledAt: new Date("2027-01-01T00:00:00.000Z"),
+      syncedAt: new Date(Date.now() - 60_000),
+    });
+    stripe.lastPriceCheck.mockReturnValue(misfit);
+    stripe.stripeScheduleFor.mockResolvedValue("sub_sched_unsold");
+    stripe.fetchSubscriptionSnapshot.mockImplementation(async (id: string) =>
+      snapshotOf(id, { priceId: "price_yearly" }),
+    );
+
+    await expect(
+      setSubscription(actor, { interval: "yearly", idempotencyKey: idempotencyKey() }),
+    ).resolves.toMatchObject({ status: "active" });
+
+    expect(stripe.releaseStripeSchedule).toHaveBeenCalledTimes(1);
+    expect(stripe.scheduleStripeSubscriptionPrice).not.toHaveBeenCalled();
+    expect(await storedSubscription(actor.userId)).toMatchObject({ scheduledPriceId: null });
+  });
+
+  /**
    * The first attempt let the old schedule go, made its own, and failed to set
    * its phases; the retry finds that one attached and lets it go too. Stripe
    * answers a repeated key with its stored reply, so a creation under the
@@ -518,6 +816,126 @@ integration("scheduling a change over one already pending", () => {
     expect(retry).toMatch(/:schedule:sub_sched_first_attempt$/);
     // One request, so one Stripe key beneath both attempts.
     expect(first!.replace(/:schedule:.*$/, "")).toBe(retry!.replace(/:schedule:.*$/, ""));
+  });
+});
+
+/**
+ * Cancel at period end, and Keep my plan — the two directions of one button.
+ *
+ * Never immediate either way: the period has been paid for. What needs pinning
+ * is the release that comes first. Stripe refuses `subscriptions.update` on a
+ * subscription a schedule is managing, so somebody who has an interval switch
+ * pending and presses Cancel gets a throw, a refusal on the page, and a plan
+ * that goes on renewing — every retry failing the same way until the schedule
+ * runs out. They cannot stop paying from inside the app.
+ */
+integration("stopping a subscription at the end of its period", () => {
+  beforeAll(async () => {
+    await database.create();
+  }, 60_000);
+  afterAll(async () => {
+    await database.drop();
+  });
+
+  it("releases a pending switch before telling Stripe to stop", async () => {
+    const actor = await seed("cancel-scheduled");
+    await mapCustomer(actor.userId, "cus_cancel_scheduled");
+    await subscribe(actor.userId, {
+      priceId: "price_yearly",
+      scheduledPriceId: "price_monthly",
+      scheduledAt: new Date("2026-12-01T00:00:00.000Z"),
+      syncedAt: new Date(Date.now() - 60_000),
+    });
+    stripe.stripeScheduleFor.mockResolvedValue("sub_sched_pending");
+    stripe.fetchSubscriptionSnapshot.mockImplementation(async (id: string) =>
+      snapshotOf(id, { priceId: "price_yearly", cancelAtPeriodEnd: true, scheduledPriceId: null }),
+    );
+
+    await setSubscriptionCancellation(actor, {
+      cancelAtPeriodEnd: true,
+      idempotencyKey: idempotencyKey(),
+    });
+
+    expect(stripe.releaseStripeSchedule).toHaveBeenCalledTimes(1);
+    expect(stripe.releaseStripeSchedule.mock.calls[0]![0]).toBe("sub_sched_pending");
+    expect(stripe.setStripeCancelAtPeriodEnd).toHaveBeenCalledWith(
+      "sub_cancel-scheduled",
+      true,
+      expect.any(String),
+    );
+    // Before, not after. The update is the call Stripe refuses while a
+    // schedule is attached, so the order is the whole of the fix.
+    expect(stripe.releaseStripeSchedule.mock.invocationCallOrder[0]!).toBeLessThan(
+      stripe.setStripeCancelAtPeriodEnd.mock.invocationCallOrder[0]!,
+    );
+    // And the resync landed. `currentPeriodEnd` is what says so rather than
+    // the flag: the row was seeded with 2027-01-01 and Stripe answers
+    // 2027-06-01, so a row that merely agreed already cannot pass this.
+    expect(await storedSubscription(actor.userId)).toMatchObject({
+      cancelAtPeriodEnd: true,
+      scheduledPriceId: null,
+      currentPeriodEnd: new Date("2027-06-01T00:00:00.000Z"),
+    });
+  });
+
+  /**
+   * Keeping the plan releases nothing. A switch somebody scheduled is still
+   * theirs, and letting it go here would undo a change they made on purpose in
+   * the course of pressing a button about something else entirely.
+   */
+  it("leaves a pending switch alone when the plan is kept", async () => {
+    const actor = await seed("cancel-kept");
+    await mapCustomer(actor.userId, "cus_cancel_kept");
+    await subscribe(actor.userId, {
+      priceId: "price_yearly",
+      cancelAtPeriodEnd: true,
+      scheduledPriceId: "price_monthly",
+      scheduledAt: new Date("2026-12-01T00:00:00.000Z"),
+      syncedAt: new Date(Date.now() - 60_000),
+    });
+    stripe.stripeScheduleFor.mockResolvedValue("sub_sched_kept");
+    stripe.fetchSubscriptionSnapshot.mockImplementation(async (id: string) =>
+      snapshotOf(id, {
+        priceId: "price_yearly",
+        cancelAtPeriodEnd: false,
+        scheduledPriceId: "price_monthly",
+        scheduledAt: new Date("2026-12-01T00:00:00.000Z"),
+      }),
+    );
+
+    await setSubscriptionCancellation(actor, {
+      cancelAtPeriodEnd: false,
+      idempotencyKey: idempotencyKey(),
+    });
+
+    // Not even asked for: the lookup is inside the cancelling branch.
+    expect(stripe.stripeScheduleFor).not.toHaveBeenCalled();
+    expect(stripe.releaseStripeSchedule).not.toHaveBeenCalled();
+    expect(stripe.setStripeCancelAtPeriodEnd).toHaveBeenCalledWith(
+      "sub_cancel-kept",
+      false,
+      expect.any(String),
+    );
+    expect(await storedSubscription(actor.userId)).toMatchObject({
+      cancelAtPeriodEnd: false,
+      scheduledPriceId: "price_monthly",
+    });
+  });
+
+  /**
+   * Nothing to cancel is a refusal the page can render, not a 500 off a null
+   * read one line further on.
+   */
+  it("refuses with a conflict when there is no subscription", async () => {
+    const actor = await seed("cancel-none");
+
+    await expect(
+      setSubscriptionCancellation(actor, {
+        cancelAtPeriodEnd: true,
+        idempotencyKey: idempotencyKey(),
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT", status: 409, details: { subscription: null } });
+    expect(stripe.setStripeCancelAtPeriodEnd).not.toHaveBeenCalled();
   });
 });
 
@@ -565,6 +983,40 @@ integration("an upgrade that could not be collected on the spot", () => {
     // A paid invoice still carries a secret, and confirming it again is an
     // error, so it is not even asked for.
     expect(stripe.fetchSubscriptionClientSecret).not.toHaveBeenCalled();
+  });
+
+  /**
+   * What the update raised, carried out to the caller rather than worked out
+   * from the button that was pressed. The tab was writing "the difference was
+   * charged to your payment method" from the action alone, which is false for
+   * the last of these: a subscription set to stop has its new term capped at
+   * the cancellation, so Stripe raises no invoice and parks the proration as
+   * uninvoiced items. Nobody is mischarged; they are told money moved when
+   * none did.
+   */
+  it("reports what the upgrade raised, and nothing for a press that raised none", async () => {
+    for (const invoice of ["paid", "owed", "none"] as const) {
+      const actor = await seed(`upgrade-reports-${invoice}`);
+      await mapCustomer(actor.userId, `cus_upgrade_reports_${invoice}`);
+      await subscribe(actor.userId, { priceId: "price_monthly" });
+      stripe.switchStripeSubscriptionNow.mockImplementation(async ({ subscriptionId }) => ({
+        snapshot: snapshotOf(subscriptionId, { syncedAt: new Date(Date.now() - 500) }),
+        invoice,
+      }));
+
+      await expect(
+        setSubscription(actor, { interval: "yearly", idempotencyKey: idempotencyKey() }),
+      ).resolves.toMatchObject({ changeInvoice: invoice });
+    }
+
+    // A repeat of the plan they are on changes no interval, so there is
+    // nothing for the sentence to report and it says so rather than guessing.
+    const same = await seed("upgrade-reports-none-pressed");
+    await mapCustomer(same.userId, "cus_upgrade_reports_same");
+    await subscribe(same.userId, { priceId: "price_monthly" });
+    await expect(
+      setSubscription(same, { interval: "monthly", idempotencyKey: idempotencyKey() }),
+    ).resolves.toMatchObject({ changeInvoice: null });
   });
 });
 
@@ -1180,6 +1632,78 @@ integration("the plan tab's read of a subscription that owes", () => {
     });
   });
 
+  /**
+   * Stripe's price API unreachable, or a restricted key without price read.
+   * Everything the tab can still do — Pay now, Finish your payment, replacing
+   * a card, cancelling — depends on neither price, and `PlanPage` returns
+   * "Your plan could not be loaded" before every one of those buttons if this
+   * read throws. There is no portal to fall back to, so the load has to
+   * survive with the figures missing rather than fail whole.
+   */
+  it("still renders the tab when the prices cannot be read", async () => {
+    const actor = await seed("prices-unreadable");
+    await subscribe(actor.userId, {
+      status: "past_due",
+      priceId: "price_monthly",
+      pastDueSince: new Date(),
+      syncedAt: new Date(Date.now() - 60_000),
+    });
+    stripe.fetchPlanPrices.mockRejectedValue(
+      Object.assign(new Error("Permission denied."), { code: "more_permissions_required" }),
+    );
+    stripe.fetchSubscriptionSnapshot.mockImplementation(async (id: string) =>
+      snapshotOf(id, { status: "past_due", priceId: "price_monthly" }),
+    );
+
+    const shown = await getBillingStatus(actor);
+
+    // The two figures are the only thing missing.
+    expect(shown.prices).toEqual({ monthly: null, yearly: null });
+    // Pay now hangs off this, and it is worked out from the stored row against
+    // the configured price ids rather than from the prices that failed.
+    expect(shown.subscription).toMatchObject({ status: "past_due", payable: true });
+    // The grace still entitles them, which comes from the row and not Stripe.
+    expect(shown.entitlement).toMatchObject({ plan: "plus", source: "subscription" });
+    // Whether to offer a sale is the last price *check*, a different question
+    // from whether this one read succeeded.
+    expect(shown.selling).toBe(true);
+  });
+
+  /**
+   * And where the subscription itself cannot be re-read. The re-read is an
+   * improvement on the stored row — it is what stops the tab saying "Payment
+   * failed" beside a live Pay now — not a condition of showing one, and a
+   * subscription nobody can reach is still a subscription worth rendering.
+   */
+  it("still renders the tab when the subscription cannot be re-read", async () => {
+    const actor = await seed("resync-unreadable");
+    const began = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    await subscribe(actor.userId, {
+      status: "past_due",
+      priceId: "price_monthly",
+      pastDueSince: began,
+      syncedAt: new Date(Date.now() - 60_000),
+    });
+    stripe.fetchSubscriptionSnapshot.mockRejectedValue(new Error("connect ETIMEDOUT"));
+
+    const shown = await getBillingStatus(actor);
+
+    expect(shown.subscription).toMatchObject({
+      status: "past_due",
+      payable: true,
+      pastDueSince: began.toISOString(),
+      // Seeded here, never Stripe's 2027-06-01: this is the stored row being
+      // shown, rather than a read that quietly succeeded.
+      currentPeriodEnd: "2027-01-01T00:00:00.000Z",
+    });
+    // The read that failed is the one that would have named an invoice, so
+    // nothing goes on to ask about the payment.
+    expect(stripe.fetchOwedPayment).not.toHaveBeenCalled();
+    // And the reads beside it are untouched.
+    expect(shown.prices.monthly).toMatchObject({ id: "price_monthly", unitAmount: 300 });
+    expect(shown.entitlement).toMatchObject({ plan: "plus" });
+  });
+
   it("asks Stripe nothing about a subscription that owes nothing", async () => {
     const actor = await seed("owes-nothing");
     await subscribe(actor.userId);
@@ -1219,7 +1743,10 @@ integration("two Annual presses at once", () => {
     const slow = new Promise<void>((resolve) => (release = resolve));
     stripe.switchStripeSubscriptionNow.mockImplementation(async ({ subscriptionId }) => {
       await slow;
-      return snapshotOf(subscriptionId, { status: "active", priceId: "price_yearly" });
+      return {
+        snapshot: snapshotOf(subscriptionId, { status: "active", priceId: "price_yearly" }),
+        invoice: "paid" as const,
+      };
     });
 
     const first = setSubscription(actor, { interval: "yearly", idempotencyKey: idempotencyKey() });
@@ -1233,6 +1760,85 @@ integration("two Annual presses at once", () => {
     expect(a).toMatchObject({ status: "active", clientSecret: null });
     expect(b).toMatchObject({ status: "active", clientSecret: null });
     expect((await storedSubscription(actor.userId))?.priceId).toBe("price_yearly");
+  });
+});
+
+/**
+ * The same plan change sent twice under one idempotency key — a double submit,
+ * or a browser retrying after a dropped response.
+ *
+ * The replay is the reason billing idempotency exists, and what it hands back
+ * matters as much as what it declines to repeat. A `clientSecret` authorizes
+ * confirming a payment, the row it would be stored in is never deleted, and
+ * handed out a second time the page mounts a payment form against an intent
+ * Stripe has already confirmed. So the answer survives the replay and the
+ * secret does not, which the caller reads as "there is nothing left to
+ * confirm" — and if there is, the page asks for a fresh one.
+ */
+integration("a plan change submitted twice under one key", () => {
+  beforeAll(async () => {
+    await database.create();
+  }, 60_000);
+  afterAll(async () => {
+    await database.drop();
+  });
+
+  it("replays the answer without the secret, and without going back to Stripe", async () => {
+    const actor = await seed("replay-key");
+    await mapCustomer(actor.userId, "cus_replay");
+    stripe.createStripeSubscription.mockResolvedValue({
+      subscriptionId: "sub_replay",
+      clientSecret: "pi_replay_secret",
+      snapshot: snapshotOf("sub_replay", {
+        status: "incomplete",
+        priceId: "price_yearly",
+        syncedAt: new Date(Date.now() - 1000),
+      }),
+    });
+    stripe.fetchSubscriptionSnapshot.mockImplementation(async (id: string) =>
+      snapshotOf(id, { status: "incomplete", priceId: "price_yearly" }),
+    );
+    // What the live path would answer a second press with — the stored
+    // subscription is `incomplete`, so a press that reached Stripe again would
+    // be a `resume` and would fetch this. Without it, `clientSecret: null`
+    // below would pass against a build that never hands one out at all.
+    stripe.fetchSubscriptionClientSecret.mockResolvedValue("pi_resumed_secret");
+    const key = "replay-once";
+
+    const first = await setSubscription(actor, { interval: "yearly", idempotencyKey: key });
+    // Proof the live path really does hand out a secret.
+    expect(first).toMatchObject({
+      subscriptionId: "sub_replay",
+      clientSecret: "pi_replay_secret",
+    });
+
+    const second = await setSubscription(actor, { interval: "yearly", idempotencyKey: key });
+
+    expect(stripe.createStripeSubscription).toHaveBeenCalledTimes(1);
+    // Nothing was asked of Stripe at all on the second press: the answer came
+    // out of the operation row.
+    expect(stripe.fetchSubscriptionClientSecret).not.toHaveBeenCalled();
+    expect(second).toMatchObject({
+      subscriptionId: "sub_replay",
+      status: "incomplete",
+      clientSecret: null,
+    });
+
+    // And the secret is not at rest in the row the replay is served from.
+    const [stored] = await getDb()
+      .select({ state: billingOperations.state, result: billingOperations.result })
+      .from(billingOperations)
+      .where(
+        and(
+          eq(billingOperations.userId, actor.userId),
+          eq(billingOperations.operation, "subscription.set"),
+          eq(billingOperations.key, key),
+        ),
+      );
+    expect(stored).toMatchObject({
+      state: "succeeded",
+      result: { subscriptionId: "sub_replay", clientSecret: null },
+    });
   });
 });
 
@@ -1264,13 +1870,72 @@ integration("changing plan while it is set to end", () => {
         code: "CONFLICT",
         status: 409,
         message: PLAN_ENDING_REFUSAL,
-        details: { cancelAtPeriodEnd: true },
+        details: { planEnding: true },
       });
     }
     expect(stripe.stripeCustomerStanding).not.toHaveBeenCalled();
     expect(stripe.switchStripeSubscriptionNow).not.toHaveBeenCalled();
     expect(stripe.scheduleStripeSubscriptionPrice).not.toHaveBeenCalled();
     expect(stripe.releaseStripeSchedule).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The other spelling, and the one the refusal used to miss entirely: a day an
+   * operator set in Stripe's dashboard, past the stored period end. That period
+   * really does renew, so `cancel_at_period_end` is false — and read off that
+   * flag alone the cancellation did not exist, so both presses went through.
+   * The downgrade's schedule replayed the cancel date as a phase boundary and
+   * then appended a phase past it with `end_behavior: "release"`, destroying the
+   * cancellation; the upgrade billed a year's difference against a subscription
+   * Stripe was about to stop.
+   */
+  it("refuses a cancellation dated past the period end just the same", async () => {
+    for (const [on, asked] of [
+      ["price_monthly", "yearly"],
+      ["price_yearly", "monthly"],
+    ] as const) {
+      const actor = await seed(`ending-later-${asked}`);
+      await mapCustomer(actor.userId, `cus_ending_later_${asked}`);
+      await subscribe(actor.userId, {
+        priceId: on,
+        cancelAtPeriodEnd: false,
+        currentPeriodEnd: new Date("2027-01-01T00:00:00.000Z"),
+        cancelAt: new Date("2027-11-13T18:53:33.000Z"),
+      });
+
+      await expect(
+        setSubscription(actor, { interval: asked, idempotencyKey: idempotencyKey() }),
+      ).rejects.toMatchObject({
+        code: "CONFLICT",
+        status: 409,
+        message: PLAN_ENDING_REFUSAL,
+        details: { planEnding: true },
+      });
+    }
+    expect(stripe.switchStripeSubscriptionNow).not.toHaveBeenCalled();
+    expect(stripe.scheduleStripeSubscriptionPrice).not.toHaveBeenCalled();
+  });
+
+  /**
+   * And the day is what the browser reads it from, so the tab can disable the
+   * same buttons for the same reason. `cancelAtPeriodEnd` stays false here
+   * because the status line's date is `currentPeriodEnd`, which this period
+   * genuinely reaches.
+   */
+  it("reports the day beside the flag, each answering its own question", async () => {
+    const actor = await seed("ending-later-status");
+    await mapCustomer(actor.userId, "cus_ending_later_status");
+    await subscribe(actor.userId, {
+      cancelAtPeriodEnd: false,
+      cancelAt: new Date("2027-11-13T18:53:33.000Z"),
+    });
+
+    await expect(getBillingStatus(actor)).resolves.toMatchObject({
+      subscription: {
+        cancelAtPeriodEnd: false,
+        cancelAt: "2027-11-13T18:53:33.000Z",
+      },
+    });
   });
 
   it("still takes payment of what is owed, and a repeat of the plan they are on", async () => {

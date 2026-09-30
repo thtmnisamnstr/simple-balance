@@ -134,22 +134,63 @@ before this is reached, so `default` changes nothing else.
 {{- end }}
 
 {{/*
-The Secret holding the credentials, whichever way it got there. Refusing both at
-once is the point: an operator who names an existing Secret and leaves create on
-would otherwise get a chart-built Secret alongside it and no sign of which one
-the pods read.
+The Secret this chart builds, when it builds one. Named on its own rather than
+through the list below, because the two answer different questions: this is the
+name of an object this render creates, and `secretRefs` is what the pods read —
+which may be this one, an operator's, or both.
 */}}
-{{- define "simple-balance.secretName" -}}
-{{- if and .Values.secret.create .Values.secret.existingSecret }}
-{{- fail "secret.create is true and secret.existingSecret names a Secret. Set secret.create=false to use the one that exists, or clear secret.existingSecret to have the chart build it." }}
-{{- end }}
-{{- if .Values.secret.existingSecret }}
-{{- .Values.secret.existingSecret }}
-{{- else if .Values.secret.create }}
+{{- define "simple-balance.ownSecretName" -}}
 {{- printf "%s-env" (include "simple-balance.fullname" .) }}
-{{- else }}
+{{- end }}
+
+{{/*
+Every Secret the API and the scheduler take their environment from, in the order
+`envFrom` has to list them.
+
+One source is the ordinary case and was the only one before this release: the
+chart's own Secret, or an operator's `existingSecret`. Naming both was refused,
+and still is wherever the chart is not running the database, because two sources
+of DATABASE_URL with no stated precedence is a deployment nobody can reason
+about.
+
+Both at once exists for exactly one shape, and it is the shape the `ha` profile's
+Pulumi programs are in. The connection string for a cluster this chart runs can
+only be derived here — the password is generated here — while the rest of the
+credentials must not travel through chart values, because chart values land in
+the release Secret and in Helm's history, which is the whole reason those
+programs build their own Secret. So with `database.enabled` the chart's Secret
+carries the derived DATABASE_URL and the operator's carries everything else.
+
+The order is the contract. Kubernetes lets a later `envFrom` source win a
+duplicate key, so the operator's Secret goes second and what they supplied beats
+what this render worked out — the precedence every other setting here has.
+*/}}
+{{- define "simple-balance.secretRefs" -}}
+{{- if and .Values.secret.create .Values.secret.existingSecret (not .Values.database.enabled) }}
+{{- fail "secret.create is true and secret.existingSecret names a Secret. Set secret.create=false to use the one that exists, or clear secret.existingSecret to have the chart build it. Both together mean something only with database.enabled, where the chart derives DATABASE_URL for the cluster it runs and the existing Secret carries the rest." }}
+{{- end }}
+{{- $names := list }}
+{{- if .Values.secret.create }}
+{{- $names = append $names (include "simple-balance.ownSecretName" .) }}
+{{- end }}
+{{- with .Values.secret.existingSecret }}
+{{- $names = append $names . }}
+{{- end }}
+{{- if not $names }}
 {{- fail "No Secret. Set secret.create=true with secret.databaseUrl and secret.authSecret, or point secret.existingSecret at a Secret already carrying DATABASE_URL and AUTH_SECRET." }}
 {{- end }}
+{{- toJson $names }}
+{{- end }}
+
+{{/*
+Whether the chart's own Secret is the only place the credentials come from. With
+an `existingSecret` beside it the chart derives DATABASE_URL and nothing else, so
+every "required when secret.create" check below is about this rather than about
+`create`: refusing a missing AUTH_SECRET there would refuse a deployment whose
+AUTH_SECRET is sitting in the Secret it was told about.
+*/}}
+{{- define "simple-balance.ownsCredentials" -}}
+{{- if and .Values.secret.create (not .Values.secret.existingSecret) }}true{{ end -}}
 {{- end }}
 
 {{/*
@@ -209,6 +250,7 @@ stack trace in `kubectl logs`.
 */}}
 {{- define "simple-balance.validate" -}}
 {{- $c := .Values.config }}
+{{- $ownsCredentials := include "simple-balance.ownsCredentials" . }}
 {{- /*
 The origin this chart ships is a placeholder and every deployment has to replace
 it. Left in place it renders, installs and runs, and then sets cookies for a
@@ -231,7 +273,7 @@ this project has published.
 {{- if not $c.google.clientId }}
 {{- fail "config.authMode enables Google sign-in, so config.google.clientId is required." }}
 {{- end }}
-{{- if and .Values.secret.create (not .Values.secret.googleClientSecret) }}
+{{- if and $ownsCredentials (not .Values.secret.googleClientSecret) }}
 {{- fail "config.authMode enables Google sign-in, so secret.googleClientSecret is required." }}
 {{- end }}
 {{- if not $c.allowedEmails }}
@@ -287,11 +329,13 @@ a rollout that never becomes ready.
 {{- if and (not .Values.secret.databaseUrl) (not .Values.database.enabled) }}
 {{- fail "secret.databaseUrl is required when secret.create is true. The database is bring your own unless database.enabled is set, which runs the ha profile's Citus cluster in this release." }}
 {{- end }}
+{{- if $ownsCredentials }}
 {{- if not .Values.secret.authSecret }}
 {{- fail "secret.authSecret is required when secret.create is true. Generate one with `openssl rand -base64 32`." }}
 {{- end }}
 {{- if lt (len .Values.secret.authSecret) 32 }}
 {{- fail "secret.authSecret must be at least 32 characters. Startup refuses a shorter one, so the release would install cleanly and then crashloop every tier." }}
+{{- end }}
 {{- end }}
 {{- if has (trim .Values.secret.authSecret) (list "development-only-secret-change-me-1234567890" "replace-with-at-least-32-random-characters" "change-me") }}
 {{- fail "secret.authSecret is one of the published placeholders. Sessions are signed with it, so it has to be a secret nobody else has. Generate one with `openssl rand -base64 32`." }}
@@ -301,6 +345,30 @@ a rollout that never becomes ready.
 {{- end }}
 {{- if not (eq (empty .Values.secret.smtpUsername) (empty .Values.secret.smtpPassword)) }}
 {{- fail "secret.smtpUsername and secret.smtpPassword are set together or not at all." }}
+{{- end }}
+{{- end }}
+{{- if .Values.database.enabled }}
+{{/*
+A guarantee the cluster cannot give. `synchronous_mode_strict` is off — see
+database-config.yaml, where keeping a ledger writable through one lost pod is
+argued — so a group with no standby falls back to asynchronous and says nothing.
+At one replica per group there is never a standby, so `synchronousReplication:
+true` there is a setting that claims durability it can never deliver. Refused
+rather than quietly derived to false, because the operator asked for something
+and would otherwise be told nothing.
+*/}}
+{{- if and .Values.database.synchronousReplication (le (int .Values.database.replicasPerGroup) 1) }}
+{{- fail "database.synchronousReplication is on with database.replicasPerGroup at 1. A commit waits for a standby to hold the WAL and there is no standby in a group of one, so this promises a durability the cluster cannot give. Set database.replicasPerGroup to at least 2, or database.synchronousReplication=false — the one-node-per-service shape does the latter in values-node-per-service.yaml." }}
+{{- end }}
+{{/*
+The application password becomes the userinfo of a URL, so a character that
+means something there silently truncates or reroutes the connection string
+rather than failing. Generated passwords are alphanumeric and cannot hit this;
+an operator's can, and the failure would be a pod that cannot connect and a
+DATABASE_URL nobody may print to find out why.
+*/}}
+{{- if and .Values.database.application.password (not (regexMatch "^[A-Za-z0-9._~-]+$" .Values.database.application.password)) }}
+{{- fail "database.application.password goes into the userinfo of the derived DATABASE_URL, so it is limited to letters, digits and . _ ~ - . Anything else would have to be percent-encoded, and an unencoded @ or / silently points the connection somewhere else. Leave it empty to have one generated." }}
 {{- end }}
 {{- end }}
 {{- end }}
@@ -440,15 +508,146 @@ leader endpoint, and the coordinator is always group 0.
 Where the application connects. The coordinator's leader Service, which Patroni
 keeps pointing at whichever group-0 pod is currently primary — that is the whole
 point of running it. A worker is never connected to directly: Citus routes.
+
+`verify-full` rather than `require`, and the difference is not cosmetic.
+node-postgres reads both as "use TLS and check the certificate", because
+pg-connection-string returns the same empty `ssl` object for each and Node's
+defaults then apply — so `require` here would read as a weaker guarantee than
+the one actually in force, which is the divergence docs/deployment.md records.
+Written as what it does.
+
+`sslrootcert` names a file inside the API and scheduler containers, which the
+deployments mount from the cluster's own Secret. It is load-bearing twice over:
+pg-connection-string reads that file at parse time, so a pod that did not get
+the mount fails at startup with ENOENT rather than connecting to something
+unverified, and the CA it holds is this cluster's alone, so a certificate
+signed by any public authority is not a certificate this application accepts.
 */}}
 {{- define "simple-balance.databaseUrl" -}}
 {{- $db := .Values.database -}}
 {{- $host := include "simple-balance.databaseGroupName" (dict "root" . "group" 0) -}}
-{{- printf "postgresql://%s:%s@%s:5432/%s" $db.application.username (include "simple-balance.databaseApplicationPassword" .) $host $db.databaseName -}}
+{{- printf "postgresql://%s:%s@%s:5432/%s?sslmode=verify-full&sslrootcert=%s" $db.application.username (include "simple-balance.databaseApplicationPassword" .) $host $db.databaseName (include "simple-balance.databaseCaPath" .) -}}
 {{- end }}
 
 {{/*
-The three database passwords, decided once per render and kept across upgrades.
+The three paths the certificate material lands on, hard-coded rather than made
+settings for the reason `compose.db-tls.yml` hard-codes its own: a path that is
+stated twice is a path that can disagree with itself, and nothing about either
+number is a deployment's choice.
+
+The first is inside the API and scheduler containers and is what the connection
+string above names. The other two are inside the database containers and are
+what PostgreSQL's `ssl_cert_file`, `ssl_key_file` and `ssl_ca_file` name.
+*/}}
+{{- define "simple-balance.databaseCaPath" -}}/etc/simple-balance/db-ca.pem{{- end }}
+{{- define "simple-balance.databaseTlsDir" -}}/etc/postgresql/tls{{- end }}
+
+{{/*
+Every name the coordinator's leader Service answers to, which is what the server
+certificate has to carry for `verify-full` to pass.
+
+The short name is the one the connection string uses and the only one that
+strictly has to be here; the qualified forms are here because an operator
+reaching the same database with `psql` from another namespace writes one of
+those, and a certificate that refuses them reads as a broken cluster rather than
+as a name that was never promised.
+
+A worker's own name is deliberately absent. Nothing connects to a worker by
+name: Citus reaches them by pod address, which no certificate can promise in
+advance, and that path is verified by CA rather than by name — see
+`citus.node_conninfo` in database-config.yaml.
+*/}}
+{{- define "simple-balance.databaseCertNames" -}}
+{{- $leader := include "simple-balance.databaseGroupName" (dict "root" . "group" 0) -}}
+{{- $names := list $leader (printf "%s.%s" $leader .Release.Namespace) (printf "%s.%s.svc" $leader .Release.Namespace) (printf "%s.%s.svc.cluster.local" $leader .Release.Namespace) -}}
+{{- toJson $names -}}
+{{- end }}
+
+{{/*
+The CA and the server certificate, decided once per render and kept across
+upgrades, for the same three reasons the passwords beside them are — with one
+more that is specific to a certificate.
+
+`genCA` and `genSignedCert` answer differently every time they are called. Called
+from the Secret and again from the StatefulSet that mounts it, the two would not
+match, and PostgreSQL would start with a key that does not belong to its
+certificate. Called again on the next `helm upgrade`, a perfectly healthy
+cluster would roll every database pod onto a new identity and every API pod onto
+a new CA, for no reason anybody asked for.
+
+So: an operator's own material wins, then whatever is already in the cluster's
+Secret, then a generated pair. Under `helm template` there is no cluster to look
+in, so a render always generates — which is why nothing here may be compared
+across two renders and called a change.
+
+The CA's private key is deliberately **not** kept. Nothing reads it after this:
+the chart signs once and then holds the result, so storing it would be a
+credential with no consumer sitting next to the superuser password. Rotation is
+therefore "delete the four tls keys from the Secret and upgrade", which mints a
+new CA and a new certificate together and rolls both tiers onto them —
+`docs/citus-runbook.md` has the procedure.
+*/}}
+{{- define "simple-balance.databaseCertificates" -}}
+{{- if not (hasKey .Values.database "resolvedTls") -}}
+  {{- $tls := .Values.database.tls | default dict -}}
+  {{- $resolved := dict -}}
+  {{- if or $tls.ca $tls.cert $tls.key -}}
+    {{- if not (and $tls.ca $tls.cert $tls.key) -}}
+      {{- fail "database.tls takes ca, cert and key together or not at all. Half a certificate is a database that starts without TLS while the application insists on it." -}}
+    {{- end -}}
+    {{- $resolved = dict "ca" $tls.ca "cert" $tls.cert "key" $tls.key -}}
+  {{- else -}}
+    {{- $existing := (lookup "v1" "Secret" .Release.Namespace (include "simple-balance.databaseSecretName" .)) -}}
+    {{- $data := dict -}}
+    {{- if $existing -}}
+      {{- $data = (default dict $existing.data) -}}
+    {{- end -}}
+    {{- if and (hasKey $data "ca.crt") (hasKey $data "tls.crt") (hasKey $data "tls.key") -}}
+      {{- $resolved = dict "ca" (index $data "ca.crt" | b64dec) "cert" (index $data "tls.crt" | b64dec) "key" (index $data "tls.key" | b64dec) -}}
+    {{- else -}}
+      {{- $ca := genCA (printf "%s database CA" (include "simple-balance.databaseName" .)) 3650 -}}
+      {{/*
+      3650 days, and long on purpose. A chart cannot renew a certificate — it
+      only runs when somebody runs it — so a short life is an outage scheduled
+      for a date nobody wrote down, and every consumer of this CA is inside one
+      namespace rather than on the public internet.
+      */}}
+      {{- $cert := genSignedCert (index (fromJsonArray (include "simple-balance.databaseCertNames" .)) 0) (list) (fromJsonArray (include "simple-balance.databaseCertNames" .)) 3650 $ca -}}
+      {{- $resolved = dict "ca" $ca.Cert "cert" $cert.Cert "key" $cert.Key -}}
+    {{- end -}}
+  {{- end -}}
+  {{- $_ := set .Values.database "resolvedTls" $resolved -}}
+{{- end -}}
+{{- end }}
+
+{{- define "simple-balance.databaseCaCert" -}}
+{{- include "simple-balance.databaseCertificates" . -}}
+{{- .Values.database.resolvedTls.ca -}}
+{{- end }}
+
+{{- define "simple-balance.databaseServerCert" -}}
+{{- include "simple-balance.databaseCertificates" . -}}
+{{- .Values.database.resolvedTls.cert -}}
+{{- end }}
+
+{{- define "simple-balance.databaseServerKey" -}}
+{{- include "simple-balance.databaseCertificates" . -}}
+{{- .Values.database.resolvedTls.key -}}
+{{- end }}
+
+{{/*
+Whether commits actually wait for a standby, as opposed to whether somebody
+asked them to. `validate` refuses the contradiction outright, so this can only
+differ from the setting if a future path reaches the config without passing
+through the guard — which is exactly the case worth keeping honest, because the
+half that would be wrong is the one that claims a guarantee.
+*/}}
+{{- define "simple-balance.databaseSynchronous" -}}
+{{- if and .Values.database.synchronousReplication (gt (int .Values.database.replicasPerGroup) 1) }}true{{ end -}}
+{{- end }}
+
+{{/*
+The four database passwords, decided once per render and kept across upgrades.
 
 Three things have to be true at once and none of them is the default behavior.
 A password the operator set wins. A password already in the cluster is kept,
@@ -470,7 +669,7 @@ adding the key does not fail validation.
     {{- $data = (default dict $existing.data) -}}
   {{- end -}}
   {{- $resolved := dict -}}
-  {{- range $role := (list "superuser" "replication" "application") -}}
+  {{- range $role := (list "superuser" "replication" "application" "restapi") -}}
     {{- $configured := (index $.Values.database $role).password -}}
     {{- $key := printf "%s-password" $role -}}
     {{- if $configured -}}
@@ -498,6 +697,20 @@ adding the key does not fail validation.
 {{- define "simple-balance.databaseApplicationPassword" -}}
 {{- include "simple-balance.databaseCredentials" . -}}
 {{- .Values.database.resolvedPasswords.application -}}
+{{- end }}
+
+{{/*
+The fourth, and the only one that is not a PostgreSQL role. Patroni's REST API
+is how a cluster is failed over, switched over, restarted and reinitialized, and
+it listens on every interface in the pod. Without this any workload that can
+open a socket in the namespace can promote a standby over a live primary. The
+read-only endpoints — /liveness, /readiness and the health views — stay open,
+which is what keeps the kubelet's probes working; Patroni only demands
+credentials for the methods that change something.
+*/}}
+{{- define "simple-balance.databaseRestApiPassword" -}}
+{{- include "simple-balance.databaseCredentials" . -}}
+{{- .Values.database.resolvedPasswords.restapi -}}
 {{- end }}
 
 {{/*

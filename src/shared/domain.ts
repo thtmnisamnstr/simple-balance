@@ -3999,6 +3999,35 @@ export const PLAN_ENDING_REFUSAL =
   "Your plan is set to end. Press Keep my plan before changing it.";
 
 /**
+ * Whether a cancellation is pending at all, in either of the two spellings
+ * Stripe has for it.
+ *
+ * One predicate because there are two facts and they are not the same one.
+ * `cancelAtPeriodEnd` means "it stops on the day stored as `currentPeriodEnd`",
+ * which is the only thing that date is printable as an ending for, so the
+ * status line goes on asking it directly and `docs/billing-operations.md`
+ * goes on sanctioning "renews" for a day further out. This asks the other
+ * question, and everything that decides whether the plan may be *changed* asks
+ * this one: a cancellation an operator dated past the current period leaves the
+ * flag false, and read off the flag alone it did not exist. A downgrade press
+ * then folded it into a schedule that replaced it, so the plan renewed forever;
+ * an upgrade press charged a year's difference against a subscription Stripe
+ * was about to stop.
+ *
+ * `cancelAt` is taken as a `Date` or as the ISO string the browser is sent, so
+ * the shared rule reads the same on both sides of the wire. Both fields are
+ * optional, so a caller with no reason to ask about a cancellation compiles
+ * unchanged and reads as none pending — the answer the rule gave before it
+ * asked.
+ */
+export function cancellationPending(current: {
+  readonly cancelAtPeriodEnd?: boolean;
+  readonly cancelAt?: Date | string | null;
+}): boolean {
+  return current.cancelAtPeriodEnd === true || (current.cancelAt ?? null) !== null;
+}
+
+/**
  * Which of the eight things a request to change plan actually means.
  *
  * Pure, shared, and separated from the service for the reason `AGENTS.md` gives
@@ -4042,9 +4071,11 @@ export const PLAN_ENDING_REFUSAL =
  *    side effect of another. Paying what is owed, a repeat of the plan they
  *    are on and letting a scheduled switch go all come first, and still work.
  *
- * `cancelAtPeriodEnd` is optional so a caller that has no reason to ask about
- * a cancellation compiles unchanged; absent reads as none pending, which is
- * the answer the rule gave before it asked.
+ * Which cancellation counts is `cancellationPending`, not the flag: both
+ * spellings are one, and the flag alone said no to a day past the period end.
+ * Both fields are optional there, so a caller that has no reason to ask about
+ * a cancellation compiles unchanged and reads as none pending, which is the
+ * answer the rule gave before it asked.
  */
 export function subscriptionAction(input: {
   readonly current: {
@@ -4052,6 +4083,7 @@ export function subscriptionAction(input: {
     readonly interval: BillingInterval | null;
     readonly scheduled: BillingInterval | null;
     readonly cancelAtPeriodEnd?: boolean;
+    readonly cancelAt?: Date | string | null;
   } | null;
   readonly requested: BillingInterval;
 }): SubscriptionAction {
@@ -4066,7 +4098,7 @@ export function subscriptionAction(input: {
     return current.scheduled === null ? { kind: "none" } : { kind: "release" };
   }
   if (current.scheduled === requested) return { kind: "none" };
-  if (current.cancelAtPeriodEnd === true) return { kind: "ending" };
+  if (cancellationPending(current)) return { kind: "ending" };
 
   // Only from a known monthly that is paid up. Two conditions, and each is
   // there for its own reason.
@@ -4132,3 +4164,27 @@ export function planChangeTakesEffect(action: SubscriptionAction): "now" | "rene
  */
 export const owedInvoiceOutcomes = ["none", "paid", "declined", "needs_authentication"] as const;
 export type OwedInvoiceOutcome = (typeof owedInvoiceOutcomes)[number];
+
+/**
+ * What the press that changed the interval on the spot actually raised, as the
+ * confirmation reports it.
+ *
+ * Shaped after `owedInvoiceOutcomes` above and for the same reason one step
+ * along: the page was writing "the difference was charged to your payment
+ * method" from the button that was pressed, never from anything Stripe did.
+ * `billing_cycle_anchor: "now"` does bill on the spot in the ordinary case, so
+ * the sentence was true until it was not — a subscription carrying a `cancel_at`
+ * has its new term capped at the cancellation, so Stripe raises no invoice at
+ * all and parks the proration as uninvoiced items for later. The person was
+ * told money had left their account when none had.
+ *
+ * `paid` is an invoice the update raised and collected. `owed` is one it raised
+ * and left to be confirmed. `none` is nothing raised — and also an invoice
+ * nobody can pay (`void`, `uncollectible`), which says the same thing to the
+ * person and must not send the page to mount a form for it. Deliberately not
+ * the same four values as `owedInvoiceOutcomes`: a declined card there is a
+ * card the person just chose, and here the charge that is left open is handed
+ * back as a client secret to confirm rather than reported as a refusal.
+ */
+export const planChangeInvoices = ["none", "paid", "owed"] as const;
+export type PlanChangeInvoice = (typeof planChangeInvoices)[number];

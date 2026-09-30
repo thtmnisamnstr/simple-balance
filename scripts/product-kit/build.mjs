@@ -105,7 +105,10 @@ async function main() {
     // The identity is fixed because it is visible in the sidebar of every
     // shot, so a re-run meets an account that already exists.
     await page.goto(BASE);
-    await page.getByRole("button", { name: /Sign in/i }).first().waitFor();
+    await page
+      .getByRole("button", { name: /Sign in/i })
+      .first()
+      .waitFor();
     await page.getByLabel("Email address").fill(seed.person.email);
     await page.getByLabel(/^Password/).fill(seed.person.password);
     await page.getByRole("button", { name: /^Sign in$/i }).click();
@@ -176,9 +179,25 @@ async function main() {
           },
         });
       } else if (entry.type === "deposit") {
-        drafts.push({ key, draft: { ...common, type: "deposit", toAccountId: ids.accounts[entry.to], amount: entry.amount } });
+        drafts.push({
+          key,
+          draft: {
+            ...common,
+            type: "deposit",
+            toAccountId: ids.accounts[entry.to],
+            amount: entry.amount,
+          },
+        });
       } else {
-        drafts.push({ key, draft: { ...common, type: "withdrawal", fromAccountId: ids.accounts[entry.from], amount: entry.amount } });
+        drafts.push({
+          key,
+          draft: {
+            ...common,
+            type: "withdrawal",
+            fromAccountId: ids.accounts[entry.from],
+            amount: entry.amount,
+          },
+        });
       }
     }
   }
@@ -232,18 +251,44 @@ async function main() {
       }
       return ok;
     },
-    { plans: seed.budgets, categories: ids.categories, activeFrom: dayOfMonth(seed.monthsOfHistory, 1) },
+    {
+      plans: seed.budgets,
+      categories: ids.categories,
+      activeFrom: dayOfMonth(seed.monthsOfHistory, 1),
+    },
   );
   console.log(`budgets: ${budgets}/${seed.budgets.length}`);
 
   // ---- photograph every screen ------------------------------------------
   await page.goto(BASE);
   await nav.waitFor();
-  const routes = await nav.locator("a").evaluateAll((links) =>
-    links.map((a) => a.getAttribute("href") ?? "").filter((href) => href.startsWith("/")),
-  );
+  const routes = await nav
+    .locator("a")
+    .evaluateAll((links) =>
+      links.map((a) => a.getAttribute("href") ?? "").filter((href) => href.startsWith("/")),
+    );
 
-  const slug = (route) => (route === "/" ? "dashboard" : route.replace(/^\//, "").replace(/\//g, "-"));
+  /*
+   * The plan tab is reached from Settings rather than from the navigation, so
+   * walking the nav never finds it — which is why the kit has never carried a
+   * picture of the one screen that says what the paid plan costs, and why the
+   * site's roadmap lists that screenshot as waiting on this repository.
+   *
+   * Only where the deployment being photographed actually sells something.
+   * Where it does not, the tab is a heading and a sentence saying so, and a
+   * picture of that advertises the opposite of what it is for. `sells` asks
+   * the deployment rather than reading a setting, because whether the tab has
+   * anything on it is the server's answer, not an environment variable's.
+   */
+  const sells = await page.evaluate(async () => {
+    const res = await fetch("/api/auth/methods");
+    return res.ok ? ((await res.json()).billingAvailable ?? false) : false;
+  });
+  if (sells) routes.push("/settings/plan");
+  else console.log("no Stripe on this deployment, so no plan tab to photograph");
+
+  const slug = (route) =>
+    route === "/" ? "dashboard" : route.replace(/^\//, "").replace(/\//g, "-");
   const shots = [];
 
   for (const theme of ["light", "dark"]) {
@@ -269,7 +314,9 @@ async function main() {
   if (missing.length > 0) {
     // A feature pointing at a picture that was never taken is the one failure
     // the marketing site cannot detect from its side.
-    throw new Error(`features.json names screenshots that were not captured: ${missing.join(", ")}`);
+    throw new Error(
+      `features.json names screenshots that were not captured: ${missing.join(", ")}`,
+    );
   }
 
   writeFileSync(

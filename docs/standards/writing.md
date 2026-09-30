@@ -229,7 +229,7 @@ disagreeing." What follows is the documentation the operator is owed for that.
 
 **House, the shape.** A `## Before you upgrade to X.Y.Z` section, and its first
 sentence tells an operator whether they can stop reading.
-`docs/upgrades.md:591-592` is the model: "Nothing refuses to start that 0.1.5
+`docs/upgrades.md:670-671` is the model: "Nothing refuses to start that 0.1.5
 accepted, and nothing about an existing configuration has to change. Five
 things are worth knowing." The
 0.1.4 section is the other model, because the answer there was different: "0.1.4

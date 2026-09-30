@@ -16,7 +16,9 @@
     "@pulumi/gcp": "9.36.1",
     "@pulumi/kubernetes": "4.34.1",
     "@pulumi/oci": "4.22.0",
-    "@pulumi/pulumi": "3.261.0"
+    "@pulumi/pulumi": "3.261.0",
+    "@pulumi/random": "4.21.2",
+    "@pulumi/tls": "5.6.1"
   },
   "devDependencies": {
     "@types/node": "22.20.2",

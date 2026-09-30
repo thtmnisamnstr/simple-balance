@@ -20,21 +20,33 @@ set -eu
 : "${SB_BACKUP_KEEP:=14}"
 # Only used where the database is not part of the deployment. Pinned rather than
 # floating: a pg_dump older than the server refuses outright, so the version this
-# reaches for should be a decision. 18 is what the profiles that own a database
-# deploy, and pg_dump 18 dumps every server this application supports. Its
+# reaches for should be a decision. 18 is what every shape that owns a database
+# deploys, and pg_dump 18 dumps every server this application supports. Its
 # pg_restore does not load straight into a 15 or 16 server — it opens with a
 # setting those do not have — so simple-balance-restore renders the dump to SQL
 # for an older server first, before it touches anything.
 : "${SB_PG_CLIENT_IMAGE:=postgres:18}"
 
-# Two profiles reach their database two different ways, and this is the one
-# script both use.
+# Two shapes reach their database two different ways, and this is the one script
+# both use. The branching below is unchanged from when the shapes had other
+# names, because what it asks about is this Compose project rather than any
+# profile.
 #
-# `vps` has the database as a service in this same Compose project, so the dump
-# is taken inside it and needs no client on the host and no password anywhere.
-# `single` points at a database somebody else keeps, so there is nothing to exec
-# into — the dump goes over the network, from a client container, using the same
-# DATABASE_URL the application uses.
+# A deployment with the database as a service *in this same project* dumps
+# inside it: no client on the host, no password anywhere, no network. That is
+# the database machine of the `single` profile, where compose.postgres.yml is
+# the whole project, and a hand install that runs both in one project.
+#
+# A deployment that points at a database elsewhere has nothing to exec into, so
+# the dump goes over the network from a client container using the same
+# DATABASE_URL the application uses. That is the application machine of the
+# `single` profile, whichever machine its DATABASE_URL names — the database node
+# this stack built next door, or a managed service.
+#
+# Which is why the nightly timer runs on the application machine and not on the
+# database one: it reaches the database either way, and one copy of the ledger
+# on the volume that is already protected beats a second copy on the machine
+# whose loss is the thing being insured against.
 #
 # Decided by reading the project's own service list rather than by a setting. A
 # setting here would be a second place to state something the compose file
@@ -163,7 +175,7 @@ if [ "$database_in_project" = no ]; then
 	fi
 	if [ -z "${DATABASE_URL:-}" ]; then
 		echo "simple-balance-backup: no postgres service in this deployment and no DATABASE_URL to dump from." >&2
-		echo "  This is the \`single\` profile, whose database is somebody else's. Put DATABASE_URL in" >&2
+		echo "  This is an application machine, whose database is on another host. Put DATABASE_URL in" >&2
 		echo "  $SB_COMPOSE_DIR/.env, which is where the application reads it from too." >&2
 		exit 2
 	fi

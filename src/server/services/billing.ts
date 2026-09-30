@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, lt } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt } from "drizzle-orm";
 import {
   type Actor,
   activeChoicePending,
@@ -14,6 +14,7 @@ import {
   paidForSubscriptionStatuses,
   paymentSetupConfirmSchema,
   type Plan,
+  type PlanChangeInvoice,
   PLAN_ENDING_REFUSAL,
   paymentSetupCreateSchema,
   resolveEntitlement,
@@ -266,6 +267,7 @@ export type SubscriptionSnapshot = {
   readonly priceId: string;
   readonly currentPeriodEnd: Date | null;
   readonly cancelAtPeriodEnd: boolean;
+  readonly cancelAt: Date | null;
   /** A price agreed for the next renewal, or null when the plan is not changing. */
   readonly scheduledPriceId: string | null;
   readonly scheduledAt: Date | null;
@@ -341,6 +343,7 @@ export async function reconcileSubscription(
       priceId: snapshot.priceId,
       currentPeriodEnd: snapshot.currentPeriodEnd,
       cancelAtPeriodEnd: snapshot.cancelAtPeriodEnd,
+      cancelAt: snapshot.cancelAt,
       scheduledPriceId: snapshot.scheduledPriceId,
       scheduledAt: snapshot.scheduledAt,
       pastDueSince,
@@ -356,6 +359,7 @@ export async function reconcileSubscription(
           priceId: row.priceId,
           currentPeriodEnd: row.currentPeriodEnd,
           cancelAtPeriodEnd: row.cancelAtPeriodEnd,
+          cancelAt: row.cancelAt,
           scheduledPriceId: row.scheduledPriceId,
           scheduledAt: row.scheduledAt,
           pastDueSince: row.pastDueSince,
@@ -759,13 +763,14 @@ function actionFor(row: SubscriptionRow, requested: BillingInterval): Subscripti
       interval: intervalOfPrice(row.priceId, billing),
       scheduled: intervalOfPrice(row.scheduledPriceId, billing),
       cancelAtPeriodEnd: row.cancelAtPeriodEnd,
+      cancelAt: row.cancelAt,
     },
     requested,
   });
 }
 
 /** The refusal `subscriptionAction` answers `ending` with. */
-const planEnding = () => conflict(PLAN_ENDING_REFUSAL, { cancelAtPeriodEnd: true });
+const planEnding = () => conflict(PLAN_ENDING_REFUSAL, { planEnding: true });
 
 /**
  * Whether a "no such customer" or "no such subscription" from this key can be
@@ -823,6 +828,7 @@ type SubscriptionRow = {
   priceId: string;
   currentPeriodEnd: Date | null;
   cancelAtPeriodEnd: boolean;
+  cancelAt: Date | null;
   scheduledPriceId: string | null;
   scheduledAt: Date | null;
   pastDueSince: Date | null;
@@ -863,6 +869,7 @@ async function currentSubscription(
       priceId: billingSubscriptions.priceId,
       currentPeriodEnd: billingSubscriptions.currentPeriodEnd,
       cancelAtPeriodEnd: billingSubscriptions.cancelAtPeriodEnd,
+      cancelAt: billingSubscriptions.cancelAt,
       scheduledPriceId: billingSubscriptions.scheduledPriceId,
       scheduledAt: billingSubscriptions.scheduledAt,
       pastDueSince: billingSubscriptions.pastDueSince,
@@ -1011,7 +1018,19 @@ export type BillingStatus = {
      * it is the end of the period nobody has paid for.
      */
     readonly currentPeriodEnd: string | null;
+    /**
+     * Whether the plan stops on the day `currentPeriodEnd` names, which is the
+     * only thing that date is printable as an ending for.
+     */
     readonly cancelAtPeriodEnd: boolean;
+    /**
+     * The day the plan stops, where one is set — including one an operator
+     * dated past this period, which leaves `cancelAtPeriodEnd` false because
+     * this period really does renew. `cancellationPending` is what asks whether
+     * a cancellation is pending at all; read off the flag alone, a further-out
+     * one was invisible and the interval buttons changed a plan set to end.
+     */
+    readonly cancelAt: string | null;
     readonly pastDueSince: string | null;
     readonly scheduledInterval: BillingInterval | null;
     readonly scheduledAt: string | null;
@@ -1177,6 +1196,7 @@ export async function getBillingStatus(actor: Actor): Promise<BillingStatus> {
           interval,
           currentPeriodEnd: row.currentPeriodEnd?.toISOString() ?? null,
           cancelAtPeriodEnd: row.cancelAtPeriodEnd,
+          cancelAt: row.cancelAt?.toISOString() ?? null,
           pastDueSince: row.pastDueSince?.toISOString() ?? null,
           scheduledInterval: intervalOfPrice(row.scheduledPriceId, billing),
           scheduledAt: row.scheduledAt?.toISOString() ?? null,
@@ -1292,10 +1312,12 @@ type StripeChange = {
   readonly resync: boolean;
   readonly abandoned?: string;
   /**
-   * The change charged something now, so it may have left an invoice the
-   * browser has to confirm. See the upgrade branch.
+   * What the change of interval raised to pay now, read off the invoice Stripe
+   * actually made rather than assumed from the branch. Absent everywhere but
+   * the upgrade, which is the only press that bills on the spot, so its
+   * presence is what the old `charged` boolean meant.
    */
-  readonly charged?: boolean;
+  readonly changeInvoice?: PlanChangeInvoice;
 };
 
 export type SubscriptionResult = {
@@ -1303,6 +1325,15 @@ export type SubscriptionResult = {
   /** Present only when the browser has a payment left to confirm. */
   readonly clientSecret: string | null;
   readonly status: string;
+  /**
+   * What the press raised to pay now, where it changed the interval on the
+   * spot, and null where it did not — a first subscription, a replacement, a
+   * payment resumed, a switch scheduled for the renewal or a press that
+   * changed nothing. Those speak with the client secret or with nothing at
+   * all; this is for the confirmation that used to say "the difference was
+   * charged to your payment method" whether or not anything had been.
+   */
+  readonly changeInvoice: PlanChangeInvoice | null;
 };
 
 /**
@@ -1463,6 +1494,7 @@ export async function setSubscription(actor: Actor, input: unknown): Promise<Sub
               subscriptionId: row.stripeSubscriptionId,
               itemId: item.itemId,
               priceId: targetPriceId,
+              previousInvoiceId: item.latestInvoiceId,
             },
             stripeKey,
           );
@@ -1473,12 +1505,12 @@ export async function setSubscription(actor: Actor, input: unknown): Promise<Sub
           // update that moved the renewal again and left a zero-amount
           // proration on the next invoice. Stored, the waiting press reads
           // annual and is `none`, or `resume` for a charge still owed.
-          await reconcileSubscription(actor.userId, switched, tx);
+          await reconcileSubscription(actor.userId, switched.snapshot, tx);
           return {
             subscriptionId: row.stripeSubscriptionId,
             clientSecret: null,
             resync: true,
-            charged: true,
+            changeInvoice: switched.invoice,
           };
         } else {
           // Everything else waits for the renewal: annual to monthly, because
@@ -1537,15 +1569,20 @@ export async function setSubscription(actor: Actor, input: unknown): Promise<Sub
       // happen. Only when the status says something is owed: a paid invoice
       // still carries a secret, and confirming it again is an error.
       const owed = (owesPaymentStatuses as readonly string[]).includes(status);
+      // Asked as "did the upgrade branch run", which is what `charged: true`
+      // said here before the branch reported what it actually raised. Not asked
+      // of the outcome: `none` still means the subscription was changed at
+      // Stripe, and a status that owes after it is an invoice to hand over
+      // whichever invoice it is.
+      const changedNow = changed.changeInvoice !== undefined;
       const clientSecret =
         changed.clientSecret ??
-        (changed.charged && owed
-          ? await fetchSubscriptionClientSecret(changed.subscriptionId)
-          : null);
+        (changedNow && owed ? await fetchSubscriptionClientSecret(changed.subscriptionId) : null);
       return {
         subscriptionId: changed.subscriptionId,
         clientSecret,
         status,
+        changeInvoice: changed.changeInvoice ?? null,
       };
     },
   );
@@ -1587,6 +1624,7 @@ export async function setSubscriptionCancellation(
         subscriptionId: row.stripeSubscriptionId,
         clientSecret: null,
         status: row.status,
+        changeInvoice: null,
       };
     },
   );
@@ -2014,6 +2052,7 @@ async function storeSubscriptionGone(
       .set({
         status: "canceled",
         cancelAtPeriodEnd: false,
+        cancelAt: null,
         scheduledPriceId: null,
         scheduledAt: null,
         pastDueSince: null,
@@ -2159,6 +2198,14 @@ export async function applySetupIntentSucceeded(
     return (await claimWebhookEvent(event.id, event.type)) ? "ignored" : "duplicate";
   }
 
+  // Newest read first, which is `liveSubscription`'s rule spelled in SQL. The
+  // ordering is not a detail: this ran ascending for a release, so on the one
+  // account where it differs — somebody who canceled and resubscribed, with two
+  // live rows — the delivery half of replacing a card named the abandoned
+  // subscription while the browser half named the one that bills. Pinned to the
+  // wrong row, dunning goes on retrying the card that failed, and the delivery
+  // half is precisely the half that runs when the browser never came back, so
+  // it is the person who cannot correct it themselves who gets it.
   const [row] = await getDb()
     .select({ stripeSubscriptionId: billingSubscriptions.stripeSubscriptionId })
     .from(billingSubscriptions)
@@ -2168,7 +2215,7 @@ export async function applySetupIntentSucceeded(
         inArray(billingSubscriptions.status, [...liveStatuses]),
       ),
     )
-    .orderBy(billingSubscriptions.syncedAt)
+    .orderBy(desc(billingSubscriptions.syncedAt))
     .limit(1);
   const subscriptionId = row?.stripeSubscriptionId ?? null;
 
@@ -2270,7 +2317,7 @@ async function closeStripeCustomer(
   if (!userId) return null;
   await tx
     .update(billingSubscriptions)
-    .set({ status: "canceled", cancelAtPeriodEnd: false, updatedAt: new Date() })
+    .set({ status: "canceled", cancelAtPeriodEnd: false, cancelAt: null, updatedAt: new Date() })
     .where(
       and(
         eq(billingSubscriptions.userId, userId),

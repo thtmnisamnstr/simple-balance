@@ -40,6 +40,7 @@ const snapshot = (
   priceId: "price_yearly",
   currentPeriodEnd: at("2027-01-01T00:00:00.000Z"),
   cancelAtPeriodEnd: false,
+  cancelAt: null,
   scheduledPriceId: null,
   scheduledAt: null,
   syncedAt: at("2026-06-15T12:00:00.000Z"),
@@ -64,6 +65,21 @@ const stored = async (userId: string, id?: string) => {
     );
   return row;
 };
+
+/**
+ * Whether the deployment has recorded this Stripe delivery as handled.
+ *
+ * Read back rather than inferred, because the claim and the write it guards are
+ * meant to commit together: the only way to tell a claim that rolled back from
+ * one that outlived its write is to look for the row.
+ */
+const claimed = async (eventId: string) =>
+  (
+    await getDb()
+      .select()
+      .from(billingWebhookEvents)
+      .where(eq(billingWebhookEvents.eventId, eventId))
+  ).length > 0;
 
 /**
  * Stripe guarantees no ordering between deliveries and retries each one for up
@@ -121,6 +137,83 @@ integration("reconciling what Stripe says about a subscription", () => {
       ),
     ).resolves.toBe("written");
     expect((await stored("rec-newer"))?.status).toBe("canceled");
+  });
+
+  it("stores the day a cancellation lands on, and the price agreed for the next renewal", async () => {
+    // The insert half of the write, and four columns nothing else in the tree
+    // ever reads back off the row.
+    //
+    // An operator dating a cancellation in Stripe's dashboard for a day past
+    // this period leaves `cancel_at_period_end` false — that period genuinely
+    // does renew — so the date is the only record that the subscription is
+    // stopping. Lose it here and `cancellationPending` is false,
+    // `PLAN_ENDING_REFUSAL` never fires, and both plan-change buttons go live
+    // on a subscription Stripe is about to stop: a downgrade press folds it
+    // into a schedule that destroys it, an upgrade press bills a full year.
+    // Migration `0025` exists for exactly that defect.
+    await seedUser("rec-cancel-insert");
+    await expect(
+      reconcileSubscription(
+        "rec-cancel-insert",
+        snapshot("rec-cancel-insert", {
+          cancelAtPeriodEnd: false,
+          currentPeriodEnd: at("2027-01-01T00:00:00.000Z"),
+          cancelAt: at("2027-11-13T18:53:33.000Z"),
+          scheduledPriceId: "price_monthly",
+          scheduledAt: at("2027-01-01T00:00:00.000Z"),
+        }),
+      ),
+    ).resolves.toBe("written");
+
+    expect(await stored("rec-cancel-insert")).toMatchObject({
+      cancelAtPeriodEnd: false,
+      cancelAt: at("2027-11-13T18:53:33.000Z"),
+      currentPeriodEnd: at("2027-01-01T00:00:00.000Z"),
+      scheduledPriceId: "price_monthly",
+      scheduledAt: at("2027-01-01T00:00:00.000Z"),
+    });
+  });
+
+  it("carries a dashboard cancellation onto a row it already has, and lets it be taken back", async () => {
+    // The `on conflict` half, which is separate code from the insert above and
+    // survives a mutation to it. `cancelAtPeriodEnd` is false on both
+    // snapshots on purpose: the flag never moves, so `cancel_at` is the only
+    // field in the SET clause that differs apart from `syncedAt`, and neither
+    // half of this case can pass off the flag by accident.
+    //
+    // Clearing it is what **Keep my plan** is. `setSubscriptionCancellation`
+    // tells Stripe to stop the cancellation — Stripe really does clear
+    // `cancel_at`, really does renew, really does charge the card — and then
+    // resyncs a snapshot carrying `cancelAt: null`. If that null does not land,
+    // `cancellationPending` is permanently true on a subscription that is being
+    // billed, and every plan control stays refused with no way back.
+    await seedUser("rec-cancel-update");
+    await reconcileSubscription("rec-cancel-update", snapshot("rec-cancel-update"));
+    expect((await stored("rec-cancel-update"))?.cancelAt).toBeNull();
+
+    await reconcileSubscription(
+      "rec-cancel-update",
+      snapshot("rec-cancel-update", {
+        cancelAtPeriodEnd: false,
+        cancelAt: at("2027-11-13T18:53:33.000Z"),
+        syncedAt: at("2026-06-15T12:00:01.000Z"),
+      }),
+    );
+    const ending = await stored("rec-cancel-update");
+    expect(ending?.cancelAt).toEqual(at("2027-11-13T18:53:33.000Z"));
+    expect(ending?.cancelAtPeriodEnd, "the flag must not be what moved").toBe(false);
+
+    await reconcileSubscription(
+      "rec-cancel-update",
+      snapshot("rec-cancel-update", {
+        cancelAtPeriodEnd: false,
+        cancelAt: null,
+        syncedAt: at("2026-06-15T12:00:02.000Z"),
+      }),
+    );
+    const kept = await stored("rec-cancel-update");
+    expect(kept?.cancelAt, "Keep my plan is this write").toBeNull();
+    expect(kept?.cancelAtPeriodEnd).toBe(false);
   });
 
   it("stamps the failure when a renewal first fails, and does not restart it", async () => {
@@ -363,6 +456,10 @@ integration("forgetting a customer Stripe has deleted", () => {
  * something it has no opinion about: Stripe retries, and while it retries it
  * delays finalization of every auto-collection invoice on the account for up to
  * 72 hours.
+ *
+ * Every case here also pins the transaction boundary, because that is what the
+ * catch is reasoning about: the claim on the delivery and the write it guards
+ * commit together, so whatever a failure inside takes with it, it takes both.
  */
 integration("a delivery for somebody who was deleted mid-flight", () => {
   beforeAll(async () => {
@@ -382,18 +479,102 @@ integration("a delivery for somebody who was deleted mid-flight", () => {
         snapshot("deleted-mid-flight"),
       ),
     ).resolves.toBe("gone");
+    // The claim was taken inside the transaction that then rolled back, so it
+    // went with it. Answering 2xx is only safe because nothing was recorded.
+    expect(await claimed("evt_gone"), "a claim must not outlive the write it guards").toBe(false);
   });
 
-  it("still fails loudly on a referential error that is not that", async () => {
-    // The narrowing matters: a foreign key that is not `auth_user` is a bug,
-    // and answering 2xx would bury it.
-    await seedUser("present-user");
+  it("leaves the delivery for Stripe to retry when the write inside it fails", async () => {
+    // The boundary stated as its consequence rather than as an implementation
+    // detail. Hoisting the claim out of the transaction passes every other
+    // test in this repository and loses a paid entitlement permanently: the
+    // claim commits, the write does not, and Stripe's retry is then swallowed
+    // by the dedupe row the failed attempt left behind.
+    const event = { id: "evt_boundary", type: "customer.subscription.updated" } as const;
+    // No user row, so the write inside the transaction fails its `auth_user`
+    // key — a real in-transaction failure, needing no mocking. That the claim
+    // went down with it is the case above; this one is about what happens
+    // next, and the check is left out here on purpose so the assertion that
+    // bites is the one stating the consequence rather than the mechanism.
+    await expect(
+      applyStripeDelivery("boundary-user", event, snapshot("boundary-user")),
+    ).resolves.toBe("gone");
+
+    // The account is present now. In production the same second attempt is any
+    // transient failure clearing: a lock wait, a statement timeout, a
+    // failover, a deploy killing the process mid-transaction. Stripe retries
+    // the same event id for up to 72 hours, and that retry must do the work
+    // rather than meet a dedupe row the failed attempt left behind.
+    await seedUser("boundary-user");
+    await expect(
+      applyStripeDelivery("boundary-user", event, snapshot("boundary-user")),
+    ).resolves.toBe("written");
+    expect((await stored("boundary-user"))?.status).toBe("active");
+    // Claimed now — by the write that did happen, and only by it.
+    expect(await claimed("evt_boundary")).toBe(true);
+  });
+
+  it("claims a delivery it did write, so Stripe's retry changes nothing", async () => {
+    // The other side of that boundary, and a branch nothing exercised for this
+    // function: deleting the claim outright passes the whole suite today. The
+    // retry carries a *newer* snapshot on purpose, so an unclaimed second call
+    // would be written rather than dropped as stale — "duplicate" here is the
+    // claim doing the work, not the monotonic guard standing in for it.
+    const event = { id: "evt_twice", type: "customer.subscription.updated" } as const;
+    await seedUser("retry-user");
+    await expect(applyStripeDelivery("retry-user", event, snapshot("retry-user"))).resolves.toBe(
+      "written",
+    );
+
     await expect(
       applyStripeDelivery(
-        "present-user",
-        { id: "evt_ok", type: "customer.subscription.updated" },
-        snapshot("present-user"),
+        "retry-user",
+        event,
+        snapshot("retry-user", { status: "canceled", syncedAt: at("2026-06-15T12:00:05.000Z") }),
+      ),
+    ).resolves.toBe("duplicate");
+    expect((await stored("retry-user"))?.status, "the retry must write nothing").toBe("active");
+  });
+
+  it("still fails loudly on a database error that is not that", async () => {
+    // The narrowing is what makes the catch safe, and widening it is a
+    // one-word change — "catch every 23503", or a bare `catch { return
+    // "gone" }`. Then any failure inside the transaction answers HTTP 200,
+    // Stripe never retries, the transaction rolled back so
+    // `billing_webhook_event` holds nothing either, and the delivery simply
+    // ceases to exist with a log line as its only trace.
+    //
+    // A Stripe subscription belongs to exactly one customer and
+    // `billing_subscription_stripe_id_unique` says so, so a second person
+    // claiming one is a shape Stripe cannot produce — which is the point: a
+    // shape Stripe cannot produce is a bug here, and a bug must surface.
+    // `reconcileSubscription` arbitrates its upsert on
+    // `[user_id, stripe_subscription_id]`, which does not conflict for a
+    // person who has no row, so the global unique raises rather than being
+    // absorbed into an update.
+    await seedUser("sub-holder");
+    await seedUser("sub-thief");
+    await expect(
+      applyStripeDelivery(
+        "sub-holder",
+        { id: "evt_held", type: "customer.subscription.updated" },
+        snapshot("sub-holder"),
       ),
     ).resolves.toBe("written");
+
+    // Named rather than merely "something threw", so this still means
+    // something if the failure mode moves.
+    await expect(
+      applyStripeDelivery(
+        "sub-thief",
+        { id: "evt_stolen_sub", type: "customer.subscription.updated" },
+        snapshot("sub-thief", { stripeSubscriptionId: subscriptionFor("sub-holder") }),
+      ),
+    ).rejects.toMatchObject({ cause: expect.objectContaining({ code: "23505" }) });
+
+    // And the rollback checked on both sides: no claim, so Stripe's retry is
+    // not swallowed, and the row it collided with is untouched.
+    expect(await claimed("evt_stolen_sub")).toBe(false);
+    expect(await stored("sub-holder")).toMatchObject({ userId: "sub-holder", status: "active" });
   });
 });

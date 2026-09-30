@@ -20,6 +20,7 @@ const originalSelling = process.env.SB_BILLING_ENABLED;
 Object.assign(process.env, woundDownEnvironment);
 delete process.env.SB_BILLING_ENABLED;
 
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
 import { getDb } from "../../src/server/db/client.js";
@@ -34,6 +35,7 @@ const stripe = vi.hoisted(() => ({
   createStripeSubscription: vi.fn(),
   fetchSubscriptionSnapshot: vi.fn(),
   fetchSubscriptionClientSecret: vi.fn(),
+  createStripeSetupIntent: vi.fn(),
   keepCardThatPays: vi.fn(),
   fetchOwedPayment: vi.fn(),
 }));
@@ -42,7 +44,12 @@ vi.mock("../../src/server/stripe.js", async (importOriginal) => ({
   ...stripe,
 }));
 
-import { getBillingStatus, setSubscription } from "../../src/server/services/billing.js";
+import {
+  createPaymentSetup,
+  getBillingStatus,
+  runBillingReconciliation,
+  setSubscription,
+} from "../../src/server/services/billing.js";
 
 const connection = process.env.TEST_DATABASE_URL;
 const integration = describe.skipIf(!connection);
@@ -79,6 +86,10 @@ beforeEach(() => {
   stripe.fetchPlanPrices.mockResolvedValue({ monthly: null, yearly: null });
   stripe.stripeCustomerStanding.mockResolvedValue("present");
   stripe.fetchSubscriptionClientSecret.mockResolvedValue("pi_owed_secret");
+  stripe.createStripeSetupIntent.mockResolvedValue({
+    id: "seti_wd",
+    clientSecret: "seti_wd_secret",
+  });
   stripe.keepCardThatPays.mockResolvedValue(false);
   stripe.fetchOwedPayment.mockResolvedValue(null);
 });
@@ -167,5 +178,99 @@ integration("paying what is owed on a deployment that has stopped selling", () =
     await expect(setSubscription(actor, request())).rejects.toMatchObject({ code: "CONFLICT" });
     expect(stripe.createStripeCustomer).not.toHaveBeenCalled();
     expect(stripe.createStripeSubscription).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The rest of what a wound-down deployment still owes the subscribers it has
+   * not stopped charging. Both cases below gate on "Stripe is reachable"
+   * rather than "this deployment sells", and the two spellings are one
+   * identifier apart: `getConfig().billing` against `billingEnabled()`. Nothing
+   * in the tree could tell them apart, so the edit that makes winding down mean
+   * "stop everything Stripe" would have passed every suite.
+   */
+  describe("what a wound-down deployment still has to do", () => {
+    const stored = async (userId: string) => {
+      const [row] = await getDb()
+        .select()
+        .from(billingSubscriptions)
+        .where(eq(billingSubscriptions.userId, userId));
+      return row;
+    };
+
+    /**
+     * Replacing a card is how somebody whose card expired stays a customer
+     * here, so it is the one purchase-shaped call that is not refused: no plan
+     * is sold by it, and refusing it would turn a pause into a way of
+     * canceling people by attrition. The secret is the whole answer — PlanPage
+     * opens the card form only when it is there — so a null would show up as a
+     * button that does nothing, on the deployment least able to get it fixed.
+     */
+    it("opens a card replacement, because a dead card is not a new sale", async () => {
+      const actor = await seed("wound-down-card", "past_due");
+      stripe.fetchSubscriptionSnapshot.mockImplementation(async (id: string) => ({
+        stripeSubscriptionId: id,
+        status: "past_due",
+        priceId: "price_yearly",
+        currentPeriodEnd: new Date("2027-01-01T00:00:00.000Z"),
+        cancelAtPeriodEnd: false,
+        scheduledPriceId: null,
+        scheduledAt: null,
+        syncedAt: new Date(),
+        stripeCustomerId: null,
+      }));
+
+      await expect(
+        createPaymentSetup(actor, { idempotencyKey: "wound-down-card-1" }),
+      ).resolves.toEqual(expect.objectContaining({ clientSecret: "seti_wd_secret" }));
+      expect(stripe.createStripeSetupIntent).toHaveBeenCalledWith(
+        "cus_wound-down-card",
+        expect.any(String),
+      );
+      // And nothing about that made this deployment a seller again.
+      expect((await getBillingStatus(actor)).selling).toBe(false);
+    });
+
+    /**
+     * The sweep is what catches a delivery that never arrived, and winding
+     * down is when one is most likely to go missing: the operator has just
+     * reconfigured, and the endpoint at Stripe may have moved or been turned
+     * off while a subscription changed. Stripe goes on charging the
+     * subscribers who remain, so this deployment goes on re-reading them.
+     *
+     * The assertion is the row, not `skipped: false`. A sweep that selected
+     * the row, called Stripe and then wrote nothing reports `skipped: false`
+     * just the same — which is the shape of unfalsifiable test this repository
+     * has been bitten by before.
+     */
+    it("goes on re-reading stale subscriptions, because Stripe is still charging for them", async () => {
+      const actor = await seed("wound-down-stale", "active");
+      // `seed` stamps `syncedAt` now, and the sweep only reads rows older than
+      // the twelve-hour window.
+      await getDb()
+        .update(billingSubscriptions)
+        .set({ syncedAt: new Date(Date.now() - 24 * 60 * 60 * 1000) })
+        .where(eq(billingSubscriptions.userId, actor.userId));
+      // Stripe ended it while this deployment was being reconfigured, and the
+      // delivery that said so is the one that went missing.
+      stripe.fetchSubscriptionSnapshot.mockResolvedValue({
+        stripeSubscriptionId: "sub_wound-down-stale",
+        status: "canceled",
+        priceId: "price_yearly",
+        currentPeriodEnd: new Date("2027-01-01T00:00:00.000Z"),
+        cancelAtPeriodEnd: false,
+        scheduledPriceId: null,
+        scheduledAt: null,
+        syncedAt: new Date(),
+        stripeCustomerId: null,
+      });
+
+      const summary = await runBillingReconciliation();
+
+      expect((await stored(actor.userId))?.status).toBe("canceled");
+      expect(stripe.fetchSubscriptionSnapshot).toHaveBeenCalledWith("sub_wound-down-stale");
+      // One row examined, because every other row this file seeded was stamped
+      // now: the sweep reads what is stale and nothing else.
+      expect(summary).toMatchObject({ skipped: false, examined: 1, written: 1, failed: 0 });
+    });
   });
 });

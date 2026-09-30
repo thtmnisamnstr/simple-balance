@@ -416,8 +416,11 @@ describe("the release version", () => {
       "deploy/pulumi/package.json",
       "deploy/pulumi/package-lock.json",
       "deploy/compose/compose.distributed.yml",
-      "deploy/compose/vps/compose.app.yml",
-      "deploy/compose/vps/compose.frontend.yml",
+      // The `vps` profile's two compose files were here and went with the
+      // profile. `deploy/compose/single/compose.postgres.yml` does not replace
+      // them: it runs `postgres:18`, which carries no tag of ours, so naming it
+      // would make `set-version` exit 1 on a file with nothing to rewrite.
+      "deploy/compose/single/compose.yml",
       "deploy/pulumi/README.md",
       "src/shared/version.ts",
       "tasks/product.prd.json",

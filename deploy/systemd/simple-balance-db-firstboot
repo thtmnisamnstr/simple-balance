@@ -1,0 +1,269 @@
+#!/bin/sh
+# Turns a bare Ubuntu into the database machine of the `single` profile. Run
+# once per instance by cloud-init, and written to be safe to run again: a
+# rebuilt machine is a new instance and runs all of this a second time against a
+# data volume that already holds the cluster and its superuser password.
+#
+# The sibling of simple-balance-firstboot, which does the same job for the
+# application machine. Two scripts rather than one with a flag, because almost
+# nothing they do is the same: this one formats a disk for PostgreSQL's files
+# and generates a password that never leaves the machine, and that one generates
+# AUTH_SECRET and starts a nightly backup. What they do share — the wait for the
+# volume, the mkfs guard, the fold that builds .env — is shared as the same code
+# and the same numbers, and tests/systemd-scripts.test.ts holds them together.
+#
+# Not a systemd unit, deliberately, for the reason the other script gives: it is
+# provisioning rather than lifecycle, and a unit is a thing that can be enabled
+# and then run at a moment nobody chose.
+set -eu
+
+# Every path and number this needs, in the one file the units also read. Safe to
+# source: every value is a path, a device name, an address or a whole number.
+set -a
+# shellcheck disable=SC1091  # written by cloud-init, absent at lint time
+. /etc/default/simple-balance
+set +a
+
+: "${SB_DATA_DEVICE:?/etc/default/simple-balance did not set SB_DATA_DEVICE}"
+: "${SB_COMPOSE_DIR:=/opt/simple-balance}"
+: "${SB_STATE_DIR:=/var/lib/simple-balance}"
+: "${SB_PGDATA_DIR:=$SB_STATE_DIR/postgresql}"
+
+# The uid and gid the `postgres` Debian image gives its postgres user, fixed by
+# that image at 999 and 999. Two things on this machine have to agree with it
+# and neither can ask:
+#
+#   the cluster's directory, because the entrypoint chowns PGDATA and what is
+#   under it but not the parent it is mounted at, so a root-owned parent leaves
+#   the server unable to traverse into its own data directory;
+#
+#   the server's private key, because PostgreSQL refuses a key that is not owned
+#   by the database user or by root, and refuses any group or world access on
+#   one the database user owns — `private key file "..." has group or world
+#   access`, and the server exits.
+#
+# Both failures are loud, which is the only reason a hard-coded number is
+# tolerable here: if the image ever renumbers, `docker compose up --wait` fails
+# at boot with PostgreSQL's own words rather than starting something subtly
+# wrong. There is no way to ask the image before it has been pulled, and pulling
+# it to ask would put a network round trip in front of the disk being formatted.
+SB_POSTGRES_UID=999
+SB_POSTGRES_GID=999
+
+# Wait for the volume to be attached. The same forty minutes, for the same
+# reason and from the same providers' timeouts, as simple-balance-firstboot —
+# see that script for the arithmetic. Here the consequence of racing it is
+# worse: PGDATA would be created on the boot disk, PostgreSQL would initialise
+# an empty cluster into it, and the machine would come up healthy and empty.
+i=0
+if [ ! -b "$SB_DATA_DEVICE" ]; then
+	echo "simple-balance: waiting up to forty minutes for the data volume $SB_DATA_DEVICE" >&2
+fi
+while [ ! -b "$SB_DATA_DEVICE" ] && [ "$i" -lt 1200 ]; do
+	i=$((i + 1))
+	sleep 2
+done
+if [ ! -b "$SB_DATA_DEVICE" ]; then
+	echo "simple-balance: the data volume $SB_DATA_DEVICE never appeared" >&2
+	exit 1
+fi
+
+# Sixteen bytes is ext4's hard limit on a label, and `mkfs.ext4 -L` does not
+# refuse a longer one — it truncates it and says so on a line nobody reads.
+# This was `simple-balance-db`, seventeen, so the filesystem came out labelled
+# `simple-balance-d` while the fstab line below went on asking for the whole
+# name. With `nofail` the mount simply never happened, the machine booted
+# clean, PostgreSQL found no data directory, and the only visible symptom was
+# the application on the other machine failing to connect. Short enough that
+# the limit is not a consideration again.
+SB_DATA_LABEL=sb-db-data
+
+# Format only if it is not already a filesystem. On this machine that one line
+# is the difference between rebuilding the database host and erasing the ledger.
+if ! blkid "$SB_DATA_DEVICE" >/dev/null 2>&1; then
+	mkfs.ext4 -L "$SB_DATA_LABEL" "$SB_DATA_DEVICE"
+fi
+
+# Read the label back rather than trusting that it was taken. A truncation here
+# is silent and its consequence arrives much later, somewhere else, as a
+# connection refused — so this turns it into a failure at the point of the
+# mistake, which is the only place it is cheap to understand.
+SB_WRITTEN_LABEL=$(blkid -s LABEL -o value "$SB_DATA_DEVICE" 2>/dev/null || true)
+if [ "$SB_WRITTEN_LABEL" != "$SB_DATA_LABEL" ]; then
+	echo "simple-balance: the data volume is labelled '$SB_WRITTEN_LABEL' but fstab will ask for '$SB_DATA_LABEL'" >&2
+	echo "simple-balance: ext4 truncates a label at 16 bytes; shorten SB_DATA_LABEL in this script" >&2
+	exit 1
+fi
+
+mkdir -p "$SB_STATE_DIR"
+# By label rather than by device name, because the name depends on attachment
+# order on one cloud and on a udev rule on the other. A label of its own, not
+# the application machine's `simple-balance`: the two volumes are never on one
+# machine, but attaching the wrong one is a mistake somebody makes at three in
+# the morning, and a label that does not match leaves the mount unsatisfied
+# rather than starting PostgreSQL on top of somebody's backups. `nofail` so the
+# machine still boots far enough to be logged into and asked why.
+grep -q " $SB_STATE_DIR " /etc/fstab ||
+	echo "LABEL=$SB_DATA_LABEL $SB_STATE_DIR ext4 defaults,noatime,nofail 0 2" >>/etc/fstab
+mountpoint -q "$SB_STATE_DIR" || mount "$SB_STATE_DIR"
+
+# `nofail` above keeps an unmountable volume from stranding the machine, and it
+# also means a failed mount is not an error anybody sees. Everything below
+# writes the cluster, so it has to be on the volume rather than on the boot
+# disk, where it would be silently erased by the next rebuild.
+if ! mountpoint -q "$SB_STATE_DIR"; then
+	echo "simple-balance: $SB_STATE_DIR is not mounted, so the cluster would be written to the boot disk" >&2
+	exit 1
+fi
+
+# The cluster's own directory, on the volume, owned by the image's postgres
+# user. 0700 because that is the mode PostgreSQL wants on the directory holding
+# its data, and the mode the image's own /var/lib/postgresql has.
+#
+# Made here rather than by Docker: compose.postgres.yml sets
+# `create_host_path: false` on this bind precisely so that a missing directory
+# is a refusal naming the path, instead of an empty one on the boot disk that a
+# brand new empty cluster is then initialised into.
+mkdir -p "$SB_PGDATA_DIR"
+chown "$SB_POSTGRES_UID:$SB_POSTGRES_GID" "$SB_PGDATA_DIR"
+chmod 0700 "$SB_PGDATA_DIR"
+
+# Generated here, kept on the data volume, and sent nowhere.
+#
+# This is the superuser of the machine the ledger is on, and the whole argument
+# for generating it here is that no copy of it exists anywhere else: not in a
+# Pulumi state file, not in cloud-init user data — readable by anyone who can
+# describe the instance — and not in the answer to any provider API call. What
+# reads it is the entrypoint in the container beside this script, and pg_hba
+# refuses it over the network, so a value that never leaves is a value with
+# nothing to leak.
+#
+# Only when the file is absent, and that is not an optimisation. POSTGRES_PASSWORD
+# is applied by initdb and by nothing afterwards, so a rebuild that rotated it
+# would hand the container a password the cluster on the volume has never had:
+# the entrypoint would start, find PGDATA already initialised, skip initdb
+# entirely, and the two would disagree for as long as nobody looked.
+secrets="$SB_STATE_DIR/secrets.env"
+if [ ! -f "$secrets" ]; then
+	umask 077
+	{
+		# tr deletes the newlines openssl wraps at, and the three base64
+		# characters that would need escaping in a URL or a compose file. The
+		# same recipe the application machine uses for AUTH_SECRET, so there is
+		# one way of making a secret on this profile rather than two.
+		echo "POSTGRES_PASSWORD=$(openssl rand -base64 48 | tr -d '\n/+=' | cut -c1-48)"
+	} >"$secrets"
+	chmod 0600 "$secrets"
+fi
+
+# On the data volume, not beside the compose files, for the reason the other
+# script gives: /opt is the boot disk, which a rebuild destroys.
+local_env="$SB_STATE_DIR/env.local"
+[ -f "$local_env" ] || : >"$local_env"
+chmod 0600 "$local_env"
+
+# The server's certificate and key. Cloud-init writes both onto the boot disk
+# and a rebuild re-receives them, so nothing here copies them onto the volume —
+# there is nothing in them worth keeping that the next boot would not be handed
+# again.
+#
+# The key's owner and mode are set on every run rather than once, because
+# cloud-init's write_files decides them and this script is the only place that
+# knows what PostgreSQL will accept. 0600 and the postgres user, which is the
+# stricter of the two shapes PostgreSQL allows; root-owned 0640 would also pass
+# and would additionally need the group to be the image's, so it is one number
+# rather than two for no gain.
+tls="$SB_COMPOSE_DIR/db-tls"
+if [ -f "$tls/server.key" ]; then
+	chown "$SB_POSTGRES_UID:$SB_POSTGRES_GID" "$tls/server.key"
+	chmod 0600 "$tls/server.key"
+fi
+[ -f "$tls/server.crt" ] && chmod 0644 "$tls/server.crt"
+
+# Executable, so the entrypoint *runs* it. An initdb script that is not
+# executable is `source`d into the entrypoint's own shell instead, where this
+# one's `set -eu` would apply to the rest of the entrypoint — and the failure
+# that produces is a container that exits somewhere after the database was
+# created, for reasons that name neither this file nor that setting.
+[ -f "$SB_COMPOSE_DIR/db-init.sh" ] && chmod 0755 "$SB_COMPOSE_DIR/db-init.sh"
+
+# Narrow pg_hba's one network line from `all` to the application subnet, when
+# the program that built this machine said what that is. The shipped file says
+# `all` so that a hand install works with the firewall and the bind address as
+# its address boundary; this is the third line of defence, and it is applied
+# here because a file in the repository cannot know the CIDR a Pulumi stack
+# chose.
+#
+# Idempotent by construction: the pattern requires the literal `all`, which is
+# gone after the first run, so a rebuild that re-delivers the file narrows it
+# again and a second run of this script changes nothing.
+hba="$SB_COMPOSE_DIR/pg_hba.conf"
+if [ -n "${SB_APP_CIDR:-}" ] && [ -f "$hba" ]; then
+	sed -i "s|^\(hostssl  *simple_balance  *simple_balance  *\)all\([[:space:]]\)|\1$SB_APP_CIDR\2|" "$hba"
+fi
+
+# Rebuilt from its parts by the same script the application machine uses, so
+# there is one fold on this profile rather than two: env.base and env.db from
+# cloud-init, secrets.env from just above, env.local from whoever edited it.
+/usr/local/sbin/simple-balance-env
+
+systemctl daemon-reload
+systemctl enable --now docker
+
+# What this machine cannot generate: the password of the role the application
+# signs in as. It is generated by the Pulumi program, because both machines have
+# to agree on it and only one of them can be the one that decides.
+#
+# Without it there is nothing to start — compose.postgres.yml has no default for
+# it and `up` would fail — so the same answer as the other script's missing
+# DATABASE_URL: enable the unit, do not start it, write the reason where
+# somebody will find it, and exit successfully, because this script is safe to
+# run again and that is what makes the instruction below a real one.
+missing=""
+grep -q '^POSTGRES_APP_PASSWORD=..*' "$SB_COMPOSE_DIR/.env" || missing="POSTGRES_APP_PASSWORD"
+[ -f "$tls/server.key" ] && [ -f "$tls/server.crt" ] || missing="${missing:+$missing and }its TLS certificate"
+if [ -n "$missing" ]; then
+	systemctl enable simple-balance.service
+	cat >/etc/motd <<MOTD
+
+Simple Balance's database is installed and not yet running: it has no $missing.
+
+This is the database machine of the \`single\` profile. It needs three things
+this machine cannot invent for itself, all of which deploy/pulumi supplies:
+
+  $SB_COMPOSE_DIR/db-tls/server.crt   the certificate the application checks
+  $SB_COMPOSE_DIR/db-tls/server.key   its private key
+  $SB_STATE_DIR/env.local             POSTGRES_APP_PASSWORD=...
+
+The certificate's subject alternative name has to be the host the application's
+DATABASE_URL names, or the application will refuse the connection under
+sslmode=verify-full — which is the point of it. Put the same password in the
+application machine's DATABASE_URL.
+
+  sudo /usr/local/sbin/simple-balance-db-firstboot
+
+That command applies all of it and starts the database. It is the same script
+that ran at boot and is safe to run again.
+
+env.local is on the data volume, so what you put there survives the machine
+being rebuilt or resized.
+
+MOTD
+	echo "simple-balance: no $missing yet; enabled but not started. See /etc/motd." >&2
+	exit 0
+fi
+
+# Started only once there is something to start, and never with the backup
+# timer. The nightly dump runs on the application machine, over the network,
+# onto the volume it already protects — one copy of the ledger in one place,
+# rather than a second one here that a rebuild of this machine would take with
+# it. simple-balance-backup still works if it is run here by hand: it reads this
+# project's service list, finds `postgres`, and dumps through the socket.
+#
+# restart rather than `enable --now`, which is a start, and a start does nothing
+# to a oneshot unit that is already active: run by hand on a live machine to
+# apply a setting, this would otherwise rebuild .env and leave the container on
+# the old one.
+: >/etc/motd
+systemctl enable simple-balance.service
+systemctl restart simple-balance.service

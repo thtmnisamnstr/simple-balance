@@ -164,6 +164,17 @@ spec:
                 secretKeyRef:
                   name: {{ include "simple-balance.databaseSecretName" $root }}
                   key: replication-password
+            # Patroni reads these two into restapi.authentication, which the
+            # ConfigMap deliberately leaves out: a ConfigMap is readable by
+            # anything that can read ConfigMaps, and this password is what stops
+            # any pod in the namespace POSTing /failover at a healthy cluster.
+            - name: PATRONI_RESTAPI_USERNAME
+              value: {{ $root.Values.database.restapi.username | quote }}
+            - name: PATRONI_RESTAPI_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "simple-balance.databaseSecretName" $root }}
+                  key: restapi-password
             # Read by post-init.sh on the first bootstrap only.
             - name: SB_APP_USER
               value: {{ $root.Values.database.application.username | quote }}
@@ -208,6 +219,9 @@ spec:
             - name: patroni-config
               mountPath: /etc/patroni
               readOnly: true
+            - name: tls
+              mountPath: {{ include "simple-balance.databaseTlsDir" $root }}
+              readOnly: true
             - name: home
               mountPath: /home/postgres
             - name: run
@@ -219,6 +233,26 @@ spec:
           configMap:
             name: {{ include "simple-balance.databaseName" $root }}-patroni
             defaultMode: 0o555
+        # The server's identity, and the one mount whose file mode is load
+        # bearing. PostgreSQL refuses to start on a private key it considers
+        # readable by anyone else: owned by the database user it wants 0600 or
+        # tighter, owned by root it wants 0640 or tighter. A mounted Secret's
+        # files are owned by root and group-owned by the pod's fsGroup, which is
+        # 999 above — the same group PostgreSQL runs as — so 0640 is the one
+        # value that is both accepted and readable. 0644 is the Kubernetes
+        # default and fails; 0400 is tighter and fails too, because then the
+        # database user cannot read it at all.
+        - name: tls
+          secret:
+            secretName: {{ include "simple-balance.databaseSecretName" $root }}
+            defaultMode: 0o640
+            items:
+              - key: tls.crt
+                path: tls.crt
+              - key: tls.key
+                path: tls.key
+              - key: ca.crt
+                path: ca.crt
         # The root filesystem is read-only, so every directory PostgreSQL and
         # Patroni write to outside the data volume is named here. Missing one
         # fails at start rather than later, which is the good direction.

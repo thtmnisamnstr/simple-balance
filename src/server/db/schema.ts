@@ -1489,6 +1489,21 @@ export const billingSubscriptions = pgTable(
     pastDueSince: timestamp("past_due_since", { withTimezone: true }),
     cancelAtPeriodEnd: boolean("cancel_at_period_end").default(false).notNull(),
     /**
+     * The day this subscription stops, where one is set, and null where none
+     * is. Stripe's own `cancel_at`, stored rather than inferred.
+     *
+     * Beside `cancel_at_period_end` rather than folded into it, because the two
+     * answer different questions and one boolean answering both is what this
+     * column was added to undo. `cancel_at_period_end` means "it ends on the
+     * day stored as `current_period_end`", which is what the plan tab's date is
+     * true for; this means "it ends", whichever side of the period boundary the
+     * day falls. A cancellation dated past the period end — Stripe's dashboard
+     * will set one, and only it will — was read as no cancellation at all, so
+     * a downgrade press folded it into a schedule that destroyed it and an
+     * upgrade press billed a full year against a subscription set to stop.
+     */
+    cancelAt: timestamp("cancel_at", { withTimezone: true }),
+    /**
      * A price this subscription has been agreed to move onto, and when.
      *
      * Both null in the ordinary case. They are filled when somebody asks to go

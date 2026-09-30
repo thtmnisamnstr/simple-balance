@@ -13,15 +13,25 @@ recurrence scheduler.
 They share `common/`, which is everything that does not differ: reading the
 configuration, refusing a plan that would open more database connections than
 the database allows, installing cert-manager with a Let's Encrypt ClusterIssuer,
-putting the credentials in a Secret, and installing the chart.
+putting the credentials in a Secret, and installing the chart. Both build the
+`ha` profile's redundant shape; its smaller one node per service shape is the
+same chart with a different values file, reached with `helm` rather than from
+here — `docs/deployment-profiles.md` has both.
 
-**The `single` profile**, on one virtual machine: `aws-single/` and
-`oci-single/`. One EC2 instance or one Oracle Cloud compute instance running the
-application container and Caddy under systemd, against a PostgreSQL you supply,
-with a separate data disk for the backups, the generated secret and the settings
-added by hand. They share `single-common/`, which holds the sizing table both
-read and builds the cloud-init that turns a bare Ubuntu into the deployment —
-from the compose files and units in this repository rather than from a copy.
+**The `single` profile**, on two virtual machines: `aws-single/` and
+`oci-single/`. One `pulumi up` builds an application node — the application
+container and Caddy under systemd, with a public address — and a database node
+running PostgreSQL 18 in a container on a private subnet with no public address
+at all. Each has a data disk of its own that outlives it: the backups, the
+generated secret and the settings added by hand on the first, `PGDATA` on the
+second. They share `single-common/`, which holds the sizing table both read, the
+certificate chain that lets the application verify the database, and the
+cloud-init that turns a bare Ubuntu into either machine — from the compose files
+and units in this repository rather than from a copy.
+
+`simple-balance:databaseNode: false` builds no database node and no private
+subnet, and the application node then waits for a `DATABASE_URL` you write on
+it, which is what these programs did before.
 
 `docs/deployment-profiles.md` compares the two profiles and is where the choice
 is argued. The short version: start with `single`.
@@ -36,28 +46,36 @@ thing you were not.
 
 Except where a line says otherwise, this applies to all four.
 
-- **No database, in any of them.** The database is bring your own: nothing
-  here provisions PostgreSQL, there is no in-cluster StatefulSet and nothing on
-  the single machine, and you supply a `DATABASE_URL` the deployment can reach.
-  RDS, Cloud SQL, OCI Database with PostgreSQL, or a server you already run are
-  all fine, at PostgreSQL 15 or later. If the database that URL names does not
-  exist yet, the connecting role needs `CREATEDB`.
+- **No database in the `ha` programs unless you ask for one.**
+  `simple-balance:database` is a closed set — `external`, the default, or
+  `in-cluster`. Left alone it is exactly what every release before this one did:
+  you supply `simple-balance:databaseUrl`, and RDS, Cloud SQL, OCI Database with
+  PostgreSQL or a server you already run are all fine at PostgreSQL 15 or later.
+  If the database that URL names does not exist yet, the connecting role needs
+  `CREATEDB`. Set it to `in-cluster` and the program turns on the chart's own
+  Citus cluster instead, builds an encrypted StorageClass for it and refuses a
+  `databaseUrl` at plan time rather than three minutes into a rollout.
 
-  The `ha` programs take it as a stack setting. The `single` programs take it on
-  the machine, in `env.local`, because anything they put on the machine arrives
-  as user data and a connection string carries a password — see
-  [the single-machine stacks](#the-single-machine-stacks). `oci-single` can make
-  the private subnet an OCI database goes in, and stops there.
+  **The `single` programs build one by default**, on a second machine, and
+  `simple-balance:databaseNode: false` is how to have them build none — see
+  [the single-machine stacks](#the-single-machine-stacks). `oci-single` still
+  makes the private subnet an OCI managed database goes in, for anyone who wants
+  that instead.
 - **No backups, in the `ha` programs.** Everything is in PostgreSQL, so
   `pg_dump` backs up the product: see
   [docs/deployment.md](../../docs/deployment.md) and
   [docs/upgrades.md](../../docs/upgrades.md). Take one before every upgrade;
-  neither program will remind you.
+  neither program will remind you. That is true whether the database is yours or
+  the cluster's: turning `database.enabled` on installs Patroni and Citus, not a
+  backup schedule, and `docs/citus-runbook.md` is the operations half.
 
-  The `single` programs are again the exception: they install a systemd timer
-  that takes a daily dump onto the data disk and verifies it by reading it back.
-  That protects against a mistake and not against losing the disk, so copy them
-  somewhere else — see `deploy/compose/single/README.md`.
+  The `single` programs are the exception: they install a systemd timer on the
+  application node that takes a daily dump over the network from the database
+  node, onto the application node's data disk, and verifies it by reading it
+  back before keeping it. The dumps are deliberately on the other machine — a
+  copy on the same disk as the original is not a backup — but that still
+  protects against a mistake rather than against losing both, so copy them
+  somewhere else; `deploy/compose/single/README.md` has the commands.
 - **No DNS record.** Every program exports the address to point a record at, and
   you create the record. Nothing here owns a zone.
 - **No image builds.** The release workflow publishes all three beside the
@@ -100,21 +118,39 @@ Except where a line says otherwise, this applies to all four.
 - **No monitoring, alerting, or log retention policy** beyond what EKS and GKE
   switch on themselves. EKS control plane logs go to CloudWatch and stay there
   until you say otherwise.
-- **No WAF, no private control plane, no bastion, in the `ha` programs.** The
-  Kubernetes API endpoint is reachable from the internet on both clouds,
-  because otherwise `pulumi up` has to run from inside the network it is
-  building. Authentication still applies. Restrict it afterward if that
-  matters to you.
+- **No WAF and no bastion, in the `ha` programs.** The Kubernetes API endpoint
+  is reachable from the internet on both clouds by default, because otherwise
+  `pulumi up` has to run from inside the network it is building. Authentication
+  still applies. `simple-balance:controlPlaneCidrs` narrows it to a list of
+  CIDRs on either cloud; it is unset by default, because a wrong guess locks a
+  stack out of the control plane it would need to fix itself. Nothing else the
+  programs build is reachable from the internet, the database least of all.
 - **No secret rotation.** `AUTH_SECRET` signs sessions, so changing it signs
   everybody out. The `ha` programs set it once, from your Pulumi config; the
-  single-machine ones generate it once, on the data disk. Neither rotates it.
+  single-machine ones generate it once, on the application node's data disk.
+  Neither rotates it, and neither rotates the database's certificate — see
+  [rotating the database's certificate](#rotating-the-databases-certificate).
+- **No customer-managed key on any data volume.** Every disk and every volume
+  these programs build is encrypted at rest, and always with the provider's own
+  key: `encrypted: true` on AWS, where encryption-by-default is an account
+  setting that is off on a fresh account and the property is therefore the whole
+  guarantee; Oracle Cloud's unconditional volume encryption on OCI; an encrypted
+  gp3 StorageClass on EKS; Google's own keys on GKE. A customer-managed key
+  would add a key policy to get wrong, a monthly charge, and a documented way to
+  lock yourself permanently out of your own ledger volume. The one exception is
+  the Kubernetes Secrets in etcd, where neither cloud offers a managed key: both
+  `ha` programs create one and turn envelope encryption on.
+  `docs/deployment-profiles.md` §Encryption is the whole table, at rest and in
+  transit.
 - **The `ha` programs are not free.** A managed control plane, three or more
   nodes, a load balancer and a NAT gateway are all billed by the hour whether or
-  not anybody signs in. `oci-single`'s machine can sit inside Oracle's Always
-  Free allowance. Its database is a separate question: OCI Database with
-  PostgreSQL is not part of Always Free, so it is billed, and any other
-  PostgreSQL 15 or later the machine can reach — one you run yourself included —
-  costs whatever it runs on.
+  not anybody signs in, and `database: in-cluster` adds the database's own
+  nodes and volumes. `oci-single`'s two machines can sit inside Oracle's Always
+  Free allowance at `small`, and land on it exactly — `docs/deployment-costs.md`
+  does the arithmetic. An OCI managed database instead is a separate question:
+  OCI Database with PostgreSQL is not part of Always Free, so it is billed, and
+  any other PostgreSQL 15 or later the machine can reach — one you run yourself
+  included — costs whatever it runs on.
 
 ## What you bring
 
@@ -155,9 +191,12 @@ Except where a line says otherwise, this applies to all four.
   database is to be an OCI one.
 
 - For `oci-single/`, an SSH key pair. The public half is required: OCI installs
-  it at launch and never again, and it is the only way onto the machine.
-- A PostgreSQL 15 or later database and its connection string, for all four.
-  See [Reaching the database over a network](../../docs/deployment.md#reaching-the-database-over-a-network)
+  it at launch and never again, and it is the only way onto either machine.
+- **A PostgreSQL 15 or later database and its connection string**, for `aws/`
+  and `gcp/` unless `simple-balance:database` is `in-cluster`, and for the
+  single-machine programs only when `simple-balance:databaseNode` is `false`.
+  Otherwise the program builds one and generates the string. See
+  [Reaching the database over a network](../../docs/deployment.md#reaching-the-database-over-a-network)
   for which `sslmode`.
 - A DNS name you control, and the ability to add a record for it.
 - For `aws/` and `gcp/`, an `AUTH_SECRET`: `openssl rand -base64 32`. Keep it.
@@ -179,20 +218,27 @@ deploy/pulumi/
                         the GKE ingress, reserved addresses
   single-common/index.ts  the sizing table and the settings both
                         single-machine programs read
-  single-common/cloud-init.ts  the cloud-init both send, and its size checks
+  single-common/cloud-init.ts  the two cloud-init documents they send, one
+                        per machine, and their size checks
+  single-common/tls.ts  the private CA and the database's server certificate
   aws-single/Pulumi.yaml  the simple-balance-aws-single project
-  aws-single/index.ts   VPC, one subnet, security group, EBS data volume,
-                        Elastic IP, an instance role granting a shell
-                        through Session Manager rather than SSH
-  aws-single/platform.ts  the user data it sends, the region
+  aws-single/index.ts   VPC, a public subnet and a private one, two security
+                        groups, two encrypted EBS data volumes, a NAT
+                        gateway, an Elastic IP, two instances, and instance
+                        roles granting a shell through Session Manager
+                        rather than SSH
+  aws-single/platform.ts  the user data it sends, the region, and the
+                        internal DNS name the certificate has to carry
   oci-single/Pulumi.yaml  the simple-balance-oci-single project
-  oci-single/index.ts   VCN, one subnet, security list, block volume, an
-                        ephemeral public IP (promote it to reserved in the
-                        console to outlive the instance), an Ampere A1
-                        shape, and optionally a private database subnet
+  oci-single/index.ts   VCN, a public subnet and a private one, two security
+                        lists, two block volumes, a NAT gateway, an
+                        ephemeral public IP on the application node only
+                        (promote it to reserved in the console to outlive
+                        the instance), two Ampere A1 shapes
   oci-single/platform.ts  the disk floor, the availability domain and when
-                        the data volume refuses a new one, the region,
-                        the metadata it sends
+                        a data volume refuses a new one, the region, the
+                        metadata it sends, the database node's own firewall
+                        commands, and the VCN-internal DNS name
 ```
 
 The two `platform.ts` files and `cloud-init.ts` import nothing from Pulumi, so
@@ -223,7 +269,9 @@ tables below say which.
 | --- | --- | --- | --- |
 | `simple-balance:hostname` | yes | | The name the site answers on. A DNS name only: no scheme, no port, no path. `APP_BASE_URL` is built from it. |
 | `simple-balance:acmeEmail` | yes | | The Let's Encrypt account address. Expiry warnings go here. |
-| `simple-balance:databaseUrl` | yes, secret | | Set with `--secret`. Never plaintext. |
+| `simple-balance:database` | no | `external` | `external` or `in-cluster`. `external` is what every release so far has done: you supply `databaseUrl`. `in-cluster` turns on the chart's PostgreSQL 18 with Citus under Patroni, derives the connection string with `sslmode=verify-full` against a CA the chart generates, names the encrypted StorageClass the program creates, and refuses a `databaseUrl` set alongside it rather than letting the chart refuse it mid-rollout. |
+| `simple-balance:databaseUrl` | yes with `database: external`, secret | | Set with `--secret`. Never plaintext. Refused with `database: in-cluster`. |
+| `simple-balance:controlPlaneCidrs` | no | open | Which addresses may reach the Kubernetes API endpoint, separated by commas or spaces. Unset leaves both clouds as they were, which is open to the internet with authentication in front; narrowing it is the operator's call because a wrong guess locks the stack out of the control plane it would need to fix itself. |
 | `simple-balance:authSecret` | yes, secret | | Set with `--secret`. Sessions are signed with it. |
 | `simple-balance:directDatabaseUrl` | no, secret | | A string that reaches PostgreSQL past a transaction pooler. Migrations and the first-account claim hold session-level advisory locks, which through a pooler are taken on one connection and released on another. Leave it unset when there is no pooler. |
 | `simple-balance:setupToken` | no, secret | | The one-time code that claims the first account, at least 16 characters. Set with `--secret`. Left unset, one is generated and stored in the database, and printed to the startup log of whichever API pod reads it first. |
@@ -237,7 +285,7 @@ tables below say which.
 | `simple-balance:serverMaxReplicas` | no | `4` | The API tier's HPA ceiling. |
 | `simple-balance:frontendMaxReplicas` | no | `4` | |
 | `simple-balance:schedulerMaxReplicas` | no | `2` | |
-| `simple-balance:maxConnections` | no | `100` | What your database allows. See below. |
+| `simple-balance:maxConnections` | no | `100`, or `200` with `database: in-cluster` | What the database allows. Unset, it stands for a stock PostgreSQL; with an in-cluster database it is read from the chart's own `max_connections` instead, because 100 there would refuse replica ceilings the cluster could serve. See below. |
 | `simple-balance:kubernetesVersion` | no | the cloud's default | EKS only. GKE takes its version from the regular release channel. |
 | `simple-balance:trustedProxyCidr` | no | the program's own: on AWS the VPC's `10.0.0.0/16`, recursion off; on GCP `130.211.0.0/22`, `35.191.0.0/16` and the Ingress's reserved address, recursion on | What the frontend's nginx believes `X-Forwarded-For` from: one address or CIDR, or several separated by commas or spaces, each a proxy's own and nothing wider. Passed as the chart's `frontend.trustedProxyCidr`. Set, it replaces the program's list whole, with recursion off unless `simple-balance:realIpRecursive` says otherwise. Leave it unset unless you have changed what sits in front: the program's list is worked out for the network it built, and [things that will surprise you](#things-that-will-surprise-you) says why each cloud's is what it is. |
 | `simple-balance:realIpRecursive` | no | the program's (AWS off, GCP on); off beside your own `trustedProxyCidr` | Passed as the chart's `frontend.realIpRecursive`. On, nginx walks `X-Forwarded-For` from the right past every trusted address to the first that is not, which a chain of proxies that each append needs; off, it takes the last entry, which is right behind one that replaces the header. Set, it wins over the program's choice either way. |
@@ -293,6 +341,27 @@ Three things worth knowing about the shape of it:
   controller's 10254: AWS sends the proxy protocol header on health checks too,
   and the controller's own server on 10254 cannot parse it.
 
+And three that the database in the cluster needs, built whether or not you ask
+for it because the first two are worth having either way:
+
+- **A KMS key and `encryptionConfigKeyArn` on the cluster**, so the Secrets
+  holding `DATABASE_URL`, `AUTH_SECRET`, any Stripe key and the database's own
+  passwords are envelope-encrypted in etcd rather than merely base64. **On an
+  existing cluster this is an in-place change and it cannot be undone** — EKS
+  has no way to turn envelope encryption back off. The cluster keeps serving;
+  `docs/upgrades.md` says so where an operator will meet it.
+- **The VPC CNI's network policy agent**, because a `NetworkPolicy` the plugin
+  ignores is worse than none: the cluster then looks guarded in
+  `kubectl get networkpolicy` and enforces nothing. The program stops using
+  EKS's default managed add-on so it can set that option, which rolls the
+  `aws-node` DaemonSet once — pods keep running, address assignment pauses per
+  node.
+- **The `aws-ebs-csi-driver` add-on with an IRSA role, and a
+  `simple-balance-gp3-encrypted` StorageClass** — gp3, `encrypted: "true"`,
+  `WaitForFirstConsumer`, expansion on, `Retain`. Without the driver a
+  PersistentVolumeClaim from the database StatefulSet sits `Pending` forever on
+  EKS 1.23 and later, which is the failure that looks like a hung install.
+
 Exports: `ingressAddress` (the load balancer hostname to point a CNAME at),
 `egressAddress` (the NAT gateway's address, for a database that allows by
 source), `clusterName`, `namespace`, `kubeconfig`, `appUrl`, `dnsRecord`.
@@ -344,6 +413,22 @@ Three things worth knowing about the shape of it:
   balancer's address and stops at the one the load balancer wrote from its own
   socket, and never reads anything the visitor wrote before it.
 
+And two the database in the cluster needs:
+
+- **Cloud KMS and `databaseEncryption` on the cluster**, envelope-encrypting the
+  same Secrets in etcd, and a `simple-balance-pd-balanced` StorageClass for the
+  database's volumes. Persistent disks are encrypted with Google's own keys and
+  there is no customer key on them, deliberately.
+- **Dataplane V2**, `datapathProvider: ADVANCED_DATAPATH`, which is what
+  enforces a `NetworkPolicy` on GKE. Deliberately **not** the legacy Calico
+  addon: `networkPolicyConfig` disables container-native load balancing, which
+  would take the frontend's client-address handling with it. **The provider
+  treats this as a property that replaces the cluster**, so an existing
+  external-database stack that switches to `in-cluster` will see a replacement
+  in `pulumi preview`. Run
+  `gcloud container clusters update <name> --enable-dataplane-v2` first and the
+  plan is then a no-op.
+
 Exports: `ingressIpAddress` (the reserved address to point an A record at, known
 before anything else finishes), `egressAddress` (Cloud NAT's address, for a
 database that allows by source), `clusterName`, `namespace`, `kubeconfig`,
@@ -356,18 +441,30 @@ gcloud container clusters get-credentials "$(pulumi stack output clusterName)" -
 
 ## The single-machine stacks
 
-Different keys from the two above, because there is no cluster and no chart,
-and the database URL is supplied on the machine rather than as a stack setting —
-[below](#database_url-goes-on-the-machine). Neither program creates a database;
-the machine runs the application and Caddy and connects out to yours.
+Different keys from the two above, because there is no cluster and no chart.
+Each program builds **two machines**: an application node with a public address,
+running the application container and Caddy, and a database node with none,
+running PostgreSQL 18 in a container on a private subnet. The application
+reaches it over the provider's private network under `sslmode=verify-full`,
+against a certificate the program issues. Nothing on the internet can reach the
+database node at all, and nothing but the application node can reach 5432 on it.
+
+`simple-balance:databaseNode: false` builds neither the second machine nor the
+private subnet nor the NAT gateway, and the application node then waits for a
+`DATABASE_URL` you write on it —
+[below](#database_url-goes-on-the-machine).
 
 | Key | Required | Default | What it is |
 | --- | --- | --- | --- |
 | `hostname` | yes | | The public DNS name. A name and nothing else: no scheme, no port, no path. Caddy obtains a certificate for it, so it has to resolve to the machine before HTTPS works |
-| `size` | | `small` | `small`, `medium` or `large`. `docs/deployment-sizing.md` is the table, and it is the same table `single-common/index.ts` implements |
+| `size` | | `small` | The **application node's** row of `small`, `medium` or `large`. `docs/deployment-sizing.md` is the table, and it is the same table `single-common/index.ts` implements |
+| `databaseNode` | | `true` | Whether to build the database node, its private subnet, its NAT gateway, its volume and its certificate. `false` builds none of it and leaves the machine exactly as it was before this profile had a database: write your own `DATABASE_URL` into `env.local`, and firstboot's gate holds the deployment stopped until you do. It is the answer for somebody who already keeps a PostgreSQL, and on AWS it is also how to avoid the NAT gateway's roughly $33 a month |
+| `databaseSize` | | whatever `size` is | The **database node's** row of the same table, which also picks the five PostgreSQL settings the compose file applies as `-c` flags. Separate from `size` because the two machines want opposite things: the application is a mostly idle Node process, and PostgreSQL would take every byte of memory on the machine |
+| `databaseMaxConnections` | | `50` | `max_connections` on the database node, floor 10. Eleven for the application, one for `psql`, one for the nightly `pg_dump`, and the rest is slack; PostgreSQL's own default of 100 costs memory `shared_buffers` would rather have |
+| `databasePassword` | secret | generated | The application role's password. Unset, a 32-character alphanumeric one is generated. Set, yours wins. Letters and digits only, at least 16 of them, and that is narrower than PostgreSQL would accept on purpose: the value travels through a URL, a Compose `.env` and a shell script, each with its own escaping, and an encoding applied in one of the three and not the others is a password that works until the nightly backup runs. The **superuser's** password is not this and is not a setting — it is generated on the database node at first boot and exists in no state file and no user data |
 | `acmeEmail` | | | Where Let's Encrypt writes about a renewal that failed. Optional to them and worth setting |
 | `allowedEmails` | | | Who may register. Empty admits nobody but the first account |
-| `sshCidr` | | | One IPv4 CIDR allowed to reach port 22 from outside. Unset means no public SSH ingress at all, which is the default; AWS gives a shell through Session Manager without it, and OCI through the Bastion service, which reaches 22 from inside the subnet. `0.0.0.0/0` is refused, and so is a CIDR with no `sshPublicKey` — an open port nothing can answer is a rule in a firewall and a debugging session about the wrong thing |
+| `sshCidr` | | | One IPv4 CIDR allowed to reach port 22 on the **application node** from outside. Unset means no public SSH ingress at all, which is the default; AWS gives a shell through Session Manager without it, and OCI through the Bastion service, which reaches 22 from inside the subnet. `0.0.0.0/0` is refused, and so is a CIDR with no `sshPublicKey` — an open port nothing can answer is a rule in a firewall and a debugging session about the wrong thing. It opens nothing on the database node, which has no public address for it to open anything to |
 | `sshPublicKey` | on OCI | | The contents of a `.pub` file. Refused if it looks like anything else, because a private key here would be a private key in your stack configuration. Required on Oracle Cloud, where it is the only way onto the machine and is installed at launch only; optional on AWS |
 | `imageTag` | | the release | Another published release to deploy. It reaches the machine once, in the compose file cloud-init writes, so a machine that exists already takes a new one by the upgrade below |
 | `imageRepository` | | `ghcr.io/thtmnisamnstr/simple-balance` | For a private mirror |
@@ -376,15 +473,20 @@ the machine runs the application and Caddy and connects out to yours.
 | `aws:region` | on AWS | | The region to build in, such as `us-west-2`, exported as `region`. Required in the stack, and `preview` stops before anything is declared without it: otherwise the provider takes `AWS_REGION` or `AWS_DEFAULT_REGION` from the shell, so where the machine and its data volume live would depend on who runs `pulumi up`. Version 7 of the provider records a region on every resource, so a stack run from a shell pointed at another region plans to replace every one of them there, the data volume included. Set it once and never change it: see [tearing down on AWS](#tearing-down-on-aws) for what a new one does. Any region is accepted |
 | `oci:region` | on OCI | | The region to build in, such as `us-ashburn-1`, exported as `region`. Required in the stack even when `~/.oci/config` names one, and `preview` stops before anything is declared without it: otherwise the provider takes `TF_VAR_region`, `OCI_REGION` or the profile's region, so where the machine and its data volume live would depend on who runs `pulumi up`, and a stack run from another shell would look for its resources somewhere they are not. For Always Free it is the tenancy's home region, because Ampere A1 capacity is free there and nowhere else; the home region is chosen at sign-up and cannot be changed afterward, and Profile → Tenancy in the console shows it. A paid tenancy may name any region it subscribes to. The hosted Simple Balance deployment builds in a US home region because its privacy policy says its data is stored in the United States — a promise that deployment makes, not one this program enforces, so any region is accepted |
 | `compartmentOcid` | OCI only | | Which compartment to build in. OCI has no default and the root compartment is a poor choice, since policies cannot be scoped to it |
-| `availabilityDomain` | | the first | OCI only. Which availability domain to build the machine and its data volume in, by full name or by number from 1. Try another when the launch fails with `Out of host capacity` — another domain rather than another region, because Always Free covers the tenancy's home region only. Set it before the first successful `up` and leave it: changing it afterward would replace the data volume, and the secret, `env.local` and the backups would go with the old one, so while `protectDataVolume` is `true` the program refuses that `up` before it touches the machine or the volume, and names the domain to set back. Until a launch succeeds it is free to change: the volume is built after the machine, so a launch refused for capacity leaves nothing in the domain |
-| `databaseSubnet` | | `false` | OCI only. `true` adds a private subnet to the stack's network that answers on 5432 to the machine's subnet and nothing else, and exports its OCID as `databaseSubnetId`, for [a database for Oracle Cloud](#a-database-for-oracle-cloud) to be created in. The database itself is not created |
-| `protectDataVolume` | | `true` | Marks the data volume with Pulumi's `protect`, so `pulumi destroy` fails at its preview and deletes nothing, and so does an `up` that would replace the volume. On Oracle Cloud a new `availabilityDomain` is refused before the machine or the volume is touched, `--skip-preview` included; on AWS the one setting that replaces the volume is a new `aws:region`, which the preview refuses at the volume. Either would otherwise take the generated secret, `env.local` and every backup with it. A resize and a replaced machine still go through. `false` is how to mean it — see [tearing down on AWS](#tearing-down-on-aws) and [on Oracle Cloud](#tearing-down-on-oracle-cloud) |
+| `availabilityDomain` | | the first | OCI only. Which availability domain to build both machines and both data volumes in, by full name or by number from 1. Try another when a launch fails with `Out of host capacity` — another domain rather than another region, because Always Free covers the tenancy's home region only. Set it before the first successful `up` and leave it: changing it afterward would replace the data volumes, and the secret, `env.local`, the backups and the ledger would go with the old ones, so while `protectDataVolume` is `true` the program refuses that `up` before it touches a machine or a volume, and names the domain to set back. Until a launch succeeds it is free to change: the volumes are built after the machines, so a launch refused for capacity leaves nothing in the domain |
+| `databaseSubnet` | | `false` | OCI only, and **deprecated in favour of `databaseNode`**. It asks for the private subnet with nothing in it, for an OCI managed database you build by hand — see [a database for Oracle Cloud](#a-database-for-oracle-cloud). It is still honoured, and a stack that sets it logs a deprecation line and carries on, because nothing that was accepted is refused. The subnet, its route to the NAT gateway and its security list are built when either this or `databaseNode` asks for them, and its OCID is exported as `databaseSubnetId` either way; only the PostgreSQL machine inside it belongs to `databaseNode` |
+| `protectDataVolume` | | `true` | Marks **both** data volumes with Pulumi's `protect`, so `pulumi destroy` fails at its preview and deletes nothing, and so does an `up` that would replace either. On Oracle Cloud a new `availabilityDomain` is refused before a machine or a volume is touched, `--skip-preview` included; on AWS the one setting that replaces them is a new `aws:region`, which the preview refuses at the volume. Either would otherwise take the generated secret, `env.local`, every backup — and, on the database node, the ledger. A resize and a replaced machine still go through. `false` is how to mean it — see [tearing down on AWS](#tearing-down-on-aws) and [on Oracle Cloud](#tearing-down-on-oracle-cloud) |
 
-There are deliberately **no secret keys here.** `AUTH_SECRET` is generated on the
-machine at first boot and kept on the data volume at `0600`, so it enters neither
-user data — which is readable by anyone who can describe the instance — nor
-Pulumi's state file. Nothing outside the machine needs it, and a rebuilt instance
-that reattaches the same volume finds the same one.
+**The only secret key here is `databasePassword`, and it is optional.**
+`AUTH_SECRET` is generated on the application node at first boot and kept on its
+data volume at `0600`, so it enters neither user data — which is readable by
+anyone who can describe the instance — nor Pulumi's state file. The database
+node's superuser password is generated there the same way, on its own volume, and
+is generated only when the file is absent, so a rebuilt machine against a live
+volume does not rotate itself out of its own cluster. What the stack does hold is
+the CA's private key, which reaches neither machine, and the application role's
+password, which has to reach both because one of them puts it in a connection
+string.
 
 ```sh
 cd deploy/pulumi
@@ -408,31 +510,48 @@ pulumi -C oci-single up
 ```
 
 Both print a `nextSteps` output saying what is left, in order: the A record,
-reaching the machine, putting `DATABASE_URL` in `env.local` and starting the
-deployment, and then finding the one-time setup code in the application's log —
-which is not there until the deployment has a database to start against. The
-certificate arrives on its own once the name resolves; Caddy keeps retrying
-until it does.
+reaching the application node, the database — which with a database node is
+"nothing to do", and without one is putting a `DATABASE_URL` in `env.local` and
+running firstboot — and then finding the one-time setup code in the
+application's log. The certificate arrives on its own once the name resolves;
+Caddy keeps retrying until it does.
 
-**Resizing is not a rebuild.** Change `size` and deploy, and both clouds
-change the machine in place, restarting it into the new shape, and grow the data
-volume where it is. The filesystem on the volume stays the size it was until it
-is told otherwise: `sudo resize2fs "$(findmnt -no SOURCE /var/lib/simple-balance)"`
+Other outputs worth knowing: `databaseHostName` is the internal name in the
+certificate and in `DATABASE_URL`, `databaseInstanceId` and `databaseVolumeId`
+the machine and its disk, and `databaseMachine` a one-line description of the
+shape it was built at. On AWS, `databaseShell` is the Session Manager command
+that reaches it; on Oracle Cloud, `databasePrivateIpAddress` and
+`databaseSubnetId` are what a Bastion session needs. All of them are absent when
+`databaseNode` is false, with one exception: `databaseSubnetId` is also present
+when `databaseSubnet` asked for the subnet on its own, because that is the case
+it exists for.
+
+**Resizing is not a rebuild.** Change `size` or `databaseSize` and deploy, and
+both clouds change that machine in place, restarting it into the new shape, and
+grow its data volume where it is. The filesystem on the volume stays the size it
+was until it is told otherwise:
+`sudo resize2fs "$(findmnt -no SOURCE /var/lib/simple-balance)"`
 once the volume has grown — on Oracle Cloud after the rescan its documentation
-on resizing a volume describes. Neither cloud shrinks a volume, so a `size`
-whose disk is smaller than the one there fails at the volume.
+on resizing a volume describes. Neither cloud shrinks a volume, so a size whose
+disk is smaller than the one there fails at the volume. On the database node the
+restart is a database restart, so take it when nobody is using the deployment.
 
-**Replacing the machine keeps what is on its data disk.** The instance alone is
+**Replacing a machine keeps what is on its data disk**, and that goes for both
+of them: the database node's volume holds `PGDATA`, so a replaced database node
+comes back to the ledger it had. An instance alone is
 replaced by a new machine image, taken by lifting `ignoreChanges`, or by
 `pulumi up --replace` naming it — the way back from a machine that has gone
 wrong, not from an upgrade. An upgrade is undone on the machine, as
 [docs/upgrades.md](../../docs/upgrades.md#rolling-back) says: the old tag back in
 `/opt/simple-balance/compose.yml` and the backup taken before the upgrade
 restored, because a new machine brings back the image the stack names and leaves
-the database as the upgrade's migrations left it. The data volume is a separate
+the database as the upgrade's migrations left it. Each data volume is a separate
 resource and is formatted only when it is not already a filesystem, so either
-replacement destroys the root disk and leaves the backups, the generated
-`AUTH_SECRET` and `env.local` alone. Pulumi moves the volume across once the new
+replacement destroys that machine's root disk and leaves its volume alone — the
+backups, the generated `AUTH_SECRET` and `env.local` on one, the ledger and the
+superuser password on the other. The server certificate and its key are on the
+database node's **root** disk rather than its volume, deliberately: cloud-init
+re-delivers them to a replacement, so there is nothing to keep. Pulumi moves the volume across once the new
 machine is running, and the new machine's first boot waits up to forty
 minutes for it, which is as long as the providers give Pulumi to finish the
 move before failing the `up`; on Oracle Cloud a first launch waits the same way
@@ -446,9 +565,11 @@ Oracle Cloud — though neither does while `simple-balance:protectDataVolume` is
 `true`, the default: the destroy fails at its preview, and so does the change,
 which on Oracle Cloud is refused before the machine or the volume is touched.
 [Tearing down on AWS](#tearing-down-on-aws) and
-[on Oracle Cloud](#tearing-down-on-oracle-cloud) are how to mean it. The ledger was never on the machine; it is in the database
-`DATABASE_URL` names. On Oracle Cloud a replacement also comes up on a new
-public address. Promoting the old one to reserved keeps it in the tenancy but
+[on Oracle Cloud](#tearing-down-on-oracle-cloud) are how to mean it, and there
+is now a ledger on one of those two volumes, which is why the protection is on
+by default and why a backup lives on the other machine.
+On Oracle Cloud a replaced application node also comes up on a new
+public address; the database node has none to change. Promoting the old one to reserved keeps it in the tenancy but
 does not move it: delete the new instance's ephemeral address and assign the
 reserved one to its private IP in the console, or point the A record at the new
 one — see [DNS](../../docs/deployment-profiles.md#dns). Both programs pin the
@@ -492,13 +613,88 @@ hundred bytes of EC2's. Read the originals in `deploy/compose/single/` and
 `deploy/systemd/`. `pulumi preview` refuses a document that would not fit rather
 than leaving the provider to refuse the launch.
 
+### The database these programs build
+
+With `simple-balance:databaseNode` at its default, there is nothing to do here.
+The program builds the second machine, generates the role's password, issues the
+certificate, and writes the connection string into
+`/opt/simple-balance/env.db` at `0600` on the application node:
+
+```
+postgresql://simple_balance:<password>@<internal DNS name>:5432/simple_balance?sslmode=verify-full&sslrootcert=/var/lib/simple-balance/tls/db-ca.pem
+```
+
+`simple-balance-env` folds `env.base`, then `env.db`, then `secrets.env`, then
+`env.local`, and Compose reads the last assignment — so writing a `DATABASE_URL`
+of your own into `env.local` still wins, on a machine whose program generated
+one, with nothing to turn off first.
+
+**The certificate.** `@pulumi/tls` issues a private CA and a server certificate
+at plan time, before either machine exists. The CA's key stays in Pulumi's
+state and reaches neither machine; the server certificate and key go only to the
+database node, at `0600`, and the CA certificate — which is public — only to the
+application node. The SAN is the provider's own internal name for the database
+node, which is knowable in advance because its private address is pinned:
+`db.db.simplebalance.oraclevcn.com` on Oracle Cloud,
+`ip-10-20-1-10.<region>.compute.internal` on AWS, and
+`ip-10-20-1-10.ec2.internal` in `us-east-1`, which spells it differently and is
+a trap worth naming. The pinned address is in the certificate too, as an IP SAN,
+so `psql "host=10.20.1.10 … sslmode=verify-full"` works for somebody debugging —
+but the generated URL uses the name, because node-postgres sends no server name
+for an address and checks the certificate against `localhost` instead.
+
+**The server enforces TLS rather than trusting the client to ask.**
+`pg_hba.conf` is mounted and named with `-c hba_file=`, so the rules are this
+repository's file rather than the one the image generates, and every line
+crossing a machine boundary is `hostssl`. The superuser is refused over the
+network entirely, even under TLS; the application signs in as `simple_balance`,
+which is not a superuser and owns only its own database.
+
+**Reaching the database node for a shell.** On AWS, Session Manager, exactly as
+on the application node — the role carries `AmazonSSMManagedInstanceCore` and no
+port is open for it. On Oracle Cloud, a Bastion in the database node's *own*
+subnet, because that is where an OCI Bastion's private endpoint has to sit:
+`--target-subnet-id "$(pulumi -C oci-single stack output databaseSubnetId)"` and
+`--target-private-ip "$(pulumi -C oci-single stack output databasePrivateIpAddress)"`,
+otherwise the same commands as
+[reaching the Oracle Cloud machine](#reaching-the-oracle-cloud-machine). Once
+there:
+
+```sh
+sudo docker compose -f /opt/simple-balance/compose.postgres.yml exec postgres \
+  psql -U postgres simple_balance
+```
+
+### Rotating the database's certificate
+
+By hand, and the reason is worth stating rather than working around. Both
+instances carry `ignoreChanges` on their user data — without it a change to the
+deployment material would replace the machine on every `pulumi up`, which is
+minutes of downtime and, on Oracle Cloud, a new address. So a certificate
+re-issued by a later `pulumi up` would sit in Pulumi's state and never reach a
+running machine. They are therefore long-lived: ten years for the CA, five for
+the server certificate.
+
+To replace one before then: put the new CA certificate on the application node
+as `/var/lib/simple-balance/tls/db-ca.pem` and the new server certificate and
+key on the database node in `/opt/simple-balance/db-tls/` (`server.crt` `0644`,
+`server.key` `0600` owned by the container's postgres user, which is uid 999),
+then restart each unit. Do the application node's CA **first** if the new
+certificate is from a new CA, or the application will meet a certificate it
+cannot verify for as long as the two disagree; a CA certificate holding both the
+old and the new issuer removes even that window. `docs/upgrades.md` has the
+precedent, which is the same shape as installing `compose.db-tls.yml` on a
+machine built before it existed.
+
 ### `DATABASE_URL` goes on the machine
 
-It is not a setting here, and that is the one worth expecting. These programs
-build the `single` profile, whose database is somebody else's, so the connection
-string carries a password — and anything these programs put on the machine
-arrives as user data. The first boot therefore leaves the deployment enabled and
-stopped, with the instructions in `/etc/motd`:
+This is the `simple-balance:databaseNode: false` path, and it is what these
+programs did before they built a database. There is no stack setting for the
+URL, and that is the one worth expecting: the connection string carries a
+password, and anything these programs put on the machine arrives as user data,
+which is readable by anyone who can describe the instance. The first boot
+therefore leaves the deployment enabled and stopped, with the instructions in
+`/etc/motd`:
 
 ```sh
 sudo install -m 0644 ca.pem /var/lib/simple-balance/tls/db-ca.pem   # the database's CA, below
@@ -596,18 +792,29 @@ opens 22 to that address alone; then `ssh ubuntu@<publicIp>`.
 
 ### A database for Oracle Cloud
 
+This is for a deployment that would rather not run its own, so it sets
+`simple-balance:databaseNode false` and points the machine at something else.
 OCI Database with PostgreSQL is not part of Always Free, so it is billed. Any
 other PostgreSQL 15 or later the machine can reach works as well, including one
 you run yourself, and costs whatever it runs on. Two ways:
 
 **OCI Database with PostgreSQL, in the stack's own network.** It wants a private
-subnet of its own, which the program makes when asked:
+subnet of its own, which the program makes:
 
 ```sh
+pulumi -C oci-single config set simple-balance:databaseNode false
 pulumi -C oci-single config set simple-balance:databaseSubnet true
 pulumi -C oci-single up
 pulumi -C oci-single stack output databaseSubnetId
 ```
+
+`simple-balance:databaseSubnet true` is the older spelling and is deprecated in
+favour of `databaseNode`, which builds a PostgreSQL 18 machine in that same
+subnet instead of leaving it empty. It is still honoured — this is the one
+combination it exists for — and logs a deprecation line rather than refusing,
+because nothing this program accepted is refused later. With a database node the
+subnet is built anyway, and it is the one that node sits in, so setting both
+changes nothing and says so.
 
 That subnet answers on 5432 to the machine's subnet and to nothing else. Then,
 in the console under Databases → PostgreSQL → DB systems, create one:
@@ -649,6 +856,12 @@ the server settings per machine size.
 
 The program does not create the DB system itself, for the reason `DATABASE_URL`
 is not a stack setting: its administrator password would be in Pulumi's state.
+The database node it *does* build answers that objection rather than dodging it.
+Its superuser password is generated on that machine and never leaves it, and the
+only password the stack holds is the unprivileged application role's — which has
+to be somewhere the application node can read, because the application node has
+to put it in a connection string. There is no arrangement in which that one is
+secret from Pulumi and still reaches the machine that needs it.
 
 **Or any PostgreSQL 15 or later the machine can reach over TLS** — another
 cloud's managed service, or a server you already keep. The machine's egress is
@@ -658,12 +871,12 @@ address `publicIp` reports. The same URL shape applies: `verify-full`, with
 
 ### Tearing down on Oracle Cloud
 
-The data volume is the one thing in `oci-single`'s stack the next `pulumi up`
-cannot rebuild: it holds the generated `AUTH_SECRET`, `env.local` and every
-nightly dump. The ledger is not on it — it is in the database `DATABASE_URL`
-names, which no `pulumi destroy` touches — but a new volume means a new secret,
-which signs everybody out, a `DATABASE_URL` and every other setting typed in
-again, and no backups at all. So the program marks it with Pulumi's
+The two data volumes are the things in `oci-single`'s stack the next
+`pulumi up` cannot rebuild. The application node's holds the generated
+`AUTH_SECRET`, `env.local` and every nightly dump; a new one means a new secret,
+which signs everybody out, every setting typed in again, and no backups at all.
+**The database node's holds the ledger**, and losing it is losing the books. So
+the program marks both with Pulumi's
 [`protect`](https://www.pulumi.com/docs/iac/concepts/options/protect/) option
 unless `simple-balance:protectDataVolume` is `false`, and while it is marked:
 
@@ -676,24 +889,33 @@ unless `simple-balance:protectDataVolume` is `false`, and while it is marked:
   name, `simple-balance-<stack>-data`, because a program cannot read its own
   state, so a volume of that name left behind by a removed stack of the same
   name is refused the same way; rename it or delete it in the console.
-- A new `size` grows the volume in place, which is an update and goes through.
+- A new `size` or `databaseSize` grows that machine's volume in place, which is
+  an update and goes through.
 - `pulumi destroy --exclude-protected` and `pulumi destroy --skip-preview`
-  delete only the volume's attachment. Pulumi keeps everything a protected
-  resource was built after, and the volume is built after the machine, so the
-  network and the running machine stay, and the machine is without its disk
+  delete only the volumes' attachments. Pulumi keeps everything a protected
+  resource was built after, and each volume is built after its machine, so the
+  network and both running machines stay, and each is without its disk
   until the next `pulumi up` attaches it again and a reboot mounts it. Neither
-  is a way to keep the volume and drop the rest.
+  is a way to keep the volumes and drop the rest.
 - It stops Pulumi and nothing else. The console and the `oci` CLI can still
-  delete the volume.
+  delete either volume.
 
 To take it all down on purpose, first copy off what you want to keep — the
-dumps are in `/var/lib/simple-balance/backups` — or take a volume backup, which
-outlives the volume and counts toward the five volume backups Always Free
-includes. `dataVolumeId` is the volume's OCID:
+dumps are in `/var/lib/simple-balance/backups` on the application node — or take
+a volume backup, which outlives the volume and counts toward the five volume
+backups Always Free includes. `dataVolumeId` and `databaseVolumeId` are the two
+volumes' OCIDs, and the second is the one with the ledger on it:
 
 ```sh
 oci bv backup create --volume-id "$(pulumi -C oci-single stack output dataVolumeId)" --type FULL
+oci bv backup create --volume-id "$(pulumi -C oci-single stack output databaseVolumeId)" --type FULL
 ```
+
+A volume backup is not a substitute for a dump: it is a copy of a running
+database's files and restores as a crash-recovered cluster of that exact
+PostgreSQL major version. Take the dump too —
+`sudo systemctl start simple-balance-backup` on the application node — because
+that is the copy that restores anywhere.
 
 Then say so in the stack, deploy the setting, and destroy:
 
@@ -720,46 +942,55 @@ building it again.
 
 ### Tearing down on AWS
 
-The data volume is the one thing in `aws-single`'s stack the next `pulumi up`
-cannot rebuild, for the same reasons as on Oracle Cloud above: it holds the
-generated `AUTH_SECRET`, `env.local` and every nightly dump, and a new one
-means everybody signed out, every setting typed in again and no backups. So
-the program marks it with Pulumi's
+The two data volumes are the things in `aws-single`'s stack the next
+`pulumi up` cannot rebuild, for the same reasons as on Oracle Cloud above: one
+holds the generated `AUTH_SECRET`, `env.local` and every nightly dump, and a new
+one means everybody signed out, every setting typed in again and no backups; the
+other holds the ledger. So the program marks both with Pulumi's
 [`protect`](https://www.pulumi.com/docs/iac/concepts/options/protect/) option
 unless `simple-balance:protectDataVolume` is `false`, and while it is marked:
 
 - `pulumi destroy` fails at its preview and deletes nothing.
-- A new `size` grows the volume in place, and `pulumi up --replace` on the
-  instance replaces the machine, its attachment and its address association
-  and leaves the volume alone: the volume was built before the machine and
-  takes nothing from it.
+- A new `size` or `databaseSize` grows that machine's volume in place, and
+  `pulumi up --replace` on either instance replaces the machine, its attachment
+  and any address association and leaves the volume alone: each volume was
+  built before its machine and takes nothing from it.
 - A new `aws:region` is refused at the volume by the preview. It is the one
-  setting that replaces the volume, because the provider records a region on
+  setting that replaces the volumes, because the provider records a region on
   every resource. Under `--skip-preview` Pulumi has already rebuilt much of the
-  network in the new region, the Elastic IP included, by the time it reaches
-  the volume, and a stack left like that is one no `pulumi up` sets right, in
-  either region: each plans to replace the volume, and the protection refuses.
-  Never change it: build a new stack in the other region and restore a dump
-  into it.
+  network in the new region, the Elastic IP and the NAT gateway included, by the
+  time it reaches the volume, and a stack left like that is one no `pulumi up`
+  sets right, in either region: each plans to replace the volumes, and the
+  protection refuses. Never change it: build a new stack in the other region and
+  restore a dump into it.
 - `pulumi destroy --exclude-protected` and `pulumi destroy --skip-preview` keep
-  the volume and the subnet and VPC it was built in, because Pulumi keeps what
-  a protected resource was built from, and delete everything else — the
-  machine and the Elastic IP included. `--skip-preview` then exits with an
-  error about the volume. The next `pulumi up` builds the rest again and
-  attaches the same volume, on a new address, so the A record has to follow.
+  the volumes and the subnets and VPC they were built in, because Pulumi keeps
+  what a protected resource was built from, and delete everything else — both
+  machines, the Elastic IP and the NAT gateway included. `--skip-preview` then
+  exits with an error about a volume. The next `pulumi up` builds the rest again
+  and attaches the same volumes, on a new public address, so the A record has to
+  follow.
 - It stops Pulumi and nothing else. The console and the `aws` CLI can still
-  delete the volume.
+  delete either volume.
 
 To take it all down on purpose, first copy off what you want to keep — the
-dumps are in `/var/lib/simple-balance/backups` — or take a snapshot, which
-outlives the volume and is billed by the gigabyte-month until you delete it.
-`dataVolumeId` is the volume's id and `region` its region:
+dumps are in `/var/lib/simple-balance/backups` on the application node — or take
+snapshots, which outlive the volumes and are billed by the gigabyte-month until
+you delete them. `dataVolumeId` and `databaseVolumeId` are the two volumes' ids
+and `region` their region; the second is the one with the ledger on it:
 
 ```sh
-aws ec2 create-snapshot --region "$(pulumi -C aws-single stack output region)" \
-  --volume-id "$(pulumi -C aws-single stack output dataVolumeId)" \
-  --description "simple-balance data volume before teardown"
+for volume in dataVolumeId databaseVolumeId; do
+  aws ec2 create-snapshot --region "$(pulumi -C aws-single stack output region)" \
+    --volume-id "$(pulumi -C aws-single stack output "$volume")" \
+    --description "simple-balance $volume before teardown"
+done
 ```
+
+A snapshot of the database's volume is a copy of a running database's files and
+restores as a crash-recovered cluster of that exact PostgreSQL major version.
+Take the dump too — `sudo systemctl start simple-balance-backup` on the
+application node — because that is the copy that restores anywhere.
 
 Then say so in the stack, deploy the setting, and destroy:
 
@@ -826,11 +1057,22 @@ that has to fit is
 (serverMaxReplicas + schedulerMaxReplicas) x (databasePoolSize + 1)
 ```
 
-against your server's `max_connections`, which PostgreSQL defaults to 100. At
-the defaults here that is `(4 + 2) x 11 = 66`. `readSettings` refuses to plan a
-stack where it exceeds `simple-balance:maxConnections`, so raise
-`max_connections` and say so, lower the pool, lower a ceiling, or put a pooler
-in front and set `simple-balance:directDatabaseUrl`.
+against the database's `max_connections`. At the defaults here that is
+`(4 + 2) x 11 = 66`. `readSettings` refuses to plan a stack where it exceeds
+`simple-balance:maxConnections`, so raise `max_connections` and say so, lower
+the pool, lower a ceiling, or put a pooler in front and set
+`simple-balance:directDatabaseUrl`.
+
+What `simple-balance:maxConnections` stands for when it is unset depends on
+where the database is. With `database: external` it is 100, which is what a
+stock PostgreSQL allows and the conservative guess about a server this program
+cannot see. With `database: in-cluster` it is the chart's own 200, read from the
+same place the chart sets it — 100 there would be a program refusing replica
+ceilings the database it just built would have served.
+
+The single-machine programs have one process and no ceilings to add up:
+`1 x (10 + 1) = 11` against `simple-balance:databaseMaxConnections`, which
+defaults to 50.
 
 The scheduler tier scales freely. A tick claims each recurrence with
 `for update skip locked`, so there is no leader and no lease: replicas divide
@@ -863,21 +1105,23 @@ the due rows between them.
   that keeps the program's three entries. On AWS, a value set to the load
   balancer's public subnets as a workaround brings the shared allowance back:
   the frontend's peer is now an ingress-nginx pod in the private subnets.
-- **A pod inside the cluster can still name its own address.** On AWS the
-  frontend trusts the whole VPC, because ingress-nginx's pods draw addresses
-  from the same subnets as every other pod, so a pod that connects to the
-  frontend directly can write its own `X-Forwarded-For`. That reaches nothing a
-  pod could not reach before: on both clouds a pod can connect to the API
-  directly, and with `TRUST_PROXY` on the API believes that header from anyone
-  who can reach its Service. Neither is a way in from the internet. The chart's
-  `networkPolicy.enabled` closes
-  them, with `frontendIngressFrom` naming whatever really reaches the frontend
-  — on AWS the `ingress-nginx` namespace — on a cluster whose network plugin
-  enforces policies, which on EKS means the VPC CNI with its network policy
-  agent turned on. A pod the policy then sends around through ingress-nginx is
-  counted as itself, because ingress-nginx believes a proxy protocol header from
-  the load balancer's subnets alone. The policy is off in both programs because
-  one naming the wrong source takes the site down without a word.
+- **A pod inside the cluster can still name its own address, unless the policies
+  are on.** On AWS the frontend trusts the whole VPC, because ingress-nginx's
+  pods draw addresses from the same subnets as every other pod, so a pod that
+  connects to the frontend directly can write its own `X-Forwarded-For`. That
+  reaches nothing a pod could not reach before: on both clouds a pod can connect
+  to the API directly, and with `TRUST_PROXY` on the API believes that header
+  from anyone who can reach its Service. Neither is a way in from the internet.
+  The chart's `networkPolicy.enabled` closes them, with `frontendIngressFrom`
+  naming whatever really reaches the frontend — on AWS the `ingress-nginx`
+  namespace. Both `ha` values files turn it on, because the database is in the
+  cluster there and a policy is what stops any pod opening 5432 on the
+  coordinator; a `database: external` stack leaves it off, because a policy
+  naming the wrong source takes the site down without a word. A pod the policy
+  sends around through ingress-nginx is counted as itself, because ingress-nginx
+  believes a proxy protocol header from the load balancer's subnets alone.
+  Enforcement is the plugin's: EKS needs the VPC CNI's network policy agent and
+  GKE needs Dataplane V2, and both programs now ask for them.
 - **On GCP the site answers on plain HTTP as well as HTTPS.** `allow-http` has
   to stay on for the ACME challenge, which is answered on this Ingress every
   time the certificate renews, and neither program adds a redirect. HSTS, which
@@ -887,12 +1131,18 @@ the due rows between them.
   does nothing. What bounds a CSV import there is `CSV_MAX_BYTES` and the
   frontend's `SB_MAX_UPLOAD_SIZE`, plus whatever the Google load balancer caps
   outside Kubernetes.
-- **`pulumi destroy` leaves nothing behind except what it never made**, which is
-  your database. Delete the stack and the cluster goes with it, certificates and
-  load balancer included. The single-machine programs are the exception: each
-  refuses while its data volume is protected, which it is by default — see
+- **`pulumi destroy` takes the database with it now, wherever the program built
+  one.** That used to be the reassuring bullet here — the database was always
+  somebody else's and a destroy could not reach it — and it is no longer true of
+  any default. On the `ha` programs with `database: in-cluster`, deleting the
+  stack deletes the cluster and the StatefulSet's volumes with it. On the
+  single-machine programs each destroy refuses while its data volumes are
+  protected, which they are by default, and that protection is now the only
+  thing between `pulumi destroy --yes` and the ledger — see
   [tearing down on AWS](#tearing-down-on-aws) and
-  [on Oracle Cloud](#tearing-down-on-oracle-cloud).
+  [on Oracle Cloud](#tearing-down-on-oracle-cloud). With `database: external`
+  the old sentence still holds: the cluster goes, certificates and load balancer
+  included, and your database is untouched.
 
 ## Version pins
 
@@ -907,6 +1157,15 @@ default and GKE follows the regular release channel.
 | AWS Load Balancer Controller | `aws/index.ts` | `3.5.0` |
 | ingress-nginx | `aws/index.ts` | `4.15.1` |
 | Kubernetes cluster autoscaler | `aws/index.ts` | `9.59.0` |
+| PostgreSQL on the database node | `deploy/compose/single/compose.postgres.yml` | `postgres:18` |
+| PostgreSQL with Citus, in the cluster | the chart's `database.image` | `14.2.0-pg18` |
+
+The two database pins name a major version and never float. A `docker compose
+pull` or an image tag that moved to 19 would restart against a data directory 19
+refuses to read, and the deployment would be down until somebody worked out why.
 
 `npm run typecheck` compiles all four programs without deploying anything, which
 is the cheapest way to find out that an SDK upgrade moved an API.
+`@pulumi/tls` and `@pulumi/random` are in `package.json` for the single-machine
+programs alone: the first issues the database's certificate chain, the second
+generates the application role's password when the stack names none.

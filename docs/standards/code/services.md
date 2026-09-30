@@ -26,17 +26,23 @@ by export tells you something the totals hide: 93 of the 103 are exported and 33
 of the 76 are, which is the shape working. An entry point is reachable and a
 helper mostly is not.
 
-The third row is the one to read carefully, because *mostly* is doing work: 180
-of the 198 touch no database at all, and the other 18 do. Most of those are the
+The third row is the one to read carefully, because *mostly* is doing work: 179
+of the 198 touch no database at all, and the other 19 do. Most of those are the
 second row under another name:
 `selectBulkFilterRows(executor: Database | DbTransaction, …)` and
 `legsByTransaction(db, …)` are helpers whose first parameter is spelled to admit
 the pool as well. The rest are entry points with no actor to take, either
 because no request made them run or because of the exception below. There are
-twelve, and naming two of them was how this paragraph fell behind: the fifth,
+thirteen, and naming two of them was how this paragraph fell behind: the fifth,
 `pruneIdempotencyRecords`, arrived after the sentence was written and nothing
-asked it again. The table below is the list, and the test reads it, which is why
-the five that arrived with billing could not repeat that.
+asked it again. The thirteenth fell behind a second way and is worth the
+warning: `applySetupIntentSucceeded` was in the test's list and not in this
+table, because the sweep's body reader mistook a parameter's object type for a
+function body and never classified it — so the split above counted it among the
+179 while the table simply had no row. A number taken from a sweep is only as
+good as what the sweep can see. The table below is the list, and the test reads
+it, which is why the ones that arrived with billing could not repeat the first
+mistake.
 
 | Entry point | Why it has no actor |
 | --- | --- |
@@ -52,8 +58,9 @@ the five that arrived with billing could not repeat that.
 | `reconcileSubscription` | Stripe's delivery names a customer, not a person, so there is no request naming an actor |
 | `claimWebhookEvent` | The deployment's record of which deliveries Stripe has been answered for, which belongs to nobody |
 | `applyCustomerDeletion` | The same delivery, claimed and applied in one transaction |
+| `applySetupIntentSucceeded` | The same again: a card Stripe says was set up, named by customer rather than by person, and claimed after the work because the work is two Stripe calls |
 
-None of the 18 is a fourth shape.
+None of the 19 is a fourth shape.
 
 *Checked by:* `tests/service-entry-points.test.ts`, which walks every exported
 service function, sorts it into "takes an actor", "takes an executor" or

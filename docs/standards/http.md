@@ -380,13 +380,13 @@ add it.
   than simply make them.
 - **House, and the three inconsistencies that were here are gone.** The paths
   read the way the rules above say now:
-  `GET /api/v1/staged-transactions/{id}/duplicate` (`src/server/api.ts:1921`)
+  `GET /api/v1/staged-transactions/{id}/duplicate` (`src/server/api.ts:1958`)
   rather than a `staged` collection that existed nowhere else;
-  `POST /api/v1/staged-transactions/bulk-delete` (`src/server/api.ts:1839`)
+  `POST /api/v1/staged-transactions/bulk-delete` (`src/server/api.ts:1876`)
   rather than a `delete` that spelled the same operation as
-  `POST /api/v1/transactions/bulk-delete` (`src/server/api.ts:1778`)
+  `POST /api/v1/transactions/bulk-delete` (`src/server/api.ts:1815`)
   differently; and `POST /api/v1/accounts/{id}/archived` and
-  `POST /api/v1/categories/{id}/archived` (`src/server/api.ts:1614`, `:1751`),
+  `POST /api/v1/categories/{id}/archived` (`src/server/api.ts:1651`, `:1788`),
   which take `{"archived": boolean}` and are therefore the state sub-resource
   pattern, matching `POST /api/v1/transactions/{id}/deleted`.
 
@@ -604,7 +604,7 @@ or that the two patch schemas agree with each other.
   output schema fails the call …".
 - **House.** `GET /api/v1/csv/export` is the only route whose *default*
   representation is not JSON: `text/csv; charset=utf-8; header=present` with a
-  `Content-Disposition` filename (`src/server/api.ts:1902-1914`). Its format is
+  `Content-Disposition` filename (`src/server/api.ts:1939-1951`). Its format is
   governed by [`csv.md`](csv.md). Two routes offer a second representation
   beside their JSON one, chosen by `Accept`; see
   [Streaming a response](#streaming-a-response).
@@ -632,7 +632,7 @@ code.
 | 413 | Body over the derived limit for that path |
 | 415 | Missing or unacceptable `Content-Type` on a state change |
 | 422 | The body is valid JSON and valid against no rule the ledger will accept |
-| 429 | Rate limited: the setup-code limiter (`src/server/api.ts:536-551`), and Better Auth's production limiter on `/api/auth` (`src/server/auth.ts:102-106`) |
+| 429 | Rate limited: the setup-code limiter (`src/server/api.ts:542-556`), and Better Auth's production limiter on `/api/auth` (`src/server/auth.ts:102-106`) |
 | 500 | Anything unhandled, with no detail |
 | 503 | `GET /health/ready` when the database is unreachable |
 
@@ -648,7 +648,7 @@ code.
 - **House.** One code maps to one status. `VALIDATION_ERROR` was 422 from a
   service and 400 from the malformed-body guard, so on that code the status
   carried information the code did not, which is backwards. The malformed body
-  now has its own code: `MALFORMED_BODY` at 400 (`src/server/api.ts:1341`),
+  now has its own code: `MALFORMED_BODY` at 400 (`src/server/api.ts:1378`),
   raised as a `TransportError` rather than an `AppError`
   (`src/server/services/errors.ts:13-23`), which is also what keeps it out of
   the service vocabulary an MCP tool can raise. Adding a code is not a breaking
@@ -779,14 +779,14 @@ derives by reading the `(code, status)` pair off every `AppError` and
   consent and setup routes answered with a flat `{code, message}` that the
   browser's own reader cannot see, because it looks inside `error`. All
   fourteen now send both, through `transportError`
-  (`src/server/api.ts:497`, `:522`, `:545`, `:554`, `:566`, `:582`, `:593`,
-  `:630`, `:785`, `:864`, `:870`, `:879`, `:913` and `:920`): the flat pair a
+  (`src/server/api.ts:503`, `:528`, `:551`, `:560`, `:572`, `:588`, `:599`,
+  `:636`, `:791`, `:870`, `:876`, `:885`, `:919` and `:926`): the flat pair a
   0.1.5 client reads, and the envelope everything else in the product uses.
   Dropping the flat half is a later release's job, once the envelope has been in
   the field — the same rule the renamed routes follow, and the reason this was
   not simply swapped.
   **One named exception:** the `/.well-known` catch-all returns
-  `{error, error_description}` (`src/server/api.ts:1032-1034`). That is the OAuth
+  `{error, error_description}` (`src/server/api.ts:1038-1040`). That is the OAuth
   error shape, its reader is an OAuth client, and it is correct there.
 - **House, and settled the same way.** Field errors are `{field, message}` with
   `field` a dotted path. `zodIssues()` produces exactly that
@@ -807,8 +807,8 @@ derives by reading the `(code, status)` pair off every `AppError` and
   its bound parameters*, and one of those parameters is the OAuth access token
   the MCP token endpoint looks a grant up by. Logging such an error whole
   writes a live credential into the log on any database hiccup." The 500 body
-  is a fixed sentence with no detail (`src/server/api.ts:403-406`), and the
-  comment above it at `src/server/api.ts:398-401` says why the narrowing is
+  is a fixed sentence with no detail (`src/server/api.ts:409-412`), and the
+  comment above it at `src/server/api.ts:404-407` says why the narrowing is
   not done there.
   The narrowing is not this route's: it lives in `log.failure`
   (`src/server/log.ts:91-101`), so all five paths in this process that can log a
@@ -1196,10 +1196,10 @@ so a second submit fails rather than duplicating."
 - **House.** No `GET` or `DELETE` accepts a key. A safe method needs none, and a
   delete on this API is a versioned mutation, which is idempotent by
   construction, with one exception:
-  `DELETE /api/v1/connected-apps/{clientId}` (`src/server/api.ts:1527-1529`)
+  `DELETE /api/v1/connected-apps/{clientId}` (`src/server/api.ts:1564-1566`)
   reads no body and takes no `expectedVersion`, where the other seven versioned
-  deletes parse `versionedMutationSchema` (`src/server/api.ts:1621`, `:1648`,
-  `:1659`, `:1673`, `:1681`, `:1721`, `:1758`). Revoking a grant is idempotent
+  deletes parse `versionedMutationSchema` (`src/server/api.ts:1658`, `:1685`,
+  `:1696`, `:1710`, `:1718`, `:1758`, `:1795`). Revoking a grant is idempotent
   anyway, since the second call finds nothing to revoke, but the premise does
   not hold for it and the carve-out is named here rather than left to be
   discovered.
@@ -1426,8 +1426,8 @@ forwards the frames unbuffered. That is `docs/deployment.md` and an operator.
   (`src/server/http-security.ts:207-326`) and no route overrides one of the
   headers in the table below. Two other headers are set by hand outside
   `/api/v1` and are documented under CORS: `Access-Control-Allow-Origin` on the
-  JWKS route (`src/server/api.ts:766`) and on discovery (`:985`), and
-  `Cache-Control` on those two (`:767`, `:986`) and on `/api/v1` itself
+  JWKS route (`src/server/api.ts:772`) and on discovery (`:991`), and
+  `Cache-Control` on those two (`:773`, `:992`) and on `/api/v1` itself
   (`:1318`). The
   split deployment's nginx repeats them for the files it serves, and the two are
   compared character for character. Every response from this process carries:

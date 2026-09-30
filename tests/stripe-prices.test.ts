@@ -300,6 +300,52 @@ describe("reading the prices, and keeping the verdict", () => {
       error.mockRestore();
     }
   });
+
+  /**
+   * The archived-price rule reaches the check only through this caller, and
+   * `selling` is the argument that carries it. The pure-function test above
+   * proves the rule; this proves the wiring, on the one deployment where the
+   * two answers differ — and that is the only deployment where it can be
+   * observed at all, because every other file that touches `fetchPlanPrices`
+   * replaces it with a double.
+   *
+   * Both halves are load-bearing. Asserting only the empty verdict would catch
+   * a hardcoded `selling: true` and miss a hardcoded `selling: false`, which is
+   * the worse of the two: a deployment that IS selling would then start
+   * subscriptions on an archived price with nothing in the log to say why they
+   * fail. The `console.error` line is asserted beside the verdict because the
+   * log is the whole symptom here — no figure and no refusal changes on a
+   * wound-down deployment, every reader of `problems` already sitting behind a
+   * `billingEnabled()` gate that answers false there.
+   */
+  it("suppresses the archived-price problem only where the deployment sells", async () => {
+    answers.set("price_monthly", recurring("price_monthly", "month", { active: false }));
+    answers.set("price_yearly", recurring("price_yearly", "year"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const selling = process.env.SB_BILLING_ENABLED;
+    try {
+      // Winding down is exactly when an operator archives the prices, so
+      // saying so is noise rather than news.
+      delete process.env.SB_BILLING_ENABLED;
+      const woundDown = await load();
+      await woundDown.fetchPlanPrices();
+      expect(woundDown.lastPriceCheck()?.problems).toEqual([]);
+      expect(error).not.toHaveBeenCalled();
+
+      // The same prices on a deployment that is still selling stop a sale.
+      process.env.SB_BILLING_ENABLED = "true";
+      const open = await load();
+      await open.fetchPlanPrices();
+      expect(open.lastPriceCheck()?.problems).toEqual([
+        "STRIPE_PRICE_MONTHLY_ID is archived at Stripe, and no subscription can start on it.",
+      ]);
+      expect(error).toHaveBeenCalledWith(expect.stringContaining("archived at Stripe"));
+    } finally {
+      if (selling === undefined) delete process.env.SB_BILLING_ENABLED;
+      else process.env.SB_BILLING_ENABLED = selling;
+      error.mockRestore();
+    }
+  });
 });
 
 /** What Stripe throws for a key that lacks a permission, as the sandbox threw it. */

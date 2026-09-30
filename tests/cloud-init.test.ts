@@ -9,14 +9,24 @@ import { afterAll, describe, expect, it } from "vitest";
 import * as aws from "../deploy/pulumi/aws-single/platform.js";
 import * as oci from "../deploy/pulumi/oci-single/platform.js";
 import {
+  APPLICATION_CA_PATH,
+  APP_FILES,
   AWS_USER_DATA_LIMIT,
-  EMBEDDED_FILES,
+  DATABASE_FILES,
   OCI_METADATA_LIMIT,
+  PLACEHOLDER_CERTIFICATE,
+  PLACEHOLDER_KEY,
+  PLACEHOLDER_PASSWORD,
+  SERVER_CERTIFICATE_PATH,
+  SERVER_KEY_PATH,
   awsUserDataBase64,
   cloudInit,
+  databaseCloudInit,
+  databaseUrl,
   ociMetadata,
   repoFile,
   stripComments,
+  type DatabaseSettings,
   type MachineSettings,
   type Size,
 } from "../deploy/pulumi/single-common/cloud-init.js";
@@ -76,6 +86,43 @@ function longSettings(sizeName: string): MachineSettings {
   };
 }
 
+/**
+ * What the database node is told, at each size. `maxConnections` is the
+ * setting's own default; the five PostgreSQL numbers come from the row.
+ */
+function longDatabase(sizeName: string): DatabaseSettings {
+  return { size: SIZES[sizeName]!, sizeName, maxConnections: 50, password: "" };
+}
+
+/**
+ * Everything the database node's render needs beyond its settings, with the
+ * program's own stand-ins for the three values Pulumi generates.
+ *
+ * The stand-ins rather than made-up shorter ones, because the point of every
+ * measurement below is the size of the document and those are the values the
+ * programs measure with — a test that used `"password"` and a two-line
+ * certificate would report a comfortable margin the real render does not have.
+ */
+function longDatabaseRender(sizeName: string) {
+  return {
+    settings: longSettings(sizeName),
+    database: longDatabase(sizeName),
+    bindAddress: "10.30.1.10",
+    applicationCidr: "10.30.0.0/24",
+    applicationPassword: PLACEHOLDER_PASSWORD,
+    serverCertificate: PLACEHOLDER_CERTIFICATE,
+    serverKey: PLACEHOLDER_KEY,
+  };
+}
+
+/** The other half: what the application node is told about that database. */
+function longApplicationDatabase(host = "db.db.simplebalance.oraclevcn.com") {
+  return {
+    url: databaseUrl(host, PLACEHOLDER_PASSWORD),
+    caCertificate: PLACEHOLDER_CERTIFICATE,
+  };
+}
+
 /** A 4096-bit RSA public key is the longest one people commonly paste. */
 const LONG_KEY = `ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQ${"A".repeat(680)} someone@a-long-laptop-hostname.local`;
 
@@ -93,6 +140,14 @@ function writtenFile(document: string, target: string): string {
   // The block scalar clips to one trailing newline, as cloud-init will.
   while (body.length > 0 && body[body.length - 1] === "") body.pop();
   return `${body.join("\n")}\n`;
+}
+
+/** The mode cloud-init is told to create a file with. */
+function writtenPermissions(document: string, target: string): string {
+  const lines = document.split("\n");
+  const start = lines.indexOf(`  - path: ${target}`);
+  expect(start, `${target} is written`).toBeGreaterThan(-1);
+  return /^ {4}permissions: "(.*)"$/.exec(lines[start + 1] ?? "")?.[1] ?? "";
 }
 
 /**
@@ -176,7 +231,14 @@ describe("what the single-machine programs send", () => {
 
   it("fits EC2's user-data ceiling with a quarter of it to spare", () => {
     for (const { sizeName, settings } of renders) {
-      const sent = Buffer.from(aws.userDataBase64(settings, aws.PLACEHOLDER_VOLUME_ID), "base64");
+      // With the database node's connection string and CA certificate in it,
+      // which is the larger of the two documents and the one this profile now
+      // sends. Measured without them, the check would pass on a deployment
+      // nobody builds and say nothing about the one everybody does.
+      const sent = Buffer.from(
+        aws.userDataBase64(settings, aws.PLACEHOLDER_VOLUME_ID, longApplicationDatabase()),
+        "base64",
+      );
       expect(sent.length, `AWS gzipped user data at ${sizeName}`).toBeLessThanOrEqual(
         AWS_USER_DATA_LIMIT * 0.75,
       );
@@ -186,6 +248,12 @@ describe("what the single-machine programs send", () => {
       expect(document).toContain(
         `SB_DATA_DEVICE=/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_${aws.PLACEHOLDER_VOLUME_ID.replace(/-/g, "")}`,
       );
+      // And without one, which is what simple-balance:databaseNode false sends.
+      const bare = Buffer.from(aws.userDataBase64(settings, aws.PLACEHOLDER_VOLUME_ID), "base64");
+      expect(
+        bare.length,
+        `AWS gzipped user data at ${sizeName}, no database node`,
+      ).toBeLessThanOrEqual(AWS_USER_DATA_LIMIT * 0.75);
     }
   });
 
@@ -219,7 +287,7 @@ describe("what the single-machine programs send", () => {
   it("writes every embedded file as its stripped self, and each one really was stripped", () => {
     const settings = longSettings("small");
     const document = cloudInit({ settings, dataDevice: oci.DATA_DEVICE });
-    for (const file of EMBEDDED_FILES) {
+    for (const file of APP_FILES) {
       let original = repoFile(file.source);
       if (file.source.endsWith("/compose.yml")) {
         original = original.replace(
@@ -239,8 +307,14 @@ describe("what the single-machine programs send", () => {
   });
 
   it("changes nothing in a stripped file but its comment lines", () => {
-    const comment = { shell: /^\s*#/, yaml: /^\s*#/, systemd: /^\s*[#;]/, caddyfile: /^\s*#/ };
-    for (const file of EMBEDDED_FILES) {
+    const comment = {
+      shell: /^\s*#/,
+      yaml: /^\s*#/,
+      systemd: /^\s*[#;]/,
+      caddyfile: /^\s*#/,
+      hash: /^\s*#/,
+    };
+    for (const file of [...APP_FILES, ...DATABASE_FILES]) {
       const original = repoFile(file.source);
       expect(
         onlyCommentsRemoved(original, stripComments(original, file.syntax), comment[file.syntax]),
@@ -250,7 +324,10 @@ describe("what the single-machine programs send", () => {
   });
 
   it("sends every script as one sh and bash both still parse, meaning what it meant", () => {
-    for (const file of EMBEDDED_FILES.filter((entry) => entry.syntax === "shell")) {
+    const shellFiles = [...APP_FILES, ...DATABASE_FILES].filter(
+      (entry) => entry.syntax === "shell",
+    );
+    for (const file of shellFiles) {
       const original = repoFile(file.source);
       const stripped = stripComments(original, "shell");
       expect(stripped.startsWith("#!/bin/sh\n"), `${file.source} keeps its shebang`).toBe(true);
@@ -274,7 +351,7 @@ describe("what the single-machine programs send", () => {
     const defaults = writtenFile(document, "/etc/default/simple-balance");
     const named = /^COMPOSE_FILE=(.*)$/m.exec(defaults)?.[1]?.split(":");
     expect(named).toEqual(["compose.yml", "compose.caddy.yml", "compose.db-tls.yml"]);
-    const sent = EMBEDDED_FILES.map((file) => file.target)
+    const sent = APP_FILES.map((file) => file.target)
       .filter((target) => /^\/opt\/simple-balance\/compose[\w.-]*\.yml$/.test(target))
       .map((target) => path.basename(target));
     expect([...sent].sort()).toEqual([...named!].sort());
@@ -286,13 +363,208 @@ describe("what the single-machine programs send", () => {
     expect(dropIn).toContain("[Unit]\nRequiresMountsFor=/var/lib/simple-balance\n");
     expect(dropIn).toContain("[Service]\nExecStartPre=/usr/local/sbin/simple-balance-env\n");
     // And the thing it runs is on the machine, at that path.
-    expect(EMBEDDED_FILES.map((file) => file.target)).toContain(
-      "/usr/local/sbin/simple-balance-env",
-    );
+    expect(APP_FILES.map((file) => file.target)).toContain("/usr/local/sbin/simple-balance-env");
     // The header nextSteps points at says the same restart the drop-in makes true.
     expect(document).toMatch(
       /a setting +edit \/var\/lib\/simple-balance\/env\.local, then\n# +sudo systemctl restart simple-balance\n/,
     );
+  });
+});
+
+describe("what the programs send the database machine", () => {
+  const renders = Object.keys(SIZES).map((sizeName) => ({
+    sizeName,
+    args: longDatabaseRender(sizeName),
+  }));
+
+  it("fits both providers' ceilings at every size, with a quarter of EC2's to spare", () => {
+    for (const { sizeName, args } of renders) {
+      const metadata = oci.databaseInstanceMetadata(args, LONG_KEY);
+      expect(
+        Buffer.byteLength(JSON.stringify(metadata)),
+        `OCI metadata at ${sizeName}`,
+      ).toBeLessThan(OCI_METADATA_LIMIT);
+
+      const sent = Buffer.from(
+        aws.databaseUserDataBase64(args, aws.PLACEHOLDER_VOLUME_ID),
+        "base64",
+      );
+      expect(sent.length, `AWS gzipped user data at ${sizeName}`).toBeLessThanOrEqual(
+        AWS_USER_DATA_LIMIT * 0.75,
+      );
+      expect([...sent.subarray(0, 2)], sizeName).toEqual([0x1f, 0x8b]);
+      expect(gunzipSync(sent).toString("utf8").startsWith("#cloud-config\n")).toBe(true);
+    }
+  });
+
+  it("writes every embedded file as its stripped self", () => {
+    const document = databaseCloudInit({ ...longDatabaseRender("small"), dataDevice: "/dev/sdx" });
+    for (const file of DATABASE_FILES) {
+      const original = repoFile(file.source);
+      const stripped = stripComments(original, file.syntax);
+      expect(writtenFile(document, file.target), file.source).toBe(
+        `${stripped.replace(/\n+$/, "")}\n`,
+      );
+      expect(stripped.length, `${file.source} was sent unstripped`).toBeLessThan(original.length);
+    }
+  });
+
+  it("runs every compose file it sends, and sends every one it runs", () => {
+    // The same rule as the application node's, and it matters more here: this
+    // machine's COMPOSE_FILE is one entry, so a second compose file sent and
+    // not named would be a file nobody ever reads, and a name with no file
+    // behind it stops `docker compose up` before PostgreSQL exists.
+    const document = databaseCloudInit({ ...longDatabaseRender("small"), dataDevice: "/dev/sdx" });
+    const defaults = writtenFile(document, "/etc/default/simple-balance");
+    const named = /^COMPOSE_FILE=(.*)$/m.exec(defaults)?.[1]?.split(":");
+    expect(named).toEqual(["compose.postgres.yml"]);
+    const sent = DATABASE_FILES.map((file) => file.target)
+      .filter((target) => /^\/opt\/simple-balance\/compose[\w.-]*\.yml$/.test(target))
+      .map((target) => path.basename(target));
+    expect([...sent].sort()).toEqual([...named!].sort());
+  });
+
+  it("carries the server's key and certificate, and neither the CA's key nor AUTH_SECRET", () => {
+    const document = databaseCloudInit({ ...longDatabaseRender("small"), dataDevice: "/dev/sdx" });
+    expect(writtenFile(document, SERVER_CERTIFICATE_PATH)).toBe(PLACEHOLDER_CERTIFICATE);
+    expect(writtenFile(document, SERVER_KEY_PATH)).toBe(PLACEHOLDER_KEY);
+    // PostgreSQL refuses a key anyone but its own user can read, and
+    // simple-balance-db-firstboot cannot loosen what cloud-init made tighter,
+    // so the mode starts where it has to end up.
+    expect(writtenPermissions(document, SERVER_KEY_PATH)).toBe("0600");
+    expect(writtenPermissions(document, SERVER_CERTIFICATE_PATH)).toBe("0644");
+    // The secret this machine has no business holding. AUTH_SECRET is generated
+    // on the application node and kept on its data volume; a copy here would be
+    // a copy in instance metadata, which anyone who can describe the instance
+    // can read.
+    expect(document).not.toContain("AUTH_SECRET");
+    // And the credential the application node needs, which this machine is told
+    // so that initdb can create the role — under the name db-firstboot folds.
+    expect(writtenFile(document, "/opt/simple-balance/env.db")).toBe(
+      `POSTGRES_APP_PASSWORD=${PLACEHOLDER_PASSWORD}\n`,
+    );
+    expect(writtenPermissions(document, "/opt/simple-balance/env.db")).toBe("0600");
+  });
+
+  it("applies the sizing table's five PostgreSQL numbers, and the connection ceiling", () => {
+    for (const [sizeName, size] of Object.entries(SIZES)) {
+      const base = writtenFile(
+        databaseCloudInit({ ...longDatabaseRender(sizeName), dataDevice: "/dev/sdx" }),
+        "/opt/simple-balance/env.base",
+      );
+      // Read by compose.postgres.yml as `-c` flags. They were dead numbers in
+      // the sizing table until this profile owned a database to apply them to.
+      expect(base, sizeName).toContain(`POSTGRES_SHARED_BUFFERS=${size.sharedBuffers}\n`);
+      expect(base, sizeName).toContain(
+        `POSTGRES_EFFECTIVE_CACHE_SIZE=${size.effectiveCacheSize}\n`,
+      );
+      expect(base, sizeName).toContain(`POSTGRES_WORK_MEM=${size.workMem}\n`);
+      expect(base, sizeName).toContain(
+        `POSTGRES_MAINTENANCE_WORK_MEM=${size.maintenanceWorkMem}\n`,
+      );
+      expect(base, sizeName).toContain(`POSTGRES_MAX_WAL_SIZE=${size.maxWalSize}\n`);
+      expect(base, sizeName).toContain("POSTGRES_MAX_CONNECTIONS=50\n");
+      // The address the compose file publishes on, which is this machine's
+      // private one and never 0.0.0.0.
+      expect(base, sizeName).toContain("SB_BIND_ADDRESS=10.30.1.10\n");
+    }
+  });
+
+  it("gives db-firstboot the subnet it narrows pg_hba to, and the device to format", () => {
+    const defaults = writtenFile(
+      databaseCloudInit({ ...longDatabaseRender("small"), dataDevice: "/dev/sdx" }),
+      "/etc/default/simple-balance",
+    );
+    expect(defaults).toContain("SB_APP_CIDR=10.30.0.0/24\n");
+    expect(defaults).toContain("SB_DATA_DEVICE=/dev/sdx\n");
+  });
+
+  it("waits for the data volume before it starts, and folds .env when it does", () => {
+    // fstab mounts the volume `nofail`, so without RequiresMountsFor systemd is
+    // free to start the deployment first — and PGDATA's bind has
+    // create_host_path off precisely so that a missing directory is a refusal
+    // rather than an empty one on the boot disk that an empty cluster is then
+    // initialised into. The ordering stops the question being asked; the
+    // refusal makes the wrong answer loud.
+    const document = databaseCloudInit({ ...longDatabaseRender("small"), dataDevice: "/dev/sdx" });
+    const dropIn = writtenFile(document, "/etc/systemd/system/simple-balance.service.d/env.conf");
+    expect(dropIn).toContain("[Unit]\nRequiresMountsFor=/var/lib/simple-balance\n");
+    // And the thing it runs reads the superuser password off that same volume,
+    // so a start that raced the mount would fold a .env without one.
+    expect(dropIn).toContain("[Service]\nExecStartPre=/usr/local/sbin/simple-balance-env\n");
+    expect(DATABASE_FILES.map((file) => file.target)).toContain(
+      "/usr/local/sbin/simple-balance-env",
+    );
+  });
+
+  it("runs the platform's firewall commands before its first-boot script", () => {
+    // On OCI the host ruleset REJECTs 5432 whatever the security list says, so
+    // the order is the difference between a database that answers and one that
+    // is healthy and unreachable.
+    const document = oci.databaseInstanceMetadata(longDatabaseRender("small"), LONG_KEY);
+    const text = gunzipSync(Buffer.from(document.user_data!, "base64")).toString("utf8");
+    const runcmd = text.slice(text.indexOf("\nruncmd:\n"));
+    expect(runcmd).toContain("--dport 5432 -j ACCEPT");
+    expect(runcmd.indexOf("--dport 5432")).toBeLessThan(
+      runcmd.indexOf("simple-balance-db-firstboot"),
+    );
+    // Nothing for 80 or 443: this machine serves neither, and a rule for a port
+    // nothing listens on is an invitation to put something there later.
+    expect(runcmd).not.toContain("--dport 80");
+    expect(runcmd).not.toContain("--dport 443");
+  });
+});
+
+describe("what the application machine is told about its database", () => {
+  const document = () =>
+    cloudInit({
+      settings: longSettings("small"),
+      dataDevice: oci.DATA_DEVICE,
+      database: longApplicationDatabase(),
+    });
+
+  it("puts the connection string in env.db alone, at 0600", () => {
+    // env.db and not env.base, and that split is the whole upgrade-safety story
+    // for the machine: simple-balance-env folds base, db, secrets, local, so a
+    // DATABASE_URL somebody wrote into env.local still wins.
+    const written = writtenFile(document(), "/opt/simple-balance/env.db");
+    expect(written.split("\n").filter(Boolean)).toHaveLength(1);
+    expect(written).toBe(
+      `DATABASE_URL=${databaseUrl("db.db.simplebalance.oraclevcn.com", PLACEHOLDER_PASSWORD)}\n`,
+    );
+    expect(writtenPermissions(document(), "/opt/simple-balance/env.db")).toBe("0600");
+    expect(writtenFile(document(), "/opt/simple-balance/env.base")).not.toContain("DATABASE_URL");
+  });
+
+  it("stages the CA on the boot disk, where the data volume's mount cannot shadow it", () => {
+    // write_files runs before firstboot mounts the volume, so a CA written
+    // straight to its final path would vanish under the mount and the
+    // application would verify against a file that is not there.
+    expect(writtenFile(document(), "/opt/simple-balance/db-ca.pem")).toBe(PLACEHOLDER_CERTIFICATE);
+    expect(document()).not.toContain(`  - path: ${APPLICATION_CA_PATH}`);
+    // And the path firstboot installs it to is the one the URL names.
+    expect(writtenFile(document(), "/opt/simple-balance/env.db")).toContain(
+      `sslrootcert=${APPLICATION_CA_PATH}`,
+    );
+  });
+
+  it("carries neither the server's private key nor the CA's", () => {
+    const text = document();
+    expect(text).not.toContain(PLACEHOLDER_KEY);
+    expect(text).not.toContain("BEGIN PRIVATE KEY");
+  });
+
+  it("writes none of it at all when the stack builds no database node", () => {
+    const bare = cloudInit({ settings: longSettings("small"), dataDevice: oci.DATA_DEVICE });
+    // The two generated files, by the lines that would create them. Not by
+    // searching the whole document for the words: simple-balance-env names
+    // env.db and DATABASE_URL in code that runs on every machine, and
+    // compose.db-tls.yml names the CA's path whether or not there is a CA —
+    // both of which are what makes this branch cost the render nothing.
+    expect(bare).not.toContain("  - path: /opt/simple-balance/env.db\n");
+    expect(bare).not.toContain("  - path: /opt/simple-balance/db-ca.pem\n");
+    expect(bare).not.toContain("DATABASE_URL=postgresql://");
+    expect(bare).not.toContain("BEGIN CERTIFICATE");
   });
 });
 
@@ -461,15 +733,33 @@ describe("the Oracle Cloud program's own decisions", () => {
 });
 
 /**
- * The constructor call that builds one resource, from `new <kind>(` to the
- * `);` that closes it at the start of a line, which is how both programs lay
- * out a call with options.
+ * Every constructor call that builds a resource of one kind, each from
+ * `new <kind>(` to the `);` that closes it at the start of a line, which is how
+ * both programs lay out a call with options.
+ *
+ * All of them rather than the one, because the profile has two machines now:
+ * two instances, two data volumes and two attachments on each cloud. A helper
+ * that took the first would check the application node and quietly say nothing
+ * at all about the machine the ledger is on.
  */
-function resourceCall(program: string, kind: string): string {
-  const start = program.indexOf(`new ${kind}(`);
-  expect(start, kind).toBeGreaterThan(-1);
-  expect(program.indexOf(`new ${kind}(`, start + 1), `one ${kind}`).toBe(-1);
-  return program.slice(start, program.indexOf("\n);\n", start));
+function resourceCalls(program: string, kind: string): string[] {
+  const calls: string[] = [];
+  for (
+    let at = program.indexOf(`new ${kind}(`);
+    at > -1;
+    at = program.indexOf(`new ${kind}(`, at + 1)
+  ) {
+    // To the `);` that closes it, at whatever indentation. Anchoring on a `);`
+    // at column zero was right while every resource was declared at the top
+    // level; a call inside an `if` closes two spaces in, and the slice ran on
+    // past it into the next resource — which is a check that reads the wrong
+    // declaration and passes.
+    const end = /\n\s*\);\n/.exec(program.slice(at));
+    expect(end, `${kind} closes`).not.toBeNull();
+    calls.push(program.slice(at, at + end!.index));
+  }
+  expect(calls.length, kind).toBeGreaterThan(0);
+  return calls;
 }
 
 describe("what replacing a single machine does to its data volume", () => {
@@ -481,19 +771,20 @@ describe("what replacing a single machine does to its data volume", () => {
     ["deploy/pulumi/aws-single/index.ts", "aws.ec2.VolumeAttachment"],
     ["deploy/pulumi/oci-single/index.ts", "oci.core.VolumeAttachment"],
   ] as const) {
-    it(`${program} detaches the volume from the old machine before attaching it`, () => {
-      expect(resourceCall(read(program), attachment)).toMatch(
-        /\n {2}\{\n(?: {4}.*\n)*? {4}deleteBeforeReplace: true,\n {2}\},$/,
-      );
+    it(`${program} detaches every volume from its old machine before attaching it`, () => {
+      const calls = resourceCalls(read(program), attachment);
+      expect(calls, "one attachment per machine").toHaveLength(2);
+      for (const call of calls) expect(call).toContain("deleteBeforeReplace: true");
     });
   }
 
   it("moves AWS's address after the volume, not as soon as the new machine exists", () => {
     const program = read("deploy/pulumi/aws-single/index.ts");
     expect(program).toContain("const attachment = new aws.ec2.VolumeAttachment(");
-    const association = resourceCall(program, "aws.ec2.EipAssociation");
-    expect(association).toContain("    deleteBeforeReplace: true,\n");
-    expect(association).toContain("    dependsOn: [attachment],\n");
+    const association = resourceCalls(program, "aws.ec2.EipAssociation");
+    expect(association).toHaveLength(1);
+    expect(association[0]).toContain("    deleteBeforeReplace: true,\n");
+    expect(association[0]).toContain("    dependsOn: [attachment],\n");
   });
 });
 
@@ -502,44 +793,80 @@ describe("what the programs tell a person to do next", () => {
     "deploy/pulumi/oci-single/index.ts",
     "deploy/pulumi/aws-single/index.ts",
   ]) {
-    it(`${program} gives the machine a database before looking for the setup code`, () => {
-      const text = read(program);
-      const steps = text.slice(text.indexOf("export const nextSteps"));
-      const database = steps.indexOf("DATABASE_URL=");
-      const setupCode = steps.indexOf("Find the setup code");
-      expect(database, "a DATABASE_URL step").toBeGreaterThan(-1);
-      expect(database, "before the setup code").toBeLessThan(setupCode);
-      expect(steps).toContain("sudo /usr/local/sbin/simple-balance-firstboot");
+    /**
+     * Both halves of step three plus the steps after it. The database step is
+     * a branch now, declared above `nextSteps`, so slicing from `nextSteps`
+     * alone would read a document with the step missing and pass on nothing.
+     */
+    const steps = (path: string) => {
+      const text = read(path);
+      const at = text.indexOf("const databaseStep = database");
+      expect(at, `${path} branches on whether it built a database node`).toBeGreaterThan(-1);
+      return text.slice(at);
+    };
+
+    it(`${program} settles the database before looking for the setup code`, () => {
+      const text = steps(program);
+      const setupCode = text.indexOf("Find the setup code");
+      expect(setupCode, "a setup-code step").toBeGreaterThan(-1);
+      // With a database node there is nothing to do, and saying so is the
+      // whole change: the old step told somebody to go and find a PostgreSQL.
+      const settled = text.indexOf("The database is already running");
+      expect(settled, "the database-node branch").toBeGreaterThan(-1);
+      expect(settled, "before the setup code").toBeLessThan(setupCode);
+      // Without one, the step that was always here, and the gate in firstboot
+      // that holds the deployment stopped until a URL appears, are untouched.
+      const byo = text.indexOf("DATABASE_URL=");
+      expect(byo, "the bring-your-own branch").toBeGreaterThan(-1);
+      expect(byo, "before the setup code").toBeLessThan(setupCode);
+      expect(text).toContain("sudo /usr/local/sbin/simple-balance-firstboot");
+      expect(text).toMatch(/firstboot\n\s+which starts the deployment and its nightly backup/);
       // The first start is firstboot and not a restart, which would leave the
       // backup timer waiting for a reboot and /etc/motd saying nothing runs.
-      expect(steps).not.toContain("once it has run");
-      expect(steps).toMatch(/firstboot\n\s+which starts the deployment and its nightly backup/);
+      expect(text).not.toContain("once it has run");
       // A later setting is an edit and a restart, which the drop-in makes true.
-      expect(steps).toMatch(
+      expect(text).toMatch(
         /env\.local, which[\s\S]{0,120}a setting is an edit to it, then\n\s+sudo systemctl restart simple-balance\./,
       );
     });
 
+    it(`${program} says a hand-written DATABASE_URL still wins over the generated one`, () => {
+      // simple-balance-env folds env.base, env.db, secrets.env, env.local in
+      // that order, so the last one to name a variable is what Compose reads.
+      // Saying so here is what makes "nothing to turn off first" checkable.
+      expect(steps(program)).toContain(
+        "it is folded last and wins over the generated\n   one, with nothing to turn off first.",
+      );
+    });
+
     it(`${program} names the settings a pooled database and AdSense cannot start without`, () => {
-      const text = read(program);
-      const steps = text.slice(text.indexOf("export const nextSteps"));
-      expect(steps).toMatch(/transaction pooler, DIRECT_DATABASE_URL beside it/);
-      expect(steps).toMatch(/AdSense and the PRIVACY_POLICY_URL it requires/);
+      const text = steps(program);
+      expect(text).toMatch(/transaction pooler, DIRECT_DATABASE_URL beside it/);
+      expect(text).toMatch(/AdSense and the PRIVACY_POLICY_URL it requires/);
     });
 
     it(`${program} points at a header a person can read, and all of it`, () => {
       // user-data.txt is the gzip the program sent, so the file a person would
       // open is binary. `cloud-init query` decompresses it.
-      const text = read(program);
-      const steps = text.slice(text.indexOf("export const nextSteps"));
-      expect(steps).not.toContain("user-data.txt");
+      const text = steps(program);
+      expect(text).not.toContain("user-data.txt");
       const document = cloudInit({ settings: longSettings("small"), dataDevice: oci.DATA_DEVICE });
       const lines = document.split("\n");
       const header = lines.findIndex((line) => !line.startsWith("#"));
       expect(lines[header], "the header ends where the configuration starts").toMatch(
         /^timezone: /,
       );
-      expect(steps).toContain(`sudo cloud-init query userdata | head -${header}\n`);
+      expect(text).toContain(`sudo cloud-init query userdata | head -${header}\n`);
+      // And the database machine's own header ends in the same place, so one
+      // instruction serves both.
+      const databaseDocument = databaseCloudInit({
+        ...longDatabaseRender("small"),
+        dataDevice: "/dev/sdx",
+      });
+      expect(
+        databaseDocument.split("\n").findIndex((line) => !line.startsWith("#")),
+        "both headers are the same length",
+      ).toBe(header);
     });
   }
 

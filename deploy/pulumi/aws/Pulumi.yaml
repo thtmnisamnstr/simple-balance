@@ -6,5 +6,7 @@ runtime:
 description: >-
   Simple Balance on EKS: a VPC, a managed node group that autoscales, the AWS
   Load Balancer Controller, ingress-nginx, cert-manager with a Let's Encrypt
-  ClusterIssuer, and the Simple Balance Helm chart from deploy/helm. The
-  database is bring your own.
+  ClusterIssuer, the EBS CSI driver on an encrypted gp3 StorageClass, and the
+  Simple Balance Helm chart from deploy/helm. The database is bring your own
+  unless simple-balance:database is in-cluster, which runs the chart's Citus
+  cluster on this cluster instead.

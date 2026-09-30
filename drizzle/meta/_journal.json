@@ -176,6 +176,13 @@
       "when": 1790053428654,
       "tag": "0024_active_accounts",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1790715215109,
+      "tag": "0025_subscription_cancel_at",
+      "breakpoints": true
     }
   ]
 }
