@@ -128,7 +128,22 @@ meet later:
 
 The five sizing numbers in `.env.postgres.example` are
 [`docs/deployment-sizing.md`](../../../docs/deployment-sizing.md)'s smallest row,
-applied as `-c` flags. Raise them with the machine.
+applied as `-c` flags. Raise them with **this** machine's memory, not with the
+application machine's — the two are sized separately, and only this one runs
+PostgreSQL. Three more that describe the disk rather than the memory —
+`random_page_cost`, `effective_io_concurrency` and `wal_compression` — are
+literals in `compose.postgres.yml`, the same at every size, and are not in the
+`.env` at all.
+
+Growing the volume under `/var/lib/simple-balance` does not grow the filesystem
+on it, on either cloud or by hand: the extra space is there, paid for, and
+unreachable until `sudo resize2fs "$(findmnt -no SOURCE /var/lib/simple-balance)"`
+has run. It is online, so nothing has to be stopped, and it says
+`Nothing to do!` when there is none. On a machine `deploy/pulumi/` built,
+`simple-balance-growfs.service` runs that at every boot for exactly this reason,
+so a reboot is enough there — the first-boot scripts cannot be it, because
+cloud-init runs them once per instance and a `pulumi up` that grows a volume
+replaces no machine.
 
 ## The database's certificate
 
@@ -359,6 +374,15 @@ URL whose host is an IP address, for the reason above.
 
 A dump is a copy of the data and not of the machine. The question worth asking
 about `SB_BACKUP_DIR` is whether it is somewhere that outlives the host.
+
+`SB_BACKUP_KEEP + 1` is what that disk has to hold, not `SB_BACKUP_KEEP`: the
+dump being written sits beside the kept ones until it has verified, and only
+then is the oldest pruned. So the space is `(keep + 1) × 0.145 ×` the live
+ledger — 0.145 is the measured ratio of a `pg_dump -Fc` to the database it came
+from, and `docs/deployment-sizing.md` derives it — which at any real size is the
+largest thing on this machine's disk —
+larger than the ledger is on the other one. Setting `SB_BACKUP_KEEP` to 3 and
+copying the dumps off is a quarter of the disk for the same protection.
 
 To restore:
 

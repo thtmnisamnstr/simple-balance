@@ -106,9 +106,13 @@ describe("what may reach the AWS application node", () => {
 describe("what may reach the AWS database node", () => {
   const group = () => securityGroup("Simple Balance single-profile database node");
 
-  it("has exactly one inbound rule, for 5432 from the application node's security group", () => {
+  it("has one unconditional inbound rule, for 5432 from the application node's security group", () => {
     const ingress = rules(group(), "ingress");
-    expect(ingress, "one rule and no more").toHaveLength(1);
+    // Two literals in the source: 5432 always, and 22 inside the spread that
+    // only `simple-balance:databaseEgress: ipv6` unfolds. The count is asserted
+    // rather than left open, so a third rule is a failing test rather than a
+    // line nobody reviews.
+    expect(ingress, "5432, and the conditional shell").toHaveLength(2);
     expect(ingress[0]).toContain("fromPort: 5432");
     expect(ingress[0]).toContain("toPort: 5432");
     // A source security group rather than a CIDR, so the rule stays correct
@@ -124,14 +128,26 @@ describe("what may reach the AWS database node", () => {
     }
   });
 
-  it("opens no port for a shell, because Session Manager needs none", () => {
-    expect(group()).not.toContain("fromPort: 22");
-    // And the machine still has a shell: the same managed policy the
-    // application node's role gets, reached through egress alone.
+  it("opens a port for a shell only where the setting takes Session Manager away", () => {
+    // By default there is none, and the machine still has a shell: the same
+    // managed policy the application node's role gets, reached through egress
+    // alone.
     expect(programCode(aws)).toContain("AmazonSSMManagedInstanceCore");
     expect(programCode(aws)).toContain(
       "const databaseInstanceProfile = database ? shellRole(`${name}-db`) : undefined;",
     );
+    // Under `databaseEgress: ipv6` there is no IPv4 route out of this subnet,
+    // the agent's endpoint is A-only, and the replacement is ssh from the
+    // application node — so 22 exists, and it exists *only* inside that
+    // condition. A rule that escaped the spread would be a shell port on the
+    // machine holding the ledger on every stack, which is what this pins.
+    const rule = rules(group(), "ingress")[1]!;
+    expect(rule, "the conditional shell rule").toContain("fromPort: 22");
+    expect(group()).toMatch(/\.\.\.\(databaseEgress === "ipv6"[\s\S]*?fromPort: 22/);
+    // From the application node's own security group, never a CIDR, for the
+    // reason 5432 is: it names that machine however it is re-addressed.
+    expect(rule).toContain("securityGroups: [securityGroup.id]");
+    expect(rule).not.toContain("cidrBlocks");
   });
 
   it("puts the machine in a subnet that hands out no public address, and asks for none", () => {

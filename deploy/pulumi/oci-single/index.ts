@@ -16,10 +16,13 @@ import {
   dataVolumeGb,
   databaseHost,
   databaseInstanceMetadata,
+  hsmKeyWarning,
   instanceMetadata,
+  readKmsSelection,
   requireDataVolumeDomain,
   requireRegion,
   requireSshPublicKey,
+  requireUsableKmsKey,
 } from "./platform";
 
 /**
@@ -94,6 +97,57 @@ const databaseVolumeName = `${name}-db-data`;
 // the same decision — whether this stack may delete somebody's data — and two
 // would be a way to protect the backups and not the ledger.
 const protectDataVolume = cfg.getBoolean("protectDataVolume") ?? true;
+
+/**
+ * The key the two boot volumes and the two block volumes are made with, when
+ * the stack names one — and Oracle's own key when it does not, which is already
+ * encryption at rest and has always been.
+ *
+ * Accepted and never created, and the argument is stronger here than on AWS.
+ * Creating one would mean creating a vault first, and deleting a vault puts
+ * "the vault and all its associated keys" into pending deletion for seven to
+ * thirty days — so a `pulumi destroy` that deliberately keeps the protected
+ * data volumes would leave the ledger on disk beside a key counting down. An
+ * operator who wants a customer-managed key has one.
+ *
+ * What a customer key buys and costs here is not what it is on AWS, and the
+ * asymmetry is worth carrying rather than averaging away. On this cloud a
+ * volume can be moved back onto Oracle's key in place, with `oci bv
+ * volume-kms-key delete` and `oci bv boot-volume-kms-key delete`, so the
+ * decision is reversible; on AWS a volume's key is fixed for the volume's life
+ * and the only way off it is a snapshot copy.
+ */
+const kmsSelection = readKmsSelection(cfg.get("kmsVaultOcid") ?? "", cfg.get("kmsKeyOcid") ?? "");
+
+/**
+ * The key, refused at plan time unless the Block Volume service can use it.
+ *
+ * Two lookups rather than one, because the second needs the first: every Key
+ * Management call goes to the vault's own management endpoint, which is what
+ * `oci.kms.getVault` is here to supply. An Output rather than a value, consumed
+ * as each volume's and each boot volume's own input, so the refusal lands
+ * before any of them is created — the same shape as the availability domain
+ * above and for the same `--skip-preview` reason.
+ */
+const kmsKeyId = kmsSelection
+  ? oci.kms.getVaultOutput({ vaultId: kmsSelection.vaultId }).apply((vault) =>
+      oci.kms
+        .getKeyOutput({
+          keyId: kmsSelection.keyId,
+          managementEndpoint: vault.managementEndpoint,
+        })
+        .apply((key) => {
+          const facts = {
+            state: key.state,
+            algorithm: key.keyShapes[0]?.algorithm ?? "",
+            protectionMode: key.protectionMode,
+          };
+          const warning = hsmKeyWarning(facts);
+          if (warning) pulumi.log.warn(warning);
+          return requireUsableKmsKey(kmsSelection.keyId, facts);
+        }),
+    )
+  : undefined;
 
 /**
  * One availability domain, chosen rather than spread across, and both machines
@@ -553,8 +607,8 @@ const instance = new oci.core.Instance(
     // rounded up to the next fixed shape the way the AWS program has to.
     shape: "VM.Standard.A1.Flex",
     shapeConfig: {
-      ocpus: size.vcpu,
-      memoryInGbs: size.memoryGib,
+      ocpus: size.application.vcpu,
+      memoryInGbs: size.application.memoryGib,
     },
     sourceDetails: {
       sourceType: "image",
@@ -563,6 +617,13 @@ const instance = new oci.core.Instance(
       // container logs, which the compose file caps. No database, so it does
       // not grow. 50 is OCI's minimum.
       bootVolumeSizeInGbs: "50",
+      // Oracle's own key when the stack names none, which is what it has always
+      // been and is already encryption at rest. Updatable in place on this
+      // cloud, unlike AWS's, so adding one later re-wraps the data key rather
+      // than replacing the machine — provided `ignoreChanges` below lets the
+      // change through, which is why that list names properties rather than
+      // this whole object.
+      kmsKeyId,
     },
     // The hop between the hypervisor and block storage, which OCI leaves off
     // unless asked. At rest OCI encrypts boot and block volumes with
@@ -616,7 +677,16 @@ const instance = new oci.core.Instance(
     // what makes the database certificate long-lived rather than renewable: a
     // re-issued one would sit in Pulumi's state and never reach either machine,
     // so rotation is the by-hand procedure the README writes down.
-    ignoreChanges: ["sourceDetails", "metadata"],
+    //
+    // Named properties rather than the whole of `sourceDetails`, and that is
+    // the difference between a customer key that reaches this boot volume and
+    // one that silently does not. `ignoreChanges` on a parent ignores
+    // everything under it, so a `kmsKeyId` added later would be swallowed on
+    // every stack that already exists while a fresh stack took it — the same
+    // configuration, different encryption, and nothing said. The two named here
+    // are exactly the two that used to move on their own, so a stack that sets
+    // no key still plans nothing.
+    ignoreChanges: ["sourceDetails.sourceId", "sourceDetails.bootVolumeSizeInGbs", "metadata"],
     // Deleted before its replacement is made, not after, which is the reverse
     // of Pulumi's default. Building the new machine first cannot work here: its
     // VNIC's hostname label has to be unique in the subnet and the old one is
@@ -638,8 +708,8 @@ const instance = new oci.core.Instance(
  * rebuild keeps all of it. Never smaller than OCI's 50 GB floor, which the
  * shared table's `small` is under.
  */
-const dataGb = dataVolumeGb(size);
-const databaseDataGb = database ? dataVolumeGb(database.size) : 0;
+const dataGb = dataVolumeGb(size.application);
+const databaseDataGb = database ? dataVolumeGb(database.size.database) : 0;
 
 /**
  * Protected unless the stack says otherwise, because the two data volumes are
@@ -687,13 +757,15 @@ const dataVolume = new oci.core.Volume(
     availabilityDomain,
     displayName: dataVolumeName,
     sizeInGbs: String(dataGb),
-    // No `kmsKeyId`, and that is a decision rather than an omission: OCI
-    // encrypts every boot and block volume at rest with an Oracle-managed key
-    // and there is no way to turn that off, so the default is already
-    // encrypted. A customer-managed key would add a vault, a key policy to get
-    // wrong, a monthly charge, and a documented way to lock yourself
-    // permanently out of your own ledger. `tests/single-encryption.test.ts`
-    // asserts its absence so this paragraph cannot quietly stop being true.
+    // Oracle's own key unless the stack named one, and unset is still the
+    // default rather than an omission. OCI
+    // encrypts every boot and block volume at rest
+    // with an Oracle-managed key and offers no way to turn that off, so a stack
+    // that sets nothing is already encrypted and has no vault, no key policy to
+    // get wrong, no monthly charge and no way to lock itself out of its own
+    // ledger. `simple-balance:kmsKeyOcid` is for a deployment whose key policy
+    // says where keys come from, and it is checked before it is used.
+    kmsKeyId,
     freeformTags: tags,
   },
   {
@@ -761,8 +833,8 @@ const databaseInstance =
           displayName: `${name}-db`,
           shape: "VM.Standard.A1.Flex",
           shapeConfig: {
-            ocpus: database.size.vcpu,
-            memoryInGbs: database.size.memoryGib,
+            ocpus: database.size.database.vcpu,
+            memoryInGbs: database.size.database.memoryGib,
           },
           sourceDetails: {
             sourceType: "image",
@@ -771,6 +843,7 @@ const databaseInstance =
             // key cloud-init wrote. Not the cluster, which is on the data
             // volume, and not the superuser password, which is there too.
             bootVolumeSizeInGbs: "50",
+            kmsKeyId,
           },
           isPvEncryptionInTransitEnabled: true,
           createVnicDetails: {
@@ -824,7 +897,11 @@ const databaseInstance =
         },
         // The same three, for the same reasons, as the application node's.
         {
-          ignoreChanges: ["sourceDetails", "metadata"],
+          ignoreChanges: [
+            "sourceDetails.sourceId",
+            "sourceDetails.bootVolumeSizeInGbs",
+            "metadata",
+          ],
           deleteBeforeReplace: true,
         },
       )
@@ -847,6 +924,7 @@ const databaseVolume = databaseInstance
         availabilityDomain,
         displayName: databaseVolumeName,
         sizeInGbs: String(databaseDataGb),
+        kmsKeyId,
         freeformTags: tags,
       },
       {
@@ -918,9 +996,9 @@ export const databasePrivateIpAddress = database ? databasePrivateIp : undefined
 /** The name in the certificate and in DATABASE_URL, for an operator debugging either. */
 export const databaseHostName = database ? databaseDnsName : undefined;
 export const url = `https://${settings.hostname}`;
-export const machine = `VM.Standard.A1.Flex — ${size.vcpu} OCPU, ${size.memoryGib} GB, ${dataGb} GB data`;
+export const machine = `VM.Standard.A1.Flex — ${size.application.vcpu} OCPU, ${size.application.memoryGib} GB, ${dataGb} GB data`;
 export const databaseMachine = database
-  ? `VM.Standard.A1.Flex — ${database.size.vcpu} OCPU, ${database.size.memoryGib} GB, ${databaseDataGb} GB data, PostgreSQL 18`
+  ? `VM.Standard.A1.Flex — ${database.size.database.vcpu} OCPU, ${database.size.database.memoryGib} GB, ${databaseDataGb} GB data, PostgreSQL 18`
   : undefined;
 
 const reach = settings.sshCidr

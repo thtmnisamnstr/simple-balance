@@ -192,8 +192,9 @@ jobs:
                      deploy/systemd/simple-balance-firstboot \
                      deploy/systemd/simple-balance-env \
                      deploy/systemd/simple-balance-db-firstboot \
+                     deploy/systemd/simple-balance-growfs \
                      deploy/systemd/simple-balance-waitdb
-          echo "shellcheck passed all six scripts"
+          echo "shellcheck passed all seven scripts"
 
       # Not the single profile's, but linted here for the reason at the top of
       # this file: verify.yml's images job is where the script would otherwise

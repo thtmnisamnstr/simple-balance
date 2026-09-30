@@ -1,0 +1,84 @@
+#!/bin/sh
+# Grow the data volume's filesystem to whatever the block device is now.
+#
+# A bigger block device does not bring a bigger filesystem with it: raising a
+# row in docs/deployment-sizing.md enlarges the volume in place on both clouds
+# and leaves the ext4 on it exactly the size it was formatted at, so the extra
+# space is real, paid for, and unreachable. That is the one way a sizing table
+# can be right and the machine still run out of disk, and it is invisible until
+# the night it is not.
+#
+# Its own file, run three ways, and each of the three is a case the other two do
+# not cover:
+#
+#   simple-balance-growfs.service, at every boot. This is the one that makes a
+#   `pulumi up` that grew a disk turn into space. Neither first-boot script can
+#   do it: cloud-init runs `runcmd` once per instance, so on a machine that
+#   already exists they never run again, and on a fresh one they run at the
+#   moment the filesystem was just created at full size — which is the one case
+#   that needs no growing.
+#
+#   Both first-boot scripts, just after they mount the volume, so a machine
+#   whose disk grew between the `pulumi up` and its first boot is right from the
+#   first boot rather than from the second, and so that re-running one by hand
+#   applies a resize without a reboot.
+#
+#   By hand: sudo /usr/local/sbin/simple-balance-growfs
+#
+# Its own file rather than a block in each first-boot script, so "a no-op on
+# every boot but the one after a resize" is a true sentence about one file
+# instead of a claim made twice about code that never sees a second boot.
+set -eu
+
+# Only for SB_STATE_DIR, which neither machine sets today and which is the one
+# thing that could move the mount. Sourced rather than assumed so that a machine
+# where somebody did set it grows the filesystem they actually have. Guarded
+# because this runs before the first-boot script on a machine cloud-init is
+# still building, where the file may not be written yet.
+if [ -r /etc/default/simple-balance ]; then
+	set -a
+	# shellcheck disable=SC1091  # written by cloud-init, absent at lint time
+	. /etc/default/simple-balance
+	set +a
+fi
+
+# The mount point: the one named on the command line, or the one this deployment
+# keeps its data under. Both machines use the same path — the application node's
+# backups and secrets, the database node's cluster — which is why one unit with
+# no argument serves both.
+SB_GROW_DIR=${1:-${SB_STATE_DIR:-/var/lib/simple-balance}}
+
+# Nothing to grow if nothing is mounted there. `nofail` in fstab means an
+# unmountable volume is a machine that boots with the directory empty rather
+# than one that stops, so this is a real state and not a bug — and resizing the
+# boot disk because the data volume is missing is exactly the accident the
+# `findmnt` lookup exists to prevent.
+if ! mountpoint -q "$SB_GROW_DIR"; then
+	echo "simple-balance: $SB_GROW_DIR is not a mount point, so there is no data volume to grow" >&2
+	exit 0
+fi
+
+# By the device the mount actually resolved to rather than by $SB_DATA_DEVICE,
+# so a volume somebody partitioned by hand grows its partition's filesystem
+# rather than failing against a whole disk that holds a partition table. It is
+# also the command docs/upgrades.md and both READMEs give an operator, which is
+# deliberate: one spelling, wherever it is read.
+SB_DATA_FS=$(findmnt -no SOURCE "$SB_GROW_DIR" 2>/dev/null || true)
+if [ -z "$SB_DATA_FS" ]; then
+	echo "simple-balance: could not tell which device $SB_GROW_DIR is on" >&2
+	exit 0
+fi
+
+# Online, on the mounted filesystem, which is what ext4 has always supported in
+# the direction that matters. Idempotent: `resize2fs` on a filesystem already
+# filling its device prints "Nothing to do!" and exits 0, so this is a no-op on
+# every boot but the one after a resize. It never shrinks — with no size
+# argument it only grows, and both clouds refuse to shrink a volume anyway.
+#
+# Warns rather than fails, and that is deliberate: the deployment works at the
+# old size, and a machine that will not finish booting because it could not grow
+# a disk is worse than one that says so and carries on. `resize2fs` is
+# e2fsprogs, the same package as the `mkfs.ext4` in both first-boot scripts, so
+# it is present wherever those could have run.
+resize2fs "$SB_DATA_FS" ||
+	echo "simple-balance: could not grow the filesystem on $SB_DATA_FS to fill the volume" >&2

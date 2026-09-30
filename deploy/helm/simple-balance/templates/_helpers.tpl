@@ -539,6 +539,105 @@ The first is inside the API and scheduler containers and is what the connection
 string above names. The other two are inside the database containers and are
 what PostgreSQL's `ssl_cert_file`, `ssl_key_file` and `ssl_ca_file` name.
 */}}
+{{/*
+An init container that holds the pod until the Citus cluster is COMPLETE.
+
+Not until the port answers, which is the check this started as and which was
+measurably the wrong one. Patroni opens 5432 as soon as the postmaster is up,
+several seconds before it registers the worker groups with the coordinator, so
+a TCP probe passes and the application then runs migration 0023 into a Citus
+with no workers. Observed exactly, on a real cluster:
+
+    error: replication_factor (1) exceeds number of worker nodes (0)
+    SQL statement "SELECT create_distributed_table('user_preferences', 'user_id')"
+
+The pod crashes, Kubernetes restarts it, and by the second attempt the workers
+have registered and the migration succeeds. So the deployment DOES come up —
+but the crash is the mechanism by which it comes up, which is not a mechanism.
+It depends on the restart landing after registration, the window widens with
+every extra worker group, and the failure is inside the one migration this
+project takes care to keep atomic.
+
+So the condition is `pg_dist_node`: every worker group present before the
+application is allowed to start. That is the actual precondition of 0023, and
+nothing weaker is worth checking.
+
+It runs ONLY where this chart runs the database. A deployment bringing its own
+`databaseUrl` gets no init container: that database is somebody else's to have
+running, and a pod that waited for it would turn a wrong hostname into a hang
+instead of an error.
+
+The database image, because the check is a query and that image is the one with
+a psql and the CA to make it with — the same connection the authinfo Job
+already makes, spelled the same way. The cost is honest and worth stating: a
+node running only application pods now pulls the database image too.
+
+Takes a dict rather than the root context, the way `simple-balance.image` does,
+and for the same reason: two components include this, and the container it
+renders belongs to whichever pod it lands in. Hard-coding
+`.Values.server.containerSecurityContext` here put the *server's* block on the
+scheduler's init container, so a deployment that hardened
+`scheduler.containerSecurityContext` — a stricter seccomp profile, a different
+runAsUser — got the server's settings on the one container in that pod nobody
+had chosen them for, and either a rejected pod or a container an operator
+believed was constrained. The chart carries three independent blocks; this now
+reads the one belonging to the caller.
+*/}}
+{{- define "simple-balance.waitForDatabase" -}}
+{{- $root := .root }}
+{{- with $root }}
+{{- if .Values.database.enabled }}
+initContainers:
+  - name: wait-for-citus
+    image: {{ include "simple-balance.databaseImage" . | quote }}
+    imagePullPolicy: {{ .Values.database.image.pullPolicy }}
+    securityContext:
+      {{- toYaml $.component.containerSecurityContext | nindent 6 }}
+    env:
+      # The application's own connection string, not the superuser's. The pod
+      # projects exactly one key out of the database Secret — `ca.crt` — and the
+      # comment on that projection is explicit that naming one item is what
+      # keeps the superuser, replication and Patroni passwords out of a
+      # container with no use for them. An init container asking for
+      # `superuser-password` would quietly undo that for a query any role can
+      # make: `pg_dist_node` is world-readable in Citus.
+      - name: DATABASE_URL
+        valueFrom:
+          secretKeyRef:
+            name: {{ include "simple-balance.ownSecretName" . }}
+            key: DATABASE_URL
+      - name: SB_EXPECTED_WORKERS
+        value: {{ .Values.database.workers | quote }}
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        i=0
+        until [ "$(psql "$DATABASE_URL" -tAc 'select count(*) from pg_dist_node where groupid <> 0 and isactive' 2>/dev/null || echo 0)" -ge "$SB_EXPECTED_WORKERS" ]; do
+          i=$((i + 1))
+          # Ten minutes. Long enough for a cold cluster to initdb, clone its
+          # standbys and register every group; short enough that a cluster that
+          # is never coming is a failed pod rather than one that waits forever.
+          if [ "$i" -ge 120 ]; then
+            echo "Only $(psql "$DATABASE_URL" -tAc 'select count(*) from pg_dist_node where groupid <> 0' 2>/dev/null || echo 0) of $SB_EXPECTED_WORKERS worker groups registered within 10 minutes." >&2
+            exit 1
+          fi
+          sleep 5
+        done
+        echo "All $SB_EXPECTED_WORKERS worker groups are registered; the ledger can be distributed."
+    volumeMounts:
+      # The pod's existing CA volume, at the path DATABASE_URL's `sslrootcert`
+      # names. libpq reads that path while it parses the string, so without this
+      # the wait would fail to connect for a reason that has nothing to do with
+      # whether the cluster is ready.
+      - name: database-ca
+        mountPath: {{ dir (include "simple-balance.databaseCaPath" .) }}
+        readOnly: true
+{{- end }}
+{{- end }}
+{{- end }}
+
 {{- define "simple-balance.databaseCaPath" -}}/etc/simple-balance/db-ca.pem{{- end }}
 {{- define "simple-balance.databaseTlsDir" -}}/etc/postgresql/tls{{- end }}
 

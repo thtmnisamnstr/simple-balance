@@ -3,7 +3,7 @@ import type {
   ApplicationDatabase,
   DatabaseCloudInitArgs,
   MachineSettings,
-  Size,
+  NodeSize,
 } from "../single-common/cloud-init";
 
 /**
@@ -74,14 +74,19 @@ export function databaseHost(vcnLabel: string, subnetLabel: string, hostLabel: s
 }
 
 /**
- * OCI's smallest block volume. The shared table's `small` asks for 20, which
- * EBS accepts and CreateVolume refuses, so it is raised here rather than in
- * `SIZES`, which the AWS program and `docs/deployment-sizing.md` also read.
+ * OCI's smallest block volume. The shared table's `small` asks for 20 on the
+ * application node and 30 on the database node, both of which EBS accepts and
+ * CreateVolume refuses, so they are raised here rather than in `SIZES`, which
+ * the AWS program and `docs/deployment-sizing.md` also read.
+ *
+ * It is also why shrinking the application node's disk toward what the backup
+ * arithmetic asks for would save nothing on this cloud: everything under 50
+ * lands on 50 either way. It saves real money only on AWS.
  */
 export const MIN_VOLUME_GB = 50;
 
-export function dataVolumeGb(size: Size): number {
-  return Math.max(size.dataGib, MIN_VOLUME_GB);
+export function dataVolumeGb(size: NodeSize): number {
+  return Math.max(size.diskGib, MIN_VOLUME_GB);
 }
 
 /**
@@ -246,5 +251,116 @@ export function databaseInstanceMetadata(
       platformCommands: DATABASE_PLATFORM_COMMANDS,
     }),
     sshPublicKey,
+  );
+}
+
+// ------------------------------------------------- the customer-managed key ---
+
+/** The pair a customer-managed key needs on this cloud, once both are given. */
+export interface KmsSelection {
+  vaultId: string;
+  keyId: string;
+}
+
+/**
+ * The vault and the key, or neither.
+ *
+ * Two settings rather than one, and that is OCI's shape rather than a second
+ * thing to guess: every Key Management call is made against the *vault's* own
+ * management endpoint, which is a per-vault hostname, so a key OCID on its own
+ * is not enough to look the key up or to check it. Asking for the vault is
+ * honest about that; deriving it would mean a search across the compartment
+ * that finds the wrong vault in a tenancy with two.
+ *
+ * Half a configuration refuses, the way `sshCidr` and `sshPublicKey` do. A
+ * vault with no key names nothing to encrypt with, and a key with no vault
+ * cannot be checked before it is used — and an unchecked key is the whole of
+ * what this program is trying not to do.
+ */
+export function readKmsSelection(vaultOcid: string, keyOcid: string): KmsSelection | undefined {
+  const vaultId = vaultOcid.trim();
+  const keyId = keyOcid.trim();
+  if (!vaultId && !keyId) return undefined;
+  if (!vaultId || !keyId) {
+    throw new Error(
+      (vaultId
+        ? "simple-balance:kmsVaultOcid is set but simple-balance:kmsKeyOcid is not"
+        : "simple-balance:kmsKeyOcid is set but simple-balance:kmsVaultOcid is not") +
+        ". Both are needed: every Key Management call goes to the vault's own management " +
+        "endpoint, so the key cannot be looked up — or checked — without it. Set both, or unset " +
+        "both and the volumes keep Oracle's own key, which is what every stack that sets nothing " +
+        "gets and is already encryption at rest.",
+    );
+  }
+  return { vaultId, keyId };
+}
+
+/** What `oci.kms.getKey` answers, cut to what the check below reads. */
+export interface OciKeyFacts {
+  state: string;
+  algorithm: string;
+  protectionMode: string;
+}
+
+/**
+ * The key, refused unless the Block Volume service can use it, at plan time.
+ *
+ * Oracle's lock-out is the opposite of AWS's and both directions are worth
+ * knowing. Here a key in PENDING_DELETION makes everything it encrypted
+ * *immediately* inaccessible — loud, at once, and reversible by cancelling the
+ * deletion. There is also a permanent way back that AWS has no equivalent of: a
+ * volume can be moved off a customer key and onto Oracle's in place, with
+ * `oci bv volume-kms-key delete` and `oci bv boot-volume-kms-key delete`. The
+ * order is the part that catches people, because a key in PENDING_DELETION
+ * "can't be assigned or unassigned to any resources" — so cancel the deletion
+ * first, then unassign, then schedule it again. Getting that backwards means
+ * waiting out a thirty-day window nobody had to wait out.
+ *
+ * AES rather than RSA because Oracle says so of the service, not of the key:
+ * "the Block Volume service does not support encrypting volumes with keys
+ * encrypted using the RSA algorithm... you must use keys encrypted using the
+ * AES algorithm". Without this check that is a launch failure with a message
+ * about the key, after the network has been built.
+ */
+export function requireUsableKmsKey(keyId: string, facts: OciKeyFacts): string {
+  if (facts.state !== "ENABLED") {
+    throw new Error(
+      `simple-balance:kmsKeyOcid names a key whose state is ${facts.state}, not ENABLED. ` +
+        "Anything encrypted by a key in PENDING_DELETION is inaccessible from the moment it is " +
+        "scheduled, so this would build a deployment that cannot read its own disks. Cancel the " +
+        "deletion or re-enable the key in the console, or unset simple-balance:kmsKeyOcid and " +
+        "simple-balance:kmsVaultOcid to keep Oracle's own key.",
+    );
+  }
+  if (facts.algorithm !== "AES") {
+    throw new Error(
+      `simple-balance:kmsKeyOcid names an ${facts.algorithm} key. The Block Volume service ` +
+        "encrypts volumes with AES keys only, so an RSA or ECDSA key is refused here rather than " +
+        "at the launch that fails after the network has been built.",
+    );
+  }
+  return keyId;
+}
+
+/**
+ * What to say about a key that is billed, once rather than in a document
+ * somebody may not have read.
+ *
+ * `protectionMode` defaults to HSM when a key is created without naming one, it
+ * cannot be changed afterwards, and HSM key versions are billed per version
+ * where software ones are free. The `small` pair on this cloud is otherwise
+ * $0 — exactly at the Always Free ceiling — so this is the first thing in the
+ * profile that can take it off $0, and it does it silently and permanently.
+ * A warning rather than a refusal: an operator may want HSM, and a program that
+ * refused it would be making somebody's compliance decision for them.
+ */
+export function hsmKeyWarning(facts: OciKeyFacts): string | undefined {
+  if (facts.protectionMode !== "HSM") return undefined;
+  return (
+    "simple-balance:kmsKeyOcid names an HSM-protected key. HSM key versions are billed per " +
+    "version and software-protected ones are not, and a key's protection mode cannot be changed " +
+    "after it is created — so an Always Free stack that was $0 is no longer $0, and the only way " +
+    "back is a different key, which means replacing the volumes. If that was not deliberate, make " +
+    "a key with protection mode SOFTWARE and point this at that one before the first pulumi up."
   );
 }

@@ -284,6 +284,21 @@ shape the Pulumi programs use. `docs/deployment-profiles.md` compares the two
 and says plainly that `single` is still the one to pick unless you have a
 reason.
 
+**One known limitation of the `ha` profile, and it is worth knowing before you
+try it rather than after.** `helm uninstall` followed by `helm install` under
+the same release name leaves the database permanently unable to start. Patroni
+keeps its cluster state in Kubernetes objects it creates at runtime rather than
+in anything the chart ships, Helm does not delete what it did not create, and
+the state that survives tells the new pods a cluster already exists and to wait
+for a leader that can never be elected. Every database pod logs
+`waiting for leader to bootstrap` every ten seconds, stays `Running` and `0/1`,
+and nothing crashes or reports an error. **Deleting the PersistentVolumeClaims
+is not the fix and is exactly what causes it**; deleting the namespace is the
+recovery. Reinstalling over an intact cluster is a normal restart and is fine.
+`docs/citus-runbook.md` §Uninstalling, and what it leaves behind is the
+procedure and the reasoning, including why the obvious fix — a `pre-delete` hook
+— is being left for a change of its own.
+
 **There was a third, `vps`, on this release's branch, and it is gone.** It was a
 machine per service with the database among them, in `deploy/compose/vps/`. It
 never shipped — 0.1.6 carried none of those files — so this breaks nobody, and
@@ -295,14 +310,14 @@ database machine, with TLS added and the application no longer connecting as the
 superuser.
 
 **If you built a `single` stack from this release's branch before it was cut,
-six things changed under it.** None of this touches a 0.1.6 deployment, because
-none of these programs or files was in 0.1.6.
+the things below changed under it.** None of this touches a 0.1.6 deployment,
+because none of these programs or files was in 0.1.6.
 
 **The `single` profile grew a second machine, and it is on by default.** A stack
 built from an earlier state of this branch has one machine and a `DATABASE_URL`
 you wrote in `env.local`. Its next `pulumi up` will build a database node, a
 private subnet, a NAT gateway, a second data volume and a certificate — and on
-AWS the NAT gateway is roughly $33 a month. The application node keeps using
+AWS the NAT gateway is $36.50 a month, its hours plus the Elastic IP it holds. The application node keeps using
 your `env.local` either way, because `simple-balance-env` folds `env.db` before
 `env.local` and the last assignment wins, so you would be paying for a database
 nothing connects to. Decide before the `up`:
@@ -403,6 +418,130 @@ certificate any public CA issued, for any host, as the database's. They never
 worked with it — libpq looked for a root file the client image does not have —
 so no backup that runs today stops. The application still accepts that URL and
 reads it as `verify-full`; writing `verify-full` means the same to both.
+
+**The sizing table now sizes the two machines apart, and on an existing branch
+stack the next `pulumi up` acts on it.** A row used to carry one machine shape
+and one data-disk figure, read twice; it now carries an application half and a
+database half. What that does to a stack depends on the row:
+
+- **`small` on Oracle Cloud: nothing.** Both data disks are under OCI's 50 GB
+  floor before and after, so the tenancy sees the same four 50 GB volumes. The
+  machines are unchanged.
+- **`small` on AWS:** the database node's data disk goes from 20 to 30 GiB. The
+  machines are unchanged.
+- **`medium` and `large`:** the **application** node comes down to a smaller
+  machine — `m7g.xlarge` to `t4g.medium` at `medium`, `m7g.2xlarge` to
+  `t4g.large` at `large` — because `docs/capacity.md` measured it using half a
+  core and 745 MiB and the cores it was buying do nothing for a machine that
+  stores no ledger. That is a resize, which both clouds make in place and which
+  restarts the machine, so take it at a quiet moment. The database node's
+  machine does not change. Both data disks grow.
+
+**No disk gets smaller, and that is a rule the table is now held to**, because
+AWS refuses to shrink a volume and OCI would replace one. Where the arithmetic
+asked for less than a row already gave, the row keeps what it had.
+
+**A disk that grows needs a reboot, or one command.** Both clouds enlarge the
+block device in place, and first boot formats a device only when it is not
+already a filesystem — so after an `up` that grew a disk the extra space is a
+number in a console until the filesystem on it is grown too.
+
+A machine built from this release does it itself: `simple-balance-growfs.service`
+runs at every boot, after the data volume is mounted, and `resize2fs` on a
+filesystem that already fills its device prints `Nothing to do!` and exits 0. So
+rebooting the machine is enough.
+
+**A machine built before this release has no such unit**, because cloud-init
+runs once per instance and a `pulumi up` that grows a volume replaces no
+machine. There, and any time you would rather not reboot, run on the machine:
+
+```sh
+sudo resize2fs "$(findmnt -no SOURCE /var/lib/simple-balance)"
+df -h /var/lib/simple-balance
+```
+
+That is the same command the unit runs, and it is online — nothing has to be
+stopped. It asks the mount which device it is on rather than naming one, which
+is what makes it right on both clouds: neither data volume carries a partition
+table (first boot runs `mkfs.ext4` on the whole device), the AWS device is a
+`/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_…` symlink and the OCI one is
+`/dev/oracleoci/oraclevdb`, and `lsblk` distinguishes neither from the root disk.
+`growpart` has no partition to grow here and fails; reach for it only on a
+volume somebody partitioned by hand, and then against that partition.
+
+On the database node the mount point is the same path. Nothing breaks without
+any of this; the disk simply stays the size it was, which matters most on the
+database node, where a full `PGDATA` is a cluster that will not restart.
+
+**`simple-balance:databaseEgress` is new, defaults to `nat`, and unset plans
+nothing.** It is AWS-only and it exists for the NAT gateway, which is $36.50 a
+month and 38% of a `small` bill. `ipv6` replaces it with an egress-only internet
+gateway at no charge — and takes Session Manager away from the database node,
+because there is then no IPv4 route out and `ssm.<region>.amazonaws.com`
+publishes no IPv6 address. It therefore requires `simple-balance:sshPublicKey`
+and is refused without one, and reaches the machine by SSH from the application
+node instead. Decide it deliberately: it is the only shell onto the machine
+holding the ledger.
+
+**Setting it on a stack whose machines already exist may rebuild both of them**,
+and that is the half the setting's name does not warn about. If
+`simple-balance:sshPublicKey` was not already set — it is optional on AWS —
+then setting it is what gives both instances a `keyName`, and EC2 has no API to
+give a running instance a key pair, so both plan a replacement and the database
+node is deleted before its replacement is made. The data volumes are separate
+protected resources and firstboot reformats nothing it finds a filesystem on, so
+the ledger survives; the outage does not. Set the key on its own, run
+`pulumi up`, and set `databaseEgress` afterwards. With a key already in the stack
+this changes routes, a security group and one address, and replaces nothing.
+
+**Customer-managed keys are new, optional, and on AWS you cannot add one to a
+stack that already exists.** Unset, every volume is encrypted exactly as it was,
+with the provider's key. `simple-balance:kmsKeyArn` on AWS and
+`simple-balance:kmsVaultOcid` with `simple-balance:kmsKeyOcid` on Oracle Cloud
+name one of yours.
+
+- **A volume's key is fixed when the volume is created.** On AWS, setting
+  `kmsKeyArn` on a stack that exists plans to *replace* both data volumes — a
+  new empty volume and the old one deleted, which on the database node is the
+  ledger — and both boot volumes with them, which replaces both machines. So
+  **`kmsKeyArn` is refused unless `simple-balance:kmsKeyArnIsNewStack` is
+  `true`**, which is your statement that this `up` changes no volume's key —
+  they do not exist yet, or they were already created with this key, so a branch
+  stack already built with one sets it and plans nothing. The refusal arrives
+  before anything is declared and carries the migration in its message. The guard is that setting rather than `protectDataVolume`
+  because `protect` is a flag in the state snapshot while `protectDataVolume` is
+  a flag in config, and both `protectDataVolume: false` *and*
+  `pulumi state unprotect` — this document's own teardown uses one or the other
+  — clear it in the state while the config still reads `true`. Set the key
+  before the first `up`, or migrate by snapshot copy: stop the compose stack,
+  snapshot the data volume, copy the snapshot under the new key, create a volume
+  from the copy, swap it in, and bring the stack's state back into line.
+- **The key's policy has to allow it, and no check can see that.** On AWS the
+  principal running `pulumi up` needs `kms:GenerateDataKeyWithoutPlaintext`,
+  `kms:CreateGrant` with `kms:GrantIsForAWSResource`, `kms:Decrypt` and
+  `kms:DescribeKey` on that key. The default policy `aws kms create-key` writes
+  with no `--policy` already has them; a hand-written one may not, and then the
+  volume is created and deleted moments later with nothing but an empty state
+  entry to show for it.
+- **On Oracle Cloud it is an in-place update** on a block volume — the data key
+  is re-wrapped and the contents are untouched — so it can be added later, and
+  it reaches **all four** volumes rather than only the two data ones. Both
+  instances name individual properties in `ignoreChanges`
+  (`sourceDetails.sourceId`, `sourceDetails.bootVolumeSizeInGbs`, `metadata`)
+  precisely so a key added later is not swallowed with the parent, so there is
+  no `oci bv boot-volume-kms-key update` step to run. Preview it against your
+  tenancy first; it is the one behaviour here worth seeing before you rely on
+  it.
+- **A key you disable or schedule for deletion locks you out of your own
+  ledger.** On AWS it does so silently: nothing fails while the volume stays
+  attached, and the failure lands at the next detach — a stop, a resize, a
+  replacement — possibly weeks later and possibly after the recovery window has
+  closed, at which point the data is gone for good. Set a CloudWatch alarm on
+  use of a key pending deletion on the day you set `kmsKeyArn`; nothing else
+  will warn you. On Oracle Cloud it fails immediately, which is kinder, and the
+  way out is to **cancel the deletion first and only then unassign the key**,
+  because a key in pending deletion cannot be unassigned from anything.
+  `docs/deployment-profiles.md` §Encryption is the whole of it.
 
 ### What changed under you
 

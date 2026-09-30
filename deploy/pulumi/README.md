@@ -130,18 +130,38 @@ Except where a line says otherwise, this applies to all four.
   single-machine ones generate it once, on the application node's data disk.
   Neither rotates it, and neither rotates the database's certificate — see
   [rotating the database's certificate](#rotating-the-databases-certificate).
-- **No customer-managed key on any data volume.** Every disk and every volume
-  these programs build is encrypted at rest, and always with the provider's own
-  key: `encrypted: true` on AWS, where encryption-by-default is an account
-  setting that is off on a fresh account and the property is therefore the whole
-  guarantee; Oracle Cloud's unconditional volume encryption on OCI; an encrypted
-  gp3 StorageClass on EKS; Google's own keys on GKE. A customer-managed key
-  would add a key policy to get wrong, a monthly charge, and a documented way to
-  lock yourself permanently out of your own ledger volume. The one exception is
-  the Kubernetes Secrets in etcd, where neither cloud offers a managed key: both
-  `ha` programs create one and turn envelope encryption on.
-  `docs/deployment-profiles.md` §Encryption is the whole table, at rest and in
-  transit.
+- **The provider's own key, unless you name one.** Every disk and every volume
+  these programs build is encrypted at rest, and by default always with the
+  provider's own key: `encrypted: true` on AWS, where encryption-by-default is
+  an account setting that is off on a fresh account and the property is
+  therefore the whole guarantee; Oracle Cloud's unconditional volume encryption
+  on OCI; an encrypted gp3 StorageClass on EKS; Google's own keys on GKE. The
+  single-machine programs take a key of your own —
+  `simple-balance:kmsKeyArn` on AWS, `simple-balance:kmsVaultOcid` with
+  `simple-balance:kmsKeyOcid` on Oracle Cloud — and **accept one rather than
+  creating one**, because a key a program creates has the program's lifetime and
+  that is the wrong lifetime for the thing that decrypts a ledger: this
+  profile's own teardown keeps the data volumes and would have scheduled the
+  key's deletion. **Read `docs/deployment-profiles.md` §Encryption before
+  setting either.** A volume's key is fixed when the volume is created, so on
+  AWS adding one to a stack that exists asks to replace both data volumes, which
+  `simple-balance:kmsKeyArnIsNewStack` exists to stop you doing by accident; and a key that is
+  later disabled or deleted is a volume nobody can read, with a 7-to-30-day
+  window to undo it and nothing after. The `ha` programs create a key for one
+  thing only, the Kubernetes Secrets in etcd, where neither cloud offers a
+  managed one.
+- **The database node's egress is a NAT gateway on AWS, at $36.50 a month.** It
+  is 38% of the `small` bill and it buys three things: Ubuntu's archive, the
+  image registry, and Session Manager — which is the only shell onto a machine
+  with no public address, and the reason "just remove the gateway" is the wrong
+  instinct. `simple-balance:databaseEgress` is the setting, it defaults to
+  `nat`, and `ipv6` builds an egress-only internet gateway instead at no charge,
+  reaching the machine by SSH from the application node rather than by Session
+  Manager. Oracle Cloud charges nothing for its NAT gateway and needs none of
+  this. `docs/deployment-costs.md` compares them, including the two free-looking
+  answers that do not work — an S3 gateway endpoint reaches neither Ubuntu's
+  mirrors nor Docker Hub, and interface endpoints cost the NAT gateway's price
+  in five parts.
 - **The `ha` programs are not free.** A managed control plane, three or more
   nodes, a load balancer and a NAT gateway are all billed by the hour whether or
   not anybody signs in, and `database: in-cluster` adds the database's own
@@ -223,10 +243,11 @@ deploy/pulumi/
   single-common/tls.ts  the private CA and the database's server certificate
   aws-single/Pulumi.yaml  the simple-balance-aws-single project
   aws-single/index.ts   VPC, a public subnet and a private one, two security
-                        groups, two encrypted EBS data volumes, a NAT
-                        gateway, an Elastic IP, two instances, and instance
-                        roles granting a shell through Session Manager
-                        rather than SSH
+                        groups, two encrypted EBS data volumes, the database
+                        subnet's egress — a NAT gateway, or an egress-only
+                        internet gateway with `databaseEgress: ipv6` — an
+                        Elastic IP, two instances, and instance roles granting
+                        a shell through Session Manager rather than SSH
   aws-single/platform.ts  the user data it sends, the region, and the
                         internal DNS name the certificate has to carry
   oci-single/Pulumi.yaml  the simple-balance-oci-single project
@@ -457,9 +478,9 @@ private subnet nor the NAT gateway, and the application node then waits for a
 | Key | Required | Default | What it is |
 | --- | --- | --- | --- |
 | `hostname` | yes | | The public DNS name. A name and nothing else: no scheme, no port, no path. Caddy obtains a certificate for it, so it has to resolve to the machine before HTTPS works |
-| `size` | | `small` | The **application node's** row of `small`, `medium` or `large`. `docs/deployment-sizing.md` is the table, and it is the same table `single-common/index.ts` implements |
-| `databaseNode` | | `true` | Whether to build the database node, its private subnet, its NAT gateway, its volume and its certificate. `false` builds none of it and leaves the machine exactly as it was before this profile had a database: write your own `DATABASE_URL` into `env.local`, and firstboot's gate holds the deployment stopped until you do. It is the answer for somebody who already keeps a PostgreSQL, and on AWS it is also how to avoid the NAT gateway's roughly $33 a month |
-| `databaseSize` | | whatever `size` is | The **database node's** row of the same table, which also picks the five PostgreSQL settings the compose file applies as `-c` flags. Separate from `size` because the two machines want opposite things: the application is a mostly idle Node process, and PostgreSQL would take every byte of memory on the machine |
+| `size` | | `small` | The **application half** of the row `small`, `medium` or `large`: the application node's machine and its data disk, which holds the nightly dumps and grows with `backupKeep` rather than with the machine. `docs/deployment-sizing.md` is the table, and it is the same table `single-common/index.ts` implements |
+| `databaseNode` | | `true` | Whether to build the database node, its private subnet, its NAT gateway, its volume and its certificate. `false` builds none of it and leaves the machine exactly as it was before this profile had a database: write your own `DATABASE_URL` into `env.local`, and firstboot's gate holds the deployment stopped until you do. It is the answer for somebody who already keeps a PostgreSQL, and on AWS it is one way to avoid the NAT gateway's $36.50 a month — no longer the only one, since `databaseEgress: ipv6` keeps the node and drops the gateway |
+| `databaseSize` | | whatever `size` is | The **database half** of the same row: the database node's machine, its `PGDATA` disk, and the five PostgreSQL settings the compose file applies as `-c` flags. Separate from `size` because the two machines want opposite things — the application is a mostly idle Node process and PostgreSQL turns every spare byte into cache. Raising this alone gives you a database the backup disk cannot hold dumps of, so raise `size` with it or lower `backupKeep` |
 | `databaseMaxConnections` | | `50` | `max_connections` on the database node, floor 10. Eleven for the application, one for `psql`, one for the nightly `pg_dump`, and the rest is slack; PostgreSQL's own default of 100 costs memory `shared_buffers` would rather have |
 | `databasePassword` | secret | generated | The application role's password. Unset, a 32-character alphanumeric one is generated. Set, yours wins. Letters and digits only, at least 16 of them, and that is narrower than PostgreSQL would accept on purpose: the value travels through a URL, a Compose `.env` and a shell script, each with its own escaping, and an encoding applied in one of the three and not the others is a password that works until the nightly backup runs. The **superuser's** password is not this and is not a setting — it is generated on the database node at first boot and exists in no state file and no user data |
 | `acmeEmail` | | | Where Let's Encrypt writes about a renewal that failed. Optional to them and worth setting |
@@ -470,12 +491,16 @@ private subnet nor the NAT gateway, and the application node then waits for a
 | `imageRepository` | | `ghcr.io/thtmnisamnstr/simple-balance` | For a private mirror |
 | `timezone` | | `Etc/UTC` | The machine's clock. Not the application's — that is each person's own setting |
 | `backupKeep` | | `14` | How many daily dumps to retain on the data disk |
+| `databaseEgress` | | `nat` | AWS only. How the database node reaches the internet — Ubuntu's archive, the image registry and Session Manager. `nat` is the NAT gateway every stack so far has had, at $36.50 a month. `ipv6` builds an egress-only internet gateway instead, which AWS charges nothing for, and is refused without `sshPublicKey`: it takes Session Manager away, because `ssm.<region>.amazonaws.com` publishes no IPv6 address, so the shell becomes SSH from the application node and a rule for 22 from its security group — the one inbound rule on that machine besides 5432, and it exists only under this setting. It also rewrites the node's apt sources to `archive.ubuntu.com`, which publishes IPv6 where the in-region mirror does not. Unset plans no change on a stack that exists. **Setting it on a stack whose machines exist may not be a no-op:** if `sshPublicKey` was not already set, adding it gives both instances a `keyName`, which EC2 cannot change on a running machine, so both plan a replacement and the database node is deleted before its replacement is made. The data volumes are separate protected resources and survive it, but it is two rebuilds of downtime — set the key on its own, `up`, and set this afterwards. `docs/deployment-costs.md` compares them and says what the free-looking alternatives do not do |
+| `kmsKeyArn` | | | AWS only. A KMS key of yours for both data volumes and both boot volumes, instead of the AWS-managed one. It must be enabled, customer-managed, symmetric and for encrypt/decrypt, and its policy must let the principal running `pulumi up` call `kms:GenerateDataKeyWithoutPlaintext`, `kms:CreateGrant` (with `kms:GrantIsForAWSResource`), `kms:Decrypt` and `kms:DescribeKey` — the default policy `aws kms create-key` writes with no `--policy` already does, and without them a volume is created and deleted moments later. The program checks the key's state before it declares anything encrypted, so a key in the wrong state fails the preview rather than half-building a stack; it cannot check the policy, which is why it is written out here. **Set it before the first `up`**, and set `kmsKeyArnIsNewStack` with it |
+| `kmsKeyArnIsNewStack` | with `kmsKeyArn` | `false` | AWS only. Your statement that this `up` changes no volume's key: the volumes do not exist yet, or they were already created with this key, so a stack already built with one sets this and plans nothing. A volume's key cannot be changed afterward, so naming one on a stack that already has volumes asks to replace them — an empty volume where the ledger was. Pulumi's `protect` usually refuses that, but it lives in the state snapshot rather than in this config, and both `protectDataVolume: false` and `pulumi state unprotect` clear it there while the config still says `true`; neither is visible to the program, so it asks instead. `docs/deployment-profiles.md` §Encryption has the by-hand migration and what a disabled or deleted key does |
+| `kmsVaultOcid`, `kmsKeyOcid` | | | Oracle Cloud only, and both or neither: the key cannot be looked up without the vault's management endpoint. An AES key — the Block Volume service refuses an RSA-wrapped one — and enabled, checked the same way and at the same point. Adding it to a stack that exists is not destructive here: OCI re-wraps a block volume's data key in place. Create the key with `--protection-mode SOFTWARE` unless you mean to pay for HSM, which cannot be changed afterward |
 | `aws:region` | on AWS | | The region to build in, such as `us-west-2`, exported as `region`. Required in the stack, and `preview` stops before anything is declared without it: otherwise the provider takes `AWS_REGION` or `AWS_DEFAULT_REGION` from the shell, so where the machine and its data volume live would depend on who runs `pulumi up`. Version 7 of the provider records a region on every resource, so a stack run from a shell pointed at another region plans to replace every one of them there, the data volume included. Set it once and never change it: see [tearing down on AWS](#tearing-down-on-aws) for what a new one does. Any region is accepted |
 | `oci:region` | on OCI | | The region to build in, such as `us-ashburn-1`, exported as `region`. Required in the stack even when `~/.oci/config` names one, and `preview` stops before anything is declared without it: otherwise the provider takes `TF_VAR_region`, `OCI_REGION` or the profile's region, so where the machine and its data volume live would depend on who runs `pulumi up`, and a stack run from another shell would look for its resources somewhere they are not. For Always Free it is the tenancy's home region, because Ampere A1 capacity is free there and nowhere else; the home region is chosen at sign-up and cannot be changed afterward, and Profile → Tenancy in the console shows it. A paid tenancy may name any region it subscribes to. The hosted Simple Balance deployment builds in a US home region because its privacy policy says its data is stored in the United States — a promise that deployment makes, not one this program enforces, so any region is accepted |
 | `compartmentOcid` | OCI only | | Which compartment to build in. OCI has no default and the root compartment is a poor choice, since policies cannot be scoped to it |
 | `availabilityDomain` | | the first | OCI only. Which availability domain to build both machines and both data volumes in, by full name or by number from 1. Try another when a launch fails with `Out of host capacity` — another domain rather than another region, because Always Free covers the tenancy's home region only. Set it before the first successful `up` and leave it: changing it afterward would replace the data volumes, and the secret, `env.local`, the backups and the ledger would go with the old ones, so while `protectDataVolume` is `true` the program refuses that `up` before it touches a machine or a volume, and names the domain to set back. Until a launch succeeds it is free to change: the volumes are built after the machines, so a launch refused for capacity leaves nothing in the domain |
 | `databaseSubnet` | | `false` | OCI only, and **deprecated in favour of `databaseNode`**. It asks for the private subnet with nothing in it, for an OCI managed database you build by hand — see [a database for Oracle Cloud](#a-database-for-oracle-cloud). It is still honoured, and a stack that sets it logs a deprecation line and carries on, because nothing that was accepted is refused. The subnet, its route to the NAT gateway and its security list are built when either this or `databaseNode` asks for them, and its OCID is exported as `databaseSubnetId` either way; only the PostgreSQL machine inside it belongs to `databaseNode` |
-| `protectDataVolume` | | `true` | Marks **both** data volumes with Pulumi's `protect`, so `pulumi destroy` fails at its preview and deletes nothing, and so does an `up` that would replace either. On Oracle Cloud a new `availabilityDomain` is refused before a machine or a volume is touched, `--skip-preview` included; on AWS the one setting that replaces them is a new `aws:region`, which the preview refuses at the volume. Either would otherwise take the generated secret, `env.local`, every backup — and, on the database node, the ledger. A resize and a replaced machine still go through. `false` is how to mean it — see [tearing down on AWS](#tearing-down-on-aws) and [on Oracle Cloud](#tearing-down-on-oracle-cloud) |
+| `protectDataVolume` | | `true` | Marks **both** data volumes with Pulumi's `protect`, so `pulumi destroy` fails at its preview and deletes nothing, and so does an `up` that would replace either. On Oracle Cloud a new `availabilityDomain` is refused before a machine or a volume is touched, `--skip-preview` included; on AWS two settings would replace them — a new `aws:region`, which the preview refuses at the volume, and a `kmsKeyArn`, which is why the program refuses that setting unless `kmsKeyArnIsNewStack` says the volumes do not exist yet. **This setting is not the guard for that one**, and could not be: `protect` is a flag in the state snapshot, and `pulumi state unprotect` clears it there while this still reads `true`. Either would otherwise take the generated secret, `env.local`, every backup — and, on the database node, the ledger. A resize and a replaced machine still go through. `false` is how to mean it — see [tearing down on AWS](#tearing-down-on-aws) and [on Oracle Cloud](#tearing-down-on-oracle-cloud) |
 
 **The only secret key here is `databasePassword`, and it is optional.**
 `AUTH_SECRET` is generated on the application node at first boot and kept on its
@@ -528,10 +553,13 @@ it exists for.
 
 **Resizing is not a rebuild.** Change `size` or `databaseSize` and deploy, and
 both clouds change that machine in place, restarting it into the new shape, and
-grow its data volume where it is. The filesystem on the volume stays the size it
-was until it is told otherwise:
+grow its data volume where it is. The filesystem on the volume does not follow
+on its own: `simple-balance-growfs.service` grows it at every boot, so the
+restart the resize already causes is usually all it takes. On a machine built
+before that unit existed — cloud-init runs once per instance, so it never
+arrives on one — run
 `sudo resize2fs "$(findmnt -no SOURCE /var/lib/simple-balance)"`
-once the volume has grown — on Oracle Cloud after the rescan its documentation
+once the volume has grown, on Oracle Cloud after the rescan its documentation
 on resizing a volume describes. Neither cloud shrinks a volume, so a size whose
 disk is smaller than the one there fails at the volume. On the database node the
 restart is a database restart, so take it when nobody is using the deployment.
@@ -599,6 +627,10 @@ sudo systemctl restart simple-balance
 
 # Another SSH key, on OCI.
 nano ~/.ssh/authorized_keys
+
+# A data volume this stack grew, on a machine built before
+# simple-balance-growfs.service existed. Newer machines do it at every boot.
+sudo resize2fs "$(findmnt -no SOURCE /var/lib/simple-balance)"
 ```
 
 Take a backup first either way: `sudo systemctl start simple-balance-backup`.
@@ -652,7 +684,11 @@ which is not a superuser and owns only its own database.
 
 **Reaching the database node for a shell.** On AWS, Session Manager, exactly as
 on the application node — the role carries `AmazonSSMManagedInstanceCore` and no
-port is open for it. On Oracle Cloud, a Bastion in the database node's *own*
+port is open for it. Under `databaseEgress: ipv6` that is not available, because
+the agent's endpoint is IPv4-only and the subnet has no IPv4 route: there the
+shell is a Session Manager port forward through the *application* node to 22 on
+the database node, which is what the second inbound rule that setting adds is
+for. On Oracle Cloud, a Bastion in the database node's *own*
 subnet, because that is where an OCI Bastion's private endpoint has to sit:
 `--target-subnet-id "$(pulumi -C oci-single stack output databaseSubnetId)"` and
 `--target-private-ip "$(pulumi -C oci-single stack output databasePrivateIpAddress)"`,
@@ -1014,6 +1050,15 @@ pulumi -C aws-single destroy
 A stack left at `false` builds its next volume unprotected, so run
 `pulumi -C aws-single config rm simple-balance:protectDataVolume` before
 building it again.
+
+**`state unprotect` leaves the config saying `true`,** which is the point of it
+and also the thing to remember afterwards: the flag Pulumi obeys is in the state
+snapshot, so between that command and the next `up` the volume is replaceable
+although nothing in `pulumi config` says so. If the destroy is abandoned — you
+change your mind, or it fails partway — run the `unprotect`'s opposite, or an
+`up`, before making any change that would replace a volume. This is why
+`kmsKeyArn` is guarded by `kmsKeyArnIsNewStack` rather than by
+`protectDataVolume`: the config value cannot tell you what the state says.
 
 ## After the first `pulumi up`
 

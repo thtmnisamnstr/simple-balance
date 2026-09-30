@@ -64,6 +64,37 @@ and PostgreSQL rather than this release, and there is deliberately no `latest`: 
 major version cannot read the previous major's data directory, so a floating tag
 on a database turns an image pull into an outage.
 
+**The application waits for the database instead of crash-looping at it.** On a
+first install of the `ha` profile the API and the scheduler came up before
+PostgreSQL was accepting connections and restarted once, or twice at the
+redundant shape, before settling — which looks exactly like a broken deployment
+to somebody meeting the chart for the first time. Both now carry a
+`wait-for-database` init container, gated on `database.enabled`, so a
+bring-your-own-database deployment is unaffected and renders what it rendered
+before.
+
+**A known limitation: `helm uninstall` followed by `helm install` under the same
+release name leaves the database permanently unable to start.** Patroni keeps
+its cluster state in Kubernetes objects it creates itself at runtime — endpoints
+named `<release>-simple-balance-db-<group>`, and `-config`, `-sync` and
+`-failover` beside them. Helm did not create them, so `helm uninstall` does not
+delete them, and the `-config` endpoint is left carrying an `initialize`
+annotation with an empty value. Patroni reads the *presence* of that annotation
+as "this cluster already exists, do not bootstrap, wait for a leader", and the
+empty value means no member can claim leadership from it. Every database pod
+then logs `INFO: waiting for leader to bootstrap` every ten seconds forever,
+`Running` and `0/1`, with nothing crashing, nothing backing off and no event
+saying anything is wrong. **Deleting the PersistentVolumeClaims is not the fix
+and is precisely the trap** — it is what produces the deadlock, because the
+state then describes a cluster whose data is gone. Deleting the namespace is the
+recovery, because it takes the endpoints with it. Reinstalling over an intact
+set of claims with that state intact is a different case and is a normal
+restart. This is recorded rather than fixed: the fix is a `pre-delete` hook that
+removes Patroni's state on uninstall, plus the RBAC to let it, and a hook that
+deletes cluster state is one that can delete it at the wrong moment, so it wants
+its own change and its own review. `docs/citus-runbook.md` §Uninstalling, and
+what it leaves behind has the procedure.
+
 **A capacity proof, reproducible from this repository.** `docs/capacity.md` is
 the claim — ten thousand people's ledgers on the smallest machine the `single`
 profile sells, answered inside stated times — and `scripts/capacity/` is what
@@ -118,6 +149,93 @@ operator's own value to letters and digits, because the value crosses a URL, a
 Compose `.env` and a shell script and an encoding applied in one of the three
 works until the nightly backup runs. `protectDataVolume` now governs both
 volumes.
+
+**The sizing table sizes the two machines apart, because they hold unrelated
+things.** One data-disk figure was read twice — once for `PGDATA` and once for
+the nightly dumps — and it was wrong for both at the population
+`docs/capacity.md` proves. A row now carries an application half and a database
+half. The application node comes down to two cores and 4 GiB at every size,
+which is roughly four times the 0.5 core and 745 MiB it was measured using, and
+the four and eight cores it used to buy were bought for a machine that stores no
+ledger and whose memory does nothing for the database's cache. The database
+node's machine does not change at all. The disks do: `medium` carries 250 GiB
+where it carried 140 and `large` 680 where it carried 240, which is what it
+takes to hold the ledgers those rows claim and the fifteen dumps beside them —
+fourteen kept plus the one being written, which is the peak the backup script's
+own prune order produces and which every figure here had been understating by
+one. **No disk in the table got smaller**, deliberately: AWS refuses to shrink a
+volume and OCI would replace one, so the disks may be made more generous and
+never less, and `small`'s application disk stays at 20 GiB where its arithmetic
+asks for 10. The application node's machine is the one thing that does come
+down, which is safe for the opposite reason: a resize is in place on both clouds
+and costs a restart rather than a disk. `medium` and `large` cost roughly 30% less than they did
+on AWS while carrying nearly twice the disk at `medium` — 140 GiB to 250 — and
+nearly three times at `large` — 240 GiB to 680. `small` is unchanged, and an
+Oracle `small` is still $0 at exactly the Always Free ceiling. `docs/deployment-sizing.md` shows the
+arithmetic per machine rather than the answer.
+
+**A grown disk becomes grown space by itself.** Both clouds enlarge a block
+volume in place and leave the filesystem on it exactly the size it was
+formatted at, so raising a row used to buy space that was real, paid for and
+unreachable. `simple-balance-growfs.service` runs `resize2fs` on both machines
+at every boot, after the data volume is mounted, and prints `Nothing to do!`
+when there is nothing to do — so a reboot is all a grown disk needs. It is a
+unit rather than a line in the first-boot scripts because cloud-init runs those
+once per instance and a `pulumi up` that grows a volume replaces no machine,
+which is exactly the case the growth is for. A machine built before this release
+never receives the unit, for the same reason, and wants
+`sudo resize2fs "$(findmnt -no SOURCE /var/lib/simple-balance)"` once; the
+`growpart` recipe two documents used to give was wrong on both clouds, since
+neither data volume carries a partition table.
+
+**The `ha` chart's wait-for-Citus init container takes its own pod's security
+context.** It was hard-coded to the server's, so a deployment that hardened
+`scheduler.containerSecurityContext` got the server's settings on the one
+container in the scheduler's pod nobody had chosen them for — either a pod a
+policy admission controller rejects, or a container an operator believes is
+constrained and is not.
+
+**`simple-balance:databaseEgress`, for the AWS NAT gateway that is 38% of a
+`small` bill.** It defaults to `nat`, which is what every stack has today and
+plans no change. `ipv6` builds an Amazon-provided IPv6 range, an egress-only
+internet gateway and a `::/0` route instead, and costs **nothing** — no hourly
+charge and no per-GB charge. What it costs in another currency is stated rather
+than hidden: Session Manager stops working on the database node, because
+`ssm.<region>.amazonaws.com` publishes no IPv6 address and there is no IPv4
+route left, so the setting requires `sshPublicKey` and is refused without one
+rather than quietly removing the only shell onto the machine holding the ledger.
+Oracle Cloud needs none of it, since its NAT gateway is free.
+
+**Customer-managed keys on both single-machine clouds, accepted and never
+created.** `simple-balance:kmsKeyArn` on AWS and `simple-balance:kmsVaultOcid`
+with `simple-balance:kmsKeyOcid` on Oracle Cloud encrypt both data volumes and
+both boot volumes with a key of yours. Unset — the default — every one of them
+is still encrypted with the provider's own key, free and undeletable, which
+stays the right answer for most deployments. The program accepts a key rather
+than building one because a key a program creates has the program's lifetime,
+and `pulumi destroy --exclude-protected` is this profile's documented teardown
+and deliberately *keeps* both data volumes: a key the program owned would be
+scheduled for deletion by the same command that kept the ledger. Both programs
+read the key at plan time and refuse the stack before anything the key would
+encrypt is declared unless it is enabled, customer-managed, symmetric and for
+encrypt/decrypt, so a wrong key fails a preview rather than building half a
+deployment around it — the network can still be built first under
+`--skip-preview`, which is said plainly rather than rounded up to "before any
+resource". It is **not retroactive**: a volume's key is fixed at creation, so on
+AWS setting it on a stack that exists plans to replace the volumes. The guard is
+a setting of its own, `simple-balance:kmsKeyArnIsNewStack`, which `kmsKeyArn` is
+refused without — **not** `protectDataVolume`, because `protect` is a flag in
+the state snapshot and `pulumi state unprotect` clears it there while the config
+still reads `true`, so a guard built on the config would have passed in one of
+the two states where Pulumi goes ahead and deletes a ledger. On Oracle Cloud a
+key added later reaches all four volumes, boot volumes included, because both
+instances name individual properties in `ignoreChanges` rather than the parent
+that holds the key. `docs/deployment-profiles.md` §Encryption has what the key
+policy must grant — `GenerateDataKeyWithoutPlaintext` and `CreateGrant`, which
+no check can see and whose absence is a volume created and deleted seconds later
+— and the lock-out behaviour on each cloud and the recovery, including that on
+Oracle a key in pending deletion cannot be unassigned, so the deletion has to be
+cancelled first.
 
 **Neither machine carries a secret it does not need.** `AUTH_SECRET` is
 generated on the application node at first boot and kept on its disk; the

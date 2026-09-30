@@ -1,4 +1,5 @@
-# The `small` row of docs/deployment-sizing.md, enforced rather than described.
+# Half of each half of the `small` row of docs/deployment-sizing.md, enforced
+# rather than described, and deliberately conservative.
 #
 # A third file rather than part of compose.capacity.yml, because seeding and
 # measuring want different answers. Building the dataset is setup — in a real
@@ -9,11 +10,19 @@
 # Without them the measurement is of an eleven-core laptop and says nothing
 # about a t4g.medium, which is what the sizing table sells.
 #
-# The two processes share one machine in this profile, so the two vCPUs and
-# 4 GiB are split rather than each given the whole. PostgreSQL takes the larger
-# share because it does the work a ledger query is made of, and the remainder
-# leaves room for the kernel's page cache, which `effective_cache_size` tells
-# the planner to expect.
+# **Why these are half the row and not the row.** `small` is 2 vCPU and 4 GiB on
+# *each* of two machines now: one for the application, one for PostgreSQL. These
+# limits were written when the profile put both processes on one such machine
+# and split it, so postgres gets 1.5 cores and 3 GiB where its own machine has
+# 2 and 4, and the application gets 0.5 and 1 where its own machine has the
+# same. They are left where they are on purpose: every figure the sizing table
+# and docs/capacity.md publish was measured under them, and a harness that
+# understates the machine cannot overstate the result. Raising them to 2 and
+# 4 apiece would make the numbers better and the claim weaker.
+#
+# So read a result from this file as "at least this, on `small`". If the two
+# services are ever separated onto different hosts here, that is the moment to
+# raise each to the whole of its own half of the row and re-measure.
 services:
   postgres:
     deploy:

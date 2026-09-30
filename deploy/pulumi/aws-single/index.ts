@@ -12,10 +12,15 @@ import {
 import { databaseCertificates } from "../single-common/tls";
 
 import {
+  IPV6_APT_REWRITE,
   PLACEHOLDER_VOLUME_ID,
   databaseHost,
   databaseUserDataBase64,
+  ipv6SubnetCidr,
+  readDatabaseEgress,
+  requireNewStackForKmsKey,
   requireRegion,
+  requireUsableKmsKey,
   userDataBase64,
 } from "./platform";
 
@@ -46,8 +51,10 @@ const size = settings.size;
  * the application node is then exactly what it was before this profile grew a
  * second one: the operator writes a DATABASE_URL of their own into env.local
  * and firstboot waits for it. That is the escape hatch for somebody who
- * already keeps a PostgreSQL, and on this cloud it is also how to avoid the
- * NAT gateway's monthly charge, which `docs/deployment-costs.md` prices.
+ * already keeps a PostgreSQL. It is no longer the only way to avoid the NAT
+ * gateway's monthly charge, which `docs/deployment-costs.md` prices:
+ * `simple-balance:databaseEgress: ipv6` drops the gateway and keeps the
+ * database node.
  */
 const database = settings.database;
 
@@ -88,6 +95,124 @@ const databasePrivateIp = "10.20.1.10";
  */
 const databaseDnsName = databaseHost(databasePrivateIp, awsRegion);
 
+// What it protects and how to lift it is at the data volume. Read up here with
+// the other settings, because a value that is not a boolean throws, and thrown
+// below the network it would leave `--skip-preview` building the network first.
+// It governs both data volumes, the application node's and the database node's.
+const protectDataVolume =
+  new pulumi.Config("simple-balance").getBoolean("protectDataVolume") ?? true;
+
+// The same key, read again for the settings below rather than threaded through
+// the statement above, which `tests/aws-single.test.ts` matches character for
+// character as the thing that must be read before the first resource.
+const cfg = new pulumi.Config("simple-balance");
+
+/**
+ * The key the four encrypted disks are made with, when the stack names one.
+ *
+ * Accepted and never created, and that is the decision this setting is. A key
+ * this program made would have the *stack's* lifetime, and that is the wrong
+ * lifetime for the thing that decrypts a ledger: `pulumi destroy
+ * --exclude-protected` is this repository's own documented teardown and it
+ * deliberately keeps both data volumes, so a created key would be scheduled for
+ * deletion beside the disks it was keeping — thirty days, and then AWS says the
+ * data is unrecoverable and that the same key material in a new key will not
+ * decrypt it. An operator who wants a customer-managed key has one, or has a
+ * policy saying where keys come from. Accepting keeps this program's blast
+ * radius at "machines and disks" and never at "the key that reads them".
+ *
+ * Unset passes `undefined` rather than `""`, which matters more than it looks:
+ * `kms_key_id` is Optional+Computed on an EBS volume, so an empty string would
+ * diff against the `aws/ebs` ARN AWS fills in and plan a replacement on a stack
+ * whose operator set nothing at all.
+ *
+ * One key for all four volumes rather than one each. Four buys no isolation —
+ * one program, one operator, one blast radius — and costs four times the dollar
+ * a month a key is.
+ */
+const kmsKeyArn = (cfg.get("kmsKeyArn") ?? "").trim();
+/**
+ * What the operator has to say out loud before a key may be named: that this
+ * `up` changes no volume's key — they do not exist yet, or they were already
+ * created with this one.
+ *
+ * `requireNewStackForKmsKey` argues it. The short of it is that `protect` lives
+ * in the state snapshot rather than in this config, `pulumi state unprotect`
+ * clears it there, and a guard that read `protectDataVolume` would pass in one
+ * of the two states where Pulumi goes ahead and replaces a volume holding a
+ * ledger. A program cannot tell a first `up` from a hundredth, so this asks.
+ */
+const kmsKeyArnIsNewStack = cfg.getBoolean("kmsKeyArnIsNewStack") ?? false;
+requireNewStackForKmsKey(kmsKeyArn, kmsKeyArnIsNewStack);
+
+/**
+ * The key, refused at plan time unless EBS can use it, and `undefined` when the
+ * stack names none.
+ *
+ * An Output rather than a value, and consumed as the volumes' and the root
+ * devices' own input, which is what makes the refusal arrive before any of them
+ * is created — the same shape `../oci-single/` uses for the availability
+ * domain, and for the same `--skip-preview` reason. Nothing the key would
+ * encrypt is registered while this is unresolved.
+ */
+const kmsKeyId = kmsKeyArn
+  ? aws.kms.getKeyOutput({ keyId: kmsKeyArn }).apply((key) =>
+      requireUsableKmsKey(kmsKeyArn, {
+        keyState: key.keyState,
+        keyManager: key.keyManager,
+        keySpec: key.keySpec,
+        keyUsage: key.keyUsage,
+      }),
+    )
+  : undefined;
+
+/**
+ * How the database node reaches Ubuntu's archive, the image registry and its
+ * shell. `nat` unless the stack says otherwise, which is what every stack built
+ * before this setting existed has and what every stack that sets nothing gets.
+ *
+ * `readDatabaseEgress` carries the argument, including the two free answers
+ * that are not offered and why.
+ */
+const databaseEgress = database
+  ? readDatabaseEgress(cfg.get("databaseEgress"), settings.sshPublicKey)
+  : "nat";
+// Said rather than ignored, the way `../oci-single/` says it of
+// `databaseSubnet`. With no database node there is no private subnet, no NAT
+// gateway and nothing for this to replace, so the setting is not wrong — it is
+// inert, and an operator who set it to save $36.50 has already saved it by
+// turning the node off.
+if (!database && (cfg.get("databaseEgress") ?? "").trim()) {
+  pulumi.log.warn(
+    "simple-balance:databaseEgress does nothing while simple-balance:databaseNode is false: this " +
+      "stack builds no private subnet and no NAT gateway, so there is no egress to choose. To stop " +
+      "this warning: pulumi config rm simple-balance:databaseEgress",
+  );
+}
+if (databaseEgress === "ipv6") {
+  pulumi.log.warn(
+    "simple-balance:databaseEgress is ipv6: the database node has no IPv4 route out and no NAT " +
+      "gateway, which saves about $36.50 a month. Three things are traded for it. Its own Session " +
+      "Manager agent can no longer reach AWS, so the shell becomes a port forward through the " +
+      "application node — `pulumi stack output databaseShell` prints it. " +
+      "Its apt sources are rewritten to Canonical's global archive, because the in-region EC2 " +
+      "mirror publishes no AAAA record. And the postgres:18 pull depends on Docker Hub's own " +
+      "IPv6, so a first boot that hangs at the image is what a change on their side looks like.",
+  );
+}
+
+/**
+ * What the database node runs before its very first `apt-get`, which under
+ * `ipv6` is one rewrite and everywhere else is nothing at all.
+ *
+ * Here rather than at the render below because the pre-flight measurement a
+ * few lines down has to measure the document that will actually be sent: a
+ * boot command added after the check is a document that passed a check it was
+ * not in, and EC2's 16 KB cap is refused at the launch rather than at
+ * `pulumi preview`.
+ */
+const databaseBootCommands = databaseEgress === "ipv6" ? [IPV6_APT_REWRITE] : [];
+
 // Measured now, against a volume id of the real length and stand-ins the same
 // shape and rather more than the size of the password and the certificates
 // Pulumi has yet to make, so user data that would not fit EC2's 16 KB refuses
@@ -111,17 +236,11 @@ if (database) {
       applicationPassword: PLACEHOLDER_PASSWORD,
       serverCertificate: PLACEHOLDER_CERTIFICATE,
       serverKey: PLACEHOLDER_KEY,
+      bootCommands: databaseBootCommands,
     },
     PLACEHOLDER_VOLUME_ID,
   );
 }
-
-// What it protects and how to lift it is at the data volume. Read up here with
-// the other settings, because a value that is not a boolean throws, and thrown
-// below the network it would leave `--skip-preview` building the network first.
-// It governs both data volumes, the application node's and the database node's.
-const protectDataVolume =
-  new pulumi.Config("simple-balance").getBoolean("protectDataVolume") ?? true;
 
 /**
  * Instance types, by what the size table asks for rather than the other way
@@ -137,17 +256,42 @@ const protectDataVolume =
  * `tests/single-encryption.test.ts` pins the families rather than trusting the
  * comment.
  */
-const instanceTypes: Record<string, string> = {
+const applicationInstanceTypes: Record<string, string> = {
   // Burstable, and the right answer for a household ledger: the load is a few
   // page views a day with an occasional import, which is precisely the shape
   // a credit balance covers.
   small: "t4g.medium",
-  // Not burstable from here up. A deployment busy enough to want four cores is
-  // busy enough that running out of credits is a real failure mode.
+  // Still burstable, and still `t4g.medium`, at the row the capacity target is
+  // measured at. This machine peaked at 108.6% of half a core and 745 MiB
+  // serving 10,000 people and 30 million transactions, so two cores and 4 GiB
+  // is four times its measured peak. It used to buy an `m7g.xlarge` here, which
+  // is $119 a month for cores nothing asked for on a machine that stores no
+  // ledger.
+  medium: "t4g.medium",
+  // The one step this node takes, and it is memory rather than cores: a ledger
+  // this size is imported in larger pieces and Node's heap is what feels it.
+  large: "t4g.large",
+};
+
+/**
+ * And the database node's, which is where the money belongs.
+ *
+ * A table of its own rather than the same one read twice, because the two
+ * machines stopped wanting the same shape: this one is PostgreSQL, whose memory
+ * decides how much of the index stays in cache. Not burstable above `small`,
+ * because a deployment busy enough to want four cores is busy enough that
+ * running out of credits is a real failure mode.
+ *
+ * Every family here is Nitro, for the reason the paragraph above gives, and
+ * every one of them was already in this program before the split — so the
+ * guarantee that the disk hop is encrypted is exactly as strong as it was.
+ */
+const databaseInstanceTypes: Record<string, string> = {
+  small: "t4g.medium",
   medium: "m7g.xlarge",
   large: "m7g.2xlarge",
 };
-const instanceType = instanceTypes[settings.sizeName]!;
+const instanceType = applicationInstanceTypes[settings.sizeName]!;
 
 // ---------------------------------------------------------------- network ---
 
@@ -159,8 +303,30 @@ const vpc = new aws.ec2.Vpc(name, {
   // Amazon-provided internal DNS name and nothing else resolves that.
   enableDnsHostnames: true,
   enableDnsSupport: true,
+  // Only where the database node's way out is IPv6, and free when it is: an
+  // Amazon-provided /56 carries no charge. Added in place on an existing VPC
+  // rather than replacing it — which matters, because both subnets and both
+  // machines hang off this resource. The IPv4 block is untouched, so the
+  // database node stays dual-stack and its certificate goes on naming
+  // `ip-10-20-1-10.<region>.compute.internal`.
+  assignGeneratedIpv6CidrBlock: databaseEgress === "ipv6" ? true : undefined,
   tags: { ...tags, Name: name },
 });
+
+/**
+ * The free way out, and the whole of it.
+ *
+ * An egress-only internet gateway is the IPv6 analogue of a NAT gateway and
+ * carries neither an hourly charge nor a per-gigabyte one, which is the entire
+ * saving: $32.85 of the NAT gateway's $36.50 is the hour rather than the bytes,
+ * so nothing that only moves less data saves anything. It is stateful in the
+ * same way a NAT gateway is — replies come back, unsolicited packets do not —
+ * so the database node is no more reachable from outside than it was.
+ */
+const egressOnlyGateway =
+  database && databaseEgress === "ipv6"
+    ? new aws.ec2.EgressOnlyInternetGateway(name, { vpcId: vpc.id, tags: { ...tags, Name: name } })
+    : undefined;
 
 const internetGateway = new aws.ec2.InternetGateway(name, {
   vpcId: vpc.id,
@@ -223,6 +389,22 @@ const databaseSubnet = database
       // makes "no machine in here has a public address" a thing a reader and a
       // test can both see.
       mapPublicIpOnLaunch: false,
+      // One /64 out of the VPC's /56, at index 1 so it lines up with this
+      // subnet's 10.20.1.0/24 and nothing has to be remembered about which is
+      // which. An IPv6 address on a subnet is not a public address in the sense
+      // the line above is about: there is no route from the internet to it, only
+      // the egress-only gateway's one way out.
+      //
+      // The index is a constant and never a setting, and that is the reason:
+      // the provider recreates a subnet whose IPv6 block *changes* once
+      // addresses are assigned from it, and this subnet is where the database
+      // node's network interface lives. Adding a block for the first time is an
+      // in-place update; moving one would be a rebuild of the machine.
+      ipv6CidrBlock:
+        databaseEgress === "ipv6"
+          ? vpc.ipv6CidrBlock.apply((block) => ipv6SubnetCidr(block, 1))
+          : undefined,
+      assignIpv6AddressOnCreation: databaseEgress === "ipv6" ? true : undefined,
       tags: { ...tags, Name: `${name}-db` },
     })
   : undefined;
@@ -230,20 +412,26 @@ const databaseSubnet = database
 /**
  * The way out for a subnet with no route to the internet gateway.
  *
- * Not optional, and it is worth saying why a database node needs egress at all:
- * at first boot it installs `docker.io` and `docker-compose-v2` from Ubuntu's
- * archive and pulls `postgres:18`, and afterwards `unattended-upgrades` fetches
- * security updates. None of that can come through the application node without
- * making that machine a router.
+ * The default rather than the only way, and it is worth saying why a database
+ * node needs egress at all: at first boot it installs `docker.io` and
+ * `docker-compose-v2` from Ubuntu's archive and pulls `postgres:18`, afterwards
+ * `unattended-upgrades` fetches security updates, and throughout Session
+ * Manager's agent long-polls three AWS endpoints for the shell. That third
+ * consumer is the one that makes "just go without egress" wrong, and it is why
+ * the alternative below had to bring a replacement shell with it.
  *
- * It costs roughly thirty dollars a month on this cloud, which is the largest
- * single line in an AWS `small` deployment and is why
- * `simple-balance:databaseNode: false` exists. Oracle Cloud charges nothing for
- * the equivalent, which is most of why `../oci-single/` is the cheaper program.
+ * It costs roughly $36.50 a month on this cloud — $32.85 of it the hour rather
+ * than the bytes — which is the largest single line in an AWS `small`
+ * deployment, 38% of the bill. `simple-balance:databaseEgress: ipv6` is the free
+ * alternative and `readDatabaseEgress` in `./platform.ts` carries its argument;
+ * `simple-balance:databaseNode: false` removes the machine along with the
+ * gateway. Oracle Cloud charges nothing for the equivalent, which is most of
+ * why `../oci-single/` is the cheaper program.
  */
-const natAddress = database
-  ? new aws.ec2.Eip(`${name}-nat`, { domain: "vpc", tags: { ...tags, Name: `${name}-nat` } })
-  : undefined;
+const natAddress =
+  database && databaseEgress === "nat"
+    ? new aws.ec2.Eip(`${name}-nat`, { domain: "vpc", tags: { ...tags, Name: `${name}-nat` } })
+    : undefined;
 
 const natGateway =
   database && natAddress
@@ -261,14 +449,21 @@ const natGateway =
       )
     : undefined;
 
-const databaseRouteTable =
-  database && natGateway
-    ? new aws.ec2.RouteTable(`${name}-db`, {
-        vpcId: vpc.id,
-        routes: [{ cidrBlock: "0.0.0.0/0", natGatewayId: natGateway.id }],
-        tags: { ...tags, Name: `${name}-db` },
-      })
-    : undefined;
+const databaseRouteTable = database
+  ? new aws.ec2.RouteTable(`${name}-db`, {
+      vpcId: vpc.id,
+      // One or the other and never both. Under `ipv6` there is deliberately no
+      // 0.0.0.0/0 route at all: every IPv4 destination is a blackhole, which is
+      // what takes Session Manager away and what `readDatabaseEgress` refuses
+      // to do without an SSH key to replace it.
+      routes: natGateway
+        ? [{ cidrBlock: "0.0.0.0/0", natGatewayId: natGateway.id }]
+        : egressOnlyGateway
+          ? [{ ipv6CidrBlock: "::/0", egressOnlyGatewayId: egressOnlyGateway.id }]
+          : [],
+      tags: { ...tags, Name: `${name}-db` },
+    })
+  : undefined;
 
 /** The same, for the private subnet, and it is the one that matters more. */
 const databaseRouteTableAssociation =
@@ -388,6 +583,28 @@ const databaseSecurityGroup = database
           toPort: 5432,
           securityGroups: [securityGroup.id],
         },
+        // Only under `simple-balance:databaseEgress: ipv6`, which takes Session
+        // Manager away: the agent resolves an IPv4-only endpoint and that
+        // subnet then has no IPv4 route. This is the replacement shell and it
+        // costs nothing — the operator's own key is already installed on both
+        // machines, so the rule is the only piece that was missing.
+        //
+        // Sourced from the application node's security group, never from a
+        // CIDR, for the same reason 5432 is: the rule names exactly that
+        // machine however it is replaced or re-addressed, where a CIDR names
+        // whatever else is ever put in the range. Nothing from the internet
+        // either way, because there is no route from it to this subnet.
+        ...(databaseEgress === "ipv6"
+          ? [
+              {
+                description: "SSH, from the application node, which replaces Session Manager here",
+                protocol: "tcp",
+                fromPort: 22,
+                toPort: 22,
+                securityGroups: [securityGroup.id],
+              },
+            ]
+          : []),
       ],
       egress: [
         // Through the NAT gateway: Ubuntu's archive at first boot, the image
@@ -556,7 +773,12 @@ const dataVolume = new aws.ebs.Volume(
   name,
   {
     availabilityZone,
-    size: size.dataGib,
+    // The application node's own column of the size table, which is a different
+    // number from the database node's below. This disk holds fifteen dumps at
+    // `backupKeep`'s default — fourteen kept plus the one being written — and
+    // about a gigabyte of everything else, so it is sized by the *backups* and
+    // the ledger only through them. `simple-balance:backupKeep` is the lever.
+    size: size.application.diskGib,
     // gp3 rather than gp2: the baseline 3,000 IOPS comes with the volume instead
     // of being earned by making it bigger, which on a 20 GiB disk is the
     // difference between 3,000 and 60.
@@ -566,10 +788,15 @@ const dataVolume = new aws.ebs.Volume(
     // account: on this cloud the property is the whole guarantee rather than a
     // restatement of one. It is also what makes the Nitro hypervisor encrypt
     // the traffic between the instance and this volume, which has no property
-    // of its own to set. No `kmsKeyId`: the AWS-managed key needs no key policy
-    // to get wrong, costs nothing a month, and cannot be deleted out from under
-    // somebody's ledger. `docs/deployment-profiles.md` records the choice.
+    // of its own to set. Which key does it is the line below.
     encrypted: true,
+    // The stack's own key where it named one, and `undefined` — never `""` —
+    // where it did not, so a stack that sets nothing plans no change at all
+    // against the computed `aws/ebs` ARN AWS filled in. This property is
+    // ForceNew: it decides the key when the volume is created and can never
+    // change it, which is why `requireNewStackForKmsKey` refuses a key that
+    // was not declared to be going onto volumes this `up` is about to create.
+    kmsKeyId,
     tags: { ...tags, Name: `${name}-data` },
   },
   { protect: protectDataVolume },
@@ -595,9 +822,16 @@ const databaseVolume =
         `${name}-db`,
         {
           availabilityZone,
-          size: database.size.dataGib,
+          // PGDATA, so the cluster plus `pg_wal` plus the room a REINDEX needs
+          // — the compose file binds the volume at `/var/lib/postgresql`, the
+          // parent, so the write-ahead log is on this filesystem and counts
+          // against it. `max_wal_size` is a soft target the checkpointer drains
+          // toward, so the table leaves twice it here; a full `pg_wal` is a
+          // PANIC and a cluster that will not restart.
+          size: database.size.database.diskGib,
           type: "gp3",
           encrypted: true,
+          kmsKeyId,
           tags: { ...tags, Name: `${name}-db-data` },
         },
         { protect: protectDataVolume },
@@ -645,8 +879,17 @@ const instance = new aws.ec2.Instance(
       // env.local reaches this disk only by way of the data volume's mount, but
       // the boot disk still holds the database's CA certificate as cloud-init
       // staged it and every log line the deployment has written. Encrypted for
-      // the same reason the data volume is, and on the same AWS-managed key.
+      // the same reason the data volume is, and on the same key — AWS's own
+      // when the stack names none.
       encrypted: true,
+      // The provider says in as many words that changing this replaces the
+      // instance, and `ignoreChanges` below does not cover `rootBlockDevice`.
+      // So naming a key on a stack whose machines exist is an unasked-for
+      // rebuild of both of them; the data volumes survive it, because they are
+      // separate resources and firstboot formats nothing it finds a filesystem
+      // on, but the outage is real. It is a decision to make before the first
+      // `pulumi up`, and `docs/deployment-profiles.md` says so.
+      kmsKeyId,
       deleteOnTermination: true,
     },
     userDataBase64: userData,
@@ -741,6 +984,7 @@ const databaseUserData =
               applicationPassword,
               serverCertificate,
               serverKey,
+              bootCommands: databaseBootCommands,
             },
             volumeId,
           ),
@@ -753,7 +997,7 @@ const databaseInstance =
         `${name}-db`,
         {
           ami: ami.id,
-          instanceType: instanceTypes[database.sizeName]!,
+          instanceType: databaseInstanceTypes[database.sizeName]!,
           subnetId: databaseSubnet.id,
           vpcSecurityGroupIds: [databaseSecurityGroup.id],
           iamInstanceProfile: databaseInstanceProfile.name,
@@ -767,6 +1011,11 @@ const databaseInstance =
           // is not on the internet" is two properties rather than one, and so
           // that a subnet edited later cannot quietly give it an address.
           associatePublicIpAddress: false,
+          // The address the egress-only gateway carries out, and the only
+          // reason this machine has one. An IPv6 address is not a public
+          // address in the sense the line above is about: there is no inbound
+          // route to this subnet, and the gateway is one-way by definition.
+          ipv6AddressCount: databaseEgress === "ipv6" ? 1 : undefined,
           rootBlockDevice: {
             // The operating system, the postgres image, and the certificate and
             // key cloud-init wrote. Not the cluster, which is on the data
@@ -774,6 +1023,7 @@ const databaseInstance =
             volumeSize: 20,
             volumeType: "gp3",
             encrypted: true,
+            kmsKeyId,
             deleteOnTermination: true,
           },
           userDataBase64: databaseUserData,
@@ -849,13 +1099,36 @@ export const databaseVolumeId = databaseVolume?.id;
 /** The name in the certificate and in DATABASE_URL, for an operator debugging either. */
 export const databaseHostName = database ? databaseDnsName : undefined;
 export const url = `https://${settings.hostname}`;
-export const machine = `${instanceType} — ${size.vcpu} vCPU, ${size.memoryGib} GiB, ${size.dataGib} GiB data`;
+export const machine = `${instanceType} — ${size.application.vcpu} vCPU, ${size.application.memoryGib} GiB, ${size.application.diskGib} GiB data`;
 export const databaseMachine = database
-  ? `${instanceTypes[database.sizeName]!} — ${database.size.vcpu} vCPU, ${database.size.memoryGib} GiB, ${database.size.dataGib} GiB data, PostgreSQL 18`
+  ? `${databaseInstanceTypes[database.sizeName]!} — ${database.size.database.vcpu} vCPU, ${database.size.database.memoryGib} GiB, ${database.size.database.diskGib} GiB data, PostgreSQL 18`
   : undefined;
 export const shell = pulumi.interpolate`aws ssm start-session --target ${instance.id} --region ${awsRegion}`;
+/**
+ * And the database node's, which the egress choice decides rather than the
+ * machine.
+ *
+ * Under `ipv6` that subnet has no IPv4 route, so the database node's own
+ * Session Manager agent reaches nothing and the command that used to be printed
+ * here would hang rather than fail. What replaces it is a port forward through
+ * the *application* node's agent, which is still reachable, to 22 on the
+ * database node — which the security group opens from the application node's
+ * group under exactly this setting.
+ *
+ * A forward rather than `ssh` run on the application node, and the difference
+ * is where the private key is. The operator's key is installed on both machines
+ * as an *authorized* key; the private half is on their laptop and has to stay
+ * there. A forward keeps the ssh client, and so the key, on the laptop and
+ * leaves the application node carrying nothing but the packets. It needs no
+ * open port anywhere and no agent forwarding.
+ *
+ * This is the replacement `readDatabaseEgress` refuses the setting without a
+ * key for, so the two have to stay true together.
+ */
 export const databaseShell = databaseInstance
-  ? pulumi.interpolate`aws ssm start-session --target ${databaseInstance.id} --region ${awsRegion}`
+  ? databaseEgress === "ipv6"
+    ? pulumi.interpolate`aws ssm start-session --target ${instance.id} --region ${awsRegion} --document-name AWS-StartPortForwardingSessionToRemoteHost --parameters host="${databasePrivateIp}",portNumber="22",localPortNumber="2222"   # then, in another terminal: ssh -p 2222 ubuntu@localhost`
+    : pulumi.interpolate`aws ssm start-session --target ${databaseInstance.id} --region ${awsRegion}`
   : undefined;
 
 /**
@@ -871,8 +1144,9 @@ const databaseStep = database
   ? `3. The database is already running, on its own machine with no public address.
    Nothing to do: the connection string is in /opt/simple-balance/env.db, it verifies
    the server against a CA this stack issued, and firstboot has started the deployment.
-   To look at the database, take a shell on it — 'pulumi stack output databaseShell' —
-   and then
+   To look at the database, take a shell on it — 'pulumi stack output databaseShell',
+   which is a Session Manager session unless simple-balance:databaseEgress is ipv6,
+   in which case it is a hop through this machine — and then
      sudo docker compose -f /opt/simple-balance/compose.postgres.yml exec postgres \\
        psql -U postgres simple_balance
    To point this machine at a database of your own instead, put your own DATABASE_URL

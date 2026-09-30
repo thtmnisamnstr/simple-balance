@@ -17,13 +17,37 @@ import * as zlib from "zlib";
 
 const repoRoot = path.resolve(__dirname, "..", "..", "..");
 
-/** A machine size. The table itself is `SIZES` in `./index.ts`. */
-export interface Size {
-  /** Machine sizes, named by what they are rather than by a provider's SKU. */
+/**
+ * One machine's shape, named by what it is rather than by a provider's SKU.
+ *
+ * `diskGib` rather than `dataGib`, and the rename is the point: there are two
+ * of these per row now, and the old name belonged to a table that had one disk
+ * for two machines with opposite appetites. Anything still reading `dataGib`
+ * is reading a number that no longer exists rather than the wrong one.
+ */
+export interface NodeSize {
   vcpu: number;
   memoryGib: number;
   /** The data disk. The boot disk holds the operating system and the images. */
-  dataGib: number;
+  diskGib: number;
+}
+
+/**
+ * A row of the size table, which is one name buying two machines. The table
+ * itself is `SIZES` in `./index.ts`.
+ *
+ * Two shapes rather than one read twice, because the two nodes want different
+ * things and a single number could only be right for one of them. The
+ * application node runs Node and Caddy and stores no ledger; the database node
+ * is PostgreSQL, whose memory decides how much of the index is in cache and
+ * whose disk holds the cluster, the write-ahead log and the room a REINDEX
+ * needs. The five server settings below belong to `database` — they are
+ * written from the row the *database* node was sized with — which is why they
+ * sit beside it rather than inside either shape.
+ */
+export interface Size {
+  application: NodeSize;
+  database: NodeSize;
   sharedBuffers: string;
   effectiveCacheSize: string;
   workMem: string;
@@ -515,6 +539,21 @@ export const APP_FILES: readonly EmbeddedFile[] = [
     syntax: "shell",
   },
   {
+    source: "deploy/systemd/simple-balance-growfs.service",
+    target: "/etc/systemd/system/simple-balance-growfs.service",
+    permissions: "0644",
+    syntax: "systemd",
+  },
+  {
+    // 0755 rather than the 0700 the first-boot script gets, because this one
+    // holds no secret and an operator reading `systemctl cat` should be able to
+    // read what it runs. It is still only ever started as root.
+    source: "deploy/systemd/simple-balance-growfs",
+    target: "/usr/local/sbin/simple-balance-growfs",
+    permissions: "0755",
+    syntax: "shell",
+  },
+  {
     source: "deploy/systemd/simple-balance-firstboot",
     target: "/usr/local/sbin/simple-balance-firstboot",
     permissions: "0700",
@@ -525,7 +564,7 @@ export const APP_FILES: readonly EmbeddedFile[] = [
 /**
  * Every repository file the database node receives.
  *
- * Five files and no more, because that machine runs one service. It does not
+ * A short list, because that machine runs one service. It does not
  * get the backup or the restore script: the backups are taken from the
  * application node over the network onto its protected data volume, which is
  * what keeps `simple-balance-backup`'s "is postgres a service in this project"
@@ -591,6 +630,21 @@ export const DATABASE_FILES: readonly EmbeddedFile[] = [
     source: "deploy/systemd/simple-balance-env",
     target: "/usr/local/sbin/simple-balance-env",
     permissions: "0700",
+    syntax: "shell",
+  },
+  {
+    source: "deploy/systemd/simple-balance-growfs.service",
+    target: "/etc/systemd/system/simple-balance-growfs.service",
+    permissions: "0644",
+    syntax: "systemd",
+  },
+  {
+    // 0755 rather than the 0700 the first-boot script gets, because this one
+    // holds no secret and an operator reading `systemctl cat` should be able to
+    // read what it runs. It is still only ever started as root.
+    source: "deploy/systemd/simple-balance-growfs",
+    target: "/usr/local/sbin/simple-balance-growfs",
+    permissions: "0755",
     syntax: "shell",
   },
   {
@@ -909,6 +963,20 @@ export interface DatabaseCloudInitArgs {
   serverCertificate: string;
   serverKey: string;
   platformCommands?: string[];
+  /**
+   * Shell commands run in cloud-init's *boot* stage, which is the only stage
+   * earlier than `package_update`.
+   *
+   * `platformCommands` above cannot serve: those go in `runcmd`, which runs
+   * last, long after the apt fetch they would have to come before. This exists
+   * for `simple-balance:databaseEgress: ipv6` on AWS, where the machine's only
+   * route out is IPv6 and Ubuntu's in-region EC2 mirror publishes no AAAA
+   * record — so the sources have to be rewritten before the first `apt-get`
+   * rather than after it. Empty everywhere else, and the `bootcmd:` key is then
+   * left out of the document entirely rather than emitted empty, because an
+   * empty list is a line of user data spent on nothing.
+   */
+  bootCommands?: string[];
 }
 
 /**
@@ -961,6 +1029,14 @@ export function databaseCloudInit(args: DatabaseCloudInitArgs): string {
 
   const files = writeFiles(DATABASE_FILES, (_file, text) => text);
 
+  // A blank line when there is nothing to run, so the document is byte-for-byte
+  // what it was before this hook existed on every deployment that does not use
+  // it — which is what keeps `tests/cloud-init.test.ts`'s size measurements and
+  // the equal-length header rule true without a second case to reason about.
+  const bootCommands = args.bootCommands?.length
+    ? `\nbootcmd:\n${args.bootCommands.map((command) => `  - ${command}`).join("\n")}\n`
+    : "";
+
   return `#cloud-config
 # Generated by deploy/pulumi/single-common and applied once, when this database
 # machine first booted. The files below are the repository's own, from
@@ -978,7 +1054,7 @@ export function databaseCloudInit(args: DatabaseCloudInitArgs): string {
 #   the certificate          replace /opt/simple-balance/db-tls/server.crt and
 #                            its .key, then run that same script.
 timezone: ${settings.timezone}
-
+${bootCommands}
 package_update: true
 packages:
   - docker.io

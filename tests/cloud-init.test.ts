@@ -692,15 +692,29 @@ describe("the comment stripper, on the cases the deployment files do not have ye
 
 describe("the Oracle Cloud program's own decisions", () => {
   it("never asks OCI for a data volume under its 50 GB floor", () => {
+    // Both halves of every row, because the floor is applied twice — once per
+    // machine — and a row whose application disk cleared it while its database
+    // disk did not would fail at CreateVolume rather than here.
     for (const [name, size] of Object.entries(SIZES)) {
-      expect(oci.dataVolumeGb(size), name).toBe(Math.max(size.dataGib, 50));
+      for (const [machine, node] of Object.entries({
+        application: size.application,
+        database: size.database,
+      })) {
+        expect(oci.dataVolumeGb(node), `${name}.${machine}`).toBe(Math.max(node.diskGib, 50));
+      }
     }
-    expect(oci.dataVolumeGb(SIZES.small!)).toBe(50);
-    // And the volume is sized by it, not by the shared table directly.
+    expect(oci.dataVolumeGb(SIZES.small!.application)).toBe(50);
+    expect(oci.dataVolumeGb(SIZES.small!.database)).toBe(50);
+    // And each volume is sized by it, not by the shared table directly — twice,
+    // once per machine, since the two halves of a row are different numbers.
     const program = read("deploy/pulumi/oci-single/index.ts");
-    expect(program).toContain("const dataGb = dataVolumeGb(size);");
+    expect(program).toContain("const dataGb = dataVolumeGb(size.application);");
+    expect(program).toContain(
+      "const databaseDataGb = database ? dataVolumeGb(database.size.database) : 0;",
+    );
     expect(program).toContain("sizeInGbs: String(dataGb),");
-    expect(program).not.toMatch(/sizeInGbs: String\(size\.dataGib\)/);
+    expect(program).toContain("sizeInGbs: String(databaseDataGb),");
+    expect(program).not.toMatch(/sizeInGbs: String\(size\.\w+\.diskGib\)/);
   });
 
   it("builds in the availability domain asked for, by name or number, and refuses a stranger", () => {
@@ -728,7 +742,18 @@ describe("the Oracle Cloud program's own decisions", () => {
       /description: "SSH, from a Bastion in this subnet",\s+source: instanceCidr,[\s\S]{0,120}tcpOptions: \{ min: 22, max: 22 \}/,
     );
     expect(program).toContain('pluginsConfigs: [{ name: "Bastion", desiredState: "ENABLED" }]');
-    expect(program).toContain('ignoreChanges: ["sourceDetails", "metadata"]');
+    // Named properties rather than the whole of `sourceDetails`, because
+    // `ignoreChanges` on a parent ignores everything under it — including the
+    // `kmsKeyId` a customer key has to reach. The two named are exactly the two
+    // that used to move on their own: the image Canonical rebuilds every few
+    // weeks, and the boot volume's size. `tests/single-customer-keys.test.ts`
+    // holds the same shape from the key's side.
+    expect(program).toContain(
+      'ignoreChanges: ["sourceDetails.sourceId", "sourceDetails.bootVolumeSizeInGbs", "metadata"]',
+    );
+    expect(program, "the parent would swallow the key").not.toContain(
+      'ignoreChanges: ["sourceDetails", "metadata"]',
+    );
   });
 });
 

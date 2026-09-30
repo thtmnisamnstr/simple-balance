@@ -260,18 +260,191 @@ a default is invisible in both.
 
 | Where | What encrypts it |
 | --- | --- |
-| `single` on AWS, both data volumes and both boot volumes | `encrypted: true` on each, with an AWS-managed key. Explicit because on AWS it is **not** a default: EBS encryption-by-default is an account setting that is off on a fresh account, so the property is the whole guarantee |
-| `single` on Oracle Cloud, both data volumes and both boot volumes | OCI encrypts every boot and block volume with an Oracle-managed key and offers no way to turn it off. No `kmsKeyId` is set, and `tests/single-encryption.test.ts` asserts the absence so the statement cannot quietly stop being what the program relies on |
+| `single` on AWS, both data volumes and both boot volumes | `encrypted: true` on each, with an AWS-managed key unless `simple-balance:kmsKeyArn` names one of yours. Explicit because on AWS it is **not** a default: EBS encryption-by-default is an account setting that is off on a fresh account, so the property is the whole guarantee |
+| `single` on Oracle Cloud, both data volumes and both boot volumes | OCI encrypts every boot and block volume at rest and offers no way to turn it off. The key is Oracle's own unless `simple-balance:kmsVaultOcid` and `simple-balance:kmsKeyOcid` name one of yours, and `tests/single-encryption.test.ts` holds the program to that: no key appears unless one is configured |
 | `ha` on EKS, the database's volumes | A `simple-balance-gp3-encrypted` StorageClass the program creates, `encrypted: "true"`, named into `database.persistence.storageClass`. EKS also needs the `aws-ebs-csi-driver` addon and its IRSA role, which the program now installs — without it a PVC from the StatefulSet sits `Pending` forever |
 | `ha` on GKE, the database's volumes | Google-encrypted persistent disks, on a `simple-balance-pd-balanced` StorageClass the program creates |
-| `ha`, the Kubernetes Secrets holding `DATABASE_URL`, `AUTH_SECRET`, `STRIPE_SECRET_KEY` and the database's own passwords | Envelope encryption in etcd against a KMS key each program creates: `encryptionConfigKeyArn` on EKS, `databaseEncryption` on GKE. This is the one place a customer-managed key is used, because neither cloud offers a managed one for it |
+| `ha`, the Kubernetes Secrets holding `DATABASE_URL`, `AUTH_SECRET`, `STRIPE_SECRET_KEY` and the database's own passwords | Envelope encryption in etcd against a KMS key each program creates: `encryptionConfigKeyArn` on EKS, `databaseEncryption` on GKE. This is the one place a program *creates* a key rather than accepting one, because neither cloud offers a managed key for it — and it is the one exception to the rule below, which is that a program accepts a key and never makes one |
 
-**No customer-managed key on any data volume, and that is a decision.** A CMK
-means a key policy, a monthly key charge, and a documented way to lock yourself
-permanently out of your own ledger volume. The provider-managed key is the right
-default for a profile whose selling point is that one person can run it. A
-deployment that needs a CMK for compliance should ask before its first `up`: the
-key a volume was created with cannot be changed afterward.
+### A customer-managed key, if you ask for one
+
+**Unset is the default, and unset is a provider-managed key on every volume.**
+That stays the right answer for most deployments: a CMK is a key policy to get
+wrong, a monthly charge, and a documented way to lock yourself permanently out
+of your own ledger. A deployment with a key-management policy that says
+otherwise sets one, and these are the settings:
+
+| Setting | Cloud | What it takes |
+| --- | --- | --- |
+| `simple-balance:kmsKeyArn` | AWS | The ARN of a symmetric `ENCRYPT_DECRYPT` KMS key you already have. It encrypts both data volumes and both boot volumes |
+| `simple-balance:kmsKeyArnIsNewStack` | AWS | `true`, and required alongside `kmsKeyArn`. Your statement that this `up` changes no volume's key — the volumes do not exist yet, or they were already created with this key. The next section says why the program has to ask |
+| `simple-balance:kmsVaultOcid` and `simple-balance:kmsKeyOcid` | Oracle Cloud | The vault and the key. Both, because the key cannot be looked up without the vault's management endpoint. AES, not RSA: the Block Volume service refuses a key wrapped with RSA |
+
+**What the key's policy has to allow, on AWS.** This is the half no check can
+see: `DescribeKey` answers about the key and says nothing about whether anybody
+may *use* it, so a key that passes every check below can still produce a volume
+that is created and then deleted moments later. The provider states the
+requirement in as many words — it must run "with credentials which have the
+`GenerateDataKeyWithoutPlaintext` permission on the specified KMS key... to
+prevent a volume from being created and almost immediately deleted". So the key
+policy has to grant, to the principal running `pulumi up`:
+
+- `kms:DescribeKey` and `kms:Decrypt`,
+- `kms:GenerateDataKeyWithoutPlaintext`, which is what `CreateVolume` calls,
+- `kms:CreateGrant`, with the `kms:GrantIsForAWSResource` condition, which is
+  what EC2 needs for the two root block devices.
+
+**The default key policy is already all of it.** A key made with
+`aws kms create-key` and no `--policy` gets a policy delegating to IAM in that
+account, so an administrator or a role with the matching IAM permissions has
+every one of those. That is the spelling to prefer, and a hand-written policy is
+the case to check against this list. A key from another account needs the grant
+on both sides, which this profile does not try to help with.
+
+The failure mode is worth knowing because it is quiet: `CreateVolume` succeeds,
+EBS deletes the volume seconds later, and Pulumi records two volumes in state
+that no longer exist — marked `protect: true`, so the next `up` refuses to
+reconcile them and the stack is stuck. On a first build the loss is an empty
+volume. On the snapshot-copy migration below it happens at the step where the
+copy is the only intact ledger.
+
+**The program accepts a key and never creates one**, and that is the decision
+worth arguing. A key a program creates has the program's lifetime, and that is
+the wrong lifetime for the thing that decrypts a ledger:
+`pulumi destroy --exclude-protected` is this profile's documented teardown and
+it deliberately *keeps* both data volumes — a key the program owned would be
+scheduled for deletion by the same command that kept the data, and
+`pulumi stack rm` or a teardown with `protectDataVolume: false` would take it
+with nothing keeping it at all. On Oracle Cloud it is worse, because a key needs
+a vault and deleting a vault puts every key in it into pending deletion too. An
+operator who wants a CMK has one, or has a policy that says where keys come
+from. So the program's blast radius stays "machines and disks" and never reaches
+"the key that decrypts them".
+
+**It is checked before anything it would encrypt is built.** Both programs read
+the key at plan time, and the refusal arrives before any volume, boot disk or
+machine exists — the usability check is a `DescribeKey` whose result is consumed
+as each encrypted resource's own input, so nothing the key would encrypt is
+registered while it is unresolved, and `pulumi preview` shows the refusal with
+nothing created. Be precise about what that does *not* cover: under
+`pulumi up --skip-preview` the network is built from settings the key has no
+part in, so a VPC, two subnets, an Elastic IP and possibly the NAT gateway can
+exist by the time the refusal lands. Preview first. (The settings themselves —
+a key named without `kmsKeyArnIsNewStack`, a vault named without its key — are
+refused synchronously above the first resource, and that one is absolute.) AWS
+refuses a key that is not `Enabled`, not customer-managed, not
+`SYMMETRIC_DEFAULT` or not for `ENCRYPT_DECRYPT` — EBS supports nothing else.
+Oracle Cloud refuses one that is not `ENABLED` or that is RSA-wrapped, and
+**warns** rather than refusing on an HSM-protected key, because HSM is a
+compliance decision an operator may have made on purpose — but it is billed per
+key version where software-protected ones are free, it cannot be changed after
+the key is created, and on Oracle Cloud it is the first thing in this profile
+that takes a `small` stack off $0.
+
+#### It is not retroactive, and on AWS that is destructive
+
+**A volume's key is fixed when the volume is created.** AWS says so plainly:
+you cannot change the key on an existing volume or snapshot, only on a copy. So
+adding `kmsKeyArn` to a stack that already exists asks Pulumi to *replace* both
+data volumes — a new empty volume, the old one deleted, and on the database node
+that is the ledger.
+
+**Pulumi's `protect` is not the guard, and it is worth knowing why.** It refuses
+a replacement, it is on by default, and it would close this — except that
+`protect` is a flag in the **state snapshot** while
+`simple-balance:protectDataVolume` is a flag in the **stack config**, and the
+two come apart in two documented ways. Setting `protectDataVolume: false` clears
+it, which is step one of this repository's own teardown; and
+`pulumi state unprotect <urn>` clears it in the state for a single destroy while
+leaving the config saying `true`. A guard that read the config would pass
+happily in the second case, the volume would diff on a ForceNew property against
+a snapshot that says unprotected, and Pulumi would go ahead.
+
+So the program asks the question that actually decides the outcome, of the only
+party that knows the answer: **`kmsKeyArn` is refused unless
+`simple-balance:kmsKeyArnIsNewStack` is `true`**, which is your statement that
+these volumes are about to be created rather than replaced. A stack that was
+*already* built with this key sets it too and plans nothing, because it is the
+same claim either way: this `up` changes no volume's key. It stays set for the
+life of the stack — it records *when* the key was chosen, not a mode — and the
+refusal carries the migration below. The program deliberately does not look the
+volumes up instead: `aws.ebs.getVolume` errors when it finds nothing, which is
+every first `pulumi up`, so the lookup would refuse the one case it was added to
+allow, and a lookup that found volumes could not tell a stack setting the key
+for the first time from the daily `up` of one that has had it since it was
+built. Check `pulumi preview` says **create** and not **replace** for both
+`aws:ebs/volume` resources before you run the `up`.
+
+Both boot volumes are replaced too, which replaces both machines — an outage
+rather than a loss, since the data volumes survive and firstboot formats only an
+unformatted device, but not something to meet by accident.
+
+So on AWS, **set it before the first `up`, or migrate by hand**: stop the
+compose stack, snapshot the data volume, copy the snapshot with the new key,
+create a volume from the copy, detach the old one and attach the new one at the
+same device, and bring the stack's state back into line. In that order it
+destroys nothing, and it is not a `pulumi up`.
+
+**On Oracle Cloud it is not destructive, and it reaches all four volumes.**
+`kmsKeyId` on a block volume is updatable: OCI re-wraps the volume's data key and
+leaves the contents alone, with no detach and no downtime. The boot volumes take
+it too, and that is deliberate rather than lucky: `@pulumi/oci` marks
+`InstanceSourceDetails.kmsKeyId` updatable, and both instances name *properties*
+in `ignoreChanges` — `sourceDetails.sourceId`, `sourceDetails.bootVolumeSizeInGbs`
+and `metadata` — rather than the whole of `sourceDetails`. Ignoring the parent
+would ignore everything under it, so a key added later would be swallowed on
+every stack that already exists while a fresh stack took it: the same
+configuration, different encryption, and nothing said. So an existing OCI stack
+takes the key on all four volumes with no by-hand step, and
+`oci bv boot-volume-kms-key update` is not part of adding one. It is still the
+right command for taking a key *off* a boot volume, which is the lock-out escape
+hatch below. This is the one behaviour worth a `pulumi preview` against a real
+tenancy before you rely on it.
+
+#### Locking yourself out, and getting back in
+
+A key that is disabled, scheduled for deletion, or whose policy loses the
+principal that needs it is a volume nobody can read, including you. The two
+clouds fail at opposite ends of the same 7-to-30-day window, and the difference
+decides how you find out:
+
+**AWS gives no warning at all, and then gives none.** Disabling a key or
+scheduling it for deletion has *no immediate effect*: the volume is already
+attached and EC2 encrypts disk traffic with a data key held in the Nitro
+hardware, not with the KMS key. The deployment serves perfectly, for up to
+thirty days. It dies at the next detach and reattach — a stop/start, an instance
+replacement, a resize — and a stop/start detaches the root volume too, so the
+machine transitions straight back to `stopped`.
+
+- **While the deletion is pending:** `aws kms cancel-key-deletion`, or
+  `aws kms enable-key` for a key that is merely disabled. The window is 7 to 30
+  days, defaults to 30, and AWS says the real one may run up to 24 hours longer
+  than the one scheduled.
+- **After it:** nothing. The data is unrecoverable, and there is no way back
+  even with the same key material — AWS will not let you create a key that can
+  decrypt a deleted key's ciphertexts.
+- **The only warning that exists** is one you set up: a CloudWatch alarm on use
+  of a key that is pending deletion. Worth doing on the day you set `kmsKeyArn`,
+  because nothing else will tell you.
+
+**Oracle Cloud fails immediately and loudly, and has a way out AWS does not.**
+A key in `Pending Deletion` makes everything encrypted by it inaccessible at
+once — which is far better, because you find out in minutes rather than in weeks.
+
+- **While the deletion is pending:** cancel it, or re-enable a disabled key.
+- **The escape hatch, and the order is what matters.** A volume can be moved
+  back onto Oracle's own key in place — `oci bv volume-kms-key delete` and
+  `oci bv boot-volume-kms-key delete` — but a key in `Pending Deletion`
+  **cannot be assigned or unassigned to anything**, so the hatch is shut until
+  the deletion is cancelled. **Cancel the deletion first, then unassign from all
+  four volumes, then schedule the key's deletion again.** Do it in the other
+  order and you wait out a thirty-day window you did not have to.
+- **After the window:** all key material and metadata is irreversibly destroyed.
+
+`docs/deployment-costs.md` §Customer-managed keys prices both, and names the two
+traps that cost money rather than data: an Oracle key's `protectionMode`
+defaults to the billed one and cannot be changed afterward, and a
+`VIRTUAL_PRIVATE` vault is billed by the hour.
 
 ### In transit
 
@@ -283,7 +456,7 @@ key a volume was created with cannot be changed afterward.
 | Backup and restore client to database, in `single` | The same `DATABASE_URL`, through the same CA file, which the scripts mount into the `postgres:18` client container |
 | Application and scheduler to database, in `ha` | `sslmode=verify-full` against a CA the chart generates, mounted into both pods at `/etc/simple-balance/db-ca.pem` |
 | Citus coordinator to workers, and streaming replication, in `ha` | `sslmode=verify-ca`. Not `verify-full`, deliberately: Patroni registers members by pod address, which no certificate can promise, so a name check would fail a healthy cluster |
-| Hypervisor to block storage, AWS | Automatic on Nitro when the volume is encrypted. There is no property for it, so the guarantee rests on the instance-type table being Nitro throughout — `t4g` and `m7g` — which a test pins rather than trusting the comment |
+| Hypervisor to block storage, AWS | Automatic on Nitro when the volume is encrypted. There is no property for it, so the guarantee rests on the instance-type tables being Nitro throughout — `t4g` on the application node, `t4g` and `m7g` on the database node — which a test pins rather than trusting the comment |
 | Hypervisor to block storage, Oracle Cloud | `isPvEncryptionInTransitEnabled: true`, on both instance launches and on both volume attachments. Two flags because they are two hops: the launch flag covers the boot volume and the attachment flag the attached one, and both need a paravirtualized attachment, which is what the program uses |
 
 **Why `verify-full` and not `require`.** The same connection string is read by
@@ -345,16 +518,21 @@ to a third system in Pulumi state, and a different integration per registrar.
 
 | From | To | Port | Why |
 | --- | --- | --- | --- |
-| The application node's security group | The database node | 5432/tcp | AWS. The only inbound rule there is. A source-security-group rule rather than a CIDR, so it stays correct when the application node is replaced or re-addressed |
+| The application node's security group | The database node | 5432/tcp | AWS. The only inbound rule by default. A source-security-group rule rather than a CIDR, so it stays correct when the application node is replaced or re-addressed |
 | The application subnet, `10.30.0.0/24` | The database node | 5432/tcp | Oracle Cloud. A security list takes CIDRs, so the application subnet is the tightest source available, and it holds exactly one machine |
-| The database subnet, `10.30.1.0/24` | The database node | 22/tcp | Oracle Cloud only. An OCI Bastion's private endpoint must sit in the subnet it serves, and this is the only way to get a shell on a machine with no public address |
-| The database node | Anywhere | 443/tcp, 80/tcp | Egress through a NAT gateway: Ubuntu's archive and the image registry at first boot, and unattended-upgrades afterward |
+| The database subnet, `10.30.1.0/24` | The database node | 22/tcp | Oracle Cloud. An OCI Bastion's private endpoint must sit in the subnet it serves, and this is the only way to get a shell on a machine with no public address |
+| The application node's security group | The database node | 22/tcp | AWS, and **only under `simple-balance:databaseEgress: ipv6`**. That setting takes Session Manager away from this machine — its agent resolves an IPv4-only endpoint and the subnet then has no IPv4 route — and ssh from the application node is the replacement shell. A source-security-group rule again, so it names that one machine and nothing from the internet can reach it |
+| The database node | Anywhere | 443/tcp, 80/tcp | Egress, through a NAT gateway by default: Ubuntu's archive at first boot and every day after for unattended-upgrades, the image registry once, and — on AWS — Session Manager, which is the only shell onto a machine with no public address. `simple-balance:databaseEgress: ipv6` routes the same traffic through an egress-only internet gateway instead, at no charge and without Session Manager; `docs/deployment-costs.md` compares them |
 
-**Nothing from `0.0.0.0/0` or `::/0`, on any port, on either cloud.** On AWS
-there is no inbound rule for a shell at all — Session Manager works through
-egress, and the node's role carries `AmazonSSMManagedInstanceCore`. On Oracle
-Cloud there is no `sshCidr` rule, because the machine has no public address for
-one to admit anybody to; such a rule would read as an exposure that is not one.
+**Nothing from `0.0.0.0/0` or `::/0`, on any port, on either cloud.** On AWS,
+with `databaseEgress` unset — which is every stack that does not change it —
+there is one inbound rule and it is 5432: the shell is Session Manager through
+egress, and the node's role carries `AmazonSSMManagedInstanceCore`. Under
+`databaseEgress: ipv6` there are two, and the second is 22 from the application
+node's security group, because that setting is what takes Session Manager away.
+On Oracle Cloud there is no `sshCidr` rule, because the machine has no public
+address for one to admit anybody to; such a rule would read as an exposure that
+is not one.
 
 **No public address, twice over.** The subnet refuses one —
 `mapPublicIpOnLaunch: false` on AWS, `prohibitPublicIpOnVnic: true` on Oracle
@@ -549,7 +727,19 @@ application node's data volume holds the backups, the generated secret in
 on that machine. Both are separate volumes on both clouds, so replacing either
 machine keeps what was on it, and on Oracle Cloud neither is ever made smaller
 than 50 GB, which is that provider's minimum.
-`docs/deployment-sizing.md` sizes all four.
+`docs/deployment-sizing.md` sizes all four — and sizes the two data volumes
+**separately**, because they hold unrelated things: `PGDATA` grows with the
+ledger, while the backup disk grows with the ledger times fifteen daily dumps,
+so at `medium` and `large` the application node's is the larger of the two.
+A key of your own on any of them is `simple-balance:kmsKeyArn` or
+`simple-balance:kmsKeyOcid`, and §Encryption above is what to read first,
+because on AWS the key cannot be changed after the volume exists.
+
+**Adding a volume's key later replaces the volume on AWS.** That is the one
+change in this profile that a single config line can make destructive, and both
+`protectDataVolume` and a check in the program stand in front of it — see
+§Encryption. On Oracle Cloud the same change is an in-place re-wrap and destroys
+nothing.
 
 `simple-balance:protectDataVolume` governs both data volumes. While it is on, as
 it is by default, Pulumi's `protect` makes `pulumi destroy` refuse rather than

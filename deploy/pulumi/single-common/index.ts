@@ -22,36 +22,66 @@ import type { DatabaseSettings, MachineSettings, Size } from "./cloud-init";
  * the program that implements it is worse than no table: the reader sizes their
  * machine from the document and gets whatever the code says.
  *
- * One table, read twice: `simple-balance:size` picks the application node's row
- * and `simple-balance:databaseSize` the database node's, because the two want
- * opposite things — the application is a Node process that is mostly idle, and
- * PostgreSQL would take every byte of memory on the machine. The five
- * PostgreSQL settings in each row are applied by the database node's compose
- * file as `-c` flags. The data disk holds the backups, the generated secret and
- * env.local on the application node and PGDATA on the database node, and OCI
- * raises it to its own 50 GB floor on both.
+ * One table, two machines per row. `simple-balance:size` picks the application
+ * node's shape out of a row and `simple-balance:databaseSize` the database
+ * node's, and each row carries both because the two want opposite things: the
+ * application is a Node process that is mostly idle and stores no ledger, and
+ * PostgreSQL would take every byte of memory and every block of disk on the
+ * machine. One `dataGib` for both was the defect this replaces — it sized the
+ * database node's disk as though the application node held the ledger, and the
+ * application node's as though it did not hold fourteen dumps of it.
+ *
+ * The five PostgreSQL settings belong to the `database` half and are applied by
+ * the database node's compose file as `-c` flags. They have not moved: each row
+ * was already written for a server of the memory its `database` shape now names,
+ * which is what makes this a re-shaping of the machines rather than a re-tuning
+ * of the server.
+ *
+ * Every number here is greater than or equal to what it was before the split,
+ * and that is a rule rather than a coincidence. Growing a volume is an in-place
+ * update on both clouds; shrinking one is refused outright by AWS and would be
+ * a replacement on OCI, which with `protectDataVolume` off is a deleted ledger.
+ * So the table may be made more generous and never less, and `small`'s
+ * application disk stays at 20 GiB although the arithmetic below asks for 10.
  */
 export const SIZES: Record<string, Size> = {
   // One household, and comfortably more than a ledger of a few thousand
-  // transactions needs. Its PostgreSQL settings are for a database server of
-  // the same shape, which is what a small managed instance usually is.
+  // transactions needs. Both machines stay where they were, which is what keeps
+  // the pair inside Oracle's Always Free allowance: 4 OCPU and 8 GB of Ampere,
+  // and two 50 GB boot volumes beside two data volumes OCI raises to its own
+  // 50 GB floor, which is 200 GB to the byte.
+  //
+  // Sized for 2M transactions. At 4 GiB of memory that whole ledger fits in
+  // cache — the crossover is about 2.8M — so there is nothing a larger machine
+  // would be buying here.
   small: {
-    vcpu: 2,
-    memoryGib: 4,
-    dataGib: 20,
+    application: { vcpu: 2, memoryGib: 4, diskGib: 20 },
+    database: { vcpu: 2, memoryGib: 4, diskGib: 30 },
     sharedBuffers: "512MB",
     effectiveCacheSize: "1536MB",
     workMem: "8MB",
     maintenanceWorkMem: "256MB",
     maxWalSize: "4GB",
   },
-  // A team. The step that matters here is maintenance_work_mem: it decides how
-  // long a migration that rewrites an index takes, and it is claimed only while
-  // such work runs.
+  // A team, and the row the capacity target is measured at: 10,000 people and
+  // 30 million transactions, which `docs/capacity.md` served at p95 130 ms with
+  // PostgreSQL held to 1.5 cores and 3 GiB.
+  //
+  // So the application node comes *down* to the small machine. It peaked at
+  // 108.6% of half a core and 745 MiB under that run; two cores and 4 GiB is
+  // four times its measured peak, and the four cores it used to buy were bought
+  // for a machine that stores no ledger and whose memory does nothing for the
+  // database's cache.
+  //
+  // The database node keeps them, and the memory is where the step is. The two
+  // big tables' indexes alone come to 18.2 GiB at this target, so 16 GiB of
+  // memory holds 84% of them against 8 GiB's 40% — which is the one place a
+  // bigger machine buys something measurable. The step that matters after that
+  // is maintenance_work_mem: it decides how long a migration that rewrites an
+  // index takes, and it is claimed only while such work runs.
   medium: {
-    vcpu: 4,
-    memoryGib: 16,
-    dataGib: 50,
+    application: { vcpu: 2, memoryGib: 4, diskGib: 110 },
+    database: { vcpu: 4, memoryGib: 16, diskGib: 100 },
     sharedBuffers: "4GB",
     effectiveCacheSize: "11GB",
     workMem: "16MB",
@@ -61,10 +91,15 @@ export const SIZES: Record<string, Size> = {
   // Past this the answer is the `ha` profile rather than a larger machine: one
   // host is still one restart, one disk and one upgrade window, however much
   // of it there is.
+  //
+  // The application node's disk is the larger of the two here, and it is not a
+  // mistake. It holds fifteen dumps of a 100M-transaction ledger — fourteen
+  // kept plus the one being written, which is the peak `simple-balance-backup`
+  // documents at its prune — and nothing else. `simple-balance:backupKeep` is
+  // the lever: at 3 it is a quarter of this.
   large: {
-    vcpu: 8,
-    memoryGib: 32,
-    dataGib: 100,
+    application: { vcpu: 2, memoryGib: 8, diskGib: 340 },
+    database: { vcpu: 8, memoryGib: 32, diskGib: 300 },
     sharedBuffers: "8GB",
     effectiveCacheSize: "22GB",
     workMem: "32MB",
@@ -95,8 +130,10 @@ export interface SingleSettings extends MachineSettings {
    * database node, no private subnet and no NAT gateway: the machine is what
    * it is without them, and the operator writes a DATABASE_URL of their own
    * into env.local, which firstboot waits for. That is the escape hatch for
-   * somebody who already keeps a PostgreSQL, and on AWS it is also how to
-   * avoid the NAT gateway's monthly charge.
+   * somebody who already keeps a PostgreSQL. It is no longer the only way to
+   * avoid AWS's NAT gateway charge — `simple-balance:databaseEgress: ipv6`
+   * keeps the database node and drops the gateway — so it is the answer to
+   * "I have a database", not to "this is expensive".
    */
   database?: DatabaseSettings;
 }

@@ -66,26 +66,47 @@ describe("what AWS writes to disk, and what carries it there", () => {
     // EBS traffic between a Nitro instance and an encrypted volume is encrypted
     // in transit by the hypervisor. There is no property for it: the guarantee
     // is the instance family plus `encrypted: true`, together, so a pre-Nitro
-    // family added to this table would take it away with nothing failing.
-    const table = /const instanceTypes: Record<string, string> = \{[\s\S]*?\n\};/.exec(
-      programCode(aws),
-    );
-    expect(table, "the instance-type table").not.toBeNull();
-    const types = [...table![0].matchAll(/"([a-z0-9]+)\.[a-z0-9]+"/g)].map((match) => match[1]!);
-    expect(types.length).toBeGreaterThanOrEqual(3);
-    // Every family this profile offers. Graviton throughout, and all three are
-    // Nitro; the list is spelled out rather than pattern-matched because "does
-    // this family run on Nitro" is a fact about AWS rather than about its name.
-    for (const family of types) expect(["t4g", "m7g", "c7g", "r7g"], family).toContain(family);
+    // family added to either table would take it away with nothing failing.
+    //
+    // Both tables, because the two machines stopped wanting the same shape: one
+    // covered and not the other would be the database node — the machine
+    // holding the ledger — on whatever family somebody typed.
+    const tables = [
+      ...programCode(aws).matchAll(
+        /const (?:application|database)InstanceTypes: Record<string, string> = \{[\s\S]*?\n\};/g,
+      ),
+    ].map((match) => match[0]);
+    expect(tables, "one instance-type table per machine").toHaveLength(2);
+    for (const table of tables) {
+      const types = [...table.matchAll(/"([a-z0-9]+)\.[a-z0-9]+"/g)].map((match) => match[1]!);
+      expect(types.length, table).toBeGreaterThanOrEqual(3);
+      // Every family this profile offers. Graviton throughout, and all of them
+      // are Nitro; the list is spelled out rather than pattern-matched because
+      // "does this family run on Nitro" is a fact about AWS rather than about
+      // its name.
+      for (const family of types) expect(["t4g", "m7g", "c7g", "r7g"], family).toContain(family);
+    }
   });
 
-  it("leaves the key to AWS, deliberately and in one place", () => {
-    // A customer-managed key means a key policy to get wrong, a monthly charge,
-    // and a documented way to lock yourself permanently out of your own ledger
-    // volume. The provider-managed key is the right default for a profile whose
-    // selling point is that one person can run it.
-    expect(programCode(aws)).not.toContain("kmsKeyId");
-    expect(aws, "and the choice is written down where it is made").toContain("No `kmsKeyId`");
+  it("leaves the key to AWS unless the stack names one, in one place for all four disks", () => {
+    // The default is still the provider's key, and that is the setting worth
+    // protecting: it needs no key policy to get wrong, costs nothing a month,
+    // and cannot be deleted out from under somebody's ledger. What changed is
+    // that a deployment with a key-management policy can now name a key — and
+    // the shape of that has to stay exactly this, because `kms_key_id` is
+    // Optional+Computed on an EBS volume: one shorthand `kmsKeyId` fed by one
+    // `undefined` when unset, never four chances to write `""`, which would
+    // diff against the `aws/ebs` ARN AWS fills in and plan a replacement on a
+    // stack whose operator set nothing at all.
+    expect(programCode(aws)).toMatch(/const kmsKeyId = kmsKeyArn\s*\?\s*aws\.kms/);
+    expect(programCode(aws)).toContain(": undefined;");
+    expect(
+      programCode(aws).match(/^\s+kmsKeyId,$/gm),
+      "four disks, one shorthand each",
+    ).toHaveLength(4);
+    // And nothing anywhere still says the opposite. A sentence kept for a
+    // phrase match is how a test goes on passing about a program that changed.
+    expect(aws, "the AWS-managed-key note outlived the decision").not.toContain("No `kmsKeyId`");
   });
 });
 
@@ -115,15 +136,20 @@ describe("what Oracle Cloud writes to disk, and what carries it there", () => {
     }
   });
 
-  it("leaves at rest to Oracle's own key, and says so where the volume is made", () => {
+  it("leaves at rest to Oracle's own key unless the stack names one, and says so", () => {
     // OCI encrypts every boot and block volume at rest with an Oracle-managed
-    // key and offers no way to turn it off, so there is no property to set —
-    // only a claim, which this asserts cannot silently stop being made.
-    expect(programCode(oci)).not.toContain("kmsKeyId");
+    // key and offers no way to turn it off, so a stack that sets nothing is
+    // already encrypted at rest and has no vault, no key policy to get wrong,
+    // no monthly charge and no way to lock itself out. That claim is the thing
+    // this asserts cannot silently stop being made.
     expect(oci).toContain("encrypts every boot and block volume at rest");
-    for (const volume of resourceCalls(oci, "oci.core.Volume")) {
-      expect(programCode(volume)).not.toContain("kmsKeyId");
-    }
+    // Both data volumes take the stack's key where it named one, and the same
+    // `undefined` where it did not — which is what keeps the sentence above
+    // true of a stack that sets nothing.
+    const volumes = resourceCalls(oci, "oci.core.Volume");
+    expect(volumes, "one data volume per machine").toHaveLength(2);
+    for (const volume of volumes) expect(programCode(volume)).toContain("kmsKeyId,");
+    expect(programCode(oci)).toMatch(/const kmsKeyId = kmsSelection\s*\?/);
   });
 });
 

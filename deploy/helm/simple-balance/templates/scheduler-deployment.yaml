@@ -55,6 +55,7 @@ spec:
       terminationGracePeriodSeconds: {{ .Values.scheduler.terminationGracePeriodSeconds }}
       securityContext:
         {{- toYaml .Values.scheduler.podSecurityContext | nindent 8 }}
+      {{- include "simple-balance.waitForDatabase" (dict "root" $ "component" .Values.scheduler) | nindent 6 }}
       containers:
         - name: scheduler
           image: {{ include "simple-balance.image" (dict "root" $ "image" .Values.scheduler.image) | quote }}

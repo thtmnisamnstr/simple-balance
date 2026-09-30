@@ -17,6 +17,22 @@ set -eu
 
 : "${SB_COMPOSE_DIR:=/opt/simple-balance}"
 : "${SB_BACKUP_DIR:=/var/backups/simple-balance}"
+# Fourteen kept, and fifteen is what the disk has to hold. The dump below is
+# written to `.partial`, verified, and only moved into place; the pruning at the
+# bottom runs after that move, so the newest finished dump and the one being
+# written coexist for the length of a `pg_dump`. Sizing SB_BACKUP_DIR from this
+# number rather than from this number plus one is a 7% under-estimate, and it
+# lands on the night the disk was already nearly full. The ordering is not the
+# bug and must not be "fixed": pruning first would delete a good backup to make
+# room for a dump that has not verified yet.
+#
+# It is also the largest lever on the application node's data disk, which is
+# what SB_BACKUP_DIR is on: (keep + 1) x 0.145 x the live ledger, 0.145 being
+# the measured ratio of a dump to its database. Three instead
+# of fourteen is a quarter of the disk, and is the right setting for anyone
+# copying the dumps off this machine — which docs/deployment-sizing.md tells
+# them to do, because a copy on a disk in the same account is not an off-site
+# backup.
 : "${SB_BACKUP_KEEP:=14}"
 # Only used where the database is not part of the deployment. Pinned rather than
 # floating: a pg_dump older than the server refuses outright, so the version this
@@ -266,6 +282,10 @@ mv "$partial" "$final"
 echo "simple-balance-backup: wrote $final ($(wc -c <"$final" | tr -d " ") bytes, $entries tables)"
 
 # Keep the newest SB_BACKUP_KEEP and remove the rest.
+#
+# After the `mv` above and never before it, which is why the peak on this disk
+# is SB_BACKUP_KEEP + 1 and not SB_BACKUP_KEEP: a dump that has not verified is
+# not a reason to drop one that did.
 #
 # A glob rather than `ls` piped into anything. The timestamp is in the name, so
 # the shell's own expansion is already oldest-first and the ones to remove are

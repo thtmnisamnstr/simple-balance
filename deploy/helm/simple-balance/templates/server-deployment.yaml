@@ -62,6 +62,7 @@ spec:
       terminationGracePeriodSeconds: {{ .Values.server.terminationGracePeriodSeconds }}
       securityContext:
         {{- toYaml .Values.server.podSecurityContext | nindent 8 }}
+      {{- include "simple-balance.waitForDatabase" (dict "root" $ "component" .Values.server) | nindent 6 }}
       containers:
         - name: server
           image: {{ include "simple-balance.image" (dict "root" $ "image" .Values.server.image) | quote }}

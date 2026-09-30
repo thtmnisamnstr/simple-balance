@@ -33,6 +33,15 @@ on:
     paths:
       - deploy/docker/citus.Dockerfile
       - .github/workflows/citus-image.yml
+    # Tags carry NO paths filter, and that is the point. The image's version is
+    # Citus's rather than this product's, so a release usually changes nothing
+    # here — and with a paths filter that meant a release could ship a chart
+    # pointing at an image no run had ever built. It had: the chart named
+    # `simple-balance-citus:14.2.0-pg18` and nothing of that name existed in the
+    # registry, so `database.enabled` would have met ImagePullBackOff for
+    # everybody. Rebuilding an unchanged image on a tag is cheap and idempotent;
+    # publishing a chart that references a missing one is not.
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       publish:
@@ -92,7 +101,7 @@ jobs:
             echo "citus=$citus"
             echo "pg=$pg"
             echo "tag=$citus-pg$pg"
-            echo "image=ghcr.io/$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')-citus"
+            echo "image=ghcr.io/$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')/citus"
           } >> "$GITHUB_OUTPUT"
           echo "Citus $citus on PostgreSQL $pg (${{ matrix.arch }})" >> "$GITHUB_STEP_SUMMARY"
 

@@ -49,6 +49,25 @@ function field(name: string, key: string): string {
   return match![1]!.trim();
 }
 
+/**
+ * One machine's half of a row: `application: { vcpu, memoryGib, diskGib }`.
+ *
+ * A second reader rather than a wider `field`, because the two halves use the
+ * same three key names and a regular expression over the whole block would find
+ * whichever came first. That is exactly the defect the split was made to fix —
+ * one number standing for two machines — so the test that holds the table is
+ * the last place it should be able to come back.
+ */
+function node(name: string, machine: "application" | "database", key: string): string {
+  const block = sizeBlock(name);
+  const start = block.indexOf(`${machine}: {`);
+  expect(start, `${name}.${machine} is missing`).toBeGreaterThan(-1);
+  const half = block.slice(start, block.indexOf("}", start));
+  const match = new RegExp(`${key}: (\\d+)`).exec(half);
+  expect(match, `${name}.${machine}.${key} is missing`).not.toBeNull();
+  return match![1]!;
+}
+
 /** A row of a markdown table, split into its cells. */
 function row(label: string): string[] {
   const line = DOC.split("\n").find((candidate) => candidate.startsWith(`| ${label} |`));
@@ -60,12 +79,25 @@ function row(label: string): string[] {
 }
 
 describe("the sizing table, in the document and in the program", () => {
-  it("agrees about the machine", () => {
+  it("agrees about both machines", () => {
+    // | `size` | Application node | Its data disk | Database node | Its data disk |
+    //
+    // Four cells per row rather than three, because a row sizes two machines
+    // that want opposite things: the application node runs a Node process that
+    // is mostly idle and stores no ledger, the database node runs PostgreSQL.
     for (const name of NAMES) {
       const cells = row(`\`${name}\``);
-      expect(cells[1], `${name} vCPU`).toBe(field(name, "vcpu"));
-      expect(cells[2], `${name} memory`).toBe(`${field(name, "memoryGib")} GiB`);
-      expect(cells[3], `${name} data disk`).toBe(`${field(name, "dataGib")} GiB`);
+      for (const [machine, shape, disk] of [
+        ["application", 1, 2],
+        ["database", 3, 4],
+      ] as const) {
+        expect(cells[shape], `${name} ${machine} shape`).toBe(
+          `${node(name, machine, "vcpu")} vCPU, ${node(name, machine, "memoryGib")} GiB`,
+        );
+        expect(cells[disk], `${name} ${machine} data disk`).toBe(
+          `${node(name, machine, "diskGib")} GiB`,
+        );
+      }
     }
   });
 
@@ -86,34 +118,63 @@ describe("the sizing table, in the document and in the program", () => {
   });
 
   /**
-   * And that the capacity column is the arithmetic the document describes
-   * rather than a number somebody liked.
+   * And that the two capacity rows are the arithmetic the document describes
+   * rather than numbers somebody liked.
    *
    * 1,248 bytes per transaction is measured — 50,000 transactions with one in
    * ten split three ways occupied 60 MB across `posting`, `ledger_transaction`
-   * and `transaction_leg`, indexes included. The rest is the document's own
-   * sentence: the disk, less the write-ahead log, less a gigabyte of slack,
-   * divided between a ledger and fourteen dumps of it at 0.15x each.
+   * and `transaction_leg`, indexes included — and 0.145 is the measured ratio
+   * of a `pg_dump -Fc` to the live database, 8.7 MB of 60.
+   *
+   * Two formulas rather than one, because the split gave the machines different
+   * jobs and the old single formula described neither. The database node holds
+   * `PGDATA` and nothing else; the application node holds the dumps and nothing
+   * else, and at `backupKeep`'s default of 14 it is the one that binds.
    */
-  it("derives the capacity column from the measurement", () => {
+  it("derives both capacity rows from the measurements", () => {
     const bytesPerTransaction = 1248;
-    const dumpRatio = 0.15;
-    const dumps = 14;
+    const dumpRatio = 0.145;
     const slackGib = 1;
+    // × 1.20 for bloat and × 0.15 for a REINDEX's second copy of the largest
+    // index, ÷ 0.95 for ext4's reserved blocks and ÷ 0.80 because a PGDATA
+    // volume should not be run fuller than that. The document derives every one
+    // of those; this is the same sentence as arithmetic.
+    const databaseOverhead = 1.2 + 0.15;
+    const usableFraction = 0.95 * 0.8;
 
     // The two measured figures are quoted in the prose, so a change to one
     // without the other is caught here rather than read as fact.
     expect(DOC, "the measured cost per transaction").toContain(
       `**${bytesPerTransaction.toLocaleString("en-US")} bytes per transaction**`,
     );
+    expect(DOC, "the measured dump ratio").toContain(`**${dumpRatio}×**`);
 
-    for (const name of NAMES) {
-      const disk = Number(field(name, "dataGib"));
+    const millions = (bytes: number) => `${(bytes / bytesPerTransaction / 1e6).toFixed(1)}M`;
+
+    for (const [index, name] of NAMES.entries()) {
+      // The database node: its whole disk, less twice max_wal_size, carries the
+      // ledger and its overheads.
       const wal = Number(field(name, "maxWalSize").replace("GB", ""));
-      const usableBytes = (disk - wal - slackGib) * 1024 ** 3;
-      const transactions = usableBytes / (1 + dumps * dumpRatio) / bytesPerTransaction;
-      const stated = `${(transactions / 1e6).toFixed(1)}M transactions`;
-      expect(row(`\`${name}\``)[4], `${name} capacity`).toBe(stated);
+      const databaseGib = Number(node(name, "database", "diskGib"));
+      const ledgerBytes = ((databaseGib * usableFraction - 2 * wal) / databaseOverhead) * 1024 ** 3;
+      const ledgerCell = row("Ledger the database disk holds")[index + 1]!;
+      expect(ledgerCell.replace(" transactions", ""), `${name} ledger`).toBe(millions(ledgerBytes));
+
+      // The application node: its whole disk, less a gigabyte for env.local,
+      // the secret and the CA, carries `backupKeep` + 1 dumps — fifteen at the
+      // default, because the newest is verified before the oldest is pruned.
+      const applicationGib = Number(node(name, "application", "diskGib"));
+      const dumpableBytes = (applicationGib * usableFraction - slackGib) * 1024 ** 3;
+      for (const [keep, label] of [
+        [14, "Dumps the application disk holds, at `backupKeep` 14"],
+        [3, "The same at `backupKeep` 3"],
+      ] as const) {
+        const held = dumpableBytes / ((keep + 1) * dumpRatio);
+        expect(
+          row(label)[index + 1]!.replace(" transactions", ""),
+          `${name} at backupKeep ${keep}`,
+        ).toBe(millions(held));
+      }
     }
   });
 });

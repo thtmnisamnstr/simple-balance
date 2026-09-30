@@ -244,17 +244,21 @@ Those are counts, and they are exact.
 ### Two things the run measured that the thresholds do not
 
 **The disk is the binding constraint, not the CPU.** This population is 35 GB,
-and `docs/deployment-sizing.md` sizes `small`'s disk at 20 GiB. So the machine
-that served this comfortably could not have stored it: ten thousand users needs
-`medium`'s disk at minimum, and only with dumps kept off the box — fourteen
-daily dumps of a 37 GB ledger is another 79 GB, which on one disk beside the
-ledger is past `large`. The `single` profile splits the two across its two
-machines, which moves the problem rather than removing it: the database node
-wants `medium`'s disk, and the application node's data disk, where the dumps
-land, wants `large`'s. Sizing them apart is what
-`simple-balance:databaseSize` is for. The
-CPU and memory of `small` are ample for ten thousand users; the disks are not,
-and they are what should be sized from the table.
+and the machine that served it comfortably is a `small` one. The two disks it
+needs are not: `medium`'s, on both machines. That is what this run bought the
+sizing table — the disks in it are derived from these row counts rather than
+picked, and they are derived twice, because the two machines hold unrelated
+things. The database node holds `PGDATA`, which at this population is 35 GB of
+ledger plus its write-ahead log plus room to rebuild an index: `medium`'s
+100 GiB. The application node holds the dumps, and fifteen of them — fourteen
+kept plus the one being written — at 0.145 times the live size is 76 GiB, which
+is `medium`'s 110 GiB and would not have fitted in the 50 GiB the old table gave
+either machine. Sizing them apart is what `simple-balance:size` and
+`simple-balance:databaseSize` are for, and `docs/deployment-sizing.md` §What
+actually fills a disk is the arithmetic. **The CPU and memory of `small` are
+ample for ten thousand users; the disks are what should be sized from the
+table** — and `backupKeep`, which at 3 rather than 14 takes the application
+node's requirement from 76 GiB to 20.
 
 **Signing 500 sessions in at once loses some of them.** 29 of 500 failed, for
 the same reason the imports did: verifying a password is deliberately expensive,

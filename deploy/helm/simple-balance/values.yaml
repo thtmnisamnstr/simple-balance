@@ -675,7 +675,11 @@ database:
   image:
     # Falls back to global.imageRegistry when empty.
     registry: ""
-    repository: thtmnisamnstr/simple-balance-citus
+    # Plainly `citus`, not `simple-balance-citus`: it is a PostgreSQL image with
+    # Citus in it and carries Citus's version, so naming it after this product
+    # would imply it moves with the application's releases. It does not.
+    # `.github/workflows/citus-image.yml` publishes it under exactly this name.
+    repository: thtmnisamnstr/citus
     # Names Citus and PostgreSQL rather than the application version, because
     # that is whose version it is. There is deliberately no `latest`: a
     # PostgreSQL major version cannot read the previous major's data directory,
