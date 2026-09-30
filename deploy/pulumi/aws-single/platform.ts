@@ -249,7 +249,7 @@ export function requireNewStackForKmsKey(keyArn: string, isNewStack: boolean): v
 // ------------------------------------------- the database node's way out ---
 
 /** How the database node reaches the internet. `./index.ts` builds each one. */
-export type DatabaseEgress = "nat" | "ipv6";
+export type DatabaseEgress = "nat" | "ipv6" | "ssm";
 
 /**
  * Which way out the stack asked for, refused unless it is one that works.
@@ -272,19 +272,81 @@ export type DatabaseEgress = "nat" | "ipv6";
  *   which keeps the operator's private key on their laptop where it belongs and
  *   needs no open port anywhere — but it is ssh, and ssh needs a key, which is
  *   why this refuses without one rather than leaving somebody one `pulumi up`
- *   away from having no way onto the machine holding the ledger. Two SSM
- *   interface endpoints would keep the direct shell, at $14.60 a month, which
- *   is a smaller bill and not a free one.
+ *   away from having no way onto the machine holding the ledger. `ssm` below is
+ *   the option that buys the direct shell back.
  *
- *   The mirror. `<region>.ec2.archive.ubuntu.com` publishes no AAAA record, so
- *   the database node's sources are rewritten to `archive.ubuntu.com`, which
- *   has had one since 2013. That is Canonical's global archive instead of the
- *   in-region one: further away, and outside AWS's network.
+ *   The mirror. The database node's sources are rewritten to
+ *   `archive.ubuntu.com`, away from `<region>.ec2.archive.ubuntu.com`. That is
+ *   Canonical's global archive instead of the in-region one: further away, and
+ *   outside AWS's network. The rewrite was written because the in-region mirror
+ *   published no AAAA record; it publishes one now — checked 2026-09-30 in
+ *   us-east-1, us-west-2 and eu-west-1, against three resolvers — so the rewrite
+ *   now buys an out-of-region hop for nothing. It is kept anyway, and kept
+ *   deliberately: dropping it changes what every existing `ipv6` stack does at
+ *   the one moment there is no way to watch it, and the fact that would justify
+ *   dropping it is a record in somebody else's DNS that can go back. What is
+ *   *not* kept is the sentence claiming the record does not exist.
  *
  *   The registry. Docker Hub publishes AAAA on `registry-1.docker.io` and
  *   Cloudflare's blob host is dual-stack, so the `postgres:18` pull works — but
  *   it works because of somebody else's DNS records, and if they go the failure
  *   is a first boot that hangs with nothing in the log about the network.
+ *
+ * `ssm` is `ipv6` plus two interface VPC endpoints, and the "plus" is the whole
+ * of the design rather than a detail of it. It costs $14.60 a month in
+ * us-east-1 and us-west-2 — two endpoints at $0.01 an endpoint-hour, from the
+ * `VpcEndpoint-Hours` line of AWS's own published price list — and it keeps
+ * `pulumi stack output databaseShell` a plain `aws ssm start-session`, so the
+ * machine holding the ledger keeps the shell that needs no key and no open
+ * port. That is $21.90 a month less than the NAT gateway.
+ *
+ *   The endpoints alone would build a machine that cannot finish booting, and
+ *   that is why this option is never the endpoints alone. A VPC endpoint
+ *   reaches AWS services and nothing else, and neither of the two things this
+ *   node fetches at first boot is an AWS service:
+ *   `<region>.ec2.archive.ubuntu.com` resolves into AWS's *EC2* prefix rather
+ *   than its S3 one, so an S3 gateway endpoint diverts none of apt, and Docker
+ *   Hub's blobs are on Cloudflare at an address in no AWS range at all. On
+ *   endpoints alone the machine reaches `running`, Session Manager works, apt
+ *   times out, `docker.io` never installs, `postgres:18` is never pulled, and
+ *   there is no database — the cruellest possible shape of the bug, because the
+ *   shell that was paid for is the one thing that answers. So the IPv6 half is
+ *   not a companion setting an operator can forget: `./index.ts` builds it from
+ *   this one value, and there is no spelling of the stack that asks for one
+ *   without the other.
+ *
+ *   Two endpoints and not three. `com.amazonaws.<region>.ssm` carries the
+ *   heartbeat and the registration, without which `start-session` answers
+ *   `TargetNotConnected`; `com.amazonaws.<region>.ssmmessages` carries the
+ *   session's data channel. `ec2messages` is the third that older documentation
+ *   asks for, and it is not needed: from SSM Agent 3.3.40.0 the agent uses
+ *   `ssmmessages` whenever it is available, regions launched from 2024 support
+ *   only `ssmmessages`, and AWS is retiring the `ec2messages` endpoint on
+ *   2026-09-30. Adding it out of caution would be $7.30 a month for a service
+ *   being switched off, so the number an operator is told is $14.60 and not
+ *   $21.90.
+ *
+ *   *Both* hours are regional, and that is the trap rather than the endpoint's
+ *   being so. The endpoint is $0.0100 in us-east-1 and us-west-2, $0.0110 in
+ *   eu-west-1 and ca-central-1, $0.0120 in eu-central-1, $0.0130 in ap-south-1
+ *   and ap-southeast-2 and $0.0210 in sa-east-1. But `NatGateway-Hours` moves
+ *   further over the same span — $0.045 in the US against $0.093 in sa-east-1 —
+ *   so the saving *grows* outside the US instead of shrinking. Two endpoints in
+ *   sa-east-1 are $30.66 against a gateway that costs $71.54 there: $40.88 a
+ *   month, and priced across all 34 commercial regions it is the largest saving
+ *   this setting offers anywhere — while $21.90, the US figure, is the
+ *   *smallest*. This comment said the opposite, because it subtracted a
+ *   regional endpoint price from the US gateway price;
+ *   `docs/deployment-costs.md` now prints both columns region by region. Data
+ *   processing is $0.01/GB and rounds to nothing here:
+ *   the agent's heartbeat is a few kilobytes every five minutes, which is well
+ *   under a gigabyte a month for both machines.
+ *
+ *   It needs no SSH key, and that is not a convenience. Requiring one is what
+ *   makes `ipv6` a two-machine rebuild on a stack that already exists, because
+ *   EC2 has no API to give a running instance a key pair. `ssm` keeps the
+ *   agent, so it needs no replacement shell, so it needs no key, so it asks for
+ *   nothing that plans a replacement.
  *
  * Two other free answers are not offered, and it is worth saying why rather
  * than leaving them to be rediscovered. An **S3 gateway endpoint** is free and
@@ -298,6 +360,18 @@ export type DatabaseEgress = "nat" | "ipv6";
  * instance reached `running` and not that its cloud-init installed the
  * forwarding rule, while the database node's first act is `apt-get update`.
  * Selling a race condition as a saving is worse than the $36.50.
+ *
+ * A third is not offered *yet*, and it would make `ssm` free rather than
+ * cheap. `ssm.<region>.api.aws` and `ssmmessages.<region>.api.aws` are the
+ * dual-stack spellings of the same services and both answer AAAA — checked in
+ * us-east-1 — and SSM Agent takes `Ssm.Endpoint` and `Mgs.Endpoint` overrides,
+ * so plain `ipv6` could keep the direct shell for nothing. It is not shipped
+ * because it has not been proven on a real instance: Ubuntu installs the agent
+ * as a snap, so the configuration is under `/var/snap/amazon-ssm-agent/current/`
+ * rather than `/etc/amazon/ssm/`, and `ec2messages.<region>.api.aws` resolves
+ * to nothing at all, so there is no fallback if the override is wrong. An
+ * option whose failure is a machine with no shell is one to measure before
+ * offering, not after.
  */
 export function readDatabaseEgress(
   value: string | undefined,
@@ -308,13 +382,20 @@ export function readDatabaseEgress(
   // be refusing a stack that asked for nothing — which is the one case that has
   // to keep building exactly what it built before this setting existed.
   const wanted = (value ?? "").trim() || "nat";
-  if (wanted !== "nat" && wanted !== "ipv6") {
+  if (wanted !== "nat" && wanted !== "ipv6" && wanted !== "ssm") {
     throw new Error(
-      `simple-balance:databaseEgress is "${wanted}"; it is nat or ipv6. nat is the default and ` +
-        "costs about $36.50 a month; ipv6 is free and gives up the Session Manager shell on the " +
-        "database node, which SSH from the application node replaces.",
+      `simple-balance:databaseEgress is "${wanted}"; it is nat, ipv6 or ssm. nat is the default ` +
+        "and costs about $36.50 a month; ssm costs about $14.60 a month in us-east-1 and keeps " +
+        "the Session Manager shell on the database node; ipv6 is free and gives up that shell, " +
+        "which SSH from the application node replaces.",
     );
   }
+  // Only `ipv6`, and never `ssm`. `ssm` buys the agent's own shell back with
+  // the two interface endpoints, so it has no replacement shell to arrange and
+  // nothing to refuse for — and demanding a key it does not need is not a
+  // harmless extra safeguard on a stack that already has machines: the key can
+  // only arrive as `keyName` on a new instance, so it would plan the two
+  // rebuilds described below for a setting that never uses it.
   if (wanted === "ipv6" && !sshPublicKey) {
     throw new Error(
       "simple-balance:databaseEgress is ipv6, which takes Session Manager away from the database " +
@@ -334,6 +415,124 @@ export function readDatabaseEgress(
     );
   }
   return wanted;
+}
+
+/**
+ * Whether the database node's way out is the IPv6 one, which is both of the
+ * options that are not a NAT gateway.
+ *
+ * One predicate rather than six comparisons, and the reason is what a missed
+ * one does. The IPv6 network is six properties spread across four resources —
+ * the VPC's generated block, the egress-only gateway, the subnet's /64, the
+ * subnet's auto-assign, the instance's address, and the apt rewrite that has to
+ * run before the first `apt-get` — and `ssm` needs every one of them, because
+ * the interface endpoints reach AWS and nothing else. A site left reading
+ * `=== "ipv6"` would not fail a plan or a `pulumi up`: it would build a machine
+ * that comes up, answers a shell through the endpoints, and never installs
+ * Docker, which is the exact failure this option exists to refuse. So the
+ * question is asked in one place and the answer is spent in six.
+ *
+ * What deliberately does *not* read this: the NAT gateway and its address,
+ * which ask `=== "nat"`; the SSH rule on the database node's security group,
+ * which exists only to replace a shell `ssm` still has; and the shell command
+ * itself. Under `ssm` the agent works, so there is nothing to replace and no
+ * port to open.
+ */
+export const databaseUsesIpv6 = (egress: DatabaseEgress): boolean =>
+  egress === "ipv6" || egress === "ssm";
+
+/**
+ * The two interface endpoints `ssm` builds, by their short service names.
+ *
+ * `ssm` is the control plane — `UpdateInstanceInformation` and
+ * `RegisterManagedInstance` — without which the node never becomes a managed
+ * node and `start-session` answers `TargetNotConnected`. `ssmmessages` is the
+ * data channel the session itself runs over.
+ *
+ * `ec2messages` is deliberately absent and `readDatabaseEgress` carries the
+ * argument: the agent stopped calling it at 3.3.40.0, regions launched from
+ * 2024 never had it, and AWS retires the endpoint on 2026-09-30. A third entry
+ * here is $7.30 a month for a service being switched off.
+ *
+ * `s3` is absent too, and that one is worth a sentence because it is the free
+ * one. A gateway endpoint for S3 costs nothing and would let the agent fetch
+ * its own updates from AWS's buckets — but Ubuntu ships the agent as a snap, so
+ * snapd updates it from Canonical over the IPv6 route this option already
+ * builds, and the endpoint would add a route to a table whose whole point is
+ * that it has exactly one. Free is not the same as free of moving parts.
+ */
+export const SSM_SHELL_ENDPOINTS = ["ssm", "ssmmessages"] as const;
+
+/**
+ * An interface endpoint's service name, refused unless the service is offered
+ * in the zone this stack's subnets landed in.
+ *
+ * An interface endpoint is an ENI in a subnet, so it can only be placed in a
+ * zone the service is offered in, and AWS does not offer every service in every
+ * zone of every region — us-east-1 is the well-known case. This program names
+ * no availability zone: it takes whichever one AWS gave the first subnet and
+ * pins the second to it. So a stack can be unlucky, and what AWS answers is a
+ * raw error at the endpoint naming neither the setting that asked for it nor
+ * the ways out of it. This says both.
+ *
+ * **When it arrives is not the same on both kinds of stack, and the difference
+ * is worth stating rather than rounding up to "plan time".** The zone comes
+ * from `databaseSubnet.availabilityZone`, so:
+ *
+ *   On a stack whose subnets already exist — the `nat` stack being switched
+ *   over, which is the upgrade path — the zone is in state, both it and the
+ *   service's `availabilityZones` resolve during `pulumi preview`, and the
+ *   preview itself fails. Nothing is touched.
+ *
+ *   On a stack with no subnet yet, that Output is *unknown* at preview, and
+ *   Pulumi does not run an `apply` callback over an unknown. The preview is
+ *   therefore clean and the refusal arrives during `pulumi up`, at the first
+ *   endpoint — after the VPC, both subnets, the gateways and the security
+ *   groups, and before either instance or either data volume. What is left is
+ *   a network to `pulumi destroy`, which is a cheap thing to lose, and the
+ *   message still says what to do instead.
+ *
+ * `requireUsableKmsKey` above really is plan-time on both, and the difference
+ * matters before somebody copies this shape: its invoke reads a config string,
+ * so nothing about it waits for a resource to exist.
+ *
+ * **Pinning the zone is the fix that would make this preview-time everywhere,
+ * and it is refused for this release.** Giving `subnet` an explicit
+ * `availabilityZone` would make the whole chain config-derived — but the zone a
+ * program picks is not the one AWS already gave an existing stack, so it would
+ * plan a replacement of both subnets, and with them both instances, on every
+ * stack built before it. Trading a discarded empty network for a rebuilt live
+ * one is the wrong way round.
+ *
+ * Consumed as the endpoint's own `serviceName`, the way `requireUsableKmsKey`
+ * is consumed as the volumes' `kmsKeyId`, so nothing is registered while it is
+ * unresolved and `pulumi up --skip-preview` cannot outrun it.
+ *
+ * An empty list is treated as "AWS did not say" and allowed through rather than
+ * refused. The data source documents `availabilityZones` as unavailable for
+ * services in other regions, and a check that turned silence into a refusal
+ * would make this option unusable somewhere it works. Allowing it through is
+ * never worse than having no check: that stack simply fails where it fails
+ * today.
+ */
+export function requireEndpointZone(
+  serviceName: string,
+  zone: string,
+  zones: readonly string[],
+): string {
+  if (zones.length === 0 || zones.includes(zone)) return serviceName;
+  throw new Error(
+    `simple-balance:databaseEgress is ssm, which needs an interface endpoint for ${serviceName} ` +
+      `in ${zone} — the availability zone this stack's subnets are in. AWS offers that service ` +
+      `in ${zones.join(", ")} and not there, so the endpoint cannot be placed and the database ` +
+      "node would have no Session Manager shell.\n" +
+      "  This program names no availability zone: it takes the one AWS gives the first subnet, " +
+      "so there is nothing to move. Either deploy this stack in another region — aws:region, on " +
+      "a stack with no resources yet — or choose a way out that needs no endpoint: " +
+      "pulumi config rm simple-balance:databaseEgress keeps the NAT gateway at about $36.50 a " +
+      "month, and simple-balance:databaseEgress ipv6 is free and replaces the shell with SSH " +
+      "from the application node.",
+  );
 }
 
 /**
@@ -380,14 +579,32 @@ export function ipv6SubnetCidr(vpcCidr: string, index: number): string {
 }
 
 /**
- * The one boot command the `ipv6` option needs, and the reason it is a boot
+ * The one boot command the IPv6 options need, and the reason it is a boot
  * command rather than anything later.
  *
- * `<region>.ec2.archive.ubuntu.com` has no AAAA record, so on a machine whose
- * only route out is IPv6 the very first `apt-get update` hangs — before
+ * It was written against a fact that has since expired.
+ * `<region>.ec2.archive.ubuntu.com` published no AAAA record, so on a machine
+ * whose only route out is IPv6 the very first `apt-get update` hung — before
  * `runcmd`, before the first-boot script, before anything this program could
  * otherwise run. cloud-init's `bootcmd` is the only stage earlier than
- * `package_update`.
+ * `package_update`, which is why the rewrite lives here and not in
+ * `platformCommands`.
+ *
+ * The mirror publishes AAAA now: checked 2026-09-30 in us-east-1, us-west-2 and
+ * eu-west-1 against 1.1.1.1, 8.8.8.8 and 9.9.9.9. So this rewrite is no longer
+ * load-bearing, and it is kept rather than dropped for two reasons that are
+ * about risk rather than correctness. Dropping it changes what every existing
+ * `ipv6` stack does at first boot, which is the one moment nobody is watching
+ * and the one failure that leaves no log worth reading. And the fact that would
+ * justify dropping it is a record in Canonical's DNS, which can go back as
+ * easily as it arrived — `archive.ubuntu.com` has answered AAAA since 2013 and
+ * is the safer of the two to depend on.
+ *
+ * What it costs is honest to state: an out-of-region hop to Canonical's global
+ * archive instead of the mirror inside AWS's network, once, at first boot. What
+ * it is not is a fix for a problem that still exists. Both IPv6 options run it,
+ * `ssm` included, because `ssm` is the same IPv6 path with a shell bolted back
+ * on and there is no reason for the two to boot differently.
  *
  * Both file layouts are rewritten because Ubuntu 24.04 moved the archive to
  * deb822 at `/etc/apt/sources.list.d/ubuntu.sources` and an image built either

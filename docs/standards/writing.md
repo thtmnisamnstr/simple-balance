@@ -127,7 +127,7 @@ convention expects.
 *Not checked mechanically.* Nothing in `tests/`, `scripts/` or `.github/`
 reads `CHANGELOG.md`. In particular nothing checks that the top heading matches
 `package.json`, which is a hand step in the release recipe at
-`docs/upgrades.md:909` and has already been the subject of a commit ("Date
+`docs/upgrades.md:1204` and has already been the subject of a commit ("Date
 0.1.4 the day it is cut").
 
 ## Versioning
@@ -217,7 +217,7 @@ with no note. The publish runs `npm run verify` first, so an unwritten note now
 stops the release rather than reaching an operator mid-upgrade. *Also checked:*
 the frozen migration list, which `tests/migrations.test.ts` holds to what is on
 disk. *Not checked:* the changelog heading, a hand step in the release recipe at
-`docs/upgrades.md:909`, and which release a migration is attributed to,
+`docs/upgrades.md:1204`, and which release a migration is attributed to,
 which is prose inside a list a test can only check the membership of.
 
 ## Upgrade notes
@@ -229,7 +229,7 @@ disagreeing." What follows is the documentation the operator is owed for that.
 
 **House, the shape.** A `## Before you upgrade to X.Y.Z` section, and its first
 sentence tells an operator whether they can stop reading.
-`docs/upgrades.md:670-671` is the model: "Nothing refuses to start that 0.1.5
+`docs/upgrades.md:864-865` is the model: "Nothing refuses to start that 0.1.5
 accepted, and nothing about an existing configuration has to change. Five
 things are worth knowing." The
 0.1.4 section is the other model, because the answer there was different: "0.1.4

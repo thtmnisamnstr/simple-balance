@@ -73,27 +73,72 @@ to somebody meeting the chart for the first time. Both now carry a
 bring-your-own-database deployment is unaffected and renders what it rendered
 before.
 
-**A known limitation: `helm uninstall` followed by `helm install` under the same
-release name leaves the database permanently unable to start.** Patroni keeps
-its cluster state in Kubernetes objects it creates itself at runtime — endpoints
+**`helm uninstall` now takes Patroni's own state with it, so a reinstall under
+the same release name works.** Without it, `helm uninstall` followed by
+`helm install` left the database permanently unable to start. Patroni keeps its
+cluster state in Kubernetes objects it creates itself at runtime — endpoints
 named `<release>-simple-balance-db-<group>`, and `-config`, `-sync` and
-`-failover` beside them. Helm did not create them, so `helm uninstall` does not
-delete them, and the `-config` endpoint is left carrying an `initialize`
-annotation with an empty value. Patroni reads the *presence* of that annotation
-as "this cluster already exists, do not bootstrap, wait for a leader", and the
-empty value means no member can claim leadership from it. Every database pod
-then logs `INFO: waiting for leader to bootstrap` every ten seconds forever,
-`Running` and `0/1`, with nothing crashing, nothing backing off and no event
-saying anything is wrong. **Deleting the PersistentVolumeClaims is not the fix
-and is precisely the trap** — it is what produces the deadlock, because the
-state then describes a cluster whose data is gone. Deleting the namespace is the
-recovery, because it takes the endpoints with it. Reinstalling over an intact
-set of claims with that state intact is a different case and is a normal
-restart. This is recorded rather than fixed: the fix is a `pre-delete` hook that
-removes Patroni's state on uninstall, plus the RBAC to let it, and a hook that
-deletes cluster state is one that can delete it at the wrong moment, so it wants
-its own change and its own review. `docs/citus-runbook.md` §Uninstalling, and
-what it leaves behind has the procedure.
+`-failover` beside them. Helm deletes what it created and did not create those,
+so the `-config` endpoint survived carrying an `initialize` annotation with an
+empty value. Patroni reads the *presence* of that annotation as "this cluster
+already exists, do not bootstrap, wait for a leader", and the empty value means
+no member can claim leadership from it either. Every database pod logged
+`INFO: waiting for leader to bootstrap` every ten seconds forever, `Running` and
+`0/1`, with nothing crashing, nothing backing off and no event saying anything
+was wrong — and **deleting the PersistentVolumeClaims, the obvious thing to
+reach for, is what produces it**, because the state then describes a cluster
+whose data is gone. Deleting the namespace was the only recovery.
+
+A Job now deletes those objects on uninstall. Because a hook that deletes
+database cluster state is dangerous by construction, the decisions that make it
+safe are written into the template beside the annotations rather than left to be
+inferred:
+
+- **It is a `post-delete` hook, not the `pre-delete` one this obviously wants to
+  be.** Helm runs `pre-delete` before deleting anything, so every database pod
+  is still up and Patroni's leader rewrites `initialize` and the config object
+  within one ten-second `loop_wait`. A `pre-delete` hook would delete four
+  objects and be handed them straight back — it would have looked right and
+  changed nothing.
+- **A hook that cannot run never strands the release.** Helm returns a
+  `pre-delete` failure before the uninstall proceeds, so a broken one would
+  refuse the uninstall and leave a release nobody could remove. A `post-delete`
+  failure is collected instead: the resources are deleted, the history is
+  purged, and `helm uninstall` exits non-zero. The residue is the four
+  endpoints, which is exactly the old behaviour, recovered the old way. It does
+  still fail a `pulumi destroy`, which the runbook and `docs/upgrades.md` both
+  cover: the Release is left in Pulumi state with nothing behind it, a second
+  `destroy` cannot clear it because the history is already purged, and
+  `pulumi state delete` on that URN can. On a teardown that takes the namespace
+  anyway, `database.patroniCleanup.enabled: false` declines the hook and the
+  question with it.
+- **It waits for the database pods to be gone before deleting anything.** Helm
+  does not wait for pods on uninstall and they have a sixty-second grace period,
+  so a Job that deleted immediately would lose the same race the `pre-delete`
+  hook loses. Its wait selector is deliberately broader than its delete
+  selector: waiting for too much only costs seconds, while deleting too little
+  reproduces the defect on the next install.
+- **It matches this release and no other.** Selection is by the labels Patroni
+  itself writes — `app.kubernetes.io/instance`, the release name, and
+  `cluster-name`, which contains it — never a name prefix or a wildcard that
+  could reach a sibling release in the same namespace. It skips Helm-owned
+  objects, deletes by exact name, and treats a 404 as success, so it is harmless
+  when the objects are already gone. It fires on uninstall and from nowhere
+  else: no install, upgrade or rollback path reaches `post-delete`.
+- **Its RBAC is a hook resource too, not a release resource**, since Helm
+  deletes the release's own objects before running `post-delete`. It is a
+  namespaced Role carrying `list` and `delete` on endpoints and services and
+  `list` on pods — no cluster scope, no `deletecollection`, and nothing the
+  database ServiceAccount is not already granted — and it exists only for the
+  seconds the Job runs.
+
+On by default, and `database.patroniCleanup.enabled: false` turns it off for the
+one flow it changes: reinstalling over intact claims, where the cleanup means
+the dynamic configuration is rebuilt from the chart's `bootstrap.dcs` and any
+`patronictl edit-config` is reverted. It renders nothing unless
+`database.enabled` is `true`, so a values file that does not run the database is
+byte-for-byte what it was. `docs/citus-runbook.md` §Uninstalling, and the state
+that used to outlive it has the whole of it.
 
 **A capacity proof, reproducible from this repository.** `docs/capacity.md` is
 the claim — ten thousand people's ledgers on the smallest machine the `single`
@@ -196,14 +241,50 @@ policy admission controller rejects, or a container an operator believes is
 constrained and is not.
 
 **`simple-balance:databaseEgress`, for the AWS NAT gateway that is 38% of a
-`small` bill.** It defaults to `nat`, which is what every stack has today and
-plans no change. `ipv6` builds an Amazon-provided IPv6 range, an egress-only
-internet gateway and a `::/0` route instead, and costs **nothing** — no hourly
-charge and no per-GB charge. What it costs in another currency is stated rather
-than hidden: Session Manager stops working on the database node, because
-`ssm.<region>.amazonaws.com` publishes no IPv6 address and there is no IPv4
-route left, so the setting requires `sshPublicKey` and is refused without one
-rather than quietly removing the only shell onto the machine holding the ledger.
+`small` bill, with three ways off it.** It defaults to `nat`, which is what
+every stack has today and plans no change.
+
+`ipv6` builds an Amazon-provided IPv6 range, an egress-only internet gateway and
+a `::/0` route instead, and costs **nothing** — no hourly charge and no per-GB
+charge. What it costs in another currency is stated rather than hidden: Session
+Manager stops working on the database node, because `ssm.<region>.amazonaws.com`
+publishes no IPv6 address and there is no IPv4 route left, so the setting
+requires `sshPublicKey` and is refused without one rather than quietly removing
+the only shell onto the machine holding the ledger.
+
+`ssm` is the middle answer and is **$14.60 a month in a US region**, $21.90
+cheaper than the gateway, keeping `pulumi stack output databaseShell` working
+exactly as documented and needing no SSH key. It is the IPv6 egress-only gateway
+*plus* `com.amazonaws.<region>.ssm` and `…ssmmessages` interface endpoints, and
+building both halves as one setting is the point rather than an implementation
+detail: interface endpoints reach AWS services, and neither Ubuntu's archive nor
+Docker Hub is one, so endpoints **without** the gateway would produce a machine
+that comes up `running`, answers Session Manager and never finishes installing
+Docker or pulling `postgres:18` — the shell you paid for being the only part
+that works. Every combination of *settings* that cannot work is refused at plan
+time, naming what is missing. The one condition that is not a setting — whether
+the availability zone AWS gave this stack offers both services — is refused
+against the same message, at `pulumi preview` on a stack whose subnets already
+exist and during `pulumi up`, before the first endpoint and before either
+machine, on one that has none yet.
+
+`ec2messages` is deliberately not built: from SSM Agent
+3.3.40.0 onward Systems Manager prefers `ssmmessages`, regions launched from
+2024 support only `ssmmessages`, and AWS is retiring the `ec2messages` endpoint
+itself on 2026-09-30 — so a third endpoint would be $21.90 a month, $7.30 of it
+for a service being switched off.
+The endpoints' security group admits 443 from **both** node security groups,
+because an interface endpoint's private DNS overrides the service name for the
+whole VPC rather than for one subnet, and admitting only the database node would
+have silently taken Session Manager away from the application node. $14.60 is
+us-east-1 and us-west-2; `docs/deployment-costs.md` prices *both* sides region
+by region, because the NAT gateway's hour is regional too and moves further than
+the endpoint's. The saving therefore grows outside the US rather than shrinking:
+in sa-east-1 two endpoints are $30.66 against a gateway that costs $71.54 there,
+which is $40.88 a month and, priced across all 34 commercial regions, the
+largest saving this setting offers anywhere — while the US $21.90 is the
+smallest of any of them.
+
 Oracle Cloud needs none of it, since its NAT gateway is free.
 
 **Customer-managed keys on both single-machine clouds, accepted and never

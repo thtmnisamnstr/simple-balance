@@ -1015,6 +1015,15 @@
             }
           }
         },
+        "patroniCleanup": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          }
+        },
         "restApiPort": {
           "type": "integer",
           "minimum": 1,

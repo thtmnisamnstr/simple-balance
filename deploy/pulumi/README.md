@@ -150,18 +150,23 @@ Except where a line says otherwise, this applies to all four.
   window to undo it and nothing after. The `ha` programs create a key for one
   thing only, the Kubernetes Secrets in etcd, where neither cloud offers a
   managed one.
-- **The database node's egress is a NAT gateway on AWS, at $36.50 a month.** It
-  is 38% of the `small` bill and it buys three things: Ubuntu's archive, the
-  image registry, and Session Manager — which is the only shell onto a machine
-  with no public address, and the reason "just remove the gateway" is the wrong
-  instinct. `simple-balance:databaseEgress` is the setting, it defaults to
-  `nat`, and `ipv6` builds an egress-only internet gateway instead at no charge,
-  reaching the machine by SSH from the application node rather than by Session
-  Manager. Oracle Cloud charges nothing for its NAT gateway and needs none of
-  this. `docs/deployment-costs.md` compares them, including the two free-looking
-  answers that do not work — an S3 gateway endpoint reaches neither Ubuntu's
-  mirrors nor Docker Hub, and interface endpoints cost the NAT gateway's price
-  in five parts.
+- **The database node's egress is a NAT gateway on AWS, at $36.50 a month in a
+  US region.** It is 38% of the `small` bill and it buys three things: Ubuntu's
+  archive, the image registry, and Session Manager — which is the only shell
+  onto a machine with no public address, and the reason "just remove the
+  gateway" is the wrong instinct. `simple-balance:databaseEgress` is the setting
+  and it defaults to `nat`. `ssm` is $14.60 a month in a US region: an
+  egress-only internet gateway carries Ubuntu and the image for nothing, and two
+  SSM interface endpoints keep the Session Manager shell. `ipv6` is that gateway
+  alone at no charge, reaching the machine by SSH from the application node
+  instead. Oracle Cloud charges nothing for its NAT gateway and needs none of
+  this. `docs/deployment-costs.md` compares all three and prices the endpoints
+  *and* the gateway region by region — both hours are regional and the
+  gateway's moves further, so `ssm` saves more outside the US rather than less —
+  and says why interface endpoints **on their own** build a machine that boots
+  without a database on it — they reach AWS services, and neither Ubuntu's
+  archive nor Docker Hub is one, which is the same reason an S3 gateway endpoint
+  helps nothing here.
 - **The `ha` programs are not free.** A managed control plane, three or more
   nodes, a load balancer and a NAT gateway are all billed by the hour whether or
   not anybody signs in, and `database: in-cluster` adds the database's own
@@ -245,7 +250,9 @@ deploy/pulumi/
   aws-single/index.ts   VPC, a public subnet and a private one, two security
                         groups, two encrypted EBS data volumes, the database
                         subnet's egress — a NAT gateway, or an egress-only
-                        internet gateway with `databaseEgress: ipv6` — an
+                        internet gateway with `databaseEgress: ipv6`, or that
+                        gateway plus two SSM interface endpoints with
+                        `databaseEgress: ssm` — an
                         Elastic IP, two instances, and instance roles granting
                         a shell through Session Manager rather than SSH
   aws-single/platform.ts  the user data it sends, the region, and the
@@ -491,7 +498,7 @@ private subnet nor the NAT gateway, and the application node then waits for a
 | `imageRepository` | | `ghcr.io/thtmnisamnstr/simple-balance` | For a private mirror |
 | `timezone` | | `Etc/UTC` | The machine's clock. Not the application's — that is each person's own setting |
 | `backupKeep` | | `14` | How many daily dumps to retain on the data disk |
-| `databaseEgress` | | `nat` | AWS only. How the database node reaches the internet — Ubuntu's archive, the image registry and Session Manager. `nat` is the NAT gateway every stack so far has had, at $36.50 a month. `ipv6` builds an egress-only internet gateway instead, which AWS charges nothing for, and is refused without `sshPublicKey`: it takes Session Manager away, because `ssm.<region>.amazonaws.com` publishes no IPv6 address, so the shell becomes SSH from the application node and a rule for 22 from its security group — the one inbound rule on that machine besides 5432, and it exists only under this setting. It also rewrites the node's apt sources to `archive.ubuntu.com`, which publishes IPv6 where the in-region mirror does not. Unset plans no change on a stack that exists. **Setting it on a stack whose machines exist may not be a no-op:** if `sshPublicKey` was not already set, adding it gives both instances a `keyName`, which EC2 cannot change on a running machine, so both plan a replacement and the database node is deleted before its replacement is made. The data volumes are separate protected resources and survive it, but it is two rebuilds of downtime — set the key on its own, `up`, and set this afterwards. `docs/deployment-costs.md` compares them and says what the free-looking alternatives do not do |
+| `databaseEgress` | | `nat` | AWS only. How the database node reaches the internet — Ubuntu's archive, the image registry and Session Manager. **`nat`** is the NAT gateway every stack so far has had, at $36.50 a month in a US region, and it covers all three with no trade. **`ssm`** is $14.60 a month in a US region and regional elsewhere — and so is the gateway it replaces, whose hour moves further, so the saving grows outside the US rather than shrinking: an egress-only internet gateway for Ubuntu and the image, which costs nothing, plus `com.amazonaws.<region>.ssm` and `…ssmmessages` interface endpoints, which keep the Session Manager shell working exactly as documented. It needs no `sshPublicKey` and adds no inbound rule to the database node. `ec2messages` is deliberately not built: SSM Agent 3.3.40.0 and later prefer `ssmmessages`, regions launched from 2024 support only `ssmmessages`, and AWS is retiring the `ec2messages` endpoint on 2026-09-30 — a third endpoint would be $21.90 a month, $7.30 of it for a service being switched off. **`ipv6`** is that gateway alone, free, and is refused without `sshPublicKey`: it takes Session Manager away, because `ssm.<region>.amazonaws.com` publishes no IPv6 address, so the shell becomes SSH from the application node and a rule for 22 from its security group — the one inbound rule on that machine besides 5432, and it exists only under that setting. Both `ssm` and `ipv6` rewrite the node's apt sources to `archive.ubuntu.com`; interface endpoints reach AWS services only, so **neither `apt` nor Docker Hub is reachable through them** and endpoints without the gateway would build a machine that never finishes booting — which is why `ssm` is one setting that builds both halves rather than two that can be set apart. Unset plans no change on a stack that exists. **Setting `ipv6` on a stack whose machines exist may not be a no-op:** if `sshPublicKey` was not already set, adding it gives both instances a `keyName`, which EC2 cannot change on a running machine, so both plan a replacement and the database node is deleted before its replacement is made. The data volumes are separate protected resources and survive it, but it is two rebuilds of downtime — set the key on its own, `up`, and set this afterwards. `ssm` avoids that trap entirely by needing no key. `docs/deployment-costs.md` compares all three, prices `ssm` region by region, and says what the free-looking alternatives do not do |
 | `kmsKeyArn` | | | AWS only. A KMS key of yours for both data volumes and both boot volumes, instead of the AWS-managed one. It must be enabled, customer-managed, symmetric and for encrypt/decrypt, and its policy must let the principal running `pulumi up` call `kms:GenerateDataKeyWithoutPlaintext`, `kms:CreateGrant` (with `kms:GrantIsForAWSResource`), `kms:Decrypt` and `kms:DescribeKey` — the default policy `aws kms create-key` writes with no `--policy` already does, and without them a volume is created and deleted moments later. The program checks the key's state before it declares anything encrypted, so a key in the wrong state fails the preview rather than half-building a stack; it cannot check the policy, which is why it is written out here. **Set it before the first `up`**, and set `kmsKeyArnIsNewStack` with it |
 | `kmsKeyArnIsNewStack` | with `kmsKeyArn` | `false` | AWS only. Your statement that this `up` changes no volume's key: the volumes do not exist yet, or they were already created with this key, so a stack already built with one sets this and plans nothing. A volume's key cannot be changed afterward, so naming one on a stack that already has volumes asks to replace them — an empty volume where the ledger was. Pulumi's `protect` usually refuses that, but it lives in the state snapshot rather than in this config, and both `protectDataVolume: false` and `pulumi state unprotect` clear it there while the config still says `true`; neither is visible to the program, so it asks instead. `docs/deployment-profiles.md` §Encryption has the by-hand migration and what a disabled or deleted key does |
 | `kmsVaultOcid`, `kmsKeyOcid` | | | Oracle Cloud only, and both or neither: the key cannot be looked up without the vault's management endpoint. An AES key — the Block Volume service refuses an RSA-wrapped one — and enabled, checked the same way and at the same point. Adding it to a stack that exists is not destructive here: OCI re-wraps a block volume's data key in place. Create the key with `--protection-mode SOFTWARE` unless you mean to pay for HSM, which cannot be changed afterward |
@@ -684,7 +691,10 @@ which is not a superuser and owns only its own database.
 
 **Reaching the database node for a shell.** On AWS, Session Manager, exactly as
 on the application node — the role carries `AmazonSSMManagedInstanceCore` and no
-port is open for it. Under `databaseEgress: ipv6` that is not available, because
+port is open for it. Under `databaseEgress: ssm` this is unchanged: the agent
+resolves the same name to the interface endpoint's private address instead of to
+a public one, and `pulumi stack output databaseShell` is the same command it
+always was. Under `databaseEgress: ipv6` it is not available, because
 the agent's endpoint is IPv4-only and the subnet has no IPv4 route: there the
 shell is a Session Manager port forward through the *application* node to 22 on
 the database node, which is what the second inbound rule that setting adds is

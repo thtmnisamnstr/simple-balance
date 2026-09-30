@@ -125,6 +125,54 @@ sources, and nothing else. A NetworkPolicy is only as real as the CNI under it,
 so the `aws` program turns on the VPC CNI's network policy agent and the `gcp`
 program asks for Dataplane V2 rather than assuming either.
 
+### Uninstalling, and why it needs a hook
+
+Patroni keeps this cluster's state in Kubernetes objects it creates itself at
+runtime — a leader Endpoints per Citus group, plus `-config`, and `-sync` and
+`-failover` when they apply. Helm did not create them, so `helm uninstall` does
+not delete them, and what they leave behind is not inert: the `-config`
+endpoint's `initialize` annotation tells the *next* install under the same
+release name that a cluster already exists and a member is mid-bootstrap. No pod
+ever claims leadership. Every one of them logs `waiting for leader to bootstrap`
+every ten seconds, forever, Running and 0/1, with nothing crashing and no event
+saying anything is wrong. Deleting the claims is the obvious reach and is what
+*produces* it rather than fixing it.
+
+So the chart ships a `post-delete` hook — a Job with a Role of its own — that
+removes exactly this release's Patroni objects once the database pods are gone.
+`database.patroniCleanup.enabled` turns it off.
+
+Three properties are worth knowing, because this is a hook that deletes database
+cluster state:
+
+- **It cannot run at any other moment.** Helm fires `post-delete` from
+  `uninstall` alone, and `--dry-run` returns before hooks run.
+- **It cannot reach a neighbour.** It finds objects by Patroni's own label set,
+  which carries the release name twice — in `app.kubernetes.io/instance` and
+  inside `cluster-name` — never by a name prefix. Anything labelled
+  `managed-by: Helm` it leaves alone and reports, because that would mean the
+  uninstall itself did not finish.
+- **A hook that cannot run does not strand the release.** `post-delete` failures
+  are collected rather than returned, so the uninstall completes, the history is
+  purged, and `helm uninstall` exits non-zero with the Job's logs printed. What
+  is left behind is the endpoints — exactly the state you would have had without
+  the hook, and [docs/citus-runbook.md](../../../docs/citus-runbook.md) still
+  has the namespace-delete recovery for it. That is the reason it is
+  `post-delete` and not `pre-delete`: a failing `pre-delete` hook refuses the
+  uninstall outright, and at that point in the uninstall the database is still
+  running and Patroni would rewrite whatever the Job deleted within ten seconds.
+  It does still exit non-zero, which under Pulumi fails the `destroy` at the
+  Release even though the release itself is gone; the runbook has the
+  `pulumi state delete` that clears it, and says when to turn the hook off
+  instead.
+
+Turning it off has its own cost, which is why it is a switch rather than a
+constant. Reinstalling over intact claims is a normal restart, and without the
+hook Patroni finds its own configuration where it left it; with the hook it
+rebuilds that configuration from the chart's `bootstrap.dcs`, so anything
+applied with `patronictl edit-config` is reverted. The data is untouched either
+way.
+
 ## The three things that have to line up
 
 Most of what goes wrong here is one of these, so the chart checks all three at

@@ -968,13 +968,20 @@ export interface DatabaseCloudInitArgs {
    * earlier than `package_update`.
    *
    * `platformCommands` above cannot serve: those go in `runcmd`, which runs
-   * last, long after the apt fetch they would have to come before. This exists
-   * for `simple-balance:databaseEgress: ipv6` on AWS, where the machine's only
-   * route out is IPv6 and Ubuntu's in-region EC2 mirror publishes no AAAA
-   * record — so the sources have to be rewritten before the first `apt-get`
-   * rather than after it. Empty everywhere else, and the `bootcmd:` key is then
-   * left out of the document entirely rather than emitted empty, because an
-   * empty list is a line of user data spent on nothing.
+   * last, long after the apt fetch they would have to come before.
+   *
+   * This exists for *both* of the IPv6 ways out on AWS —
+   * `simple-balance:databaseEgress: ipv6` and `: ssm` — because under either
+   * one the machine's only route out is IPv6, and `ssm`'s two interface
+   * endpoints reach AWS services rather than Ubuntu's archive. A reader who
+   * takes this for `ipv6` alone leaves the `ssm` path unexercised. What goes in
+   * it is `IPV6_APT_REWRITE` in `../aws-single/platform.ts`, which carries why
+   * it is still here now that the in-region EC2 mirror does publish an AAAA
+   * record; the argument is not restated, so that there is one copy of it.
+   *
+   * Empty everywhere else, and the `bootcmd:` key is then left out of the
+   * document entirely rather than emitted empty, because an empty list is a
+   * line of user data spent on nothing.
    */
   bootCommands?: string[];
 }

@@ -14,10 +14,13 @@ import { databaseCertificates } from "../single-common/tls";
 import {
   IPV6_APT_REWRITE,
   PLACEHOLDER_VOLUME_ID,
+  SSM_SHELL_ENDPOINTS,
   databaseHost,
   databaseUserDataBase64,
+  databaseUsesIpv6,
   ipv6SubnetCidr,
   readDatabaseEgress,
+  requireEndpointZone,
   requireNewStackForKmsKey,
   requireRegion,
   requireUsableKmsKey,
@@ -53,8 +56,9 @@ const size = settings.size;
  * and firstboot waits for it. That is the escape hatch for somebody who
  * already keeps a PostgreSQL. It is no longer the only way to avoid the NAT
  * gateway's monthly charge, which `docs/deployment-costs.md` prices:
- * `simple-balance:databaseEgress: ipv6` drops the gateway and keeps the
- * database node.
+ * `simple-balance:databaseEgress` drops the gateway and keeps the database
+ * node, either free as `ipv6` or at about $14.60 a month as `ssm`, which is the
+ * one of the two that also keeps the direct Session Manager shell.
  */
 const database = settings.database;
 
@@ -84,6 +88,29 @@ const name = `simple-balance-${pulumi.getStack()}`;
 const applicationCidr = "10.20.0.0/24";
 const databaseCidr = "10.20.1.0/24";
 const databasePrivateIp = "10.20.1.10";
+
+/**
+ * Where the two `ssm` endpoint ENIs go in that same /24, pinned because the
+ * machine's address in it is pinned.
+ *
+ * Under `nat` this subnet holds exactly one interface and the paragraph above
+ * only had to dodge AWS's four reserved addresses. `ssm` puts two more in it,
+ * and it puts them there *first*: the instance names the endpoints in
+ * `dependsOn`, so they are created before it. Left to AWS, an ENI can be handed
+ * 10.20.1.10, and then the instance fails to launch with
+ * `InvalidIPAddress.InUse` — every retry against the same held address, the
+ * same way. Moving the machine afterwards is not the escape it looks like:
+ * `databaseHost` derives the name in the server certificate's subject
+ * alternative name and in `DATABASE_URL` from that address.
+ *
+ * A record keyed by the service list rather than an array indexed by position,
+ * so that adding a third endpoint to `SSM_SHELL_ENDPOINTS` fails the typecheck
+ * here instead of silently reusing an address.
+ */
+const ssmEndpointPrivateIps: Record<(typeof SSM_SHELL_ENDPOINTS)[number], string> = {
+  ssm: "10.20.1.20",
+  ssmmessages: "10.20.1.21",
+};
 
 /**
  * The name the application dials and the certificate is issued for, as one
@@ -177,6 +204,21 @@ const kmsKeyId = kmsKeyArn
 const databaseEgress = database
   ? readDatabaseEgress(cfg.get("databaseEgress"), settings.sshPublicKey)
   : "nat";
+
+/**
+ * Whether this stack's database subnet is the IPv6 one, asked once and spent in
+ * six places below.
+ *
+ * `ssm` is `ipv6` plus two interface endpoints, so every IPv6 property it needs
+ * is a property `ipv6` already had — and a site that went on reading
+ * `databaseEgress === "ipv6"` would build an `ssm` machine with no way out at
+ * all. That machine plans clean, comes up, answers a Session Manager shell, and
+ * then fails its first `apt-get`: no Docker, no postgres:18, no database, and a
+ * working shell to look at the nothing with. `databaseUsesIpv6` in
+ * `./platform.ts` carries the rest of the argument and names the three places
+ * that deliberately do not read it.
+ */
+const databaseIpv6 = databaseUsesIpv6(databaseEgress);
 // Said rather than ignored, the way `../oci-single/` says it of
 // `databaseSubnet`. With no database node there is no private subnet, no NAT
 // gateway and nothing for this to replace, so the setting is not wrong — it is
@@ -192,18 +234,45 @@ if (!database && (cfg.get("databaseEgress") ?? "").trim()) {
 if (databaseEgress === "ipv6") {
   pulumi.log.warn(
     "simple-balance:databaseEgress is ipv6: the database node has no IPv4 route out and no NAT " +
-      "gateway, which saves about $36.50 a month. Three things are traded for it. Its own Session " +
+      "gateway, which saves about $36.50 a month in a US region and more elsewhere. Three things " +
+      "are traded for it. Its own Session " +
       "Manager agent can no longer reach AWS, so the shell becomes a port forward through the " +
       "application node — `pulumi stack output databaseShell` prints it. " +
-      "Its apt sources are rewritten to Canonical's global archive, because the in-region EC2 " +
-      "mirror publishes no AAAA record. And the postgres:18 pull depends on Docker Hub's own " +
-      "IPv6, so a first boot that hangs at the image is what a change on their side looks like.",
+      "Its apt sources are rewritten to Canonical's global archive, which is an out-of-region hop " +
+      "the in-region EC2 mirror no longer needs. And the postgres:18 pull depends on Docker Hub's " +
+      "own IPv6, so a first boot that hangs at the image is what a change on their side looks " +
+      "like. To keep the direct shell for about $14.60 a month instead: " +
+      "pulumi config set simple-balance:databaseEgress ssm",
+  );
+}
+if (databaseEgress === "ssm") {
+  pulumi.log.warn(
+    "simple-balance:databaseEgress is ssm: the database node has no IPv4 route out and no NAT " +
+      "gateway, and reaches Session Manager over two interface VPC endpoints instead. That is " +
+      "about $14.60 a month in us-east-1 and us-west-2 against the NAT gateway's $36.50, and the " +
+      "shell stays a plain `aws ssm start-session` with no key and no open port. Three things to " +
+      "know. Both hours are regional and the gateway's moves further, so the saving grows outside " +
+      "the US rather than shrinking: in sa-east-1 two endpoints are $30.66 against a gateway that " +
+      "costs $71.54 there, which is $40.88 a month and the largest saving this setting offers " +
+      "anywhere, while $21.90 in the US is the smallest of any commercial region. " +
+      "`docs/deployment-costs.md` prices both sides region by region. " +
+      "Everything that is not an AWS service still goes out over IPv6 — apt from Canonical's " +
+      "global archive, postgres:18 from Docker Hub — so a first boot that hangs at the image is " +
+      "still what a change on their side looks like. " +
+      "And private DNS on these endpoints is VPC-wide rather than subnet-wide, so the " +
+      "application node resolves Session Manager to them too; its security group is admitted on " +
+      "443 for exactly that reason, and its own shell is unaffected. " +
+      "Changing this on a stack that already has machines is a network change: run " +
+      "`pulumi preview` and read it before `pulumi up`, because the database node is replaced " +
+      "before its replacement is made if the plan says it is replaced at all. The data volumes " +
+      "are protected and first boot reformats nothing it finds a filesystem on, so that is " +
+      "downtime rather than data loss.",
   );
 }
 
 /**
- * What the database node runs before its very first `apt-get`, which under
- * `ipv6` is one rewrite and everywhere else is nothing at all.
+ * What the database node runs before its very first `apt-get`, which on either
+ * IPv6 way out is one rewrite and under `nat` is nothing at all.
  *
  * Here rather than at the render below because the pre-flight measurement a
  * few lines down has to measure the document that will actually be sent: a
@@ -211,7 +280,7 @@ if (databaseEgress === "ipv6") {
  * not in, and EC2's 16 KB cap is refused at the launch rather than at
  * `pulumi preview`.
  */
-const databaseBootCommands = databaseEgress === "ipv6" ? [IPV6_APT_REWRITE] : [];
+const databaseBootCommands = databaseIpv6 ? [IPV6_APT_REWRITE] : [];
 
 // Measured now, against a volume id of the real length and stand-ins the same
 // shape and rather more than the size of the password and the certificates
@@ -309,7 +378,7 @@ const vpc = new aws.ec2.Vpc(name, {
   // machines hang off this resource. The IPv4 block is untouched, so the
   // database node stays dual-stack and its certificate goes on naming
   // `ip-10-20-1-10.<region>.compute.internal`.
-  assignGeneratedIpv6CidrBlock: databaseEgress === "ipv6" ? true : undefined,
+  assignGeneratedIpv6CidrBlock: databaseIpv6 ? true : undefined,
   tags: { ...tags, Name: name },
 });
 
@@ -324,7 +393,7 @@ const vpc = new aws.ec2.Vpc(name, {
  * so the database node is no more reachable from outside than it was.
  */
 const egressOnlyGateway =
-  database && databaseEgress === "ipv6"
+  database && databaseIpv6
     ? new aws.ec2.EgressOnlyInternetGateway(name, { vpcId: vpc.id, tags: { ...tags, Name: name } })
     : undefined;
 
@@ -400,11 +469,10 @@ const databaseSubnet = database
       // addresses are assigned from it, and this subnet is where the database
       // node's network interface lives. Adding a block for the first time is an
       // in-place update; moving one would be a rebuild of the machine.
-      ipv6CidrBlock:
-        databaseEgress === "ipv6"
-          ? vpc.ipv6CidrBlock.apply((block) => ipv6SubnetCidr(block, 1))
-          : undefined,
-      assignIpv6AddressOnCreation: databaseEgress === "ipv6" ? true : undefined,
+      ipv6CidrBlock: databaseIpv6
+        ? vpc.ipv6CidrBlock.apply((block) => ipv6SubnetCidr(block, 1))
+        : undefined,
+      assignIpv6AddressOnCreation: databaseIpv6 ? true : undefined,
       tags: { ...tags, Name: `${name}-db` },
     })
   : undefined;
@@ -416,14 +484,19 @@ const databaseSubnet = database
  * node needs egress at all: at first boot it installs `docker.io` and
  * `docker-compose-v2` from Ubuntu's archive and pulls `postgres:18`, afterwards
  * `unattended-upgrades` fetches security updates, and throughout Session
- * Manager's agent long-polls three AWS endpoints for the shell. That third
- * consumer is the one that makes "just go without egress" wrong, and it is why
- * the alternative below had to bring a replacement shell with it.
+ * Manager's agent long-polls AWS endpoints for the shell. That third consumer
+ * is the one that makes "just go without egress" wrong, and it is why each
+ * alternative below has to say what happens to the shell before it says what it
+ * saves.
  *
  * It costs roughly $36.50 a month on this cloud — $32.85 of it the hour rather
  * than the bytes — which is the largest single line in an AWS `small`
- * deployment, 38% of the bill. `simple-balance:databaseEgress: ipv6` is the free
- * alternative and `readDatabaseEgress` in `./platform.ts` carries its argument;
+ * deployment, 38% of the bill. The two alternatives answer the shell question
+ * differently: `simple-balance:databaseEgress: ipv6` is free and replaces the
+ * shell with SSH through the application node, and
+ * `simple-balance:databaseEgress: ssm` is about $14.60 a month and keeps the
+ * agent's own shell by putting Session Manager inside the VPC.
+ * `readDatabaseEgress` in `./platform.ts` carries both arguments;
  * `simple-balance:databaseNode: false` removes the machine along with the
  * gateway. Oracle Cloud charges nothing for the equivalent, which is most of
  * why `../oci-single/` is the cheaper program.
@@ -452,10 +525,15 @@ const natGateway =
 const databaseRouteTable = database
   ? new aws.ec2.RouteTable(`${name}-db`, {
       vpcId: vpc.id,
-      // One or the other and never both. Under `ipv6` there is deliberately no
-      // 0.0.0.0/0 route at all: every IPv4 destination is a blackhole, which is
-      // what takes Session Manager away and what `readDatabaseEgress` refuses
-      // to do without an SSH key to replace it.
+      // One or the other and never both. On either IPv6 way out there is
+      // deliberately no 0.0.0.0/0 route at all: every IPv4 destination outside
+      // the VPC is a blackhole, which is what takes Session Manager away under
+      // `ipv6` and what `readDatabaseEgress` refuses to do without an SSH key
+      // to replace it. Under `ssm` the agent still works, and this table is
+      // why the interface endpoints are the only way it can: they answer on an
+      // address inside the VPC, which the implicit local route carries and no
+      // entry here can affect. Adding a 0.0.0.0/0 route to reach them would be
+      // paying for a gateway to reach something already local.
       routes: natGateway
         ? [{ cidrBlock: "0.0.0.0/0", natGatewayId: natGateway.id }]
         : egressOnlyGateway
@@ -607,10 +685,13 @@ const databaseSecurityGroup = database
           : []),
       ],
       egress: [
-        // Through the NAT gateway: Ubuntu's archive at first boot, the image
-        // registry, and security updates afterwards. There is no inbound path
-        // that this opens, because a security group is stateful and an
-        // unsolicited packet from outside still matches no ingress rule.
+        // Out through whichever way the setting built — the NAT gateway, or the
+        // egress-only gateway on IPv6, or under `ssm` the endpoints for AWS and
+        // the egress-only gateway for everything else. Ubuntu's archive at
+        // first boot, the image registry, and security updates afterwards.
+        // There is no inbound path that this opens, because a security group is
+        // stateful and an unsolicited packet from outside still matches no
+        // ingress rule.
         {
           description: "Everything: the package archive, the image registry, and Session Manager",
           protocol: "-1",
@@ -623,6 +704,129 @@ const databaseSecurityGroup = database
       tags: { ...tags, Name: `${name}-db` },
     })
   : undefined;
+
+/**
+ * The firewall in front of the two interface endpoints, and the rule on it that
+ * is easy to get wrong in a way nobody notices until they need a shell.
+ *
+ * An interface endpoint is an ENI in the database subnet, and the security
+ * group on it decides who may open 443 to it. AWS states the requirement
+ * plainly — "the security group attached to the VPC endpoint must allow
+ * incoming connections on port 443 from the private subnet of the managed
+ * instance" — and the obvious reading of that sentence is one rule, for the
+ * database node, which is the machine this option was bought for.
+ *
+ * One rule would take the shell off the *other* machine. `privateDnsEnabled`
+ * below overrides `ssm.<region>.amazonaws.com` for the whole VPC and not for
+ * the subnet the endpoint sits in: it is a private hosted zone associated with
+ * the VPC, so the application node — which has a real route out through the
+ * internet gateway and a working Session Manager shell today — starts
+ * resolving that name to these private addresses too. If this group does not
+ * admit it, the machine that was fine loses its shell the moment somebody
+ * chooses this setting, and nothing in the plan says so.
+ *
+ * So: two rules, one per node, each sourced from that node's own security
+ * group rather than a CIDR, for the reason 5432 is. The description has to
+ * stay distinct from both nodes' groups, because `tests/single-ingress.test.ts`
+ * finds a group by a substring of its description and would otherwise audit
+ * this one in place of the machine it means.
+ *
+ * No egress rule, deliberately and not by omission. The provider strips AWS's
+ * default allow-all on create, which leaves this group with none — and that is
+ * correct rather than merely tolerable: a security group is stateful, so the
+ * endpoint's replies to an allowed inbound flow go back regardless, and an
+ * endpoint ENI never opens a connection of its own. An egress rule here would
+ * be a permission that is never exercised.
+ */
+const ssmEndpointSecurityGroup =
+  database && databaseSecurityGroup && databaseEgress === "ssm"
+    ? new aws.ec2.SecurityGroup(`${name}-ssm`, {
+        vpcId: vpc.id,
+        description: "Simple Balance single-profile Session Manager endpoints",
+        ingress: [
+          {
+            description: "HTTPS, from the database node, which is why these endpoints exist",
+            protocol: "tcp",
+            fromPort: 443,
+            toPort: 443,
+            securityGroups: [databaseSecurityGroup.id],
+          },
+          {
+            description: "HTTPS, from the application node, whose own shell private DNS redirects",
+            protocol: "tcp",
+            fromPort: 443,
+            toPort: 443,
+            securityGroups: [securityGroup.id],
+          },
+        ],
+        tags: { ...tags, Name: `${name}-ssm` },
+      })
+    : undefined;
+
+/**
+ * The two endpoints themselves: $7.30 a month each in us-east-1, and the whole
+ * of what `ssm` buys over `ipv6`.
+ *
+ * They are what makes the direct shell work on a machine with no IPv4 route
+ * out. The agent resolves `ssm.<region>.amazonaws.com` and
+ * `ssmmessages.<region>.amazonaws.com`, private DNS answers with an address in
+ * this VPC, and the packets go over the subnet's implicit local route — which
+ * is why the database route table having no `0.0.0.0/0` entry does not matter
+ * and must not be changed to add one.
+ *
+ * What they do *not* do is give the node general egress, and that is the whole
+ * reason this option is never the endpoints alone: `databaseIpv6` above is true
+ * under `ssm`, so the egress-only gateway, the VPC's /56, the subnet's /64 and
+ * the instance's address are all built from the same one setting.
+ * `readDatabaseEgress` in `./platform.ts` carries the evidence — apt resolves
+ * into AWS's EC2 prefix and Docker Hub's blobs are on Cloudflare, so no
+ * endpoint of any kind reaches either.
+ *
+ * `serviceName` comes back through `requireEndpointZone` rather than being
+ * written directly, so an unlucky availability zone is this program's message
+ * rather than a raw AWS one, and nothing here is registered while that check is
+ * unresolved. *When* it arrives differs by stack and `./platform.ts` carries
+ * the whole of why: at `pulumi preview` on a stack whose subnets exist, which
+ * is the upgrade path off `nat`, and during `up` before the first endpoint on a
+ * stack that has none yet, because the zone is then an unknown Output and
+ * Pulumi runs no `apply` over an unknown.
+ *
+ * `ipAddressType` is left at its default, which is IPv4, although this subnet
+ * is dual-stack. The name the agent resolves is the IPv4 private DNS name, and
+ * asking for a dual-stack endpoint would change what that name answers for a
+ * saving of nothing.
+ */
+const ssmEndpoints =
+  databaseSubnet && ssmEndpointSecurityGroup
+    ? SSM_SHELL_ENDPOINTS.map((service) => {
+        const serviceName = `com.amazonaws.${awsRegion}.${service}`;
+        return new aws.ec2.VpcEndpoint(`${name}-${service}`, {
+          vpcId: vpc.id,
+          serviceName: pulumi
+            .all([
+              databaseSubnet.availabilityZone,
+              aws.ec2.getVpcEndpointServiceOutput({ serviceName, serviceType: "Interface" })
+                .availabilityZones,
+            ])
+            .apply(([zone, zones]) => requireEndpointZone(serviceName, zone, zones)),
+          vpcEndpointType: "Interface",
+          subnetIds: [databaseSubnet.id],
+          // The ENI's address said rather than left to AWS, because this subnet
+          // is not the machine's alone any more and the machine's address in it
+          // cannot move. `ssmEndpointPrivateIps` above carries the whole of it.
+          subnetConfigurations: [
+            { subnetId: databaseSubnet.id, ipv4: ssmEndpointPrivateIps[service] },
+          ],
+          securityGroupIds: [ssmEndpointSecurityGroup.id],
+          // Without this the agent resolves the public name to a public address
+          // and this subnet has no route to it, so the endpoints would be paid
+          // for and unused. It is also the property that reaches the
+          // application node, which is why the group above admits it.
+          privateDnsEnabled: true,
+          tags: { ...tags, Name: `${name}-${service}` },
+        });
+      })
+    : [];
 
 // ------------------------------------------------------------------ shell ---
 
@@ -1006,6 +1210,10 @@ const databaseInstance =
           // Pinned, because the certificate's subject alternative name was
           // decided from it before this instance existed. AWS accepts any free
           // address in the subnet's range; .10 is past the four AWS reserves.
+          // Free is the load-bearing word under `ssm`, where two endpoint ENIs
+          // share this subnet and are created before this machine — which is
+          // why `ssmEndpointPrivateIps` names their addresses rather than
+          // letting AWS pick one that could be this one.
           privateIp: databasePrivateIp,
           // Said although the subnet already refuses one, so that "this machine
           // is not on the internet" is two properties rather than one, and so
@@ -1015,7 +1223,7 @@ const databaseInstance =
           // reason this machine has one. An IPv6 address is not a public
           // address in the sense the line above is about: there is no inbound
           // route to this subnet, and the gateway is one-way by definition.
-          ipv6AddressCount: databaseEgress === "ipv6" ? 1 : undefined,
+          ipv6AddressCount: databaseIpv6 ? 1 : undefined,
           rootBlockDevice: {
             // The operating system, the postgres image, and the certificate and
             // key cloud-init wrote. Not the cluster, which is on the data
@@ -1052,7 +1260,17 @@ const databaseInstance =
           // operator sees is `pulumi up` succeeding, no PostgreSQL, and the
           // application node's simple-balance-waitdb failing five minutes
           // later on the other machine.
-          dependsOn: databaseRouteTableAssociation ? [databaseRouteTableAssociation] : [],
+          // And, under `ssm`, the endpoints the agent registers through. Not
+          // for the same reason: a missing route breaks the first boot, while a
+          // missing endpoint only means the agent resolves a public address
+          // this subnet cannot reach and backs off. It recovers on its own, but
+          // the operator is reading `pulumi stack output databaseShell` in the
+          // meantime and a shell that answers `TargetNotConnected` reads as a
+          // setting that did not work.
+          dependsOn: [
+            ...(databaseRouteTableAssociation ? [databaseRouteTableAssociation] : []),
+            ...ssmEndpoints,
+          ],
         },
       )
     : undefined;
@@ -1114,6 +1332,13 @@ export const shell = pulumi.interpolate`aws ssm start-session --target ${instanc
  * the *application* node's agent, which is still reachable, to 22 on the
  * database node — which the security group opens from the application node's
  * group under exactly this setting.
+ *
+ * `ssm` is the option that exists so this line does not have to change: the
+ * subnet has no IPv4 route there either, but the two interface endpoints put
+ * Session Manager back inside the VPC, so the agent registers and the direct
+ * command is the true one. It reads `=== "ipv6"` rather than `databaseIpv6`
+ * for that reason, and the same goes for the SSH rule above — both are about
+ * the shell being gone, not about the network being IPv6.
  *
  * A forward rather than `ssh` run on the application node, and the difference
  * is where the private key is. The operator's key is installed on both machines

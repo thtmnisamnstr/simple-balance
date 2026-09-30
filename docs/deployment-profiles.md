@@ -522,7 +522,8 @@ to a third system in Pulumi state, and a different integration per registrar.
 | The application subnet, `10.30.0.0/24` | The database node | 5432/tcp | Oracle Cloud. A security list takes CIDRs, so the application subnet is the tightest source available, and it holds exactly one machine |
 | The database subnet, `10.30.1.0/24` | The database node | 22/tcp | Oracle Cloud. An OCI Bastion's private endpoint must sit in the subnet it serves, and this is the only way to get a shell on a machine with no public address |
 | The application node's security group | The database node | 22/tcp | AWS, and **only under `simple-balance:databaseEgress: ipv6`**. That setting takes Session Manager away from this machine — its agent resolves an IPv4-only endpoint and the subnet then has no IPv4 route — and ssh from the application node is the replacement shell. A source-security-group rule again, so it names that one machine and nothing from the internet can reach it |
-| The database node | Anywhere | 443/tcp, 80/tcp | Egress, through a NAT gateway by default: Ubuntu's archive at first boot and every day after for unattended-upgrades, the image registry once, and — on AWS — Session Manager, which is the only shell onto a machine with no public address. `simple-balance:databaseEgress: ipv6` routes the same traffic through an egress-only internet gateway instead, at no charge and without Session Manager; `docs/deployment-costs.md` compares them |
+| The database node | Anywhere | 443/tcp, 80/tcp | Egress, through a NAT gateway by default: Ubuntu's archive at first boot and every day after for unattended-upgrades, the image registry once, and — on AWS — Session Manager, which is the only shell onto a machine with no public address. `simple-balance:databaseEgress: ipv6` routes the same traffic through an egress-only internet gateway instead, at no charge and without Session Manager; `ssm` is that gateway plus two SSM interface endpoints, which keeps Session Manager for $14.60 a month in a US region and adds no inbound rule here. `docs/deployment-costs.md` compares all three |
+| The two node security groups | The SSM interface endpoints | 443/tcp | AWS, and **only under `simple-balance:databaseEgress: ssm`**. Not a rule on either machine: it is on the endpoints' own security group, and it names **both** node security groups as sources rather than only the database node's. Private DNS on an interface endpoint overrides `ssm.<region>.amazonaws.com` for the whole VPC and not for one subnet, so the application node resolves it to the endpoint too — a rule admitting only the database node would silently take Session Manager away from the machine that had a working shell |
 
 **Nothing from `0.0.0.0/0` or `::/0`, on any port, on either cloud.** On AWS,
 with `databaseEgress` unset — which is every stack that does not change it —
@@ -530,6 +531,11 @@ there is one inbound rule and it is 5432: the shell is Session Manager through
 egress, and the node's role carries `AmazonSSMManagedInstanceCore`. Under
 `databaseEgress: ipv6` there are two, and the second is 22 from the application
 node's security group, because that setting is what takes Session Manager away.
+Under `databaseEgress: ssm` there is one again, and it is 5432: the endpoints
+keep the agent reaching Systems Manager without a route out, so nothing has to
+open a port to replace the shell. The 443 rule that setting adds is on the
+endpoints' security group rather than on either machine, and its sources are
+security groups rather than CIDRs, like every other rule here.
 On Oracle Cloud there is no `sshCidr` rule, because the machine has no public
 address for one to admit anybody to; such a rule would read as an exposure that
 is not one.

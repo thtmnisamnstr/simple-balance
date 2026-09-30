@@ -163,6 +163,58 @@ describe("what may reach the AWS database node", () => {
   });
 });
 
+/**
+ * The third security group in the profile, in front of the two Session Manager
+ * interface endpoints `simple-balance:databaseEgress: ssm` builds.
+ *
+ * Audited here for the reason the file exists: it is a group nothing else
+ * counts, and the rule that is easy to leave out of it takes a shell away from
+ * a machine that was working. `privateDnsEnabled` on an interface endpoint is
+ * VPC-wide rather than subnet-wide — it is a private hosted zone associated
+ * with the VPC — so the *application* node, which has a real route out and a
+ * working shell today, resolves `ssm.<region>.amazonaws.com` to these private
+ * addresses too. Admit only the database node, which is the machine the option
+ * was bought for, and the other one silently loses its shell.
+ */
+describe("what may reach the AWS Session Manager endpoints", () => {
+  const group = () => securityGroup("Simple Balance single-profile Session Manager endpoints");
+
+  it("admits 443 from both nodes' security groups, and from nothing else", () => {
+    const ingress = rules(group(), "ingress");
+    expect(ingress, "one rule per node, and no third").toHaveLength(2);
+    expect(ingress.map((rule) => /fromPort: (\d+)/.exec(rule)?.[1])).toEqual(["443", "443"]);
+    // The database node, which is why the endpoints exist, and the application
+    // node, whose own shell private DNS redirects here.
+    expect(ingress[0]).toContain("securityGroups: [databaseSecurityGroup.id]");
+    expect(ingress[1]).toContain("securityGroups: [securityGroup.id]");
+    for (const rule of ingress) {
+      // Source security groups rather than CIDRs, for the reason 5432 is: the
+      // rule names exactly those machines however they are re-addressed.
+      expect(rule, rule).not.toContain("cidrBlocks");
+      expect(rule, rule).not.toContain("0.0.0.0/0");
+      expect(rule, rule).not.toContain("::/0");
+    }
+  });
+
+  it("carries no egress rule at all, which is the tightest an endpoint ENI can be", () => {
+    // The provider strips AWS's default allow-all on create, so an absent
+    // `egress` leaves this group with none. That is correct rather than merely
+    // tolerable: a security group is stateful, so replies to an allowed inbound
+    // flow go back regardless, and an endpoint ENI never opens a connection of
+    // its own.
+    expect(rules(group(), "egress"), "nothing outbound to grant").toHaveLength(0);
+  });
+
+  it("has a description no other group's audit can match", () => {
+    // These suites find a group by a substring of its description. A name
+    // containing either node's would make this group answer for that machine
+    // and quietly retire the check that counts its rules.
+    const description = /description: "([^"]+)"/.exec(group())?.[1] ?? "";
+    expect(description).not.toContain("application node");
+    expect(description).not.toContain("database node");
+  });
+});
+
 describe("what may reach the Oracle Cloud application node", () => {
   const list = () => securityList("displayName: name");
 
@@ -297,7 +349,15 @@ describe("the route out, which an instance boots before waiting for", () => {
     const instances = resourceCallsCode(aws, "aws.ec2.Instance");
     expect(instances, "the application node and the database node").toHaveLength(2);
     expect(instances[0]).toContain("dependsOn: [routeTableAssociation]");
-    expect(instances[1]).toContain("dependsOn: databaseRouteTableAssociation");
+    // The database node's is a list because `ssm` adds the two interface
+    // endpoints to it, but the association is still in it unconditionally —
+    // which is the property this test is about. The endpoints are a different
+    // kind of wait and the program says so: a missing route breaks first boot,
+    // while a missing endpoint only means the agent backs off and recovers.
+    expect(instances[1]).toMatch(
+      /dependsOn: \[\s*\.\.\.\(databaseRouteTableAssociation \? \[databaseRouteTableAssociation\] : \[\]\),/,
+    );
+    expect(instances[1]).toContain("...ssmEndpoints,");
   });
 
   it("gives every OCI subnet its route table as an input, which needs no dependsOn", () => {

@@ -205,8 +205,12 @@ different pool.
 
 ### The AWS NAT gateway, and how to not pay for it
 
-**$36.50 a month**: $32.85 for the gateway's own hours at $0.045, and $3.65 for
-the Elastic IP it holds. Data processing is $0.045 per GB and at this workload is
+**$36.50 a month in us-east-1**: $32.85 for the gateway's own hours at $0.045,
+and $3.65 for the Elastic IP it holds. That hour is regional and is the largest
+of the per-hour rates this page compares — $0.093 in sa-east-1, where the same
+gateway is $71.54 — so every $36.50 below is the US figure and
+[the table](#what-ssm-costs-where-you-actually-run-it) has the rest.
+Data processing is $0.045 per GB and at this workload is
 pennies — the database node fetches roughly 250 to 300 MB at first boot and half
 a gigabyte to two gigabytes a month afterward, which is under a dime. So
 **99.9% of the line is the hour**, and nothing that only reduces bytes saves
@@ -222,17 +226,146 @@ of the profile — and three things still have to reach it:
 - **Session Manager**, continuously. This is the one the old version of this
   page left out, and it is the one that makes "just go without egress" wrong:
   `pulumi stack output databaseShell` is the only shell onto the machine holding
-  the ledger, and it stops working the moment the gateway does.
+  the ledger, and removing the gateway takes it away unless something is put
+  back in its place. The three ways off the gateway below differ mostly in what
+  they put back.
 
 `simple-balance:databaseEgress` is the setting. It defaults to `nat`, which is
 what every stack built so far has, and a stack that leaves it unset plans no
 change at all.
 
-| `databaseEgress` | Per month | What it costs instead |
+| `databaseEgress` | Per month | What it gives up |
 | --- | --- | --- |
-| `nat`, the default | **$36.50** | Nothing. This is the supported shape |
-| `ipv6` | **$0** | An Amazon-provided IPv6 range, an egress-only internet gateway, and the database node reached by SSH from the application node rather than by Session Manager. It requires `simple-balance:sshPublicKey` for that reason |
+| `nat`, the default | **$36.50** in us-east-1, and [regional](#what-ssm-costs-where-you-actually-run-it) | Nothing. This is the supported shape, and the only one with no trade at all |
+| `ssm` | **$14.60** in us-east-1, and [regional](#what-ssm-costs-where-you-actually-run-it) | The in-region Ubuntu mirror, and a dependence on Docker Hub's IPv6. It keeps the Session Manager shell and needs no SSH key |
+| `ipv6` | **$0** | Those two *and* the Session Manager shell. The database node is reached by SSH from the application node instead, so it requires `simple-balance:sshPublicKey` |
 | `databaseNode: false` | **$0**, and no second machine | Somebody else's PostgreSQL, and its own bill |
+
+**`ssm` is `ipv6` plus two interface endpoints, and that is not an
+implementation detail — it is the whole reason the option works.** Interface
+endpoints reach AWS services. Neither thing this machine must fetch at first
+boot is an AWS service: `<region>.ec2.archive.ubuntu.com` is Canonical's own EC2
+fleet and Docker Hub's layers are on Cloudflare, so no endpoint of any kind
+carries `apt` or `postgres:18`. Endpoints **on their own** would build a machine
+that comes up `running`, answers Session Manager, and has no database on it —
+`apt-get` times out, `docker.io` never installs, first boot dies before
+`docker compose up`, and the application node fails its `simple-balance-waitdb`
+five minutes later on the other machine. That is the cruellest shape this
+failure could take, because the $14.60 shell is the one part that works. So
+`ssm` builds the IPv6 egress-only gateway too, always, as one setting rather
+than two that can be set apart; there is no spelling of the stack that asks for
+one without the other.
+
+**One thing it checks against the zone you landed in, and when the answer
+arrives depends on whether you have landed yet.** An interface endpoint has to
+sit in an availability zone that offers the service, and this program names no
+zone — it takes whichever one AWS gives the first subnet. So it asks AWS which
+zones offer `ssm` and `ssmmessages` and refuses, naming your zone and the ones
+that would work. The answer there is another region, or `nat`, or `ipv6`; there
+is no zone to move to, because none was chosen.
+
+Switching an existing stack over, which is the ordinary case, that refusal is a
+failed `pulumi preview` and nothing is touched: the zone is already in the
+stack's state. On a **brand-new** stack it cannot be, because the subnet does
+not exist yet and Pulumi will not evaluate a check over a value it does not
+have. There the preview is clean and the refusal arrives during `pulumi up`, at
+the first endpoint — after the VPC, both subnets, the gateways and the security
+groups, and before either machine or either data volume. `pulumi destroy` on an
+empty network is cheap, but it is not nothing, and this page would rather say so
+than claim a preview it does not always get. Pinning a zone would fix it and
+would replace the subnets of every stack that already exists, which is a worse
+trade.
+
+What each half does: the egress-only gateway and the Amazon-provided `/56` cost
+nothing and carry apt and Docker Hub. The two endpoints cost $14.60 and carry
+Session Manager, over IPv4, inside the VPC on the implicit `local` route — which
+is why the database subnet having no IPv4 default route does not matter. AWS
+puts it plainly: with PrivateLink you need no internet gateway, NAT device or
+virtual private gateway.
+
+**Two endpoints, not three, and the number in the table is the real one.**
+`com.amazonaws.<region>.ssm` carries the heartbeat and registration — without it
+the node never becomes a managed node and `start-session` answers
+`TargetNotConnected`. `com.amazonaws.<region>.ssmmessages` carries the session's
+data channel. The third one every guide lists, `ec2messages`, is **not needed,
+and adding it out of caution would be worse than useless**: from SSM Agent
+3.3.40.0 onward Systems Manager uses `ssmmessages` wherever it is available,
+regions launched in 2024 or later support only `ssmmessages`, AWS tells you to
+remove `ec2messages` permissions in the older ones — and AWS is retiring the
+`ec2messages` endpoint itself on 2026-09-30. A third endpoint would make this
+$21.90 a month, and the $7.30 would be buying a service being switched off.
+`s3` and `ec2` are for agent self-update, Distributor and VSS
+snapshots, not for opening a shell — an S3 **gateway** endpoint is free and
+worth having for the first of those, but it is not a condition of the shell and
+this profile does not build one.
+
+#### What `ssm` costs where you actually run it
+
+**$14.60 is a US number — and so is $36.50.** Both hours are regional, and an
+earlier version of this table got only half of that right: it priced the
+endpoints region by region and then subtracted each one from the *US* NAT
+gateway. That understates the saving everywhere outside the United States and
+reverses the answer in sa-east-1, where the gateway is $71.54 rather than
+$36.50. Both columns below are from AWS's published price list, retrieved
+2026-09-30: two endpoints in the single availability zone this profile uses, at
+730 hours, against `NatGateway-Hours` at 730 hours plus the $3.65 for the
+gateway's in-use IPv4 address — $0.005 an hour, which is the one rate that is
+the same in every region here.
+
+| Region | Endpoint-hour | Two endpoints | NAT-hour | NAT gateway | `ssm` saves |
+| --- | --- | --- | --- | --- | --- |
+| us-east-1 | $0.010 | **$14.60** | $0.045 | $36.50 | **$21.90** |
+| us-west-2 | $0.010 | **$14.60** | $0.045 | $36.50 | **$21.90** |
+| eu-west-1 | $0.011 | **$16.06** | $0.048 | $38.69 | **$22.63** |
+| ca-central-1 | $0.011 | **$16.06** | $0.050 | $40.15 | **$24.09** |
+| eu-central-1 | $0.012 | **$17.52** | $0.052 | $41.61 | **$24.09** |
+| ap-south-1 | $0.013 | **$18.98** | $0.056 | $44.53 | **$25.55** |
+| ap-southeast-2 | $0.013 | **$18.98** | $0.059 | $46.72 | **$27.74** |
+| sa-east-1 | $0.021 | **$30.66** | $0.093 | $71.54 | **$40.88** |
+
+**sa-east-1 is the largest saving this setting offers anywhere**, and it is the
+row that used to say the opposite. Both hours roughly double between Virginia
+and São Paulo — $0.010 to $0.021, $0.045 to $0.093 — but the gateway hour starts
+four and a half times larger, so the same proportional rise moves it $35.04
+where the endpoints move $16.06. That is the whole of why the gap widens, and
+why the $5.84 this table used to print was São Paulo's endpoints against
+Virginia's gateway.
+
+**A region that is not in the table is between these two.** Priced across all
+34 commercial regions on the same day, $21.90 is the smallest saving anywhere —
+us-east-1, us-east-2, us-west-2 and eu-north-1 — and sa-east-1's $40.88 is the
+largest. So the US figure is the floor rather than the headline: wherever you
+are, `ssm` saves at least $21.90 a month and possibly twice that. The eight rows
+above are the ones an operator is most likely to be reading from; the others sit
+inside that range, with ap-east-1 ($30.22) and the Tokyo/Osaka pair ($28.47) the
+next largest after São Paulo.
+
+The rows are one per region rather than grouped by endpoint-hour, because
+eu-west-1 and ca-central-1 share an endpoint price and differ on the gateway, as
+do ap-south-1 and ap-southeast-2. A grouped row would hide exactly the number
+being decided on.
+
+Data processing is $0.01 per GB and rounds to nothing here. The agent calls
+`UpdateInstanceInformation` every five minutes and otherwise holds an idle
+control channel: roughly 8,760 small calls a month across both machines, well
+under a gigabyte, so under a cent. Unlike the NAT gateway, where 99.9% of the
+line is the hour, here it is 100%.
+
+**What `ssm` gives up.** Two of the three trades `ipv6` makes, and not the
+third. It keeps the Session Manager shell and needs no SSH key — which also
+sidesteps the two-rebuild replacement described under `ipv6` below, since
+nothing has to acquire a `keyName`. It still gives up the in-region Ubuntu
+mirror and still rests on Docker Hub's IPv6, for the same reasons and with the
+same consequences, because its egress is the same egress-only gateway.
+
+**One trap worth knowing before you set it**, because it can take away a shell
+that works today. Private DNS on an interface endpoint overrides
+`ssm.<region>.amazonaws.com` for the **whole VPC**, not for the subnet the
+endpoint sits in, so the *application* node starts resolving it to the
+endpoint's private address too. The endpoint's security group therefore admits
+443 from **both** node security groups, not just the database node's. Were it to
+admit only one, this setting would silently remove Session Manager from the
+machine that was fine.
 
 **What `ipv6` gives up, stated rather than hidden.** An egress-only internet
 gateway is the IPv6 analogue of a NAT gateway and carries no hourly and no
@@ -247,9 +380,17 @@ three things are true of it here and each is a real trade:
   requires an SSH key and opens 22 on the database node from the application
   node's security group, which is free — and a setting that silently removed the
   only shell to the machine holding the ledger would be worse than the $36.50.
-- **The in-region Ubuntu mirror is given up.** `<region>.ec2.archive.ubuntu.com`
-  publishes no IPv6 address, so the node's sources are rewritten to
-  `archive.ubuntu.com`, which does. Slower, and one more hop outside the region.
+- **The in-region Ubuntu mirror is given up.** The node's sources are rewritten
+  to `archive.ubuntu.com` in a cloud-init `bootcmd`, which is the only stage
+  earlier than the first `apt-get update`. Slower, and one more hop outside the
+  region. **The reason that rewrite was added has since expired, and it is worth
+  saying so rather than leaving a stale fact to decide something else wrongly:**
+  `<region>.ec2.archive.ubuntu.com` published no AAAA record when this was
+  written and now publishes several, in every region checked. The rewrite is
+  kept anyway — it is harmless, it is what every stack built so far has, and
+  dropping it is a behaviour change that wants proving from inside a VPC rather
+  than from a laptop's DNS lookup — but it now buys an out-of-region hop for
+  nothing, and removing it is a reasonable thing for a later release to do.
 - **It rests on Docker Hub's IPv6.** `registry-1.docker.io` publishes IPv6
   addresses today and Cloudflare, where the layers are, is dual-stack. If either
   stops, the failure is a first boot that hangs at `docker compose up` with
@@ -267,10 +408,18 @@ they are the first two anyone suggests:
   buckets. This profile runs Ubuntu on both clouds so that `aws-single` and
   `oci-single` are the same program twice, and changing that to save $32.85
   would cost more than it saves.
-- **Interface VPC endpoints** are $7.30 each per availability zone. ECR needs
-  two of them and still leaves `apt` with nowhere to go; Session Manager needs
-  two or three more. Five of them is $36.50, which is the NAT gateway's price
-  with more parts and less coverage.
+- **Interface VPC endpoints instead of the gateway** are $7.30 each per
+  availability zone, and they do not replace it. They reach AWS services, and
+  the two things this machine must fetch are not AWS services. ECR is two more
+  endpoints at $14.60 and still leaves `apt` with nowhere to go — and it would
+  mean mirroring `postgres:18` into your own registry, which this program does
+  not do. Five endpoints is $36.50 in a US region: the NAT gateway's price
+  there, with more parts and less coverage. The coincidence is a US one — five
+  endpoints in sa-east-1 are $76.65 against a gateway at $71.54 — and it is the
+  shape of the argument rather than the number that carries. **This is the half-truth `databaseEgress: ssm` corrects rather
+  than contradicts.** Two endpoints do buy something real, the Session Manager
+  shell, and they buy it for $14.60 — but only *beside* the free IPv6 gateway
+  that carries apt and the image, never instead of it.
 
 **And one that is free and unsupported.** Making the application node the NAT —
 a route from the database subnet to its network interface, `sourceDestCheck`
@@ -348,10 +497,16 @@ other people.
   the application node down for you. The catch is the disk: `small`'s 20 GiB
   will not hold fifteen dumps of a ledger a `medium` database can store, so
   lower `backupKeep` in the same breath or raise `size` too.
-- **Take the NAT gateway off the bill.** It is $36.50 a month on AWS and 38% of
-  the `small` stack. `simple-balance:databaseEgress: ipv6` is $0 and costs the
-  Session Manager shell; `simple-balance:databaseNode: false` is $0 and costs
-  you a database to run elsewhere.
+- **Take the NAT gateway off the bill.** It is $36.50 a month on AWS in a US
+  region — more elsewhere, up to $71.54 in sa-east-1 — and 38% of the `small`
+  stack, and there are three ways off it.
+  `simple-balance:databaseEgress: ssm` is $14.60 in a US region and gives up
+  nothing you are likely to notice — it keeps the Session Manager shell and
+  needs no SSH key, which makes it the one to reach for first. It saves more the
+  further you are from the US, not less.
+  `simple-balance:databaseEgress: ipv6` is $0 and costs that shell;
+  `simple-balance:databaseNode: false` is $0 and costs you a database to run
+  elsewhere.
   [Above](#the-aws-nat-gateway-and-how-to-not-pay-for-it) is the whole
   comparison. Oracle Cloud charges nothing for its NAT gateway and needs none
   of this.
@@ -374,7 +529,8 @@ other people.
 | --- | --- | --- |
 | This profile, `small`, on Oracle | $0 | Two machines and a PostgreSQL 18 you run, with your own data in it |
 | This profile, `small`, on AWS | $96 | The same, in an account you probably already have |
-| This profile, `small`, on AWS, `databaseEgress: ipv6` | $60 | The same without the NAT gateway, reached by SSH from the application node rather than by Session Manager |
+| This profile, `small`, on AWS, `databaseEgress: ssm` | $75 | The same without the NAT gateway, with the Session Manager shell kept by two interface endpoints and no SSH key needed. A US region; [more elsewhere](#what-ssm-costs-where-you-actually-run-it) |
+| This profile, `small`, on AWS, `databaseEgress: ipv6` | $60 | The same without the NAT gateway either, reached by SSH from the application node rather than by Session Manager |
 | This profile, `small`, on AWS, database elsewhere | $31, plus the database | One machine, and somebody else's PostgreSQL bill |
 | The `ha` profile, one node per service | $220+ | Control plane $73, two nodes, a load balancer, the database's own volumes, and the ledger already distributed |
 | The `ha` profile, highly available | $350+ | The same with more nodes, because six database pods with their standbys do not fit beside the web tier on two |

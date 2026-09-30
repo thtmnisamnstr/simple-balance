@@ -798,3 +798,41 @@ database:
 
   # Patroni's REST API, which is also how the pods find each other.
   restApiPort: 8008
+
+  # Remove Patroni's own Kubernetes objects when the release is uninstalled.
+  #
+  # Patroni keeps this cluster's state in Endpoints it creates itself at
+  # runtime, which Helm did not make and therefore does not delete. Left
+  # behind, the `-config` endpoint's `initialize` annotation tells the next
+  # install under this release name that a cluster already exists and a member
+  # is mid-bootstrap, so no pod ever claims leadership and every one of them
+  # logs `waiting for leader to bootstrap` every ten seconds, forever, Running
+  # and 0/1, with nothing crashing. Deleting the claims is what *produces* that
+  # rather than fixing it; before this hook, deleting the namespace was the
+  # only way out.
+  #
+  # **Turning it off is not free and not symmetrical.** Off, `helm uninstall`
+  # leaves those endpoints behind and the next install under the same release
+  # name deadlocks with no signal — the failure this exists to prevent, and one
+  # that costs a namespace to recover from. On, the cost is narrower: a
+  # reinstall over intact PersistentVolumeClaims, which `docs/citus-runbook.md`
+  # calls a normal restart, finds no config object and rebuilds the dynamic
+  # configuration from the chart's `bootstrap.dcs` — so anything applied with
+  # `patronictl edit-config` is silently reverted. The data is untouched and
+  # Patroni adopts its own data directory by sysid, but settings an operator
+  # owns are not the chart's to overwrite without being asked.
+  #
+  # That is the whole argument for the switch existing: it is not that switches
+  # are nice to have, it is that `--no-hooks` is the only alternative and it
+  # disables every hook this chart has or ever grows, which is a much larger
+  # thing to ask for than skipping one Job.
+  #
+  # There is a second flow, and it is the one where off is simply the better
+  # answer. Tearing the whole cluster down — `pulumi destroy`, or a namespace
+  # delete — takes the endpoints with the namespace, so the hook cleans up
+  # nothing that was not about to go anyway, while a hook that cannot be
+  # scheduled on nodes already being drained makes `helm uninstall` exit
+  # non-zero and fails the destroy at the Release. `docs/citus-runbook.md` has
+  # the recovery for when that happens and this is how to not need it.
+  patroniCleanup:
+    enabled: true

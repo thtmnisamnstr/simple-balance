@@ -284,20 +284,48 @@ shape the Pulumi programs use. `docs/deployment-profiles.md` compares the two
 and says plainly that `single` is still the one to pick unless you have a
 reason.
 
-**One known limitation of the `ha` profile, and it is worth knowing before you
-try it rather than after.** `helm uninstall` followed by `helm install` under
-the same release name leaves the database permanently unable to start. Patroni
-keeps its cluster state in Kubernetes objects it creates at runtime rather than
-in anything the chart ships, Helm does not delete what it did not create, and
-the state that survives tells the new pods a cluster already exists and to wait
-for a leader that can never be elected. Every database pod logs
-`waiting for leader to bootstrap` every ten seconds, stays `Running` and `0/1`,
-and nothing crashes or reports an error. **Deleting the PersistentVolumeClaims
-is not the fix and is exactly what causes it**; deleting the namespace is the
-recovery. Reinstalling over an intact cluster is a normal restart and is fine.
-`docs/citus-runbook.md` §Uninstalling, and what it leaves behind is the
-procedure and the reasoning, including why the obvious fix — a `pre-delete` hook
-— is being left for a change of its own.
+**`helm uninstall` cleans up after Patroni, and that is worth knowing before
+you rely on either behaviour.** Patroni keeps its cluster state in Kubernetes
+objects it creates at runtime rather than in anything the chart ships, and Helm
+deletes only what it created — so without help, `helm uninstall` followed by
+`helm install` under the same release name left the database permanently unable
+to start: the surviving state told the new pods a cluster already existed and to
+wait for a leader that could never be elected, every pod logging
+`waiting for leader to bootstrap` every ten seconds, `Running` and `0/1`, with
+nothing crashing or reporting an error. **Deleting the PersistentVolumeClaims is
+not the fix and is exactly what causes it**; deleting the namespace was the only
+recovery. The chart now runs a Job on uninstall that removes those objects for
+that release and no other, so a reinstall bootstraps cleanly. Nothing about this
+reaches a 0.1.6 deployment — the `ha` profile is new in this release and the
+chart's `database.enabled` stays `false` — but two things are worth knowing
+before you use it:
+
+- **It changes reinstall-over-intact-claims.** That was a normal restart and
+  still is, except that the cleanup removes the config object too, so the
+  dynamic configuration is rebuilt from the chart's `bootstrap.dcs` and anything
+  applied with `patronictl edit-config` is reverted.
+  `database.patroniCleanup.enabled: false` keeps the old behaviour, and then the
+  deadlock above is yours to avoid. Turning that flag off is the right switch;
+  `helm uninstall --no-hooks` is not, because it disables every hook the chart
+  has.
+- **A hook that cannot run — no permissions, image unavailable — does not
+  strand the release.** It is a `post-delete` hook, whose failure Helm collects
+  rather than returns, so the uninstall completes, the history is purged, and
+  the command exits non-zero. What is left is the four endpoints: the old
+  behaviour, with the old recovery.
+- **It can still fail a `pulumi destroy`, and that one needs a `pulumi state
+  delete`.** The uninstall completes, but Helm's exit is non-zero and
+  `k8s.helm.v3.Release` returns it, so the destroy stops with the Release in
+  state and the release gone from the cluster. A second `destroy` cannot fix it
+  — the history was purged, so Helm answers `release: not found` — and
+  `pulumi state delete` on that one URN followed by `pulumi destroy` does.
+  Tearing down a whole cluster, set `database.patroniCleanup.enabled: false`
+  first instead: the endpoints go with the namespace, so the hook has nothing to
+  do. `docs/citus-runbook.md` has the commands.
+
+`docs/citus-runbook.md` §Uninstalling, and the state that used to outlive it has
+the procedure and the reasoning, including why this could not be the
+`pre-delete` hook it obviously wants to be.
 
 **There was a third, `vps`, on this release's branch, and it is gone.** It was a
 machine per service with the database among them, in `deploy/compose/vps/`. It
@@ -475,16 +503,36 @@ database node, where a full `PGDATA` is a cluster that will not restart.
 
 **`simple-balance:databaseEgress` is new, defaults to `nat`, and unset plans
 nothing.** It is AWS-only and it exists for the NAT gateway, which is $36.50 a
-month and 38% of a `small` bill. `ipv6` replaces it with an egress-only internet
-gateway at no charge — and takes Session Manager away from the database node,
-because there is then no IPv4 route out and `ssm.<region>.amazonaws.com`
-publishes no IPv6 address. It therefore requires `simple-balance:sshPublicKey`
-and is refused without one, and reaches the machine by SSH from the application
-node instead. Decide it deliberately: it is the only shell onto the machine
-holding the ledger.
+month in a US region — more elsewhere — and 38% of a `small` bill. There are two
+ways off it and they are not equivalent.
 
-**Setting it on a stack whose machines already exist may rebuild both of them**,
-and that is the half the setting's name does not warn about. If
+`ssm` is **$14.60 a month in us-east-1 or us-west-2**, and it gives up no shell:
+`pulumi stack output databaseShell` is the same command doing the same thing. It
+builds an egress-only internet gateway, which carries Ubuntu's archive and the
+image registry for nothing, plus `com.amazonaws.<region>.ssm` and
+`…ssmmessages` interface endpoints, which carry Session Manager. Both halves are
+one setting on purpose: interface endpoints reach AWS services, and neither
+Ubuntu's archive nor Docker Hub is one, so endpoints alone would build a machine
+that boots, answers its shell, and never installs Docker or pulls `postgres:18`.
+It needs no SSH key, which also means it avoids the rebuild described below.
+Both hours are regional and the gateway's moves further than the endpoint's, so
+the saving grows outside the US rather than shrinking: $16.06 against $38.69 in
+eu-west-1, $18.98 against $46.72 in ap-southeast-2, and $30.66 against $71.54 in
+sa-east-1 — $40.88 a month, the largest saving this setting offers anywhere.
+The US $21.90 is the smallest of any commercial region, so wherever you are the
+saving is at least that. `docs/deployment-costs.md` has both columns region by
+region.
+
+`ipv6` is that gateway alone, at no charge — and takes Session Manager away from
+the database node, because there is then no IPv4 route out and
+`ssm.<region>.amazonaws.com` publishes no IPv6 address. It therefore requires
+`simple-balance:sshPublicKey` and is refused without one, and reaches the
+machine by SSH from the application node instead. Decide it deliberately: it is
+the only shell onto the machine holding the ledger.
+
+**Setting `ipv6` on a stack whose machines already exist may rebuild both of
+them**, and that is the half the setting's name does not warn about. `ssm` does
+not have this problem, because it needs no key. If
 `simple-balance:sshPublicKey` was not already set — it is optional on AWS —
 then setting it is what gives both instances a `keyName`, and EC2 has no API to
 give a running instance a key pair, so both plan a replacement and the database
@@ -493,6 +541,15 @@ protected resources and firstboot reformats nothing it finds a filesystem on, so
 the ledger survives; the outage does not. Set the key on its own, run
 `pulumi up`, and set `databaseEgress` afterwards. With a key already in the stack
 this changes routes, a security group and one address, and replaces nothing.
+
+**On a stack that already exists, read the plan before you accept it, under
+either value.** Both `ssm` and `ipv6` give the database node an IPv6 address,
+and whether the provider treats that as a modification or as a replacement is
+the provider's decision rather than this program's. If the plan says `replace`
+on the database instance, the data volume is a separate protected resource and
+first boot reformats nothing it finds a filesystem on — so the ledger survives
+and the downtime does not. On a stack that has not been created yet, none of
+this arises.
 
 **Customer-managed keys are new, optional, and on AWS you cannot add one to a
 stack that already exists.** Unset, every volume is encrypted exactly as it was,

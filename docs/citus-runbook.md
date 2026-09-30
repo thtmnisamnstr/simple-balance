@@ -286,20 +286,23 @@ off, and that the collation is glibc's rather than musl's.
 cannot read the previous major's data directory; that is a dump, a new cluster
 and a restore. It is why this image has no `latest` tag.
 
-## Uninstalling, and what it leaves behind
+## Uninstalling, and the state that used to outlive it
 
-**Read this before `helm uninstall`, not after.** By the time the symptom
-below is in front of you, the cluster is already unrecoverable in place.
+**This was a defect and it is fixed. What follows is what the chart now does,
+and what to do if you turned the fix off or it could not run** — because the
+symptom it prevents has no recovery in place, and recognising it is still worth
+knowing.
 
 Patroni keeps its cluster state in Kubernetes objects it creates itself at
 runtime, not in anything the chart ships: endpoints named
 `<release>-simple-balance-db-<group>`, and `-config`, `-sync` and `-failover`
-beside them. Helm did not create them, so **`helm uninstall` does not delete
-them**, and they survive into whatever is installed next under the same release
-name.
+beside them. Helm deletes what it created, and it did not create these, so on
+its own **`helm uninstall` leaves them**, and they survive into whatever is
+installed next under the same release name.
 
-What that does to a reinstall is specific and silent. The `-config` endpoint is
-left carrying
+What that does to a reinstall — where nothing removes them, which is every
+install before this one and any install with the cleanup turned off — is
+specific and silent. The `-config` endpoint is left carrying
 
 ```yaml
 annotations:
@@ -324,25 +327,90 @@ from the outside is that the chart is broken.
 
 **Deleting the PersistentVolumeClaims is not the fix, and is the trap.** It is
 the obvious thing to reach for and it is what *produces* the deadlock, because
-the state then describes a cluster whose data is gone. The recovery is to
-**delete the namespace**, which takes the endpoints with it:
+the state then describes a cluster whose data is gone. Once a pod is in that
+loop the only recovery is to **delete the namespace**, which takes the endpoints
+with it:
 
 ```sh
 helm uninstall <release> -n <namespace>
 kubectl delete namespace <namespace>
 ```
 
-**The legitimate case is not this one.** Reinstalling over an intact set of
-claims with the state intact is a normal restart: Patroni finds the cluster it
-left, a member takes the leader lock, and the database comes back with its data.
-What breaks is the half-deleted middle — the state kept and the data thrown
-away.
+### What the chart does about it now
 
-**This is a known limitation rather than a bug about to be fixed.** The obvious
-fix is a `pre-delete` hook that removes Patroni's state on `helm uninstall`,
-with the RBAC to allow it, and it is more dangerous than it looks: a hook that
-can delete cluster state is a hook that can delete it at the wrong moment. It
-deserves its own change and its own review rather than being bolted on.
+`helm uninstall` runs a Job that deletes the objects Patroni created for that
+release, so the next install under the same name bootstraps a new cluster
+instead of waiting forever for a leader. It is on by default
+(`database.patroniCleanup.enabled`) and it only exists where
+`database.enabled` is `true`, so a values file that does not run the database
+renders exactly what it rendered before.
+
+Four things about it are worth knowing, because each is a decision that could
+have gone the other way and would have been worse:
+
+- **It is a `post-delete` hook, not a `pre-delete` one.** Helm runs `pre-delete`
+  before it deletes anything, so at that moment every database pod is still
+  running — and Patroni's leader rewrites `initialize` and the config object
+  within one `loop_wait`, ten seconds. A `pre-delete` hook would delete four
+  objects and be handed them straight back. `post-delete` runs after the
+  resources are gone, which is the only point at which deleting them sticks.
+- **A hook that cannot run does not strand the release.** Helm returns a
+  `pre-delete` failure before it deletes anything, so a broken one would refuse
+  the uninstall outright and leave a release nobody can remove. A `post-delete`
+  failure is *collected* instead: the resources are deleted, the release history
+  is purged, and `helm uninstall` exits non-zero saying so. What is left behind
+  is the four endpoints — which is exactly the old behaviour, and the namespace
+  delete above still recovers it. The fix fails safe by construction rather than
+  by a fallback somebody has to maintain.
+- **Under Pulumi that non-zero exit is still a failed `destroy`, and the
+  recovery is not another `destroy`.** Helm returns the collected error, and
+  `k8s.helm.v3.Release` hands it straight back, so `pulumi destroy` stops with
+  the Release in state although the release is gone from the cluster. Running
+  `destroy` again does not help: the history was purged before Helm returned, so
+  the second uninstall answers `release: not found`. Clear it with
+
+  ```sh
+  pulumi stack --show-urns | grep 'helm.sh/v3:Release'
+  pulumi state delete <that urn>
+  pulumi destroy
+  ```
+
+  and the rest of the stack comes down normally. If you are tearing down the
+  whole cluster rather than one release, the tidier answer is to decline the
+  hook first — `database.patroniCleanup.enabled: false` — because the endpoints
+  go with the namespace and there is nothing for it to clean up.
+- **It waits for the database pods to be gone before it deletes anything.**
+  Helm does not wait for pods on uninstall and the pods have a sixty-second
+  grace period, so a Job that deleted immediately would lose the same race the
+  `pre-delete` hook loses.
+- **It matches this release and cannot reach a neighbour.** It selects by the
+  labels Patroni itself writes onto every object it creates —
+  `app.kubernetes.io/instance`, which is the release name, and `cluster-name`,
+  which contains it — never by a name prefix or a wildcard, which would match a
+  sibling release in the same namespace. It skips anything labelled
+  `managed-by: Helm`, deletes by exact name, and treats a 404 as success, so
+  running it against a release whose objects are already gone does nothing at
+  all.
+
+**When to turn it off, and what you are choosing.**
+`database.patroniCleanup.enabled: false` is there for one real flow.
+Reinstalling over an intact set of claims is a normal restart — Patroni finds
+the cluster it left, a member takes the leader lock, and the data comes back —
+and with the cleanup on, that reinstall finds no config object and rebuilds the
+dynamic configuration from the chart's `bootstrap.dcs`. Anything applied with
+`patronictl edit-config`, which [above](#changing-postgresql-settings) is yours to own
+rather than the chart's, is silently reverted. If you rely on that, turn the
+cleanup off — and then the deadlock above is yours to avoid, because the
+endpoints will outlive the uninstall exactly as they used to. Turning it off is
+the right switch for this; `helm uninstall --no-hooks` is not, because it
+disables every hook the chart has.
+
+**That reinstall path has a second problem the cleanup does not cause and does
+not fix.** `helm uninstall` deletes the release Secret, and the chart recovers
+the four database passwords by reading that Secret back. A reinstall therefore
+generates new passwords against a data directory whose roles still hold the old
+ones. Pin them in values before relying on reinstall-over-intact-claims,
+whichever way you set the cleanup flag.
 
 ## When something is wrong
 
@@ -352,5 +420,5 @@ deserves its own change and its own review rather than being bolted on.
 | `failed to bootstrap from leader`, in about a millisecond | The leader published no connection URL. Almost always the leader Service has acquired a selector, which hands its Endpoints to Kubernetes and overwrites what Patroni wrote there |
 | The Service has the right address and refuses every connection | The Service port is named and Patroni's endpoint port is not. Kubernetes matches them by name |
 | `fe_sendauth: no password supplied` naming a worker | `pg_dist_authinfo` has no row for the role running the statement. The post-install Job writes one for the application role; re-run it with `helm upgrade` |
-| `waiting for leader to bootstrap`, forever, on every pod, after a reinstall | Patroni's state outlived `helm uninstall` and the data did not. Nothing recovers this in place — see [uninstalling, and what it leaves behind](#uninstalling-and-what-it-leaves-behind) |
+| `waiting for leader to bootstrap`, forever, on every pod, after a reinstall | Patroni's state outlived `helm uninstall` and the data did not. The chart's cleanup hook prevents this and is on by default, so reaching it means the hook was turned off or could not run — the hook's own failure says which. Nothing recovers it in place: delete the namespace, per [uninstalling, and the state that used to outlive it](#uninstalling-and-the-state-that-used-to-outlive-it) |
 | `helm upgrade` fails with `conflict with "Patroni"` | Something in the chart is claiming a field Patroni owns. The chart must not ship Endpoints objects |
