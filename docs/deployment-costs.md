@@ -380,6 +380,19 @@ three things are true of it here and each is a real trade:
   requires an SSH key and opens 22 on the database node from the application
   node's security group, which is free — and a setting that silently removed the
   only shell to the machine holding the ledger would be worse than the $36.50.
+
+  There is probably a way to have both for nothing, and it is written down here
+  rather than offered because it has not been proven. `ssm.<region>.api.aws` and
+  `ssmmessages.<region>.api.aws` are the dual-stack spellings of the same two
+  services and both answer AAAA — checked in us-east-1 and eu-west-1 — and SSM
+  Agent accepts `Ssm.Endpoint` and `Mgs.Endpoint` overrides, so `ipv6` could
+  keep Session Manager without the two interface endpoints `ssm` pays $14.60 a
+  month for. Two things stop it being shipped: Ubuntu installs the agent as a
+  snap, so its configuration is under `/var/snap/amazon-ssm-agent/current/`
+  rather than the `/etc/amazon/ssm/` every guide names, and
+  `ec2messages.<region>.api.aws` resolves to nothing at all, so a wrong override
+  has no fallback. An option whose failure mode is a machine with no shell is
+  one to measure on a real instance before offering, not after.
 - **The in-region Ubuntu mirror is given up.** The node's sources are rewritten
   to `archive.ubuntu.com` in a cloud-init `bootcmd`, which is the only stage
   earlier than the first `apt-get update`. Slower, and one more hop outside the
