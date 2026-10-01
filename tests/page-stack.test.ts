@@ -47,14 +47,13 @@ const PAGE_LEVEL = [
   ".page-header",
   ".date-bar",
   ".filter-bar",
-  ".toolbar",
-  ".category-toolbar",
   ".report-tabs",
   ".panel",
   ".table-card",
   ".alert",
   ".empty-state",
-  ".category-page-list",
+  ".selection-bar",
+  ".record-list-card",
   ".settings-grid",
   ".currency-sections",
   ".import-layout",
@@ -62,7 +61,7 @@ const PAGE_LEVEL = [
   ".merge-panel",
   ".duplicate-groups",
   ".back-link",
-  ".balance-snapshot-grid",
+  ".metric-grid",
 ];
 
 describe("the page stack", () => {
@@ -206,6 +205,111 @@ describe("focus and the sticky layers", () => {
   });
 });
 
+/**
+ * Every `<PageHeader … />` in a file, as source text.
+ *
+ * Scanned rather than parsed, and the brace count is what makes that safe: an
+ * attribute's arrow function, a template literal and a nested element all sit
+ * inside `{…}`, so the element's own closing `>` is the only one at depth zero.
+ * Double-quoted attributes are stepped over whole, because a `>` inside one is
+ * text rather than markup.
+ *
+ * Block comments come out first. A JSX comment is a block comment wrapped in
+ * braces, so the depth count survives it — but its prose quotes are paired with
+ * nothing, and one of them would otherwise swallow the rest of the element.
+ */
+function pageHeaders(source: string) {
+  const text = source.replaceAll(/\/\*[\s\S]*?\*\//g, "");
+  const elements: string[] = [];
+  for (const opening of text.matchAll(/<PageHeader\b/g)) {
+    let depth = 0;
+    let index = opening.index;
+    while (index < text.length) {
+      const char = text[index];
+      if (char === '"') index = text.indexOf('"', index + 1);
+      else if (char === "{") depth += 1;
+      else if (char === "}") depth -= 1;
+      else if (char === ">" && depth === 0) {
+        elements.push(text.slice(opening.index, index + 1));
+        break;
+      }
+      if (index < 0) break;
+      index += 1;
+    }
+  }
+  return elements;
+}
+
+/** What one attribute of that element was given: its string, or its `{…}`. */
+function attribute(element: string, name: string) {
+  const at = element.indexOf(`${name}=`);
+  if (at < 0) return undefined;
+  const value = element.slice(at + name.length + 1);
+  if (value.startsWith('"')) return value.slice(1, value.indexOf('"', 1));
+  let depth = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] === "{") depth += 1;
+    else if (value[index] === "}" && (depth -= 1) === 0) return value.slice(1, index);
+  }
+  return undefined;
+}
+
+/**
+ * What goes in a page header's two open slots, which 7.5 left to whoever was
+ * writing the page.
+ *
+ * Three pages drifted, one into each silence. Duplicate review wrapped its
+ * three controls in a `<div>`, which is invisible until a phone: the rule that
+ * makes header buttons full width is
+ * `.page-heading > .page-actions .button { flex: 1 }` and a wrapper takes the
+ * full width for itself, so that one page's controls huddled at the left while
+ * Staged's and Templates' stretched. Payee detail put a 36px green tile in the
+ * slot, which at the same width is a small green square alone on a row. And
+ * account detail put `account.data.institution` in the description, so the page
+ * read "Chase" where its three siblings read a sentence.
+ */
+describe("a page header's slots", () => {
+  const headers = globSync("src/client/**/*.tsx").flatMap((path) =>
+    pageHeaders(readFileSync(path, "utf8")).map((element) => ({ path, element })),
+  );
+
+  it("takes controls and status in actions, never a container element", () => {
+    const offenders: string[] = [];
+    let examined = 0;
+    for (const { path, element } of headers) {
+      const actions = attribute(element, "actions");
+      if (actions === undefined) continue;
+      examined += 1;
+      // Every HTML tag but `<a>`, which is how a link that looks like a button
+      // is written — the CSV export, and the queue navigation on Duplicate
+      // review. A capitalised tag is a component and is left alone, which is
+      // the hole `web.md` 7.5 records: decoration arriving as `<Avatar />`
+      // rather than as a `<span>` walks past this.
+      const container = actions.match(/<(?!a[\s/>])[a-z][\w-]*/);
+      if (container) offenders.push(`${path}: ${container[0]}`);
+    }
+    expect(offenders, "the slot takes buttons and badges as direct children").toEqual([]);
+    expect(examined, "no actions slot found, so this examined nothing").toBeGreaterThan(6);
+  });
+
+  it("takes authored copy in description, never a value from the server", () => {
+    const offenders: string[] = [];
+    let examined = 0;
+    for (const { path, element } of headers) {
+      const description = attribute(element, "description");
+      if (description === undefined) continue;
+      examined += 1;
+      // `.data` is the proxy, and it is the right one here: every page in this
+      // app reads its server state off a TanStack Query handle, so a
+      // description that touches one is a description built from a fetched
+      // value. A fact that varies belongs in a `Badge` in `actions`.
+      if (/\.data\b/.test(description)) offenders.push(`${path}: ${description.trim()}`);
+    }
+    expect(offenders, "a varying fact is a Badge in actions, not the description").toEqual([]);
+    expect(examined, "no description slot found, so this examined nothing").toBeGreaterThan(6);
+  });
+});
+
 describe("a filter bar", () => {
   /**
    * Templates wrapped its Type filter in a `Field`, which stacks a visible
@@ -221,13 +325,20 @@ describe("a filter bar", () => {
     const offenders: string[] = [];
     for (const path of globSync("src/client/**/*.tsx")) {
       const source = readFileSync(path, "utf8");
-      for (const match of source.matchAll(
-        /className="(?:category-toolbar|filter-bar|toolbar)"([\s\S]*?)\n {6}<\/div>/g,
-      )) {
+      // One class, because there is one now: `.toolbar` and
+      // `.category-toolbar` were the same bar under two more names, at a
+      // second gap and with no wrap, and both are deleted.
+      for (const match of source.matchAll(/className="filter-bar"([\s\S]*?)\n {6}<\/div>/g)) {
         if (match[1]!.includes("<Field")) offenders.push(path);
       }
     }
     expect(offenders, "a filter takes a bare control and an aria-label").toEqual([]);
+    // And the bar is on the pages it should be on, so a rename cannot leave
+    // this reading nothing.
+    const bars = globSync("src/client/**/*.tsx").filter((path) =>
+      readFileSync(path, "utf8").includes('className="filter-bar"'),
+    );
+    expect(bars.length, "no filter bars found, so this examined nothing").toBeGreaterThan(6);
   });
 });
 
@@ -273,7 +384,8 @@ describe("a page-scoped class", () => {
     ["budget-category-row", "A budgeted group or category, inside a period's group"],
     ["import-batches", "The import-batch list, read by the staged queue as well"],
     ["template-blank", "A template's unfilled field, shown wherever one is applied"],
-    ["account-mini-group", "The dashboard's compact account list"],
+    ["account-mini-list", "The dashboard's compact account list"],
+    ["account-mini-group", "One type's accounts inside it"],
     ["account-mini-heading", "Same list"],
     ["account-mini-row", "Same list"],
     ["account-register", "The register of one account's entries, on its detail page"],
@@ -283,8 +395,14 @@ describe("a page-scoped class", () => {
     ["transaction-cell", "A cell in the transaction register, wherever the register appears"],
     ["transaction-icon", "Same register"],
     ["transaction-payee", "Same register, and the staged queue shows the same shape"],
-    ["transaction-selection-bar", "The bulk-action bar, on all three pages that have one"],
-    ["transaction-selection-actions", "Same bar"],
+    [
+      "category-picker",
+      "The half-typed-category control, in every form that files an entry (6.1 lists it)",
+    ],
+    ["category-legs", "A split entry's legs, in the transaction and template forms"],
+    ["category-leg", "One of those legs"],
+    ["category-legs-footer", "The legs' total line"],
+    ["category-legs-remainder", "What is left to allocate across them"],
     ["transaction-type", "The deposit/withdrawal/transfer choice, in every form that asks"],
     ["transaction-type-grid", "Same choice"],
     [
@@ -306,13 +424,22 @@ describe("a page-scoped class", () => {
     // `SettingsPage.tsx` names its `.settings-section`, plural. Deriving only
     // the singular is why a `.settings-` class dropped on the dashboard went
     // unnoticed by the first version of this check.
+    //
+    // And the singular has to be the English one. Stripping a trailing `s`
+    // turns `categories` into `categorie`, which matches nothing — so no
+    // `.category-` class was ever examined and the whole family walked past
+    // this check unclassified onto four pages. A check that derives its own
+    // population silently examines none when the derivation is wrong, which
+    // is the shape 17 is about.
+    const singular = (word: string) =>
+      word.endsWith("ies") ? `${word.slice(0, -3)}y` : word.replace(/s$/, "");
     const prefixesOf = (path: string) => {
       const stem = path
         .slice(path.lastIndexOf("/") + 1)
         .replace(/Page\.tsx$/, "")
         .replace(/([a-z])([A-Z])/g, "$1-$2")
         .toLowerCase();
-      return [...new Set([stem, stem.replace(/s$/, "")])].filter((one) => one.length >= 4);
+      return [...new Set([stem, singular(stem)])].filter((one) => one.length >= 4);
     };
     const strays: string[] = [];
     let checked = 0;
@@ -320,7 +447,10 @@ describe("a page-scoped class", () => {
       const prefixes = prefixesOf(page);
       if (prefixes.length === 0) continue;
       checked += 1;
-      const used = new RegExp(`\\b(?:${prefixes.join("|")})-[a-z-]+`, "g");
+      // Not inside a longer name: `budget-category-row` is a `budget-` class
+      // and matching `category-row` within it reports the dashboard for a
+      // class it does not use.
+      const used = new RegExp(`(?<![\\w-])(?:${prefixes.join("|")})-[a-z-]+`, "g");
       for (const other of globSync("src/client/**/*.tsx")) {
         if (other === page) continue;
         const source = readFileSync(other, "utf8");
@@ -383,17 +513,29 @@ describe("a full-height rule", () => {
 });
 
 /**
- * Header alignment, cell alignment and tabular figures travel together.
+ * Tabular figures are a property of a table cell, not of one class on it.
  *
- * `web.md` 9.3 says exactly that and the selector said otherwise: it was
- * `.data-table td.align-right`, so a `<th className="align-right">` on Reports
- * and Budgets got the alignment and not the figures — a column of period totals
- * in a header row that failed to line up with the identical column beneath it.
+ * `web.md` 9.3 says header alignment, cell alignment and tabular figures
+ * travel together, and the selector said otherwise twice over. It was
+ * `.data-table td.align-right` first, so a `<th className="align-right">` got
+ * the alignment and not the figures. Keyed on `.align-right` it still missed
+ * three things: 10.4 wants them on dates and no date column had them, a money
+ * table that is not a `.data-table` — the CSV preview — got none at all, and a
+ * cell holding a button was switching the feature on for no digits.
+ *
+ * `font-variant-numeric` touches digits alone, so naming every cell costs a
+ * column of words nothing and takes the decision off the call site.
  */
-describe("a right-aligned table cell", () => {
-  it("gets tabular figures whether it is a header or not", () => {
-    const rule = css.slice(css.indexOf(".align-right,\n.amount"));
-    expect(css).toContain(".data-table :is(th, td).align-right");
+describe("a table cell", () => {
+  it("gets tabular figures whether or not it is right-aligned", () => {
+    for (const selector of [".data-table :is(th, td)", ".preview-table :is(th, td)"]) {
+      expect(css, `${selector} should carry the figures`).toContain(selector);
+    }
+    const rule = css.slice(css.indexOf(".data-table :is(th, td),"));
     expect(rule.slice(0, rule.indexOf("}"))).toContain("font-variant-numeric: tabular-nums");
+    // And the alignment utility means alignment alone, so a cell holding a row
+    // of buttons is not a numeric column as far as a grep is concerned.
+    const align = css.slice(css.indexOf("\n.align-right {"));
+    expect(align.slice(0, align.indexOf("}"))).not.toContain("font-variant-numeric");
   });
 });

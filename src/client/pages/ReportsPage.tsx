@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { BarChart3 } from "lucide-react";
+import { BarChart3, SlidersHorizontal } from "lucide-react";
 import { useRef, useState } from "react";
 import { BarChart, ChartLegend, LineChart } from "../charts.js";
 import { api, queryString, type Report } from "../api.js";
@@ -17,6 +17,7 @@ import { formatDate, formatMoney, isNegativeMoney, sumMoney } from "../money.js"
 import { useDateRange } from "../date-range.js";
 import { Link, useLocation, useParams, useSearchParams } from "../router.js";
 import { reportBuckets, reportNames, type ReportName } from "../../shared/domain.js";
+import { emptyScreen, waysOut } from "../list-filters.js";
 
 const TITLES: Record<ReportName, string> = {
   "net-worth": "Net worth",
@@ -79,6 +80,18 @@ export default function ReportsPage() {
   const [params, setParams] = useSearchParams();
   const bucket = params.get("bucket") ?? "";
   const includeArchived = params.get("archived") === "1";
+  // The one control on this page that keeps rows out of the report, and the
+  // empty state never mentioned it: a ledger whose accounts are all archived
+  // was told to go and add a transaction. Grouping is not a filter — it moves
+  // the columns, never the rows — and the exclusion pills apply below the
+  // query, which is what this slot is testing.
+  const { ways } = emptyScreen([
+    {
+      set: !includeArchived,
+      clear: "turn on Include archived accounts to count the ones you have closed",
+      fromTheStart: true,
+    },
+  ]);
   /**
    * Categories left out of THIS VIEW, keyed by row. A view choice, not a
    * change to anything stored: the server's report is untouched, an agent
@@ -170,6 +183,15 @@ export default function ReportsPage() {
       <DateRangeBar />
 
       <div className="date-bar" role="group" aria-label="Report options">
+        {/* The only `.date-bar` in the app without one, so an unlabelled
+            dropdown sat directly under a bar that announces itself with a
+            glyph and the word "Viewing". The group's own name is different
+            from the visible word, as it is on the other two: `aria-label`
+            replaces content, so a title repeating it would be read twice. */}
+        <div className="date-bar-title">
+          <SlidersHorizontal size={17} />
+          <span>Options</span>
+        </div>
         <Select
           aria-label="Group by"
           value={bucket}
@@ -188,7 +210,7 @@ export default function ReportsPage() {
             checked={includeArchived}
             onChange={(event) => setIncludeArchived(event.target.checked)}
           />
-          Include closed accounts
+          Include archived accounts
         </label>
       </div>
 
@@ -201,11 +223,11 @@ export default function ReportsPage() {
         <Note>
           {data.accumulation === "historical"
             ? includeArchived
-              ? "Closed accounts are listed. What they held before they closed is in these figures either way."
-              : "Closed accounts are left out of the list. What they held before they closed is still in these figures."
+              ? "Archived accounts are listed. What they held before they closed is in these figures either way."
+              : "Archived accounts are left out of the list. What they held before they closed is still in these figures."
             : includeArchived
-              ? "What was earned and spent through closed accounts is counted here."
-              : "What was earned and spent through closed accounts is left out."}
+              ? "What was earned and spent through archived accounts is counted here."
+              : "What was earned and spent through archived accounts is left out."}
         </Note>
       ) : null}
 
@@ -264,9 +286,11 @@ export default function ReportsPage() {
         </div>
       ) : query.error ? null : !data?.currencies.length ? (
         <EmptyState
-          icon={<BarChart3 size={22} />}
-          title="Nothing to report yet"
-          body="Once there are transactions in this date range, this report will fill in."
+          icon={BarChart3}
+          title={ways.length ? "Nothing in this view to report" : "Nothing to report yet"}
+          body={`Once there are transactions in this date range, this report will fill in.${
+            ways.length ? ` ${waysOut(ways)}` : ""
+          }`}
           action={
             <Link className="button button-primary" to="/transactions">
               Add a transaction

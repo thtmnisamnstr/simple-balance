@@ -50,6 +50,9 @@ describe("malformed staged draft presentation", () => {
       [{ id: "account-id", name: "Checking", currency: "USD" }],
     );
     expect(summary).toEqual({
+      // The type travels with the summary so a caller can sign the figure the
+      // way the committed rows beside it are signed.
+      type: "withdrawal",
       account: "Unknown account",
       amount: "",
       currency: "",

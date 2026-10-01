@@ -89,7 +89,7 @@ export default function ActivityPage() {
         <Skeleton height={120} label="Loading activity…" />
       ) : events.error ? null : (
         <EmptyState
-          icon={<History size={25} />}
+          icon={History}
           title="No activity yet"
           body="Account, category, transaction, import, and agent actions show up here."
         />

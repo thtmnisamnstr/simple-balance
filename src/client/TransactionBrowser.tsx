@@ -6,12 +6,10 @@ import {
   Copy,
   Download,
   LayoutTemplate,
-  ListChecks,
   Pencil,
   Plus,
   Repeat,
   RotateCcw,
-  Search,
   Trash2,
 } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useId, useState } from "react";
@@ -41,13 +39,15 @@ import {
   ConfirmDialog,
   DateRangeBar,
   EmptyState,
-  Input,
   Modal,
   PageHeader,
   Pagination,
   RowMenu,
+  SearchBox,
   Select,
+  SelectionBar,
   SelectionCheckbox,
+  selectionCount,
   Skeleton,
   SortableHeader,
   type SortState,
@@ -65,6 +65,7 @@ import {
 } from "./staged-draft.js";
 import type { TransactionSortField, TransactionType } from "../shared/domain.js";
 import { frozenAccountRefusal, MAX_FREE_ACCOUNTS } from "../shared/domain.js";
+import { emptyScreen, waysOut } from "./list-filters.js";
 
 /** The share a split is named by in a list: its biggest one. */
 function largestLeg(legs: Transaction["legs"]) {
@@ -221,14 +222,20 @@ export function TransactionBrowser({
     payee: fixedPayee || undefined,
     includeDeleted: showDeleted ? "true" : undefined,
   };
-  // Whether anything but the date range is narrowing this view.
-  //
-  // The range is left out on purpose: every view has one, so a filtered-empty
-  // test that counted it would report every empty ledger as filtered — which is
-  // the failure this distinction exists to prevent, from the other side.
-  const narrowed = Boolean(
-    settledSearch || type || selectedAccountId || fixedCategoryId || fixedTemplateId || fixedPayee,
-  );
+  // What this view is narrowed BY, which is never what it is ABOUT. The four
+  // `fixed*` props are the page's subject — a category page is a category page
+  // — so they are not passed here at all, and `list-filters.ts` carries the
+  // argument. The account select is the same case one level down: it is not
+  // rendered when the page fixes an account, so a page that fixed one has no
+  // account filter to name.
+  // The select is not rendered at all when the page fixes an account, so on
+  // those four pages there is no account filter to clear and none to name.
+  const accountFilter = fixedAccountId ? "" : accountId;
+  const { narrowed, ways } = emptyScreen([
+    { set: Boolean(settledSearch), clear: "clear the search" },
+    { set: Boolean(type), clear: "clear the type filter" },
+    { set: Boolean(accountFilter), clear: "clear the account filter" },
+  ]);
   const bulkFilter: TransactionBulkEditFilter = {
     ...(start ? { start } : {}),
     ...(end ? { end } : {}),
@@ -838,17 +845,14 @@ export function TransactionBrowser({
       )}
       {showDateRange ? <DateRangeBar /> : null}
       <div className="filter-bar">
-        <label className="search-box">
-          <Search size={16} />
-          <Input
-            aria-label="Search transactions"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search payee, description, or notes"
-          />
-        </label>
+        <SearchBox
+          label="Search transactions"
+          placeholder="Search payee, description, or notes"
+          value={search}
+          onChange={setSearch}
+        />
         <Select
-          aria-label="Transaction type"
+          aria-label="Filter by type"
           value={type}
           onChange={(event) => setType(event.target.value)}
         >
@@ -859,7 +863,7 @@ export function TransactionBrowser({
         </Select>
         {!fixedAccountId ? (
           <Select
-            aria-label="Account"
+            aria-label="Filter by account"
             value={accountId}
             onChange={(event) => setAccountId(event.target.value)}
           >
@@ -881,33 +885,35 @@ export function TransactionBrowser({
         </label>
       </div>
       {hasSelection ? (
-        <div className="transaction-selection-bar" aria-live="polite">
-          <div>
-            <ListChecks size={17} aria-hidden />
-            <strong>
-              {selection.mode === "filter"
-                ? filterSelectionPreview.isPending || filterSelectionPreview.isFetching
-                  ? "Counting transactions matching this view…"
-                  : filterSelectionPreview.data
-                    ? `${filterSelectionPreview.data.count} transaction${
-                        filterSelectionPreview.data.count === 1 ? "" : "s"
-                      } matching this view selected`
-                    : "Unable to count matching transactions"
-                : `${explicitSelectedCount} transaction${
-                    explicitSelectedCount === 1 ? "" : "s"
-                  } selected`}
-            </strong>
-            {selection.mode === "filter" && selection.excludedIds.size ? (
-              <span>{selection.excludedIds.size} excluded</span>
-            ) : null}
-            {selection.mode === "filter" && filterSelectionPreview.data?.deletedCount ? (
-              <span>
-                {filterSelectionPreview.data.activeCount} active ·{" "}
-                {filterSelectionPreview.data.deletedCount} deleted
-              </span>
-            ) : null}
-          </div>
-          <div className="transaction-selection-actions">
+        <SelectionBar
+          summary={
+            selection.mode === "filter"
+              ? filterSelectionPreview.isPending || filterSelectionPreview.isFetching
+                ? "Counting transactions matching this view…"
+                : filterSelectionPreview.data
+                  ? `${selectionCount(filterSelectionPreview.data.count)} transaction${
+                      filterSelectionPreview.data.count === 1 ? "" : "s"
+                    } matching this view selected`
+                  : "Unable to count matching transactions"
+              : `${selectionCount(explicitSelectedCount)} transaction${
+                  explicitSelectedCount === 1 ? "" : "s"
+                } selected`
+          }
+          notes={
+            <>
+              {selection.mode === "filter" && selection.excludedIds.size ? (
+                <span>{selectionCount(selection.excludedIds.size)} excluded</span>
+              ) : null}
+              {selection.mode === "filter" && filterSelectionPreview.data?.deletedCount ? (
+                <span>
+                  {selectionCount(filterSelectionPreview.data.activeCount)} active ·{" "}
+                  {selectionCount(filterSelectionPreview.data.deletedCount)} deleted
+                </span>
+              ) : null}
+            </>
+          }
+        >
+          <>
             {selection.mode === "ids" && totalMatching > items.length ? (
               <Button
                 type="button"
@@ -921,7 +927,7 @@ export function TransactionBrowser({
                   }));
                 }}
               >
-                {`Select all ${totalMatching} matching`}
+                {`Select all ${selectionCount(totalMatching)} matching`}
               </Button>
             ) : null}
             {selection.mode === "filter" ? (
@@ -942,6 +948,21 @@ export function TransactionBrowser({
                 Select only this page
               </Button>
             ) : null}
+            {/* Edit, then Delete, and Edit is `secondary`. This bar had them
+                the other way round with Edit as the only primary button on the
+                screen, which is a destructive action to the left of an
+                emphasised one on the register and the reverse of the same bar
+                on the other two pages. The icons are the same two as well:
+                two bars led with them and this one did not. */}
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={openBulkEditor}
+              disabled={Boolean(bulkActionBlockedBecause)}
+              disabledReason={bulkActionBlockedBecause}
+            >
+              <Pencil size={16} /> Edit selected
+            </Button>
             <Button
               type="button"
               variant="danger"
@@ -950,21 +971,13 @@ export function TransactionBrowser({
               disabledReason={bulkActionBlockedBecause}
               loading={bulkDeleteMutation.isPending}
             >
-              Delete selected
-            </Button>
-            <Button
-              type="button"
-              onClick={openBulkEditor}
-              disabled={Boolean(bulkActionBlockedBecause)}
-              disabledReason={bulkActionBlockedBecause}
-            >
-              Edit selected
+              <Trash2 size={16} /> Delete selected
             </Button>
             <Button type="button" variant="ghost" onClick={clearTransactionSelection}>
               Clear selection
             </Button>
-          </div>
-        </div>
+          </>
+        </SelectionBar>
       ) : null}
       {selection.mode === "filter" && filterSelectionPreview.error ? (
         <Alert>{filterSelectionPreview.error.message}</Alert>
@@ -1069,6 +1082,7 @@ export function TransactionBrowser({
                   // transfer reports an amount here rather than nothing and the
                   // figure is formatted like every other on the page.
                   const stagedSummary = summarizeStagedDraft(stage.draft, accounts.data ?? []);
+                  const stagedMovement = movementSign(stagedSummary.type ?? undefined);
                   // A draft names its category by id when it has one and by name
                   // when the import proposed one that does not exist yet, and a
                   // split holds them on its legs. The queue reads all three; this
@@ -1105,10 +1119,21 @@ export function TransactionBrowser({
                           <span className="subtle">Uncategorized</span>
                         )}
                       </td>
-                      <td className="align-right">
-                        {stagedSummary.amount && stagedSummary.currency
-                          ? formatMoney(stagedSummary.amount, stagedSummary.currency)
-                          : "—"}
+                      {/* The same cell the committed rows below use. This one
+                          had the alignment and none of the other three parts —
+                          no sign, no direction color, no `money` weight — so a
+                          staged withdrawal read as a plain number directly
+                          above a committed one reading −$45.00 in red, in one
+                          column of one table. */}
+                      <td className={`align-right money ${stagedMovement.className}`}>
+                        {stagedSummary.amount && stagedSummary.currency ? (
+                          <>
+                            {stagedMovement.sign}
+                            {formatMoney(stagedSummary.amount, stagedSummary.currency)}
+                          </>
+                        ) : (
+                          "—"
+                        )}
                       </td>
                       <td>
                         <Link to="/staged">Review</Link>
@@ -1348,7 +1373,7 @@ export function TransactionBrowser({
         <Skeleton height={120} label="Loading transactions…" />
       ) : (
         <EmptyState
-          icon={<ArrowLeftRight size={24} />}
+          icon={ArrowLeftRight}
           // Two screens, not one. `web.md` 12.1: "No transactions yet" and "no
           // transactions match this view" are different sentences with
           // different next actions, and collapsing them is the most common way
@@ -1362,7 +1387,10 @@ export function TransactionBrowser({
           title={narrowed ? "No transactions match this view" : "No transactions yet"}
           body={
             narrowed
-              ? "Widen the date range, or clear the search and filters above."
+              ? // The range is named as a way out and never counted as one of
+                // the filters that decided this screen, which is the split
+                // `list-filters.ts` exists to keep.
+                waysOut([...ways, "widen the date range"])
               : "Add a deposit, a withdrawal or a transfer, or import a CSV of what has already happened."
           }
           action={

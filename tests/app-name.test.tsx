@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { globSync, readFileSync } from "node:fs";
+import { basename, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render } from "@testing-library/react";
@@ -58,5 +58,101 @@ describe("the browser tab", () => {
     expect(document.title).toBe(`Reports — ${APP_NAME}`);
     rerender(<PageHeader title="Settings" />);
     expect(document.title).toBe(`Settings — ${APP_NAME}`);
+  });
+});
+
+/**
+ * A page renders its header before it renders any of its four states.
+ *
+ * `web.md` 12.1 asks for four states per LIST, and nothing anywhere said the
+ * four states are also states of the PAGE. So six pages wrote
+ * `if (query.isPending) return <Skeleton/>` at the top of the component and
+ * took the header, the eyebrow, the tab strip and the back link down with it.
+ * `document.title` is set inside `PageHeader`'s effect, whose own comment is
+ * that two windows of this app are otherwise indistinguishable in a task
+ * switcher — so a fresh tab on `/accounts/<id>` read the bare product name
+ * until the query resolved and forever if it failed. The plan tab was the
+ * sharpest: its error branch dropped `SettingsTabs` as well, leaving an alert
+ * saying "Reload the page to try again" on a screen that had removed its own
+ * navigation.
+ *
+ * The three tests above render `PageHeader` directly, so nothing asked whether
+ * a page reaches it. This asks the source, because the shape is structural and
+ * mounting nineteen pages against failing fetches to see the same thing is a
+ * day's work for an answer a parser gives in a line.
+ *
+ * **What it cannot see**, said here rather than left to be assumed: it reads
+ * the component's FIRST JSX return and asks whether the header is in it. A
+ * page that renders the header and then returns a second screen below it is
+ * outside this check, and so is one whose header is reached through a name
+ * this does not recognise as a header.
+ */
+describe("a page's header", () => {
+  /** Everything between a balanced pair, counted rather than sliced. */
+  const balanced = (source: string, from: number, open: string, close: string) => {
+    let depth = 0;
+    for (let at = from; at < source.length; at++) {
+      if (source[at] === open) depth += 1;
+      else if (source[at] === close) {
+        depth -= 1;
+        if (depth === 0) return source.slice(from, at + 1);
+      }
+    }
+    return source.slice(from);
+  };
+
+  /**
+   * The page component's own body. `export default function` on eighteen of
+   * them; the plan tab exports by name, so the file's own name is the second
+   * place to look.
+   */
+  const componentBody = (path: string, code: string) => {
+    const named = `export function ${basename(path, ".tsx")}(`;
+    const at = code.includes("export default function")
+      ? code.indexOf("export default function")
+      : code.indexOf(named);
+    return at < 0 ? null : code.slice(at);
+  };
+
+  /**
+   * The one page with no `PageHeader` of its own, and why.
+   *
+   * `TransactionsPage` is four lines: the heading belongs to
+   * `TransactionBrowser`, because the export link's href is built from filter
+   * state the browser owns (`web.md` 7.5). The browser is in the population
+   * below in its place, so the rule is still asked of that page's header.
+   */
+  const DELEGATES: Record<string, string> = {
+    "src/client/pages/TransactionsPage.tsx": "the header belongs to TransactionBrowser",
+  };
+
+  it("comes before every state the page can be in", () => {
+    const pages = [...globSync("src/client/pages/*Page.tsx"), "src/client/TransactionBrowser.tsx"];
+    const late: string[] = [];
+    let checked = 0;
+    for (const path of pages) {
+      const code = readFileSync(path, "utf8");
+      if (path in DELEGATES) {
+        expect(code, `${path} renders a header now, so its excuse is stale`).not.toContain(
+          "<PageHeader",
+        );
+        continue;
+      }
+      const body = componentBody(path, code);
+      expect(body, `${path}: no page component found`).not.toBeNull();
+      const first = /\breturn (\(\s*<|<)/.exec(body!);
+      expect(first, `${path}: the page component returns no JSX`).not.toBeNull();
+      const at = first!.index;
+      const returned = first![1]!.startsWith("(")
+        ? balanced(body!, at + "return ".length, "(", ")")
+        : body!.slice(at, body!.indexOf(";", at));
+      checked += 1;
+      // `{header}` and `{entryHeader}` are the shape the six fixed pages use:
+      // the header is built once, above the states, and every branch renders
+      // the same value.
+      if (!/PageHeader|\{\w*[Hh]eader\}/.test(returned)) late.push(path);
+    }
+    expect(late, "a page's first return has to carry its header").toEqual([]);
+    expect(checked, "no pages found, so this examined nothing").toBeGreaterThan(15);
   });
 });

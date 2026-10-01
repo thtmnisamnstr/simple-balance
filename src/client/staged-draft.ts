@@ -159,6 +159,7 @@ export function summarizeStagedDraft(draft: StagedDraft, accounts: StageAccount[
   if (type === "deposit") {
     const account = accounts.find((item) => item.id === stagedString(draft.toAccountId));
     return {
+      type,
       account: account?.name ?? "Unknown account",
       amount: stagedString(draft.amount),
       currency: account?.currency ?? "",
@@ -167,6 +168,7 @@ export function summarizeStagedDraft(draft: StagedDraft, accounts: StageAccount[
   if (type === "withdrawal") {
     const account = accounts.find((item) => item.id === stagedString(draft.fromAccountId));
     return {
+      type,
       account: account?.name ?? "Unknown account",
       amount: stagedString(draft.amount),
       currency: account?.currency ?? "",
@@ -176,12 +178,16 @@ export function summarizeStagedDraft(draft: StagedDraft, accounts: StageAccount[
     const source = accounts.find((item) => item.id === stagedString(draft.fromAccountId));
     const destination = accounts.find((item) => item.id === stagedString(draft.toAccountId));
     return {
+      type,
       account: `${source?.name ?? "Unknown"} → ${destination?.name ?? "Unknown"}`,
       amount: stagedString(draft.sourceAmount),
       currency: source?.currency ?? "",
     };
   }
-  return { account: "Unknown account", amount: "", currency: "" };
+  // The type a parser could not read travels as `null`, so the figure is drawn
+  // without a sign rather than with a guessed one — `movementSign` says the
+  // same thing from the other side.
+  return { type, account: "Unknown account", amount: "", currency: "" };
 }
 
 /**

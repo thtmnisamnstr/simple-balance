@@ -545,7 +545,7 @@ them cover the whole range:
   Note the last line, which states the bound: "Unbounded on purpose: the keys
   are locale-and-currency pairs and a ledger holds a handful of currencies, so
   there is nothing here to grow."
-- **The trade named, not only the choice.** `src/client/components.tsx:610-624`:
+- **The trade named, not only the choice.** `src/client/components.tsx:711-725`:
   a fixed popover, why absolute fails in a scrolling table card, what fixed
   costs, and then the harder half: "Deliberately not `role="menu"` ... menu
   roles without the keyboard behavior they imply are worse than none."
@@ -606,7 +606,7 @@ What is checked:
 
 | Correspondence | Checked by |
 | --- | --- |
-| Every MCP tool name appears in `docs/mcp.md` | `tests/mcp-parity.test.ts:306-316`, by name rather than by count, "so the failure says which" |
+| Every MCP tool name appears in `docs/mcp.md` | `tests/mcp-parity.test.ts:307-317`, by name rather than by count, "so the failure says which" |
 | Every pinned image tag in the tree matches the release, *and* is a file `set-version` rewrites | `tests/version.test.ts:232-262`, which finds them by sweeping the repository rather than by holding a list — the list had gone stale once, leaving a third file deploying the release it was written during |
 | The product backlog's version matches the manifest | `tests/version.test.ts:321-323` |
 | `docs/deployment.md`'s settings tables against `.env.example` and `deploy/compose/.env.example`, both directions | `tests/env-example.test.ts`, which documents every variable an example names and shows an example of every variable the tables document, and holds its own two exception lists to being genuinely exceptional |
@@ -675,12 +675,12 @@ edit.
   the repository grows, which is the case for scoping it rather than for
   restating it. In user-visible copy the rule holds almost everywhere, with
   four exceptions: `App.tsx:696`, `select-options.ts:110`,
-  `TemplatesPage.tsx:611`, and the review queue's inline-edit labels
-  (`StagingPage.tsx:1039`), which lead with the visible value and set the
+  `TemplatesPage.tsx:615`, and the review queue's inline-edit labels
+  (`StagingPage.tsx:1075`), which lead with the visible value and set the
   instruction off behind a dash. The lone "—" in an empty table cell is a
   placeholder glyph rather than punctuation and is not counted here. Two
   further sites,
-  `SettingsPage.tsx:141` and `ReportsPage.tsx:195-199`, are prose inside JSX
+  `SettingsPage.tsx:142` and `ReportsPage.tsx:217-221`, are prose inside JSX
   and read as copy but are comments, so they answer to the comment rule rather
   than this one. Three of those citations have now drifted off the line they
   name at least once, which is what a line number into a file somebody is

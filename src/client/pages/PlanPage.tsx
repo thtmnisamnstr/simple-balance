@@ -990,9 +990,45 @@ export function PlanPage({
     if (openSecret) paymentPanel.current?.focus();
   }, [openSecret]);
 
-  if (status.isPending) return <Skeleton height={320} label="Loading your plan" />;
+  /**
+   * The title and the Settings strip, before the four states rather than
+   * after them. `web.md` 12.1's states are states of the page's body: both
+   * early returns here replaced the whole page, so the error branch removed
+   * this tab's own navigation while telling somebody to reload — and the tab
+   * read the bare app name for as long as the query took, since
+   * `document.title` is set inside `PageHeader`.
+   */
+  const header = (
+    <>
+      <PageHeader
+        eyebrow="Settings"
+        title="Plan and billing"
+        description="What your account includes, what it costs, and how to change it."
+      />
+      {/* Always shown here, without asking `/api/auth/methods`: this page does
+          not exist on a deployment where billing is unavailable, so the answer
+          is already known and a second request to find it out would only make
+          the strip appear a moment after the heading. */}
+      <SettingsTabs current="plan" billingAvailable />
+    </>
+  );
+
+  if (status.isPending)
+    return (
+      <>
+        {header}
+        {/* The one skeleton label in the app that had no ellipsis, which is
+            invisible on the page and obvious read down a list of twenty-one. */}
+        <Skeleton height={320} label="Loading your plan…" />
+      </>
+    );
   if (status.isError) {
-    return <Alert kind="error">Your plan could not be loaded. Reload the page to try again.</Alert>;
+    return (
+      <>
+        {header}
+        <Alert kind="error">Your plan could not be loaded. Reload the page to try again.</Alert>
+      </>
+    );
   }
 
   const billing = status.data;
@@ -1383,16 +1419,7 @@ export function PlanPage({
 
   return (
     <>
-      <PageHeader
-        eyebrow="Settings"
-        title="Plan and billing"
-        description="What your account includes, what it costs, and how to change it."
-      />
-      {/* Always shown here, without asking `/api/auth/methods`: this page does
-          not exist on a deployment where billing is unavailable, so the answer
-          is already known and a second request to find it out would only make
-          the strip appear a moment after the heading. */}
-      <SettingsTabs current="plan" billingAvailable />
+      {header}
       <div className="settings-grid">
         <div className="settings-column">
           <section className="panel panel-stack">

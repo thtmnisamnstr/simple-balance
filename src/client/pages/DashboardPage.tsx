@@ -1,6 +1,14 @@
 import { Link, useLocation } from "../router.js";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowDownLeft, ArrowUpRight, Landmark, Plus, Scale, TrendingUp } from "lucide-react";
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  Landmark,
+  Plus,
+  Scale,
+  Target,
+  TrendingUp,
+} from "lucide-react";
 import { useState } from "react";
 import { groupAccountsByType } from "../../shared/domain.js";
 import {
@@ -18,6 +26,7 @@ import {
   Button,
   DateRangeBar,
   EmptyState,
+  MetricTile,
   Modal,
   Note,
   PageHeader,
@@ -120,7 +129,7 @@ export default function DashboardPage() {
         </div>
       ) : summary.error ? null : !summary.data?.currencies.length ? (
         <EmptyState
-          icon={<Landmark size={25} />}
+          icon={Landmark}
           title="Create your first account"
           body="An account is where your money lives. Once one exists, deposits, withdrawals, and transfers show up here."
           action={
@@ -143,46 +152,30 @@ export default function DashboardPage() {
                 </span>
               </div>
               <div className="metric-grid">
-                <article className="metric-card metric-balance">
-                  <span className="metric-icon">
-                    <Scale size={18} />
-                  </span>
-                  <div>
-                    <span>Balance</span>
-                    <strong>{formatMoney(currency.balance, currency.currency)}</strong>
-                  </div>
-                </article>
-                <article className="metric-card">
-                  <span className="metric-icon positive">
-                    <ArrowDownLeft size={18} />
-                  </span>
-                  <div>
-                    <span>Deposits</span>
-                    <strong>{formatMoney(currency.deposits, currency.currency)}</strong>
-                  </div>
-                </article>
-                <article className="metric-card">
-                  <span className="metric-icon negative">
-                    <ArrowUpRight size={18} />
-                  </span>
-                  <div>
-                    <span>Withdrawals</span>
-                    <strong>{formatMoney(currency.withdrawals, currency.currency)}</strong>
-                  </div>
-                </article>
-                <article className="metric-card">
-                  <span className="metric-icon">
-                    <TrendingUp size={18} />
-                  </span>
-                  <div>
-                    <span>Net cash flow</span>
-                    <strong
-                      className={isNegativeMoney(currency.netCashFlow) ? "money-negative" : ""}
-                    >
-                      {formatMoney(currency.netCashFlow, currency.currency)}
-                    </strong>
-                  </div>
-                </article>
+                <MetricTile
+                  emphasis
+                  icon={Scale}
+                  label="Balance"
+                  figure={formatMoney(currency.balance, currency.currency)}
+                />
+                <MetricTile
+                  icon={ArrowDownLeft}
+                  tone="positive"
+                  label="Deposits"
+                  figure={formatMoney(currency.deposits, currency.currency)}
+                />
+                <MetricTile
+                  icon={ArrowUpRight}
+                  tone="negative"
+                  label="Withdrawals"
+                  figure={formatMoney(currency.withdrawals, currency.currency)}
+                />
+                <MetricTile
+                  icon={TrendingUp}
+                  label="Net cash flow"
+                  figure={formatMoney(currency.netCashFlow, currency.currency)}
+                  negative={isNegativeMoney(currency.netCashFlow)}
+                />
               </div>
               <div className="dashboard-detail-grid">
                 <article className="panel">
@@ -194,7 +187,10 @@ export default function DashboardPage() {
                       As of {formatDate(summary.data?.asOf ?? end ?? "") || "today"}
                     </span>
                   </header>
-                  <div>
+                  {/* Named, so the distance between two groups is the list's
+                      decision rather than a `+` margin on whichever group
+                      happens to be second (7.4). */}
+                  <div className="account-mini-list">
                     {groupAccountsByType(currency.accounts).map((group) => (
                       <div className="account-mini-group" key={group.type}>
                         <h4 className="account-mini-heading">{group.label}</h4>
@@ -282,7 +278,12 @@ export default function DashboardPage() {
                       })}
                     </div>
                   ) : (
-                    <p className="panel-empty">No withdrawals in this date range.</p>
+                    <EmptyState
+                      compact
+                      icon={ArrowUpRight}
+                      title="No spending in this range"
+                      body="Withdrawals land here, largest category first, as soon as there are any."
+                    />
                   )}
                 </article>
               </div>
@@ -323,7 +324,12 @@ export default function DashboardPage() {
                 {!budgets.isError &&
                 !budgets.isPending &&
                 budgetPeriodsFor(currency.currency).length === 0 ? (
-                  <p className="panel-empty">No budget set in this range.</p>
+                  <EmptyState
+                    compact
+                    icon={Target}
+                    title="No budget in this range"
+                    body="Set one on the budgets page and how it is going shows here."
+                  />
                 ) : null}
                 {budgetPeriodsFor(currency.currency).map((period, index, all) => {
                   const state = periodState(period);

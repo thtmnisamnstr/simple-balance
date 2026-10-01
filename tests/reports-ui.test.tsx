@@ -439,7 +439,7 @@ describe("the reports page", () => {
     expect(screen.queryByRole("rowheader", { name: "Net" })).toBeNull();
   });
 
-  it("asks for closed accounts through the URL, and says what that changed", async () => {
+  it("asks for archived accounts through the URL, and says what that changed", async () => {
     stub();
     renderReports("/reports/net-worth");
     await screen.findByRole("rowheader", { name: "Checking" });
@@ -447,7 +447,7 @@ describe("the reports page", () => {
     // A balance report: the figures are the same either way, and the page says so.
     expect(screen.getByText(/still in these figures/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByLabelText("Include closed accounts"));
+    fireEvent.click(screen.getByLabelText("Include archived accounts"));
 
     await vi.waitFor(() => {
       expect(window.location.search).toContain("archived=1");
@@ -458,13 +458,13 @@ describe("the reports page", () => {
     expect(urls.some((url) => url.includes("includeArchived=true"))).toBe(true);
   });
 
-  it("says a movement report counts closed accounts only when asked", async () => {
+  it("says a movement report counts archived accounts only when asked", async () => {
     stub({ ...report, report: "income-expense", accumulation: "change" });
     renderReports("/reports/income-expense");
     await screen.findByRole("rowheader", { name: "Checking" });
 
     expect(screen.getByText(/is left out/)).toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText("Include closed accounts"));
+    fireEvent.click(screen.getByLabelText("Include archived accounts"));
     expect(await screen.findByText(/is counted here/)).toBeInTheDocument();
   });
 

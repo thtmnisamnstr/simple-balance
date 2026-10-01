@@ -311,30 +311,29 @@ describe("a filtered list with nothing in it", () => {
     // Same, and its one message already offers both ways out — "Set a budget
     // above, or widen the dates" — rather than pretending to be two.
     "src/client/pages/BudgetsPage.tsx": "the only narrowing is the shared date range",
-    // Also the range. It does hold one narrowing control, excluding accounts
-    // from a report, but that cannot produce this state: the check is on
-    // `query.data`, the server's answer, and exclusions apply further down.
-    "src/client/pages/ReportsPage.tsx": "the only narrowing is the shared date range",
+    // Three preconditions rather than a list: no account, every account
+    // frozen, and no file chosen yet. None of the three can be reached by
+    // narrowing anything, because there is nothing to narrow until a file is.
+    "src/client/pages/ImportPage.tsx": "all three are preconditions, not a list",
+    // The agents a person has approved. Nothing on the page narrows that set:
+    // revoking removes one, which is a change to the set rather than a view
+    // of it.
+    "src/client/pages/SettingsPage.tsx": "no control narrows the agent list",
   };
 
-  /**
-   * The text of one JSX element, from its opening tag to the `/>` that closes
-   * it. Depth-aware, because `icon={<Landmark size={24} />}` is a prop whose
-   * value contains a self-closing tag: slicing to the first `/>` stops inside
-   * the props and reports every conditional after it as absent.
-   */
-  const elementAt = (source: string, open: string) => {
+  /** Everything between a call's parentheses, counted rather than sliced. */
+  const callArguments = (source: string, open: string) => {
     const start = source.indexOf(open);
     if (start < 0) return "";
     let depth = 0;
-    for (let at = start; at < source.length; at++) {
-      const here = source[at];
-      if (here === "{") depth += 1;
-      else if (here === "}") depth -= 1;
-      else if (here === "/" && source[at + 1] === ">" && depth === 0)
-        return source.slice(start, at);
+    for (let at = start + open.length - 1; at < source.length; at++) {
+      if (source[at] === "(") depth += 1;
+      else if (source[at] === ")") {
+        depth -= 1;
+        if (depth === 0) return source.slice(start + open.length, at);
+      }
     }
-    return source.slice(start);
+    return "";
   };
 
   const withEmptyState = sourceFiles("src/client").filter(
@@ -347,17 +346,33 @@ describe("a filtered list with nothing in it", () => {
     expect(withEmptyState.map((file) => file.path)).toContain("src/client/pages/PayeesPage.tsx");
   });
 
+  /**
+   * Every list asks the same function, or says in one sentence why it has no
+   * question to ask.
+   *
+   * The check that stood here let a file off for having two `<EmptyState>`
+   * elements, on the argument that two elements say the same thing as one
+   * conditional. They do — but the short-circuit skipped the whole file, so
+   * `CategoriesPage` was outside this check entirely while its condition read
+   * `search.trim()` and ignored the archived toggle beside it. An opt-out that
+   * costs nothing is taken by accident.
+   *
+   * The question is now whether the page decides the screen through
+   * `emptyScreen`, which is the one place `src/client/list-filters.ts` keeps
+   * the rule. A page that renders an empty state and asks nothing is either a
+   * defect or an entry above with an argument.
+   */
   it("distinguishes nothing-yet from nothing-matching", () => {
     const collapsed: string[] = [];
     for (const file of withEmptyState) {
       if (file.path in ONE_SITUATION) continue;
-      // Two elements satisfies it as readily as one conditional message:
-      // `CategoriesPage` writes it that way and that is just as correct.
-      if ([...file.code.matchAll(/<EmptyState\b/g)].length > 1) continue;
-      if (/title=\{|body=\{/.test(elementAt(file.code, "<EmptyState"))) continue;
+      if (file.code.includes("emptyScreen(")) continue;
       collapsed.push(file.path);
     }
-    expect(collapsed).toEqual([]);
+    expect(collapsed, "ask `emptyScreen`, or name the page above with why not").toEqual([]);
+    // An exemption list as long as the population would pass by examining
+    // nothing.
+    expect(withEmptyState.length - Object.keys(ONE_SITUATION).length).toBeGreaterThan(6);
   });
 
   it("excuses nothing that no longer renders an empty state", () => {
@@ -366,18 +381,29 @@ describe("a filtered list with nothing in it", () => {
     expect(Object.keys(ONE_SITUATION).filter((path) => !paths.has(path))).toEqual([]);
   });
 
-  it("decides it from the filters and not from the row count", () => {
-    // The row count is zero either way, so a check on it cannot tell the two
-    // apart. The date range is deliberately excluded from what counts as
-    // narrowing: every view carries one, so counting it would report an empty
-    // ledger as a filtered one — the same defect from the other side.
-    for (const path of ["src/client/TransactionBrowser.tsx", "src/client/pages/StagingPage.tsx"]) {
-      const source = readFileSync(path, "utf8");
-      const narrowed = /const narrowed = Boolean\(([\s\S]*?)\);/.exec(source);
-      expect(narrowed, `${path} should decide narrowed from its filters`).not.toBeNull();
-      expect(narrowed![1]).not.toContain("length");
-      expect(narrowed![1]).not.toMatch(/\bstart\b|\bend\b/);
+  it("decides it from the filters the reader can reach, and not from the row count", () => {
+    // Three things may never appear inside an `emptyScreen` call, and each was
+    // a shipped defect. The row count is zero either way, so a check on it
+    // cannot tell the two screens apart. The date range is carried by every
+    // view, so counting it would report an empty ledger as a filtered one. And
+    // a `fixed*` prop is the page's own subject — the register passed four of
+    // them, which is why a category created a minute ago was told to clear
+    // filters that are not on the screen.
+    // What this cannot see, said here rather than left for somebody to assume
+    // otherwise: it reads the call's own text, so a page that puts its subject
+    // behind a named constant passes. The shape it does catch is the one that
+    // shipped — four props spelled `fixed*` listed beside the search box.
+    const asking = withEmptyState.filter((file) => file.code.includes("emptyScreen("));
+    expect(asking.length, "nothing asks, so this examined nothing").toBeGreaterThan(6);
+    const wrong: string[] = [];
+    for (const file of asking) {
+      const args = callArguments(file.code, "emptyScreen(");
+      expect(args, `${file.path}: unbalanced emptyScreen call`).not.toBe("");
+      if (/\.length/.test(args)) wrong.push(`${file.path}: a row count`);
+      if (/\bstart\b|\bend\b/.test(args)) wrong.push(`${file.path}: the date range`);
+      if (/fixed[A-Z]/.test(args)) wrong.push(`${file.path}: the page's own subject`);
     }
+    expect(wrong).toEqual([]);
   });
 });
 
@@ -424,6 +450,13 @@ describe("a list whose query failed", () => {
       // `AccountDetailPage.tsx:157` is `register.error ? <Alert> : …`, and the
       // register's table sits ninety lines below it inside that same ternary.
       /register\.error \?/,
+    ],
+    [
+      "No spending in this range",
+      // Guarded at the head of the same chain, like the register: the panel
+      // sits inside `summary.data.currencies.map(...)`, a hundred lines below
+      // the `summary.error ? null :` that decides whether any of it renders.
+      /summary\.error \? null :/,
     ],
     [
       "No file yet",

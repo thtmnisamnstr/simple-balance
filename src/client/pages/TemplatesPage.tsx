@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LayoutTemplate, ListChecks, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { LayoutTemplate, Pencil, Plus, Trash2 } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
 import { api, json, type Account, type Category, type TransactionTemplate } from "../api.js";
 import {
@@ -16,8 +16,11 @@ import {
   PageHeader,
   Pagination,
   RowMenu,
+  SearchBox,
   Select,
+  SelectionBar,
   SelectionCheckbox,
+  selectionCount,
   Skeleton,
   SortableHeader,
   type SortState,
@@ -28,6 +31,7 @@ import { TemplateForm } from "../forms.js";
 import { Link, useLocation } from "../router.js";
 import { newIdempotencyKey } from "../idempotency.js";
 import type { TransactionTemplateBulkPatch } from "../../shared/domain.js";
+import { emptyScreen, waysOut } from "../list-filters.js";
 
 const PAGE_SIZE = 25;
 
@@ -125,6 +129,11 @@ export default function TemplatesPage() {
   const location = useLocation();
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
+  // Both of the controls on the bar, not just the search box.
+  const { ways } = emptyScreen([
+    { set: Boolean(search.trim()), clear: "clear the search" },
+    { set: Boolean(typeFilter), clear: "clear the type filter" },
+  ]);
   const [sort, setSort] = useState<SortState<TemplateSortField>>({
     field: "name",
     direction: "asc",
@@ -390,21 +399,17 @@ export default function TemplatesPage() {
           bought nothing and made this control 20px taller than the search box
           beside it — which `align-items: center` then rendered as two boxes at
           different heights. Every other filter in the app is already bare. */}
-      <div className="category-toolbar">
-        <label className="search-box">
-          <Search size={16} />
-          <Input
-            type="search"
-            aria-label="Search templates"
-            placeholder="Search templates"
-            value={search}
-            onChange={(event) => {
-              setSearch(event.target.value);
-              setPage(1);
-              clearSelection();
-            }}
-          />
-        </label>
+      <div className="filter-bar">
+        <SearchBox
+          label="Search templates"
+          placeholder="Search name, payee, or notes"
+          value={search}
+          onChange={(next) => {
+            setSearch(next);
+            setPage(1);
+            clearSelection();
+          }}
+        />
         <Select
           aria-label="Filter by type"
           value={typeFilter}
@@ -422,41 +427,37 @@ export default function TemplatesPage() {
       </div>
 
       {selectedIds.length ? (
-        <div className="transaction-selection-bar" aria-live="polite">
-          <div>
-            <ListChecks size={17} aria-hidden />
-            <strong>
-              {`${selectedIds.length} template${selectedIds.length === 1 ? "" : "s"} selected`}
-            </strong>
-          </div>
-          <div className="transaction-selection-actions">
-            {selectedIds.length < filtered.length ? (
-              <Button type="button" variant="secondary" onClick={selectAllMatching}>
-                {`Select all ${filtered.length} matching`}
-              </Button>
-            ) : null}
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => {
-                resetBulkForm();
-                setBulkEditing(true);
-              }}
-            >
-              <Pencil size={16} /> Edit selected
+        <SelectionBar
+          summary={`${selectionCount(selectedIds.length)} template${
+            selectedIds.length === 1 ? "" : "s"
+          } selected`}
+        >
+          {selectedIds.length < filtered.length ? (
+            <Button type="button" variant="secondary" onClick={selectAllMatching}>
+              {`Select all ${selectionCount(filtered.length)} matching`}
             </Button>
-            <Button
-              type="button"
-              variant="danger"
-              onClick={() => bulkRemoval.ask(selectedIds.length, () => bulkDelete.mutate())}
-            >
-              <Trash2 size={16} /> Delete selected
-            </Button>
-            <Button type="button" variant="ghost" onClick={clearSelection}>
-              Clear selection
-            </Button>
-          </div>
-        </div>
+          ) : null}
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => {
+              resetBulkForm();
+              setBulkEditing(true);
+            }}
+          >
+            <Pencil size={16} /> Edit selected
+          </Button>
+          <Button
+            type="button"
+            variant="danger"
+            onClick={() => bulkRemoval.ask(selectedIds.length, () => bulkDelete.mutate())}
+          >
+            <Trash2 size={16} /> Delete selected
+          </Button>
+          <Button type="button" variant="ghost" onClick={clearSelection}>
+            Clear selection
+          </Button>
+        </SelectionBar>
       ) : null}
 
       {/* The error takes the list's slot rather than stacking above it. An
@@ -468,11 +469,14 @@ export default function TemplatesPage() {
         <Skeleton height={120} label="Loading templates…" />
       ) : filtered.length === 0 ? (
         <EmptyState
-          icon={<LayoutTemplate size={25} />}
+          icon={LayoutTemplate}
           title={templates.data?.length ? "No template matches" : "No templates yet"}
           body={
             templates.data?.length
-              ? "Nothing here matches that search."
+              ? // The Type select empties this list as readily as the search
+                // box does, and blaming the search to somebody who typed
+                // nothing sends them to the wrong control.
+                waysOut(ways)
               : "Make one here, or open the menu on any transaction and choose “Save as template”."
           }
         />

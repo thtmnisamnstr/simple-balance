@@ -567,6 +567,6 @@ describe("narrowing the list by type", () => {
     // A filter that reached the wire would have to reach the agent surface in
     // the same change, and nothing has asked for that.
     expect(writes).toHaveLength(0);
-    expect(await screen.findByText(/matches that search|Nothing here/i)).toBeInTheDocument();
+    expect(await screen.findByText(/clear the type filter/i)).toBeInTheDocument();
   });
 });

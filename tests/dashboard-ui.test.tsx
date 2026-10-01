@@ -321,7 +321,7 @@ describe("the Overview's budget panel", () => {
     stub(nothingBudgeted);
     renderOverview();
     expect(await screen.findByRole("heading", { name: "Budget" })).toBeInTheDocument();
-    expect(screen.getByText(/No budget set in this range/)).toBeInTheDocument();
+    expect(screen.getByText(/No budget in this range/)).toBeInTheDocument();
   });
 
   it("says no CATEGORY is budgeted, because a group budget is not counted here", async () => {
@@ -333,7 +333,7 @@ describe("the Overview's budget panel", () => {
     stub(nothingBudgeted);
     renderOverview();
     const panel = await budgetPanel();
-    expect(within(panel).getByText(/No budget set in this range/)).toBeInTheDocument();
+    expect(within(panel).getByText(/No budget in this range/)).toBeInTheDocument();
   });
 
   it("shows the period and what it stands at", async () => {
@@ -392,7 +392,7 @@ describe("the Overview's budget panel", () => {
     renderOverview();
     const panel = await budgetPanel();
     expect(await within(panel).findByText("Fixed costs")).toBeInTheDocument();
-    expect(within(panel).queryByText(/No budget set in this range/)).not.toBeInTheDocument();
+    expect(within(panel).queryByText(/No budget in this range/)).not.toBeInTheDocument();
     // And the period line says its name alone: it totals the category budgets,
     // which here are none, so a figure would read "$500.00 of $0.00, Over"
     // above a group row saying $500.00 of $800.00.

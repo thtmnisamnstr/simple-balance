@@ -307,13 +307,13 @@ export default function ImportPage() {
         <Skeleton height={64} label="Loading accounts…" />
       ) : accounts.error ? null : !accounts.data?.length ? (
         <EmptyState
-          icon={<FileSpreadsheet size={25} />}
+          icon={FileSpreadsheet}
           title="Create an account first"
           body="A CSV needs an account for its rows to be posted against."
         />
       ) : !writableAccounts.length ? (
         <EmptyState
-          icon={<FileSpreadsheet size={25} />}
+          icon={FileSpreadsheet}
           title="Every account is frozen"
           body="A CSV needs an account its rows can be posted against, and a frozen account accepts no rows until you make it one of the active ones or upgrade."
           action={
@@ -618,7 +618,7 @@ export default function ImportPage() {
 
           <aside className="panel import-preview">
             <header className="panel-header">
-              <h3>{interpreted ? "As it will be read" : "File preview"}</h3>
+              <h2>{interpreted ? "As it will be read" : "File preview"}</h2>
               {interpreted ? (
                 // Says what is on screen rather than what came back: twelve rows
                 // are rendered out of a sample of twenty-five out of the file.
@@ -651,7 +651,9 @@ export default function ImportPage() {
                       <th scope="col">Payee</th>
                       <th scope="col">Account</th>
                       <th scope="col">Category</th>
-                      <th scope="col">Amount</th>
+                      <th scope="col" className="align-right">
+                        Amount
+                      </th>
                       <th scope="col">Status</th>
                     </tr>
                   </thead>
@@ -671,7 +673,15 @@ export default function ImportPage() {
                       return (
                         <tr key={index}>
                           <td>{date ? formatDate(date) : "—"}</td>
-                          <td>{stagedString(draft.payee).trim() || "Incomplete row"}</td>
+                          {/* The payee heads the row, as it does in the queue
+                              these same rows land in two clicks later. The
+                              interpreted preview's columns are fixed, so one
+                              of them is knowably the subject — the raw CSV
+                              preview beside it is the named exception, because
+                              its columns are whatever the file had. */}
+                          <th scope="row">
+                            {stagedString(draft.payee).trim() || "Incomplete row"}
+                          </th>
                           <td>{summary.account}</td>
                           <td>
                             {legs.length ? (
@@ -750,7 +760,7 @@ export default function ImportPage() {
                 // meant "done" on a panel that has not started: nothing had
                 // been imported, and the screen congratulated the reader for
                 // it.
-                icon={<FileSpreadsheet size={23} />}
+                icon={FileSpreadsheet}
                 title="No file yet"
                 body="A sample of the file appears here before anything is staged."
               />

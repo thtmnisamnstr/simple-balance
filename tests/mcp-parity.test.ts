@@ -3,7 +3,8 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { readdir, readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { createMcpServer } from "../src/server/mcp.js";
-import { sourceFiles, topLevelDeclarations } from "./support/source.js";
+import { listQuerySchema, stageListQuerySchema } from "../src/shared/domain.js";
+import { sourceFiles, topLevelDeclarations, type SourceFile } from "./support/source.js";
 import { mutationNames } from "./support/mutations.js";
 
 /**
@@ -597,6 +598,165 @@ describe("what the browser can reach compared with an agent", () => {
   it("gives every agent-only route a reason", () => {
     for (const [route, reason] of Object.entries(AGENT_ONLY)) {
       expect(reason.length, route).toBeGreaterThan(40);
+    }
+  });
+
+  /**
+   * One level below the route list, which is the level the two checks above
+   * cannot see.
+   *
+   * `AGENTS.md` says so in as many words: route by route "is where the test can
+   * check, not where the rule stops — a request field only an agent ever sets is
+   * the same defect one level down, and it is invisible to a comparison of route
+   * lists". It names `categoryKind` as the one it caught by hand: documented for
+   * the MCP, missing from the form, so the browser filed refunds as income.
+   * `type` on the staged queue was the second, caught the same way.
+   * `stageListQuerySchema` inherits it, `stageFilterConditions` really applies
+   * it, and the page held no state that could send it — so `?type=transfer`
+   * worked for an agent while nothing in the browser could ask the one list of
+   * transactions in the product for its transfers.
+   *
+   * So this compares what a listing route PARSES against what the page that owns
+   * that list SENDS. Each page builds its request as one named object: `params`
+   * on the register, behind both the table and the CSV export link, and
+   * `stageQuery` on the staged queue, behind both the table and the walk that
+   * selects every matching row. Reading that object reads what the person in
+   * front of it can reach.
+   */
+  type FilteredList = {
+    /** What the reader calls this list. */
+    readonly view: string;
+    /** The file that owns it, repository-relative. */
+    readonly file: string;
+    /** The named object it spreads into every read of that route. */
+    readonly request: string;
+    readonly route: string;
+    /** Every key the route's schema parses, paging and ordering included. */
+    readonly parses: readonly string[];
+    /**
+     * Filters the page deliberately does not offer, each with the sentence it
+     * has to be arguable in. A bare key is refused by the test below, exactly
+     * as `AGENT_ONLY` refuses a route added to the exception list without one.
+     */
+    readonly unoffered: Readonly<Record<string, string>>;
+  };
+
+  const FILTERED_LISTS: readonly FilteredList[] = [
+    {
+      view: "the register",
+      file: "src/client/TransactionBrowser.tsx",
+      request: "params",
+      route: "GET /api/v1/transactions",
+      parses: Object.keys(listQuerySchema.shape),
+      unoffered: {
+        currency:
+          "The one filter in this comparison that no page offers. An account holds exactly one currency, so the account select asks this question one account at a time, and a conversion deliberately matches under both of the currencies it touches rather than either alone. Adding a currency select would have to put `currency` into `bulkFilter` in the same change — otherwise a selection made from the view names rows the view never showed — which makes it a product decision rather than an oversight. Named here so it is visible rather than simply absent.",
+      },
+    },
+    {
+      view: "the staged queue",
+      file: "src/client/pages/StagingPage.tsx",
+      request: "stageQuery",
+      route: "GET /api/v1/staged-transactions",
+      parses: Object.keys(stageListQuerySchema.shape),
+      unoffered: {
+        categoryId:
+          "A page's subject rather than a filter anybody chooses, which is the distinction `src/client/list-filters.ts` argues at length; this queue is about nothing in particular, so it has no subject to fix. The register sends it on this same route from `stagedParams` whenever a category page fixes one, so it is reachable — never as a control on this bar.",
+        templateId:
+          "The same case: a template page is about its template, and the register sends this on this same route from `stagedParams` to show that template's staged rows above its committed ones. The queue itself is about nothing in particular and has no subject to fix.",
+        payee:
+          "The same case again, and the one with the clearest reason to stay off the bar: a payee is free text rather than a list to pick from, so the search box is how this queue is narrowed to one. A payee page fixes it through `stagedParams` on this same route.",
+      },
+    },
+  ];
+
+  /** What describes a view rather than scopes it, as `bulkStageFilterSchema` omits it. */
+  const PRESENTATION = new Set(["cursor", "page", "limit", "sort", "direction"]);
+
+  /**
+   * The keys of a named object literal in a file, following `...spread` of
+   * another named object in the same file.
+   *
+   * Read off `code` rather than `text`, so a brace or a comma inside a comment
+   * cannot end the object early. In these two files that is not a hypothetical:
+   * the comment above `stagedParams` runs four lines and names `includeDeleted`.
+   */
+  function requestFields(file: SourceFile, name: string, seen = new Set<string>()): Set<string> {
+    if (seen.has(name)) return new Set();
+    seen.add(name);
+    const opener = new RegExp(`\\bconst ${name}\\b[^=\\n]*= \\{`).exec(file.code);
+    if (!opener) throw new Error(`${file.path} has no object literal named ${name}`);
+    const start = opener.index + opener[0].length;
+    let depth = 1;
+    let end = start;
+    while (end < file.code.length && depth > 0) {
+      const character = file.code[end]!;
+      if ("{[(".includes(character)) depth += 1;
+      else if ("}])".includes(character)) depth -= 1;
+      end += 1;
+    }
+    const body = file.code.slice(start, end - 1);
+
+    const fields = new Set<string>();
+    const take = (chunk: string) => {
+      const spread = /^\.\.\.([A-Za-z_$][\w$]*)/.exec(chunk.trim());
+      if (spread) {
+        for (const field of requestFields(file, spread[1]!, seen)) fields.add(field);
+        return;
+      }
+      const key = /^([A-Za-z_$][\w$]*)/.exec(chunk.trim());
+      if (key) fields.add(key[1]!);
+    };
+    let nesting = 0;
+    let from = 0;
+    for (let index = 0; index < body.length; index += 1) {
+      const character = body[index]!;
+      if ("{[(".includes(character)) nesting += 1;
+      else if ("}])".includes(character)) nesting -= 1;
+      else if (character === "," && nesting === 0) {
+        take(body.slice(from, index));
+        from = index + 1;
+      }
+    }
+    take(body.slice(from));
+    return fields;
+  }
+
+  it("sends every filter the route it reads parses", () => {
+    const files = new Map(sourceFiles("src/client").map((file) => [file.path, file]));
+
+    const unreachable: string[] = [];
+    let compared = 0;
+    for (const list of FILTERED_LISTS) {
+      const file = files.get(list.file);
+      if (!file) throw new Error(`${list.file} has moved; ${list.view} needs a new entry here`);
+      const sent = requestFields(file, list.request);
+      const parses = list.parses.filter((field) => !PRESENTATION.has(field));
+      // A schema this could no longer read would make the whole check vacuous
+      // by comparing against nothing, which is how the route comparison above
+      // once passed.
+      expect(parses.length, `${list.route} parses nothing`).toBeGreaterThan(5);
+      for (const field of parses) {
+        compared += 1;
+        if (sent.has(field) || field in list.unoffered) continue;
+        unreachable.push(
+          `${list.route} parses ${field}, and ${list.view} never sends it: give it a control, or name it in unoffered with the reason`,
+        );
+      }
+    }
+
+    expect(unreachable).toEqual([]);
+    // The same guard the service comparison carries: a reader that stopped
+    // matching would otherwise report nothing wrong because it looked at
+    // nothing at all.
+    expect(compared).toBeGreaterThanOrEqual(20);
+  });
+
+  it("gives every filter a page does not offer a reason", () => {
+    for (const list of FILTERED_LISTS) {
+      for (const [field, reason] of Object.entries(list.unoffered)) {
+        expect(reason.length, `${list.route} ${field}`).toBeGreaterThan(40);
+      }
     }
   });
 });

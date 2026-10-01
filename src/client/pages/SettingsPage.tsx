@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useThemeSetting } from "../theme.js";
-import { Bot, KeyRound, Link, Settings2, SunMoon, TriangleAlert } from "lucide-react";
+import { Bot, KeyRound, Link, Plug, Settings2, SunMoon, TriangleAlert } from "lucide-react";
 import { useState, useId } from "react";
 import { useSearchParams } from "../router.js";
 import { formatTimestamp } from "../money.js";
@@ -12,6 +12,7 @@ import {
   Badge,
   Button,
   ConfirmDialog,
+  EmptyState,
   Field,
   Input,
   Note,
@@ -455,7 +456,18 @@ export function DeleteAccount({ session }: { session: Session }) {
       </header>
 
       {open ? (
-        <>
+        // A `<form>`, so Enter in the one text field does what the button
+        // does. BudgetsPage diagnosed this identical shape twice and left the
+        // reason in a comment both times; this is the third instance, and a
+        // lone confirmation field outside a form is the one where pressing
+        // Enter and nothing happening reads as a page that is broken.
+        <form
+          className="panel-stack"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (matches) setConfirmDelete(true);
+          }}
+        >
           {summary.isLoading ? <Skeleton height={20} label="Counting your records…" /> : null}
           {summary.error ? <Alert>{summary.error.message}</Alert> : null}
           {summary.data ? (
@@ -517,6 +529,7 @@ export function DeleteAccount({ session }: { session: Session }) {
           ) : null}
           <Field label="Type your email address to confirm" hint={session.user.email}>
             <Input
+              required
               value={confirmEmail}
               autoComplete="off"
               onChange={(event) => setConfirmEmail(event.target.value)}
@@ -537,17 +550,16 @@ export function DeleteAccount({ session }: { session: Session }) {
               Cancel
             </Button>
             <Button
-              type="button"
+              type="submit"
               variant="danger"
               disabled={!matches}
               loading={deletion.isPending}
               disabledReason="Type your email address exactly as it appears above."
-              onClick={() => setConfirmDelete(true)}
             >
               Delete my account and all my data
             </Button>
           </div>
-        </>
+        </form>
       ) : (
         <div className="form-actions">
           <Button type="button" variant="danger" onClick={() => setOpen(true)}>
@@ -642,51 +654,68 @@ function ConnectedApps() {
         </div>
       </header>
 
-      {apps.isLoading ? <Skeleton height={64} label="Loading connected apps…" /> : null}
-      {apps.error ? <Alert>{apps.error.message}</Alert> : null}
       {revokeMutation.error ? <Alert>{revokeMutation.error.message}</Alert> : null}
 
-      {apps.data && apps.data.length === 0 ? (
-        <Note>
-          Nothing is connected. An agent appears here once you approve it, and you can withdraw that
-          approval at any time.
-        </Note>
-      ) : null}
-
-      {apps.data?.map((app) => (
-        <div key={app.clientId} className="connected-app">
-          <div>
-            <strong>{app.name}</strong>
-            <Badge tone={app.hasLiveAccess ? "green" : undefined}>
-              {app.hasLiveAccess ? "Active" : "No live token"}
-            </Badge>
-            <Note>
-              {/* When it last took a token and how many it holds, because
-                  "is this thing still using my ledger" is the question this
-                  page exists to answer — the API sent both from the first
-                  day and the page dropped them on the floor. */}
-              {scopeSummary(app.scopes)}
-              {when(app.authorizedAt, timezone)
-                ? ` · approved ${when(app.authorizedAt, timezone)}`
-                : ""}
-              {when(app.lastIssuedAt, timezone)
-                ? ` · last token ${when(app.lastIssuedAt, timezone)}`
-                : ""}
-              {app.activeTokenCount > 0
-                ? ` · ${app.activeTokenCount} active token${app.activeTokenCount === 1 ? "" : "s"}`
-                : ""}
-            </Note>
+      {/* One chain, not three sibling expressions. 12.1's four states are
+          exclusive, and written as siblings the error rendered BESIDE the
+          empty state rather than in front of it — the same shape six other
+          lists were fixed out of. `isPending` rather than `isLoading`, which
+          is `isPending && isFetching`: this was the one list slot in the app
+          keyed on the second, so a query that had not started yet showed the
+          empty state instead of the skeleton. */}
+      {apps.isPending ? (
+        <Skeleton height={64} label="Loading connected apps…" />
+      ) : apps.isError ? (
+        <Alert>{apps.error.message}</Alert>
+      ) : apps.data.length === 0 ? (
+        <EmptyState
+          compact
+          icon={Plug}
+          title="Nothing is connected"
+          body="An agent appears here once you approve it, and you can withdraw that approval at any time."
+        />
+      ) : (
+        apps.data.map((app) => (
+          <div key={app.clientId} className="connected-app">
+            <div>
+              <strong>{app.name}</strong>
+              <Badge tone={app.hasLiveAccess ? "green" : undefined}>
+                {app.hasLiveAccess ? "Active" : "No live token"}
+              </Badge>
+              <Note>
+                {/* When it last took a token, how many it holds, and when the
+                    approval runs out, because "is this thing still using my
+                    ledger" is the question this page exists to answer — the
+                    API sent all four from the first day and the page dropped
+                    them on the floor. `expiresAt` was still on the floor after
+                    the other two were picked up, two lines from the comment
+                    recording it. */}
+                {scopeSummary(app.scopes)}
+                {when(app.authorizedAt, timezone)
+                  ? ` · approved ${when(app.authorizedAt, timezone)}`
+                  : ""}
+                {when(app.lastIssuedAt, timezone)
+                  ? ` · last token ${when(app.lastIssuedAt, timezone)}`
+                  : ""}
+                {when(app.expiresAt, timezone)
+                  ? ` · approval runs out ${when(app.expiresAt, timezone)}`
+                  : ""}
+                {app.activeTokenCount > 0
+                  ? ` · ${app.activeTokenCount} active token${app.activeTokenCount === 1 ? "" : "s"}`
+                  : ""}
+              </Note>
+            </div>
+            <Button
+              type="button"
+              variant="danger"
+              loading={revokeMutation.isPending && revokeMutation.variables === app.clientId}
+              onClick={() => revocation.ask(app, () => revokeMutation.mutate(app.clientId))}
+            >
+              Revoke
+            </Button>
           </div>
-          <Button
-            type="button"
-            variant="danger"
-            loading={revokeMutation.isPending && revokeMutation.variables === app.clientId}
-            onClick={() => revocation.ask(app, () => revokeMutation.mutate(app.clientId))}
-          >
-            Revoke
-          </Button>
-        </div>
-      ))}
+        ))
+      )}
 
       <ConfirmDialog
         open={revocation.open}

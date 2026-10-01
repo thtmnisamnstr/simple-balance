@@ -272,7 +272,7 @@ export function AccountForm({
       <Field label="Notes" hint="Optional">
         <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} />
       </Field>
-      <label className="date-bar-check">
+      <label className="check-label">
         <input
           type="checkbox"
           checked={inBudget}

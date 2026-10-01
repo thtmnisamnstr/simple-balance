@@ -145,7 +145,7 @@ usually the polite option, and that a refund is not income.
   ones deprecated in their descriptions; the notification is not a migration
   plan on its own.
 
-*Checked by:* `tests/mcp-parity.test.ts:311-317` fails a registered tool that
+*Checked by:* `tests/mcp-parity.test.ts:312-317` fails a registered tool that
 `docs/mcp.md` does not name, because "the guide fell seventeen tools behind
 before anything noticed". *Also checked by:* `tests/mcp-parity.test.ts` for the
 one regex that covers the rest — the character set and the 1-to-128 length, the
@@ -268,11 +268,11 @@ Further rules:
 *Checked by:* `tests/mcp-measurements.test.ts` for the spellings, which counts
 the losing one and holds it at zero — a count rather than a list, so a
 seventeenth "this person" needs no edit and a third "this user's" fails. And
-`tests/mcp-parity.test.ts:426-444`, which asserts only
+`tests/mcp-parity.test.ts:427-445`, which asserts only
 `length > 30`. All 76 pass, including the 15 that say almost nothing. The same
 file also holds the set of descriptions allowed to name a scope at all
-(`:493-505`), which is the narrowed rule above, and pins the naming and title
-rules (`:460-481`). *Also checked by:* `tests/mcp-measurements.test.ts:172-182`
+(`:494-506`), which is the narrowed rule above, and pins the naming and title
+rules (`:461-482`). *Also checked by:* `tests/mcp-measurements.test.ts:172-182`
 for the warning word on a destructive tool, which is the sentence above read
 back off the surface: it holds both of that sentence's numbers, so a destructive
 tool added without a confirm-or-undo word leaves the first alone, moves the
@@ -405,7 +405,7 @@ unrepresentable, so the model's own sampling cannot produce it.
   shallow rather than deep, which is the property the bound is about, and it is
   overwhelmingly nullability rather than genuine union.
 
-*Checked by:* `tests/mcp-parity.test.ts:507-528`, which pins three listings to
+*Checked by:* `tests/mcp-parity.test.ts:508-529`, which pins three listings to
 the schema their service actually parses, `list_transactions`,
 `list_staged_transactions` and `list_import_batches`, because "a tool declaring
 a wider schema than its service parses is worse than a missing filter".
@@ -748,10 +748,10 @@ claim, and a false claim is a defect.
   acting on one. The annotations are set because they are true, not because
   something is known to read them.
 
-*Checked by:* `tests/mcp-parity.test.ts:330-345`, which derives what a read-only
+*Checked by:* `tests/mcp-parity.test.ts:331-346`, which derives what a read-only
 token may see from `readOnlyHint` rather than from a roster, "because three
 recurrence write tools were added to the file in the read block and nobody had to
-remember" a list. *Also checked by:* `tests/mcp-parity.test.ts:362-390`, which
+remember" a list. *Also checked by:* `tests/mcp-parity.test.ts:363-391`, which
 closes the other direction: a tool annotated `readOnlyHint: true` whose handler
 reaches a service that writes a row. That is the worse failure of the two,
 because the annotation is what a client shows the person approving the call, and
@@ -914,7 +914,7 @@ it means choosing which half to defer to anyway.
   precedent, with the honest note that the protocol does not standardize how a
   client opts in.
 
-*Checked by:* `tests/mcp-parity.test.ts:337-345` and `:392-424`;
+*Checked by:* `tests/mcp-parity.test.ts:338-346` and `:393-425`;
 `tests/mcp-output.test.ts:218-227`, which asserts that a token holding no ledger
 scope gets no tools at all rather than merely missing the two the test was
 written for, "because naming them left the branch accepting any other tool
@@ -949,7 +949,7 @@ human witness.
   bookkeeping: deleting an account, setting a sign-in password, and the billing
   routes are reachable from a session and never from an MCP token."
 - **House.** An exception carries a written reason, not a name on a list. Eight
-  browser-only exceptions (`tests/mcp-parity.test.ts:19-38`) and one agent-only
+  browser-only exceptions (`tests/mcp-parity.test.ts:20-39`) and one agent-only
   each carry a paragraph.
 - **House, and the distinction the billing exception rests on.** A plan is not
   withheld from an agent; the *purchase* is. `whoami` carries the plan, its
@@ -966,19 +966,19 @@ human witness.
   established, it is an original practice, and it should be described as what it
   is rather than as evidence of quality.
 
-*Checked by:* `tests/mcp-parity.test.ts`, both directions. Forward at `:244-259`
-(every route reachable through a named tool) and `:275-309`, which extracts which
+*Checked by:* `tests/mcp-parity.test.ts`, both directions. Forward at `:245-260`
+(every route reachable through a named tool) and `:276-305`, which extracts which
 service each route and each tool calls and compares them, with a `compared` floor
-at `:301` guarding the regex from silently matching nothing. Backward at
-`:567-595`, which matches each route's whole path against `src/client`, each
+at `:302` guarding the regex from silently matching nothing. Backward at
+`:568-596`, which matches each route's whole path against `src/client`, each
 parameter standing in for a template hole rather than only the prefix before the
 first one: `/api/v1/accounts` is satisfied the moment anything fetches an
 account, which left every parameterized sub-route beneath it unchecked and a
-page free to stop calling one. Exceptions are policed at `:263-267`, which fails
-an exception naming a route that no longer exists, and at `:597-601`, which
+page free to stop calling one. Exceptions are policed at `:264-268`, which fails
+an exception naming a route that no longer exists, and at `:598-602`, which
 fails any agent-only reason under forty characters. Nothing measures the
 browser-only reasons; they stay a reviewer's job. The two forbidden capabilities
-are pinned by name at `:318-328`.
+are pinned by name at `:319-329`.
 
 ## Idempotency, versions and state handles
 
@@ -1140,16 +1140,16 @@ which is an evaluation rather than a test.
 
 | Rule | Checked by |
 | --- | --- |
-| Every `/api/v1` route is reachable through a named tool, or is a named exception with a reason | `tests/mcp-parity.test.ts:244-259` |
-| A tool reaches the same service as its route | `tests/mcp-parity.test.ts:275-309` |
-| No route exists that no page calls, without a named exception | `tests/mcp-parity.test.ts:567-595` |
-| Deleting an account and setting a password are absent from the tool list | `tests/mcp-parity.test.ts:318-328` |
-| Every registered tool is named in `docs/mcp.md` | `tests/mcp-parity.test.ts:311-317` |
-| A read-only token sees nothing that declares itself a write | `tests/mcp-parity.test.ts:337-345` |
-| A listing declares the schema its service parses | `tests/mcp-parity.test.ts:514-528` |
+| Every `/api/v1` route is reachable through a named tool, or is a named exception with a reason | `tests/mcp-parity.test.ts:245-260` |
+| A tool reaches the same service as its route | `tests/mcp-parity.test.ts:276-305` |
+| No route exists that no page calls, without a named exception | `tests/mcp-parity.test.ts:568-596` |
+| Deleting an account and setting a password are absent from the tool list | `tests/mcp-parity.test.ts:319-329` |
+| Every registered tool is named in `docs/mcp.md` | `tests/mcp-parity.test.ts:312-317` |
+| A read-only token sees nothing that declares itself a write | `tests/mcp-parity.test.ts:338-346` |
+| A listing declares the schema its service parses | `tests/mcp-parity.test.ts:515-529` |
 | Every tool publishes a concrete two-member output schema | `tests/mcp-output.test.ts:26-52` |
 | A token with no ledger scope gets no tools | `tests/mcp-output.test.ts:218-227` |
-| A description is longer than thirty characters | `tests/mcp-parity.test.ts:426-444` |
+| A description is longer than thirty characters | `tests/mcp-parity.test.ts:427-445` |
 | A tool name is well formed and no title claims another tier's verb | `tests/mcp-parity.test.ts` |
 | The `tools/list` payload stays under its ceiling | `tests/mcp-measurements.test.ts`, and more strictly than a ceiling: each of the three tiers' exact character cost is pinned to the number this guide publishes, so a payload that grows fails whether or not it has passed a threshold |
 | A destructive tool's description warns | `tests/mcp-measurements.test.ts:172-182` |

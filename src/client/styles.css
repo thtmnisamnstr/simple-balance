@@ -560,7 +560,7 @@ a {
 
    Every gap between two top-level sections used to be a margin on whichever
    block happened to be there, and the five blocks that most often sit at page
-   level — .panel, .table-card, .alert, .empty-state, .category-page-list —
+   level — .panel, .table-card, .alert, .empty-state, .record-list-card —
    carry none at all. So four stacked panels on Budgets touched, and the rest of
    the app ran on eight different numbers (26, 20, 28, 18, 16, 14, 12, 0). A
    container gap is one decision instead of eight, and a block that moves to a
@@ -699,9 +699,8 @@ a {
 }
 
 /* In a wrapping toolbar the reason is a line of its own, not a caption under
-   one button. Both bars named below wrap and end their rows to the right —
-   `.bulk-actions` did already, and `.transaction-selection-actions` is given
-   both above, because it is the box these buttons actually sit in: the bar
+   one button. `.selection-bar-actions` is given the wrap and the right-hand
+   end above, because it is the box these buttons actually sit in: the bar
    itself is `space-between` with a count on one side and the actions on the
    other, so the rule has to reach the inner group or it lands on the wrong
    container.
@@ -718,11 +717,11 @@ a {
    `display: contents` puts the button back in the row at its own size, and
    `order` with a full basis drops the sentence to its own line beneath the
    whole bar rather than splitting it after the button it belongs to. */
-:is(.bulk-actions, .transaction-selection-bar) .button-with-reason:has(> .button-reason) {
+.selection-bar .button-with-reason:has(> .button-reason) {
   display: contents;
 }
 
-:is(.bulk-actions, .transaction-selection-bar) .button-reason {
+.selection-bar .button-reason {
   order: 1;
   flex-basis: 100%;
   /* Right, like the buttons it explains, which end their row at the right in
@@ -844,13 +843,18 @@ a {
 }
 
 /* Money lines up column to column only when every digit is the same width.
-   `:is(th, td)` rather than `td` alone: `web.md` 9.3 says header alignment, cell
-   alignment and tabular figures travel together, and this selector was the
-   sentence not being true — `<th className="align-right">` on Reports and
-   Budgets got the alignment and not the figures, so a column of period totals
-   in a header row failed to line up with the identical column beneath it. A
-   `th[scope="row"]` holding a date wants them for the same reason. */
-.data-table :is(th, td).align-right,
+
+   Every cell of every table, not only the right-aligned ones in `.data-table`.
+   Keyed on `.align-right`, this was a rule about a class rather than about a
+   cell, and it missed three things at once: 10.4 asks for tabular figures on
+   dates either way and no date column in the product had them; a money table
+   that is not a `.data-table` — the CSV preview and the reports grid — got
+   none at all; and a cell holding no digits was switching the feature on for
+   nothing, which is what stopped a grep for numeric columns finding them.
+   `font-variant-numeric` touches digits alone, so naming every cell costs a
+   column of words nothing. */
+.data-table :is(th, td),
+.preview-table :is(th, td),
 .amount,
 .currency-heading h2 {
   font-variant-numeric: tabular-nums;
@@ -870,7 +874,15 @@ a {
   border-bottom: 1px solid var(--line-soft);
 }
 
-.panel-header h3 {
+/* The heading, whatever level the document outline wants it to be. Written
+   against `h3` alone, this was a rule about a tag rather than about a panel
+   title — so Reports, whose per-currency panel sits directly under the page's
+   `h1` and correctly reached for an `h2`, matched nothing and fell back to the
+   UA's 1.5em bold beside an 11px muted span in a row tuned for 14px. The
+   review queue hit the same thing and answered it with a second rule of its
+   own further down. Off the class, both are one rule, and a panel heading can
+   be moved to the level its outline needs without being silently unstyled. */
+.panel-header :is(h2, h3, h4) {
   margin: 0;
   font-size: 14px;
 }
@@ -880,9 +892,15 @@ a {
   font-size: 11px;
 }
 
+/* One filter bar, one gap, one wrap rule. It was three classes — `.toolbar`
+   on Accounts alone, `.category-toolbar` on four pages, `.filter-bar` on the
+   other two — at two gaps, and only `.filter-bar` wrapped. That last one is
+   the difference that broke: `.search-box` is `min-width: 260px` and `.select`
+   is 130px, so between roughly 560px and 900px the four `.category-toolbar`
+   pages held a bar that could neither shrink nor wrap. 7.6 settled what a
+   filter bar HOLDS and nothing said what it IS. */
 .date-bar,
-.filter-bar,
-.toolbar {
+.filter-bar {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1048,10 +1066,13 @@ a {
   gap: 16px;
 }
 
+/* The same 16px `.form-grid` uses. A row of fields was 16px from the next row
+   and its own stacked fields were 13px apart, which at 560px — where both
+   collapse to one column — is two rhythms in one form. */
 .two-columns,
 .three-columns {
   display: grid;
-  gap: 13px;
+  gap: 16px;
 }
 
 .two-columns {
@@ -1204,6 +1225,31 @@ input[type="radio"] {
   background: var(--green-soft);
 }
 
+/* The same answer in a panel's slot rather than as a page's whole reply. The
+   full card is 250px of minimum height, which inside the dashboard's
+   per-currency panels would be the tallest thing on screen saying the least —
+   which is why six such lists answered with a bare muted paragraph instead and
+   fell outside 12.1's check along with its look. */
+.empty-state-compact {
+  min-height: 0;
+  padding: 18px 14px;
+}
+
+.empty-state-compact .empty-icon {
+  width: 38px;
+  height: 38px;
+  margin-bottom: 10px;
+  border-radius: 11px;
+}
+
+.empty-state-compact h3 {
+  font-size: 14px;
+}
+
+.empty-state-compact p {
+  margin-bottom: 0;
+}
+
 .empty-state h3 {
   margin-bottom: 7px;
   font-size: 16px;
@@ -1222,7 +1268,9 @@ input[type="radio"] {
   /* A grid item defaults to its min-content width, which a wide table pushes
      past the viewport instead of scrolling inside its own card. */
   grid-template-columns: minmax(0, 1fr);
-  gap: 34px;
+  /* The page's own 24px. 34 was the largest gap in the product, for a repeat
+     of one section per currency that Budgets does at 24. */
+  gap: 24px;
 }
 
 /* One currency's own stack. Its parts are not children of `.content`, so the
@@ -1258,18 +1306,31 @@ input[type="radio"] {
   font-size: 11px;
 }
 
+/* 13px, and the same on all three card grids — the metrics, the account
+   cards and the balance tiles were 11, 13 and 11. Below 560px every one of
+   them is a single column, so the gap is the vertical rhythm between cards on
+   a phone and three numbers were three rhythms. */
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 11px;
+  gap: 13px;
 }
 
+/* `flex-start` rather than `center`, which is the one of the five settled
+   differences worth a sentence: a tile with a note under its figure is taller
+   than one without, and centring then floats the glyph beside the middle of
+   the text rather than beside the line it labels. */
 .metric-card {
   display: flex;
-  align-items: center;
+  min-width: 0;
+  align-items: flex-start;
   gap: 12px;
   padding: 16px;
   border-radius: 11px;
+}
+
+.metric-card > div {
+  min-width: 0;
 }
 
 .metric-balance {
@@ -1291,26 +1352,47 @@ input[type="radio"] {
 .metric-icon.positive { color: var(--green); background: var(--green-soft); }
 .metric-icon.negative { color: var(--red); background: var(--red-soft); }
 
-.metric-card div > span {
+.metric-card div > span,
+.metric-card strong,
+.metric-card small {
   display: block;
+}
+
+.metric-card div > span {
   margin-bottom: 4px;
   color: var(--muted);
   font-size: 12px;
 }
 
+/* Wrapped, never truncated. One of the two tiles clipped a long figure with an
+   ellipsis, so the same money read two ways on two pages — and a clipped
+   amount is a wrong amount, where a wrapped one is only a taller one. */
 .metric-card strong {
   font-size: 15px;
   letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+
+.metric-card small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .money-negative {
   color: var(--red) !important;
 }
 
+/* `align-items: start` for the reason written out at `.settings-column`: a
+   tall card cannot push a short one's neighbour down to meet it. This was the
+   one two-column page grid that stretched instead, so the Accounts panel grew
+   to the height of Spending by category and ended in blank card. */
 .dashboard-detail-grid {
   display: grid;
   grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
   gap: 24px;
+  align-items: start;
 }
 
 .account-mini-row,
@@ -1345,8 +1427,9 @@ input[type="radio"] {
   display: block;
 }
 
-.account-mini-group + .account-mini-group {
-  margin-top: 14px;
+.account-mini-list {
+  display: grid;
+  gap: 14px;
 }
 
 .account-mini-heading,
@@ -1362,11 +1445,19 @@ input[type="radio"] {
   margin: 0 0 2px;
 }
 
+/* A section decides the distance to its own cards, the way `.content` decides
+   the distance between sections (7.4). The 12px lived on the heading, which
+   is the block deciding its own gap — the shape that rule exists to stop. */
+.account-type-section {
+  display: grid;
+  gap: 12px;
+}
+
 .account-type-heading {
   display: flex;
   align-items: baseline;
   gap: 10px;
-  margin: 0 0 12px;
+  margin: 0;
 }
 
 
@@ -1448,12 +1539,6 @@ input[type="radio"] {
 }
 .progress-meter::-moz-progress-bar {
   background: var(--green-fill);
-}
-
-.panel-empty {
-  margin: 22px 0 4px;
-  color: var(--muted);
-  font-size: 12px;
 }
 
 .account-card-grid {
@@ -1570,60 +1655,6 @@ input[type="radio"] {
 
 .back-link:hover {
   color: var(--green);
-}
-
-.balance-snapshot-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 11px;
-}
-
-.balance-snapshot {
-  display: flex;
-  min-width: 0;
-  align-items: flex-start;
-  gap: 11px;
-  padding: 15px;
-  border: 1px solid var(--line);
-  border-radius: 11px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
-}
-
-.balance-snapshot .account-icon {
-  width: 33px;
-  height: 33px;
-  flex: 0 0 auto;
-}
-
-.balance-snapshot div {
-  min-width: 0;
-}
-
-.balance-snapshot div > span,
-.balance-snapshot strong,
-.balance-snapshot small {
-  display: block;
-}
-
-.balance-snapshot div > span {
-  margin-bottom: 4px;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.balance-snapshot strong {
-  overflow: hidden;
-  font-size: 15px;
-  letter-spacing: -0.02em;
-  text-overflow: ellipsis;
-}
-
-.balance-snapshot small {
-  margin-top: 4px;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.35;
 }
 
 /* A detail page nests the browser inside a section of its own, so its parts are
@@ -1829,24 +1860,12 @@ input[type="radio"] {
   padding-left: 34px;
 }
 
-.bulk-actions {
-  display: flex;
-  align-items: center;
-  /* Six controls fit here at once: the count, whole-list selection, commit,
-     edit, delete, clear, and the duplicate override. Wrapping keeps the last
-     of them on screen on a narrow window rather than off the edge of it. */
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 7px;
-  margin-left: auto;
-}
-
-.bulk-actions > span {
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.transaction-selection-bar {
+/* One bar for every selection in the product, and named for what it is rather
+   than for the page it was born on. The staged queue had a second one,
+   `.bulk-actions`, which was `margin-left: auto` inside the filter bar — no
+   border, no background, no padding, an 11px muted span where this has a 12px
+   `<strong>`, and no live region at all. */
+.selection-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1857,8 +1876,8 @@ input[type="radio"] {
   background: var(--green-soft);
 }
 
-.transaction-selection-bar > div,
-.transaction-selection-actions {
+.selection-bar > div,
+.selection-bar-actions {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1867,27 +1886,27 @@ input[type="radio"] {
 /* The actions group wraps, so a disabled button's reason can take a line under
    it. Without this the rule below put a full-basis item in a nowrap row, which
    squeezes the buttons instead of dropping the sentence beneath them. */
-.transaction-selection-actions {
+.selection-bar-actions {
   flex-wrap: wrap;
   justify-content: flex-end;
 }
 
-.transaction-selection-bar > div:first-child {
+.selection-bar > div:first-child {
   min-width: 0;
   color: var(--green-dark);
   font-size: 12px;
 }
 
-.transaction-selection-bar strong {
+.selection-bar strong {
   font-size: 12px;
 }
 
-.transaction-selection-bar span {
+.selection-bar span {
   color: var(--muted);
   font-size: 12px;
 }
 
-.transaction-selection-actions {
+.selection-bar-actions {
   flex: 0 0 auto;
 }
 
@@ -2496,10 +2515,15 @@ input[type="radio"] {
   border-top: 1px solid var(--line);
 }
 
+/* 24px, the gutter every two-column page grid uses. There were four of them
+   at 14, 20, 24 and 24, and below their breakpoint the gutter BECOMES the
+   page's vertical rhythm — so a page that collapsed to one column ran at a
+   different rhythm from the page beside it, for a number nobody chose. 24 is
+   `.content`'s own gap, which is what those collapsed columns then match. */
 .import-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.3fr) minmax(300px, 0.7fr);
-  gap: 14px;
+  gap: 24px;
   align-items: start;
 }
 
@@ -2577,16 +2601,22 @@ input[type="radio"] {
   opacity: 0;
 }
 
+/* The card decides the distance under its header, rather than the table
+   below it carrying a `margin-top` nobody can see in the markup. */
 .import-preview {
   position: sticky;
   top: 20px;
   min-width: 0;
+  display: grid;
+  /* A grid item takes its min-content width, and this one holds a 520px table
+     that would push the card past its column instead of scrolling inside it. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
 }
 
 .preview-table-wrap {
   max-width: 100%;
   overflow: auto;
-  margin-top: 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
 }
@@ -2609,10 +2639,18 @@ input[type="radio"] {
   white-space: nowrap;
 }
 
-.preview-table th {
+/* `[scope="col"]` rather than every `th`, the way `.data-table` already splits
+   them: the interpreted preview now heads each row by its payee, and a row
+   header drawn as a column header reads as a second header band. */
+.preview-table th[scope="col"] {
   color: var(--muted);
   background: var(--surface-soft);
   font-weight: 700;
+}
+
+.preview-table th[scope="row"] {
+  color: var(--ink-soft);
+  font-weight: 400;
 }
 
 /* The one cell in this table that is prose. The shared rule above clips at
@@ -2784,11 +2822,11 @@ input[type="radio"] {
   color: var(--muted);
 }
 
-.category-list {
+.record-list {
   display: grid;
 }
 
-.category-row {
+.record-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2797,28 +2835,22 @@ input[type="radio"] {
   border-bottom: 1px solid var(--line-soft);
 }
 
-.category-row:last-child {
+.record-row:last-child {
   border-bottom: 0;
 }
 
-.category-row > div:first-child {
+.record-row > div:first-child {
   display: flex;
   align-items: center;
   gap: 7px;
 }
 
-.category-row strong {
+.record-row strong {
   margin-right: 5px;
   font-size: 11px;
 }
 
-.category-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.category-page-list {
+.record-list-card {
   padding: 0 18px;
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -2828,7 +2860,7 @@ input[type="radio"] {
 
 /* Three tracks: the name, the badges, the row actions. Payees uses this list
    too and has no fourth cell. */
-.category-page-list .category-row {
+.record-list-card .record-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 12px;
@@ -2841,15 +2873,15 @@ input[type="radio"] {
    Counted rather than named, and `:where()` so the count costs no specificity:
    at its natural weight this would outrank the 560px override below and leave
    a phone with four tracks. */
-.category-page-list .category-row:has(> :where(:nth-child(4))) {
+.record-list-card .record-row:has(> :where(:nth-child(4))) {
   grid-template-columns: minmax(0, 1fr) auto 160px auto;
 }
 
-.category-page-list .category-row > .select-wrap {
+.record-list-card .record-row > .select-wrap {
   width: 160px;
 }
 
-.category-select {
+.record-name {
   display: flex;
   min-width: 0;
   align-items: center;
@@ -2857,17 +2889,17 @@ input[type="radio"] {
   cursor: pointer;
 }
 
-.category-select .account-icon {
+.record-name .account-icon {
   width: 31px;
   height: 31px;
 }
 
-.category-select strong,
-.category-select small {
+.record-name strong,
+.record-name small {
   display: block;
 }
 
-.category-select small {
+.record-name small {
   margin-top: 2px;
   color: var(--muted);
   font-size: 11px;
@@ -2876,10 +2908,6 @@ input[type="radio"] {
 .duplicate-groups {
   display: grid;
   gap: 8px;
-}
-
-.duplicate-groups > .section-title {
-  margin-bottom: 3px;
 }
 
 .duplicate-groups .alert {
@@ -2910,8 +2938,10 @@ input[type="radio"] {
   font-size: 12px;
 }
 
+/* The same inset as `.record-list-card`, which is the same card one page
+   over: 19 against 18 was one shape built twice. */
 .activity-list {
-  padding: 0 19px;
+  padding: 0 18px;
 }
 
 .activity-row {
@@ -2919,7 +2949,8 @@ input[type="radio"] {
   grid-template-columns: 36px minmax(0, 1fr) auto;
   align-items: center;
   gap: 11px;
-  padding: 13px 0;
+  /* 13px against the record row's 10px was the same list at two heights. */
+  padding: 10px 0;
   border-bottom: 1px solid var(--line-soft);
 }
 
@@ -3854,7 +3885,7 @@ polyline.chart-line {
 .duplicate-review {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px;
+  gap: 24px;
   align-items: start;
 }
 
@@ -3864,11 +3895,12 @@ polyline.chart-line {
   gap: 14px;
 }
 
+/* A badge sits beside the words in this one. The size and the margin come
+   from the shared panel-header rule now, so only the row is left here. */
 .duplicate-side .panel-header h2 {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 0;
 }
 
 .duplicate-side-actions {
@@ -3878,19 +3910,8 @@ polyline.chart-line {
   padding-top: 14px;
 }
 
-.duplicate-side-actions .panel-empty {
-  margin: 0;
+.duplicate-side-actions .note {
   text-align: right;
-}
-
-/* Previous, Next and the way out, in one row in the page header. Wraps rather
-   than shrinking, because a comparison is reached on a phone as often as a
-   desktop and a squashed "Previous" is worse than a second line. */
-.duplicate-queue-nav {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
 }
 
 .duplicate-badge-link {
@@ -3912,12 +3933,15 @@ polyline.chart-line {
    bar needs no third color for it, and nothing on the row is told by color
    alone. Over budget is the one state worth a color of its own, because it is
    the one somebody scans for. */
+/* No left or right padding of its own: the panel around it already pads 21px,
+   so 18px more gave one card three left edges — the heading's, the form's and
+   the table's. */
 .budget-form {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
   align-items: flex-end;
-  padding: 0 18px 4px;
+  padding: 0 0 4px;
 }
 .budget-form .field { margin-bottom: 0; }
 
@@ -3963,16 +3987,6 @@ polyline.chart-line {
 }
 .budget-bar[data-state="over"] > span { background: var(--red-fill); }
 
-/* The archived-spending toggle sits in the budget period bar, which is a row of
-   controls rather than a form, so the label wraps its own checkbox. */
-.date-bar-check {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--ink-soft);
-  white-space: nowrap;
-}
-
 .error-boundary {
   max-width: 560px;
   margin: 48px auto;
@@ -3999,9 +4013,6 @@ polyline.chart-line {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .account-card-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .balance-snapshot-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .import-layout,
@@ -4135,16 +4146,17 @@ polyline.chart-line {
     flex: 1 1 100%;
     min-width: 0;
   }
-  /* "Count spending through closed accounts" is 325px of unwrappable text, so
-     at 320px the two budget checkboxes pushed the document wider than the
-     window — SC 1.4.10, which section 15 makes Binding. `nowrap` is right in a
-     control row and wrong when the row is narrower than one control; the box
-     keeps its size and aligns with the first line of what it labels. */
-  .date-bar-check {
+  /* "Count spending through archived accounts" is 325px of text, so at 320px
+     the two budget checkboxes pushed the document wider than the window —
+     SC 1.4.10, which section 15 makes Binding. The box keeps its size and
+     aligns with the first line of what it labels rather than with its middle.
+     On `.check-label` rather than on a second class for the same control:
+     the bar's checkbox and a form's were 12px muted and 16px `--ink-soft`,
+     which is one control rendered two ways on two pages a person compares. */
+  .check-label {
     align-items: flex-start;
-    white-space: normal;
   }
-  .date-bar-check > input {
+  .check-label > input {
     flex: none;
     margin-top: 2px;
   }
@@ -4155,7 +4167,6 @@ polyline.chart-line {
   }
   .metric-grid,
   .account-card-grid,
-  .balance-snapshot-grid,
   .two-columns,
   .three-columns,
   .transaction-type-grid,
@@ -4175,23 +4186,18 @@ polyline.chart-line {
   .search-box {
     min-width: 100%;
   }
-  .bulk-actions {
-    width: 100%;
-    flex-wrap: wrap;
-    margin-left: 0;
-  }
-  .transaction-selection-bar,
-  .transaction-selection-actions {
+  .selection-bar,
+  .selection-bar-actions {
     width: 100%;
     align-items: stretch;
     flex-direction: column;
   }
-  .transaction-selection-bar > div:first-child {
+  .selection-bar > div:first-child {
     align-items: flex-start;
     flex-direction: row;
     flex-wrap: wrap;
   }
-  .transaction-selection-actions .button {
+  .selection-bar-actions .button {
     width: 100%;
   }
   .bulk-edit-field {
@@ -4203,21 +4209,20 @@ polyline.chart-line {
   .inline-form {
     grid-template-columns: 1fr;
   }
-  .category-toolbar,
   .merge-panel {
     align-items: stretch;
     flex-direction: column;
   }
-  .category-page-list .category-row {
+  .record-list-card .record-row {
     grid-template-columns: minmax(0, 1fr) auto;
     /* The picker moves under the name rather than squeezing three cells into a
        phone's width; it keeps the row's own reading order. */
   }
-  .category-page-list .category-row > .select-wrap {
+  .record-list-card .record-row > .select-wrap {
     width: 100%;
     grid-column: 1 / -1;
   }
-  .category-page-list .category-row > div:nth-child(2) {
+  .record-list-card .record-row > div:nth-child(2) {
     display: none;
   }
 }

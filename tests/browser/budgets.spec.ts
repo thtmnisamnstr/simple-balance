@@ -350,7 +350,7 @@ test.describe("the budgets page in a browser", () => {
     const row = page
       .getByRole("table", { name: /Budget against spending/ })
       .getByRole("row", { name: new RegExp(groceries) });
-    const box = page.getByLabel(/count spending through closed accounts/i);
+    const box = page.getByLabel(/count spending through archived accounts/i);
 
     // Counted by default: the card's 80 is money the budget covered.
     await expect(box).toBeChecked();
@@ -855,7 +855,14 @@ test.describe("the budgets page in a browser", () => {
         name: /, [A-Z]{3}( \(so far\))?$|^Nothing budgeted in this range$/,
       }),
     ).toBeVisible();
-    const headings = await page.locator("main h3").allTextContents();
+    // Both levels, because what is under test is the order the panels sit in
+    // and not the level they are written at: a panel title is an `<h2>` and an
+    // `EmptyState` inside a panel is an `<h3>`, and the report's slot is
+    // matched by either its period panels or its empty state. Reading `h3`
+    // alone found the forecast's empty state and nothing else, and reported a
+    // page with five panels as having no "Set a budget" heading. A comma
+    // selector resolves in document order, so the indices still mean "lower".
+    const headings = await page.locator("main h2, main h3").allTextContents();
     const at = (match: RegExp) => headings.findIndex((text) => match.test(text));
     const setBudget = at(/^Set a budget$/);
     const standing = at(/^Standing budgets$/);

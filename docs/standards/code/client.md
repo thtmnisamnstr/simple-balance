@@ -44,8 +44,8 @@ matching: an invalidation naming a resource no query files itself under fails,
 because that write refetches nothing and says nothing. The other direction is
 deliberately open. A query nothing invalidates passes, because invalidation is
 not the only sanctioned way to stay fresh: the reports page files
-`["report", ...]` (`src/client/pages/ReportsPage.tsx:104`) and refetches on
-every mount instead (`:118-119`), since no mutation knows which report a change
+`["report", ...]` (`src/client/pages/ReportsPage.tsx:117`) and refetches on
+every mount instead (`:131-132`), since no mutation knows which report a change
 touches. A new query whose data a mutation does change still needs its
 invalidation written by hand, and no test will remind you.
 
@@ -73,7 +73,7 @@ what the person typed.
 The other thing that is not a derived value: an answer a handler needs before
 the next render can deliver it. The staged list's inline editors keep
 `inlineInFlight`, `inlineCanceled` and `focusAfterInline` in refs
-(`src/client/pages/StagingPage.tsx:566-577`) even though the first shadows
+(`src/client/pages/StagingPage.tsx:592-603`) even though the first shadows
 `isPending`, because the deciding read happens in the same event burst as the
 write: Enter commits, and the blur that follows a click away runs before the
 render that would have set `isPending`, so the state version double-submits —
@@ -159,7 +159,7 @@ split the server refused with a 422 nobody could predict from the screen.
 ### 3.1 `Field` wraps every labeled control in a form
 
 **House.** Layout, label, hint and error in one place
-(`src/client/components.tsx:477`). Three consequences worth knowing, and the
+(`src/client/components.tsx:517`). Three consequences worth knowing, and the
 first of them used to be the opposite:
 
 - **The accessible name of a control no longer includes its hint.** It used to,

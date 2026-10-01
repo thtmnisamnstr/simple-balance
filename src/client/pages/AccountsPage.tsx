@@ -35,6 +35,7 @@ import {
   Note,
   PageHeader,
   RowMenu,
+  SearchBox,
   Skeleton,
   SortMenu,
   type SortState,
@@ -43,6 +44,7 @@ import {
 import { formatMoney, isNegativeMoney, isPositiveMoney, compareMoney } from "../money.js";
 import { AccountForm } from "../forms.js";
 import { calendarDateInTimezone } from "../timezone.js";
+import { emptyScreen, waysOut } from "../list-filters.js";
 
 const iconFor = (type: AccountType) => {
   if (type === "cash" || type === "crypto_wallet") return WalletCards;
@@ -65,6 +67,7 @@ const hasBalance = (amount: string) => isPositiveMoney(amount) || isNegativeMone
 export default function AccountsPage({ session }: { session: Session }) {
   const [editing, setEditing] = useState<Account | "new" | null>(null);
   const [includeArchived, setIncludeArchived] = useState(false);
+  const [search, setSearch] = useState("");
   const removal = useConfirm<Account>();
   const location = useLocation();
   const closing = useConfirm<Account>();
@@ -128,12 +131,32 @@ export default function AccountsPage({ session }: { session: Session }) {
         left.name.localeCompare(right.name)
       );
     };
-    return groupAccountsByType(accounts.data ?? []).map((group) => ({
+    // Filtered before grouping, so a type whose every card is filtered out
+    // takes its heading with it rather than leaving an empty band.
+    const term = search.trim().toLocaleLowerCase();
+    const matching = term
+      ? (accounts.data ?? []).filter((account) => account.name.toLocaleLowerCase().includes(term))
+      : (accounts.data ?? []);
+    return groupAccountsByType(matching).map((group) => ({
       ...group,
       accounts: [...group.accounts].sort(compare),
     }));
-  }, [accounts.data, sort]);
+  }, [accounts.data, search, sort]);
   const accountCount = groupedAccounts.reduce((total, group) => total + group.accounts.length, 0);
+  // The only list page with no search box had its sort control thrown to the
+  // far right of an otherwise empty bar by `margin-left: auto`, which is why
+  // the bar looked unlike every other one before anybody noticed what was
+  // missing. A paid ledger has no account limit at all, and archived accounts
+  // are listed on top of that, so this is a page that can hold dozens of cards
+  // across eight headings.
+  const { narrowed, ways } = emptyScreen([
+    { set: Boolean(search.trim()), clear: "clear the search" },
+    {
+      set: !includeArchived,
+      clear: "turn on Show archived accounts to look at the ones you have put away",
+      fromTheStart: true,
+    },
+  ]);
 
   const mutation = useMutation({
     mutationFn: ({ account, action }: { account: Account; action: "archive" | "delete" }) =>
@@ -177,7 +200,18 @@ export default function AccountsPage({ session }: { session: Session }) {
           </Button>
         }
       />
-      <div className="toolbar">
+      {/* Alerts above the bar, as on every other page: this was the one that
+          put a refusal below the controls that caused it. */}
+      {accounts.error ? <Alert>{accounts.error.message}</Alert> : null}
+      {mutation.error ? <Alert>{mutation.error.message}</Alert> : null}
+      <div className="filter-bar">
+        <SearchBox
+          label="Search accounts"
+          placeholder="Search by name"
+          value={search}
+          onChange={setSearch}
+        />
+        <SortMenu fields={accountSortFields} sort={sort} onSort={setSort} />
         <label className="check-label">
           <input
             type="checkbox"
@@ -186,10 +220,7 @@ export default function AccountsPage({ session }: { session: Session }) {
           />
           Show archived accounts
         </label>
-        <SortMenu fields={accountSortFields} sort={sort} onSort={setSort} />
       </div>
-      {accounts.error ? <Alert>{accounts.error.message}</Alert> : null}
-      {mutation.error ? <Alert>{mutation.error.message}</Alert> : null}
       <ActiveAccountChooser accounts={accounts.data ?? []} limit={activeLimit} />
       {accountCount ? (
         groupedAccounts.map((group) => (
@@ -331,7 +362,7 @@ export default function AccountsPage({ session }: { session: Session }) {
         <Skeleton height={120} label="Loading accounts…" />
       ) : accounts.error ? null : (
         <EmptyState
-          icon={<Landmark size={24} />}
+          icon={Landmark}
           // Two screens, `web.md` 12.1, and this list needs the distinction more
           // than most: archived accounts are hidden by default, so somebody who
           // has put all of theirs away lands here and is told they have none —
@@ -343,11 +374,19 @@ export default function AccountsPage({ session }: { session: Session }) {
           // holds only what it let through. So the message names what is hidden
           // rather than asserting what is there, which is true either way and
           // points at the control that would settle it.
-          title={includeArchived ? "No accounts yet" : "No accounts in this view"}
+          title={
+            narrowed
+              ? "No accounts match this view"
+              : ways.length
+                ? "No accounts in this view"
+                : "No accounts yet"
+          }
           body={
-            includeArchived
-              ? "Start with a checking account, savings account, card, or cash wallet."
-              : "Archived accounts are hidden. Turn on Show archived to look at those, or start with a checking account, savings account, card, or cash wallet."
+            narrowed
+              ? waysOut(ways)
+              : `Start with a checking account, savings account, card, or cash wallet.${
+                  ways.length ? ` ${waysOut(ways)}` : ""
+                }`
           }
           action={
             // Gated for the same reason the header button is, and it is not a

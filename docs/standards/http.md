@@ -88,7 +88,7 @@ ways, and this sentence just reports them. The scope column is the scope the
 equivalent MCP tool needs today, and therefore the scope a bearer token will
 need once SB-030 lands; `ledger:read` is implied by both of the others
 (`src/server/mcp.ts:504-515`). Routes marked session only are named exceptions
-in `tests/mcp-parity.test.ts:19-38`, each carrying its reason.
+in `tests/mcp-parity.test.ts:20-39`, each carrying its reason.
 
 **House.** This table is the published list. Adding a route means adding a row
 in the same commit.
@@ -327,7 +327,7 @@ and putting `v1` in front of a well-known path would make it undiscoverable.
 `/metrics` is the name every scraper already looks for, and a versioned one
 would have to be configured everywhere to say the same thing.
 
-*Checked by:* `tests/mcp-parity.test.ts:119-134` extracts the registered
+*Checked by:* `tests/mcp-parity.test.ts:120-135` extracts the registered
 `/api/v1` routes from source, so a route added without a tool or a written
 exception fails, and `tests/http-route-table.test.ts` now holds the `/api/v1`
 tables above to that same extraction in both directions. *Not checked:* this
@@ -426,7 +426,7 @@ add it.
   (`src/server/http-security.ts:496-508`). The consequence is real and the
   browser client lives with it: revoking an agent is a `DELETE` that sends `{}`
   purely so it can declare a content type
-  (`src/client/pages/SettingsPage.tsx:618-627`).
+  (`src/client/pages/SettingsPage.tsx:630-639`).
   *Checked by:* `tests/api-security.test.ts:64-88`, both halves, the refusal and
   the bodyless request that gets through the gate.
 - **House.** A malformed or absent JSON body is a 400 with a message saying so,
@@ -1528,7 +1528,7 @@ way.
   Identity, the plan's ceiling and how much of it is used are `whoami`, and the
   regional settings are `get_preferences`. What is left is which sign-in methods
   the deployment offers, which is no business of an agent's
-  (`tests/mcp-parity.test.ts:24-25`).
+  (`tests/mcp-parity.test.ts:25-26`).
 
 *Checked by:* `tests/api-security.test.ts` and `tests/http-security.test.ts` for
 the discovery routes and their caching, and `tests/security-header-parity.test.ts`

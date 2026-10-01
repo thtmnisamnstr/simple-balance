@@ -201,7 +201,7 @@ describe("the templates screen", () => {
     fireEvent.click(screen.getByLabelText("Select Rent"));
     expect(screen.getByText("1 template selected")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByPlaceholderText("Search templates"), {
+    fireEvent.change(screen.getByLabelText("Search templates"), {
       target: { value: "coffee" },
     });
     expect(screen.queryByText("Rent")).toBeNull();
@@ -312,7 +312,7 @@ describe("the templates screen", () => {
 
     // Narrowing to one match while sitting on page two has to show it rather
     // than an empty page the person cannot get off.
-    fireEvent.change(screen.getByPlaceholderText("Search templates"), {
+    fireEvent.change(screen.getByLabelText("Search templates"), {
       target: { value: "Filler 03" },
     });
     expect(await screen.findByText("Filler 03")).toBeInTheDocument();
