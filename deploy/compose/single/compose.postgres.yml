@@ -248,8 +248,11 @@ services:
     # No cap_drop, and this is the exception rather than an oversight: the
     # entrypoint starts as root, chowns the data directory and drops to the
     # postgres user, which needs CAP_CHOWN, CAP_FOWNER, CAP_DAC_OVERRIDE and
-    # CAP_SETUID/SETGID. docs/standards/operations.md records it as the one
-    # container in this repository that keeps them.
+    # CAP_SETUID/SETGID. docs/standards/operations.md records it as the
+    # exception two services take — this one and compose.distributed.yml's
+    # bundled postgres — and records that it is about this image's entrypoint
+    # rather than about PostgreSQL: the Helm chart runs the same database under
+    # Patroni with all capabilities dropped, because it never runs that script.
     security_opt: ["no-new-privileges:true"]
     stop_grace_period: 60s
     logging:

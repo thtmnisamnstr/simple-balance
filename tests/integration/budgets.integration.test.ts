@@ -54,6 +54,37 @@ let salaryId = "";
 
 const march = { start: "2026-03-01", end: "2026-03-31" };
 
+/**
+ * A person nobody else in this file writes to.
+ *
+ * Almost every test here owns the categories it names, which is enough when the
+ * figure it reads belongs to a row. Two of them read a figure that belongs to
+ * the *report* — where the carry was folded from, and whether anything was
+ * funded at all — and those are properties of every plan the actor holds, so a
+ * test that creates one elsewhere changes the answer. Both failed under
+ * `--sequence.shuffle` for exactly that reason, which is 2.4 in
+ * `docs/standards/code/testing.md` with the footer command to prove it.
+ *
+ * Creating the rows and subtracting what the fixture contributes is the obvious
+ * alternative and it is a worse test: the expected value then comes out of what
+ * the rest of the file happens to do, which is the change detector 2.3 is about.
+ */
+const soleTenant = async (name: string): Promise<Actor> => {
+  const tenant: Actor = { userId: `budgets-${name}-user`, source: "web" };
+  await getDb()
+    .insert(user)
+    .values({
+      id: tenant.userId,
+      name,
+      email: `budgets-${name}@example.com`,
+      emailVerified: true,
+    });
+  // Every figure stops at today where this person lives, as it does for the
+  // shared actor, so the fixture dates below are in the past for them too.
+  await setPreferences(tenant, { timezone: "UTC", defaultCurrency: "USD" });
+  return tenant;
+};
+
 /** Summed exactly, because comparing money as doubles is the rule this repo keeps. */
 const sumMoney = (values: readonly string[]) =>
   canonicalDecimal(values.reduce((total, value) => total.plus(value), decimal("0")));
@@ -759,11 +790,18 @@ integration("budgets", () => {
    * year for reasons nobody would connect to budgeting.
    */
   it("marks a finished period finished and a running one running", async () => {
+    // A budget of its own, so there are periods to be about. `every` over an
+    // empty list is true, so shuffled to the front this asserted nothing at all
+    // and then failed on the `false` it was expecting — 2.6 of
+    // `docs/standards/code/testing.md` happening inside a test rather than to
+    // one.
+    await budgetedCategory("Partial");
     const finished = await getBudgetReport(actor, {
       start: "2026-03-01",
       end: "2026-03-31",
       periodUnit: "month",
     });
+    expect(finished.periods).not.toHaveLength(0);
     expect(finished.periods.every((period) => period.partial)).toBe(false);
 
     // A period is partial when it has not finished, so the assertion is
@@ -1314,6 +1352,9 @@ integration("budgets", () => {
    * person to a timezone fourteen hours from UTC and asks for the day there.
    */
   it("stops at today in the person's own timezone, and says which day", async () => {
+    // Again a budget of its own: the last period is what the second half reads,
+    // and shuffled to the front there were no periods to have a last one.
+    await budgetedCategory("Horizon");
     const report = await getBudgetReport(actor, {
       start: "2026-03-01",
       end: "2999-12-31",
@@ -1520,8 +1561,14 @@ integration("budgets", () => {
     });
 
     it("says where the carry was folded from", async () => {
-      const category = await createCategory(actor, { name: "Folded", kind: "expense" });
-      await createBudgetPlan(actor, {
+      // `report.rollover.from` is the earliest `activeFrom` across every plan
+      // the actor holds (`src/server/services/budgets.ts:1097`). The forecast
+      // tests below anchor a plan in 2020 to give a stepped chain somewhere to
+      // start from, and shuffling one of those ahead of this answered
+      // `from: "2020-01-01"` about two runs in five.
+      const alone = await soleTenant("folded");
+      const category = await createCategory(alone, { name: "Folded", kind: "expense" });
+      await createBudgetPlan(alone, {
         categoryId: category.id,
         currency: "USD",
         periodUnit: "month",
@@ -1530,7 +1577,7 @@ integration("budgets", () => {
         rollover: true,
       });
 
-      const report = await getBudgetReport(actor, {
+      const report = await getBudgetReport(alone, {
         start: "2026-04-01",
         end: "2026-04-30",
         periodUnit: "month",
@@ -2160,7 +2207,21 @@ integration("budgets", () => {
     });
 
     it("says nothing about funding where nobody set an order", async () => {
-      const report = await getBudgetReport(actor, {
+      // A ledger of its own, because "nobody set an order" is a claim about all
+      // of them. Shuffled ahead of the ranked tests above this read a March with
+      // no USD period at all and threw on the `!`; shuffled after them it was
+      // reading a report somebody had ranked.
+      const alone = await soleTenant("unranked");
+      const category = await createCategory(alone, { name: "Unordered", kind: "expense" });
+      await createBudgetPlan(alone, {
+        categoryId: category.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "100.00",
+        activeFrom: "2026-01-01",
+      });
+
+      const report = await getBudgetReport(alone, {
         ...march,
         periodUnit: "month",
       });

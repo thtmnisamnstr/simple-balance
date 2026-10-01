@@ -36,7 +36,7 @@ of it is below.
 
 ### What runs automatically
 
-**Three migrations, none of which rewrites a row on a single PostgreSQL, and on
+**Four migrations, none of which rewrites a row on a single PostgreSQL, and on
 almost every deployment one of them does nothing at all.**
 
 `0022_plans_and_billing.sql` is additive only: five new tables —
@@ -52,9 +52,9 @@ gated on that extension at the top and returns immediately without it, so a
 deployment on one PostgreSQL records it as run and keeps exactly the schema it
 had. A second gate stops it on a ledger that is already distributed and says so,
 which matters because the runbook invites you to run this file by hand. Verified
-on PostgreSQL 15 and 18, from an empty database and from one 0.1.6 left:
-twenty-five migrations recorded, and every primary and foreign key exactly as
-`0022` left it.
+on PostgreSQL 15 and 18, from an empty database and from one 0.1.6 left, and
+again on 18 once `0025` joined them: twenty-six migrations recorded, and every
+primary and foreign key exactly as `0022` left it.
 
 On a Citus cluster it is the substantial one. It rewrites fourteen primary keys to
 carry the owner, which rebuilds every index on them; drops five unique
@@ -81,6 +81,24 @@ Every account you already have arrives marked active, which is right: the column
 records which accounts somebody chose to keep using on a limited plan, and
 nobody has been asked yet. Nothing is frozen on a deployment that sells nothing,
 whatever the column says.
+
+`0025_subscription_cancel_at.sql` adds one column to `billing_subscription`, the
+day a cancellation lands on, beside the flag saying it lands at the period end.
+The two answer different questions and neither implies the other: a cancellation
+set in Stripe's dashboard for a day past the current period is reported with
+that flag false, so reading the flag alone made such a cancellation invisible
+and the plan buttons went on offering changes that would have destroyed it. The
+column is nullable with no default, which is metadata-only on any PostgreSQL —
+no row is rewritten however many subscriptions you have — and
+`billing_subscription` is a reference table by `0023`, which Citus carries
+`ADD COLUMN` to on every node, so it needs no gate of its own. On a deployment
+that has never set a Stripe key the table is empty and this is a catalog change
+to nothing. It is its own file rather than a column folded into the
+still-unreleased `0022`, for a reason worth knowing if you ever run a
+pre-release build: the migrator compares only the recorded timestamp against the
+folder's and never the file's hash, so a database that has already run `0022`
+would record a regenerated one as done, migrate clean, and then fail at the
+first billing read.
 
 ### What you must do by hand
 
@@ -640,9 +658,14 @@ taking that list to nine.
 did.** A handful of tool descriptions now say "every two weeks", "Monday through
 Friday", "at once" and "one-time" where they used British wording, and
 `set_active_accounts` is new and annotated destructive, so a client may ask the
-person before it runs. No tool, argument, field or stored value was renamed or
-removed. A prompt or a test of your own that quotes a description word for
-word is the one thing that notices.
+person before it runs. A refusal naming a frozen account now carries a second
+sentence written for an agent, which names `whoami` for the plan and its
+ceiling, `list_accounts` for which accounts are frozen, and the person as the
+one who can lift a limit, and the server's instructions say once, to every
+connection, that a frozen account refuses every write. Nothing an agent sends
+changes, and that refusal's code and status are unchanged. No tool, argument,
+field or stored value was renamed or removed. A prompt or a test of your own
+that quotes a description word for word is the one thing that notices.
 
 **If you run your own copy of a compose file, take this release's.** Every
 compose shape now passes `DIRECT_DATABASE_URL` through to the application, which

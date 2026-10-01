@@ -480,10 +480,10 @@ const setupCodeAttempts = createAttemptLimiter({
 });
 
 /**
- * The auth, consent and setup routes' error shape, in both spellings.
+ * The auth, consent, setup and webhook routes' error shape, in both spellings.
  *
  * `docs/standards/http.md` asks for one envelope on every route this process
- * serves, and these fourteen answer with a flat `{code, message}` — a shape the
+ * serves, and these fifteen answer with a flat `{code, message}` — a shape the
  * browser's own reader cannot see, because it looks inside `error`. Adding the
  * envelope rather than replacing the flat pair is what keeps 0.1.5's clients
  * working: anything reading `body.code` still finds it, anything reading
@@ -1455,7 +1455,7 @@ app.get("/api/v1/session", async (c) =>
   }),
 );
 /**
- * The plan tab's four routes, registered only where Stripe is configured.
+ * The plan tab's five routes, registered only where Stripe is configured.
  *
  * Absent rather than refusing, the way `/metrics` is: a deployment that sells
  * nothing has no billing surface at all, which is both one less thing to
@@ -1620,9 +1620,9 @@ app.put("/api/v1/accounts/:id", async (c) =>
  * and the one minor release `docs/standards/http.md` asks for. It was a date in
  * the past for a while — a window that had closed before the release carrying
  * it shipped, which tells a client the path is already gone while it is still
- * answering. `tests/api-security.test.ts` now fails once it is in the past, so
- * the day it expires is a decision somebody makes rather than a promise that
- * quietly went stale.
+ * answering. `tests/http-route-table.test.ts` now reads both values as dates and
+ * fails once the sunset is in the past, so the day it expires is a decision
+ * somebody makes rather than a promise that quietly went stale.
  */
 const RENAMED_PATH_DEPRECATION = "@1787616000";
 const RENAMED_PATH_SUNSET = "Mon, 01 Mar 2027 00:00:00 GMT";

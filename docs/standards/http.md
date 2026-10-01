@@ -38,14 +38,14 @@ writing down why it has no tool.
 Three facts, all currently true, combine into that:
 
 1. Every `/api/v1` request resolves its user with `getWebIdentity`, which reads
-   a session cookie and nothing else (`src/server/api.ts:1313-1328`). There is no
+   a session cookie and nothing else (`src/server/api.ts:1350-1364`). There is no
    bearer path.
 2. Every state-changing `/api/v1` request must present an `Origin` (or failing
    that a `Referer`) equal to the configured base URL
-   (`src/server/http-security.ts:478-512`, mounted at `src/server/api.ts:1305-1312`).
+   (`src/server/http-security.ts:478-512`, mounted at `src/server/api.ts:1342-1349`).
 3. Every state-changing `/api/v1` request must declare
    `Content-Type: application/json`, including the ones with no body at all
-   (`requireContentType: true`, `src/server/api.ts:1310`).
+   (`requireContentType: true`, `src/server/api.ts:1347`).
 
 So `curl` can read nothing and write nothing, and the answer for programmatic
 access has been MCP. Story SB-030 in [`docs/roadmap.md`](../roadmap.md) removes
@@ -81,14 +81,23 @@ message.
 
 ## The route list
 
-Seventy-eight routes under `/api/v1`, generated from `src/server/api.ts`. The
-count is the table's, and only the table is pinned:
+Eighty-four routes under `/api/v1`, generated from `src/server/api.ts`, not
+counting the four old spellings kept answering under `Deprecation` and `Sunset`.
+The count is the table's, and only the table is pinned:
 `tests/http-route-table.test.ts` holds the rows to the registrations both
 ways, and this sentence just reports them. The scope column is the scope the
 equivalent MCP tool needs today, and therefore the scope a bearer token will
 need once SB-030 lands; `ledger:read` is implied by both of the others
-(`src/server/mcp.ts:504-515`). Routes marked session only are named exceptions
-in `tests/mcp-parity.test.ts:20-39`, each carrying its reason.
+(`src/server/mcp.ts:504-515`).
+
+The register at `tests/mcp-parity.test.ts:20-39` does two jobs rather than one,
+and reading it as one job is how the second gets lost. Most of its entries are
+routes with **no tool at all**, and those are the ones marked session only
+below. One entry is a route whose tool is **spelled differently**:
+`GET /api/v1/csv/export` is reachable as `export_transactions_csv` and is
+`ledger:read` in the table, listed there only because the route differs from the
+tool in returning a file download with a dated filename. An agent can export; it
+just does not get the `Content-Disposition`.
 
 **House.** This table is the published list. Adding a route means adding a row
 in the same commit.
@@ -113,7 +122,9 @@ without a route survives the suite.
 
 Registered only where Stripe is configured. On every other deployment — which is
 the default — these five paths do not exist, and `/api/billing/*` answers `404`
-rather than the single-page shell.
+rather than the single-page shell. That is [A route a deployment did not ask for
+is absent, not refusing](#a-route-a-deployment-did-not-ask-for-is-absent-not-refusing),
+and the rule states what listing them here costs.
 
 | Route | Scope |
 | --- | --- |
@@ -179,7 +190,7 @@ client reads a missing `invoice` as unknown rather than as nothing owed.
 
 A read-only token can list grants and cannot revoke them, so a stolen
 `ledger:read` token cannot spend its last minutes locking out the agents it was
-stolen from (`src/server/api.ts:1521-1529`).
+stolen from (`src/server/api.ts:1558-1566`).
 
 ### Accounts
 
@@ -312,9 +323,9 @@ Unversioned, and each for a reason.
 
 | Route | What it is |
 | --- | --- |
-| `GET /health/live`, `GET /health/ready` | Liveness, and a `select 1` against the database. `503` when the database is unreachable (`src/server/api.ts:417-432`). |
+| `GET /health/live`, `GET /health/ready` | Liveness, and a `select 1` against the database. `503` when the database is unreachable (`src/server/api.ts:423-438`). |
 | `/api/auth/*` | Better Auth, plus this product's own sign-up, consent and MCP token routes. |
-| `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, `/.well-known/openid-configuration` | RFC 9728 and OAuth discovery, each also served under `/mcp` and `/mcp/` because RFC 9728 puts the resource path after the well-known segment (`src/server/api.ts:1008-1027`). |
+| `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, `/.well-known/openid-configuration` | RFC 9728 and OAuth discovery, each also served under `/mcp` and `/mcp/` because RFC 9728 puts the resource path after the well-known segment (`src/server/api.ts:1014-1021`). |
 | `/mcp`, `/mcp/` | The MCP transport. Governed by [`mcp.md`](mcp.md). |
 | `GET /metrics` | Prometheus text format, and registered only when `METRICS_ENABLED=true`, so a deployment that did not ask for it has no such route rather than a route that refuses. A `METRICS_TOKEN` makes it demand a bearer token. Not proxied by the bundled frontend. |
 | `POST /api/billing/webhook` | Where Stripe reports what happened, and registered only when Stripe is configured, so a deployment that sells nothing has no such route. Outside `/api/v1` because everything under that prefix is guarded by `protectBrowserMutation`, which refuses a mutation carrying no matching `Origin` — and a webhook carries none. Authenticated by Stripe's signature over the raw body rather than by a session. Every deliberate no-op answers 2xx, because a non-2xx makes Stripe retry and delays finalization of every auto-collection invoice on the account for up to 72 hours. |
@@ -330,10 +341,14 @@ would have to be configured everywhere to say the same thing.
 *Checked by:* `tests/mcp-parity.test.ts:120-135` extracts the registered
 `/api/v1` routes from source, so a route added without a tool or a written
 exception fails, and `tests/http-route-table.test.ts` now holds the `/api/v1`
-tables above to that same extraction in both directions. *Not checked:* this
-table, which is the surfaces that are not `/api/v1` and so fall outside both
-extractions. A row here is still only as published as somebody remembering to
-add it.
+tables above to that same extraction in both directions. Four of the rows in
+this table have a test of their own, for the half that matters most about them —
+that they are absent where unconfigured — and those are named under [A route a
+deployment did not ask for is absent, not
+refusing](#a-route-a-deployment-did-not-ask-for-is-absent-not-refusing).
+*Not checked:* the table itself, which is the surfaces that are not `/api/v1`
+and so fall outside both extractions. A row here is still only as published as
+somebody remembering to add it.
 
 ## Paths and resources
 
@@ -346,7 +361,7 @@ add it.
   `/accounts/{id}/register` are the deepest paths here. Zalando's guideline is
   three; two is enough for a ledger with eleven resources.
 - **House.** Every path id is a UUID and is parsed at the boundary before it
-  reaches a query, through `pathId` (`src/server/api.ts:1353-1354`). Nothing in a
+  reaches a query, through `pathId` (`src/server/api.ts:1390-1391`). Nothing in a
   specification or in `AGENTS.md` requires it; the failure it prevents does. Two
   names are exempt and both are checked another way: `clientId`, which is an
   OAuth client id and not a UUID, and `report`, which is parsed against a closed
@@ -418,6 +433,83 @@ add it.
   path ending in `/archive` or a path ending in a bare `/delete`, so this
   particular drift cannot come back.
 
+### A literal path segment is registered before the parameter route it sits under
+
+**Binding.** Hono answers from the first registration that matches, so a
+collection-level literal registered after `:id` is never reached: the parameter
+route takes it, `active` or `duplicates` is parsed as an id, and the request
+fails UUID validation before any service runs. The caller gets a 422 about an id
+they never sent, for a path the published table says exists.
+
+The three that exist today are all registered the right way round —
+`PUT /api/v1/accounts/active` at `src/server/api.ts:1590` ahead of
+`PUT /api/v1/accounts/:id` at `:1593`, and `GET /api/v1/categories/duplicates`
+and `/summaries` at `:1665` and `:1668` ahead of `GET /api/v1/categories/:id`
+at `:1671`. The state-sub-resource bullet above is what keeps producing this
+shape: a state that belongs to the collection rather than to one row is a
+literal segment under a path that already has a parameter route, so every
+future collection-level sub-resource adds another.
+
+**The obvious alternative is what this guide already relies on, and it cannot
+work.** The published route table and the MCP parity comparison both read
+`src/server/api.ts` as text. Neither can see *order* — both would show
+`PUT /api/v1/accounts/active` registered, named in the table, and paired with
+`set_active_accounts`, with every assertion green, while the route answered
+nothing. That is not hypothetical: it is what shipped in the feature's first
+draft with all three tiers passing, because the integration test called the
+service directly and everything else was reading source. The only check that
+can see it is one that asks the router.
+
+*Checked by:* `tests/route-shadowing.test.ts`, which asks `app.router.match`
+which registration would answer each of the three and compares it with the path
+itself. Its second case is the one that keeps it honest: a real UUID under
+`/api/v1/accounts/` must reach `:id`, or the first assertion would pass whatever
+the registration order were.
+
+### A route a deployment did not ask for is absent, not refusing
+
+**House.** Five surfaces in this process exist only where their configuration
+does: `GET /metrics` under `METRICS_ENABLED`, `GET /ads.txt` under AdSense,
+`POST /api/billing/webhook` and the five `/api/v1/billing` routes under Stripe,
+and `POST /api/csp-report` under `SB_CSP_REPORT_ONLY`. None of them is
+registered-and-refusing. `AGENTS.md` fixes this for one of the five — "`/metrics`
+is off unless asked for and registered rather than refusing, so a deployment
+that never set `METRICS_ENABLED` has no such route" — and the rule here is that
+sentence generalized to the other four, which were each argued separately in
+prose and had no rule behind them.
+
+Absence is one less thing to misconfigure, and it is an honest answer to
+whoever is asking. A registered route that refuses advertises a capability the
+deployment does not have, to a caller who is in no position to do anything with
+that information: a scraper, a crawler reading `/ads.txt`, or a payment
+processor. The `/api/billing/*` catch-all is what makes the absence read as
+absence rather than as the single-page shell.
+
+**The obvious alternative — register it and answer 403 — is right somewhere
+else, which is why it is tempting.** `POST /api/auth/sign-up/email` answers
+`403 LOCAL_AUTH_DISABLED` on a deployment with local sign-in off
+(`src/server/api.ts:503`), and that is correct, because the caller is this
+product's own browser, it will render the refusal, and a person will read it.
+The test is who is calling. Where the caller is a program that will never show
+anybody the body, a refusal is a disclosure with no reader.
+
+**The cost is real and the published tables pay it.** The route list above names
+five billing routes most deployments do not have, because the extraction reads
+registrations without regard to the `if` they sit inside. A reader working from
+the table has to read the "registered only where Stripe is configured" sentence
+above it; a reader working from the deployment gets a 404 the table did not
+predict. That is the price of the table being generated rather than curated, and
+it is cheaper than a table somebody keeps by hand.
+
+*Checked by:* nothing, and no test can check the rule itself — "a capability
+nobody configured has no route" is a statement about every route that does not
+exist. What is checked is each instance:
+`tests/billing-routes-absent.test.ts` for all five plan routes and the webhook,
+`tests/ads-txt.test.ts:50` for `/ads.txt`, `tests/csp-report-only.test.ts:98`
+for the report endpoint, and `tests/metrics.test.ts:224` for `/metrics`. A seventh
+surface added without one of these is the gap this rule leaves open, and it is
+left open honestly rather than closed by a test that would pass forever.
+
 ## Requests
 
 - **House.** JSON in, JSON out. `Content-Type: application/json` is required
@@ -431,20 +523,32 @@ add it.
   the bodyless request that gets through the gate.
 - **House.** A malformed or absent JSON body is a 400 with a message saying so,
   not a 500. Every mutation reads its body through one helper for this reason
-  (`src/server/api.ts:1333-1343`); before it existed a truncated body arrived as a
+  (`src/server/api.ts:1370-1380`); before it existed a truncated body arrived as a
   500 with a stack trace in the log.
 - **House.** Request bodies are bounded, and the bound is derived from a
-  documented cap rather than chosen. The two figures come from this repository
+  documented cap rather than chosen. The figures come from this repository
   rather than from anything published, which is why the derivation matters more
-  than the numbers. 64 KiB for `/api/auth`, 256 KiB for
-  ordinary `/api/v1`, a CSV-derived limit for `/csv/preview`, `/csv/stage` and
-  `/mcp`, and a selection-derived limit for any route whose last segment is
-  `bulk-edit`, `bulk-delete`, `bulk-selection`, `commit` or `delete`
-  (`src/server/http-security.ts:380-418`, `:980-1020`). A limit is derived, not
-  guessed: the template mass edit and mass delete were once sized as ordinary
-  requests, so a selection their own schemas accepted came back 413. Recognizing
-  a bulk route by shape rather than by a hand-kept list is what stops that
-  recurring.
+  than the numbers. **Five limits**, and the order they are tried in is the
+  order they are written: 64 KiB for `/api/auth`, **128 KiB for
+  `/api/csp-report`**, then a CSV-derived limit for `/csv/preview`,
+  `/csv/stage` and `/mcp`, a selection-derived limit for any route whose last
+  segment is `bulk-edit`, `bulk-delete`, `bulk-selection`, `commit` or
+  `delete`, and 256 KiB for everything else under `/api/v1`
+  (`src/server/http-security.ts:380-398`, `:980-996`, `:1012-1020`). A limit is
+  derived, not guessed: the template mass edit and mass delete were once sized
+  as ordinary requests, so a selection their own schemas accepted came back 413.
+  Recognizing a bulk route by shape rather than by a hand-kept list is what
+  stops that recurring.
+
+  The report limit is the one whose derivation is a measurement, and its
+  docblock carries it (`:998-1011`): Chromium batches pending violations into
+  one delivery rather than posting one report each — about 17 KiB for seventeen
+  and 100 KiB for a hundred — so a limit sized for a single report answers that
+  batch 413 and logs nothing, and the rehearsal records the first violation and
+  drops the one naming the host it exists to find. It is checked before the
+  `/api/v1` limit and sits far under it, because this is the one route nothing
+  authenticates.
+
   *Checked by:* `tests/http-security.test.ts:336-438` for the arithmetic, and
   `tests/http-security.test.ts:742-754`, which walks the registered routes so no
   bulk-shaped route can be added without its limit.
@@ -473,7 +577,7 @@ add it.
   used to compare `c.req.query("includeArchived") === "true"` by hand, so
   `?includeArchived=yes` silently meant false: the caller asked for something,
   was not refused, and got the opposite. All five go through
-  `includeArchivedFlag` (`src/server/api.ts:1395`), which parses with the shared
+  `includeArchivedFlag` (`src/server/api.ts:1432-1433`), which parses with the shared
   schema.
 
   The budget report was the sixth, and it was found after the other five: it
@@ -491,6 +595,43 @@ add it.
   comma-separated list with a documented separator rather than repetition.
 - **Binding.** No request ever names a user. `AGENTS.md`: "Never accept a public
   `userId`."
+
+### A body limit is derived three times, and the application's is the innermost
+
+**House.** The limits above are the application's, and they are the last of
+three an import passes. Whatever terminates TLS sees the body first and whatever
+proxies it sees it second, so **both outer ones have to be at least the inner
+one**. Either set below it turns an import this product advertises into a 413
+the application never gets to explain: the request never reaches the code that
+knows what the limit is or how to say so, and nothing lands on screen but a
+refusal from a server the person has never heard of.
+
+Both outer figures are in this repository, which is what makes this a rule here
+rather than a note to an operator: `SB_MAX_UPLOAD_SIZE` in the frontend image
+and `MAX_BODY_SIZE` in the `single` profile's Caddy. What each of those
+configures, and which deployment shapes have which, is
+[`operations.md`](operations.md#a-deployment-profile-is-a-shape-not-a-setting)
+and [`operations.md`](operations.md#documenting-a-variable); describing them
+here would be the second copy that goes stale.
+
+**The obvious alternative is that the proxy is the operator's problem, and it is
+wrong twice over.** This repository ships the proxies, so there is no operator
+to hand it to for the shapes it builds. And the defect it already produced was a
+unit rather than a number: nginx reads `61m` as binary and Caddy reads `61MB` as
+decimal, so two spellings that look identical were 63,963,136 and 61,000,000 —
+with the application accepting 62,980,096, which falls between them. A 61.5 MB
+CSV was accepted by the API, refused by the terminator, and correct according to
+both files. Nobody reading the two numbers side by side would have seen it;
+Caddy's side says `61MiB` now because a test worked it out in bytes.
+
+*Checked by:* `tests/upload-limit-agreement.test.ts`, which parses each
+spelling in its own units and asserts three things: that each terminator will
+carry at least `apiRequestBodyLimit("/api/v1/csv/stage")`, that the application's
+own limit is the CSV-derived one rather than the generic one, and that the two
+terminators describe **the same** ceiling rather than merely two sufficient
+ones. The last is the assertion that catches a unit mistake, since a decimal
+spelling large enough to pass the first would still be a different number from
+the binary one beside it.
 
 ### Absent, null and empty are three different things
 
@@ -577,12 +718,21 @@ or that the two patch schemas agree with each other.
     totalPages, cursorAvailable}` (`src/shared/domain.ts:2673-2687`), where
     `cursorAvailable` says whether this ordering can be resumed with a cursor.
 - **House.** `201 Created` on a create that mints a row, `200 OK` on everything
-  else that succeeds. No route returns `204`; every response has a body, because
-  an MCP tool result cannot be empty and the two transports return the same
-  thing. The client's dead `204` branch is gone with it.
+  else that succeeds. **No `/api/v1` route returns `204`**; every response there
+  has a body, because an MCP tool result cannot be empty and the two transports
+  return the same thing. The client's dead `204` branch is gone with it.
+
+  **One route outside `/api/v1` does, and the exception is the rule's own
+  argument running out.** `POST /api/csp-report` answers `204` always
+  (`src/server/api.ts:1301`). It has no tool and can never have one — a browser
+  posts to it, nothing reads the answer, and there is nobody to tell about a
+  failure — so "the two transports return the same thing" is a constraint with
+  one transport in it. Scope the rule to `/api/v1` rather than quietly allowing
+  a second empty body: a route here that wanted `204` would have to make the
+  same argument, and no `/api/v1` route can.
 - **House.** A `201` carries a `Location` header naming the created resource,
   per RFC 9110 section 10.2.2. All eight creates go through one helper
-  (`src/server/api.ts:1358-1378`) rather than each remembering it, because a
+  (`src/server/api.ts:1396-1416`) rather than each remembering it, because a
   route that forgot would be indistinguishable from a route that meant not to
   send one. Purely additive, so no client that worked against the previous
   release stops working. `POST /api/v1/category-groups` is the one whose
@@ -609,11 +759,12 @@ or that the two patch schemas agree with each other.
   beside their JSON one, chosen by `Accept`; see
   [Streaming a response](#streaming-a-response).
 
-*Checked by:* `tests/http-security.test.ts` for headers and body limits,
-`tests/cursor.test.ts` for the cursor's ordering binding. *Not checked:* that a
-collection uses one of the two envelopes and not a third, that a single resource
-carries no envelope, and that every 429 sends `Retry-After`. All three are a walk
-over the registered routes, which that file already does for body limits.
+*Checked by:* `tests/http-security.test.ts` for headers, body limits and that
+every 429 names an interval, `tests/mcp-output.test.ts` for the envelope rule
+over every listing's published output schema, and `tests/cursor.test.ts` for the
+cursor's ordering binding. *Not checked:* that a single resource carries no
+envelope. That one is a walk over the registered routes, which
+`tests/http-security.test.ts` already does for body limits.
 
 ### Status codes
 
@@ -656,17 +807,17 @@ code.
 - **House, and a gap.** A missing `expectedVersion` should be `428 Precondition
   Required` (RFC 6585), which says exactly what happened and which Zalando rates
   `use`. Today it is a Zod failure and a 422
-  (`src/shared/domain.ts:1205-1220`, `src/server/api.ts:373-396`).
+  (`src/shared/domain.ts:1205-1220`, `src/server/api.ts:379-402`).
 - **House, and a mismatch.** A path id that is not a UUID can never name a row,
   so the answer is 404, for the same reason a stranger's id is 404: what the
   caller asked for is not there. Today `pathId` raises a Zod failure
-  (`src/server/api.ts:1353-1354`) which the global handler renders as a 422
-  (`src/server/api.ts:373-397`), so a mistyped URL and a rejected body look the
+  (`src/server/api.ts:1390-1391`) which the global handler renders as a 422
+  (`src/server/api.ts:379-402`), so a mistyped URL and a rejected body look the
   same to a client. The 404 catch-all already answers a mistyped *path* this
   way; a mistyped *id* should match it.
 - **House, and a gap.** A wrong method on an existing path should be 405 with
   `Allow`. Today it falls to the catch-all and is a 404
-  (`src/server/api.ts:1954-1956`). OWASP's REST guidance is to allowlist methods
+  (`src/server/api.ts:1991-1993`). OWASP's REST guidance is to allowlist methods
   and reject the rest with 405.
 - **House.** A 429 carries `Retry-After`. Neither of the two the process emits
   did. The setup-code limiter now sends the window it counts by, taken from the
@@ -677,18 +828,19 @@ code.
   wait longer than they had to; under-reporting sends them back for a second
   429. Better Auth's own limiter sends the non-standard `X-Retry-After` its
   library chose, and the `/api/auth/*` middleware mirrors it into the standard
-  header on the way out (`src/server/api.ts:448-457`) rather than renaming it,
+  header on the way out (`src/server/api.ts:454-463`) rather than renaming it,
   so a client already reading the non-standard one keeps working. `Retry-After`
   is standard in RFC 9110; the `RateLimit-*` draft headers are not, their syntax
   has changed between revisions, and pinning to them buys nothing yet.
 
-*Checked by:* `tests/http-security.test.ts` for the security and cache headers
-and for the body limits, and `tests/cursor.test.ts` for the cursor's ordering
-binding. *Not checked:* that a single resource is returned without an envelope,
-which is a walk over the registered routes of the kind
-`tests/http-security.test.ts` already does for body limits. The other two on this
-list are checked now: the envelope rule by `tests/mcp-output.test.ts` and
-`Retry-After` by `tests/http-security.test.ts`.
+*Checked by:* `tests/http-security.test.ts` for the security and cache headers,
+for the body limits, and for `Retry-After` on every 429; `tests/cursor.test.ts`
+for the cursor's ordering binding. *Not checked:* that a single resource is
+returned without an envelope, which is a walk over the registered routes of the
+kind `tests/http-security.test.ts` already does for body limits. The three gaps
+named in this section are gaps still: 428 for a missing `expectedVersion`, 404
+rather than 422 for a path id that is not a UUID, and 405 with `Allow` for a
+wrong method.
 
 ## Errors
 
@@ -697,7 +849,7 @@ list are checked now: the envelope rule by `tests/mcp-output.test.ts` and
 **Binding for the shape.** [`common.md`](common.md#errors) fixes it:
 `{ error: { code, message, details? } }`, one enumeration, published. Over MCP
 it is the `result` member; over HTTP it is the body today
-(`src/server/api.ts:354-407`).
+(`src/server/api.ts:360-413`).
 
 **Contested, and this is the live decision.** The conformance target in
 [`index.md`](index.md#conformance-targets) is RFC 9457 problem details, and this
@@ -754,12 +906,15 @@ derives by reading the `(code, status)` pair off every `AppError` and
 - **House.** The published enumeration is frozen contract, and it is complete.
   `apiErrorCodes` (`src/shared/domain.ts:2639`) is the sum of two lists
   held apart on purpose: `serviceErrorCodes`, the nine an `AppError` can carry,
-  and `transportErrorCodes`, the five the middleware refuses with before a route
+  and `transportErrorCodes`, the six the transport refuses with before a service
   runs — `CROSS_ORIGIN_REQUEST` (`src/server/http-security.ts:491`, `:560`),
   `UNSUPPORTED_MEDIA_TYPE` (`:505`, `:544`), `PAYLOAD_TOO_LARGE` (`:914`,
-  `:959`), `INVALID_CONTENT_LENGTH` (`:903`) and `REQUEST_BODY_NOT_ALLOWED`
-  (`:929`). All fourteen reach a caller from `/api/v1` in this guide's own
-  envelope, so all fourteen are published; the split is what stops a service
+  `:959`), `INVALID_CONTENT_LENGTH` (`:903`), `REQUEST_BODY_NOT_ALLOWED`
+  (`:929`) and `MALFORMED_BODY` (`src/server/api.ts:1378`), which the
+  [status codes](#status-codes) section above argues for by name and which is
+  therefore the sixth rather than an addition this list has not caught up with.
+  All fifteen reach a caller from `/api/v1` in this guide's own
+  envelope, so all fifteen are published; the split is what stops a service
   raising a transport code, because `AppError`
   (`src/server/services/errors.ts:31-61`) takes `ServiceErrorCode`, and a code
   naming something that happened before there was an actor is not one a service
@@ -778,10 +933,12 @@ derives by reading the `(code, status)` pair off every `AppError` and
   every route this process serves. `/api/v1` used the envelope and the auth,
   consent and setup routes answered with a flat `{code, message}` that the
   browser's own reader cannot see, because it looks inside `error`. All
-  fourteen now send both, through `transportError`
+  fifteen now send both, through `transportError`
   (`src/server/api.ts:503`, `:528`, `:551`, `:560`, `:572`, `:588`, `:599`,
-  `:636`, `:791`, `:870`, `:876`, `:885`, `:919` and `:926`): the flat pair a
-  0.1.5 client reads, and the envelope everything else in the product uses.
+  `:636`, `:791`, `:870`, `:876`, `:885`, `:919`, `:926` and `:1184`): the flat
+  pair a 0.1.5 client reads, and the envelope everything else in the product
+  uses. The fifteenth is the Stripe webhook's signature refusal, which is
+  neither auth nor consent nor setup but reaches a caller the same way.
   Dropping the flat half is a later release's job, once the envelope has been in
   the field — the same rule the renamed routes follow, and the reason this was
   not simply swapped.
@@ -794,7 +951,7 @@ derives by reading the `(code, status)` pair off every `AppError` and
   (`src/server/mcp.ts:297`); the global HTTP handler shipped `error.issues`
   straight from Zod, putting the validator's own discriminators on the wire as
   public contract. Each issue now carries `field` beside what it already had
-  (`src/server/api.ts:389-392`), because 0.1.5 shipped the raw issue and a client
+  (`src/server/api.ts:395-398`), because 0.1.5 shipped the raw issue and a client
   reading `path` still works. Under problem details this array becomes
   `errors`, and dropping the Zod half belongs with that change.
 - **House, following AIP-193 and the Azure guidelines.** Any number in a message
@@ -827,6 +984,31 @@ status, and no route builds an error body by hand. The second carries two named
 exceptions rather than a blanket skip — the OAuth `{error, error_description}`
 shape RFC 6749 specifies, and the JSON-RPC `-32000` on the `/mcp` mount, which
 is a different protocol's envelope on a route this guide does not govern.
+
+**What the check for the first of those cannot see, and it is the half that
+matters.** It reads `new AppError(` and `new TransportError(` constructions
+(`tests/service-errors.test.ts:150-168`), which is where a *service* names a
+status. It sees neither of the two places a *transport* does: the
+`errorResponse(context, status, code, …)` call sites in
+`src/server/http-security.ts`, where the status is the second argument, and
+`transportError(code, message)` in `src/server/api.ts`, where the status is a
+literal on the `c.json(…, 4xx)` beside it. Those two carry twenty-three
+refusals between them, and the sentence above is why nobody looked at them.
+
+**House, and a live gap, found by looking.** One code there means two statuses:
+`UNAUTHORIZED` is 401 on the two OAuth consent routes
+(`src/server/api.ts:867-871`, `:916-920`) and 400 on the Stripe webhook's
+signature refusal (`:1184`). Both are
+defensible on their own — a browser with no session is told to sign in, and
+Stripe documents 400 for a delivery whose signature does not verify — which is
+exactly the shape the rule exists to refuse: a client cannot branch on a code
+that does not decide. The `errorResponse` sites are clean; this is the only
+split. Closing it is a decision rather than an edit, because the webhook's
+answer is addressed to Stripe and the code is addressed to a client, so the fix
+is a code of its own and that is additive. Until it is made, a test over those
+two shapes would fail on a defect this guide has now named, and building the
+test is the first half of making the decision rather than a reason to defer it.
+
 *Not checked:* that every code an interface can emit is in the published
 enumeration, which needs a running server rather than a grep.
 
@@ -1069,15 +1251,25 @@ a misspelled `sort` key still answers 200 with page one in the default order.
   grounds that the other exists.
 - **House, and the objection is open on HTTP today.** Over MCP every mutation is
   wrapped in an idempotency record by the transport itself
-  (`runIdempotentMcpMutation`, `src/server/mcp.ts:307-341`, used on twenty-nine
+  (`runIdempotentMcpMutation`, `src/server/mcp.ts:307-340`, used on twenty-nine
   tools at last count — nothing pins the number, so recount before leaning on
   it), so the Azure objection does not bite there. Over HTTP only the writes
-  whose schema declares an `idempotencyKey` are protected, and no update or
-  delete does: `transactionUpdateSchema` and `versionedMutationSchema` carry a
-  version and nothing else (`src/shared/domain.ts:1205-1220`). So an HTTP update
-  whose response is lost genuinely cannot be retried, and the browser hides it
-  by refetching. That is the gap, and it is the same gap as the missing keys on
+  whose schema declares an `idempotencyKey` are protected, and **no ledger
+  update or delete does**: `transactionUpdateSchema` and
+  `versionedMutationSchema` carry a version and nothing else
+  (`src/shared/domain.ts:1205-1220`). So an HTTP update to the books whose
+  response is lost genuinely cannot be retried, and the browser hides it by
+  refetching. That is the gap, and it is the same gap as the missing keys on
   five creates below.
+
+  **Two updates outside the ledger already take one**, which is why the claim is
+  scoped rather than general. `PUT /api/v1/billing/subscription` and
+  `PUT …/subscription/cancellation` each carry an `idempotencyKey`
+  (`src/shared/domain.ts:3857-3869`), as the billing section above states. They
+  are the proof the shape works on an update and not an exception to the rule:
+  each spends money at a third party, where a lost response and a retry is a
+  second charge rather than a second refetch. What the ledger updates are
+  waiting on is a release that can add a required field, not an argument.
 - **House, one named exception.** `PUT /api/v1/budget-entries` is an upsert and
   its `expectedVersion` is optional: absent on the first set for a period,
   required to change one that is already there
@@ -1087,7 +1279,7 @@ a misspelled `sort` key still answers 200 with page one in the default order.
   let a bulk selection fingerprint describe a row that has changed underneath
   it.
 
-*Checked by:* `tests/integration/ledger.integration.test.ts:215` ("rolls back an
+*Checked by:* `tests/integration/ledger.integration.test.ts:239` ("rolls back an
 entire staged selection on a stale version") for the refusal, and
 `tests/integration/splits-audit.integration.test.ts:218` for the leg invariant,
 which asserts that an update changing a transaction's legs leaves
@@ -1205,7 +1397,7 @@ so a second submit fails rather than duplicating."
   discovered.
 
 *Checked by:* `tests/idempotency-key.test.ts` for the browser's key generator,
-and `tests/integration/ledger.integration.test.ts:175` ("commits deposits
+and `tests/integration/ledger.integration.test.ts:199` ("commits deposits
 idempotently and produces native balances") plus
 `tests/integration/bulk-transactions.integration.test.ts:106` ("soft-deletes a
 selection atomically and idempotently") for replay, and
@@ -1287,7 +1479,7 @@ edit, a mass delete, a commit, and a CSV import."
   that catches the tool handing a strict schema the key it added.
 - **House.** A filter selection is resolved first by the matching
   `bulk-selection` route, which returns the count and the fingerprint the write
-  must send back (`src/server/api.ts:1765-1772`, `:1829-1831`). The fingerprint
+  must send back (`src/server/api.ts:1802-1809`, `:1866-1868`). The fingerprint
   is a SHA-256 over the sorted `id:version` pairs, computed by one function so
   the transaction and staged paths cannot drift into accepting different sets
   (`src/server/services/helpers.ts:274-289`).
@@ -1381,7 +1573,7 @@ socket already open is the only channel that exists.
   streamed response is 200 before its outcome is known and nothing can change it
   afterwards, so the refusal carries the same `{ error: { code, message,
   details? } }` object the JSON branch would have — from the same function,
-  `errorEnvelope` (`src/server/api.ts:354`), so the two renderings cannot drift.
+  `errorEnvelope` (`src/server/api.ts:360`), so the two renderings cannot drift.
   That is a third rendering of one error object beside the two
   [Errors](#errors) allows, and it exists only because of the status line.
 - **An intermediate frame carries no committed fact.** It says which row a loop
@@ -1390,8 +1582,19 @@ socket already open is the only channel that exists.
   frame as rows that are safe.
 - **A streamed route keeps `Cache-Control: no-store`** and adds
   `X-Accel-Buffering: no`. The first is the rule below, kept without exception;
-  the second is for an operator whose reverse proxy buffers by default, which
-  the one this repository ships does not (`deploy/docker/nginx.conf.template:242`).
+  the second is for a reverse proxy that buffers by default. **This repository
+  ships three proxies now, and each answers it differently.** The frontend
+  image's nginx says `proxy_buffering off` on the API location
+  (`deploy/docker/nginx.conf.template:242`). The `single` profile's Caddy needs
+  no directive and says so where somebody would look for one: Caddy streams and
+  does not time a slow response out, which is exactly what nginx has to be told
+  (`deploy/compose/single/Caddyfile:48-54`). The chart's ingress declares nothing
+  either way (`deploy/helm/simple-balance/templates/ingress.yaml`), and it does
+  not need to: it fronts the same frontend image, which has already said
+  `proxy_buffering off`, and an nginx-based ingress controller honors the
+  `X-Accel-Buffering: no` the application sends. That header is what makes the
+  rule hold through a proxy nobody here configured, which is why it is on the
+  response rather than only in a config file.
 - **A client that disconnects does not cancel the work.** The commit finishes
   and the idempotency record answers the retry. Somebody closed a tab; they did
   not ask for a rollback. The consequence for a client is the important half: a
@@ -1407,14 +1610,18 @@ branch returns for the same input; and that a commit refused mid-stream writes
 no transaction, leaves every row staged, and ends in an `error` frame carrying
 the code the plain branch would have used. `tests/progress-frames.test.ts` holds
 the format the two ends share, and that a frame really is written while the work
-is still running. *Not checked:* that a proxy in front of a given deployment
-forwards the frames unbuffered. That is `docs/deployment.md` and an operator.
+is still running. *Not checked:* that any of the three proxies above forwards
+the frames unbuffered, nor that a proxy somebody else put in front of a
+deployment does. The deferral to an operator is still right for the last of
+those and is not an answer for the first two, which this repository owns: the
+honest statement is that the directives are read by a person rather than by a
+test, and a streamed commit has not been watched through the chart's ingress.
 
 ## Security, cache and CORS
 
 - **House.** Everything under `/api/v1` is `Cache-Control: no-store`, without
   exception, set once in middleware rather than once per route
-  (`src/server/api.ts:1313-1318`). RFC 9111's shared-cache protection keys off
+  (`src/server/api.ts:1350-1355`). RFC 9111's shared-cache protection keys off
   the `Authorization` header, and `/api/v1` authenticates with a cookie, so that
   protection does not apply and `no-store` is doing the whole job. When SB-030
   adds bearer tokens, `no-store` stays: two mechanisms for one guarantee is
@@ -1422,19 +1629,25 @@ forwards the frames unbuffered. That is `docs/deployment.md` and an operator.
 - **House.** `Vary` is unnecessary today precisely because nothing authenticated
   is cacheable. The invariant to preserve: no cacheable response depends on a
   request header without naming it in `Vary`.
-- **House.** The security headers are one exported function of `isProduction`
-  (`src/server/http-security.ts:207-326`) and no route overrides one of the
-  headers in the table below. Two other headers are set by hand outside
+- **House.** The security headers are one exported function
+  (`securityHeaderOptions`, `src/server/http-security.ts:207-326`), and no route
+  overrides one of the headers in the table below. It takes `isProduction` and a
+  context — `surface`, `ads` and `reportOnly`
+  (`SecurityHeaderContext`, `:60-73`) — so which policy a response carries is
+  decided per request path rather than once for the process: one middleware
+  picks between two prebuilt header sets by asking `isStripeSurfacePath`
+  (`src/server/api.ts:234-254`). Two other headers are set by hand outside
   `/api/v1` and are documented under CORS: `Access-Control-Allow-Origin` on the
   JWKS route (`src/server/api.ts:772`) and on discovery (`:991`), and
   `Cache-Control` on those two (`:773`, `:992`) and on `/api/v1` itself
-  (`:1318`). The
-  split deployment's nginx repeats them for the files it serves, and the two are
-  compared character for character. Every response from this process carries:
+  (`:1355`). The split deployment's nginx repeats them for the files it serves,
+  and the two are compared value for value by a test rather than by a reader.
+
+  **The content policy is the only header that is wholly per surface.** Two more
+  carry one alternative value each, and the rest are the same on every response:
 
   | Header | Value |
   | --- | --- |
-  | `Content-Security-Policy` | `default-src 'self'`, with `img-src 'self' data: https:`, `style-src 'self'`, `script-src 'self'`, `connect-src 'self'`, and explicit `base-uri 'self'`, `form-action 'self'`, `frame-ancestors 'none'` and `object-src 'none'`, none of which fall back to `default-src` |
   | `X-Frame-Options` | `DENY`, agreeing with `frame-ancestors 'none'` rather than Hono's `SAMEORIGIN` default |
   | `Referrer-Policy` | `same-origin`, or `strict-origin-when-cross-origin` on the pages that carry ads, where Google's consent message will not serve under `same-origin`; never on the plan tab |
   | `X-Content-Type-Options` | `nosniff` |
@@ -1442,13 +1655,57 @@ forwards the frames unbuffered. That is `docs/deployment.md` and an operator.
   | `Cross-Origin-Opener-Policy` | `same-origin`, or `same-origin-allow-popups` on the plan tab alone, where a wallet payment can finish in a popup |
   | Hono's remaining defaults | `Cross-Origin-Resource-Policy`, `Origin-Agent-Cluster`, `X-DNS-Prefetch-Control`, `X-Download-Options`, `X-Permitted-Cross-Domain-Policies`, `X-XSS-Protection: 0` |
 
-  There is no `'unsafe-inline'` in `style-src`. The inline styles here are React
-  `style` props, applied through the CSSOM rather than written as a style
-  attribute, which CSP does not govern. The nginx copy is
-  `deploy/docker/nginx-security-headers.conf`.
+  **There is no longer one content policy.** `default-src 'self'`, `base-uri
+  'self'`, `form-action 'self'`, `frame-ancestors 'none'` and `object-src
+  'none'` hold on all of them, and `img-src 'self' data: https:` does too. What
+  varies is what each vendor needs, and the rule for widening is [A vendor
+  widens the policy at the narrowest surface that needs
+  it](#a-vendor-widens-the-policy-at-the-narrowest-surface-that-needs-it-never-globally)
+  below.
+  Three surfaces exist, plus a report-only form of one of them:
 
-  *Checked by:* `tests/security-header-parity.test.ts`, and
-  `tests/http-security.test.ts` for the behavior.
+  | Surface | Policy |
+  | --- | --- |
+  | The application, with no ads configured — the default, and what this container shipped before billing existed | `style-src`, `script-src` and `connect-src` are each `'self'`; no `frame-src` and no `font-src`, so `default-src 'self'` governs both |
+  | The application where AdSense is configured | the same, plus `https:` on `script-src`, `connect-src`, `style-src` and `frame-src`, `'unsafe-eval'` on `script-src`, `'unsafe-inline'` on `style-src`, and a `font-src` of `'self' https: data:` (`src/server/http-security.ts:175-179`) |
+  | `/settings/plan`, where Stripe is configured | Stripe's, Link's and hCaptcha's named hosts — `'self'` beside them on `script-src`, `connect-src` and `style-src`, and `frame-src` carrying the hosts alone, because nothing on this origin is framed (`:78-138`). Never widened for ads |
+  | `/settings/plan` while `SB_CSP_REPORT_ONLY` is set | the same policy as above, sent as `Content-Security-Policy-Report-Only` with `report-uri` and `report-to`, and a `Reporting-Endpoints` header naming `/api/csp-report` beside it. Exactly one of the enforcing and report-only headers is ever sent (`:276-286`) |
+
+  **`'unsafe-inline'` is absent from `style-src` on the two surfaces this
+  product controls, and present on the one it does not.** The reasoning survives
+  for this app's own styles and is worth not undoing: the inline styles here are
+  React `style` props, applied through the CSSOM rather than written as a style
+  attribute, which CSP does not govern, and Vite emits the stylesheet as a file.
+  What changed is that it is no longer a guarantee the product can make. Google's
+  consent message injects `<style>` blocks into this document and a stylesheet
+  from `fonts.googleapis.com`, and under `style-src 'self'` it renders unstyled,
+  far down the page, where nobody answers it — which in the EEA and the UK means
+  no ad request completes at all. So an operator who turns ads on buys
+  `'unsafe-inline'` for styles and `'unsafe-eval'` for scripts across every page
+  that renders somebody's balances, which is why ads are off unless asked for and
+  why `docs/monetization.md` states the cost in the operator's own words first.
+  `'unsafe-inline'` for *scripts* is given up nowhere.
+
+  The nginx copies are `deploy/docker/nginx-security-headers.conf` for the
+  application shell and `deploy/docker/nginx-security-headers-plan.conf` for the
+  plan tab. **Neither holds a constant policy any more**: each names a `map`
+  variable built in `deploy/docker/nginx.conf.template` from
+  `SB_ADS_CONFIGURED`, `SB_BILLING_CONFIGURED` and `SB_CSP_REPORT_ONLY`, because
+  a file that froze one arm would serve a deployment the policy a different
+  deployment needed. The plan file is a whole second copy of the header list
+  rather than an override, because nginx `add_header` does not merge: a location
+  declaring one directive drops every inherited one, so a partial file would
+  serve that page a policy and none of the other nine headers. "Compared
+  character for character" was true of one file and one constant; what the test
+  compares now is each map arm against what `securityHeaderOptions` produces for
+  the same settings.
+
+  *Checked by:* `tests/security-header-parity.test.ts`, which parses both
+  snippets and the template's maps and compares every arm against the function
+  for every combination of the three settings, in both the enforcing and the
+  report-only form; `tests/csp-report-only.test.ts` for the rehearsal and for
+  which paths the plan policy matches; and `tests/http-security.test.ts` for the
+  behavior.
 - **House, one subtlety already handled and worth not undoing.**
   `referrerPolicy` is `same-origin`, not Hono's `no-referrer` default, because
   under `no-referrer` a browser sends `Origin: null` on a native form
@@ -1475,8 +1732,8 @@ forwards the frames unbuffered. That is `docs/deployment.md` and an operator.
     same risk. Whether it should be is a deployment decision and belongs in
     configuration, not in code.
   - **Two exceptions exist today and are correct**, both outside `/api/v1`:
-    `GET /api/auth/mcp/jwks` (`src/server/api.ts:765`) and the OAuth discovery
-    endpoints (`discoveryHeaders`, `src/server/api.ts:981-987`) both send
+    `GET /api/auth/mcp/jwks` (`src/server/api.ts:771`) and the OAuth discovery
+    endpoints (`discoveryHeaders`, `src/server/api.ts:987-993`) both send
     `Access-Control-Allow-Origin: *`. They are deliberately public and read by
     clients that are not browsers and have no origin to speak of. A rule saying
     "this process never emits ACAO" would be contradicted by grep on the day it
@@ -1484,12 +1741,63 @@ forwards the frames unbuffered. That is `docs/deployment.md` and an operator.
   - **No `OPTIONS` handling.** A preflight to `/api/v1` reaches the catch-all
     and gets a 404 with no CORS headers, which is the correct answer to a
     preflight for something that is not allowed.
-- **House.** The single-page app never answers an API path. JSON 404 catch-alls
-  sit under `/api/v1/*` (`src/server/api.ts:1954-1956`) and `/.well-known/*`
-  (`src/server/api.ts:1032-1034`), below every route those prefixes own and above
-  the shell. Without them a mistyped path came back as 200 `text/html`, which an
-  API client parses as a syntax error and a person debugging reads as a working
-  page.
+- **House.** The single-page app never answers an API path. Three JSON 404
+  catch-alls sit below every route their prefix owns and above the shell:
+  `/api/v1/*` (`src/server/api.ts:1991-1993`), `/.well-known/*` (`:1038-1040`)
+  and `/api/billing/*` (`:2000-2002`). Without them a mistyped path came back as
+  200 `text/html`, which an API client parses as a syntax error and a person
+  debugging reads as a working page.
+
+  The third one carries a cost the other two do not. A Stripe delivery aimed at
+  a misspelled path — or at a deployment with no Stripe configured, where the
+  webhook route genuinely does not exist — would otherwise get the shell and a
+  200, and Stripe records a 200 as delivered. A missed delivery the sender
+  believes arrived is the one shape nothing ever retries, which is the opposite
+  failure from the one the webhook's own "every no-op answers 2xx" rule is
+  guarding against.
+
+### A vendor widens the policy at the narrowest surface that needs it, never globally
+
+**Binding.** Two vendors now need hosts `default-src 'self'` refuses, and the
+answer was two surfaces rather than one union. The plan tab alone carries
+Stripe's and hCaptcha's hosts; the ad sources go only where ads are served; and
+a directive neither surface needs is **absent rather than empty**, so
+`default-src 'self'` governs it. `frame-src` is the case worth naming: with no
+`frame-src` of its own and no widened `default-src` to fall back to, the
+`default-src 'self'` above governs and no third-party frame loads at all —
+which is stronger than listing nothing (`src/server/http-security.ts:250-261`).
+`base-uri`, `form-action`, `frame-ancestors`, `object-src` and
+`'unsafe-inline'` for scripts are given up on no surface, by either vendor.
+
+**The two never combine, and the reason is a product promise rather than a
+technical one.** Ads live in the application shell; the plan tab is the one page
+this product promises not to put them on, and it is the page that takes a card.
+So `surface === "stripe"` short-circuits the ad arms (`:243-261`), and a
+deployment that sells *and* advertises serves two policies rather than one.
+
+**The obvious alternative was one policy carrying the union**, and it is wrong
+in both directions at once. It would give `'unsafe-eval'` and `script-src
+https:` to every page, including the sign-in form, so that a deployment which
+shows one ad unit weakens the page where somebody types a password. And it would
+give the payment page third-party ad frames — on the page taking a card, which
+is the one place this product has told people it will not. A union is the
+cheapest thing to write and the only one that cannot be argued for.
+
+**Two consequences, both paid rather than avoided.** The split deployment's
+nginx grows a snippet and a `map` arm per surface, because `add_header` does not
+merge and a partial file would serve a page one directive and none of the other
+nine. And the report-only rehearsal applies to the new surface alone: `reportOnly`
+is forced false on every surface but `stripe` (`:213`), so an operator
+rehearsing is rehearsing the policy that changed and leaving the one that has
+been in the field enforcing. A third vendor is a third surface and a third map
+arm, which is the cost this rule is choosing to pay each time.
+
+*Checked by:* `tests/security-header-parity.test.ts`, whose last two blocks are
+this rule. Three of its assertions are the three halves above — "never widens
+the plan tab, which carries no ads", "keeps what the widening does not buy" and
+"leaves the ordinary policy untouched when no ads are configured" — and the
+block after them walks every header in every configuration on both transports.
+`tests/csp-report-only.test.ts:59` holds the rehearsal to the plan tab alone.
 
 ### As an OAuth resource server
 
@@ -1505,17 +1813,17 @@ way.
   token carries `error="insufficient_scope"` and names the scope required.
 - **House, a deliberate absence.** A 401 on a cookie-authenticated `/api/v1`
   request carries no `WWW-Authenticate`
-  (`src/server/api.ts:1313-1328`). A Bearer challenge there would invite an agent
+  (`src/server/api.ts:1350-1364`). A Bearer challenge there would invite an agent
   to present a token that will never be accepted. When SB-030 lands, the
   challenge appears on the routes that can actually accept one.
 - **Binding**, RFC 9728. Protected resource metadata is served at the root and
   at every `/mcp` path spelling, because a client told the resource is
   `<origin>/mcp` looks under the well-known suffix with the resource path
-  appended (`src/server/api.ts:1008-1019`). Answering only at the root left the
+  appended (`src/server/api.ts:1014-1021`). Answering only at the root left the
   single-page app returning HTML with a 200, which a client cannot parse and
   will not retry.
 - **Binding.** The scopes are `ledger:read`, `ledger:stage` and `ledger:write`,
-  published in the discovery documents (`src/server/api.ts:989-1006`), and the
+  published in the discovery documents (`src/server/api.ts:977-986`, `:1011`), and the
   route table above says which each route needs. `AGENTS.md`: "`ledger:stage`
   proposes and never decides."
 - **Binding.** Seven routes stay session-only whatever the token. `AGENTS.md`:
@@ -1558,7 +1866,7 @@ is Better Auth's and is covered by its own tests rather than these.
   client and to nobody over HTTP — not on health, not in a header — so the one
   surface an operator actually polls was the one that could not answer "which
   build is this" during a rolling deploy. Both health routes now carry it
-  (`src/server/api.ts:417-432`), and so do the scheduler's
+  (`src/server/api.ts:423-438`), and so do the scheduler's
   (`src/server/scheduler.ts:29-38`), because that process is deployed
   separately and reading the version off the API's answer would answer about
   the wrong one. Not a header: a header on every response is a cost paid by
@@ -1624,7 +1932,7 @@ ships in this image — which is true of *this* image and not of the one already
 running. A browser tab left open across the upgrade is serving the previous
 build, and it would have met a 404 on the first archive somebody attempted.
 
-One middleware sets both headers (`src/server/api.ts:1593-1606`), the value of
+One middleware sets both headers (`src/server/api.ts:1630-1643`), the value of
 `Deprecation` is the date form RFC 9745 requires rather than the superseded
 draft's `true`, and the sunset is 188 days later, which clears both the ninety
 days and the one minor release. It was a date in the past for a while, which is
@@ -1711,7 +2019,12 @@ than rediscovering the disagreement.
 | A commit replays rather than duplicating, and a bulk write is atomic | `tests/integration/ledger.integration.test.ts`, `tests/integration/bulk-transactions.integration.test.ts` |
 | A leg write bumps the parent transaction's version | `tests/integration/splits-audit.integration.test.ts:175` |
 | A stranger's id is a 404 and never a 403 | `tests/integration/tenant-isolation.integration.test.ts` |
-| The Hono security headers and the nginx ones are identical | `tests/security-header-parity.test.ts` |
+| The Hono security headers and the nginx ones agree, on every surface and in every combination of the three settings | `tests/security-header-parity.test.ts` |
+| A vendor's hosts reach only the surface that needs them, and the rehearsal only the plan tab | `tests/security-header-parity.test.ts`, `tests/csp-report-only.test.ts` |
+| A literal collection path is reached by its own handler rather than by the parameter route above it | `tests/route-shadowing.test.ts` |
+| Both terminators will carry what the application's CSV limit accepts, and describe the same ceiling | `tests/upload-limit-agreement.test.ts` |
+| The plan routes, the webhook, `/ads.txt`, the report endpoint and `/metrics` are each absent where unconfigured | `tests/billing-routes-absent.test.ts`, `tests/ads-txt.test.ts:50`, `tests/csp-report-only.test.ts:98`, `tests/metrics.test.ts:224` |
+| The collection envelope on every listing's published output schema, with the twelve bare arrays in a register carrying their reason | `tests/mcp-output.test.ts` |
 | Every `/api/v1` route has a tool or a written exception, and every tool has a route | `tests/mcp-parity.test.ts`, both directions |
 | The ten thousand row cap | `tests/bulk-row-cap.test.ts` |
 | The route tables in this guide name every registered route and nothing else | `tests/http-route-table.test.ts` |
@@ -1728,7 +2041,15 @@ than rediscovering the disagreement.
 1. `listQuerySchema` and the bulk filter schema accept the same parameter names.
    `idempotencyKeySchema`'s own bounds, the 200-character ceiling and the trim,
    which no test reaches today.
-2. The generated OpenAPI document is checked in and CI fails when it changes
+2. One code, one status at the two sites `tests/service-errors.test.ts` cannot
+   reach — `errorResponse(context, status, code, …)` and
+   `transportError(code, message)` beside a literal `c.json(…, 4xx)`. It is
+   cheap to write and it fails today on the `UNAUTHORIZED` 400/401 split named
+   under [Errors](#rules-that-hold-either-way), so writing it is half of making
+   that decision rather than a reason to wait for it.
+3. A single resource is returned without an envelope: a walk over the registered
+   routes of the kind `tests/http-security.test.ts` already does for body limits.
+4. The generated OpenAPI document is checked in and CI fails when it changes
    without a changelog entry.
 
 **Review only, and honestly so:**

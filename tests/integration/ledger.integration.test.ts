@@ -45,6 +45,26 @@ integration("PostgreSQL ledger integration", () => {
   let stagedAccountId: string;
   let mcpAccountId: string;
 
+  /**
+   * What this file turns on, remembered so `afterAll` can turn it off again.
+   *
+   * `fileParallelism` is off, so these outlive the file that set them: Google
+   * credentials and `AUTH_MODE=both` left behind are a sign-in path the next
+   * file never asked for, and an `ALLOWED_EMAILS` left behind is a registration
+   * rule it never asked for either. The rule is 5.4 in
+   * `docs/standards/code/testing.md`.
+   */
+  const switched = [
+    "DATABASE_POOL_SIZE",
+    "APP_BASE_URL",
+    "AUTH_SECRET",
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "AUTH_MODE",
+    "ALLOWED_EMAILS",
+  ] as const;
+  const before = Object.fromEntries(switched.map((key) => [key, process.env[key]]));
+
   beforeAll(async () => {
     process.env.DATABASE_POOL_SIZE = "1";
     process.env.APP_BASE_URL = "http://localhost:3000";
@@ -126,6 +146,10 @@ integration("PostgreSQL ledger integration", () => {
 
   afterAll(async () => {
     await database.drop();
+    for (const [key, value] of Object.entries(before)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   });
 
   it("isolates account and transaction IDs by tenant", async () => {

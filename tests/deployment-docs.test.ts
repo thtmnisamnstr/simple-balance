@@ -128,12 +128,14 @@ describe("the compose recipe", () => {
 describe("waiting for PostgreSQL", () => {
   it("goes over TCP everywhere, never over the unix socket", () => {
     const offenders: string[] = [];
+    const waiting: string[] = [];
     // Discovered, not listed. `tests/support/source.ts` has the argument; the
     // short version is that the first version of this check carried a list and
     // missed four of the five places that wait for PostgreSQL.
     for (const { path: file, text } of repoFiles(() => true)) {
       if (!text.includes("pg_isready")) continue;
       if (file.endsWith("deployment-docs.test.ts")) continue;
+      waiting.push(file);
       const markdown = file.endsWith(".md");
       let fenced = false;
       for (const [index, line] of text.split("\n").entries()) {
@@ -150,6 +152,16 @@ describe("waiting for PostgreSQL", () => {
         offenders.push(`${file}:${index + 1}`);
       }
     }
+    // The population, asserted before the claim made over it. An empty sweep
+    // and a tree that complies are indistinguishable from here, so a probe
+    // spelled some other way would leave this green over nothing.
+    //
+    // A floor rather than a count, because it guards the matcher and not the
+    // tree, and one named path beside it so the floor is about real files: the
+    // `single` profile's database machine, which is the newest place that waits
+    // and the one a list written before it would be missing.
+    expect(waiting.length).toBeGreaterThanOrEqual(8);
+    expect(waiting).toContain("deploy/compose/single/compose.postgres.yml");
     expect(offenders).toEqual([]);
   });
 });

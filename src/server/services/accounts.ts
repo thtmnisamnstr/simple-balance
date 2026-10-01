@@ -821,12 +821,25 @@ export async function countActiveAccounts(tx: DbTransaction, actor: Actor): Prom
  * where the caller had named two — a transfer's two sides, or a bulk edit's
  * whole selection — and the browser had grown a prefix of its own to say what
  * the server would not, which is the divergence `errors.md` 4 exists to stop.
+ *
+ * `agentMessage` is the half a person never sees, and the diagnosis in it is
+ * the same one: only the advice differs. The browser's advice is to make the
+ * account active or to upgrade, and an MCP token can do neither — buying a plan
+ * is one of the three things reachable only from a session, and the choice is
+ * made once, so resending a list does not take a freeze back. What is left for
+ * an agent is to work on an account that is not frozen and to say why.
  */
 export function assertAccountsWritable(freeze: AccountFreeze, ids: Iterable<string>) {
   if (freeze.limit === null) return;
   for (const id of ids) {
     const name = freeze.frozen.get(id);
-    if (name !== undefined) throw validationError(frozenAccountRefusal(freeze.limit, name));
+    if (name !== undefined) {
+      throw validationError(
+        frozenAccountRefusal(freeze.limit, name),
+        undefined,
+        `"${name}" is frozen: the plan in force keeps ${freeze.limit} accounts active and closes the rest to every write. No argument you can change gets past this. whoami reports the plan and its ceiling, list_accounts reports \`frozen\` on each account, and a frozen one comes back into use only when somebody archives or deletes an account that is in use, or the person upgrades from a browser.`,
+      );
+    }
   }
 }
 

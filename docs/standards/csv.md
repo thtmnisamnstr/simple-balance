@@ -12,8 +12,14 @@ importer all have opinions about.
 
 Everything is grounded in three places: `src/shared/csv.ts`, which both the
 browser preview and the server use, `src/server/services/import-export.ts`,
-which reads and writes files, and `src/server/api.ts:1884-1914`, which is the
-transport.
+which reads and writes files, and `src/server/api.ts:1921-1951`, which is the
+transport: preview, stage, the batch list and export. That range named the
+progress-frame helpers and the commit route for a release, two screens above
+the routes this file is about. It is the failure
+`tests/standards-citations.test.ts` says in its own docblock it cannot catch:
+it proves a cited line exists, not that it holds what the sentence claims. A
+reader could catch it, because section 3 cites the export route correctly, and
+a document disagreeing with itself has already said which half to check.
 
 ## 1. Why CSV, and why no apology
 
@@ -74,8 +80,17 @@ The departures, all on the read side, all deliberate:
    is common and never meaningful, and a payee cell padded to a column width is
    the same. **House, knowing departure.** Written down so nobody corrects it
    back to the specification. Interior whitespace, including a newline inside a
-   quoted note, is untouched. *Not checked mechanically.* No test feeds a padded
-   header or a padded cell through `previewCsv`.
+   quoted note, is untouched, because collapsing it here would reach every
+   column including a note; the payee is collapsed later, by `cleanHumanName`
+   on the way into the ledger. *Checked by:* `tests/csv-guide.test.ts` ("is
+   trimmed off the header and off the value", "is left alone inside the field,
+   including a newline in a quoted note"). This said no test fed a padded cell
+   through `previewCsv`, and one always had: the formula test in
+   `tests/domain.test.ts` feeds it `"  +SUM(1,2)"`. It proved nothing, because
+   the apostrophe the neutralizer prefixes makes the padding interior, so the
+   assertion held whether the transform was there or not. Name the gap that is
+   open rather than one that is closed — the gap was never the padded cell, it
+   was the trim.
 2. **We skip blank lines.** `skipEmptyLines: "greedy"` drops a record that is
    empty or only separators and whitespace. The grammar has no such rule. A
    trailing blank line at the end of a bank file is not a transaction with every
@@ -99,24 +114,36 @@ The departures, all on the read side, all deliberate:
   kind hledger has. **House.**
 - **The export writes no BOM.** `rowsToCsv` starts with the first header name.
   **House.**
-- **A BOM on read is stripped, unconditionally.** Papa Parse 5.6.0 removes a
-  leading U+FEFF from a string input and from a header before either is used, so
-  a file that has been through Excel imports the same as one that has not. This
-  is load-bearing: without it the first header would read
-  `﻿simple_balance_format` and `isAppExportCsv` would not recognize our own
-  file. **House**, and load-bearing rather than tasteful: nothing in a
-  specification or in `AGENTS.md` requires it, and without it `isAppExportCsv`
-  stops recognizing this product's own file. *Not checked by us.* The behavior
-  is the dependency's and no test of ours asserts it, which is the single
-  cheapest test missing from this interface.
+- **A BOM on read is stripped, unconditionally, and by two mechanisms rather
+  than one.** Papa Parse 5.7.0 removes a leading U+FEFF from a string input
+  before anything else reads it, and departure 1's `trim()` removes one from
+  any header or any cell, because U+FEFF is ECMAScript WhiteSpace. So a file
+  that has been through Excel imports the same as one that has not, and either
+  mechanism alone is enough for the leading mark; only the trim reaches a mark
+  leading a cell further into the file. This is load-bearing: without it the
+  first header would read U+FEFF followed by `simple_balance_format`, which is
+  not in `APP_CSV_COLUMNS`, and `isAppExportCsv` would stop recognizing our own
+  file. The mark is named rather than written, here and in the test, for the
+  reason section 13 gives for its own escapes: an invisible character does not
+  survive a copy, so the example quietly stops being one. **House**, and
+  load-bearing rather than tasteful: nothing in a specification or in
+  `AGENTS.md` requires it. The version above is a fact about the dependency and
+  not evidence for the rule. It said 5.6.0 for two releases with nothing to
+  notice, which is the ordinary fate of a version doing a test's job, and
+  section 16 has what building the test found instead.
 - **CRLF between records, and no trailing newline.** `rowsToCsv` joins with
   `\r\n`. Reading accepts LF or CRLF, because Papa Parse detects it. **House**,
   matching the grammar's `[CRLF]` as optional.
 
 *Checked by:* `tests/integration/splits-roundtrip.integration.test.ts:99`,
 which splits an exported file on a literal `\r\n` and counts the records, so a
-change of line ending fails it. Encoding and the BOM are not checked
-mechanically.
+change of line ending fails it, and `tests/csv-guide.test.ts` ("a byte-order
+mark in front of a header") for the BOM. That one asserts the consequence
+rather than the byte: a file led by a mark is still recognized by
+`isAppExportCsv`, and its headers are the ones the same file without a mark
+produces, which the bare recognition check would not catch if the mark were
+renaming some other column. Encoding is not checked and has nothing to check,
+because nothing here reads a byte stream.
 
 **Contested: whether a browser download should carry a BOM.** Three positions
 are defensible. Never write one, which is clean for a program and can leave a
@@ -141,6 +168,16 @@ decides how a reader treats the first record. The export declares it:
 `present` is unconditionally true here because of section 12 — an export
 matching nothing is a header-only file rather than the empty string — so this
 product has no export whose first record is not a header.
+
+*Checked by:* `tests/domain.test.ts` ("declares a header row, and the export
+always writes one"), which pins the parameter and both halves of the
+unconditional claim in one assertion: the empty-row call writes its declared
+header, and a populated export's first record is that same header. Two
+assertions would let the parameter stay `present` while the empty export went
+back to returning the empty string, which is the exact way this becomes a lie.
+This paragraph had no footer and no row in section 16 for a release while being
+fully checked, which by that section's closing sentence made it a rule nobody
+was responsible for — and the defect is in this guide, not in the code.
 
 **Settled.** The download filename is dated in the person's own timezone,
 through `todayIn(timezone)` like every other "today" in this product
@@ -432,7 +469,7 @@ cross-currency CSV round trips."
 exports explicitly and asks for both accounts of a transfer"), which exports a
 110 EUR-for-100 transfer and reads it back. Only the export half. Nothing
 commits a restored cross-currency transfer into two accounts of different
-currencies and compares the rate, which is the gap section 16 ranks second.
+currencies and compares the rate, which is the gap section 16 ranks first.
 
 ## 8. What a round trip preserves
 
@@ -776,7 +813,12 @@ them from (`src/server/services/import-export.ts:989-1011`).
 *Checked by:* `tests/integration/import-export.integration.test.ts`, which
 asserts the empty file's header is character-for-character the header a
 populated export writes. Two sources for one header is the kind of thing that
-drifts, so the test compares them rather than trusting them.
+drifts, so the test compares them rather than trusting them. And by
+`tests/domain.test.ts` ("declares a header row, and the export always writes
+one"), which makes the same comparison on `rowsToCsv` directly, out from behind
+the integration gate because it needs no database. That is the move section 16
+argues for on the recognition set, made here first, so the item there now has a
+worked example rather than only a case.
 
 ## 13. Formula injection
 
@@ -789,8 +831,12 @@ not optional for that reason.
 **Neutralize the human-readable column, carry the exact value in a JSON channel,
 and never neutralize the channel.**
 
-- `neutralizeSpreadsheetFormula` (`src/shared/csv.ts:464-487`) prefixes an
-  apostrophe to a triggering value.
+- `neutralizeSpreadsheetFormula` (`src/shared/csv.ts:484-487`) prefixes an
+  apostrophe to a triggering value. Its argument is not in a docblock of its
+  own: it is on `spreadsheetFormulaPattern` below, which is what the function
+  is a two-line wrapper around. The citation used to open at that docblock and
+  close at this function, bracketing a neighbour, while the next bullet spelled
+  its own as doc-comment-plus-function — one guide, one list, two rules.
 - It is applied to exactly seven columns, named at the call site
   (`src/server/services/import-export.ts:1084-1094`): `payee`, `description`,
   `category_name`, `external_id`, `notes`, `source_account_name`,
@@ -818,14 +864,15 @@ applications and all downstream consumers". The guarantee here is therefore
 stated narrowly: **the exact value survives our own reader, and the visible cell
 is neutralized on a best-effort basis for whatever opens it.**
 
-**Closed.** `spreadsheetFormulaPattern` covers the full-width variants OWASP
-names, and the leading-whitespace class it allows in front of them now reaches
-past U+0020 to the no-break space, the Unicode spaces and the zero-width space
-— the same defect one level down, since a wide space in front of an `=` carried
-the cell past the test. `restoreNeutralizedCell` shares the pattern on purpose
-and widened with it, which is safe for a file written by an older build: nothing
-could have prefixed a value the narrower pattern did not already match, so the
-apostrophe taken back is exactly the one that was added.
+**Closed.** `spreadsheetFormulaPattern` (`src/shared/csv.ts:464-482`) covers
+the full-width variants OWASP names, and the leading-whitespace class it allows
+in front of them now reaches past U+0020 to the no-break space, the Unicode
+spaces and the zero-width space — the same defect one level down, since a wide
+space in front of an `=` carried the cell past the test.
+`restoreNeutralizedCell` shares the pattern on purpose and widened with it,
+which is safe for a file written by an older build: nothing could have prefixed
+a value the narrower pattern did not already match, so the apostrophe taken
+back is exactly the one that was added.
 
 *Checked by:* `tests/domain.test.ts` ("neutralizes spreadsheet formulas only in
 designated free-text columns" and "neutralizes the full-width and wide-space
@@ -902,6 +949,9 @@ Checked:
 | Direction stated once, eleven cases | `tests/domain.test.ts` |
 | A partial row keeps what parsed | `tests/domain.test.ts` |
 | Formula neutralization, by column | `tests/domain.test.ts` |
+| The media type names a header, and every export writes one | `tests/domain.test.ts` |
+| A BOM is stripped, and our own export is still recognized | `tests/csv-guide.test.ts` |
+| Departure 1: the trim, and interior whitespace left alone | `tests/csv-guide.test.ts` |
 | An inherited property name is a missing column | `tests/domain.test.ts` |
 | The recognition set, against addition | `tests/integration/csv-roundtrip-fidelity.integration.test.ts` |
 | External reference, transfer category, formula-named category, same-ledger reimport | `tests/integration/csv-roundtrip-fidelity.integration.test.ts` |
@@ -918,18 +968,18 @@ Checked:
 
 Not checked mechanically, in the order they are worth building:
 
-1. **A BOM is stripped on read**, whatever the exporter writes. One test, and
-   the behavior it depends on belongs to a dependency.
-2. **A round-trip property test** over one ledger holding a non-ASCII payee, a
+1. **A round-trip property test** over one ledger holding a non-ASCII payee, a
    formula-triggering payee, a mixed-currency transfer and a split. The pieces
    exist in three files; none of them commits a restored cross-currency transfer
    and compares the rate, which is the half of the `AGENTS.md` round-trip
    sentence with no test behind it.
-3. **The recognition set against removal**, and out from behind the integration
-   gate, since the assertion needs no database.
-4. **The neutralized column list matches the free-text columns**, so a new text
+2. **The recognition set against removal**, and out from behind the integration
+   gate, since the assertion needs no database. Section 12 made exactly that
+   move for the header-only export, so this is now a worked example to copy
+   rather than an argument to win.
+3. **The neutralized column list matches the free-text columns**, so a new text
    column cannot be added unprotected.
-5. Whether the preview shows what the import will do. That one is review, and it
+4. Whether the preview shows what the import will do. That one is review, and it
    stays review, because the thing being judged is whether two screens agree.
 
 Row addressing used to be item 5 here. The convention is adopted: `csvFileLine`
@@ -938,6 +988,16 @@ convention, and "a row number is the file's own line, whichever fault it came
 from" is in the table above with four cases behind it. Column addressing is not
 adopted and is not worth a row of its own, because nothing in this format
 addresses a cell by column number.
+
+The BOM used to be item 1, and called itself the cheapest test missing from
+this interface while staying unbuilt for two releases. `tests/csv-guide.test.ts`
+builds it, and building it changed the rule rather than confirming it: section
+3 gave the behavior to Papa Parse alone, and mutation showed our own `trim()`
+holds it too, because U+FEFF is ECMAScript WhiteSpace. **That is the argument
+for building the cheap one first.** A test whose only job was to pin a
+dependency is what found the guide naming the wrong mechanism, and a sentence
+citing a version number could not have — which is the same reason the version
+in that bullet went two releases wrong with nothing to notice.
 
 A rule that appears in neither list is a rule nobody is responsible for, and that
 is a defect in this guide rather than in the code.

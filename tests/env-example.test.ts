@@ -151,10 +151,18 @@ const bundledDatabaseOnly = ["POSTGRES_PASSWORD"];
  *
  * Six variables were outside the correspondence while it was kept by hand
  * rather than checked: `NODE_ENV` and the two Google settings were in the root
- * example and in no table, and the three the nginx image reads were in a table
- * and in no example. Both halves are the same defect from opposite ends — an
+ * example and in no table, and three the nginx image reads were in a table and
+ * in no example. Both halves are the same defect from opposite ends — an
  * operator who copies the example gets a variable nothing documents, and one
  * who reads the tables looks for a line that is not there.
+ *
+ * Those three are now the five in `frontendImageOnly` above, and the growth is
+ * why that list has a case of its own holding each name to still being outside
+ * the rule. Both additions were correct — the compose file derives each from a
+ * server setting the examples already carry, so writing either into an example
+ * would invite an operator to set it twice and disagree with themselves — and
+ * neither is visible to this block, which compares against the same list that
+ * grew.
  */
 describe("what the example files and the deployment tables say about each other", () => {
   it.each([".env.example", "deploy/compose/.env.example"])(

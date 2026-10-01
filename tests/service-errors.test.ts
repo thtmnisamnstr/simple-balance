@@ -2,20 +2,17 @@ import { describe, expect, it } from "vitest";
 import { sourceFiles } from "./support/source.js";
 
 /**
- * `docs/standards/code/errors.md` 1: anything a caller could act on is an
- * `AppError`, and a bare `Error` means "this cannot happen" and becomes a 500.
+ * `docs/standards/code/errors.md` 1, which argues the rule this holds to: a
+ * bare `Error` in a service means "this cannot happen" and becomes a 500, and
+ * anything a caller could have got right is an `AppError` instead.
  *
- * The guide marks this `human` and gives the reason: a rule banning
- * `throw new Error` under `src/server/services` "would be **wrong** — it would
- * flag the five correct ones. Which kind a throw is cannot be read off its
- * syntax." That is true, and it is an argument against the ban rather than
- * against every check.
- *
- * So this is not a ban. It is a list of the five, each with the reason it is
- * the impossible kind, and a sixth fails until somebody says which kind it is.
- * The judgement stays where only a person can make it — at the moment of
- * writing the throw — and the thing that used to be invisible, a validation
- * refusal dressed as a 500, now has to be argued for in a diff.
+ * A blanket ban would be wrong, because which kind a throw is cannot be read
+ * off its syntax — it would flag every correct one below. So this is not a ban
+ * but a list, each entry carrying the reason it is the impossible kind, and one
+ * more throw fails until somebody writes down which kind it is. The judgement
+ * stays where only a person can make it, at the moment of writing the throw,
+ * and the thing that used to be invisible — a validation refusal dressed as a
+ * 500 — now has to be argued for in a diff.
  *
  * Whether a listed reason is honest is still review. Whether a new throw was
  * thought about at all is now this test.

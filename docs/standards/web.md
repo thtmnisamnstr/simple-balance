@@ -73,16 +73,31 @@ The rule, from here: **a value becomes a token when it is a decision that has to
 be the same in two places.** A color qualifies because a theme must answer for
 it twice. A spacing step qualifies because a gap that is 11px on one card and
 12px on the next is not a decision, it is two accidents. A one-off geometry
-value does not qualify: the nine inline `style` props in the client
+value does not qualify: nine of the ten inline `style` props in the client
 (`charts.tsx:273`, `charts.tsx:322`, `components.tsx:789`, `components.tsx:1163`,
 `BudgetsPage.tsx:1221`, `DashboardPage.tsx:274`, `DashboardPage.tsx:415`,
-`DashboardPage.tsx:475`, `DashboardPage.tsx:521`) are all runtime geometry — a bar's width, a chart's offset — and are correct as they
-are. The count matters beyond tidiness: it is what
-`src/server/http-security.ts:217-221` reasons about when it declines
-`'unsafe-inline'`.
+`DashboardPage.tsx:475`, `DashboardPage.tsx:521`) are runtime geometry — a bar's
+width, a chart's offset — and are correct as they are.
 
-*Not checked mechanically.* Section 3 proposes the ramps; the check that would
-enforce them is listed in section 17 and does not exist yet.
+**The tenth is not geometry at all**, and it is named rather than left to look
+like one of the nine. `ads.tsx:143` writes `display: block` on the AdSense
+`<ins>`, which is how Google documents its own tag, and the stylesheet then
+outranks it deliberately: an unfilled unit is collapsed by
+`styles.css:3551-3553` with `!important`, because an important declaration is
+the one thing that beats an inline style. So this prop is a vendor requirement
+held in check by a rule written against it, which is a decision rather than a
+coordinate, and nothing about the token rule covers it.
+
+The count matters beyond tidiness: it is what
+`src/server/http-security.ts:217-221` reasons about when it declines
+`'unsafe-inline'`. Ten is also why the list is enumerated rather than
+summarized — the argument rests on every member being accounted for, and the
+tenth sat outside an enumeration that read as complete for a release.
+
+*Checked by:* `tests/web-guide.test.ts` holds the number and the files to the
+client, so an eleventh cannot arrive unenumerated. Section 3 proposes the ramps;
+the check that would enforce them is listed in section 17 and does not exist
+yet.
 
 ### 1.4 Naming
 
@@ -448,27 +463,46 @@ font ships. Most of the fourteen are indistinguishable on screen today.
 
 ### 3.5 Z-index
 
-Nine declarations and no ordering document, and one of the two shared values was
-a real collision: `.merge-panel` and `.nav-scrim` were both 20, both can be on
-screen below 780px, and the scrim is written second — so it painted over the
-merge panel with nothing in either rule saying why.
+Ten declarations across **eight distinct values**, and no ordering document
+until this table. One of the two shared values was a real collision:
+`.merge-panel` and `.nav-scrim` were both 20, both can be on screen below 780px,
+and the scrim is written second — so it painted over the merge panel with
+nothing in either rule saying why.
 
-The scrim moved to 25 and the ladder is now written out once, above `.sidebar`
-(`styles.css:348-358`), which is what a z-index chosen alone is chosen against:
+The scrim moved to 25, and this is the ladder, which is what a z-index chosen
+alone is chosen against:
 
 | Value | What sits there |
 | --- | --- |
-| 1 | A decoration inside a card — a search icon, the sign-in art |
-| 2 | A header sticking inside its own scroller — the modal header, the sign-in card |
-| 10 | A popover over the page — the row menu |
-| 20 | A bar sticking over a list — the merge panel |
-| 25 | The mobile nav scrim, which covers everything above except the drawer |
-| 30 | The sidebar itself |
+| 1 | A decoration inside a card — the search icon (`styles.css:1852`), the sign-in art (`:3282`) |
+| 2 | A header sticking inside its own scroller — the modal header (`:2457`), the sign-in card (`:3000`) |
+| 10 | A popover over the page — the row menu (`:1760`) |
+| 15 | The mobile header, below 780px (`:4072`) |
+| 20 | A bar sticking over a list — the merge panel (`:2926`) |
+| 25 | The mobile nav scrim, which covers everything above except the drawer (`:4062`) |
+| 30 | The sidebar itself (`:362`) |
+| 40 | The skip link (`:3368`), above everything because it is the first thing a keyboard user meets |
+
+**Two of the eight were on neither the ladder nor the comment that reproduces
+it**, which is the failure this section was written about, one release on. The
+copy above `.sidebar` (`styles.css:348-358`) still carries six rungs: it was
+written when 15 and 40 did not exist, and neither arrival was read against it.
+A ladder missing a quarter of its rungs is a ladder a new layer is chosen
+without. **So the table here is the complete one** and a test holds it that way;
+the in-file comment is a convenience beside the rule it belongs to, not the
+register.
+
+One pair in it has never been argued anywhere and is recorded rather than
+asserted. 15 under 20 means a merge panel sticking at `top: 12px` paints over
+the mobile header sticking at `top: 0`, so on a phone the merge controls cover
+the header while a merge is open. That may well be right — the panel exists
+because the list is long enough to scroll — but nothing chose it, and the next
+person to touch either should know they are choosing.
 
 Tokens for these would read better and are held back for the same reason the
 other scales are (section 3.1): `tests/theme-tokens.test.ts` fails on a declared
 token nothing uses, so a ladder introduced ahead of its users cannot be
-committed. The comment carries the ordering in the meantime.
+committed.
 
 The modal is out of this scale on purpose: it is a native `<dialog>` opened with
 `showModal()`, so the browser's top layer puts it above everything without a
@@ -478,6 +512,11 @@ z-index.
 one value unless they can never be on screen together — the sign-in surface is
 rendered instead of the app shell rather than over it, so a layer there and a
 layer in the app are free to coincide, and that is the one exception it carries.
+And `tests/web-guide.test.ts`, which reads every `z-index` out of the stylesheet
+and fails on a value with no row above, so a ninth layer cannot arrive the way
+the eighth did. It holds the declaration and value counts in the opening
+sentence to the same reading, because two numbers for one measurement is how
+this section came apart.
 
 ### 3.6 Breakpoints
 
@@ -575,11 +614,16 @@ does not exist.
 
 ### 6.1 The inventory
 
-**House.** `src/client/components.tsx` is the component library: twenty-four
-components, three helpers (`compareForSort`, `useConfirm`, `progressLabel`) and
-two exported types.
+**House.** `src/client/components.tsx` is the component library: twenty-seven
+components, four helpers (`compareForSort`, `useConfirm`, `selectionCount`,
+`progressLabel`) and two exported types.
 There is no list of what it contains, which is how `.settings-note` became the
 generic muted paragraph and `.section-title` grew two incompatible layouts.
+
+The table below is that list, plus one row — `AdSlot` — for a component that
+lives in `src/client/ads.tsx` rather than here and is in the inventory anyway,
+for the reason three paragraphs down. So the table carries one more row than the
+file has components, and the count above is the file's.
 
 | Component | For |
 | --- | --- |
@@ -600,6 +644,7 @@ generic muted paragraph and `.section-title` grew two incompatible layouts.
 | `Skeleton` | A loading placeholder of known shape |
 | `EmptyState` | A list with nothing in it |
 | `Alert` | A form-level or page-level message |
+| `Note` | The muted paragraph a section says one thing in (6.3) |
 | `Badge` | A state word beside a row |
 | `ProgressBar`, `progressLabel` | How far a long write has got, and the sentence beside it (12.6) |
 | `RequiredNote` | The one sentence a form says about required fields (8.4) |
@@ -642,16 +687,26 @@ runs with Stripe's origins allowed. `src/client/router.tsx` enforces the second
 half, so leaving that document is a load however it is reached.
 
 **One screen renders controls this library did not make.** The plan and billing
-tab mounts Stripe's `PaymentElement`, which draws its own card fields inside an
-iframe from `js.stripe.com`. They are not in the inventory and cannot be: the
-markup is Stripe's, the styling is Stripe's, and nothing on this side can reach
-into it. That is the point — no card number ever touches this app — and it is
-also why that tab is the one place in the product where a form control does not
-come from `components.tsx`. Everything around it, including the submit button
-and the error message, does.
+tab mounts Stripe's `PaymentElement` (`PlanPage.tsx:1581-1598`), which draws its
+own card fields inside an iframe from `js.stripe.com`. They are not in the
+inventory and cannot be: the markup is Stripe's and no script on this side can
+reach into a cross-origin document. That is the point — no card number ever
+touches this app — and it is also why that tab is the one place in the product
+where a form control does not come from `components.tsx`. Everything around it,
+including the submit button and the error message, does.
 
-*Not checked mechanically.* A test could assert that every exported function in
-`components.tsx` has a row, which would catch an addition but not a duplicate.
+**The markup being out of reach does not put the colors out of reach, and this
+section used to say it did.** `Elements` takes an `appearance` option and is
+given none here, so the card fields render in the vendor's default light theme
+on a dark deployment. That is 6.4's rule and 6.4 is where it is argued; the
+sentence that used to sit here was not a description of a limit but the reason
+nobody looked for one.
+
+*Checked by:* `tests/web-guide.test.ts`, which asserts every export of
+`components.tsx` has a row and that the counts above match the file. It catches
+an addition and a miscount — `Note` was promoted into the library with no row,
+which is exactly what 6.2's duplicate check needs one to fire against — and not
+a duplicate, which stays 17.3's.
 
 ### 6.2 When something becomes a component
 
@@ -759,6 +814,47 @@ that a *new* off-page use has to be classified — which is the reading
 `.settings-note` never got in 26 uses. A register entry whose class no longer
 exists fails as well, so the register cannot drift the way the class did.
 
+### 6.4 A third-party iframe answers for both themes
+
+**Binding, by way of 1.2.** Every color in this product answers three questions —
+the light value, what the machine wants, what the person chose — and a surface
+drawn inside the page is part of the page to the person reading it, whoever owns
+its markup. **A vendor surface that accepts a theming interface is given one,
+derived from the tokens the rest of the page is drawn from. A vendor surface
+that accepts none is named here with the consequence stated.**
+
+Two exist, and they are the two halves of the rule.
+
+- **Stripe's `PaymentElement` accepts one and is not given it.** `Elements`
+  takes an `appearance` option; the plan tab passes
+  `options={{ clientSecret }}` and nothing else (`PlanPage.tsx:1581-1598`), and
+  the word appears nowhere in `src`. So the card fields render in the vendor's
+  default light theme, and on a dark deployment the one screen that takes
+  somebody's money is a white rectangle inside a dark panel. **That is the only
+  surface in the product answering for one of the two themes 1.2 requires.**
+  Satisfying this rule here is a small change and a real one: the appearance has
+  to be read off the live token values rather than re-typed, or it becomes a
+  fourth place a color is written and 1.2's whole argument is lost.
+- **The ad unit accepts none.** `ads.tsx:141-148` renders Google's `<ins>` and what
+  fills it is an advertiser's creative inside a cross-origin iframe; there is no
+  theming interface to pass and no prospect of one. Naming it is the whole
+  obligation, and what follows from the naming is that the slot is collapsed
+  when it is empty (`styles.css:3551-3557`) rather than left as a light band.
+
+**The obvious alternative is what 6.1 used to say**: the markup is somebody
+else's, so the surface is out of scope. That is right about the markup and wrong
+about the color, and the two had been collapsed into one sentence — which is why
+a one-line gap stayed open for a release with the guide reading as though it had
+been considered. Scope here follows what a person sees, not what a selector can
+reach.
+
+*Not checked mechanically, and it cannot be from either tier.* jsdom renders no
+iframe content, and the browser tier cannot read into a cross-origin document,
+so no test in this repository can see what color either surface came out. What a
+test could hold is the half on this side — that the appearance passed to
+`Elements` is built from the token values — and there is nothing to assert until
+one is passed. Section 17.3 carries it.
+
 ## 7. Layout primitives
 
 ### 7.1 The shell
@@ -814,12 +910,29 @@ a component's own rule, not a second body, and the hazard this section exists to
 prevent is a *component rule after the responsive body*.
 
 The four breakpoints run in descending order at the foot of the file, each under
-the comment naming its constant, with the blanket reduced-motion block last.
+the comment naming its constant, then the blanket reduced-motion block
+(`styles.css:4233-4242`), then the print block (`:4254-4258`) and nothing after
+it. **Print is last and that is the rule, not an accident of when it arrived**:
+it is the one query that describes a different medium rather than a different
+width or preference, so anything it needs to undo has already been written.
+The comment above the reduced-motion block still calls that block last, because
+it was when it was written and the print block landed afterward without being
+read against it.
+
+Where a block for a new medium or preference goes is therefore decided here
+rather than per block: at the end, after print, unless it has to qualify print
+itself. The hazard this section exists to prevent is a *component* rule after
+the responsive body; the tail order is the second half of the same argument,
+because a media query adds no specificity there either.
 
 *Checked by:* `tests/styles-order.test.ts` asserts that every top-level
 construct from the first `@media (max-width` block onward is an at-rule, that
 the breakpoints read 1050, 980, 780, 560 in source order, and that the only
-preference block above them is the skeleton's.
+preference block above them is the skeleton's. It says nothing about the order
+of the at-rules after the first breakpoint, which is how the print block came to
+follow a block documented as last; `tests/web-guide.test.ts` holds that tail —
+the four widths, the reduced-motion block, the print block, in that order — and
+holds this paragraph to it.
 
 ### 7.4 The page stack
 
@@ -1002,11 +1115,64 @@ drifted into two answers:
   they just used.
 
 *Checked by:* `tests/page-stack.test.ts` asserts that no `.filter-bar` contains
-a `<Field`. *Not checked:* that every bare control carries an `aria-label`;
-that is section 17.2 item 7's job, and `eslint-plugin-jsx-a11y` would cover it
-off the shelf. Not checked either: the control order, the alert placement and
-the two vocabularies, all four of which are grep-shaped and none of which has a
-grep.
+a `<Field`. *Not checked:* that every bare control carries an `aria-label`. The
+off-the-shelf answer was `eslint-plugin-jsx-a11y`, which used to be an item in
+17.2 and is not one any more: it is enabled, and the two rules that would cover
+this are off by name with recorded reasons at
+[`code/index.md`](code/index.md):175-184, because neither can see through
+`Field`. That decision is `code/index.md`'s to revisit. Not checked either: the
+control order, the alert placement and the two vocabularies, all four of which
+are grep-shaped and none of which has a grep.
+
+### 7.7 Where an advertisement sits in the document
+
+**Binding, WCAG 2.2 SC 1.3.1 Info and Relationships and SC 2.4.1 Bypass Blocks,
+both level A.** 6.1 settles who renders an ad and when. This settles where the
+slot goes, which is a different question and the one with a success criterion
+behind it.
+
+**Both units sit outside `<main>` and below it, each as its own labeled
+`<aside>`, and neither is hidden from assistive technology**
+(`App.tsx:1043-1059`, the markup at `ads.tsx:132-149`).
+
+Three decisions, and each has an obvious alternative that is wrong for a
+different reason.
+
+- **Outside the main landmark, not inside it.** `<main>` is what the skip link
+  targets (`App.tsx:891`) and what focus moves to on every route change (13.3),
+  and a screen reader entering a landmark reads from its top. A slot inside it
+  therefore puts an advertisement in front of the page on **every** navigation,
+  for exactly the people who reached it by skipping the navigation — the ones
+  least able to get past it again. The obvious alternative is a banner above the
+  content, which is where almost every ad-supported site puts one and what makes
+  this look like a layout preference. It is not: above the content and inside
+  the landmark is the one position that defeats the bypass mechanism the rest of
+  the shell is built around.
+- **A labeled `aside` each, so it can be passed by landmark.** A bare `<div>`
+  would leave the unit as unstructured content a reader has to walk through; a
+  named complementary landmark is one jump. The label is passed in rather than
+  hard-coded, and it is the same word on both, because two differently-named
+  landmarks would read as two kinds of thing.
+- **Not hidden from assistive technology.** `aria-hidden` is deliberately absent
+  and the code says so. Hiding an ad from a screen reader while showing it to
+  everybody else reads as a kindness and is concealment: it is content, the
+  person is being shown it, and the honest version is to name it and let them
+  pass it. This is the alternative most likely to be proposed as an improvement,
+  which is why the reason is written down rather than left in a diff.
+
+**A second operator-configured unit already exists** — `footerSlotId`, off
+unless an operator asked for it — so this is a shape rather than a fact about
+one slot. A third lands in the same position, under the same landmark rule, and
+inherits 1.2's answer from 6.4: there is no theming interface, so the obligation
+is the collapse rule, not a color.
+
+*Checked by:* `tests/ad-slot-ui.test.tsx` holds what the component renders —
+nothing at all without a placement, and a collapsed unit and slot when Google
+returns an unfilled one. `tests/web-guide.test.ts` holds the placement: that
+every `<AdSlot>` in the shell is written after `</main>`, and that the slot is a
+labeled `aside` carrying no `aria-hidden`. That second half is a source check
+rather than a rendered one on purpose — the defect is a slot moved up the file,
+and jsdom would report the same accessible name either side of the landmark.
 
 ## 8. Forms
 
@@ -1036,7 +1202,7 @@ takes an `error` prop, and composes `aria-describedby` from the hint id and the
 error id. Three things about how, each of which was a way to get it wrong:
 
 - **The wiring travels by context, not by cloning the child.** `Field` is used
-  at 96 sites and its children are arbitrary JSX — an `<Input>`, a `<Select>`, a
+  at 88 sites and its children are arbitrary JSX — an `<Input>`, a `<Select>`, a
   `CategoryPicker` that renders one three levels down — so `cloneElement` would
   have reached the first case and silently missed the rest. `Input`, `Select` and
   `Textarea` read the context, which reaches all of them, changes nothing at the
@@ -1201,29 +1367,48 @@ own sentence standing.
 
 ### 8.4 Required and optional
 
-**House, and the code disagrees with itself.** `required` is set on inputs 54
+**House, and the code disagrees with itself.** `required` is set on controls 54
 times and surfaced neither visually nor to assistive technology. The only signal
-is that twelve optional fields say "Optional" in the hint.
+is that sixteen fields say so the other way round.
 
 Marking the optional ones is a coherent scheme and it is the one this product
-picked, so it is now stated: `RequiredNote` (`src/client/components.tsx`) sits
-before the account, transaction, template and recurrence forms and reads "Every
-field is required unless it says otherwise", which is where W3C puts an
+picked, so it is now stated: `RequiredNote` (`src/client/components.tsx:406`)
+sits before the account, transaction, template and recurrence forms and reads
+"Every field is required unless it says otherwise", which is where W3C puts an
 instruction covering a whole form. A person meeting an unmarked field previously
 had no way to know which of the two schemes they were in.
 
-"Says otherwise" rather than "says Optional" because eleven fields say
-`hint="Optional"` and others say it in better words — a budget's end date says
-"Leave blank to keep running", which is more useful than the label would be.
+"Says otherwise" rather than "says Optional" because some fields say it in
+better words — a budget's end date says "Leave blank to keep running", which is
+more useful than the label would be.
 
-**Still to do:** a field that is neither marked optional nor actually required is
-a bug in the form, and nothing finds them. Most of the 29 unmarked fields are
+**The word goes in the hint, and `Field`'s `optional` prop is how it gets
+there** (`components.tsx:521`, `:539`, `:552`). This is the half this section
+was a release behind on, and the reason is 8.1's: a name computed from
+`<label for>` is the label element's *entire* text content, so "(optional)"
+written into a label becomes part of the control's **name** — "Saving up for
+(optional)" is then what a voice user has to say to reach it, which is SC 2.5.3
+Label in Name. Three fields on Budgets did exactly that. The prop renders
+`Optional.` into the hint, ahead of whatever else the hint says, so the slot
+stops being a per-page decision and the shorter claim leads.
+
+The census, and it is one number rather than two: **sixteen fields are marked
+optional** — three through the prop (`BudgetsPage.tsx:540`, `:582`, `:594`) and
+thirteen writing the hint by hand, two of which already write the prop's exact
+`Optional. …` shape and should simply pass it. A reader marking a new field
+optional from this section writes the prop; writing the word into the label is
+the defect the prop was added to remove.
+
+**Still to do:** a field that is neither marked optional nor actually required
+is a bug in the form, and nothing finds them. Most of the unmarked fields are
 `<Select>`s that always hold a value and so are required in fact, but the list
 has not been walked one by one.
 
-*Not checked mechanically.* A test could assert that every `Field` whose control
-lacks `required` carries a hint, which is weaker than reading each one but would
-catch a field with no guidance at all.
+*Checked by:* `tests/web-guide.test.ts` holds the two counts above to the
+client, so the scheme's arithmetic cannot drift the way it did. *Not checked:*
+that a field is marked optional when it is. A test could assert that every
+`Field` whose control lacks `required` carries a hint, which is weaker than
+reading each one but would catch a field with no guidance at all.
 
 ### 8.5 Money fields
 
@@ -1508,7 +1693,7 @@ every table costs a column of words nothing and takes the decision off the call
 site.
 
 One loose end remains. `.amount` is declared as a money hook in the same rule
-and is used by nothing; delete it or adopt it at the 69 `formatMoney` call
+and is used by nothing; delete it or adopt it at the 75 `formatMoney` call
 sites, some of which render currency outside a table in proportional digits.
 `.money`'s weight and `white-space: nowrap` are still applied by hand, and the
 case for making the money CELL a component rather than a class is the staged
@@ -1518,7 +1703,9 @@ color and no weight, directly above rows showing −$45.00 in red. That one is
 fixed; what the fix does not stop is the next one.
 
 *Checked by:* `tests/page-stack.test.ts`, which holds the figures to the cell
-and holds `.align-right` to alignment alone.
+and holds `.align-right` to alignment alone. `tests/web-guide.test.ts` holds the
+call-site count, because the size of the loose end is the argument for closing
+it and a stale number argues for nothing.
 
 ### 9.4 Sorting
 
@@ -1628,15 +1815,21 @@ scrolls under something.
 
 ## 10. Money and dates on screen
 
-The substance is in [`common.md`](common.md) and is not repeated. What follows
-is only what a screen adds.
+The substance is in [`common.md`](common.md#money) and is not repeated. What
+follows is only what a screen adds. In particular the arithmetic every figure
+below rests on — that a monetary value is a string everywhere, that a
+comparison is arithmetic and goes through `isNegativeMoney` or `compareMoney`,
+and that pixels may be lossy and nothing else may — is settled there, as
+`common.md`'s Money rules, and this guide points at them rather than keeping a
+second copy that would drift.
 
 ### 10.1 The sign carries the meaning
 
-**Binding, SC 1.4.1 Use of Color, level A, and `AGENTS.md` for the arithmetic.**
-The minus sign is load-bearing and the color is decoration on top of it.
-Whether a figure is negative is decided by `isNegativeMoney`, never by
-`Number(x) < 0`.
+**Binding, SC 1.4.1 Use of Color, level A, for the sign; and
+[`common.md`](common.md#money) "A comparison is arithmetic" for how negative is
+decided.** The minus sign is load-bearing and the color is decoration on top of
+it. Which way a figure reads is a money comparison, so it is made where every
+other money comparison is made.
 
 **The code disagreed with itself in three ways, and the same withdrawal read
 three ways in three places.** The table is what it was; the paragraph below it
@@ -2030,22 +2223,23 @@ whole time, and Payees was telling somebody who had mistyped a search to go and
 commit a transaction they had already committed.
 
 The title states the situation in the plural, the body carries the explanation,
-and the button carries the imperative. `EmptyState` is used at 16 sites — the
-sixteenth is the categories list, which says "no categories yet" and "no
-categories match this search" as the two screens this rule asks for.
+and the button carries the imperative. **`EmptyState` is used at 23 sites**, and
+that is the one count this section keeps: it said sixteen in one paragraph and
+eighteen thirteen lines later, which is the two-numbers-for-one-measurement
+failure section 3's census test was built to stop, inside a single section.
 
 Two amendments have landed. **The icon is required.** It was optional and three
-of the sixteen omitted it, which left a heading and a sentence floating in a
-card — a page that reads as having failed to load rather than as having
-answered. **And the heading level is a prop**, defaulting to `<h3>`, because a
-component that hard-codes one misstates the document wherever it is used: the
-duplicate review's "nothing left to review" *is* the page's content and takes
-`level={2}`. Same reasoning as `ErrorSummary`'s in 8.3.
+sites omitted it, which left a heading and a sentence floating in a card — a
+page that reads as having failed to load rather than as having answered. **And
+the heading level is a prop**, defaulting to `<h3>`, because a component that
+hard-codes one misstates the document wherever it is used: the duplicate
+review's "nothing left to review" *is* the page's content and takes `level={2}`.
+Same reasoning as `ErrorSummary`'s in 8.3.
 
 **The icon's SIZE is the component's too.** It was an opaque `ReactNode`, so
-the size was written at the call site and came out five ways across eighteen of
-them — 20, 22, 23, 24 and 25 — varying by a quarter inside a tile that is a
-fixed 48px either way, on pages one click apart. It is a component type now and
+the size was written at the call site and came out five ways — 20, 22, 23, 24
+and 25 — varying by a quarter inside a tile that is a fixed 48px either way, on
+pages one click apart. It is a component type now and
 the size is not something anybody types. And a `compact` variant exists for a
 list inside a panel: the full card is `min-height: 250px`, which inside the
 dashboard's per-currency panels would be the tallest thing on screen saying the
@@ -2060,7 +2254,9 @@ more: that every page rendering an empty state decides the screen through
 `emptyScreen` or is named with a one-sentence argument for why it has no
 question to ask, and that an empty state sits *behind* its query's error rather
 than beside it. `tests/app-name.test.tsx` holds the page half: a page
-component's first JSX return has to carry its header.
+component's first JSX return has to carry its header. And
+`tests/web-guide.test.ts` holds the site count, which is the part that came
+apart twice inside one section.
 
 **The first of those let a file off for having two `<EmptyState>` elements**, on
 the reasoning that two elements say the same thing as one conditional. They do —
@@ -2094,7 +2290,7 @@ into it could only ever go stale.
 | Nothing at all | 1 | `StagingPage` |
 | A full-screen block | 1 | `App`, session boot |
 
-Today it is twenty-three `Skeleton` sites and four paragraphs. The last two are
+Today it is twenty-four `Skeleton` sites and four paragraphs. The last two are
 the categories page's group list and the overview's budget panel, both of which
 were rendering their empty sentence while still loading — a list that says
 "none yet" before it has looked is the shape this rule exists to prevent.
@@ -2118,7 +2314,9 @@ genuinely unknown and a skeleton would be a picture of a guess. They keep the
 sentence and gained `role="status"`.
 
 *Checked by:* `tests/styles-skeleton.test.ts` covers the shimmer's containment,
-not where the skeleton is used. A grep test for a loading paragraph would.
+not where the skeleton is used. `tests/web-guide.test.ts` holds the two counts
+in this section, which is the number 17.2 item 6 reads rather than recounting.
+A grep test for a loading paragraph is still the missing one.
 
 ### 12.3 Busy controls
 
@@ -2129,9 +2327,9 @@ at all to somebody who cannot see it, and a disabled button otherwise goes
 silent at exactly the moment a person most wants to know their click landed. See
 section 4 for the reduced-motion half of the same defect.
 
-**A disabled submit always says why, next to itself.** Eight controls are
-disabled on a computed predicate and one had a sentence beside it — the split
-remainder line, which is the model the rest now follow. It is the one control
+**A disabled submit always says why, next to itself.** Twenty-eight controls
+are disabled on a computed predicate and one had a sentence beside it — the
+split remainder line, which is the model the rest now follow. It is the one control
 that can go completely silent: nothing has been typed wrongly, so there is no
 field error, and nothing has been submitted, so there is no summary. The button
 is gray and the person guesses which of the form's conditions is unmet.
@@ -2167,8 +2365,9 @@ without having it. It read a hand-written list of five files and matched
 `onClick={() => …}` — so an arrow-function-first button was invisible even in
 the five. Eight buttons carried the prop and the check saw exactly those eight,
 which is what a passing check looks like when it is measuring itself. Walking
-the client properly finds 22, and the fourteen it had never seen were fourteen
-controls that went gray and said nothing. Four of those are exempt and named in
+the client properly found fourteen more, every one a control that went gray and
+said nothing — twenty-two then, **28 today**, which is the number this section
+keeps and the one the census reports. Four of them are exempt and named in
 `WORKING_NOT_BLOCKED`: the unpressed half of a pair, grayed while its sibling
 works, where the answer is the sibling's spinner.
 
@@ -2191,9 +2390,15 @@ sentence and would pull the button out to match.
 
 *Checked by:* `tests/plan-page-ui.test.tsx` ("the plan buttons' row"), which
 reads the stylesheet and asserts the rule, that it is conditional, and the
-text's height. It cannot see the offset itself: jsdom has no layout, and the
-browser tier does not yet compare two buttons' tops, so a later rule on these
-rows could bring the lift back with this test green.
+text's height — and it cannot see the offset itself, because jsdom has no
+layout. **The offset is held by `tests/browser/plan-buttons.spec.ts`**, which
+measures the two buttons' tops against a real engine at desktop width and again
+at 390px where the reason wraps to a second line, and asserts the disabled one
+is disabled first, because two enabled buttons also line up. It cites this
+section as the gap it closes, and `code/testing.md` §1.2 records it as the
+second file in that tier and why it is there. So a later rule on these rows
+cannot bring the lift back with the suite green, which is what this paragraph
+used to say it could.
 
 ### 12.4 One live region per page
 
@@ -2228,10 +2433,26 @@ sentence, because its message is a stack-trace fragment. Both say the data is
 safe, which is the first thing somebody wants to know when an accounting app
 disappears.
 
-The four leaf guards stay — `timezone.tsx` and `theme.ts` catch, `money.ts`
-guards with `Number.isNaN`, `idempotency.ts` checks for `crypto.randomUUID` —
-because each keeps a specific screen *useful* rather than merely non-blank. This
-is the backstop for everything nobody predicted.
+The four leaf guards stay, because each keeps a specific screen *useful* rather
+than merely non-blank, and this is the backstop for everything nobody
+predicted. They are named one by one because the list had drifted and read as
+though it had been checked:
+
+- **`theme.ts` catches** (`theme.ts:33-38`): a machine with no `matchMedia`
+  counts as light rather than throwing the shell away.
+- **`money.ts` catches, twice, and guards as well** — this is the one the list
+  used to leave out. `formatMoney` renders `amount currency` when `Intl`
+  refuses a symbol (`money.ts:140-142`), `formatTimestamp` falls back to the
+  browser's zone when the stored one is unknown (`:369-379`), and both check
+  `Number.isNaN` first, because an unreadable value is not an exception.
+- **`idempotency.ts` feature-checks** `crypto.randomUUID` and builds a v4 by
+  hand where there is none (`idempotency.ts:16`), since that API exists only in
+  a secure context.
+- **`timezone.tsx` does neither, and that is the correct shape for it**
+  (`timezone.tsx:20`). There is nothing to throw: a missing provider is a
+  missing context value, so `??` falls through to the browser's zone. The list
+  used to call this one a catch, which is how a guard that could never fire
+  would have been left in place by anybody tidying.
 
 *Checked by:* `tests/error-boundary.test.tsx`, including that it recovers when
 the throw stops and that a raw error message is never shown.
@@ -2317,8 +2538,12 @@ figures, and that a connection ending without an answer earns no claim about
 what was written. `tests/progress-frames.test.ts` holds the fraction monotonic
 across a phase change and the threshold below the bulk cap. **Not covered:**
 that the bar is *painted*. jsdom has no layout engine and the fill comes from
-vendor pseudo-elements, so only 13.5 could see it and nothing there does; it was
-checked by hand in Chromium in both themes and is listed in 17.3.
+vendor pseudo-elements, so only 13.5 could see it and nothing there does yet; it
+was checked by hand in Chromium in both themes. **It is 17.2 item 7**, not
+17.3's: filing it as review was itself the defect, because Chromium resolves
+`::-webkit-progress-value` through `getComputedStyle` and the one tier built to
+catch it was never asked. The pointer at the end of this section said 17.3 for a
+release after the item had moved.
 
 ## 13. Focus and keyboard
 
@@ -2486,7 +2711,7 @@ control ever dropped below 24px, which is the reason to know it exists.
 
 *Not checked mechanically.*
 
-## 13.5 The browser tier
+### 13.5 The browser tier
 
 **House.** A rule about the browser that only jsdom has ever checked is not
 checked. `tests/browser/` runs the real client in Chromium against the real API
@@ -2512,10 +2737,72 @@ structural test can read out of the source; and coverage for its own sake. A
 browser test costs seconds and a database, so the tier stays small and every
 spec in it earns its place by naming the class of defect it catches.
 
+**There are two specs, not one.** This section and 17.1 both described a
+one-file tier after the second file landed, which is the kind of claim that
+makes a reader reach for jsdom for something jsdom cannot see — 12.3's offset
+between two buttons being exactly that, and exactly what the second spec
+measures. How many there are, what each is for, and why the second is here
+rather than in jsdom are
+[`code/testing.md`](code/testing.md) §1.2's to state, held by
+`tests/testing-guide-counts.test.ts` against the directory. This guide points at
+that count rather than keeping one of its own, because a tier size written down
+twice is a tier size that disagrees with itself.
+
 *Checked by:* `npm run test:browser`, which requires `BROWSER_DATABASE_URL`
 pointing at a throwaway database. It is deliberately not part of `npm run verify`:
 that command runs with `TEST_DATABASE_URL` blank on purpose, and a tier needing
 three processes does not belong in the fast gate.
+
+### 13.6 A link that leaves the app
+
+**House.** Five anchors in this product point at a document the operator
+configured and this deployment does not serve: `LegalLinks`, which both the
+sign-in screen and the sidebar render (`App.tsx:127`, `:132`); the sign-up
+acceptance sentence (`:164`, `:170`); and the terms in the plan tab's renewal
+paragraph (`PlanPage.tsx:470`). They are the only anchors written in
+`src/client` with a destination outside this app — every other one is a literal
+route, or `Link`, which builds its href out of the router's own location. The
+rule has three parts that belong together because each of them was written
+three different ways before there was a rule.
+
+- **It opens a new tab**, `target="_blank"` with `rel="noreferrer"`. This is the
+  part that is argued rather than conventional: both documents are read
+  *partway through something a person should not lose* — a sign-up form half
+  filled in, a plan about to be paid for — and a same-tab navigation discards
+  it. The alternative is the usual advice, which is that a link should not
+  decide where it opens; that advice is about links in prose, and these two
+  appear beside a submit button.
+- **A document the operator did not configure is absent, never present and
+  dead.** `privacyPolicyUrl` and `termsOfUseUrl` are optional, so each anchor
+  renders only when its own URL is set, and the sentence around it changes
+  shape rather than naming a document that is not there
+  (`App.tsx:123`, `:160`, `PlanPage.tsx:466-475`). A link to nothing is worse
+  than no link: it reads as a promise the deployment has made.
+- **The new tab is not announced**, and this is the one most reviewers will ask
+  to change, so the reason is here rather than waiting to be rediscovered.
+  Warning about a new window is SC 3.2.5 Change on Request, **level AAA**, and
+  this product's stated conformance target is AA. Meeting a AAA criterion
+  because it is cheap is something this guide does elsewhere (13.1); this one is
+  not cheap in the only currency that matters here, which is the sentence a
+  screen reader reads: "Privacy policy, link, opens in a new tab" on five links
+  in two places, to say something every modern screen reader already announces
+  from the attribute itself. If the target ever moves to AAA, this is the first
+  rule to revisit.
+
+**Any further operator-configured document lands in exactly this shape**, which
+is why this is a rule and not a note about two URLs. The wire already carries
+both as optional fields and nothing stops a third.
+
+*Checked by:* `tests/legal-links-ui.test.tsx` renders the real screens and holds
+the behavior — both links present when both are set, the sentence reshaped when
+only one is, nothing drawn when neither is, and `target` and `rel` on each.
+`tests/web-guide.test.ts` holds the population, which is the half a rendered
+test cannot. It takes every anchor in `src/client` whose `href` is not a
+literal route, excluding `Link` and `SettingsTabs` by name because theirs is a
+route by construction and no pattern can say so, and requires the attributes and
+the silence of all of them. So a sixth is inside this rule by construction
+rather than by somebody remembering to add a case, which is 17.2's first rule
+about where a check gets its population.
 
 ## 14. The keyboard pass
 
@@ -2568,15 +2855,29 @@ Two rules that follow:
   below the fold until somebody scrolled the toolbar away. The two `100vw` in
   the same arithmetic stay, because nothing retracts horizontally.
 
-Two more things are missing and should exist: a print stylesheet, because
-Reports is a page people print, and `prefers-contrast` and `forced-colors`
-handling. Neither exists today.
+**There is a print stylesheet, and it holds one rule.**
+`@media print` at `styles.css:4254-4258` hides `.ad-slot`, because a statement
+of accounts somebody prints or saves as a PDF is a record they may keep and hand
+on, and an advertisement in one is not a thing this product does. The block is
+last in the file for 7.3's reason, and that is where a second print rule goes —
+**extending this block, not opening another**, because two `@media print` blocks
+at different depths in the tail is exactly the ordering hazard 7.3 exists to
+prevent. Reports is still the page people print and still gets no treatment of
+its own, so the work that remains is a rule rather than a stylesheet.
+
+What is genuinely absent is the other half: there is no `prefers-contrast` and
+no `forced-colors` handling anywhere in the file. This paragraph used to call
+both halves missing, which would have sent somebody to write a second print
+block rather than add to the one that is there.
 
 *Checked by:* `tests/styles-order.test.ts` for the breakpoint list and its
 order, and `tests/page-stack.test.ts` for the reflow rules a class can carry.
-The `dvh` half is one grep and is held there too. The responsive *pass* in
-`AGENTS.md`'s definition of done stays review: whether a page is usable at
-320px is a judgement about a screen.
+The `dvh` half is one grep and is held there too. `tests/web-guide.test.ts`
+holds the print block — that there is exactly one, that it is last, and that
+what it hides is the ad slot — so "a print stylesheet exists" stays a fact
+rather than a sentence. The responsive *pass* in `AGENTS.md`'s definition of
+done stays review: whether a page is usable at 320px is a judgement about a
+screen.
 
 ## 16. Words
 
@@ -2613,11 +2914,16 @@ the model:
 > the balance back."
 
 **House.** Error wording follows GOV.UK's construction, and the sentences are in
-`common.md`'s table. An instruction for an empty field ("Enter an amount"), a
-description for a malformed one ("Amount must be a number, like 24.50"), used
-consistently. Banned outright: "please", "sorry", "valid", "invalid", "oops",
-"forbidden", "illegal", "you forgot". The inline message and the summary entry
-are the same sentence, word for word.
+[`common.md`](common.md#errors)'s table: an instruction for an empty field
+("Enter an amount"), a description for a malformed one ("Amount must be a
+number. Check the decimal and thousands separators."), used consistently. Both
+of those are quoted from that table rather than composed here — the second one
+used to be quoted as "Amount must be a number, like 24.50", which is in no table
+and in no source file, so this guide was the only place it existed and a
+reviewer checking the wording against the product would have found neither.
+Banned outright: "please", "sorry", "valid", "invalid", "oops", "forbidden",
+"illegal", "you forgot". The inline message and the summary entry are the same
+sentence, word for word.
 
 **House.** The `PageHeader` eyebrow names a section, never repeats the title,
 and is dropped where there is nothing to say. It repeated the title on Accounts
@@ -2664,7 +2970,7 @@ is which.
 | `tests/client-money.test.ts` | The money arithmetic every figure on screen is computed from |
 | `tests/row-menu.test.tsx` | The row menu's dismissal and focus return (13.3) |
 | `tests/bulk-row-cap.test.ts` | The ten thousand row cap behind the selection contract (9.5) |
-| `tests/page-stack.test.ts` | The page's rhythm comes from `.content` and no page-level block carries a vertical margin or a negative one; no filter bar wraps a control in `Field`; every one of the twelve scrolling table containers is a named, focusable region; the focus-indicator selectors cover every focusable element type and `.file-drop` carries `:focus-within`; every sticky or fixed region is paired with a container declaring `scroll-padding` (7.4, 7.5, 7.6, 9.5, 9.6, 13.2) |
+| `tests/page-stack.test.ts` | The page's rhythm comes from `.content` and no page-level block carries a vertical margin or a negative one; no filter bar wraps a control in `Field`; every one of the fourteen scrolling table containers is a named, focusable region; the focus-indicator selectors cover every focusable element type and `.file-drop` carries `:focus-within`; every sticky or fixed region is paired with a container declaring `scroll-padding` (7.4, 7.5, 7.6, 9.5, 9.6, 13.2) |
 | `tests/theme-tokens.test.ts` (chart palette) | `.chart-bar` declares a stroke, and not `none`, so two adjacent bars at 1.05:1 have an edge; nine of the ten line series carry a distinct dash rhythm and every dashed series' legend swatch carries the same one (11.2, 11.3) |
 | `tests/progress-bar-ui.test.tsx`, `tests/progress-frames.test.ts` | When a progress bar is drawn, what it says, and that it is removed rather than frozen (12.6) |
 | `tests/recurrence-dates.test.ts`, `tests/locale-detection.test.ts` | The date and locale arithmetic every rendered date rests on (10.4) |
@@ -2674,7 +2980,10 @@ is which.
 | `tests/field-contract.test.tsx` | Every `<Button>` with a computed `disabled` carries a `disabledReason`, which is shown and pointed at while disabled, absent while enabled or working, and does not remount the button (12.3); a field names its control explicitly, points it at the hint and the error, marks it invalid, and is a labeled group around a composite; every `<input>`, `<select>` and `<textarea>` in the client goes through the three shared components, with two named exceptions (8.1) |
 | `tests/shell-focus.test.tsx`, `tests/browser/budgets.spec.ts` | The skip link is first and lands in `<main>`; a route change moves focus and resets scroll; the drawer makes the page behind it inert, moves focus in and out, and closes on Escape; a finished bulk action puts focus on the sentence saying so (13.3) |
 | `tests/plan-page-ui.test.tsx` | Every result on the plan tab is a sentence that takes focus, a form opening from a press takes it too, and a page load moves nothing (13.3); a form's action row and a modal's footer line up on the tops only while a reason shows, and a line of text in one keeps the buttons' height (12.3); while a payment form is open it is the only way to pay, and every disabled plan button gives the reason the route would refuse with |
-| `tests/frozen-accounts-ui.test.tsx`, `tests/ad-slot-ui.test.tsx` | A frozen account's disabled card actions and row actions each point at a reason, and its rows carry the badge that says so, beside a stylesheet that now dims and un-hovers both — and does not dim twice, which is asserted against the rendered tree in a voided row and an archived card (1.5, 12.3); an unfilled ad unit and the slot around it are collapsed rather than left as a band |
+| `tests/frozen-accounts-ui.test.tsx`, `tests/ad-slot-ui.test.tsx` | A frozen account's disabled card actions and row actions each point at a reason, and its rows carry the badge that says so, beside a stylesheet that now dims and un-hovers both — and does not dim twice, which is asserted against the rendered tree in a voided row and an archived card (1.5, 12.3); an ad slot renders nothing and fetches nothing without a placement, and an unfilled unit and the slot around it are collapsed rather than left as a band (7.7) |
+| `tests/legal-links-ui.test.tsx` | Both operator documents are linked where a person meets them, each opens a new tab, the sentence reshapes when only one is configured, and nothing is drawn when neither is (13.6) |
+| `tests/browser/plan-buttons.spec.ts` | Two priced buttons keep the same top while one of them shows a reason, measured against a real layout engine at desktop width and at 390px where the reason wraps — the half 12.3 could not check (12.3, 13.5) |
+| `tests/web-guide.test.ts` | The numbers and lists this guide argues from, derived rather than recounted: the component inventory and its three counts (6.1), the ten inline `style` props (1.3), every `z-index` having a rung (3.5), the stylesheet's tail order and its one print block (7.3, 15), the `Field`, optional, `formatMoney`, `EmptyState`, `Skeleton`, computed-disabled and scrolling-container censuses (8.1, 8.4, 9.3, 9.6, 12.1, 12.2, 12.3), where an ad slot sits in the shell (7.7), and the shape of every link that leaves the app (13.6) |
 | `tests/ui-copy.test.ts` | No banned word in any string a person reads, in all three of client, shared and server; every literal button label is a verb phrase or one of the four bare actions; the three bulk bars use the four sanctioned strings; no eyebrow repeats its title; a blank cell's dash is a fallback and never cell text; `Uncategorized` is styled once; every worked sentence in `common.md`'s table appears verbatim in `src`; every page rendering a list's empty state decides the screen through `emptyScreen` or carries a one-sentence argument for having no question to ask, and no `emptyScreen` call names a row count, the shared date range or the page's own subject; and an empty state sits behind its query's error rather than beside it, with three named exceptions (6.2, 12.1, 16) |
 
 ### 17.2 Worth building, ranked by bugs caught per hour
@@ -2721,12 +3030,12 @@ change is worth nothing if it can quietly fall behind.
    `tests/table-overflow.test.ts` covers the caption and that every `th` carries
    *a* scope; which one it should be is still uncounted, and a `scope="row"` in a
    `thead` would pass today.
-6. **No loading paragraph.** The `Skeleton` migration is done — 23 skeletons
-   against four deliberate paragraphs, at `App.tsx:300`,
-   `AccountDetailPage.tsx:155`, `CategoryDetailPage.tsx:72` and
-   `TemplateDetailPage.tsx:64`, each of which is a whole-page swap rather than a
-   region — so this is a grep with a four-line allow-list rather than a grep
-   waiting on a migration.
+6. **No loading paragraph.** The `Skeleton` migration is done; 12.2 has the
+   count and this item reads it rather than keeping a second one. The four
+   deliberate paragraphs are at `App.tsx:300`, `AccountDetailPage.tsx:155`,
+   `CategoryDetailPage.tsx:72` and `TemplateDetailPage.tsx:64`, each a
+   whole-page swap rather than a region, so this is a grep with a four-line
+   allow-list rather than a grep waiting on a migration.
 7. **The progress bar is actually painted.** Moved here from 17.3, where it was
    filed as untestable. Chromium resolves `::-webkit-progress-value` through
    `getComputedStyle(element, "::-webkit-progress-value")`, so the browser tier
@@ -2736,7 +3045,7 @@ change is worth nothing if it can quietly fall behind.
 `eslint-plugin-jsx-a11y` used to be item 7 here and has been removed rather than
 demoted: it is enabled at `.oxlintrc.json:15` with 38 rules, and the two this
 item wanted are off **by name with recorded reasons** at
-`docs/standards/code/index.md:175-184`, because neither can see through `Field`.
+`docs/standards/code/index.md:222-223`, because neither can see through `Field`.
 `code/index.md` owns that decision and has made it; listing shipped-and-refused
 work under "worth building" is how a backlog stops being one.
 
@@ -2757,6 +3066,12 @@ These cannot be tested and the guide says so rather than pretending.
 - Whether a link's text makes a promise its destination's defaults would break
   (11.7), and whether a dropped response field was restraint or oversight
   (11.9).
+- **What color a third-party iframe came out (6.4).** Neither tier can see it:
+  jsdom renders no iframe content and the browser tier cannot read into a
+  cross-origin document. So the card form on the plan tab is checked by somebody
+  opening it in both themes, and the half a test *could* hold — that the
+  appearance handed to `Elements` is built from the token values — does not
+  exist to hold yet.
 - The keyboard pass in section 14, and the responsive pass beside it.
 
 A rule that appears in none of these three lists is a rule nobody is responsible
@@ -2772,10 +3087,19 @@ migrate the existing call sites in the same change. A rule that governs new code
 only is a rule that describes an intention.
 
 Where this guide and `AGENTS.md` conflict, `AGENTS.md` wins and the conflict is
-recorded rather than quietly lost. **This guide records no such conflict.** Every
-binding rule here either comes from WCAG 2.2 or follows from an `AGENTS.md`
-invariant, and the money-field ban in section 8.5 is the invariant reaching a
-screen rather than an argument with it.
+recorded rather than quietly lost. **This guide records no such conflict**, and
+what makes that claim checkable rather than comfortable is that every binding
+rule here comes from one of exactly three places: WCAG 2.2, an `AGENTS.md`
+invariant, or a rule [`common.md`](common.md#money) already settles.
+
+The money rules are the third kind, and they are the ones most likely to drift
+into an argument. Section 8.5's ban on `type="number"` and section 10.1's
+"which way does this figure read" are both `common.md`'s Money rules reaching a
+screen — a monetary value is a string everywhere, and a comparison is
+arithmetic — rather than this guide restating the invariant in its own words. A
+restatement is where a conflict would come from, because two spellings of one
+rule diverge the first time either is edited. So those two sections point, and
+what they point at is owned one level up.
 
 What it does record is four places where published guidance and this product
 disagree, each labeled Contested and each naming the position it did not take:

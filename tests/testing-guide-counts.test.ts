@@ -13,12 +13,12 @@ import { repoRoot } from "./support/source.js";
  * happens to recount it, which is nobody.
  *
  * So the counts that can be recovered from the filesystem are recovered here
- * and compared with what the page claims. The test counts beside them are
- * deliberately left alone — they move with every test anyone adds, including
- * this one, and a check that the change under test has to update teaches people
- * to update it without reading it. What is checked is the part that only moves
- * when a *file* is added, which is rare enough that being made to edit the page
- * is the point rather than the friction.
+ * and compared with what the page claims. The test counts beside them cannot
+ * be: `it.each` and a `describe` in a loop each produce a number only a run
+ * knows. What is held instead is that the three of them agree with each other
+ * and with the sentence that quotes the total, which catches one figure edited
+ * on its own and catches nothing at all when somebody edits all three. The page
+ * says so about itself where it says what is not checked here.
  */
 const GUIDE = path.join(repoRoot, "docs/standards/code/testing.md");
 
@@ -104,11 +104,9 @@ describe("testing.md file counts", () => {
 
     // And the same arithmetic on the Tests column, which nothing checked until
     // it drifted. The guide's own sentence is the assertion: a database-less
-    // run's passes and skips add up to a run with one, "which is why the two
-    // rows add up to 2,097 both times". Counting the tests from the filesystem
-    // is not possible — `it.each` and a `describe` in a loop each produce a
-    // number only a run knows — but the three figures have to agree with each
-    // other, and a hand-edited one usually does not.
+    // run's passes and skips add up to a run with one, and the sentence under
+    // the table names that total. Quoting the number here instead would put a
+    // third copy of it in the tree, which is the drift this file exists to end.
     const [passWithout, skipWithout] = testNumbers(guide, "`npm test`, no database");
     const [passWith] = testNumbers(guide, "`npm test`, database set");
     expect(passWithout! + skipWithout!, "the Tests column has to add up").toBe(passWith);

@@ -313,7 +313,7 @@ describe("what mcp.md says it measured", () => {
   /**
    * A description that names a tool has to name one that exists.
    *
-   * Eleven descriptions point the agent at another tool — `create_budget_plan`
+   * Fourteen descriptions point the agent at another tool — `create_budget_plan`
    * tells it to read `get_budget_report`, `preview_csv` tells it to follow with
    * `stage_csv` — and that is the one kind of prose here a machine can check.
    * A renamed tool leaves the sentences that named it behind, and the agent
@@ -353,7 +353,10 @@ describe("what mcp.md says it measured", () => {
     // Guards the reading rather than the rule: a regex that stopped matching
     // would leave this passing on nothing at all, which is what "green today"
     // looks like from the outside either way.
-    expect(mentions).toBeGreaterThanOrEqual(11);
+    //
+    // Occurrences, not descriptions: one description naming two tools counts
+    // twice, so this floor sits above the fourteen above it rather than at it.
+    expect(mentions).toBeGreaterThanOrEqual(19);
   });
 
   it("counts enums on each side", () => {

@@ -366,7 +366,7 @@ const destructiveAnnotations = {
 };
 
 /**
- * Destructive and *not* undoable, which four tools are and the wire cannot say.
+ * Destructive and *not* undoable, which two tools are and the wire cannot say.
  *
  * `ToolAnnotations` has three booleans and no fourth field, so `destructiveHint`
  * is the only thing a client reads and it covers both "posts a reversal you can
@@ -577,6 +577,13 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         "Prefer staging to committing when a person has not asked for something specific. `ledger:stage` proposes a row for them to review; `ledger:write` changes the books. Deleting is a reversal, not an erasure, so it can be undone.",
         "",
         "Amounts are always positive. Which way money moved is the transaction's type, not the sign. A deposit into a spending category is a refund and lowers that category's spending rather than counting as income.",
+        "",
+        // One guard, about a dozen write paths across four services, and only
+        // the tool that is *about* it can carry the sentence in its own
+        // description. Saying it on every write tool would be the per-tool
+        // convention this string exists to replace, and an agent that meets it
+        // without this has been refused by a rule nothing warned it of.
+        "A plan may cap how many accounts stay active. The rest are frozen: still readable and counted in every total, closed to every write, and no argument you can change gets past that. whoami reports the plan and its ceiling, and list_accounts reports frozen on each account.",
         "",
         // Without this, "no such tool" and "not in your grant" are the same
         // message, character for character: gating is by non-registration, so a

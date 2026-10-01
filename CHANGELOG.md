@@ -865,23 +865,27 @@ ceiling from the chart's own `max_connections` instead of a stock PostgreSQL's
 Kubernetes API endpoint and is unset by default, because a wrong guess locks a
 stack out of the control plane it would need to fix itself.
 
-**Three migrations run at startup, and on one PostgreSQL none rewrites a row.**
+**Four migrations run at startup, and on one PostgreSQL none rewrites a row.**
 `0022_plans_and_billing.sql` creates the five billing tables and alters nothing
 that exists. `0024_active_accounts.sql` adds `ledger_account.active` with a
 constant default of true, which is one catalog change on any PostgreSQL this
 release supports, and every existing account arrives marked active.
-`0023_citus_distribution.sql` does nothing on most deployments: it distributes
-the ledger across a Citus cluster and is gated on the extension being installed,
-so the `single` profile's plain PostgreSQL 18, and any database you bring,
-record it as run and keep the schema they had.
-All three were verified on PostgreSQL 15 and 18, from an empty database and from
-one 0.1.6 left: twenty-five migrations recorded, and every primary and foreign
-key exactly as `0022` left it. On a cluster `0023` rewrites fourteen primary keys
-to carry the owner, rebuilds the indexes on them, and drops five unique
-constraints the new key makes redundant. It is one transaction: it either
-distributes everything or changes nothing, and it is safe to run twice — a second
-gate stops it on a ledger that is already distributed and says so, because moving
-an existing database onto a cluster means running this file by hand.
+`0025_subscription_cancel_at.sql` adds `billing_subscription.cancel_at`,
+nullable and with no default, which is metadata-only for the same reason — and
+on a deployment that never set a Stripe key it is a catalog change to an empty
+table. `0023_citus_distribution.sql` does nothing on most deployments: it
+distributes the ledger across a Citus cluster and is gated on the extension
+being installed, so the `single` profile's plain PostgreSQL 18, and any database
+you bring, record it as run and keep the schema they had.
+All four were verified on PostgreSQL 15 and 18, from an empty database and from
+one 0.1.6 left, and again on 18 once `0025` joined them: twenty-six migrations
+recorded, and every primary and foreign key exactly as `0022` left it. On a
+cluster `0023` rewrites fourteen primary keys to carry the owner, rebuilds the
+indexes on them, and drops five unique constraints the new key makes redundant.
+It is one transaction: it either distributes everything or changes nothing, and
+it is safe to run twice — a second gate stops it on a ledger that is already
+distributed and says so, because moving an existing database onto a cluster
+means running this file by hand.
 `docs/upgrades.md` has what each means for rolling back.
 
 **Deleting a category group no longer depends on which foreign key is
@@ -1311,18 +1315,23 @@ account, so the old wording was wrong about what was being saved.
 a change of plan.** Stripe records "stop at the end of the period" two ways, as
 a flag and as a date, and this deployment read only the flag — so a
 cancellation set by date was stored as renewing, and the tab offered no way to
-undo something it did not know about. A date falling inside the current period
-is now read as the cancellation it is, and the "ending" line and **Keep my
-plan** the tab already had apply unchanged. It needs no migration and no stored
-date, because Stripe moves the period end onto the cancellation date. While a
-cancellation is pending, asking for the other interval is refused with "Your
-plan is set to end. Press Keep my plan before changing it.", and Stripe is sent
-nothing. Before, **Monthly** quietly turned renewal back on, because the
-schedule it creates clears the cancellation, and **Annual** charged the
-difference for a year of a plan that was set to stop. Paying what is owed and
-repeating the plan already held are not changes of interval and still work. A
-cancellation dated more than one period out still reads as renewing until the
-period it falls in; showing the eventual date would take a stored column.
+undo something it did not know about. Both spellings are now one question,
+`cancellationPending`, and the "ending" line and **Keep my plan** the tab
+already had apply unchanged. A date falling inside the current period needs
+nothing stored, because Stripe moves the period end onto it. One dated further
+out is the case the flag is false for — that period really does renew — so the
+day itself is kept, in `billing_subscription.cancel_at`, which
+`0025_subscription_cancel_at.sql` adds. While a cancellation is pending, asking
+for the other interval is refused with "Your plan is set to end. Press Keep my
+plan before changing it.", and Stripe is sent nothing. Before, **Monthly**
+quietly turned renewal back on, because the schedule it creates clears the
+cancellation, and **Annual** charged the difference for a year of a plan that
+was set to stop. Paying what is owed and
+repeating the plan already held are not changes of interval and still work. The
+status line goes on asking the flag alone, because the day it prints beside
+"renews" is the renewal's rather than the ending's; the note saying what ending
+the plan would freeze is where a further-out day is named, which is the one
+place it is a date somebody can act on.
 
 **Two overlapping presses of Annual no longer move the renewal date twice.**
 The upgrade was made at Stripe and stored only after the lock was released —
@@ -1453,6 +1462,22 @@ dim and holds every `:hover` on a family that ships disabled to
 `<button>` inside a `RowMenu` or behind a spread, which is where a census of
 `Button`s could not see that these three said nothing.
 
+**An agent refused for a frozen account is now told something it can act on.**
+The refusal was written for somebody looking at a browser: it names the account
+and offers the two ways out of it, make the account active or upgrade, and an
+MCP token can take neither — buying a plan is one of the three things
+reachable only from a session, and the choice is made once, so resending a
+list does not take a freeze back. A connection over MCP now gets a second
+sentence written for it, naming `whoami` for the plan and its ceiling,
+`list_accounts` for which accounts are frozen, and an archive or a delete
+freeing a place, or the person upgrading, as the only things that lift one.
+The server also says it once, in the instructions every connection reads,
+because one guard refuses writes from ten places across four services and only
+the tool that is *about* the choice could carry the sentence in its own
+description — so an agent met a rule nothing had warned it of, one refusal at
+a time. Nothing an agent sends changes, and the refusal's code, status and
+person-facing sentence are what they were.
+
 **Deleting an account no longer promises to cancel a paid plan nobody had.**
 The note said "Your paid plan is canceled", which was false for a first payment
 that never went through: there is a subscription, deleting the Stripe customer
@@ -1535,6 +1560,20 @@ way that was made safe — one module imports the vendor, and it turns the SDK's
 own telemetry off — is exactly what makes the promise answerable by reading one
 file. A test now holds all three. A new vendor library is still a reviewer's
 job, and the guide says so rather than implying otherwise.
+
+**A check meant to keep personal information out of `/metrics` could not fail.**
+No metric label carries somebody's identity, because whoever can reach that
+endpoint is not the person whose ledger it counts. The check holding that
+promise read the label names off each metric's declaration — and
+`getMetricsAsJSON`, which is what it asked, hands back a metric's help, name,
+type, values and aggregator and no declared names at all, so it read an empty
+list for every metric and passed on anything, a counter labeled with an email
+address included. No metric has ever carried one and none ever shipped: the rule
+held by review, which is the state a check is supposed to replace. It is now
+read where a scrape reads it, off the published values, which is also the only
+side the registry's own `component` label ever appears on. Nothing about what
+`/metrics` serves changes, and it is still absent unless `METRICS_ENABLED` asks
+for it.
 
 **`IDEMPOTENCY_RETENTION_HOURS` now reaches the containers.** The compose recipe
 has documented it since 0.1.6 and never passed it, so an operator who set it got

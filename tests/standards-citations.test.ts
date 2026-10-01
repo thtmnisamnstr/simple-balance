@@ -380,7 +380,11 @@ describe("what the standards guides cite", () => {
    * makes the cheap half of that reading unnecessary.
    */
   it("lands on a line with something on it", () => {
-    const fragment = /^(?:[)}\]>;,]+|<\/\w+>|\w+,|\.\.\.\w+|\{\.\.\.\w+\}|)$/;
+    // `<>` and `</>` belong here for the same reason `});` does: a fragment is
+    // the one JSX tag that names nothing, so a sentence can never be citing it.
+    // A named tag is left out deliberately — `<p>` is thin, but it is at least
+    // an element somebody could have meant.
+    const fragment = /^(?:[)}\]>;,]+|<\/?>|<\/\w+>|\w+,|\.\.\.\w+|\{\.\.\.\w+\}|)$/;
     const landed: string[] = [];
     for (const citation of everyCitation()) {
       if (citation.path === null) continue;

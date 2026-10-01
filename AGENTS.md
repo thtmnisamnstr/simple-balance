@@ -15,7 +15,18 @@
 ## Non-negotiable ledger invariants
 
 - Never represent money with JavaScript/JSON floating-point numbers. Use validated
-  decimal strings and PostgreSQL `numeric(44,18)`.
+  decimal strings and PostgreSQL `numeric(44,18)`. That governs every value
+  reaching a posting, a balance, a report or a stored column. A vendor's price
+  is outside it and may never reach one: it arrives from Stripe as an integer
+  count of the currency's minor units, is rendered once and never stored, summed
+  or posted, and the plan tab divides it by the scale `Intl` already knows in
+  order to show it. The boundary belongs here rather than in a guide alone,
+  because this is the books rule and an invariant that shipped code contradicts
+  stops being believed: without it a reviewer quoting the first sentence either
+  files working code as a violation or copies the division into something that
+  really is a ledger amount. `docs/standards/common.md` §Money that is not a
+  ledger amount owns the four-clause membership test, and `web.md` and
+  `code/client.md` cite it rather than keeping a second copy.
 - Never accept a public `userId`. Derive it from the authenticated `Actor`, and
   scope every finance read/write by that ID.
 - Keep `AUTH_MODE=local` as the default. Google credentials are required only for
@@ -137,7 +148,16 @@
 - Updates/deletes require an expected version. Commits, and creates that write
   postings, require idempotency; a record somebody names is protected by its own
   name being unique, so a second submit fails rather than duplicating. Bulk
-  commits are explicit-ID, validate-first, and atomic.
+  commits are explicit-ID, validate-first, and atomic. The active-account choice
+  is the one update that carries neither, and the reason is in its shape: it
+  states the whole set that stays active, so sending it a second time leaves
+  exactly the state the first call left, and what serializes it is
+  `lockAccountNamespace` rather than a version — an expected version would not
+  stop two requests both taking the last free place, and the lock does. It bumps
+  no version either, because `active` is not reachable through the account edit
+  schema, so a bump would invalidate the expected version in every form somebody
+  had open over a column they were not editing. That is the trade the
+  category-group rule below already makes.
 - Ten thousand rows is the cap, and it is the same number everywhere: a mass
   edit, a mass delete, a commit, and a CSV import. An import that stages more
   than one action can clear is a cap doing damage. A filtered selection is
