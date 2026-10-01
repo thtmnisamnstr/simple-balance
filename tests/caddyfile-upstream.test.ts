@@ -89,7 +89,26 @@ function projectFor(caddyfile: string) {
     ({ path, text }) => directoryOf(path) === directory && /^\s*- \.\/Caddyfile:/m.test(text),
   );
   if (mount === undefined) return undefined;
-  const command = /^#\s+(?:sudo )?docker compose ((?:-f \S+\s*(?:\\\s*#\s+)?)+)up/m.exec(
+  /*
+   * `[ \t]` rather than `\s`, and that is the whole difference between linear
+   * and exponential. The continuation this walks is
+   *
+   *   #   docker compose -f .../compose.yml \
+   *   #                  -f .../compose.caddy.yml up -d
+   *
+   * and the first spelling closed the gap after `-f \S+` with `\s*`, which can
+   * match the newline the continuation group `(?:\\\s*#\s+)?` also consumes.
+   * Two quantifiers able to claim the same characters, inside a `+`, is
+   * catastrophic backtracking: CodeQL reported it as high severity against a
+   * string of many repetitions of `\# -f `. Horizontal space cannot match the
+   * `\` that begins the continuation and cannot match the newline inside it,
+   * so every character now has exactly one owner and the match is linear.
+   *
+   * Rewriting it as a line walk was the alternative and is worse here: the
+   * shape being read is one commented command, and a regex that states that
+   * shape is checkable against the file above it in a way a loop is not.
+   */
+  const command = /^#\s+(?:sudo )?docker compose ((?:-f \S+[ \t]*(?:\\\n#[ \t]*)?)+)up/m.exec(
     mount.text,
   );
   if (command === null) return undefined;

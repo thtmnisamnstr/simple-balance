@@ -417,7 +417,36 @@ describe("what the formatter is pointed at", () => {
     } catch (error) {
       output = String((error as { stdout?: string }).stdout ?? "");
     }
-    const failing = [...output.matchAll(/^(\S+) \(\d+ms\)$/gm)].map(([, path]) => path!);
+    /*
+     * Strip the colour before matching, or this check silently inverts.
+     *
+     * oxfmt writes the path wrapped in SGR escapes when it thinks a terminal is
+     * watching, and GitHub Actions makes it think so — `FORCE_COLOR` is set for
+     * the whole job. The capture then holds
+     * `\x1b[38;2;244;191;117;1mscripts/set-version.mjs\x1b[0m` rather than the
+     * path, so `failing.length` is still five and the count assertion above
+     * still passes, while every `guide.includes()` below fails on a string the
+     * guide could not possibly contain. Green on a laptop, red on CI, and the
+     * failure names the five files the guide *does* name — which reads as the
+     * guide being wrong when it is right.
+     *
+     * Not `NO_COLOR`: oxfmt ignores it, checked here with
+     * `NO_COLOR=1 FORCE_COLOR=1 npx oxfmt --check`, which still colours. Not a
+     * flag either — oxfmt has none. `tsc` is the comparison worth drawing:
+     * `compilerReport` in `tests/typescript-guide.test.ts:197` passes
+     * `--pretty false`, which is the same defence taken at the tool's own
+     * offer. Where a tool makes no offer, the output has to be cleaned here.
+     *
+     * The escape is built rather than written, and that is not style. Spelling
+     * it `/\u001B\[[\d;]*m/` puts a control character in a regex literal,
+     * which is a `no-control-regex` finding — and this file is the one that
+     * counts those findings and names the files they fire in, so the obvious
+     * spelling makes three of its own sibling assertions fail. Taking the
+     * character from `fromCharCode` keeps it out of the pattern source.
+     */
+    const ESCAPE = String.fromCharCode(27);
+    const plain = output.replaceAll(new RegExp(`${ESCAPE}\\[[\\d;]*m`, "g"), "");
+    const failing = [...plain.matchAll(/^(\S+) \(\d+ms\)$/gm)].map(([, path]) => path!);
     expect(says(guide, `${spell(failing.length)} of those files fail a`)).toBe(true);
     const unnamed = failing.filter((path) => !guide.includes(`\`${path}\``));
     expect(unnamed, "list it, or the count above is a number with nothing behind it").toEqual([]);
