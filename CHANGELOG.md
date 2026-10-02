@@ -803,6 +803,41 @@ from one whose sweep has stopped.
 
 ### Changed
 
+**What this product says it is, on every surface that says it.** A competitive
+read in October 2026 found that the lines this repository led on were lines
+somebody else also runs. "Know where your money is, and where it went" opened
+the README and the sign-in screen, and PocketSmith, Tiller, Quicken and Empower
+all run it. "Every account in one place" was feature A1 in the product kit, and
+eight competitors lead on it. What the comparison left standing is the part
+this product has and they describe differently: a figure here can be taken
+apart. So `docs/product/features.json` promotes `numbers-that-tie-out` to A1
+and promotes the two features that are its evidence, the account register and
+the audit history, from tier C to tier B; the capability list in
+`docs/product/facts.json` is reordered to lead on the same thing; and the
+README, `index.html`'s description and the sign-in screen are rewritten around
+it. The marketing site at smpl.money reads both product files, so this is the
+half of the change that reaches a reader.
+
+**Three surfaces said statements arrive on their own, and none of them do.**
+"Bank statements that import and file themselves" was in the README twice, in
+`index.html`'s meta description, in `features.json` as the name of feature A2,
+and on the sign-in screen — which is the first thing a prospective user sees.
+There is no bank connection: the importer is a file picker with a column
+mapper. Each of those now describes the file you downloaded, and the README and
+the feature's own description say outright that nothing arrives from your bank
+by itself. The site has had a rule against implying a connection since it was
+written; this repository had no such rule and was the source the site was
+rewriting from.
+
+**The AI capability is a capability rather than the reason to choose this.**
+`docs/roadmap.md` has recorded since August 2026, from protocol-level
+verification rather than from marketing, that agent access is not the
+differentiator it looked like, and `features.json` already ranked `agents` last
+in tier C. The README had not caught up: it joined the MCP server to the
+double-entry promise in one paragraph, which reads as one claim in two halves.
+It now says which half is which, and `features.json` records in the feature's
+own `why` that PocketSmith ships the same idea down to the permission levels.
+
 **A free plan now freezes the accounts it cannot keep active, instead of
 letting you keep using all of them.** Somebody who drops to the free plan
 with more than three accounts keeps every one of them and chooses three to

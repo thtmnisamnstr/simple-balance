@@ -288,11 +288,12 @@ function SignIn({ error }: { error?: Error }) {
         <div className="brand-mark large">
           <CircleDollarSign size={31} />
         </div>
-        <span className="eyebrow">Personal accounting</span>
-        <h1>Where your money is, and where it went.</h1>
+        <span className="eyebrow">Personal finance</span>
+        <h1>Your money should add up.</h1>
         <p>
-          Every account in one place, bank statements that import and file themselves, and the bills
-          and paychecks you only set up once. Nothing counts until you say so.
+          Every account on one page, with a running balance beside every row. When a total looks
+          wrong, you can open it and find the entry that made it wrong. Nothing counts until you say
+          so.
         </p>
         {error && !(error instanceof ApiClientError && error.code === "UNAUTHORIZED") ? (
           <Alert>{error.message}</Alert>
@@ -914,7 +915,7 @@ function Shell({ session }: { session: Session }) {
           </span>
           <div>
             <strong>{APP_NAME}</strong>
-            <small>Personal accounting</small>
+            <small>Personal finance</small>
           </div>
           <button
             ref={drawerClose}

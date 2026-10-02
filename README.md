@@ -1,17 +1,20 @@
 # Simple Balance
 
-Know where your money is, and where it went. Every account in one place, bank
-statements that import and file themselves, the bills and paychecks you only set
-up once, and reports that go back as far as your books do — on a server you run
-yourself.
+Personal finance that's simple. Every account on one page, and any figure you
+doubt opens into the entries that produced it.
 
+- **Numbers you can follow back.** Every account has a register: each posting
+  with the balance before and after it, so a total that looks wrong has a row
+  you can point at. Corrections are appended rather than written over the top,
+  so what a figure used to say survives the fix.
 - **Every account, one page.** Checking, savings, credit cards, cash, loans,
   investments and crypto wallets, each in its own currency, with balances as of
   any date you ask for.
-- **Statements that file themselves.** Point it at a bank CSV and it works out
+- **Statements, without retyping them.** Point it at a bank CSV and it works out
   the format, maps the columns, and sorts the categories and payees. It flags
   anything that looks like a transaction you already have, and nothing counts
-  until you say so.
+  until you say so. Nothing arrives from your bank on its own — there is no
+  connection to one, and the import is a file you downloaded.
 - **Nothing to remember.** Rent, a salary, a subscription: set it up once and it
   proposes itself when it is due, with an email if you want one.
 - **Reports that add up.** Net worth, income against expense, spending by
@@ -20,9 +23,17 @@ yourself.
   them with.
 
 Underneath it is real double-entry bookkeeping, which is what lets every figure
-on every page trace back to the entries that made it. And it ships a full MCP
-server, so an AI agent can do the filing and the cleanup for you, as far as you
-allowed it to; one allowed only to propose leaves every entry for you to check.
+on every page trace back to the entries that made it. It also ships a full MCP
+server, so an AI agent can do the filing and the cleanup as far as you allowed
+it to; one allowed only to propose leaves every entry for you to check. That is
+a capability rather than a reason to choose this — the market caught up during
+0.2.0, and [the roadmap](docs/roadmap.md) says so in the same words it used
+before it was true.
+
+Run it yourself and there is no plan, no limit and no advertising, because there
+is nobody to bill you. Where an operator configures billing, a free plan keeps
+three accounts in use and carries ads, and the paid plan lifts both;
+[monetization](docs/monetization.md) is the whole of it.
 
 ![The Simple Balance overview: balance, deposits, withdrawals and net cash flow for a month, then accounts and spending by category, reported separately for each currency the ledger holds](docs/images/dashboard.png)
 

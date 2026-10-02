@@ -1108,7 +1108,7 @@ edit.
   browser-only surface if anything here is.
 - **No `CONTRIBUTING.md`**, on a published AGPL project that accepts dependabot
   pull requests. The README carries a `## Contributing` section
-  (`README.md:217`) and `tests/docs-conventions.test.ts` holds it to not
+  (`README.md:228`) and `tests/docs-conventions.test.ts` holds it to not
   answering the question by pointing at the invariants file, so the half that
   was missing is the separate document a forge links to from a pull request
   form. Whether pull requests are taken at all is the owner's answer to give,

@@ -49,20 +49,29 @@ const declared = {
    * Everything a person gets, on every plan. The paid plan adds no
    * capability — it raises the account limit and removes the advertising —
    * so this is deliberately one list rather than two.
+   *
+   * **Ordered, and the order is the same argument `features.json` makes.**
+   * The register and the audit history come first because they are what
+   * makes any other figure here checkable, and a list that opened on the
+   * mechanism — "double-entry ledger" — put the accounting word in front of
+   * the reason anybody would want one. The site reads this list to fill the
+   * "in every plan" block on its pricing page, so an order that disagrees
+   * with the feature tiers publishes two different hierarchies of the same
+   * product.
    */
   capabilities: [
+    "An account register with the balance before and after every posting",
+    "Append-only audit history, where a correction never erases what it corrected",
     "Double-entry ledger, where every transaction settles to zero",
-    "Unlimited transactions and unlimited currencies",
     "Net worth, income and expenses, spending by category, cash flow, balance sheet and trial balance",
-    "Budgets per category or group, with carry-over",
+    "Unlimited transactions and unlimited currencies",
     "CSV import with format detection and duplicate review",
     "CSV export, including multi-currency round trips",
+    "Budgets per category or group, with carry-over",
     "Recurring transactions that propose themselves",
     "Transaction templates",
-    "Bulk edit and delete, up to ten thousand rows",
     "Split transactions across several categories",
-    "An account register with the balance before and after every posting",
-    "Append-only audit history",
+    "Bulk edit and delete, up to ten thousand rows",
     "An MCP server with the same capabilities as the web app",
     "Email reminders, where a mail server is configured",
   ],

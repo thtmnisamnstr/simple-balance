@@ -28,18 +28,18 @@
       "note": "The annual plan is two months cheaper than paying monthly."
     },
     "capabilities": [
+      "An account register with the balance before and after every posting",
+      "Append-only audit history, where a correction never erases what it corrected",
       "Double-entry ledger, where every transaction settles to zero",
-      "Unlimited transactions and unlimited currencies",
       "Net worth, income and expenses, spending by category, cash flow, balance sheet and trial balance",
-      "Budgets per category or group, with carry-over",
+      "Unlimited transactions and unlimited currencies",
       "CSV import with format detection and duplicate review",
       "CSV export, including multi-currency round trips",
+      "Budgets per category or group, with carry-over",
       "Recurring transactions that propose themselves",
       "Transaction templates",
-      "Bulk edit and delete, up to ten thousand rows",
       "Split transactions across several categories",
-      "An account register with the balance before and after every posting",
-      "Append-only audit history",
+      "Bulk edit and delete, up to ten thousand rows",
       "An MCP server with the same capabilities as the web app",
       "Email reminders, where a mail server is configured"
     ],
