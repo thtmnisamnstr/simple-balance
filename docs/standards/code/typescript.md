@@ -416,16 +416,16 @@ in a `.ts` file is correct, and dropping the extension breaks the server build
 and nothing else, which is the worst kind of break: the client bundler forgives
 it, so it passes locally.
 
-**The infrastructure programs invert it, and are correct.** All fifteen relative
+**The infrastructure programs invert it, and are correct.** All sixteen relative
 imports under `deploy/pulumi` drop the extension —
 `import * as sb from "../common"` at `deploy/pulumi/aws/index.ts:6` is the
 shape — because that project sets `"moduleResolution": "node"`
 (`deploy/pulumi/tsconfig.json:5`) and emits CommonJS, where an extension-less
 specifier is what resolves. The rationale above reaches NodeNext and Bundler and
-stops there, so a mechanical sweep that "fixed" those fifteen would break four
+stops there, so a mechanical sweep that "fixed" those sixteen would break five
 programs that compile today. §3.5 is why there are two answers at all.
 
-Four of the fifteen are inside files the application's own compiler reads
+Four of the sixteen are inside files the application's own compiler reads
 (1.4), so one program typechecks both conventions at once. That is not a
 problem — Bundler resolution accepts an extension-less relative specifier — but
 it is why this rule was stated repository-wide for a release without failing
@@ -521,9 +521,10 @@ own carve-out.
 
 ### 3.5 The Pulumi programs are a second TypeScript program
 
-**House**, and mechanized. `deploy/pulumi` is 6,767 lines of first-party
+**House**, and mechanized. `deploy/pulumi` is 7,241 lines of first-party
 TypeScript that this guide did not know existed. It is not a corner: 0.2.0 took
-it from two stacks to four — `aws`, `gcp`, `aws-single`, `oci-single` — and
+it from two stacks to five — `aws`, `gcp`, `oci`, `aws-single`, `oci-single` —
+and
 every rule added here from now on will be asked which of the two programs it is
 about.
 
@@ -537,7 +538,7 @@ for keeping them:
 | Relative imports | end in `.js` (§3.1) | carry no extension (§3.1) |
 | Declined here, on there | — | `noImplicitReturns` (§1.3) |
 | On here, absent there | `erasableSyntaxOnly`, `verbatimModuleSyntax`, `noImplicitOverride`, `noFallthroughCasesInSwitch`, `allowUnreachableCode: false`, `allowUnusedLabels: false` | — |
-| Typecheck | `npm run typecheck`, two projects | `npm run typecheck` inside `deploy/pulumi`, four projects |
+| Typecheck | `npm run typecheck`, two projects | `npm run typecheck` inside `deploy/pulumi`, five projects |
 | In `npm run verify` | yes | no — a separate CI job (`.github/workflows/verify.yml:441-445`) |
 | `oxlint` | yes | yes, same config |
 | `oxfmt` | yes | **no**: `npm run format` is `oxfmt src tests *.ts` (`package.json:28`) |

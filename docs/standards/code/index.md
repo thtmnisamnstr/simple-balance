@@ -279,8 +279,8 @@ and stays that way, because a test reads its layout.
 what this repository is. `npm run lint` is bare `oxlint` (`package.json:26`),
 which walks everything outside `.oxlintrc.json`'s five ignore patterns.
 `npm run format` is `oxfmt src tests *.ts` (`package.json:28`), and
-`format:check` the same three paths (`package.json:29`). Twenty-five tracked
-TypeScript and JavaScript files sit outside them — ten Pulumi modules under
+`format:check` the same three paths (`package.json:29`). Twenty-six tracked
+TypeScript and JavaScript files sit outside them — eleven Pulumi modules under
 `deploy/pulumi`, fourteen scripts under `scripts/`, and
 `public/theme-boot.js`, which `.oxfmtrc.json` ignores anyway — and the linter
 reads all of them while the formatter has never been pointed at one. The two
@@ -292,7 +292,7 @@ format check today: `scripts/capacity/load.mjs`, `scripts/capacity/schedule.mjs`
 `scripts/ralph/git-guard.mjs`, `scripts/ralph/runner.mjs`, and
 `scripts/set-version.mjs` — the tool the release procedure runs first
 (`docs/upgrades.md:1176`). The infrastructure half is the reason nothing has
-broken: all ten Pulumi modules happen to be clean, so the gap has stayed
+broken: all eleven Pulumi modules happen to be clean, so the gap has stayed
 invisible while `npm run verify` went on passing. `typescript.md` §3.5 records
 the same gap from the other end, in the row of its comparison table that reads
 `oxfmt` / yes / **no**.

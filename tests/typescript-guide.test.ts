@@ -51,7 +51,14 @@ const PULUMI = "deploy/pulumi";
 const PULUMI_TSCONFIG = `${PULUMI}/tsconfig.json`;
 
 /** The few counts the guide spells rather than digits, so a cell can be read. */
-const WORDS: Record<string, number> = { three: 3, four: 4, eight: 8, fifteen: 15 };
+const WORDS: Record<string, number> = {
+  three: 3,
+  four: 4,
+  five: 5,
+  eight: 8,
+  fifteen: 15,
+  sixteen: 16,
+};
 
 /**
  * Every `.ts` under `deploy/pulumi`, its own `node_modules` left unwalked.

@@ -180,10 +180,17 @@ Except where a line says otherwise, this applies to all four.
 ## What you bring
 
 - The Pulumi CLI and Node 20 or newer, for all four.
-- For `aws/` and `gcp/`: `kubectl`, and an AWS account with the `aws` CLI (the
-  generated kubeconfig calls `aws eks get-token`), or a GCP project with
-  `gcloud` and `gke-gcloud-auth-plugin`
-  (`gcloud components install gke-gcloud-auth-plugin`).
+- For `aws/`, `gcp/` and `oci/`: `kubectl`, and an AWS account with the `aws`
+  CLI (the generated kubeconfig calls `aws eks get-token`), or a GCP project
+  with `gcloud` and `gke-gcloud-auth-plugin`
+  (`gcloud components install gke-gcloud-auth-plugin`), or an Oracle Cloud
+  tenancy with the `oci` CLI — OKE's kubeconfig calls
+  `oci ce cluster generate-token`, so unlike `oci-single/` that CLI is needed
+  to reach the cluster at all, not only for the commands the outputs print.
+  `pulumi up` itself still needs none of them.
+- For `oci/`: the same compartment and API signing key `oci-single/` wants
+  below, and the same `oci:region`. It builds in one region and spreads the
+  node pool across whatever availability domains that region has.
 - For `aws-single/`: an AWS account whose credentials the Pulumi AWS provider
   can find, and the `aws` CLI with the Session Manager plugin for the shell.
   The credentials may come from the environment or a profile; the region may
@@ -232,8 +239,8 @@ Except where a line says otherwise, this applies to all four.
 
 ```
 deploy/pulumi/
-  package.json          one set of dependencies for both projects
-  tsconfig.json         the base both projects extend
+  package.json          one set of dependencies for every project
+  tsconfig.json         the base every project extends
   common/index.ts       config, validation, cert-manager, the chart
   aws/Pulumi.yaml       the simple-balance-aws project
   aws/index.ts          VPC, EKS, node group, load balancer controller,
@@ -241,6 +248,9 @@ deploy/pulumi/
   gcp/Pulumi.yaml       the simple-balance-gcp project
   gcp/index.ts          VPC, GKE, node pool, node auto-provisioning,
                         the GKE ingress, reserved addresses
+  oci/Pulumi.yaml       the simple-balance-oci project
+  oci/index.ts          VCN, OKE, node pool on Ampere, ingress-nginx on a
+                        network load balancer, a block-volume StorageClass
   single-common/index.ts  the sizing table and the settings both
                         single-machine programs read
   single-common/cloud-init.ts  the two cloud-init documents they send, one

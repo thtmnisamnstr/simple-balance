@@ -8,7 +8,7 @@ provisions.
 | Profile | Machines | The database | Material |
 | --- | --- | --- | --- |
 | `single` | Two: an application node and a database node | **PostgreSQL 18, on the database node**, provisioned by the same `pulumi up` | `deploy/compose/single/`, `deploy/systemd/`, `deploy/pulumi/aws-single/`, `deploy/pulumi/oci-single/` |
-| `ha` | A Kubernetes cluster | **PostgreSQL 18 + Citus**, a StatefulSet per Citus group under Patroni | `deploy/helm/simple-balance/`, `deploy/pulumi/aws/`, `deploy/pulumi/gcp/`, `deploy/docker/citus.Dockerfile` — `docs/citus.md` and `docs/citus-runbook.md` |
+| `ha` | A Kubernetes cluster | **PostgreSQL 18 + Citus**, a StatefulSet per Citus group under Patroni | `deploy/helm/simple-balance/`, `deploy/pulumi/aws/`, `deploy/pulumi/gcp/`, `deploy/pulumi/oci/`, `deploy/docker/citus.Dockerfile` — `docs/citus.md` and `docs/citus-runbook.md` |
 
 The database is the distinction worth reading twice. `single` puts it on a
 machine of its own with no public address, which is the smallest shape that owns
@@ -80,7 +80,7 @@ false, because a values file written for 0.1.6 has no `database` key and a
 default that flipped would start a Citus cluster underneath a deployment that
 already has a database. Both shapes opt in with `-f`.
 
-The Pulumi programs for EKS and GKE build the redundant shape: they exist to set
+The Pulumi programs for EKS, GKE and OKE build the redundant shape: they exist to set
 up autoscaling and disruption budgets, which the small shape turns off. Reach
 the small shape with `helm` against a cluster you have.
 
@@ -264,6 +264,7 @@ a default is invisible in both.
 | `single` on Oracle Cloud, both data volumes and both boot volumes | OCI encrypts every boot and block volume at rest and offers no way to turn it off. The key is Oracle's own unless `simple-balance:kmsVaultOcid` and `simple-balance:kmsKeyOcid` name one of yours, and `tests/single-encryption.test.ts` holds the program to that: no key appears unless one is configured |
 | `ha` on EKS, the database's volumes | A `simple-balance-gp3-encrypted` StorageClass the program creates, `encrypted: "true"`, named into `database.persistence.storageClass`. EKS also needs the `aws-ebs-csi-driver` addon and its IRSA role, which the program now installs — without it a PVC from the StatefulSet sits `Pending` forever |
 | `ha` on GKE, the database's volumes | Google-encrypted persistent disks, on a `simple-balance-pd-balanced` StorageClass the program creates |
+| `ha` on OKE, the database's volumes | Oracle-encrypted block volumes, on a `simple-balance-block` StorageClass the program creates, paravirtualized and at the balanced performance tier. No `kmsKeyId`, for the reason the single profile gives: a key of our own here buys a key policy to get wrong and a way to be locked out of the ledger's own volume |
 | `ha`, the Kubernetes Secrets holding `DATABASE_URL`, `AUTH_SECRET`, `STRIPE_SECRET_KEY` and the database's own passwords | Envelope encryption in etcd against a KMS key each program creates: `encryptionConfigKeyArn` on EKS, `databaseEncryption` on GKE. This is the one place a program *creates* a key rather than accepting one, because neither cloud offers a managed key for it — and it is the one exception to the rule below, which is that a program accepts a key and never makes one |
 
 ### A customer-managed key, if you ask for one
