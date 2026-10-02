@@ -36,6 +36,10 @@ const stripe = vi.hoisted(() => ({
   fetchSubscriptionSnapshot: vi.fn(),
   fetchSubscriptionClientSecret: vi.fn(),
   createStripeSetupIntent: vi.fn(),
+  fetchStripeSetupIntent: vi.fn(),
+  setStripeDefaultPaymentMethod: vi.fn(),
+  openStripeInvoiceFor: vi.fn(),
+  payStripeInvoice: vi.fn(),
   keepCardThatPays: vi.fn(),
   fetchOwedPayment: vi.fn(),
 }));
@@ -45,6 +49,7 @@ vi.mock("../../src/server/stripe.js", async (importOriginal) => ({
 }));
 
 import {
+  confirmPaymentSetup,
   createPaymentSetup,
   getBillingStatus,
   runBillingReconciliation,
@@ -92,6 +97,9 @@ beforeEach(() => {
   });
   stripe.keepCardThatPays.mockResolvedValue(false);
   stripe.fetchOwedPayment.mockResolvedValue(null);
+  stripe.setStripeDefaultPaymentMethod.mockResolvedValue(undefined);
+  stripe.openStripeInvoiceFor.mockResolvedValue(null);
+  stripe.payStripeInvoice.mockResolvedValue(undefined);
 });
 
 /**
@@ -228,6 +236,110 @@ integration("paying what is owed on a deployment that has stopped selling", () =
       );
       // And nothing about that made this deployment a seller again.
       expect((await getBillingStatus(actor)).selling).toBe(false);
+    });
+
+    /**
+     * The other half of replacing a card, and the door the subscribe button's
+     * refusal was walked around through. `confirmPaymentSetup` pins the card
+     * and then collects whatever is outstanding, which is right for a failed
+     * renewal and is a *sale* for a first payment that was never finished:
+     * `sellsSomething` says so, and `setSubscription` answers exactly that
+     * press with `{selling: false}`. Collected here, the subscription went
+     * `active` and the card was charged on a deployment whose own entitlement
+     * answers `{billing: false}` — money taken for nothing the free tier does
+     * not already give, by the one call deliberately left unrefused.
+     *
+     * Both halves are asserted, because the fix is not "refuse the call": the
+     * card must still be pinned, or somebody whose card expired loses the only
+     * way back on a deployment least able to get it fixed.
+     */
+    it("pins the card but does not finish a first payment, which is the sale", async () => {
+      const actor = await seed("wound-down-confirm", "incomplete");
+      stripe.fetchStripeSetupIntent.mockResolvedValue({
+        status: "succeeded",
+        customerId: "cus_wound-down-confirm",
+        paymentMethodId: "pm_wound_down",
+        paymentMethodType: "card",
+        paymentMethodCreated: new Date(),
+      });
+      stripe.fetchSubscriptionSnapshot.mockImplementation(async (id: string) => ({
+        stripeSubscriptionId: id,
+        status: "incomplete",
+        priceId: "price_yearly",
+        currentPeriodEnd: null,
+        cancelAtPeriodEnd: false,
+        scheduledPriceId: null,
+        scheduledAt: null,
+        syncedAt: new Date(),
+        stripeCustomerId: null,
+      }));
+      // There really is an open invoice to take, so nothing but the guard
+      // stands between this press and the charge.
+      stripe.openStripeInvoiceFor.mockResolvedValue("in_wound_down_first");
+
+      await expect(
+        confirmPaymentSetup(actor, {
+          setupIntentId: "seti_wd_confirm",
+          idempotencyKey: "wound-down-confirm-1",
+        }),
+      ).resolves.toEqual({
+        attached: true,
+        paidInvoice: false,
+        invoice: "none",
+        declineMessage: null,
+      });
+
+      expect(stripe.payStripeInvoice).not.toHaveBeenCalled();
+      expect(stripe.setStripeDefaultPaymentMethod).toHaveBeenCalledWith(
+        expect.objectContaining({
+          customerId: "cus_wound-down-confirm",
+          subscriptionId: "sub_wound-down-confirm",
+          paymentMethodId: "pm_wound_down",
+        }),
+        expect.any(String),
+      );
+    });
+
+    /**
+     * And the narrow half, without which the guard above is "stop collecting".
+     * A renewal Stripe is retrying depends on neither configured price and
+     * sells nothing, so the new card pays it here exactly as it would on a
+     * deployment still selling — which is what the invariant about mail and
+     * money degrading rather than breaking asks for, one surface along.
+     */
+    it("still pays a failed renewal with the new card, because that sells nothing", async () => {
+      const actor = await seed("wound-down-renewal", "past_due");
+      stripe.fetchStripeSetupIntent.mockResolvedValue({
+        status: "succeeded",
+        customerId: "cus_wound-down-renewal",
+        paymentMethodId: "pm_wound_down_renewal",
+        paymentMethodType: "card",
+        paymentMethodCreated: new Date(),
+      });
+      stripe.fetchSubscriptionSnapshot.mockImplementation(async (id: string) => ({
+        stripeSubscriptionId: id,
+        status: "past_due",
+        priceId: "price_yearly",
+        currentPeriodEnd: new Date("2027-01-01T00:00:00.000Z"),
+        cancelAtPeriodEnd: false,
+        scheduledPriceId: null,
+        scheduledAt: null,
+        syncedAt: new Date(),
+        stripeCustomerId: null,
+      }));
+      stripe.openStripeInvoiceFor.mockResolvedValue("in_wound_down_renewal");
+
+      await expect(
+        confirmPaymentSetup(actor, {
+          setupIntentId: "seti_wd_renewal",
+          idempotencyKey: "wound-down-renewal-1",
+        }),
+      ).resolves.toMatchObject({ paidInvoice: true, invoice: "paid" });
+
+      expect(stripe.payStripeInvoice).toHaveBeenCalledWith(
+        "in_wound_down_renewal",
+        expect.stringMatching(/:invoice$/),
+      );
     });
 
     /**

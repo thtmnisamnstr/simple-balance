@@ -178,14 +178,18 @@ export async function deleteOwnAccount(
     throw validationError("Type the email address on this account to confirm deleting it.");
   }
 
+  // The receipt first, because the next statement changes one of its answers:
+  // closing the billing marks the live subscriptions canceled, and
+  // `activeSubscription` is what this person held when they asked, not what is
+  // left once the asking has been acted on.
+  const removed = await summarizeOwnData(actor);
+
   // Before anything is destroyed, and it refuses rather than warns. The
   // `billing_customer` row cascades away with the user, so a subscription left
   // running at Stripe afterward belongs to nobody: it goes on charging
   // somebody who asked to be forgotten, and reconciliation cannot repair it
   // because it compares Stripe against rows that no longer exist.
   await closeBillingForDeletion(actor);
-
-  const removed = await summarizeOwnData(actor);
 
   await db.transaction(async (tx) => {
     // No user column on this one, so the cascade cannot see it, and three

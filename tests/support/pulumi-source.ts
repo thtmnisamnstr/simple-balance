@@ -27,6 +27,11 @@ export const readProgram = (relative: string) => readFileSync(path.join(root, re
 export const AWS_SINGLE = "deploy/pulumi/aws-single/index.ts";
 export const OCI_SINGLE = "deploy/pulumi/oci-single/index.ts";
 
+/** The three `ha` programs, one per managed-Kubernetes cloud. */
+export const AWS_CLUSTER = "deploy/pulumi/aws/index.ts";
+export const GCP_CLUSTER = "deploy/pulumi/gcp/index.ts";
+export const OCI_CLUSTER = "deploy/pulumi/oci/index.ts";
+
 /**
  * The program with every comment blanked to spaces, for a check about what it
  * does rather than what it says.

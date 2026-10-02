@@ -2250,3 +2250,219 @@ describe("the viewport the payment form needs", () => {
     expect(content).not.toMatch(/maximum-scale|user-scalable/);
   });
 });
+
+/**
+ * Stripe's "Special cases" (https://docs.stripe.com/currencies#special-cases),
+ * which are the one thing `Intl` cannot answer about a price.
+ *
+ * `formatPrice` divides Stripe's integer by the currency's scale, and for
+ * ordinary currencies that is right — Stripe charges USD at two, JPY at zero
+ * and KWD at three, exactly as CLDR records them. For four currencies it is
+ * not. ISK and UGX "transitioned to a zero-decimal currency, but backward
+ * compatibility requires you to represent it as a two-decimal value… to charge
+ * 5 ISK, provide an `amount` value of 500"; HUF and TWD are zero-decimal "for
+ * payouts, even though you can charge two-decimal amounts", and a price is a
+ * charge. `Intl` gives the first three no fraction digits at all, so dividing
+ * by the currency's own scale stated a figure a hundred times what Stripe
+ * would take — on the button somebody presses to subscribe, and inside the
+ * automatic-renewal disclosure beside it.
+ */
+const SPECIAL_CASES = [
+  // 500000 is ISK 5,000 by Stripe's own worked example, and read ISK 500,000.
+  { currency: "isk", unitAmount: 500_000, reads: "ISK 5,000" },
+  { currency: "ugx", unitAmount: 500_000, reads: "UGX 5,000" },
+  { currency: "huf", unitAmount: 300_000, reads: "HUF 3,000" },
+  // Forint can carry a fraction where the króna cannot, so the digits after
+  // the point have to survive the correction as well as the magnitude.
+  { currency: "huf", unitAmount: 1045, reads: "HUF 10.45" },
+  // Already right, because CLDR and Stripe happen to agree about the New
+  // Taiwan dollar. Here so that staying right is checked rather than assumed:
+  // this table's membership is the vendor's list, not wherever the two
+  // disagree this year.
+  { currency: "twd", unitAmount: 3000, reads: "NT$30.00" },
+];
+
+/** Currencies where `Intl` is the whole answer, which is every other one. */
+const ORDINARY = [
+  { currency: "usd", unitAmount: 3000, reads: "$30.00" },
+  { currency: "jpy", unitAmount: 3000, reads: "¥3,000" },
+  { currency: "kwd", unitAmount: 30_000, reads: "KWD 30.000" },
+];
+
+/**
+ * What a control says, with every space treated alike.
+ *
+ * `Intl` separates a currency code from its number with U+00A0, a no-break
+ * space, which is not the character anybody types into a test, and a mismatch
+ * there would read as the figure being wrong. Compared as text
+ * rather than queried by name, so a wrong figure fails saying what it found
+ * beside what it wanted, rather than that no button matched a predicate.
+ */
+const sameWords = (element: HTMLElement) => element.textContent?.replaceAll(/\s/gu, " ");
+
+const pricedIn = (currency: string, unitAmount: number) =>
+  status({
+    prices: {
+      monthly: { id: "price_monthly", unitAmount, currency, interval: "month" },
+      yearly: { id: "price_yearly", unitAmount, currency, interval: "year" },
+    },
+  });
+
+describe("a price Stripe charges at its own scale", () => {
+  it("is divided by Stripe's scale and not the currency's", async () => {
+    for (const { currency, unitAmount, reads } of SPECIAL_CASES) {
+      mount(pricedIn(currency, unitAmount));
+      const annual = await screen.findByRole("button", { name: /^Annual/ });
+      expect(sameWords(annual), `${unitAmount} minor units of ${currency}`).toBe(
+        `Annual — ${reads} a year`,
+      );
+      // And in the automatic-renewal disclosure, which is the figure consent
+      // is given against rather than a label on a button.
+      const terms = screen.getByText(/renews automatically until you cancel/).closest("div")!;
+      expect(sameWords(terms), `the renewal terms for ${currency}`).toContain(
+        `Annual charges ${reads} a year`,
+      );
+      cleanup();
+    }
+  });
+
+  it("leaves every other currency to Intl", async () => {
+    for (const { currency, unitAmount, reads } of ORDINARY) {
+      mount(pricedIn(currency, unitAmount));
+      const annual = await screen.findByRole("button", { name: /^Annual/ });
+      expect(sameWords(annual), `${unitAmount} minor units of ${currency}`).toBe(
+        `Annual — ${reads} a year`,
+      );
+      cleanup();
+    }
+  });
+});
+
+/**
+ * The plan tab against a server that answers everything but one path, which it
+ * never answers at all — so whatever that request started stays in flight for
+ * as long as the test looks at it.
+ */
+function mountWithHang(billing: BillingStatus, hangs: string, clientSecret: string | null = null) {
+  const asked: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string) => {
+      const at = String(path);
+      asked.push(at);
+      if (at === hangs) return new Promise<Response>(() => {});
+      return Response.json(
+        at === "/api/v1/billing"
+          ? billing
+          : { subscriptionId: "sub_1", clientSecret, status: "active" },
+      );
+    }),
+  );
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <PlanPage session={session} />
+    </QueryClientProvider>,
+  );
+  return asked;
+}
+
+/** Every control on screen that says it is working, by name. */
+const saysWorking = () =>
+  screen
+    .getAllByRole("button")
+    .filter((button) => button.getAttribute("aria-busy"))
+    .map((button) => button.textContent);
+
+/**
+ * One press, one spinner.
+ *
+ * Four mutations shared one `busy` boolean and every button on the tab was
+ * given it as `loading`. `Button` turns `loading` into a spinner, `aria-busy`
+ * and an sr-only "Working…" *inside* the button, and `.sr-only` is clip-based
+ * rather than `display: none`, so that word joins the accessible name: pressing
+ * Cancel at period end told a screen reader that four controls were working and
+ * renamed three of them to things like "Working… Annual — $30.00 a year". SC
+ * 4.1.2, on the tab where money is spent. `App.tsx`'s consent screen carries
+ * the same note from the release before, found there on a pair of buttons.
+ *
+ * The other half matters as much: they must still be *disabled*, because only
+ * one of these may run at a time, and that is what `web.md` 12.3 exempts from
+ * carrying a reason — the pressed button's spinner is the answer.
+ */
+describe("a press on the plan tab", () => {
+  it("marks the pressed button busy and leaves the others' names alone", async () => {
+    mountWithHang(
+      status({ subscription: subscription() }),
+      "/api/v1/billing/subscription/cancellation",
+    );
+    const cancel = await screen.findByRole("button", { name: "Cancel at period end" });
+    // Held as elements before the press, because the name of the one pressed
+    // changes and the names of the rest are what is being checked.
+    const others = screen
+      .getAllByRole("button")
+      .filter((button) => button !== cancel && button.textContent !== "");
+    expect(others.length, "the row this is about is on screen").toBeGreaterThan(1);
+    const namesBefore = others.map((button) => button.textContent);
+
+    fireEvent.click(cancel);
+
+    await waitFor(() => expect(cancel).toHaveAttribute("aria-busy", "true"));
+    // By their names, so a failure reads as the three that should not be here
+    // rather than as four DOM nodes.
+    expect(saysWorking(), "one press, one busy control").toEqual([cancel.textContent]);
+    expect(
+      screen.getAllByRole("button").find((button) => button.getAttribute("aria-busy")),
+      "and it is the one that was pressed",
+    ).toBe(cancel);
+    expect(
+      others.map((button) => button.textContent),
+      "a name nobody touched",
+    ).toEqual(namesBefore);
+    for (const button of others) {
+      expect(button, `${button.textContent} is blocked while the press runs`).toBeDisabled();
+    }
+  });
+
+  /**
+   * And the press has to stop owning the spinner once it is over, or the next
+   * thing to run borrows it.
+   *
+   * `pressed` is cleared by each mutation's `onSettled`, and the card form's
+   * own confirmation is what makes that load-bearing rather than tidy: it sets
+   * nothing, because it is the form's spinner to show and no button's, and it
+   * runs while "Change payment method" — the button that opened the form — is
+   * still on screen. Left set, that button would spin for a request somebody
+   * made from inside the form.
+   */
+  it("hands the spinner back before the form confirms its own card", async () => {
+    stripeAnswers({
+      confirmSetup: async () => ({ setupIntent: { id: "seti_1", status: "succeeded" } }),
+    });
+    const confirmations = "/api/v1/billing/payment-setups/confirmations";
+    const asked = mountWithHang(
+      status({ subscription: subscription() }),
+      confirmations,
+      "seti_card_secret_1",
+    );
+    // Matched on the end of the name, so a button that has wrongly been given
+    // "Working…" is still found and reported rather than simply missing.
+    const opener = () => screen.getByRole("button", { name: /Change payment method$/ });
+    fireEvent.click(await screen.findByRole("button", { name: "Change payment method" }));
+    const form = await paymentForm("Payment method");
+    const save = await within(form).findByRole("button", { name: "Save this payment method" });
+
+    fireEvent.click(save);
+
+    // Stripe has answered the form and the page is pinning the method it
+    // saved, which is the window this is about: the form is still open, its
+    // own submit is working, and every button on the tab behind it is
+    // blocked. Waited for by the request rather than by that spinner, because
+    // the form sets its own `busy` before it even calls Stripe.
+    await waitFor(() => expect(asked).toContain(confirmations));
+    // Queried again rather than held, because opening the form remounted this
+    // row and the node from before the press is no longer the one on screen.
+    expect(opener(), "the confirmation really is still running").toBeDisabled();
+    expect(saysWorking(), "the form's request, and the form's spinner").toEqual([save.textContent]);
+  });
+});

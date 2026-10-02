@@ -289,7 +289,7 @@ numbers above are today's and the test is what keeps the rule.
 **Binding**, for a write that changes something somebody edited. The caller sends
 the version it read; the service compares, throws `staleVersion` if it moved,
 and bumps on success
-(`updateAccount`, `src/server/services/accounts.ts:1037`).
+(`updateAccount`, `src/server/services/accounts.ts:1050`).
 
 This said "everywhere, no exceptions" for a release, and that was false in both
 halves by the time it was written. `setActiveAccounts` takes no expected version
@@ -602,9 +602,9 @@ instances. The class is `human`: no program knows which paths are siblings.
 
 **Binding.** The largest guard added in 0.2.0 is the account freeze, and it is
 built the only way a guard over a plan can be: `accountFreeze(tx, actor)`
-(`src/server/services/accounts.ts:778`) reads the entitlement **on the caller's
+(`src/server/services/accounts.ts:788`) reads the entitlement **on the caller's
 transaction**, and `assertAccountsWritable(freeze, ids)`
-(`src/server/services/accounts.ts:832`) refuses against what that read said.
+(`src/server/services/accounts.ts:842`) refuses against what that read said.
 Fifteen declarations across five modules take the freeze, and ten of them call
 the assertion.
 
@@ -633,7 +633,7 @@ repairable instead of killing the batch it arrived in. It is also what archiving
 already throws, and a frozen account is the same kind of no.
 
 **The pool-side read is a second function, not an optional parameter.**
-`readAccountFreeze(actor)` (`src/server/services/accounts.ts:768`) exists for
+`readAccountFreeze(actor)` (`src/server/services/accounts.ts:778`) exists for
 `getAccount`, which holds no transaction. Giving `accountFreeze` an optional
 `tx` would have been one function instead of two, and it is exactly the shape
 2.1's second half forbids: a helper handed a transaction must never be able to
@@ -674,11 +674,11 @@ Nine update statements in this directory take it, in seven declarations, and
 every one argues it in a comment beside the write. They cross-cite each other,
 which is how you can tell it is one decision made once:
 
-- `setActiveAccounts` (`src/server/services/accounts.ts:905`) — "`active` is not
+- `setActiveAccounts` (`src/server/services/accounts.ts:915`) — "`active` is not
   part of `accountUpdateSchema` and nothing edits it through that path, so a
   bump here would invalidate the expected version in every form somebody had
   open for a reason that has nothing to do with what they were editing."
-- `markFittingAccountsActive` (`src/server/services/accounts.ts:860`) — the same
+- `markFittingAccountsActive` (`src/server/services/accounts.ts:870`) — the same
   column from the other direction, and it says "like `setActiveAccounts`".
 - `proposeDueOccurrences` (`src/server/services/recurrences.ts:313`) — "a tick
   advancing a watermark is not a change to what they configured".

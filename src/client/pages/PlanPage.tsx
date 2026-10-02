@@ -573,6 +573,45 @@ function RenewalTerms({
   );
 }
 
+/**
+ * The scale Stripe *charges* at, for the currencies where it is not the
+ * currency's own.
+ *
+ * `Intl` answers how many minor units make a major one, and for ordinary
+ * currencies that is the whole answer — USD 2, JPY 0, KWD 3, and Stripe agrees
+ * with every one of them. Four currencies it does not agree about, and it
+ * publishes them itself under "Special cases"
+ * (https://docs.stripe.com/currencies#special-cases):
+ *
+ * - **ISK** and **UGX** "transitioned to a zero-decimal currency, but backward
+ *   compatibility requires you to represent it as a two-decimal value… to
+ *   charge 5 ISK, provide an `amount` value of 500". CLDR records the currency,
+ *   which is now zero-decimal, so `Intl` says 0 and dividing by 1 left the
+ *   figure a hundred times what Stripe would take.
+ * - **HUF** and **TWD**: "Stripe treats HUF as a zero-decimal currency *for
+ *   payouts*, even though you can charge two-decimal amounts." A price is a
+ *   charge, so both are two here. `Intl` already says 2 for TWD and 0 for HUF,
+ *   which is why HUF was wrong and TWD was right by coincidence — it is
+ *   written down anyway, because this table's membership is the vendor's list
+ *   rather than wherever the two happen to disagree this year.
+ *
+ * This is not the per-currency scale table `common.md` §Money that is not a
+ * ledger amount turned down — that one would restate what `Intl` already knows
+ * and go stale against a currency nobody tested. This is the vendor's own
+ * documented deviation from it, four currencies long, and `Intl` still answers
+ * for the other 130-odd.
+ */
+const STRIPE_CHARGE_DIGITS: Record<string, number> = { ISK: 2, UGX: 2, HUF: 2, TWD: 2 };
+
+/**
+ * Every button on this tab that starts something, so a press can name itself.
+ *
+ * `finish` is one slot holding two spellings — "Pay what is owed" and "Finish
+ * your payment" are a ternary on the subscription's status and never both on
+ * screen.
+ */
+type Press = "finish" | "pay" | "yearly" | "monthly" | "release" | "card" | "keep" | "cancel";
+
 /** An amount as Stripe holds it: minor units, and a currency that says how many. */
 function formatPrice(price: { unitAmount: number | null; currency: string } | null) {
   if (!price || price.unitAmount === null) return null;
@@ -588,12 +627,27 @@ function formatPrice(price: { unitAmount: number | null; currency: string } | nu
   // stored, summed or posted, and the division is undone immediately by
   // `Intl.format` rounding to the same number of digits it was scaled by. Do
   // not copy this into anything that touches a posting.
-  const formatter = new Intl.NumberFormat(undefined, {
+  const currency = price.currency.toUpperCase();
+  // What the currency itself says, which is what `Intl` resolves to unasked.
+  const shown =
+    new Intl.NumberFormat(undefined, { style: "currency", currency }).resolvedOptions()
+      .maximumFractionDigits ?? 2;
+  // What Stripe scaled the integer by — the same number everywhere but the
+  // four currencies above, where its own documentation says otherwise.
+  const scale = STRIPE_CHARGE_DIGITS[currency] ?? shown;
+  return new Intl.NumberFormat(undefined, {
     style: "currency",
-    currency: price.currency.toUpperCase(),
-  });
-  const digits = formatter.resolvedOptions().maximumFractionDigits ?? 2;
-  return formatter.format(price.unitAmount / 10 ** digits);
+    currency,
+    // At least what the currency shows and at most what Stripe can charge, so
+    // neither a digit nor a fraction goes missing: ISK 500 reads "5" rather
+    // than "5.00", because the króna has no subunit and Stripe guarantees
+    // those two digits are zero, while a HUF price of 1045 keeps its ".45",
+    // because Stripe will take it. Wherever the two scales agree — every
+    // currency but those four — both are the number `Intl` would have chosen
+    // on its own, so nothing about the figure changes.
+    minimumFractionDigits: shown,
+    maximumFractionDigits: Math.max(shown, scale),
+  }).format(price.unitAmount / 10 ** scale);
 }
 
 /**
@@ -863,6 +917,12 @@ export function PlanPage({
   const paymentPanel = useRef<HTMLElement>(null);
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<PendingConfirmation | null>(null);
+  // Which button was pressed, not merely that one was. Set as each press goes
+  // out and cleared by that mutation's `onSettled`, so it is non-null only
+  // while something really is in flight — the one claim `working` below rests
+  // on. Never set by the card form's own confirmation, which is the form's
+  // spinner to show and none of these buttons'.
+  const [pressed, setPressed] = useState<Press | null>(null);
   const openSecret = pending?.secret ?? null;
   const painted = usePaintedTheme();
   const [fieldLook, setFieldLook] = useState<FieldMetrics>({});
@@ -969,6 +1029,9 @@ export function PlanPage({
       if (text) setNotice({ kind: "success", text, focus: true });
     },
     onError: (error: Error) => refusedWith(error),
+    // After `onSuccess`, which this awaits, so a button stays working for the
+    // whole of what it started rather than for the request alone.
+    onSettled: () => setPressed(null),
   });
 
   const setCancellation = useMutation({
@@ -987,6 +1050,7 @@ export function PlanPage({
       });
     },
     onError: (error: Error) => refusedWith(error),
+    onSettled: () => setPressed(null),
   });
 
   const confirmCard = useMutation({
@@ -1017,6 +1081,7 @@ export function PlanPage({
       if (result.clientSecret) setPending({ secret: result.clientSecret, kind: "setup" });
     },
     onError: (error: Error) => refusedWith(error),
+    onSettled: () => setPressed(null),
   });
 
   /**
@@ -1160,8 +1225,22 @@ export function PlanPage({
   // beside any request to start one have to state: 17601(b)(3) makes the
   // recurring charge one of the terms, and "its price once a year" is not it.
   const priced = (interval: BillingInterval) => formatPrice(priceOf(interval)) !== null;
-  const busy =
+  // Any of the four in flight, and the "any" is the whole of what was wrong
+  // with handing this to every button as `loading`: `Button` turns `loading`
+  // into a spinner, `aria-busy` and an sr-only "Working…" inside the
+  // button's own name, so one press told a screen reader that four controls
+  // were working and renamed three of them to things like "Working… Annual
+  // — $30.00 a year". `App.tsx`'s consent screen carries the same note,
+  // found a release earlier on a pair rather than on a row of four.
+  const anyPending =
     choose.isPending || setCancellation.isPending || replaceCard.isPending || confirmCard.isPending;
+  // The one button that may say it is working: the one pressed, and only while
+  // its mutation really is running. Every other button is plainly disabled
+  // instead, because only one of these may run at a time and `web.md` 12.3
+  // exempts exactly that from carrying a reason — the sibling's spinner is
+  // the answer, and a reason beside it would be a second answer to a question
+  // already answered. `tests/field-contract.test.tsx` names this file for it.
+  const working = anyPending ? pressed : null;
   // A payment form is open. It is the one way to pay while it is: the buttons
   // that open it — Finish your payment, Pay what is owed, Pay now — stayed
   // drawn beside it as a second primary button for the same payment, one of
@@ -1189,9 +1268,14 @@ export function PlanPage({
     : null;
   const actionFor = (requested: BillingInterval) => subscriptionAction({ current, requested });
   const takesEffect = (requested: BillingInterval) => planChangeTakesEffect(actionFor(requested));
-  /** Every press that asks for a plan, carrying what the press is for the sentence after it. */
-  const press = (interval: BillingInterval, purpose: PaymentPurpose) =>
+  /**
+   * Every press that asks for a plan, carrying what the press is for the
+   * sentence after it, and which button made it so only that one says so.
+   */
+  const press = (interval: BillingInterval, purpose: PaymentPurpose, id: Press) => {
+    setPressed(id);
     choose.mutate({ interval, purpose, action: actionFor(interval).kind });
+  };
   // A subscription waiting for its first payment. Stripe holds it for 23 hours
   // and then expires it, so this state is not rare — it is what a closed tab or
   // a declined card leaves behind — and it needs a way back to the form rather
@@ -1743,11 +1827,19 @@ export function PlanPage({
             {finishInterval && !paymentOpen ? (
               <div className="form-actions">
                 {subscription?.status === "unpaid" ? (
-                  <Button onClick={() => press(finishInterval, "settle")} loading={busy}>
+                  <Button
+                    onClick={() => press(finishInterval, "settle", "finish")}
+                    loading={working === "finish"}
+                    disabled={anyPending}
+                  >
                     Pay what is owed
                   </Button>
                 ) : (
-                  <Button onClick={() => press(finishInterval, "upgrade")} loading={busy}>
+                  <Button
+                    onClick={() => press(finishInterval, "upgrade", "finish")}
+                    loading={working === "finish"}
+                    disabled={anyPending}
+                  >
                     Finish your payment
                   </Button>
                 )}
@@ -1756,7 +1848,11 @@ export function PlanPage({
 
             {payableInterval && !paymentOpen ? (
               <div className="form-actions">
-                <Button onClick={() => press(payableInterval, "settle")} loading={busy}>
+                <Button
+                  onClick={() => press(payableInterval, "settle", "pay")}
+                  loading={working === "pay"}
+                  disabled={anyPending}
+                >
                   Pay now
                 </Button>
               </div>
@@ -1787,10 +1883,10 @@ export function PlanPage({
                     in the other. Letting it go has its own button now. */}
                 {offered.includes("yearly") ? (
                   <Button
-                    onClick={() => press("yearly", "upgrade")}
-                    loading={busy}
+                    onClick={() => press("yearly", "upgrade", "yearly")}
+                    loading={working === "yearly"}
                     aria-describedby={renewalTermsId}
-                    disabled={annualButton.disabled}
+                    disabled={annualButton.disabled || anyPending}
                     disabledReason={annualButton.reason}
                   >
                     {yearly ? `Annual — ${yearly}` : "Annual"}
@@ -1799,10 +1895,10 @@ export function PlanPage({
                 {offered.includes("monthly") ? (
                   <Button
                     variant="secondary"
-                    onClick={() => press("monthly", "upgrade")}
-                    loading={busy}
+                    onClick={() => press("monthly", "upgrade", "monthly")}
+                    loading={working === "monthly"}
                     aria-describedby={renewalTermsId}
-                    disabled={monthlyButton.disabled}
+                    disabled={monthlyButton.disabled || anyPending}
                     disabledReason={monthlyButton.reason}
                   >
                     {monthly ? `Monthly — ${monthly}` : "Monthly"}
@@ -1832,9 +1928,10 @@ export function PlanPage({
                     // secret. `settle` because it is about the plan they are
                     // on, so a secret, were one ever sent, would not be named
                     // an upgrade.
-                    press(releaseInterval, "settle")
+                    press(releaseInterval, "settle", "release")
                   }
-                  loading={busy}
+                  loading={working === "release"}
+                  disabled={anyPending}
                   aria-describedby={
                     releaseTermsShared
                       ? renewalTermsId
@@ -1874,14 +1971,26 @@ export function PlanPage({
 
             {subscription && !owing ? (
               <div className="form-actions">
-                <Button variant="secondary" onClick={() => replaceCard.mutate()} loading={busy}>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setPressed("card");
+                    replaceCard.mutate();
+                  }}
+                  loading={working === "card"}
+                  disabled={anyPending}
+                >
                   Change payment method
                 </Button>
                 {cancellationPending(subscription) ? (
                   <Button
                     variant="secondary"
-                    onClick={() => setCancellation.mutate(false)}
-                    loading={busy}
+                    onClick={() => {
+                      setPressed("keep");
+                      setCancellation.mutate(false);
+                    }}
+                    loading={working === "keep"}
+                    disabled={anyPending}
                     aria-describedby={
                       keptInterval
                         ? keptTermsShared
@@ -1897,8 +2006,12 @@ export function PlanPage({
                 ) : (
                   <Button
                     variant="danger"
-                    onClick={() => setCancellation.mutate(true)}
-                    loading={busy}
+                    onClick={() => {
+                      setPressed("cancel");
+                      setCancellation.mutate(true);
+                    }}
+                    loading={working === "cancel"}
+                    disabled={anyPending}
                   >
                     Cancel at period end
                   </Button>

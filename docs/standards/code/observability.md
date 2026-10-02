@@ -211,7 +211,7 @@ for the reason 1.5 already gives one level down — a count somebody has to
 remember is the count missing from the branch added next release. On this route
 the missing branch is also invisible, because its status matches six others.
 The cost of having no such counter at all is already written down:
-`docs/deployment.md:232` sends anybody asking whether the subscription path
+`docs/deployment.md:242` sends anybody asking whether the subscription path
 worked to `simple_balance_billing_sweeps_total`, which is the twelve-hourly
 catch-up and reports a webhook that has been failing for hours as healthy right
 up to the tick that repairs it.
@@ -354,7 +354,7 @@ deployment that wants structured logs puts a collector in front, and that is the
 collector's job.
 
 **The billing subsystem does the opposite, and this records it rather than
-losing it.** Measured 2026-10-01: 21 lines in `src/server/services/billing.ts`
+losing it.** Measured 2026-10-01: 22 lines in `src/server/services/billing.ts`
 and `src/server/stripe.ts` are written as a dotted event key and a field object
 — `log.warn("billing.reconcile.failed", { error: String(error) })`
 (`src/server/services/billing.ts:2009`) is the shape — and between them they

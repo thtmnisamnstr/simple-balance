@@ -657,6 +657,146 @@ integration("changing the interval before the first payment", () => {
       priceId: "price_yearly",
     });
   });
+
+  /**
+   * The other thing a stored `incomplete` can mean, and the whole reason this
+   * branch may not decide from the stored row alone: Stripe leaves a
+   * subscription `incomplete` while its first PaymentIntent is `processing`,
+   * and this product tells the person to sit through exactly that — "nothing
+   * more is needed from you" — while leaving the other interval's button live
+   * beside the notice. Canceling then voids an open invoice a charge is on its
+   * way to, which `cancelStripeSubscriptionNow` forbids in its own words, and
+   * costs a refund rather than nothing.
+   *
+   * The assertion is that Stripe was never told to cancel, not that the call
+   * threw: a refusal raised after the subscription was destroyed would satisfy
+   * the error check on its own.
+   */
+  it("refuses to abandon a first payment Stripe is still processing", async () => {
+    const actor = await seed("replace-processing");
+    await mapCustomer(actor.userId, "cus_replace_processing");
+    await subscribe(actor.userId, {
+      status: "incomplete",
+      priceId: "price_monthly",
+      currentPeriodEnd: null,
+      syncedAt: new Date(Date.now() - 60_000),
+    });
+    stripe.fetchSubscriptionSnapshot.mockImplementation(async (id: string) =>
+      snapshotOf(id, {
+        status: "incomplete",
+        priceId: "price_monthly",
+        latestInvoiceId: "in_processing",
+      }),
+    );
+    stripe.fetchOwedPayment.mockResolvedValue({
+      invoiceId: "in_processing",
+      failureMessage: null,
+      awaitingAuthentication: false,
+      nextAttemptAt: null,
+      intent: { id: "pi_processing", status: "processing", setupFutureUsage: "off_session" },
+    });
+
+    await expect(
+      setSubscription(actor, { interval: "yearly", idempotencyKey: idempotencyKey() }),
+    ).rejects.toMatchObject({ code: "CONFLICT", details: { paymentSettling: true } });
+
+    expect(stripe.cancelStripeSubscriptionNow).not.toHaveBeenCalled();
+    expect(stripe.createStripeSubscription).not.toHaveBeenCalled();
+    expect(await storedSubscription(actor.userId, "sub_replace-processing")).toMatchObject({
+      status: "incomplete",
+      priceId: "price_monthly",
+    });
+  });
+
+  /**
+   * And one Stripe says has been paid for, which is the same press one state
+   * further on: the payment landed, the delivery that says so has not arrived,
+   * and the stored row still reads `incomplete`. Nothing else on this path
+   * re-reads — `getBillingStatus` heals that row, and pressing a button does
+   * not go through it.
+   */
+  it("refuses to abandon a subscription Stripe says is already active", async () => {
+    const actor = await seed("replace-landed");
+    await mapCustomer(actor.userId, "cus_replace_landed");
+    await subscribe(actor.userId, {
+      status: "incomplete",
+      priceId: "price_monthly",
+      currentPeriodEnd: null,
+      syncedAt: new Date(Date.now() - 60_000),
+    });
+    stripe.fetchSubscriptionSnapshot.mockImplementation(async (id: string) =>
+      snapshotOf(id, { status: "active", priceId: "price_monthly" }),
+    );
+
+    await expect(
+      setSubscription(actor, { interval: "yearly", idempotencyKey: idempotencyKey() }),
+    ).rejects.toMatchObject({ code: "CONFLICT", details: { paymentSettling: true } });
+
+    expect(stripe.cancelStripeSubscriptionNow).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The narrow half, without which the fix above is just "never replace". A
+   * first payment nobody has made leaves its PaymentIntent waiting for a card,
+   * and that is the change of mind this branch exists for: it still abandons
+   * the subscription and still makes the one that was pressed.
+   */
+  it("still abandons a first payment whose intent is waiting for a card", async () => {
+    const actor = await seed("replace-abandoned");
+    await mapCustomer(actor.userId, "cus_replace_abandoned");
+    await subscribe(actor.userId, {
+      status: "incomplete",
+      priceId: "price_monthly",
+      currentPeriodEnd: null,
+      syncedAt: new Date(Date.now() - 60_000),
+    });
+    // Stripe's answer about the abandoned row changes under the cancel, so the
+    // guard's read and the resync afterward cannot both be one literal.
+    let reads = 0;
+    stripe.fetchSubscriptionSnapshot.mockImplementation(async (id: string) => {
+      if (id !== "sub_replace-abandoned") {
+        return snapshotOf(id, { status: "incomplete", priceId: "price_yearly" });
+      }
+      reads += 1;
+      return reads === 1
+        ? snapshotOf(id, {
+            status: "incomplete",
+            priceId: "price_monthly",
+            latestInvoiceId: "in_abandoned",
+          })
+        : snapshotOf(id, { status: "canceled", priceId: "price_monthly" });
+    });
+    stripe.fetchOwedPayment.mockResolvedValue({
+      invoiceId: "in_abandoned",
+      failureMessage: null,
+      awaitingAuthentication: false,
+      nextAttemptAt: null,
+      intent: { id: "pi_abandoned", status: "requires_payment_method", setupFutureUsage: null },
+    });
+    stripe.cancelStripeSubscriptionNow.mockResolvedValue(undefined);
+    stripe.createStripeSubscription.mockResolvedValue({
+      subscriptionId: "sub_abandoned_replacement",
+      clientSecret: "pi_abandoned_replacement_secret",
+      snapshot: snapshotOf("sub_abandoned_replacement", {
+        status: "incomplete",
+        priceId: "price_yearly",
+        syncedAt: new Date(Date.now() - 1000),
+      }),
+    });
+
+    await expect(
+      setSubscription(actor, { interval: "yearly", idempotencyKey: idempotencyKey() }),
+    ).resolves.toMatchObject({ subscriptionId: "sub_abandoned_replacement" });
+
+    // The invoice really was asked about, so this passes by the guard running
+    // and answering "abandoned" rather than by never reaching it.
+    expect(stripe.fetchOwedPayment).toHaveBeenCalledWith("in_abandoned");
+    expect(stripe.cancelStripeSubscriptionNow).toHaveBeenCalledTimes(1);
+    expect(stripe.cancelStripeSubscriptionNow.mock.calls[0]![0]).toBe("sub_replace-abandoned");
+    expect(await storedSubscription(actor.userId, "sub_replace-abandoned")).toMatchObject({
+      status: "canceled",
+    });
+  });
 });
 
 integration("scheduling a change over one already pending", () => {
@@ -2099,6 +2239,84 @@ integration("confirming a replacement card", () => {
       code: "CONFLICT",
       message: expect.stringMatching(/cannot pay this subscription/),
     });
+    expect(stripe.payStripeInvoice).not.toHaveBeenCalled();
+  });
+
+  /**
+   * A first payment is the one outstanding invoice whose collection is a sale,
+   * so this call asks `saleRefusal` before taking it — and on a deployment
+   * that is selling the answer is yes. Without this the narrow guard in
+   * `confirmPaymentSetup` could become "never finish a first payment here",
+   * which is the card form closing over an invoice nothing will ever collect,
+   * on the deployment that was happy to sell it.
+   */
+  it("finishes a first payment with the new card where the deployment is selling", async () => {
+    const actor = await replacing("replace-first-payment", "incomplete");
+    stripe.openStripeInvoiceFor.mockResolvedValue("in_first_payment");
+
+    await expect(confirming(actor)).resolves.toMatchObject({
+      paidInvoice: true,
+      invoice: "paid",
+    });
+    expect(stripe.payStripeInvoice).toHaveBeenCalledWith(
+      "in_first_payment",
+      expect.stringMatching(/:invoice$/),
+    );
+  });
+
+  /**
+   * The other door a sale is refused through, and the one that has nothing to
+   * do with winding down: prices that do not fit the plans they are sold as.
+   * `setSubscription` refuses every press while that is true — a yearly price
+   * on the monthly setting bills a year every month — and collecting the first
+   * payment here would be that same charge, raised by the button beside it.
+   */
+  it("does not finish a first payment while the configured prices do not fit", async () => {
+    const actor = await replacing("replace-first-misfit", "incomplete");
+    stripe.lastPriceCheck.mockReturnValue(misfit);
+    stripe.openStripeInvoiceFor.mockResolvedValue("in_first_misfit");
+
+    await expect(confirming(actor)).resolves.toEqual({
+      attached: true,
+      paidInvoice: false,
+      invoice: "none",
+      declineMessage: null,
+    });
+    expect(stripe.payStripeInvoice).not.toHaveBeenCalled();
+    // The card is pinned all the same: it is the half that is not a sale, and
+    // it is what the subscriber needs in place before the prices are fixed.
+    expect(stripe.setStripeDefaultPaymentMethod).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * The only route here that takes an identifier this deployment did not issue,
+   * and one comparison is the whole of its cross-tenant guard: the SetupIntent
+   * is read back from Stripe and refused unless its customer is the asker's.
+   *
+   * Every other case in this block mocks a matching customer, so the branch
+   * that refuses was taken by nothing. What it costs to lose is not a write —
+   * Stripe will not make a foreign PaymentMethod a customer's default — but the
+   * answer: `notFound` is deliberately the same reply an id that does not exist
+   * gets, and without the comparison the route distinguishes the two, which
+   * makes it an existence oracle for another tenant's Stripe objects.
+   */
+  it("refuses a SetupIntent that belongs to another customer, and writes nothing", async () => {
+    const asker = await replacing("replace-foreign");
+    const other = await seed("replace-foreign-other");
+    await mapCustomer(other.userId, "cus_replace_foreign_other");
+    stripe.fetchStripeSetupIntent.mockResolvedValue({
+      status: "succeeded",
+      customerId: "cus_replace_foreign_other",
+      paymentMethodId: "pm_someone_elses",
+      paymentMethodCreated: new Date(),
+      paymentMethodType: "card",
+    });
+
+    await expect(confirming(asker)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      message: "No such payment setup",
+    });
+    expect(stripe.setStripeDefaultPaymentMethod).not.toHaveBeenCalled();
     expect(stripe.payStripeInvoice).not.toHaveBeenCalled();
   });
 });

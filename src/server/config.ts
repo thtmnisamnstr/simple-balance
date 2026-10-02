@@ -441,6 +441,27 @@ export function getConfig(): AppConfig {
         "SB_BILLING_ENABLED=true, with Stripe configured, to show ads to free accounts.",
     );
   }
+  // The third of the same shape, and the one whose setting says nothing about
+  // billing. The twelve-hourly reconciliation sweep rides the scheduler's tick,
+  // so turning the scheduler off takes it along — and that sweep is the only
+  // repair for a delivery Stripe gave up on or never sent. Without it a
+  // canceled subscriber keeps the paid plan indefinitely, because the
+  // entitlement is read from the stored status and nothing else expires it.
+  //
+  // Warned rather than refused: a deployment that runs a separate scheduler
+  // container turns this off on its web replicas, which is the documented
+  // arrangement and is what the row in `docs/deployment.md` recommends. Nothing
+  // here can see the other process, so the line says what to check rather than
+  // asserting a mistake.
+  if (billing && !recurrenceSchedulerEnabled && isProduction) {
+    console.warn(
+      "Stripe is configured and RECURRENCE_SCHEDULER is false, so this process will " +
+        "not re-read subscriptions Stripe stopped telling it about. A delivery that " +
+        "was never retried leaves somebody on the plan they canceled, or off the one " +
+        "they are paying for, until a process with the scheduler on sweeps. That is " +
+        "correct only if another process here has it on.",
+    );
+  }
   // Publishes the development default to `getPool()`, and only ever that. A
   // value read from `DATABASE_URL_FILE` must not travel this way: putting it
   // into the environment is the one thing the `_FILE` form exists to prevent,

@@ -119,10 +119,10 @@ Except where a line says otherwise, this applies to all four.
   switch on themselves. EKS control plane logs go to CloudWatch and stay there
   until you say otherwise.
 - **No WAF and no bastion, in the `ha` programs.** The Kubernetes API endpoint
-  is reachable from the internet on both clouds by default, because otherwise
+  is reachable from the internet on all three clouds by default, because otherwise
   `pulumi up` has to run from inside the network it is building. Authentication
   still applies. `simple-balance:controlPlaneCidrs` narrows it to a list of
-  CIDRs on either cloud; it is unset by default, because a wrong guess locks a
+  CIDRs on any of them; it is unset by default, because a wrong guess locks a
   stack out of the control plane it would need to fix itself. Nothing else the
   programs build is reachable from the internet, the database least of all.
 - **No secret rotation.** `AUTH_SECRET` signs sessions, so changing it signs
@@ -309,7 +309,7 @@ tables below say which.
 | `simple-balance:acmeEmail` | yes | | The Let's Encrypt account address. Expiry warnings go here. |
 | `simple-balance:database` | no | `external` | `external` or `in-cluster`. `external` is what every release so far has done: you supply `databaseUrl`. `in-cluster` turns on the chart's PostgreSQL 18 with Citus under Patroni, derives the connection string with `sslmode=verify-full` against a CA the chart generates, names the encrypted StorageClass the program creates, and refuses a `databaseUrl` set alongside it rather than letting the chart refuse it mid-rollout. |
 | `simple-balance:databaseUrl` | yes with `database: external`, secret | | Set with `--secret`. Never plaintext. Refused with `database: in-cluster`. |
-| `simple-balance:controlPlaneCidrs` | no | open | Which addresses may reach the Kubernetes API endpoint, separated by commas or spaces. Unset leaves both clouds as they were, which is open to the internet with authentication in front; narrowing it is the operator's call because a wrong guess locks the stack out of the control plane it would need to fix itself. |
+| `simple-balance:controlPlaneCidrs` | no | open | Which addresses may reach the Kubernetes API endpoint, separated by commas or spaces. Unset leaves the endpoint open to the internet with authentication in front, which is what EKS and GKE have done in every release so far, so an existing stack plans no change; narrowing it is the operator's call because a wrong guess locks the stack out of the control plane it would need to fix itself. |
 | `simple-balance:authSecret` | yes, secret | | Set with `--secret`. Sessions are signed with it. |
 | `simple-balance:directDatabaseUrl` | no, secret | | A string that reaches PostgreSQL past a transaction pooler. Migrations and the first-account claim hold session-level advisory locks, which through a pooler are taken on one connection and released on another. Leave it unset when there is no pooler. |
 | `simple-balance:setupToken` | no, secret | | The one-time code that claims the first account, at least 16 characters. Set with `--secret`. Left unset, one is generated and stored in the database, and printed to the startup log of whichever API pod reads it first. |

@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Account } from "../src/client/api.js";
 import { ActiveAccountChooser } from "../src/client/pages/AccountsPage.js";
 import { MAX_FREE_ACCOUNTS } from "../src/shared/domain.js";
+import { ruleFor, stylesheet } from "./support/css.js";
 
 afterEach(() => {
   cleanup();
@@ -195,5 +196,66 @@ describe("choosing which accounts stay usable", () => {
   it("renders nothing at all when no account is frozen", () => {
     const { container } = mount([account("a"), account("b")]);
     expect(container).toBeEmptyDOMElement();
+  });
+});
+
+/**
+ * SC 2.5.8 Target Size (Minimum), level AA, on the one list that reaches its
+ * spacing branch.
+ *
+ * `web.md` 13.4 says in terms that the 15px checkbox is the one control in
+ * this product small enough for the size branch to fail, so a list of them has
+ * to pass on spacing instead: a 24px circle centered on each box may not reach
+ * another target. This list had no rule at all — the class appeared once in
+ * the repository, at the `<ul>` that renders it, and the reset strips a list's
+ * margin and padding — so Chromium stacked the boxes 18px apart at desktop
+ * width and 20px at 390px and 320px, and every circle cut through the row
+ * below. It is the one control that decides which accounts a downgraded ledger
+ * may still be written to.
+ *
+ * `tests/browser/target-size.spec.ts` is the check written for exactly this
+ * and cannot see it: the browser tier's fresh account has billing off, so
+ * there is no account limit and `ActiveAccountChooser` returns before any
+ * markup. Which is why the arithmetic is here instead, with the pitch a
+ * browser measured as its one constant.
+ *
+ * Both halves are asserted, because either alone is satisfied by a rule that
+ * does nothing: `gap` on a block container is ignored, and a display mode with
+ * no gap leaves the rows flush.
+ */
+const FLUSH_PITCH = 18;
+
+describe("the chooser's checkboxes", () => {
+  it("are 24px apart, or 24px across", () => {
+    mount(firstChoice);
+    const list = screen.getByRole("list");
+    // From the rendered tree rather than written down, so renaming the class
+    // moves the check with it instead of quietly emptying it.
+    const selector = `.${list.className.trim().split(/\s+/).join(".")}`;
+    expect(list.querySelectorAll('li input[type="checkbox"]').length).toBe(firstChoice.length);
+
+    const css = stylesheet();
+    const box = ruleFor(css, 'input[type="checkbox"]')
+      .flatMap((rule) => [...rule.body.matchAll(/(?:width|height):\s*(\d+)px/g)])
+      .map((found) => Number(found[1]));
+    expect(box.length, "the checkbox has a size in the stylesheet").toBeGreaterThan(0);
+    // The criterion's first branch. Nothing more is asked of a target this big,
+    // and this check stops rather than failing a list that no longer needs it.
+    if (Math.min(...box) >= 24) return;
+
+    const [rule] = ruleFor(css, selector);
+    expect(rule, `${selector} has no rule, so its rows stack flush`).toBeDefined();
+    // A gap is only a gap where the box lays its children out with one.
+    expect(rule!.body, `${selector} must lay its rows out for the gap to apply`).toMatch(
+      /display:\s*(?:grid|flex)/,
+    );
+    const gap = /(?:^|;)\s*(?:row-)?gap:\s*(\d+)px/.exec(rule!.body);
+    expect(gap, `${selector} sets no row gap`).not.toBeNull();
+    // 18px of pitch with no gap at all, measured in Chromium against this
+    // stylesheet, so the gap has to carry the rest of the way to 24.
+    expect(
+      FLUSH_PITCH + Number(gap![1]),
+      "a 24px circle on one box reaches the box below",
+    ).toBeGreaterThanOrEqual(24);
   });
 });

@@ -4180,7 +4180,7 @@ export function planChangeTakesEffect(action: SubscriptionAction): "now" | "rene
  * "declined", so a page that read it still could not tell a declined card
  * from a card replaced with nothing to pay.
  */
-export const owedInvoiceOutcomes = ["none", "paid", "declined", "needs_authentication"] as const;
+const owedInvoiceOutcomes = ["none", "paid", "declined", "needs_authentication"] as const;
 export type OwedInvoiceOutcome = (typeof owedInvoiceOutcomes)[number];
 
 /**
@@ -4204,5 +4204,5 @@ export type OwedInvoiceOutcome = (typeof owedInvoiceOutcomes)[number];
  * card the person just chose, and here the charge that is left open is handed
  * back as a client secret to confirm rather than reported as a refusal.
  */
-export const planChangeInvoices = ["none", "paid", "owed"] as const;
+const planChangeInvoices = ["none", "paid", "owed"] as const;
 export type PlanChangeInvoice = (typeof planChangeInvoices)[number];

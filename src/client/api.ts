@@ -820,9 +820,19 @@ export type Summary = {
   /** The day the figures are really as of, which is today when the range runs past it. */
   asOf: string;
   /**
-   * `includesArchived` echoes the request's own toggle. Nothing renders it on
-   * either report: the control that set it is on the screen above, and printing
-   * the answer back reads as a second, disagreeing control.
+   * `includesArchived` echoes the request's own toggle, and the dashboard — the
+   * only page that asks for a summary — never sets it, so this is the constant
+   * `false`. Rendering it would be a line saying archived accounts are left out
+   * on a screen with nothing that could put them back in.
+   *
+   * The toggle itself is on the Reports page, over every report, with a note
+   * beneath it saying what the flag means on that kind — which figures it
+   * moves on a movement report, and which rows it only lists on a balance one.
+   * So this is a parameter one screen does not offer rather than a capability
+   * a person cannot reach.
+   * `Report.includesArchived`, below, is the one whose control is on the screen
+   * above it, and printing the answer back there would read as a second,
+   * disagreeing control.
    */
   includesArchived: boolean;
   currencies: {

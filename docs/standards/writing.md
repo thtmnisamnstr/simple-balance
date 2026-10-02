@@ -108,7 +108,7 @@ skill's order is the right order. Both are review.
 
 ### The product kit is a document with a machine for a reader
 
-**House.** `docs/product/` is three JSON files and twenty-six screenshots, and
+**House.** `docs/product/` is three JSON files and twenty-eight screenshots, and
 until this pass no row in the table above and no sentence anywhere in this guide
 described it. That is not an oversight about one directory. Every row in that
 table names a *person* and the mode they read in, and the kit's reader is the
@@ -926,7 +926,7 @@ it is replaced when the thing it shows changes **shape** rather than when it
 changes colour. It was last retaken against a real production build during the
 0.1.5 cut, which is the standard: a seeded ledger and the real
 Content-Security-Policy in force, not a development server. The other
-twenty-six are `docs/product/screenshots/` — every screen in both themes,
+twenty-eight are `docs/product/screenshots/` — every screen in both themes,
 rebuilt against a committed seed and pinned to the release — and those are
 retaken when a screen changes **colour**, which is the opposite rule, because a
 token change invalidates half of them while moving no layout at all. §The

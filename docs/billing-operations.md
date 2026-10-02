@@ -378,6 +378,13 @@ Stripe when it has not been heard about for twelve hours, fifty per scheduler
 tick, oldest first. A deployment whose webhook endpoint was misconfigured for a
 weekend is correct again within a day of it being fixed.
 
+The sweep rides the recurrence scheduler's tick, so it needs
+`RECURRENCE_SCHEDULER` on in at least one process. Turning it off everywhere —
+which a deployment with no recurrences and no mail has every other reason to do
+— leaves this the one repair nothing performs, and a subscription canceled at
+Stripe goes on entitling somebody to the paid plan. Each process warns at
+startup while Stripe is configured and its own copy is off.
+
 To see it working, watch `simple_balance_billing_sweeps_total` — `written`
 climbs when the sweep is repairing something and stays flat when there is
 nothing to repair. `off` means the deployment sells nothing.

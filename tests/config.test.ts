@@ -756,6 +756,69 @@ describe("what a deployment sells and shows", () => {
     }
   });
 
+  /**
+   * The third setting of the same shape, and the one that names no plan. The
+   * twelve-hourly reconciliation sweep rides the recurrence scheduler's tick,
+   * so turning the scheduler off takes it along — and it is the only repair for
+   * a delivery Stripe gave up on. The documented description of the setting
+   * said recurrences and mail and nothing else, so an operator with neither had
+   * every reason to switch it off and no way to know what went with it.
+   *
+   * Warned, never refused: a split deployment turns it off on web replicas
+   * precisely because the sweep belongs to the scheduler container.
+   */
+  it("says so when Stripe is configured and this process runs no schedule", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      for (const environment of [stripe, { ...stripe, SB_BILLING_ENABLED: "true" }]) {
+        warn.mockClear();
+        setEnvironment({ ...production, ...environment, RECURRENCE_SCHEDULER: "false" });
+        vi.resetModules();
+        const { getConfig } = await import("../src/server/config.js");
+        expect(() => getConfig()).not.toThrow();
+
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("RECURRENCE_SCHEDULER is false"));
+      }
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("says nothing about the schedule where this process runs it", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      setEnvironment({ ...production, ...stripe, SB_BILLING_ENABLED: "true" });
+      vi.resetModules();
+      const { getConfig } = await import("../src/server/config.js");
+      getConfig();
+
+      expect(warn).not.toHaveBeenCalledWith(
+        expect.stringContaining("RECURRENCE_SCHEDULER is false"),
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("says nothing about the schedule where no Stripe is configured", async () => {
+    // Nothing to reconcile, so the scheduler being off costs this nothing —
+    // and warning there would be a line on every deployment that sells nothing
+    // and runs a scheduler container, which is most of them.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      setEnvironment({ ...production, RECURRENCE_SCHEDULER: "false" });
+      vi.resetModules();
+      const { getConfig } = await import("../src/server/config.js");
+      getConfig();
+
+      expect(warn).not.toHaveBeenCalledWith(
+        expect.stringContaining("RECURRENCE_SCHEDULER is false"),
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("refuses a live key outside production even when it arrives through a file", async () => {
     // The `_FILE` form must not be a way around a refusal. Pointing a
     // development machine at a live key is the mistake with no symptom until it

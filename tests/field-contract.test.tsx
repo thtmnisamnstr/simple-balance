@@ -315,6 +315,14 @@ describe("a disabled button", () => {
    * Named rather than pattern-matched, because "is this predicate a busy
    * flag" is a judgement.
    *
+   * The plan tab is the fourth, and it is a row rather than a pair: up to four
+   * of its buttons are on screen at once and `anyPending` grays the three that
+   * were not pressed. It used to hand that same boolean to every one of them
+   * as `loading`, which is how it came to be here — a spinner, `aria-busy` and
+   * an sr-only "Working…" inside three names nobody had touched. Only the
+   * pressed button carries `loading` now, so the sibling's spinner this
+   * exemption rests on is the one that exists.
+   *
    * The file is only half of it: the predicate has to be a busy flag AND
    * NOTHING ELSE, which is why the pattern refuses `|` and `&` between the
    * braces. The first version matched `isPending` anywhere before the closing
@@ -326,6 +334,7 @@ describe("a disabled button", () => {
     "src/client/App.tsx",
     "src/client/TransactionBrowser.tsx",
     "src/client/pages/StagingPage.tsx",
+    "src/client/pages/PlanPage.tsx",
   ]);
 
   it("says why at every submit disabled on a computed predicate", () => {

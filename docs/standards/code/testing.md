@@ -5,9 +5,9 @@ keeping.
 
 | Tier | Files | Runs with | Needs |
 | --- | --- | --- | --- |
-| Unit (node) | 190 | `npm test` | nothing |
+| Unit (node) | 193 | `npm test` | nothing |
 | Unit (jsdom) | 59 | `npm test` | nothing |
-| Integration | 72 | `npm test` **or** `npm run test:integration` | PostgreSQL |
+| Integration | 75 | `npm test` **or** `npm run test:integration` | PostgreSQL |
 | Browser | 4 | `npm run test:browser` | PostgreSQL, Chromium |
 
 **`npm test` collects the integration tier too**, which surprises people and is
@@ -23,14 +23,14 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 250 pass, 71 skip | **2,699 pass, 836 skip** |
-| `npm test`, database set | 321 pass | **3,535 pass** |
-| `npm run test:integration` | 72 pass | 837 pass |
+| `npm test`, no database | 253 pass, 74 skip | **2,725 pass, 856 skip** |
+| `npm test`, database set | 327 pass | **3,581 pass** |
+| `npm run test:integration` | 75 pass | 857 pass |
 
-The integration tier reports 837 tests on its own and 836 skips inside a
+The integration tier reports 857 tests on its own and 856 skips inside a
 database-less `npm test`, and the one-test difference is not an error: one case
 in that tier needs no database and so runs either way. It is counted among the
-2,699 rather than among the skips, which is why the two rows add up to 3,535
+2,725 rather than among the skips, which is why the two rows add up to 3,581
 both times.
 
 The third row is one test larger than the first row's skip count, and the odd
@@ -38,7 +38,7 @@ one out is worth knowing: `bulk-transactions-mcp.integration.test.ts` has one
 `describe` outside the database guard, because discovering which tools a scope
 exposes needs no ledger. It runs on every `npm test`, database or not.
 
-The first row is what CI and `npm run verify` see, and 2,699 is the number that
+The first row is what CI and `npm run verify` see, and 2,725 is the number that
 actually gates a change by default. The second is what a developer with a local
 PostgreSQL sees, and it is strictly better. Reporting the second as though it
 were the first overstates what the gate covers, which is a mistake worth naming

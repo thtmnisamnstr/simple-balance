@@ -260,7 +260,7 @@ export function payeeDetailSearch(search: string, payee: string) {
  * name the view above is addressed by. Everything else a URL here carries is a
  * date, a preset or an id.
  */
-export const LEDGER_TEXT_PARAMETER = "name";
+const LEDGER_TEXT_PARAMETER = "name";
 
 /**
  * A query string with the ledger's own text taken out, for a link leaving the

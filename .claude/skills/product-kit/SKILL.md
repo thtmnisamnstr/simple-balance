@@ -120,6 +120,39 @@ docker rm -f sb-kit-pg
   Either way the dashboard, budgets and reports come out inflated with nothing
   on screen to say so. Drop it and start clean whenever anything looks off —
   step 4 of the block above already puts it away.
+- **The seed needs four accounts and the free plan keeps three.** This is the
+  trap that costs the most time, because each wrong answer looks like a
+  different problem. With `SB_BILLING_ENABLED=true` and no entitlement, the
+  build dies partway through seeding on a `409` from `POST /api/v1/accounts`:
+  *"A free plan keeps 3 accounts active, and this one has 3."* The seed has
+  four on purpose — two currencies, and the overview renders a block per
+  currency — so this is not a seed that grew carelessly.
+
+  Turning billing off clears it and produces something worse: the plan tab
+  photographs as *"This deployment is not selling subscriptions at the
+  moment"*, which is exactly the picture §4 says not to publish.
+
+  So grant the kit's account Premium before capturing, after the sign-up has
+  happened and before the run that keeps the pictures:
+
+  ```sh
+  docker exec sb-kit-pg psql -U postgres -d sb_kit -c "insert into billing_override (user_id, plan, reason, operator) select id, 'plus', 'Product-kit capture', 'product-kit' from auth_user on conflict (user_id) do update set plan = 'plus';"
+  ```
+
+  The pictures are then of the unconstrained product, which is what they are
+  for. One cost to know about: the plan tab then carries the sentence *"An
+  operator granted you Premium with no end date"*, which is true and is also a
+  mechanism a general reader has no context for. The alternative is a free-plan
+  capture with one of the four accounts visibly frozen. Neither is free, and
+  this is the one that keeps the prices on the screen.
+
+- **Mail settings leak in if you load the whole `.env`.** Reaching for
+  `node --env-file=.env` to get the five `STRIPE_*` values also brings
+  `SMTP_HOST` and its four companions, which turns email verification on — and
+  the build then hangs for thirty seconds waiting for a navigation that never
+  renders, because the new account is stuck at an unconfirmed address. Pass
+  `SMTP_HOST=` and the rest empty alongside it.
+
 - **One clock, or the current month comes out short.** The seed's dates and
   the browser's "today" have to be the same day. They were not: the dates
   were computed in UTC and the browser used the machine's zone, so a capture

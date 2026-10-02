@@ -413,7 +413,7 @@ disagreement rather than quietly losing it.
 Two habits from those guides are worth knowing before the first edit, because
 both look like mistakes:
 
-- **Comments are dense on purpose** — 25.4% of non-blank lines in `src`. They
+- **Comments are dense on purpose** — 26.0% of non-blank lines in `src`. They
   carry why the obvious alternative is wrong. Do not tidy them away.
   (`docs/standards/code/comments.md`.)
 - **Some loops must not be parallelized.** Legs resolve one at a time so two

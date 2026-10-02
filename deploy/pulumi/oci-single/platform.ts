@@ -83,7 +83,7 @@ export function databaseHost(vcnLabel: string, subnetLabel: string, hostLabel: s
  * arithmetic asks for would save nothing on this cloud: everything under 50
  * lands on 50 either way. It saves real money only on AWS.
  */
-export const MIN_VOLUME_GB = 50;
+const MIN_VOLUME_GB = 50;
 
 export function dataVolumeGb(size: NodeSize): number {
   return Math.max(size.diskGib, MIN_VOLUME_GB);

@@ -75,11 +75,18 @@ const kubernetesVersion = settings.kubernetesVersion ?? "v1.35.2";
 const tags = { Project: "simple-balance", Profile: "ha", PulumiStack: pulumi.getStack() };
 const name = "simple-balance";
 
+// Named rather than repeated, because the API endpoint's security rules are
+// written against the worker subnet from above the subnet that defines it. A
+// CIDR spelled in two places is a CIDR that gets changed in one.
+const vcnCidr = "10.0.0.0/16";
+const publicCidr = "10.0.0.0/24";
+const privateCidr = "10.0.16.0/20";
+
 // ------------------------------------------------------------------ network ---
 
 const vcn = new oci.core.Vcn(name, {
   compartmentId,
-  cidrBlocks: ["10.0.0.0/16"],
+  cidrBlocks: [vcnCidr],
   displayName: name,
   dnsLabel: "simplebalance",
   freeformTags: tags,
@@ -169,6 +176,55 @@ const publicSecurityList = new oci.core.SecurityList(`${name}-public`, {
       protocol: "6",
       tcpOptions: { min: 443, max: 443 },
     },
+    {
+      // The Kubernetes API endpoint shares this subnet, and OKE opens nothing
+      // on its own behalf. With 80 and 443 the only way in, the cluster builds,
+      // reports itself ACTIVE, and then never produces a ready node, because
+      // every kubelet's attempt to register is dropped before it arrives.
+      // `pulumi preview` cannot see it: the rules and the cluster both plan
+      // cleanly, and only a real `pulumi up` meets a node pool that stays empty.
+      description: "Kubernetes API, from the workers",
+      source: privateCidr,
+      sourceType: "CIDR_BLOCK",
+      protocol: "6",
+      tcpOptions: { min: 6443, max: 6443 },
+    },
+    {
+      // OKE's second control-plane port, which a kubelet uses to collect the
+      // credentials it registers with. Closed, it produces nodes that join and
+      // then go NotReady rather than no nodes at all — the harder of the two to
+      // attribute to a firewall, because the cluster looks half-built.
+      description: "OKE worker-to-control-plane, from the workers",
+      source: privateCidr,
+      sourceType: "CIDR_BLOCK",
+      protocol: "6",
+      tcpOptions: { min: 12250, max: 12250 },
+    },
+    {
+      description: "Path MTU discovery, from the workers",
+      source: privateCidr,
+      sourceType: "CIDR_BLOCK",
+      protocol: "1",
+      icmpOptions: { type: 3, code: 4 },
+    },
+    // `kubectl`, and Pulumi's own Kubernetes provider, which installs
+    // ingress-nginx into this cluster in the same `pulumi up` that creates it —
+    // so this rule is not an operator convenience, it is what lets the program
+    // finish. Unset leaves it open, which is what `controlPlaneCidrs` means on
+    // the other two clouds and what keeps a stack moved from one of them
+    // planning the same thing here. Narrowing it stays the operator's to do,
+    // for the reason `common/index.ts` gives where the setting is parsed: this
+    // program cannot know where its operator is, and a wrong guess locks the
+    // stack out of the control plane it would need in order to repair itself.
+    ...(settings.controlPlaneCidrs.length > 0 ? settings.controlPlaneCidrs : ["0.0.0.0/0"]).map(
+      (source) => ({
+        description: "Kubernetes API",
+        source,
+        sourceType: "CIDR_BLOCK",
+        protocol: "6",
+        tcpOptions: { min: 6443, max: 6443 },
+      }),
+    ),
   ],
 });
 
@@ -186,7 +242,7 @@ const privateSecurityList = new oci.core.SecurityList(`${name}-private`, {
   ingressSecurityRules: [
     {
       description: "Everything inside this VCN: pod to pod, load balancer to node, API to kubelet",
-      source: "10.0.0.0/16",
+      source: vcnCidr,
       sourceType: "CIDR_BLOCK",
       protocol: "all",
     },
@@ -209,7 +265,7 @@ const privateSecurityList = new oci.core.SecurityList(`${name}-private`, {
 const publicSubnet = new oci.core.Subnet(`${name}-public`, {
   compartmentId,
   vcnId: vcn.id,
-  cidrBlock: "10.0.0.0/24",
+  cidrBlock: publicCidr,
   displayName: `${name}-public`,
   dnsLabel: "pub",
   routeTableId: publicRouteTable.id,
@@ -221,7 +277,7 @@ const publicSubnet = new oci.core.Subnet(`${name}-public`, {
 const privateSubnet = new oci.core.Subnet(`${name}-private`, {
   compartmentId,
   vcnId: vcn.id,
-  cidrBlock: "10.0.16.0/20",
+  cidrBlock: privateCidr,
   displayName: `${name}-private`,
   dnsLabel: "priv",
   routeTableId: privateRouteTable.id,

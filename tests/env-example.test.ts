@@ -140,11 +140,17 @@ const frontendImageOnly = [
   "SB_ADS_CONFIGURED",
 ];
 /**
- * The bundled `postgres:18` container's own variable, documented at
+ * The bundled database container's own settings, documented at
  * `deploy/compose/README.md` beside the file that uses it. Putting another
  * image's settings in this product's tables would make the tables less true.
+ *
+ * The second and third choose that image and where its volume is mounted, which
+ * is the same kind of fact as the first: which third-party container this one
+ * recipe runs. They exist because the default is still 0.1.6's `postgres:16`,
+ * so an operator upgrading onto this release keeps a database that starts, and
+ * takes 18 by setting both of them after a dump and restore.
  */
-const bundledDatabaseOnly = ["POSTGRES_PASSWORD"];
+const bundledDatabaseOnly = ["POSTGRES_PASSWORD", "POSTGRES_IMAGE", "POSTGRES_DATA_MOUNT"];
 
 /**
  * A drifted example file is worse than no example file, because it is believed.
@@ -389,7 +395,13 @@ describe("what the server reads and every compose file that runs it passes", () 
       : /^\s+image: ghcr\.io\/thtmnisamnstr\/simple-balance-frontend:/m.test(service) ||
           /^\s+dockerfile: deploy\/docker\/frontend\.Dockerfile$/m.test(service)
         ? "frontend"
-        : /^\s+image: postgres:/m.test(service)
+        : // Either a literal tag or a substitution whose default is one.
+          // `compose.distributed.yml` keeps 0.1.6's `postgres:16-alpine` as the
+          // default of `${POSTGRES_IMAGE}` so that release's volume still
+          // starts, and a classifier that read only the literal form would
+          // file that service under "other" and stop checking what it is
+          // passed — the assertions below would then pass by seeing nothing.
+          /^\s+image: (?:\$\{\w+:-)?postgres:/m.test(service)
           ? "database"
           : "other";
   const servicesIn = (path: string, text: string) => {

@@ -379,6 +379,11 @@ export const categories = pgTable(
     // update runs `where group_id = $1` with no user_id — which the composite
     // above, led by the tenant, cannot serve. Without this, every group
     // delete sequentially scanned the whole cross-tenant category table.
+    //
+    // A cluster drops it, in `0023` step 2b: there the key is composite and
+    // NO ACTION, so the check carries the owner and the composite above serves
+    // it, and nothing in `src/` ever filters `group_id` alone. It stays here
+    // because a plain PostgreSQL keeps the single-column key that needs it.
     index("category_group_reference_idx").on(table.groupId),
     check("category_version_check", sql`${table.version} >= 1`),
   ],

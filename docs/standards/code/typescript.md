@@ -187,7 +187,7 @@ lookup that a database constraint guarantees is honest, and the alternative is a
 branch that cannot be reached and cannot be tested.
 
 The one this section was written about is
-`src/server/services/accounts.ts:560`, building the row an archived account
+`src/server/services/accounts.ts:570`, building the row an archived account
 would have had so the caller sees the shape it expects; the alternative was
 making every field optional for one call site. The other three are a different
 thing wearing the same syntax, and 2.6 is their rule: each is confined to one
@@ -371,7 +371,7 @@ names it. Both spellings confine the cast to one name, which is what the rule
 asks; neither widens anything else.
 
 That discipline is the rule, and it is what separates these from the fourth —
-`src/server/services/accounts.ts:560`, which assembles an internal row shape and
+`src/server/services/accounts.ts:570`, which assembles an internal row shape and
 which 2.2 already records. A cast confined to one property can be read, checked
 against the vendor's changelog, and deleted when the vendor catches up. A cast
 that asserts a whole shape cannot.
@@ -521,7 +521,7 @@ own carve-out.
 
 ### 3.5 The Pulumi programs are a second TypeScript program
 
-**House**, and mechanized. `deploy/pulumi` is 7,241 lines of first-party
+**House**, and mechanized. `deploy/pulumi` is 7,297 lines of first-party
 TypeScript that this guide did not know existed. It is not a corner: 0.2.0 took
 it from two stacks to five — `aws`, `gcp`, `oci`, `aws-single`, `oci-single` —
 and

@@ -22,7 +22,7 @@ import type {
  * this by-id symlink, which names the volume itself and cannot be confused with
  * another one.
  */
-export function dataDevice(volumeId: string): string {
+function dataDevice(volumeId: string): string {
   return `/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_${volumeId.replace(/-/g, "")}`;
 }
 

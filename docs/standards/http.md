@@ -69,7 +69,7 @@ not found, not as forbidden."
 [`common.md`](common.md#errors) settles the rule. What HTTP adds is the
 transport argument: 403 would confirm the row exists, so
 `GET /api/v1/accounts/{id}` for a stranger's account is a 404 with the same body
-as an id that was never issued (`src/server/services/accounts.ts:580`). This is
+as an id that was never issued (`src/server/services/accounts.ts:590`). This is
 deliberate, it is not a missing feature, and it applies to every resource.
 
 *Checked by:* `tests/integration/tenant-isolation.integration.test.ts:169-207`

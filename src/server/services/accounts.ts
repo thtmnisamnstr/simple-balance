@@ -495,12 +495,22 @@ function accountView(account: typeof ledgerAccounts.$inferSelect, balance?: stri
   };
 }
 
-export async function listAccounts(actor: Actor, end?: string, includeArchived = false) {
+export async function listAccounts(
+  actor: Actor,
+  end?: string,
+  includeArchived = false,
+  transaction?: DbTransaction,
+) {
   // Bound as a parameter below, so this is not an injection, but an unparseable
   // value still reaches PostgreSQL and comes back as a failed cast, which the
   // caller sees as an unexplained 500 rather than as the typo it was.
   const asOf = end === undefined ? undefined : isoDateSchema.parse(end);
-  const db = getDb();
+  // The caller's transaction when there is one. A caller composing this into a
+  // write needs to see what that write did, and a second pooled connection
+  // cannot: at READ COMMITTED it reads the state from before, and on a
+  // one-connection pool there is no second connection to read it with, so the
+  // call waits out `connectionTimeoutMillis` and fails.
+  const db = transaction ?? getDb();
   const result = await db.execute(sql`
     select
       a.*,
@@ -565,7 +575,7 @@ export async function listAccounts(actor: Actor, end?: string, includeArchived =
   // page that re-derived it would be a second implementation of the rule. Asked
   // of the rule directly rather than through `accountFreeze`, because this read
   // holds no transaction and already has every row the ranking needs.
-  const entitlement = await getEntitlement(actor);
+  const entitlement = await getEntitlement(actor, transaction);
   const frozen = frozenAccountIds(entitlement, rows);
   return views.map((view) => ({ ...view, frozen: frozen.has(String(view.id)) }));
 }
@@ -765,7 +775,7 @@ function frozenWithNames(
  * connection of its own commits independently of the caller that is about to
  * fail, and `tests/service-transactions.test.ts` holds that rule.
  */
-export async function readAccountFreeze(actor: Actor): Promise<AccountFreeze> {
+async function readAccountFreeze(actor: Actor): Promise<AccountFreeze> {
   const entitlement = await getEntitlement(actor);
   if (!entitlement.billing || entitlement.accountLimit === null) return NOTHING_FROZEN;
   const rows = await getDb()
@@ -798,7 +808,7 @@ export async function accountFreeze(
  * shows. Archived accounts hold nothing: they refuse every write already, so a
  * place spent on one would be a place spent on nothing.
  */
-export async function countActiveAccounts(tx: DbTransaction, actor: Actor): Promise<number> {
+async function countActiveAccounts(tx: DbTransaction, actor: Actor): Promise<number> {
   const rows = await tx
     .select()
     .from(ledgerAccounts)
@@ -915,7 +925,7 @@ async function markFittingAccountsActive(tx: DbTransaction, actor: Actor) {
 export async function setActiveAccounts(actor: Actor, input: unknown, transaction?: DbTransaction) {
   const { accountIds } = activeAccountsSchema.parse(input);
   const wanted = new Set(accountIds);
-  await withTransaction(transaction, async (tx) => {
+  return withTransaction(transaction, async (tx) => {
     await lockAccountNamespace(tx, actor);
     const rows = await tx
       .select()
@@ -990,12 +1000,15 @@ export async function setActiveAccounts(actor: Actor, input: unknown, transactio
         })),
       );
     }
+    // Inside the transaction and on its connection, which is the only way the
+    // answer describes the change this call just made. `withTransaction` hands
+    // a supplied transaction straight through, so a caller composing this —
+    // the shape every other mutation here takes — would otherwise get the list
+    // as it was before, every `frozen` flag with it, and on a one-connection
+    // pool would wait out `connectionTimeoutMillis` for a connection that is
+    // already held and then fail.
+    return listAccounts(actor, undefined, false, tx);
   });
-  // Outside the transaction on purpose. `listAccounts` reads through the pool,
-  // and at READ COMMITTED a second connection cannot see writes the first has
-  // not committed — so reading it inside would answer with the state from
-  // before the change, and on a one-connection pool it would not answer at all.
-  return listAccounts(actor);
 }
 
 export async function createAccount(actor: Actor, input: unknown, transaction?: DbTransaction) {

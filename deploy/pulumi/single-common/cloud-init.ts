@@ -738,7 +738,7 @@ export const APPLICATION_CA_PATH = "/var/lib/simple-balance/tls/db-ca.pem";
  * after the mount, and only when the destination is absent, so a CA an
  * operator installed by hand survives a machine being rebuilt.
  */
-export const STAGED_CA_PATH = "/opt/simple-balance/db-ca.pem";
+const STAGED_CA_PATH = "/opt/simple-balance/db-ca.pem";
 
 /** Where the database node keeps the certificate it presents. */
 export const SERVER_CERTIFICATE_PATH = "/opt/simple-balance/db-tls/server.crt";
@@ -1179,7 +1179,7 @@ export const AWS_USER_DATA_LIMIT = 16_384;
  * before reading, on both clouds. Level 9 because this is computed once per
  * `pulumi up` and every byte counts against a limit.
  */
-export function gzipUserData(text: string): Buffer {
+function gzipUserData(text: string): Buffer {
   return zlib.gzipSync(Buffer.from(text, "utf8"), { level: 9 });
 }
 

@@ -773,6 +773,62 @@ function actionFor(row: SubscriptionRow, requested: BillingInterval): Subscripti
 const planEnding = () => conflict(PLAN_ENDING_REFUSAL, { planEnding: true });
 
 /**
+ * PaymentIntent statuses that mean a first payment is no longer the person's
+ * to make: on its way, or already made. The complement of the three Stripe
+ * lets somebody pay from, less `canceled`, which is the abandonment itself.
+ */
+const settlingIntentStatuses = new Set(["processing", "succeeded"]);
+
+/** The refusal for a change of interval over a first payment still in flight. */
+const paymentSettling = () =>
+  conflict(
+    "That first payment is still going through. Nothing was changed — ask for the other plan again once it has settled.",
+    { paymentSettling: true },
+  );
+
+/**
+ * Whether the first payment on a subscription stored as `incomplete` is still
+ * settling, or has already landed. Asked before the one branch that destroys a
+ * subscription, and the only Stripe read `replace` makes about what it is
+ * about to cancel.
+ *
+ * `incomplete` is two states wearing one word. One is the case the branch
+ * exists for: chose an interval, never paid, changed their mind. The other is
+ * a payment in flight — Stripe leaves a subscription `incomplete` while a
+ * `processing` PaymentIntent clears, moments for a card and days for a delayed
+ * notification method, and `createStripeSubscription` names no
+ * `payment_method_types`, so which methods an invoice offers is the Stripe
+ * dashboard's answer rather than this product's. The plan tab tells that
+ * person to sit through it — "nothing more is needed from you" — beside the
+ * other interval's button, which stays live. Pressing it took the branch whose
+ * Stripe call carries its own prohibition, never on a subscription that has
+ * been paid for: the open invoice is voided while a charge is on its way to
+ * it. The third state is a payment that has landed and whose delivery has not,
+ * which `getBillingStatus` heals on any plan-tab load and nothing on this path
+ * does.
+ *
+ * Two reads on the rarest branch, which already makes two Stripe calls under
+ * the lock, and the trade `setSubscription` states pays for them: an
+ * unrecoverable charge against a slower request. A failure is deliberately not
+ * caught for the same reason — abandonment that cannot be established is not
+ * abandonment, so the press fails rather than destroying what it could not ask
+ * about.
+ *
+ * Writes nothing. The refusal rolls back the transaction it is thrown inside,
+ * so a fresh read stored here would be undone anyway, and neither case needs
+ * it: a payment still processing leaves the stored row already right, and one
+ * that has landed is what the plan tab's own re-read is for.
+ */
+async function firstPaymentSettling(stripeSubscriptionId: string): Promise<boolean> {
+  const fresh = await fetchSubscriptionSnapshot(stripeSubscriptionId);
+  // Paid for at least once, whatever the stored row says.
+  if ((paidForSubscriptionStatuses as readonly string[]).includes(fresh.status)) return true;
+  if (fresh.status !== "incomplete" || !fresh.latestInvoiceId) return false;
+  const payment = await fetchOwedPayment(fresh.latestInvoiceId);
+  return settlingIntentStatuses.has(payment?.intent?.status ?? "");
+}
+
+/**
  * Whether a "no such customer" or "no such subscription" from this key can be
  * believed.
  *
@@ -1458,6 +1514,12 @@ export async function setSubscription(actor: Actor, input: unknown): Promise<Sub
         // Suffixed keys because Stripe scopes a key to one request, and the
         // original create already spent the unsuffixed one.
         if (action.kind === "replace") {
+          // Unless Stripe says the payment is not abandoned after all. The
+          // decision above came from a stored status, and a status is not a
+          // payment: `firstPaymentSettling` is what tells the change of mind
+          // this branch is for from a charge already on its way, which wear
+          // the same `incomplete`.
+          if (await firstPaymentSettling(row.stripeSubscriptionId)) throw paymentSettling();
           await cancelStripeSubscriptionNow(row.stripeSubscriptionId, `${stripeKey}:abandon`);
           const created = await createStripeSubscription(
             { customerId, priceId: targetPriceId },
@@ -1666,7 +1728,9 @@ export async function createPaymentSetup(
  *
  * Not refused where nothing is for sale, for the same reason `createPaymentSetup`
  * is not: this is how somebody whose card expired stays a customer on a
- * deployment that has stopped taking new ones.
+ * deployment that has stopped taking new ones. The card is pinned either way.
+ * What such a deployment will not do is collect an unfinished *first* payment
+ * with it, because finishing one starts a subscription; the body says why.
  *
  * The answer says what became of what was owed, not only whether it was paid.
  * `paidInvoice` alone was false both where nothing was owed and where the new
@@ -1740,21 +1804,47 @@ export async function confirmPaymentSetup(
       let invoice: OwedInvoiceOutcome = "none";
       let declineMessage: string | null = null;
       if (row) {
-        let invoiceId: string | null = null;
-        try {
-          invoiceId = await openStripeInvoiceFor(row.stripeSubscriptionId);
-          if (invoiceId) {
-            await payStripeInvoice(invoiceId, `${stripeKey}:invoice`);
-            invoice = "paid";
-          }
-        } catch (error) {
-          log.warn("billing.invoice.retry_failed", { error: String(error) });
-          // Not knowing whether anything is owed is not "nothing owed": where
-          // the row says money is, it is still owed.
-          if (invoiceId || owesPayment(row.status)) {
-            const refusal = invoicePaymentRefusal(error);
-            invoice = refusal.outcome;
-            declineMessage = refusal.message;
+        // Except where collecting it would be a sale this deployment is not
+        // making. Attaching the card is not a sale and is never refused, which
+        // is the whole reason this call is reachable on a wound-down
+        // deployment — but a first payment that was never finished is the one
+        // outstanding invoice whose collection *starts* a subscription, and
+        // `sellsSomething` already says so: `setSubscription` answers exactly
+        // this with `{selling: false}`. Without this the card form finished
+        // the sale the subscribe button had just refused, and on a deployment
+        // answering `{billing: false}` the person was charged for an
+        // entitlement they do not get. The same door let a first payment
+        // complete while `pricesUnsellable` was refusing every other sale.
+        //
+        // Asked only where the answer can differ, so an ordinary card
+        // replacement costs no extra call: `saleRefusal` reaches Stripe.
+        const refused = sellsSomething({ kind: "resume" }, row.status) ? await saleRefusal() : null;
+        if (refused) {
+          // Reported as `none` rather than thrown: the card is attached and
+          // pinned, which is what was asked for, and `declined` would say a
+          // payment was tried and refused when none was attempted. Nothing is
+          // owed that this deployment will collect.
+          log.warn("billing.invoice.sale_refused", {
+            status: row.status,
+            reason: refused.message,
+          });
+        } else {
+          let invoiceId: string | null = null;
+          try {
+            invoiceId = await openStripeInvoiceFor(row.stripeSubscriptionId);
+            if (invoiceId) {
+              await payStripeInvoice(invoiceId, `${stripeKey}:invoice`);
+              invoice = "paid";
+            }
+          } catch (error) {
+            log.warn("billing.invoice.retry_failed", { error: String(error) });
+            // Not knowing whether anything is owed is not "nothing owed": where
+            // the row says money is, it is still owed.
+            if (invoiceId || owesPayment(row.status)) {
+              const refusal = invoicePaymentRefusal(error);
+              invoice = refusal.outcome;
+              declineMessage = refusal.message;
+            }
           }
         }
         await resync(actor.userId, row.stripeSubscriptionId);
@@ -1844,7 +1934,17 @@ export async function closeBillingForDeletion(actor: Actor): Promise<void> {
   }
   // The mapping goes now rather than with the cascade, so a retry of a deletion
   // that failed later does not ask Stripe about a customer that is already gone.
-  await getDb().delete(billingCustomers).where(eq(billingCustomers.userId, actor.userId));
+  //
+  // Through `closeStripeCustomer`, so the live subscriptions are marked
+  // canceled in the same transaction. The cascade a few statements along in
+  // `deleteOwnAccount` would take them, but only if it runs: a statement
+  // timeout on a large ledger, a deadlock on the `verification` delete or a
+  // dropped connection leaves the person here, on a `billing_subscription` row
+  // still saying `active`, with the mapping that would resolve a Stripe
+  // delivery already gone. That is the situation that function's docstring is
+  // about, and the answer is the same one — on `active`, entitled to a plan
+  // nobody is paying for, until the twelve-hourly sweep reaches the row.
+  await withTransaction(undefined, (tx) => closeStripeCustomer(row.stripeCustomerId, tx));
 }
 
 /**
@@ -2300,6 +2400,17 @@ export function isNoteworthyEvent(type: string): boolean {
  * paying for. A customer this key cannot see at all owned nothing this key can
  * see either, so the same close is right for that case too.
  *
+ * Under the same lock and the same monotonic guard as `storeSubscriptionGone`,
+ * which stores the same fact from the other end. Without them this close is the
+ * one write to `billing_subscription` that a stale snapshot can undo: leaving
+ * `synced_at` where it was says this deployment last asked Stripe before the
+ * customer was deleted, so a delivery whose snapshot was read earlier still
+ * counts as newer and `reconcileSubscription` writes `active` back over it. The
+ * mapping is gone by then, so no later delivery resolves the person, and they
+ * hold a paid plan on a customer Stripe no longer has until the twelve-hourly
+ * sweep notices. Both callers asked Stripe to get here, so the stamp is as
+ * honest as that one's.
+ *
  * Returns whose customer it was, or null for one this deployment never mapped.
  *
  * Actor-less for the same reason the rest of the webhook path is: the delivery
@@ -2309,19 +2420,31 @@ async function closeStripeCustomer(
   stripeCustomerId: string,
   tx: DbTransaction,
 ): Promise<string | null> {
+  const closedAt = new Date();
   const removed = await tx
     .delete(billingCustomers)
     .where(eq(billingCustomers.stripeCustomerId, stripeCustomerId))
     .returning({ userId: billingCustomers.userId });
   const userId = removed[0]?.userId ?? null;
   if (!userId) return null;
+  // After the delete, because that is what names the person this lock is about.
+  // It joins no ordering: this transaction takes no name lock, which is the
+  // condition `lockBillingState` states.
+  await lockBillingState(tx, userId);
   await tx
     .update(billingSubscriptions)
-    .set({ status: "canceled", cancelAtPeriodEnd: false, cancelAt: null, updatedAt: new Date() })
+    .set({
+      status: "canceled",
+      cancelAtPeriodEnd: false,
+      cancelAt: null,
+      syncedAt: closedAt,
+      updatedAt: new Date(),
+    })
     .where(
       and(
         eq(billingSubscriptions.userId, userId),
         inArray(billingSubscriptions.status, [...liveStatuses]),
+        lt(billingSubscriptions.syncedAt, closedAt),
       ),
     );
   return userId;

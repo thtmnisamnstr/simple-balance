@@ -369,7 +369,7 @@ image declares a default for: `SB_FRONTEND_PORT`, `SB_API_ORIGIN`,
 `SB_MAX_UPLOAD_SIZE`, `SB_BILLING_CONFIGURED`, `SB_CSP_REPORT_ONLY`,
 `SB_ADS_CONFIGURED`, `SB_TRUSTED_PROXY_CIDR` and `SB_REAL_IP_RECURSIVE`
 (`deploy/docker/frontend.Dockerfile:49-90`, documented at
-`docs/deployment.md:845-852`). It was three for two releases and the rule held
+`docs/deployment.md:855-862`). It was three for two releases and the rule held
 through five more arriving, which is the evidence the rule is worth something.
 `AUTH_MODE` and `TRUST_PROXY` are generic enough to collide with a sidecar or a
 base image.
@@ -874,7 +874,7 @@ parsers read `.env` in this repository and they disagree about quoting.
 
 | Path | Parser | Rule |
 | --- | --- | --- |
-| `docker run --env-file .env` (`README.md:122`, `docs/deployment.md:710`) | Docker CLI | `NAME=value`, `#` only at line start, values passed as-is. **No interpolation and no quote processing. Do not quote.** Quoting an `SMTP_PASSWORD` here puts the quote marks in the password. |
+| `docker run --env-file .env` (`README.md:122`, `docs/deployment.md:720`) | Docker CLI | `NAME=value`, `#` only at line start, values passed as-is. **No interpolation and no quote processing. Do not quote.** Quoting an `SMTP_PASSWORD` here puts the quote marks in the password. |
 | Compose `.env` and `env_file` (`deploy/compose/compose.distributed.yml`) | Compose | Interpolation applies to unquoted and double-quoted values, `${VAR:-default}` and friends work. **Single-quote a value containing `$`.** |
 
 The intuitive advice, "quote your secrets in `.env`", is wrong on the path this
@@ -903,7 +903,7 @@ sentence is one an operator searching the tables concludes does not exist.
 **The other three were a named exception rather than an omission, and the
 exception is now five.** `SB_API_ORIGIN`, `SB_FRONTEND_PORT`,
 `SB_MAX_UPLOAD_SIZE`, `SB_BILLING_CONFIGURED` and `SB_ADS_CONFIGURED` — rows of
-the nginx table at `docs/deployment.md:843-852` — belong to the nginx container,
+the nginx table at `docs/deployment.md:853-862` — belong to the nginx container,
 and no example file configures it: the root file serves the single container,
 which has no nginx in it, and the compose recipe sets each of them on the
 frontend service itself (`deploy/compose/compose.distributed.yml:289-335`),
@@ -1028,7 +1028,7 @@ returns 200 or 503 (`src/server/api.ts:417-432`, and the same pair on the
 scheduler at `src/server/scheduler.ts:30-38`). Both are registered above every
 auth middleware and neither is authenticated.
 
-The rule that generalizes best is already written in `docs/deployment.md:1016`: "A
+The rule that generalizes best is already written in `docs/deployment.md:1026`: "A
 process with the scheduler switched off is not an unhealthy one." A readiness
 check that fails because an optional subsystem is off takes a working server out
 of rotation. Readiness must not consult mail, and it must not consult the
@@ -1052,7 +1052,7 @@ shutdown deadline.
 `/health/ready` "says configuration, the database, and the migrations have all
 succeeded, and stays closed until they have", and readiness never knew anything
 about configuration or migrations. Both now say what it does:
-`docs/deployment.md:1007-1012` and `README.md:137-140` describe one statement
+`docs/deployment.md:1017-1022` and `README.md:137-140` describe one statement
 against the database and nothing else, and `src/server/api.ts:424-430` says the
 same beside the route. The difference matters to an operator designing alerting:
 a migration that succeeded on an older image leaves readiness green against a
@@ -1385,7 +1385,7 @@ chart sets `terminationGracePeriodSeconds: 30`
 (`deploy/helm/simple-balance/values.yaml:268`).
 
 **Settled.** Both documented `docker run` commands now pass
-`--stop-timeout 30` (`README.md:122-127`, `docs/deployment.md:710-717`). Docker's
+`--stop-timeout 30` (`README.md:122-127`, `docs/deployment.md:720-727`). Docker's
 default is 10 seconds, exactly the drain deadline, so the forced exit and
 SIGKILL used to land in the same instant and the drain never got to finish.
 

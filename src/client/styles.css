@@ -1643,6 +1643,24 @@ input[type="radio"] {
   font-size: 14px;
 }
 
+/* SC 2.5.8 Target Size, met on the spacing branch rather than the size one.
+   A checkbox is 15 by 15 by this stylesheet's own rule, and §13.4 names it as
+   the one control here small enough to reach that branch — every other passes
+   on size, or on the padding the row around it carries. These rows had
+   neither: the reset at the top strips a list's margin and padding, nothing
+   else ever named this class, so the boxes stacked flush and a 24px circle
+   centered on any of them cut through the one below. Measured in Chromium
+   against this stylesheet, centers were 18px apart at desktop width and 20px
+   at 390px and 320px; with 8px of gap they are 26px and 28px. 4px is not
+   enough — it lands on exactly 24.00 narrow and 22 at desktop. The numbers are
+   written down because `tests/browser/target-size.spec.ts` cannot reach this
+   panel: billing is off in that tier, so there is no account limit and the
+   panel returns null before any markup. */
+.active-account-choices {
+  display: grid;
+  gap: 8px;
+}
+
 .back-link {
   display: inline-flex;
   align-items: center;

@@ -60,7 +60,7 @@ than warning about.
 | `DIRECT_DATABASE_URL` | `DATABASE_URL` | A second connection string that bypasses a transaction pooler. Only needed when PgBouncer or similar sits in front; see below. It carries a password, so it also takes a `DIRECT_DATABASE_URL_FILE`. |
 | `CSV_MAX_BYTES` | `10485760` | Largest CSV accepted for import, 10 MB by default. Ceiling 104857600. |
 | `CSV_MAX_ROWS` | `10000` | Most rows accepted from one CSV. Ceiling 10000, which is also the most rows one mass edit, commit, or delete covers, so an import always fits in a single review-queue action. |
-| `RECURRENCE_SCHEDULER` | `true` | Whether this process runs the schedule at all: proposing recurring transactions, and sending the reminders and proposal notices that go by email. Turn it off on replicas that serve the API when a separate scheduler container owns the job. A value other than `true` or `false` refuses to start, because the wrong setting is otherwise silent. |
+| `RECURRENCE_SCHEDULER` | `true` | Whether this process runs the schedule at all: proposing recurring transactions, sending the reminders and proposal notices that go by email, and — where Stripe is configured — the twelve-hourly sweep that re-reads subscriptions Stripe stopped telling us about. Turn it off on replicas that serve the API when a separate scheduler container owns the job; it has to be on **somewhere**, or a delivery Stripe gave up on leaves somebody on a plan they canceled. The process warns at startup while Stripe is configured and this is off. A value other than `true` or `false` refuses to start, because the wrong setting is otherwise silent. |
 | `RECURRENCE_TICK_SECONDS` | `300` | How often it looks for work that has come due, meaning both a recurrence to propose and a reminder to send. Latency only for a recurrence: whatever a missed tick leaves behind, the next one catches up. A reminder whose moment passed is not sent late, so this is also how close to the requested time a reminder lands. Ceiling 3600. |
 | `RECURRENCE_CATCH_UP_LIMIT` | `50` | Most occurrences one recurrence catches up in one tick. Nothing is dropped; a tick that hits the cap comes straight back rather than waiting out the interval. Ceiling 500. |
 | `RECURRENCE_CLAIM_LIMIT` | `500` | Most recurrences examined in one tick. Ceiling 5000. |
@@ -162,6 +162,16 @@ two prices, the webhook endpoint, the customer emails, the retry settings and
 the payment method domain — is
 [`billing-operations.md` §Setting up Stripe](billing-operations.md#setting-up-stripe),
 in the order to do it.
+
+**`RECURRENCE_SCHEDULER` has to be on somewhere.** The twelve-hourly
+reconciliation sweep rides its tick, and that sweep is the only repair for a
+delivery Stripe gave up on or never sent — Stripe retries for up to 72 hours
+and then stops. Without it a subscription canceled at Stripe goes on entitling
+somebody to the paid plan indefinitely, because the entitlement is read from
+the stored status and nothing else expires it. Turning it off on web replicas
+is right when a separate scheduler container has it on; turning it off on a
+single process is the case that costs, and the process warns at startup while
+Stripe is configured and it is off.
 
 A `price_` prefix is all a string can say, so what the two ids name is asked of
 Stripe. Both have to be recurring, the monthly one billed every `month` and the

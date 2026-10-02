@@ -174,6 +174,24 @@ BEGIN
   -- It is `(user_id, id, currency)`, which the primary key does not cover, and
   -- `posting_account_currency_fk` is the reason it exists: a posting names an
   -- account and a currency together, so the pair has to be a real combination.
+
+  -- 2b. One index, redundant here for a different reason than the five above.
+  --
+  -- `category_group_reference_idx` is `category(group_id)` with no `user_id`,
+  -- and `src/server/db/schema.ts` says in so many words what it is for: PostgreSQL's
+  -- ON DELETE SET NULL action on the single-column `category.group_id` key runs
+  -- `where group_id = $1`, which `category_group_idx (user_id, group_id)`
+  -- cannot serve. That key is gone by now — step 1 dropped it and step 6 puts
+  -- back `category_group_owner_fk (user_id, group_id)` with NO ACTION, whose
+  -- check carries the owner and is served by `category_group_idx`. No query in
+  -- `src/` filters `category.group_id` without `user_id` either.
+  --
+  -- So on a cluster it answers nothing and is copied to every shard. It stays
+  -- in `schema.ts` because a plain PostgreSQL keeps the single-column key and
+  -- still needs it, which is the single-node/cluster asymmetry step 2a is
+  -- already expressing.
+  execute 'drop index if exists category_group_reference_idx';
+
   -- 3. The one unique constraint that can be scoped to a tenant.
   --
   -- A template id is already unique across the whole table, so adding the owner

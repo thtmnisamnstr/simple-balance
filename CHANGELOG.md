@@ -34,6 +34,33 @@ overhead of five pods is what buys never having to do that move.
 `docs/citus-runbook.md` is how to run it — adding a worker, rebalancing, what a
 failover does, and how to move an existing database onto a cluster.
 
+**A third cloud for `ha`: Oracle Container Engine for Kubernetes.**
+`deploy/pulumi/oci/` builds what the `aws` and `gcp` programs build — a network,
+a cluster, a node pool, ingress-nginx behind a load balancer, and the chart on
+top — so the three differ in what their clouds call things rather than in what
+ends up deployed. It is the shortest of the three, and for reasons rather than
+by omission: OKE ships the block-volume CSI driver and the load balancer
+controller inside the cluster, which the other two have to install, and an OCI
+network load balancer preserves the client address without proxy protocol, so
+the frontend needs no second way of learning who is asking. The node pool runs
+on Ampere, and the image a node boots is looked up from the Kubernetes version
+rather than pinned, because a hard-coded image OCID stops existing when Oracle
+retires it and the failure is a pool that never produces a node.
+`simple-balance:controlPlaneCidrs` reaches it like the other two, though not in
+the same place: EKS and GKE take the allowed sources as a property of the
+cluster, while OKE's endpoint sits in a subnet of the deployment's own, so there
+it is a rule on that subnet's security list — and that same list is what decides
+whether the workers may reach the API at all.
+
+**Not exercised with `pulumi up`.** The program plans against a real tenancy and
+no cluster has been built from it, which `docs/acceptance.md` carries as
+outstanding rather than leaving to be discovered. That is also why
+`tests/cluster-control-plane.test.ts` exists: a preview plans the security rules
+and the cluster cleanly whether or not the control plane can be reached, so the
+one failure a preview cannot show — a cluster that reports itself ACTIVE while
+every kubelet's registration is dropped at the subnet — is asserted in the
+repository instead.
+
 **Synchronous replication is derived rather than defaulted.** It was `true` with
 nothing tying it to the replica count, and Patroni's `synchronous_mode_strict`
 is off, so a group with no standby degraded silently to asynchronous — a setting
@@ -838,6 +865,18 @@ than the middle. Debian rather than Alpine in both, because musl compares text
 byte by byte whatever collation is declared, and category and payee uniqueness
 here rests on the database's collation.
 
+**`compose.distributed.yml` keeps 0.1.6's `postgres:16-alpine` as its default,
+and takes 18 as an opt-in.** It is the one recipe here that ships a database and
+the one that is not a profile, so it is the one an operator upgrades in place
+with a volume already on disk — and a PostgreSQL container cannot read the
+previous major version's data directory. Moving the default would have met that
+operator with a database that refuses to start, behind `restart: unless-stopped`
+and the health gate the server and the scheduler wait on, which is a break a
+note in the changelog does not excuse. `POSTGRES_IMAGE` and
+`POSTGRES_DATA_MOUNT` take 18 together, after the dump and restore in
+`docs/upgrades.md`; the default moves in a later release, once the deprecation
+has been in the field.
+
 **The chart's `envFrom` takes a list of Secrets rather than one.** It had to:
 with the database in the cluster, the chart derives a `DATABASE_URL` of its own
 while an operator's `existingSecret` still carries `AUTH_SECRET` and the rest,
@@ -855,13 +894,13 @@ everything else — while the server's first migration was waiting on
 other, and `pulumi`'s Helm release gives that 900 seconds before it gives up.
 It now runs alongside the rest, named by the release revision.
 
-**The EKS and GKE programs take `simple-balance:database`**, a closed set of
+**The three cluster programs take `simple-balance:database`**, a closed set of
 `external` or `in-cluster`, defaulting to `external` — which is exactly what
 every release so far did, so an existing stack plans no change. `in-cluster`
 turns the chart's database on, refuses a `databaseUrl` set beside it at plan
 time rather than three minutes into a rollout, and derives the connection
 ceiling from the chart's own `max_connections` instead of a stock PostgreSQL's
-100. Both also take `simple-balance:controlPlaneCidrs`, which narrows the
+100. All three also take `simple-balance:controlPlaneCidrs`, which narrows the
 Kubernetes API endpoint and is unset by default, because a wrong guess locks a
 stack out of the control plane it would need to fix itself.
 

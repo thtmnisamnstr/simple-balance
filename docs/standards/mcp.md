@@ -148,7 +148,7 @@ said once; the descriptions section asks each tool to name its own refusals. A
 refusal class that cuts across the tier falls between them, and the
 frozen-account refusal is the worked case.
 
-One guard, `assertAccountsWritable` (`src/server/services/accounts.ts:832-844`),
+One guard, `assertAccountsWritable` (`src/server/services/accounts.ts:842-854`),
 gates about a dozen write paths from four services — `accounts.ts`,
 `transactions.ts`, `categories.ts` and `payees.ts` — so roughly thirty-five
 write tools can return it. Exactly one description mentioned it, and that was
@@ -827,7 +827,7 @@ envelope and the worked sentences.
   three things reachable only from a session. Making it active is
   `set_active_accounts`, which the choose-once rule refuses once the choice has
   been made, so an agent that tries is refused twice. **It carries an
-  `agentMessage` now** (`src/server/services/accounts.ts:836-842`): same
+  `agentMessage` now** (`src/server/services/accounts.ts:846-852`): same
   diagnosis, and the advice is to work on an account that is not frozen, to read
   the plan and its ceiling from `whoami` and `frozen` from `list_accounts`, and
   to say that no argument it changes will help. The class rule that keeps it
@@ -840,7 +840,7 @@ envelope and the worked sentences.
   `validateDraft` catches a validation error and files it as an issue on the
   staged row, so a frozen account makes a CSV import row *repairable* instead of
   killing the batch it arrived in, and archiving already refuses the same way
-  (`src/server/services/accounts.ts:814-818`). `FORBIDDEN` would read more
+  (`src/server/services/accounts.ts:824-828`). `FORBIDDEN` would read more
   truthfully to an agent and would kill the batch; `CONFLICT` would read as
   something to retry. So the code stays and the sentence compensates, in two
   places: the `agentMessage` above and the instructions paragraph every

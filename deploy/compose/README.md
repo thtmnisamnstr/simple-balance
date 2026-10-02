@@ -128,6 +128,41 @@ docker compose -f deploy/compose/compose.distributed.yml exec -T postgres \
   pg_dump --format=custom -U simple_balance simple_balance > simple-balance.dump
 ```
 
+## The bundled database, and which PostgreSQL it runs
+
+Two settings in `.env` belong to the `postgres` container rather than to Simple
+Balance, alongside `POSTGRES_PASSWORD`:
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `POSTGRES_IMAGE` | `postgres:16-alpine` | The image the bundled database runs |
+| `POSTGRES_DATA_MOUNT` | `/var/lib/postgresql/data` | Where `postgres-data` is mounted inside it |
+
+The defaults are what 0.1.6 ran, so pulling this release onto an existing
+`postgres-data` volume starts the database it already has. A PostgreSQL
+container cannot read the previous major version's data directory, so moving
+the default would have stopped this recipe — and with `restart: unless-stopped`
+and the health gate the server waits on, stopped it in a loop.
+
+PostgreSQL 18 is worth taking: it is what the `ha` profile runs, so a dump
+restores between profiles, and it is Debian rather than Alpine, whose musl
+`strcoll` compares text byte by byte whatever collation is declared and puts
+capitals first and accents last in every category and payee list. Take it with
+the dump and restore in [docs/upgrades.md](../../docs/upgrades.md), then set
+**both** lines together:
+
+```sh
+POSTGRES_IMAGE=postgres:18
+POSTGRES_DATA_MOUNT=/var/lib/postgresql
+```
+
+Neither is any use alone. The new image against the old path loops on
+`mkdir: cannot create directory '/var/lib/postgresql': Permission denied`,
+because Alpine's data directory belongs to uid 70 and Debian's `postgres` is
+999. The old image against the new path is the quieter mistake: 16 initialises a
+second, empty cluster in a subdirectory of the volume, beside data it then never
+reads.
+
 ## How this differs from the rest of the repository
 
 **`compose.dev.yml`,** at the repository root, is a development database and

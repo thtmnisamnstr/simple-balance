@@ -588,8 +588,19 @@ cluster state in the Kubernetes API, whose address this chart cannot know, and a
 restricted cluster that loses that rule stops failing over.
 
 `simple-balance:controlPlaneCidrs` narrows the Kubernetes API endpoint itself on
-both clouds. It is unset by default, because a wrong guess locks a stack out of
-the control plane it would need to fix itself.
+all three clouds. It is unset by default, because a wrong guess locks a stack out
+of the control plane it would need to fix itself.
+
+The three do it in different places, and on one of them it is the deployment's
+own job rather than the cloud's. EKS and GKE manage the endpoint and take the
+allowed sources as a property of the cluster, so the only question is how wide.
+OKE puts the endpoint in a subnet of the deployment's own and applies that
+subnet's security list to it — so the same list decides whether the workers may
+reach the API *at all*, and a list carrying only 80 and 443 builds a cluster that
+reports itself ACTIVE and never produces a ready node.
+`tests/cluster-control-plane.test.ts` holds all of it, and it stands in for a
+`pulumi up` nobody has run: a preview plans the rules and the cluster cleanly,
+so nothing short of a real build would otherwise meet the empty node pool.
 
 ## DNS
 

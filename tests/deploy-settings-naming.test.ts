@@ -237,7 +237,16 @@ const openAndDueBeforeThisReleaseShips: Record<string, string> = {
  * is the sharp end — PostgreSQL has no `app_password`, so only the prefix is
  * borrowed and `db-init.sh` in this directory is its only reader.
  *
- * All seven are unreleased and freeze with everything above. They are here
+ * The last two are the same borrowing one step further out: they name which
+ * PostgreSQL container `compose.distributed.yml` runs and where its volume is
+ * mounted, which is a fact about a third-party image rather than a setting of
+ * this product's. `CADDY_IMAGE` is the same shape in the list above and is
+ * held open there, but this spelling is settled rather than open:
+ * `deploy/docker/citus.Dockerfile` already carries `ARG POSTGRES_IMAGE` for
+ * exactly this choice, and one repository calling the same thing two names
+ * would be worse than either name.
+ *
+ * All nine are unreleased and freeze with everything above. They are here
  * rather than in `vendorSpellings` because granting them quietly would answer
  * the question this file exists to hold open.
  */
@@ -249,6 +258,14 @@ const arguableAndPartOfTheSameDecision: Record<string, string> = {
   POSTGRES_MAINTENANCE_WORK_MEM: "ours around PostgreSQL's maintenance_work_mem",
   POSTGRES_MAX_WAL_SIZE: "ours around PostgreSQL's max_wal_size",
   POSTGRES_MAX_CONNECTIONS: "ours around PostgreSQL's max_connections",
+  POSTGRES_IMAGE:
+    "ours, and already this repository's spelling for the same choice in " +
+    "deploy/docker/citus.Dockerfile's ARG — which PostgreSQL container a " +
+    "recipe runs, rather than anything the container itself reads",
+  POSTGRES_DATA_MOUNT:
+    "ours, and the other half of that choice: 16 keeps PGDATA at " +
+    "/var/lib/postgresql/data and 18 moved it into a versioned subdirectory, " +
+    "so the image and the mount path travel together",
 };
 
 const accounted: Record<string, string> = {

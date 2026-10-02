@@ -18,11 +18,11 @@ release is being cut says whatever the person cutting it can remember.
 refuses nothing 0.1.6 accepted.** Everything added is optional and off unless an
 operator sets it.
 
-**One exception, and it is not the application.** If you run
-`deploy/compose/compose.distributed.yml`, that recipe bundles its own PostgreSQL
-and this release moves it from 16 to 18. A PostgreSQL container cannot read the
-previous major version's data directory — it refuses to start and says so — so
-this one needs a hand before you pull. The procedure is below.
+**That includes `deploy/compose/compose.distributed.yml`,** the one recipe here
+that bundles its own PostgreSQL: it still runs 0.1.6's `postgres:16-alpine` on
+the volume you already have, because a container cannot read the previous major
+version's data directory and a release that stops is not a release that
+upgrades. Moving it to 18 is worth doing and is an opt-in, below.
 
 **And one interruption to schedule, if you run the `aws` Pulumi program.** Its
 next `pulumi up` turns proxy protocol on between the network load balancer and
@@ -106,17 +106,43 @@ Nothing is required. A deployment that sets none of the new variables sells
 nothing, limits nobody, shows no advertising, and opens no connection to Stripe
 — which is what an untouched `.env` keeps doing.
 
-**If you run `deploy/compose/compose.distributed.yml`, move its database to
-PostgreSQL 18 before you pull.** This does not apply to the single container, to
-the `single` profile, or to anyone pointing `DATABASE_URL` at a database they run
-themselves — those connect to whatever you already have, and the floor is still
-PostgreSQL 15. It applies to the one recipe that ships a `postgres` service.
+**Nothing in this release requires PostgreSQL 18**, including
+`deploy/compose/compose.distributed.yml`, the one recipe that ships a `postgres`
+service. It still runs 0.1.6's `postgres:16-alpine` on the volume it already
+has, because a release upgrades cleanly from the one before it and a PostgreSQL
+container cannot read the previous major version's data directory. Moving that
+default would have met an operator pulling this release with a database that
+refuses to start, behind `restart: unless-stopped` and the health gate the
+server and the scheduler wait on. 18 is an opt-in below instead, and becomes the
+default in a later release once the deprecation has been in the field.
 
-Two things changed in it: the image is `postgres:18`, and the data volume is
-mounted at `/var/lib/postgresql` rather than `/var/lib/postgresql/data`, because
-PostgreSQL 18's image moved `PGDATA` into a versioned subdirectory. Starting 18
-against the old mount point fails immediately with a message naming both facts,
-which is the good failure — nothing starts empty and nothing is overwritten.
+#### Moving the bundled database to PostgreSQL 18
+
+Optional, and worth doing: 18 is what the `ha` profile runs, so a dump restores
+between profiles, and its image is Debian rather than Alpine. Alpine is musl,
+whose `strcoll` compares text byte by byte whatever collation is declared, so
+every category and payee list comes back with capitals first and accents at the
+end — `deploy/compose/single/compose.yml` carries the measurement.
+
+It is two settings in `deploy/compose/.env`, and they travel together:
+
+```sh
+POSTGRES_IMAGE=postgres:18
+POSTGRES_DATA_MOUNT=/var/lib/postgresql
+```
+
+The second is needed because 18's image moved `PGDATA` into a versioned
+subdirectory, so the volume is mounted at the parent. Setting only the first
+leaves the container looping on `mkdir: cannot create directory
+'/var/lib/postgresql': Permission denied` — the Alpine data directory belongs to
+uid 70 and Debian's `postgres` is 999, so the entrypoint never reaches its own
+explanatory check. Setting only the second is quieter and worse: 16 initialises
+a second, empty cluster in a subdirectory of the volume, beside data it then
+never reads. Set both, and take the dump first either way.
+
+None of this applies to the single container, to the `single` profile, or to
+anyone pointing `DATABASE_URL` at a database they run themselves: those connect
+to whatever you already have, and the floor is still PostgreSQL 15.
 
 Dump, recreate, restore:
 
@@ -127,8 +153,8 @@ cd deploy/compose
 # first command fails with "no configuration file provided" — after the shell
 # has already created an empty simple-balance-16.dump.
 export COMPOSE_FILE=compose.distributed.yml
-# 1. With the OLD compose file still checked out, take a dump. `-T` matters:
-#    without it compose allocates a TTY and the dump arrives corrupted.
+# 1. With the database still on 16, take a dump. `-T` matters: without it
+#    compose allocates a TTY and the dump arrives corrupted.
 docker compose exec -T postgres \
   pg_dump -U simple_balance -Fc simple_balance > simple-balance-16.dump
 
@@ -145,8 +171,8 @@ pg_restore --list simple-balance-16.dump > /dev/null && \
 #    run this until step 2 printed OK.
 docker compose down -v
 
-# 4. Pull this release, which brings up an empty PostgreSQL 18.
-git pull && docker compose up -d postgres
+# 4. Set BOTH lines above in .env, then bring up an empty PostgreSQL 18.
+docker compose up -d postgres
 #    `-h 127.0.0.1` matters here as much as `-T` did above: the entrypoint runs a
 #    temporary server while it initializes, and that one answers on the unix
 #    socket alone. Without it this loop finishes against a server about to be
@@ -160,28 +186,25 @@ docker compose exec -T postgres \
   pg_restore -U simple_balance -d simple_balance --clean --if-exists \
   < simple-balance-16.dump
 
-# 6. Build this release and bring the rest up. `--build` is what replaces the
-#    images the previous release built here; without it they are reused, 0.1.6
-#    starts against the restored data, and nothing says so. Migrations run at
-#    startup as they always do. (If you swapped in the commented `image:`
-#    lines instead, move their tags to this release.)
+# 6. Bring the rest up. `--build` is what replaces the images a previous
+#    release built here; without it they are reused and nothing says so.
+#    Migrations run at startup as they always do. (If you swapped in the
+#    commented `image:` lines instead, move their tags to this release.)
 docker compose up -d --build
 ```
 
 Keep the dump until you have signed in and seen your balances. `docs/upgrades.md`
 §Rolling back applies unchanged: going back means restoring that dump into a
-PostgreSQL 16 container, because 16 cannot read an 18 data directory either.
+PostgreSQL 16 container, because 16 cannot read an 18 data directory either —
+which is also what unsetting the two lines above needs.
 
-**`pg_dump` rather than `pg_upgrade --link`**, and the reason is collation. The
-old image was `postgres:16-alpine`, which is musl, and the new one is Debian,
-which is glibc; the two do not sort text the same way, and this product compares
-normalized category and payee names with the database's collation.
-`pg_upgrade` carries indexes across as bytes, so a `--link` upgrade would leave
-every text index sorted under the old library and a uniqueness check quietly
-reading the wrong page. A dump and restore rebuilds them under the collation the
-new server actually has. If you would rather stay where you are, pin
-`image: postgres:16-alpine` and the old mount path in your own copy of the file;
-nothing in this release requires 18.
+**`pg_dump` rather than `pg_upgrade --link`**, and the reason is collation.
+`postgres:16-alpine` is musl and `postgres:18` is glibc; the two do not sort
+text the same way, and this product compares normalized category and payee names
+with the database's collation. `pg_upgrade` carries indexes across as bytes, so
+a `--link` upgrade would leave every text index sorted under the old library and
+a uniqueness check quietly reading the wrong page. A dump and restore rebuilds
+them under the collation the new server actually has.
 
 **One thing is worth doing, if you run the split containers behind anything
 that terminates TLS**, which under Kubernetes is always. Set

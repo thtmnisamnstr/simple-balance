@@ -159,13 +159,43 @@ x-app-config: &app-config
 
 services:
   postgres:
-    # UPGRADING FROM 0.1.6? This service ran `postgres:16-alpine` there, and a
-    # PostgreSQL container cannot read the previous major version's data
-    # directory — so on an existing `postgres-data` volume this will refuse to
-    # start and say so. That is the intended failure rather than a surprise, and
-    # `docs/upgrades.md` has the dump-and-restore that gets past it. The note is
-    # here as well as there because here is where you will be looking when it
-    # happens.
+    # PostgreSQL 16 on Alpine, which is what 0.1.6 ran, because a release
+    # upgrades cleanly from the one before it. A PostgreSQL container cannot
+    # read the previous major version's data directory, so moving this default
+    # to 18 would stop this recipe on the `postgres-data` volume an operator
+    # already has — and `restart: unless-stopped` plus the health gate below
+    # turns that into a restart loop with the server and the scheduler waiting
+    # behind it. `docs/standards/writing.md` §Versioning calls documenting such
+    # a break the thing that does not excuse it, so the move is an opt-in here
+    # and becomes the default in a later release, after the deprecation has been
+    # in the field.
+    #
+    # TO TAKE 18 — worth doing, for the reasons below — set BOTH of these in
+    # `deploy/compose/.env`, after the dump and restore in `docs/upgrades.md`:
+    #
+    #     POSTGRES_IMAGE=postgres:18
+    #     POSTGRES_DATA_MOUNT=/var/lib/postgresql
+    #
+    # They travel together and neither is any use alone. The new image against
+    # the old mount path is the loud half: the container exits and loops, and
+    # `docker compose logs postgres` says `mkdir: cannot create directory
+    # '/var/lib/postgresql': Permission denied`, because the Alpine image's data
+    # directory belongs to uid 70 and Debian's postgres is 999 — an opaque
+    # message rather than the explanatory one, which is the other reason not to
+    # make it the default. The old image against the new mount path is the quiet
+    # half and the dangerous one: 16 would initialise a second, empty cluster in
+    # a subdirectory of the volume, beside data it then never reads. Set both.
+    #
+    # Why 18 is worth taking. It is the newest version every profile can share:
+    # Citus 14.2 — the newest Citus, there is no 15 — gates on 16, 17 and 18, so
+    # `ha` runs 18 and a dump taken from one profile restores into another. The
+    # `single` profile points at a database somebody else runs and still accepts
+    # 15 and up: that floor is about what we will connect to, not about what we
+    # choose to deploy. And Debian rather than Alpine, because Alpine is musl,
+    # which compares text byte by byte whatever collation is declared —
+    # `deploy/compose/single/compose.yml` carries the measurement showing every
+    # category and payee list comes back with capitals first and accents at the
+    # end.
     #
     # Nothing in this file holds a ledger anybody depends on: 0.1.6 called this
     # database "a trial on one machine" and said to point DATABASE_URL at a real
@@ -173,22 +203,9 @@ services:
     # demonstration of the shape the Helm chart deploys. Nothing runs these
     # containers as a deployment any more: the `ha` profile is that shape on
     # Kubernetes, in both of its sizes, and `deploy/helm/simple-balance` is
-    # where it lives.
-    #
-    # PostgreSQL 18, and Debian rather than Alpine.
-    #
-    # 18 because this is a database the deployment owns, so it runs the newest
-    # version every profile can share. Citus 14.2 — the newest Citus, there is no
-    # 15 — gates on 16, 17 and 18, so `ha` runs 18 too and a dump taken from one
-    # profile restores into another. The `single` profile points at a database
-    # somebody else runs and still accepts 15 and up: that floor is about what we
-    # will connect to, not about what we choose to deploy.
-    #
-    # Debian because Alpine is musl, which compares text byte by byte whatever
-    # collation is declared — `deploy/compose/single/compose.yml` carries the
-    # measurement showing every category and payee list comes back with capitals
-    # first and accents at the end.
-    image: postgres:18
+    # where it lives. That is a reason the blast radius is small, not a reason
+    # the recipe may stop working.
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
     restart: unless-stopped
     environment:
       POSTGRES_DB: simple_balance
@@ -201,13 +218,16 @@ services:
     # exists for, and a real deployment points DATABASE_URL somewhere else.
     security_opt: ["no-new-privileges:true"]
     volumes:
-      # The mount is the parent directory, not `.../data`, and 18 is why: the
-      # image moved PGDATA to /var/lib/postgresql/18/docker, and its entrypoint
-      # refuses to start against a volume mounted at the old path rather than
-      # quietly writing where the container would take it. Mounting the parent is
-      # what upstream asks for, and it is what lets `pg_upgrade --link` work later
-      # without crossing a mount boundary.
-      - postgres-data:/var/lib/postgresql
+      # `.../data` is where 16 keeps PGDATA and where 0.1.6 mounted this volume,
+      # so it stays the default for the same reason the image tag does.
+      #
+      # The other half of the 18 opt-in is `POSTGRES_DATA_MOUNT`, which moves it
+      # to the parent: 18's image moved PGDATA to /var/lib/postgresql/18/docker,
+      # and its entrypoint refuses to start against a volume mounted at the old
+      # path rather than quietly writing where the container would take it.
+      # Mounting the parent is what upstream asks for, and it is what lets a
+      # later `pg_upgrade --link` work without crossing a mount boundary.
+      - postgres-data:${POSTGRES_DATA_MOUNT:-/var/lib/postgresql/data}
     healthcheck:
       # `-h 127.0.0.1` rather than the socket: the entrypoint runs a temporary
       # server while it executes initdb scripts, and that one sets
