@@ -352,18 +352,31 @@ export default function CategoriesPage() {
       );
     },
     onMutate: () => setMergeOutcome(null),
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       // 13.3's shape, which the rule states as a list of pages rather than as
       // a property: a control whose success unmounts the control. Merging
       // empties the participant set, the panel renders only at two or more, so
       // the button goes and focus falls to `<body>` — and the only Alert in
       // this panel was the error one, so a merge of nine spellings reported
       // nothing at all.
-      const folded = sourceCategories.length;
+      //
+      // Read off the answer, not off the request. 11.9: the server computes
+      // `mergedSourceCategoryIds`, `updatedTransactionCount` and
+      // `updatedStagedTransactionCount` and all three were dropped, so the one
+      // message shown after an irreversible write said nothing about how much
+      // of the ledger had just moved — and counted `sourceCategories.length`,
+      // which is what was *asked for*. An idempotent replay of the same key,
+      // or a source another tab had already folded, merges fewer than were
+      // named and the sentence would still have claimed all of them.
+      const folded = result.mergedSourceCategoryIds.length;
+      const moved = result.updatedTransactionCount;
+      const staged = result.updatedStagedTransactionCount;
       setMergeOutcome(
         `${folded} ${folded === 1 ? "category" : "categories"} folded into “${
-          target?.name ?? ""
-        }”.`,
+          result.targetCategory.name
+        }”. ${moved} committed ${moved === 1 ? "entry" : "entries"} and ${staged} staged ${
+          staged === 1 ? "row" : "rows"
+        } now name it.`,
       );
       mergeIdempotencyKey.current = newIdempotencyKey();
       setSelectedIds(new Set());

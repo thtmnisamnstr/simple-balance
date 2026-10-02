@@ -241,7 +241,15 @@ Adding a member is one edit, and every one of those follows.
 from the array rather than written beside it, a member added in one place cannot
 disagree with a reader that already exists. And `tests/closed-sets.test.ts` for
 the half nothing asked: a closed set hand-written as a bare union of string
-literals used to pass every check here. It found three — the recurrence
+literals used to pass every check here.
+
+`tests/client-closed-sets.test.ts` covers the one position that check cannot
+reach. Its `inlineUnions()` anchors on what may precede a *type* — a property, an
+annotation, a parameter, a type argument — and a union that follows `as` is
+preceded by none of them, so an assertion was invisible to it. That is also the
+worse of the two spellings: a stale property type fails to compile at the
+assignment, while a stale assertion goes on claiming a value it no longer
+covers, so a member added to the tuple leaves it silently wrong at build time. It found three — the recurrence
 vocabularies in `src/shared/recurrence-dates.ts`, the client's `AuthMode`
 against `src/server/config.ts`, and the client's `BudgetPeriodUnitName` against
 `budgetPeriodUnits`, which is the constant section 2.4 below holds up as the
@@ -287,7 +295,7 @@ export const budgetPeriodUnits = [
 ] as const satisfies readonly ReportBucket[];
 ```
 
-(`src/shared/domain.ts:1392`.)
+(`src/shared/domain.ts:1410`.)
 
 `as const` keeps the four literals; `satisfies` checks that every one of them is
 a bucket the report engine can group by. Annotating the constant
@@ -299,7 +307,7 @@ either of the other two that the rule working was a deviation from it. Both pass
 the test the `securityHeaderOptions` paragraph below sets, and one of them is
 load-bearing by `AGENTS.md`:
 
-- `PLAN_LABELS` (`src/shared/domain.ts:3311-3314`) is, in `AGENTS.md`'s words,
+- `PLAN_LABELS` (`src/shared/domain.ts:3329-3332`) is, in `AGENTS.md`'s words,
   "the one place a plan's name is written". `satisfies Record<Plan, string>` is
   what makes a plan added without a label fail to compile; `as const` is what
   keeps `PLAN_LABELS.plus` the literal `"Premium"` rather than `string`, which
@@ -482,8 +490,34 @@ during arithmetic" on the server half, and `tests/client-money.test.ts`, which
 "keeps every integer digit exact without converting through Number" on the
 client half at twenty-six integer digits. Both pin an implementation at cases a
 float loses, which is what makes them evidence that the two agree. Neither
-refuses a `Number(amount)` written somewhere else, so the paragraph above is the
-half a reader carries.
+refuses a `Number(amount)` written somewhere else;
+`tests/money-never-floated.test.ts` does, over all of `src` with the comments
+blanked, flagging any money-named identifier inside a `Number()` or a
+`parseFloat`. Its register is empty, because nothing in `src` floats a
+money-named value today, and it is pinned at more than thirty call sites so a
+scanner that has stopped matching fails rather than reporting the tree clean.
+
+**It is keyed on names, and so it cannot see money under a different one.**
+`fillPercent(limit, actual)` in `src/client/budget-display.ts` takes two decimal
+strings and calls them `limit` and `actual`; a `Number(actual)` added there
+passes. That is inherent to the shape, `client.md` §4 predicted it, and the
+check says so in its own docstring rather than leaving this guide to claim
+otherwise. The paragraph above is still the half a reader carries.
+
+**One live reading is declared rather than flagged, because settling it is a
+rule decision and not a sweep's.** `src/shared/domain.ts` floats
+`percentOfIncome` and `percentOfPrevious` to bound them between 0 and 1000. A
+float round-trip decides a refusal there, so under the strictest reading of the
+sentence above — "compared, summed, or shown" — it is in scope. It is not
+flagged, and percent names are deliberately outside the check's set, because
+both this section and `client.md` §2.1 carve percentages out in the same words:
+`Number` is allowed "where the result is a pixel or a percentage that is already
+approximate". Including it would make the check red on arrival against code the
+guide sanctions. The pathological case is real and tiny — `"1000.0000000000000001"`
+floats to exactly 1000, passes Zod and dies on the database check constraint as
+a 500, which is the failure the comment above that refinement says it exists to
+prevent. Worth a decision here; not worth a check written against the guide's
+own carve-out.
 
 ### 3.5 The Pulumi programs are a second TypeScript program
 

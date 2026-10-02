@@ -349,7 +349,20 @@ async function claimDueNotification(
         nextNotificationDate: following?.sendDate ?? null,
         updatedAt: new Date(),
       })
-      .where(eq(templateNotifications.id, row.notification.id));
+      // Scoped by owner as well as id, though the select above already held
+      // this row under `for update` and the id is unique on its own. Two
+      // reasons it is spelled out rather than left to the reader: a write whose
+      // safety depends on the statement above it loses that safety silently the
+      // day somebody changes the statement above it, and `0023` makes
+      // `template_notification`'s primary key `(user_id, id)` and distributes
+      // it by `user_id`, so without the owner this is the one write in the
+      // directory a Citus cluster cannot route to a single shard.
+      .where(
+        and(
+          eq(templateNotifications.id, row.notification.id),
+          eq(templateNotifications.userId, userId),
+        ),
+      );
 
     return {
       templateId: row.notification.templateId,

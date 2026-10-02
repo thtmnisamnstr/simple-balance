@@ -5,10 +5,10 @@ keeping.
 
 | Tier | Files | Runs with | Needs |
 | --- | --- | --- | --- |
-| Unit (node) | 158 | `npm test` | nothing |
-| Unit (jsdom) | 52 | `npm test` | nothing |
-| Integration | 70 | `npm test` **or** `npm run test:integration` | PostgreSQL |
-| Browser | 2 | `npm run test:browser` | PostgreSQL, Chromium |
+| Unit (node) | 190 | `npm test` | nothing |
+| Unit (jsdom) | 59 | `npm test` | nothing |
+| Integration | 72 | `npm test` **or** `npm run test:integration` | PostgreSQL |
+| Browser | 4 | `npm run test:browser` | PostgreSQL, Chromium |
 
 **`npm test` collects the integration tier too**, which surprises people and is
 worth stating plainly. `vitest.config.ts:21` excludes four things and only two
@@ -23,14 +23,14 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 211 pass, 69 skip | **2,519 pass, 831 skip** |
-| `npm test`, database set | 280 pass | **3,350 pass** |
-| `npm run test:integration` | 70 pass | 832 pass |
+| `npm test`, no database | 250 pass, 71 skip | **2,699 pass, 836 skip** |
+| `npm test`, database set | 321 pass | **3,535 pass** |
+| `npm run test:integration` | 72 pass | 837 pass |
 
-The integration tier reports 832 tests on its own and 831 skips inside a
+The integration tier reports 837 tests on its own and 836 skips inside a
 database-less `npm test`, and the one-test difference is not an error: one case
 in that tier needs no database and so runs either way. It is counted among the
-2,519 rather than among the skips, which is why the two rows add up to 3,350
+2,699 rather than among the skips, which is why the two rows add up to 3,535
 both times.
 
 The third row is one test larger than the first row's skip count, and the odd
@@ -38,7 +38,7 @@ one out is worth knowing: `bulk-transactions-mcp.integration.test.ts` has one
 `describe` outside the database guard, because discovering which tools a scope
 exposes needs no ledger. It runs on every `npm test`, database or not.
 
-The first row is what CI and `npm run verify` see, and 2,519 is the number that
+The first row is what CI and `npm run verify` see, and 2,699 is the number that
 actually gates a change by default. The second is what a developer with a local
 PostgreSQL sees, and it is strictly better. Reporting the second as though it
 were the first overstates what the gate covers, which is a mistake worth naming
@@ -511,10 +511,13 @@ numbers down.
 `fetch` serves the next file's requests, and the failure surfaces somewhere
 unrelated.
 
-*Checked by:* `human`. Nothing reads `vitest.config.ts` back, and seven files
-stub a global and leave the undoing to the runner, so deleting the line breaks
-whichever file happens to run after one of them rather than anything that names
-the setting.
+*Checked by:* `tests/vitest-settings.test.ts`, which imports the configuration
+and reads the value the runner is handed rather than the file's text. Nothing
+read `vitest.config.ts` back for four releases, and seven files stub a global
+and leave the undoing to the runner, so deleting the line broke whichever file
+happened to run after one of them rather than anything that named the setting —
+the worst debugging shape in the suite, and the reason this is worth two lines.
+5.4's `fileParallelism` is held in the same file and for the same argument.
 
 ### 5.4 A file that turns a feature on turns it off again
 
@@ -662,9 +665,18 @@ cannot do that should leave the number alone and fail loudly instead.
 | 2.7 The keys a test builds | Nothing reads the key builders under `tests/`, and the suite cannot: the collision is what makes the test green. |
 | 5.2 One database per file | Convention. |
 | 4 The vitest plugin is off | The four counts in that section move with the suite and this page says to re-measure rather than quote them; what decides the section is the proportion, and no test can hold a proportion it has to recompute by running a linter. |
-| 5.3 Stubbed globals, if the setting goes | Nothing reads the runner configuration back, and the file that would fail is not the file that changed. |
 
-Twelve `human` rules in this guide. It said four when the count was first
+Eleven `human` rules in this guide. **It reached twelve and then went down for
+the first time**, which is the direction `index.md` says the count is supposed
+to move: 5.3 left the table in 0.2.0. Its row read "Nothing reads the runner
+configuration back, and the file that would fail is not the file that changed",
+and the answer was the one the paragraph under this table had already named —
+`tests/vitest-settings.test.ts` imports the configuration and reads
+`unstubGlobals` back off the object, so a value inside a commented-out block or
+under a replaced `test` key cannot pass. 5.4's premise, `fileParallelism`, is
+held in the same file.
+
+It said four when the count was first
 written, and nine was the true figure: three of the difference is rules that
 named no mechanism anywhere on the page, which is the state this count exists to
 make uncomfortable, and the rest is one row that read 2.1–2.3 and counted once.
@@ -681,7 +693,9 @@ checked by one and as nothing by the other, and the number in
 `docs/standards/code/index.md` was a rule short for a release. A footer that
 names `human` in prose rather than in the table is invisible to both.
 
-Two of the twelve are worth an attempt: 2.7 is a scan of `tests/` for the
-`padEnd` shape it was, and 5.3 is a test that reads one line of
-`vitest.config.ts`, which is what `tests/theme-tokens.test.ts` already does to a
-stylesheet.
+One of the eleven is worth an attempt: 2.7, a scan of `tests/` for the `padEnd`
+shape it was. The other one this paragraph named was 5.3, "a test that reads one
+line of `vitest.config.ts`, which is what `tests/theme-tokens.test.ts` already
+does to a stylesheet" — which is exactly what was written, except that it reads
+the imported object rather than the line, because a line can be commented out
+and still be a line.

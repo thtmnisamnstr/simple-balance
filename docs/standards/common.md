@@ -84,7 +84,13 @@ where somebody lives is answered in one place."
   period the same way instead of one of them saying "to June 1" about a window
   covering all of June (`src/client/budget-display.ts:4-10`).
 
-*Checked by:* `tests/recurrence-dates.test.ts`, `tests/locale-detection.test.ts`.
+*Checked by:* `tests/recurrence-dates.test.ts`, `tests/locale-detection.test.ts`
+for the arithmetic, and `tests/raw-dates-on-screen.test.ts` for the fourth
+bullet: a raw `YYYY-MM-DD` reaching a caption, an `aria-label` or any other
+string somebody reads, including the ones only a screen reader reaches. Which
+fields count as dates is derived from what the client already passes to a
+formatter rather than listed, so a new one joins the population by being
+formatted anywhere.
 
 ## Naming
 
@@ -228,8 +234,13 @@ because the product has no sentence for them and should not:
   the sentence a missing row of your own gets.
 
 *Checked by:* `tests/ui-copy.test.ts`, which requires every message in the table
-above to appear verbatim in `src` and refuses the banned words anywhere a person
-can read them, across all three of `src/client`, `src/shared` and `src/server` —
+above to appear verbatim in `src`, and `tests/worked-sentence-reverse.test.ts`,
+which reads the table the other way: a sentence in `src` that is *about* one of
+these situations is one of these messages or is named in that file's register
+with the argument for it. The forward check alone cannot see the failure this
+table exists to prevent — a sixteenth message for a situation that already has
+one, with the row it duplicates still quoted somewhere. `tests/ui-copy.test.ts`
+also refuses the banned words anywhere a person can read them, across all three of `src/client`, `src/shared` and `src/server` —
 `common.md` settles the voice for both surfaces and a service's refusal is
 rendered on a screen. Also `tests/api-security.test.ts` and
 `tests/mcp-output.test.ts` for the envelope.
@@ -278,7 +289,7 @@ table's sense, and whether the "Not" column is honest, stays review.
 | **Recurrence** | A saved shape and a schedule that proposes a staged row on its due date. | Something that posts. |
 | **Template** | A saved shape with no schedule. | A recurrence. |
 | **Plan** | What a sign-in is entitled to and billed for: free or paid. `plus` on the wire, **Premium** on screen. | A budget plan, which is always written out in full. |
-| **Entitlement** | What a plan permits, worked out from the plan and the moment rather than stored (`src/shared/domain.ts:3532`). | A plan. An entitlement follows from one and changes with nobody present, which is why no column holds it. |
+| **Entitlement** | What a plan permits, worked out from the plan and the moment rather than stored (`resolveEntitlement`, `src/shared/domain.ts:3415`). | A plan. An entitlement follows from one and changes with nobody present, which is why no column holds it. |
 | **Frozen** | A live account a plan's limit leaves closed to every write: fully readable, counted in every balance, summary and report, refusing every change. | Archived. An archived account already refuses writes, is outside the limit, and uses up no place. |
 | **Place** | One of the accounts a plan keeps usable; the product's word for the slot. | An account. A place opens up only when an account in use is archived or deleted. |
 
@@ -298,7 +309,7 @@ sentence is "Everything in it goes: accounts, transactions, categories…"
 confirmation repeats it (`:572`, `:578`). `AGENTS.md` wins over this guide and
 calls a sign-in an account throughout, as do three places in the product
 (`src/client/App.tsx:394`, `src/client/pages/SettingsPage.tsx:169`,
-`src/client/pages/PlanPage.tsx:1006`), so the old row — "A user. A person has a
+`src/client/pages/PlanPage.tsx:1123`), so the old row — "A user. A person has a
 sign-in, not an account." — was asserting a rule the repository has never
 followed, and the sharp case is the one screen where the ambiguity it was written
 to prevent actually bites. Rewriting the panel is a copy change this guide cannot
@@ -335,13 +346,13 @@ commit subject and a comment: plain, declarative, specific.
   below ten. A count that arrives as a *value* cannot be spelled out by writing
   the sentence differently, so it is spelled out by a map where the sentence
   reads as a sentence — `NUMBER_WORDS` and `GRACE_IN_WORDS`
-  (`src/client/pages/PlanPage.tsx:531-537`) turn `BILLING_GRACE_DAYS` into words
+  (`src/client/pages/PlanPage.tsx:626-632`) turn `BILLING_GRACE_DAYS` into words
   and fall back to digits past the end of the list, which "reads worse and is
   still true" — and left as a digit where it reads as a figure beside others.
   The plan and freezing copy is all of the second kind and none of the first,
   and the two halves of it currently disagree: the grace period is spelled out
   and the account limit is not. `MAX_FREE_ACCOUNTS` is three, and it renders as
-  "up to 3 accounts" (`src/client/pages/PlanPage.tsx:1437`), "Your plan keeps 3
+  "up to 3 accounts" (`src/client/pages/PlanPage.tsx:1554`), "Your plan keeps 3
   accounts usable" (`src/client/pages/AccountsPage.tsx:556`) and "All 3 places
   are in use" (`src/client/pages/AccountsPage.tsx:597`), the last of which is a
   figure beside a figure and right as a digit. The first two are sentences and
@@ -402,7 +413,7 @@ The membership test is the whole of it, and all four clauses have to hold:
 One value passes today. Stripe reports a subscription price as an integer count
 of the currency's smallest unit (`src/server/stripe.ts:1261`), the server hands
 it on untouched (`src/server/services/billing.ts:1147`), and `formatPrice`
-(`src/client/pages/PlanPage.tsx:481-501`) divides it by the scale `Intl` already
+(`src/client/pages/PlanPage.tsx:576-596`) divides it by the scale `Intl` already
 knows and formats it in the same breath. The argument is written at the site and
 ends "Do not copy this into anything that touches a posting", which is the
 sentence to read before deciding a second value qualifies.
@@ -441,9 +452,9 @@ exception to.
 **House.** §Naming says a name is the same word on every surface, and names no
 exception. Six closed sets already read against that sentence:
 `accountTypeLabels` (`src/shared/domain.ts:53`), `PLAN_LABELS`
-(`src/shared/domain.ts:3311`), `kindLabels`
+(`src/shared/domain.ts:3329`), `kindLabels`
 (`src/client/pages/CategoriesPage.tsx:45`), `transactionTypeLabels`
-(`src/client/pages/TemplatesPage.tsx:67`), and `ORDINAL_LABELS` and
+(`src/client/pages/TemplatesPage.tsx:68`), and `ORDINAL_LABELS` and
 `FREQUENCY_LABELS` (`src/client/forms.tsx:2449`, `:2477`) for the two schedule
 pickers. In four of the six the label is a different *word* rather than the same
 word capitalized: `credit_card` reads Credit Card, `plus` reads Premium, `both`

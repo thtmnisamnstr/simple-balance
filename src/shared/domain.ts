@@ -656,7 +656,19 @@ const stagedDraftSchema = z
       .unknown()
       .optional()
       .describe(
-        "Which category this files under, if the proposal already knows. A staged row may name one instead, in the rawData the queue keeps.",
+        "Which category this files under, if the proposal already knows. It wins over categoryName. A proposal that only knows the name sets categoryName instead; rawData is kept for reference and is never read to resolve a category.",
+      ),
+    categoryName: z
+      .unknown()
+      .optional()
+      .describe(
+        'A category by name rather than by id, for a proposal naming one this ledger may not have yet, for example "Groceries". Matched when the row commits, not when it is staged, and ignored when categoryId is set. Creating one needs ledger:write: with ledger:stage alone the row waits here rather than inventing a record.',
+      ),
+    categoryKind: z
+      .unknown()
+      .optional()
+      .describe(
+        'Which kind to create the category as when categoryName names one that does not exist yet: "income", "expense" or "both". Left out, a deposit creates an income category and a withdrawal an expense one, which is the case direction alone gets wrong — set it to "expense" on a deposit to stage a refund into a new spending category. Ignored when the category already exists or categoryId is set. A split carries its own answer on each leg instead.',
       ),
     notes: z.unknown().optional().describe("Anything longer that should stay with the entry."),
     externalId: z
@@ -664,6 +676,12 @@ const stagedDraftSchema = z
       .optional()
       .describe(
         "The reference the row carried in the file it came from. It is what keeps a second import of the same statement from staging the same rows twice.",
+      ),
+    templateId: z
+      .unknown()
+      .optional()
+      .describe(
+        "Which template this row was proposed from, kept as provenance so the template can report what came of it. It carries no foreign key, so a deleted template leaves the rows it proposed alone, and the staged list can be filtered by it.",
       ),
     fromAccountId: z
       .unknown()
@@ -693,7 +711,7 @@ const stagedDraftSchema = z
       .unknown()
       .optional()
       .describe(
-        "The split, if the proposal came with one. The legs have to add up to the amount before the row can commit, and a transfer may not carry any.",
+        "The split, if the proposal came with one: an array shaped like create_transaction's legs — amount, and categoryId or categoryName with its own categoryKind, plus an optional description. The legs have to add up to the amount before the row can commit, and a transfer may not carry any. Leaving it out of an update clears the split, because an update replaces the draft whole.",
       ),
   })
   .catchall(z.unknown());

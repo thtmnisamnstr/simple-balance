@@ -103,7 +103,13 @@ cross-tenant read, which is the one class of bug in this product that cannot be
 apologized for.
 
 *Checked by:* `tests/integration/tenant-isolation.integration.test.ts`, which
-walks the surface with two users and asserts neither can see the other.
+walks the surface with two users and asserts neither can see the other, and
+`tests/service-write-scope.test.ts` for the half that suite is structurally
+blind to. A read that forgets the owner shows somebody another tenant's row and
+two users will find it; a *write* that forgets the owner can only be caught
+behaviourally if two tenants' rows collide on the key it does use, and every key
+here is a UUID, so they never do. `claimDueNotification` updated
+`template_notification` by id alone for a release on exactly that blind spot.
 
 ### 1.2 The transport layer decides nothing
 
@@ -514,12 +520,22 @@ of them, and that they parse as the shape the MCP tool declares; and
 split's legs held, before and after", for the payload carrying the legs. The
 same ledger file separates `create` from `create_from_stage` by requiring both
 to appear, which is as close as anything comes to holding an operation name to
-its intent. The word left unchecked is *every*: nothing enumerates the mutations
-in this directory the way `tests/service-transactions.test.ts` enumerates their
-parameter lists, so a new write that audits nothing passes. The billing
-exemption is unchecked for the same reason and is a named exception rather than
-a gap — it is written down here, where a reviewer meeting a new unaudited write
-in that file can tell whether it is covered by the paragraph above.
+its intent.
+
+The word *every* was unchecked until 0.2.0 and is now
+`tests/service-audit-coverage.test.ts`, which derives the population the way
+this paragraph said nothing did: every exported declaration in this directory
+that writes a row, itself or through something here that does, and each one
+reaching `writeAudit`, `writeAuditMany` or `auditedTransaction`. Reading
+`writeAudit` alone would have called every bulk delete unaudited, since
+`writeAuditMany` writes the table itself. The billing exemption is registered as
+a **module**, which is the shape the paragraph above argues for, beside ten
+named declarations. It has caught nothing yet, and that is the honest report: the
+hand enumeration that preceded it came back clean. What it buys is that the next
+unaudited write has to come here and join the register.
+
+What it still cannot decide is whether an operation *name* is a sentence about
+intent. That stays review, and the paragraph above is the only statement of it.
 
 ### 2.6 A merge rewrites every table that names the merged thing
 
@@ -543,9 +559,14 @@ same change.
 *Checked by:* `tests/integration/categories.integration.test.ts` ("rewrites
 template drafts when merging" and the recurrence twin) and
 `tests/integration/payees.integration.test.ts` ("rewrites recurrence shapes
-and template drafts to the merged spelling"). Not checked mechanically: that
-the counter and the merge agree table for table — a new reference table needs
-both by hand.
+and template drafts to the merged spelling"). That the counter and the merge
+agree table for table is `tests/reference-tables-merge.test.ts`, which derives
+the population from `schema.ts` rather than listing it — a `category_id`
+column, a `payee` column, or a `jsonb` one, because the three transaction-shaped
+payloads hold both as fields rather than as columns — and names every table
+deliberately outside it with the argument. `auditEvents` is the entry worth
+reading: it is the one table a merge must *not* rewrite, because `before` and
+`after` are what a row looked like at a moment that has passed.
 
 ### 2.7 A guard holds for every sibling of the path it guards
 
@@ -594,7 +615,7 @@ at a moment no code observes, and a deployment that stops selling answers
 written on the way down would go on saying what it said then, and that last case
 would lock paying customers out of their own books. `ledger_account.active` is
 the person's choice and nothing else; `frozenAccountIds`
-(`src/shared/domain.ts:3532`) combines it with the entitlement at read time.
+(`src/shared/domain.ts:3550`) combines it with the entitlement at read time.
 
 The obvious alternative is to resolve the entitlement once at the edge — in the
 route, or in a middleware — and pass the answer down. It is wrong for the reason
@@ -862,12 +883,17 @@ into a spending category it created itself has to move a budget.
 | Rule | Why it is only a sentence |
 | --- | --- |
 | 1.4 One public function per intent | Whether two operations are one intent with a boolean is the judgement being asked for, and anything able to settle it would not need the rule written down. The nearest check belongs to another guide: `tests/http-route-table.test.ts` refuses a route ending `/archive` or `/delete`, which is this split where it reaches a URL and nowhere else. |
-| 2.6 The counter and the merge agree | The two instances that existed are pinned by tests; whether a NEW reference table reaches both lists is a fact about a diff, which only a reviewer sees. |
 | 2.7 Guards hold for siblings | No program knows which paths are siblings. The two ledger instances are pinned; the class is a review question. |
 | 3.1 Reads before dependent writes | Only the outcome is testable, and it is: the refund tests are that check wearing a different hat. |
 
-Four `human` rules in this guide, and the list has not changed in 0.2.0 even
-though the guide gained three sections. A sentence here used to say which of
+Three `human` rules in this guide. It was four until 0.2.0 closed 2.6, and the
+row that left is worth one sentence because its reasoning is what kept it
+unbuilt: it said that "whether a NEW reference table reaches both lists is a
+fact about a diff, which only a reviewer sees", and that was wrong about where
+the fact lives. `tests/reference-tables-merge.test.ts` derives the population
+from `schema.ts` — a `category_id` column, a `payee` column, or any `jsonb`
+column — rather than from either list, so a new reference table is a fact about
+the *schema* and no diff is needed to see it. A sentence here used to say which of
 them were "new to the table", and it named 1.3; it survived a renumbering and
 went on resolving, to a rule that now carries five tests and is not in the table
 at all. Nothing checks a section number against the heading it was written for,

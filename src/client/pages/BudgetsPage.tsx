@@ -1040,11 +1040,23 @@ export default function BudgetsPage({ session }: { session: Session }) {
                   className="table-wrap"
                   tabIndex={0}
                   role="region"
-                  aria-label={`Groups for ${period.start} to ${period.end}`}
+                  aria-label={`Groups for ${formatDate(period.start)} to ${formatDate(period.end)}`}
                 >
                   <table className="data-table">
                     <caption className="sr-only">
-                      Groups for {period.start} to {period.end} in {period.currency}
+                      {/* Formatted, like every other date a person reads
+                          (`common.md` §Dates and times). These five read
+                          `2026-06-01` to a screen reader while the visible
+                          heading on the same panel read "June 2026" —
+                          `periodName` just above — so the two surfaces of one
+                          panel disagreed, and the one that disagreed was the
+                          one nobody looks at. `formatDate` rather than
+                          `periodName` because `start` and `end` are the
+                          period's span and may be clipped, so the span is the
+                          honest thing to show and only its writing was
+                          wrong. */}
+                      Groups for {formatDate(period.start)} to {formatDate(period.end)} in{" "}
+                      {period.currency}
                     </caption>
                     <thead>
                       <tr>
@@ -1103,11 +1115,14 @@ export default function BudgetsPage({ session }: { session: Session }) {
                 className="table-wrap"
                 tabIndex={0}
                 role="region"
-                aria-label={`Budget against spending for ${period.start} to ${period.end}`}
+                aria-label={`Budget against spending for ${formatDate(
+                  period.start,
+                )} to ${formatDate(period.end)}`}
               >
                 <table className="data-table">
                   <caption className="sr-only">
-                    Budget against spending for {period.start} to {period.end} in {period.currency}
+                    Budget against spending for {formatDate(period.start)} to{" "}
+                    {formatDate(period.end)} in {period.currency}
                   </caption>
                   <thead>
                     <tr>
@@ -1381,7 +1396,8 @@ export default function BudgetsPage({ session }: { session: Session }) {
             >
               <table className="data-table">
                 <caption className="sr-only">
-                  Projected balances in {currency.currency}, from {forecast.data?.from}
+                  Projected balances in {currency.currency}
+                  {forecast.data ? `, from ${formatDate(forecast.data.from)}` : ""}
                 </caption>
                 <thead>
                   <tr>

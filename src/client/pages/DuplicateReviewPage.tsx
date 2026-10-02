@@ -163,6 +163,17 @@ export default function DuplicateReviewPage() {
           title="Possible duplicates"
           description="Two records of what might be one payment, checked one pair at a time."
         />
+        {/* 13.3's shape, on the branch that ends every run: the Drop button is
+            inside the panel this replaces, so confirming unmounts the element
+            the dialog's `close()` would have returned focus to and it falls to
+            `<body>`. The neighbour case needs nothing — `<Navigate>` changes
+            the pathname and the shell moves focus to `<main>` — so only the
+            queue of one was bare, which is the common ending rather than an
+            edge. `EmptyState` cannot take focus and `Note` is a plain `<p>`,
+            so this is also the only thing here a screen reader announces. */}
+        <Alert kind="success" takeFocus>
+          The row was dropped. Nothing left in the queue looks like a copy of anything else.
+        </Alert>
         {caughtUp}
       </>
     ) : (

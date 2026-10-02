@@ -165,8 +165,14 @@ defense is nowhere near the code it defends.
 cap, including that a name of astral-plane characters comes back whole rather
 than cut through a surrogate pair.
 `tests/integration/notifications.integration.test.ts:216` pins the template
-subject exactly, `Reminder: Quarterly tax`, against the code that sends it.
-Nothing asserts that `oneLine` refuses a newline.
+subject exactly, `Reminder: Quarterly tax`, against the code that sends it. That
+`oneLine` refuses a newline is `tests/subject-header-injection.test.ts`, which
+feeds CR LF, a bare LF, a bare CR, a tab, NUL and DEL to all four schemas that
+carry a name into a subject — the create *and* the update of each, because the
+update schemas respell the name rather than deriving it from the create. It
+carries a positive control, an accented and emoji-bearing name that must be
+accepted, and that control earned its place immediately: the first draft's
+fixture was wrong and all twelve refusals were passing for the wrong reason.
 
 ### What goes in the log when a message fails
 
@@ -388,8 +394,14 @@ the value is ours rather than theirs. The test is ownership, not familiarity:
 `SB_BILLING_ENABLED` is prefixed, because whether this deployment sells a plan is
 a question only this product asks.
 
-*Not checked mechanically*, for the same reason the rule above is not: a grep
-would have to know which names belong to a vendor.
+*Checked by:* `tests/deploy-settings-naming.test.ts`. A grep would have to know
+which names belong to a vendor — so the grep does not know and the three
+registers do: a platform convention, a vendor's own spelling, and the frozen
+inventions that predate the rule. Each entry is keyed by name and carries its
+reason, so a name on none of the three fails by name and extending a list is a
+decision somebody writes down. This release invented nine unprefixed names and
+the open question below named three of them; six would otherwise have frozen
+unexamined.
 
 **Open, and the owner's to close before 0.2.0 ships.** `PRIVACY_POLICY_URL`,
 `TERMS_OF_USE_URL` and `SITE_ADDRESS` break the rule above. All three are this
@@ -434,8 +446,9 @@ with the first, beside a real `SB_TERMS_OF_USE_URL`, gets a sign-up form that
 links no terms and no word about why, which is the failure with no symptom this
 whole section is arranged against. Whichever is chosen freezes when 0.2.0 ships.
 
-*Not checked mechanically.* A grep for new unprefixed names would need to know
-which are conventional.
+*Checked by:* `tests/deploy-settings-naming.test.ts`, which is where the three
+names above are currently registered as frozen-pending-this-decision. Whichever
+way it goes, the register entry is the record of it.
 
 ### Types
 
@@ -718,7 +731,7 @@ it was given, the range it had to be in, and the number in force instead — and
 is printed once per name at startup, in front of whoever just deployed. What was
 kept from the first pass is the part that mattered most: all six are read at
 startup rather than at the call site. `configuredCsvMaxRows()` used to run inside
-an import (`src/server/services/import-export.ts:796`) and the recurrence limits
+an import (`src/server/services/import-export.ts:811`) and the recurrence limits
 inside a tick, so a message about either arrived hours later in a log nobody was
 reading, or on a deployment that never imported a CSV, not at all.
 `assertConfiguredLimits()` (`src/server/config-limits.ts:224-231`) reads all six
@@ -1929,6 +1942,10 @@ a renamed variable moved the version.
 | Every message declares itself auto-generated | `tests/mail-headers.test.ts` |
 | A subject leads with its fixed part, and a long name is cut by code point | `tests/mail-subjects.test.ts` |
 | A failed send names the message and not the subject, and drops the recipient's address | `tests/mail-logging.test.ts` |
+| A failed scheduled send names the notification row: both senders set `about` to an id, after the spread, and the id reaches the log line | `tests/operations-defaults-and-send-failures.test.ts` |
+| `config.ts` defaults and the deployment table agree, every literal default in the table either read back from the running configuration or argued to be nginx's | `tests/operations-defaults-and-send-failures.test.ts` |
+| A name that reaches a mail subject cannot carry a line break, a control character or a DEL, over the create and the update schema of both records, with a positive control so the refusals cannot pass vacuously | `tests/subject-header-injection.test.ts` |
+| Every unprefixed setting name in the four example files, the compose files, the Caddyfile and `config*.ts` is accounted for by name — a platform convention, a vendor's spelling, frozen by having been released, the open rename question, or the arguable edge — and no grant outlives the variable it names | `tests/deploy-settings-naming.test.ts` |
 | Only secrets and always-set variables are assigned in either example file; the quoting warning sits beside each `SMTP_PASSWORD` | `tests/env-example.test.ts` |
 | The example files and the deployment tables name the same variables, both directions, exceptions listed | `tests/env-example.test.ts` |
 | The deliverability section exists, the README and `.env.example` point at it, and it cites no RFC | `tests/deployment-docs.test.ts` |
@@ -1950,16 +1967,19 @@ a renamed variable moved the version.
 
 Not checked mechanically, ranked by how cheap the check would be:
 
-1. `config.ts` defaults and the deployment table agree.
-2. `oneLine` refuses CR and LF, which is what closes header injection.
-3. A failed send names the notification row and not only the kind of message it
-   was. The code half is done — both scheduled senders pass the id
-   (`src/server/services/notifications.ts:170`, `:376`), as the mail policy
-   section above records — so what is missing is the test that would keep it
-   done.
-4. `IDEMPOTENCY_RETENTION_HOURS` is read at startup like the other six bounded
+1. **Landed.** `oneLine` refuses CR and LF, which is what closes header
+   injection: `tests/subject-header-injection.test.ts`, over both the create and
+   the update schema of each of the two named records. Kept here with its number
+   because the items around it are cited by position.
+2. `IDEMPOTENCY_RETENTION_HOURS` is read at startup like the other six bounded
    integers. The parser is covered; `assertConfiguredLimits()` does not call it,
    so this is a backlog row below rather than a check somebody forgot to write.
+
+Items 1 and 3 were the defaults and the failed send, and both are in the table
+above. The failed send is the one worth recording: its code half was already
+done — both scheduled senders pass the id — and nothing kept it done, which is
+the same shape as the outbound-connection row below, and the override being
+*after* the spread is the half a reader would not think to protect.
 
 The outbound-connection row moved out of this list and into the table above, and
 the move is the one worth recording: it was *in this list while the section that

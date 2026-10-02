@@ -25,7 +25,15 @@ import { loadStripe } from "@stripe/stripe-js/pure";
 import type { Stripe, StripeError } from "@stripe/stripe-js";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { CreditCard, ShieldCheck } from "lucide-react";
-import { useEffect, useId, useRef, useState, type ComponentProps, type FormEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+  type FormEvent,
+} from "react";
 import {
   api,
   json,
@@ -38,6 +46,7 @@ import { Alert, Badge, Button, Note, PageHeader, SettingsTabs, Skeleton } from "
 import { newIdempotencyKey } from "../idempotency.js";
 import { formatTimestamp } from "../money.js";
 import { useTimezone } from "../timezone.js";
+import { usePaintedTheme } from "../theme.js";
 import type { BillingInterval } from "../../shared/domain.js";
 
 type PlanSubscription = NonNullable<BillingStatus["subscription"]>;
@@ -362,6 +371,92 @@ function stripeFor(publishableKey: string) {
   const loading = loadStripe(publishableKey);
   stripeByKey.set(publishableKey, loading);
   return loading;
+}
+
+/** A token's live value, or nothing when the stylesheet has not been applied. */
+function token(root: CSSStyleDeclaration, name: string): string | undefined {
+  const value = root.getPropertyValue(name).trim();
+  return value || undefined;
+}
+
+type FieldMetrics = { borderRadius?: string; fontSizeBase?: string };
+
+/**
+ * The two measurements a field takes from a rule rather than from a token.
+ *
+ * Measured off a `span.input` the stylesheet draws, for the same reason the
+ * colors below are read rather than typed: a radius written here would be a
+ * second place it is decided, and the first one to go stale. The probe is
+ * attached because a detached element matches no rule, and removed in the same
+ * turn, so nothing is ever painted.
+ *
+ * Attaching it is a write to the document, so this is called from an effect and
+ * never while rendering. Neither value depends on the theme — `.input` is 8px
+ * and 13px in both — so it is taken once.
+ */
+function fieldMetrics(): FieldMetrics {
+  try {
+    const probe = document.createElement("span");
+    probe.className = "input";
+    probe.setAttribute("aria-hidden", "true");
+    probe.style.position = "absolute";
+    probe.style.visibility = "hidden";
+    document.body.append(probe);
+    try {
+      const style = window.getComputedStyle(probe);
+      const radius = style.borderTopLeftRadius;
+      const size = style.fontSize;
+      return {
+        ...(radius ? { borderRadius: radius } : {}),
+        ...(size ? { fontSizeBase: size } : {}),
+      };
+    } finally {
+      probe.remove();
+    }
+  } catch {
+    // Stripe's own defaults are a working surface; a measurement that could not
+    // be taken is not worth failing the one screen that takes a payment.
+    return {};
+  }
+}
+
+/**
+ * The theming interface Stripe's `Elements` accepts, filled from this page's
+ * own tokens (`web.md` 6.4).
+ *
+ * It was passed `{ clientSecret }` and nothing else, so the card fields came up
+ * in the vendor's light default: on a dark deployment, a white rectangle inside
+ * a dark panel on the one screen that takes somebody's money — the only surface
+ * in the product answering for one of the two themes 1.2 requires.
+ *
+ * Every value is READ off `:root` rather than re-typed, which is the half of
+ * 6.4 that is easy to get wrong: a hex typed here would be a fourth place a
+ * color is written, and 1.2's whole argument — one value, three questions —
+ * would be lost to a surface nobody looks at twice. The base theme is picked by
+ * what is painted rather than overridden variable by variable, because Stripe's
+ * own sub-elements have defaults of their own that no variable reaches.
+ *
+ * A token that comes back empty is left out, so Stripe falls back to its own
+ * value instead of being handed a blank one.
+ */
+function stripeAppearance(painted: "light" | "dark", metrics: FieldMetrics) {
+  const root = window.getComputedStyle(document.documentElement);
+  return {
+    theme: painted === "dark" ? ("night" as const) : ("stripe" as const),
+    variables: {
+      // The token named for a field's focused edge, which is what Stripe paints
+      // with `colorPrimary`.
+      ...(token(root, "--focus-ring") ? { colorPrimary: token(root, "--focus-ring") } : {}),
+      // `--field`, not `--surface`: this is the fill behind an input, and the
+      // two differ in dark.
+      ...(token(root, "--field") ? { colorBackground: token(root, "--field") } : {}),
+      ...(token(root, "--ink") ? { colorText: token(root, "--ink") } : {}),
+      ...(token(root, "--muted") ? { colorTextSecondary: token(root, "--muted") } : {}),
+      ...(token(root, "--muted") ? { colorTextPlaceholder: token(root, "--muted") } : {}),
+      ...(token(root, "--red") ? { colorDanger: token(root, "--red") } : {}),
+      ...metrics,
+    },
+  };
 }
 
 /**
@@ -769,6 +864,28 @@ export function PlanPage({
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<PendingConfirmation | null>(null);
   const openSecret = pending?.secret ?? null;
+  const painted = usePaintedTheme();
+  const [fieldLook, setFieldLook] = useState<FieldMetrics>({});
+  useEffect(() => {
+    // Taking this measurement attaches a probe to the document, which a render
+    // may not do; and the first pass costs nothing, because Stripe applies an
+    // appearance change to an element that is already mounted.
+    // oxlint-disable-next-line react/set-state-in-effect
+    setFieldLook(fieldMetrics());
+  }, []);
+  // Rebuilt only when the secret or the painted theme changes. `react-stripe-js`
+  // forwards an options change to `elements.update()`, so a fresh object every
+  // render would be an update every render; and the theme has to be in the
+  // dependencies rather than read once, because somebody can switch it from the
+  // sidebar with this form open. The empty secret is never reached: the
+  // `Elements` below renders only while `pending`, where it is `pending.secret`.
+  const elementsOptions = useMemo(
+    () => ({
+      clientSecret: openSecret ?? "",
+      appearance: stripeAppearance(painted, fieldLook),
+    }),
+    [openSecret, painted, fieldLook],
+  );
   // Read once, at mount, and without touching the address: a state initializer
   // runs twice under StrictMode and must not have side effects. The effect
   // below strips it.
@@ -1580,7 +1697,7 @@ export function PlanPage({
               </header>
               <Elements
                 stripe={stripeFor(billing.publishableKey)}
-                options={{ clientSecret: pending.secret }}
+                options={elementsOptions}
                 // Remounted when the secret changes, because Elements binds to
                 // the one it was created with and reusing the instance would
                 // confirm the previous payment.

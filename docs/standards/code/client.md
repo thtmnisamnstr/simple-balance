@@ -39,7 +39,7 @@ exactly this and are correct. What a key must not carry is anything that does
 not survive `JSON.stringify` — a function, a class instance, a `Map` — because
 structural hashing flattens those and two different questions become one entry.
 An earlier version of this sentence banned objects outright, which would have
-flagged all three — `:259`, `:287` and `:323` — and
+flagged all three — `:281`, `:309` and `:345` — and
 `tests/query-keys.test.ts:16-24` records why the check declines to.
 
 **That three is a hand count, and nothing holds it.** It was written in two
@@ -178,7 +178,7 @@ same question two ways.
 
 **One value in this client is money-shaped and outside this rule.** The plan
 tab divides a float to render a price: `formatPrice`
-(`src/client/pages/PlanPage.tsx:481-501`) takes Stripe's integer count of minor
+(`src/client/pages/PlanPage.tsx:576-596`) takes Stripe's integer count of minor
 units and divides by the scale `Intl` already knows. The membership test is
 [`common.md`](../common.md) §Money that is not a ledger amount, which owns the
 carve-out for the whole guide set — all four of its clauses, because a value
@@ -195,9 +195,15 @@ exception says so where the rule is written, and points at the one document
 that decides membership.
 
 *Checked by:* `tests/client-money.test.ts` for the arithmetic;
-`tests/budgets-ui.test.tsx` for that particular row; and
+`tests/budgets-ui.test.tsx` for that particular row;
 `tests/common-guide.test.ts` for the carve-out, which names the files allowed
-to touch Stripe's minor-unit integer and refuses a fifth.
+to touch Stripe's minor-unit integer and refuses a fifth; and
+`tests/money-never-floated.test.ts` for the rule's negative half, which is the
+one the scar came from — a money-named identifier inside a `Number()` or a
+`parseFloat` anywhere in `src`. It is keyed on names, so it cannot see money
+under a name that does not say so, and §4 below is where that limit is
+already argued. `typescript.md` §3.4 states the same rule for the server and
+carries the one live reading that is declared rather than flagged.
 
 ### 2.2 The client previews server rules; it does not re-implement them
 
@@ -230,7 +236,7 @@ The two deciders live in `src/shared/domain.ts` and are imported by no file in
 what somebody may do, and `frozenAccountIds`, which turns that into a set of
 ids. Both are reachable — the module boundary allows it — and both are named in
 the client only in comments explaining why they are not called
-(`src/client/api.ts:468-472`, `src/client/TransactionBrowser.tsx:397`). What
+(`src/client/api.ts:468-472`, `src/client/TransactionBrowser.tsx:419`). What
 the browser reads instead is the answer: `frozen` on each account
 (`src/client/api.ts:476`), and an ad that exists only because the server sent a
 placement at all (`src/server/api.ts:1454`, `src/client/ads.tsx:7-14`).
@@ -289,8 +295,8 @@ them used to be the opposite:
 
 **In a form that stacks.** Two shapes take a bare control and an `aria-label`
 instead: a filter bar, which `web.md` §7.6 governs, and `.inline-form` — the
-one-row "add a category" (`src/client/pages/CategoriesPage.tsx:434`) and "add a
-group" (`:484`) bars, which are both of them. This sentence named a third, "add
+one-row "add a category" (`src/client/pages/CategoriesPage.tsx:447`) and "add a
+group" (`:497`) bars, which are both of them. This sentence named a third, "add
 a payee", which does not exist and never did: the payees page has no form on it
 at all, and a carve-out listing a site that is not there invites the next one
 to be written because the list implied a pattern. In the second shape, a
@@ -365,7 +371,7 @@ imports it and the app shell imports `PlanPage`, so every page of every
 deployment fetched Stripe.js: the sign-in screen, a subscriber reading
 balances, a deployment that sells nothing at all. The fix is the `/pure` entry
 plus a loader keyed by the publishable key, called on the plan tab when there
-is something to confirm (`src/client/pages/PlanPage.tsx:17-24` and `:346-365`).
+is something to confirm (`src/client/pages/PlanPage.tsx:17-24` and `:355-374`).
 The ad script is the same shape by hand — keyed by publisher id, fetched by the
 first `AdSlot` that mounts and by nothing else (`src/client/ads.tsx:24-57`).
 The schema library's `eval` probe is the third face of it: a library doing
@@ -401,10 +407,10 @@ nothing.
 | Rule | Why it is only a sentence |
 | --- | --- |
 | 1.1 Server state is a query | Not mechanizable. |
-| 2.1 `Number()` only where approximate | A lint rule banning `Number(` in `src/client` would fire on legitimate uses; a narrower one keyed on variable names is possible and fiddly. |
+| 2.1 `Number()` only where approximate | Half checked now. The narrower rule this row called "possible and fiddly" was written: `tests/money-never-floated.test.ts` flags a money-*named* identifier inside a `Number()` or a `parseFloat` anywhere in `src`, which is what a lint rule banning `Number(` outright could not do without firing on every pixel. What stays a sentence is money under a name that does not say so — `fillPercent(limit, actual)` in `budget-display.ts` takes two decimal strings and a `Number(actual)` added there passes. The check states that limit in its own docstring. |
 | 2.2 The preview calls the rule rather than copying it | Checked one rule at a time, and the technique works: `tests/frozen-accounts-ui.test.tsx:280` calls the shared `frozenAccountRefusal` and asserts the rendered accessible description *equals* it, so a hand-rolled near-match fails on the string rather than passing a grep for the import. The cost is one test per previewed rule, written by whoever adds the preview. What stays open is the preview nobody wrote a test for — a copy of a rule that has no shared home yet reads as ordinary client code, and `tests/module-boundaries.test.ts` proves the import is allowed, not that it was taken. |
 | 3.1 `Field` wraps every labeled control in a form | Half checked now. `tests/field-contract.test.tsx` holds that every `<input>`, `<select>` and `<textarea>` in `src/client` goes through the three shared components, so every one of them is *reachable* by a `Field`; whether a given call site wrapped it is still a reader's job, because the lint rule that would see that is off precisely because it cannot see through `Field`. A control labeled by hand beside a `Field` fails nothing, since the accessible name comes out the same either way. |
-| 3.3 Fields reachable from the browser | `tests/mcp-parity.test.ts` compares route lists, and a field is one level below anything a route list can see — `AGENTS.md` now says so in the invariant itself rather than leaving it to be inferred. Naming the gap is all that changed; nothing checks it, and it has been hit three times. |
+| 3.3 Fields reachable from the browser | Half checked now, on the write side. `tests/mcp-parity.test.ts` compares route lists, and a field is one level below anything a route list can see — `AGENTS.md` now says so in the invariant itself. Its `WRITTEN_FORMS` register closes six of those pairs by name, comparing 52 fields a tool writes against the fields the matching form sends, and the request reader was widened to three shapes to do it: a plain object, an array field-list, and a mutation whose request travels through `json(…)`. What stays a sentence is every tool outside those six, and the read side entirely. The gap has been hit three times, most expensively by `categoryKind`. |
 
 Five `human` rules in this guide. It said three until 2.2 and 3.1 were counted:
 both named no mechanism at all, which is not the same as being checked, and a

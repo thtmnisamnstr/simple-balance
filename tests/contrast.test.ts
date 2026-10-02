@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { blocks, stylesheet, tokensIn, type Block } from "./support/css.js";
 
@@ -161,5 +162,44 @@ describe("contrast, from the tokens", () => {
       }
     }
     expect(failures).toEqual([]);
+  });
+
+  /**
+   * The focus ring's two figures, which `web.md` 13.1 prints as facts.
+   *
+   * 13.1 is Binding on SC 1.4.11 and says of itself "*Not checked
+   * mechanically.* The two ratios above are hand-computed, and the contrast
+   * test in 17.2 item 1 is what would hold them." Both halves of that were
+   * already stale: this file exists and has been deriving
+   * `ratio(--focus-ring, --surface)` in both themes in the check above since it
+   * was written, and 17.2 item 1 is the spacing and radius scales rather than
+   * contrast, so the pointer went to the wrong item.
+   *
+   * What was genuinely unheld is the precision. The check above asks only that
+   * the pair clears 3:1, and at 5.08 and 9.70 a token could move a long way —
+   * light could fall to 3.01 — while that stayed green and 13.1 went on
+   * printing numbers nobody had recomputed. The obligation is met either way;
+   * it is the published sentence that could drift, and a guide whose figures
+   * are wrong is the thing this repository has been bitten by repeatedly.
+   *
+   * So the figures are read out of the sentence that claims them rather than
+   * copied here. A token that moves fails this and names the row to update, and
+   * so does an edit to the sentence that the palette does not support — which
+   * is the direction a second copy in a test file could never catch.
+   */
+  it("measures the focus ring at the two ratios 13.1 publishes", () => {
+    // Whitespace collapsed first: the sentence is wrapped across two lines in
+    // the guide, and a pattern that assumed single spaces would report the
+    // ratios missing rather than wrong — a check that fails for the wrong
+    // reason teaches the next reader to loosen it.
+    const guide = readFileSync("docs/standards/web.md", "utf8").replaceAll(/\s+/g, " ");
+    const claim =
+      /`--focus-ring` measures ([\d.]+):1 light and ([\d.]+):1 dark against `--surface`/.exec(
+        guide,
+      );
+    expect(claim, "web.md 13.1 no longer states the two focus-ring ratios").not.toBeNull();
+
+    expect(ratio(light["--focus-ring"]!, light["--surface"]!).toFixed(2)).toBe(claim![1]);
+    expect(ratio(dark["--focus-ring"]!, dark["--surface"]!).toFixed(2)).toBe(claim![2]);
   });
 });

@@ -207,3 +207,48 @@ export function useThemeSetting(session: Session) {
     error: save.error,
   };
 }
+
+/** The palette the stylesheet is painting with right now. */
+function paintedTheme(): Resolved {
+  try {
+    const chosen = document.documentElement.getAttribute("data-theme");
+    if (chosen === "light" || chosen === "dark") return chosen;
+    return systemTheme();
+  } catch {
+    return "light";
+  }
+}
+
+/**
+ * What is on screen right now, for a surface that cannot read CSS.
+ *
+ * `useThemeSetting` above is the writer and this is a reader: it observes the
+ * same two inputs the stylesheet consults — the `data-theme` attribute
+ * `applyTheme` stamps, and the machine's setting that a missing attribute
+ * defers to — so it cannot end up disagreeing with what is painted. Deriving
+ * it from the session's preference instead would miss `public/theme-boot.js`,
+ * which stamps the attribute before this bundle exists, and would lag the
+ * optimistic repaint `useThemeSetting`'s `onMutate` does.
+ *
+ * It exists for Stripe's `Elements` (`web.md` 6.4), which draws card fields in
+ * a cross-origin iframe and takes its colors as values rather than as CSS. A
+ * `MutationObserver` is what covers the attribute, because it is written
+ * outside React and no render is scheduled when it changes.
+ */
+export function usePaintedTheme(): Resolved {
+  const [painted, setPainted] = useState<Resolved>(() => paintedTheme());
+  useEffect(() => {
+    const read = () => setPainted(paintedTheme());
+    // The attribute may have been stamped between the initializer and here.
+    // oxlint-disable-next-line react/set-state-in-effect
+    read();
+    const observer = new MutationObserver(read);
+    observer.observe(document.documentElement, { attributeFilter: ["data-theme"] });
+    const stopWatching = watchSystemTheme(read);
+    return () => {
+      observer.disconnect();
+      stopWatching();
+    };
+  }, []);
+  return painted;
+}

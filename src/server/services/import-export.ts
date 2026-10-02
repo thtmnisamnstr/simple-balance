@@ -426,15 +426,30 @@ async function canonicalizeImportedPayees(tx: DbTransaction, actor: Actor, rows:
   const existingNames = new Set(canonicalByName.keys());
   const resolutionByName = new Map<string, CsvReferenceResolution["payees"][number]>();
 
+  // A transfer stages as a `partial` rather than a draft, because an import
+  // names one account and a transfer needs two; so does any row whose date or
+  // amount would not parse. Reading only `draft` skipped every one of them,
+  // which is the defect the category resolver below already has fixed — see its
+  // `stageTarget`. What was stored stayed right, because `insertImportedStages`
+  // canonicalizes a partial on the way in; what was REPORTED did not, and the
+  // two are built at different moments. So a Simple Balance export holding a
+  // cross-currency transfer for `ACME  Co` showed `ACME  Co` in "As it will be
+  // read" and in the MCP sample while the queue held `Acme Co`, and a file of
+  // nothing but transfers reported "0 matched and 0 new" while creating payees.
   for (const row of rows) {
-    if (!row.draft) continue;
-    const inputPayee = row.draft.payee;
+    const target = row.draft ?? row.partial;
+    // A partial is `Record<string, unknown>`: it holds whatever parsed, and the
+    // payee is one of the fields that may not have.
+    if (!target || typeof target.payee !== "string") continue;
+    const inputPayee = target.payee;
     const normalized = normalizeHumanName(inputPayee);
     const resolvedPayee = canonicalByName.get(normalized) ?? cleanHumanName(inputPayee);
     if (!canonicalByName.has(normalized)) {
       canonicalByName.set(normalized, resolvedPayee);
     }
-    row.draft = { ...row.draft, payee: resolvedPayee };
+    // Back to whichever of the two this row has, never to both.
+    if (row.draft) row.draft = { ...row.draft, payee: resolvedPayee };
+    else if (row.partial) row.partial = { ...row.partial, payee: resolvedPayee };
     if (!resolutionByName.has(normalized)) {
       resolutionByName.set(normalized, {
         inputPayee: cleanHumanName(inputPayee),

@@ -75,7 +75,7 @@ The departures, all on the read side, all deliberate:
 
 1. **We trim.** `previewCsv` and `stageCsv` both hand Papa Parse a `transform`
    and a `transformHeader` that call `trim()` (`src/shared/csv.ts:199-214`,
-   `src/server/services/import-export.ts:801-802`). Rule 4 says a leading or
+   `src/server/services/import-export.ts:816-817`). Rule 4 says a leading or
    trailing space is part of the field. A trailing space in a bank's header row
    is common and never meaningful, and a payee cell padded to a column width is
    the same. **House, knowing departure.** Written down so nobody corrects it
@@ -94,14 +94,22 @@ The departures, all on the read side, all deliberate:
 2. **We skip blank lines.** `skipEmptyLines: "greedy"` drops a record that is
    empty or only separators and whitespace. The grammar has no such rule. A
    trailing blank line at the end of a bank file is not a transaction with every
-   field missing. **House.** *Not checked mechanically.*
+   field missing. **House.** *Checked by:*
+   `tests/csv-departures-and-columns.test.ts` ("is dropped, trailing and
+   interior alike"), which feeds both shapes through `previewCsv` — interior as
+   well as trailing, because plain `true` would not drop a line of bare
+   separators in the middle of a file and `"greedy"` does.
 3. **We sniff the delimiter on read.** The grammar says comma. See section 4.
    **House.**
 4. **Papa Parse renames a repeated header.** Two columns both called `Amount`
    arrive as `Amount` and `Amount_1`. The grammar says nothing about repeated
    names; the alternative in a `header: true` parse is one silently overwriting
-   the other. **House, inherited from the parser rather than chosen.** *Not
-   checked mechanically.*
+   the other. **House, inherited from the parser rather than chosen** — which is
+   exactly why it needs a test: nothing here decided it, so nothing here would
+   notice a parser upgrade deciding otherwise, and the two columns a bank file
+   calls `Amount` twice are usually debit and credit. *Checked by:*
+   `tests/csv-departures-and-columns.test.ts` ("arrive under distinct names
+   rather than overwriting each other").
 
 ## 3. Bytes
 
@@ -332,7 +340,12 @@ row with no category has an empty `category_name` and a JSON `categoryName` of
 `null`, not the word `Uncategorized`, which is a report label and never a stored
 value.
 
-*Not checked mechanically.*
+*Checked by:* `tests/csv-departures-and-columns.test.ts` ("are written as an
+empty cell and as 0, and never as a word", and the round trip beside it). The
+three are one rule because the failure is confusing them: an absent value
+printed as `0` turns "no budget" into "budget nothing", a zero printed as empty
+loses a row that says the balance really is nothing, and a cell carrying the
+report's label re-imports as a category by that name.
 
 ## 6. The columns
 
@@ -341,7 +354,14 @@ contract: recognition and reading are both by header name (`isAppExportCsv`
 compares a `Set`, `src/shared/csv.ts:67-70`; `appExportDraft` reads every column
 by name, `src/server/services/import-export.ts:230-391`).
 
-*Not checked mechanically.* No test shuffles the columns and re-imports.
+*Checked by:* `tests/csv-guide.test.ts`, "are recognized in any order, and read
+by name" — the nineteen recognition columns written in reverse are still
+recognized and still yield the same date, type and every other cell. It sits in
+the unit tier rather than behind the integration gate, because what it is about
+is the reader rather than the database. The same file holds the recognition set
+itself against `APP_CSV_COLUMNS`, as set equality in both directions: a removal
+would widen recognition, and an addition would make every older file
+unrecognizable.
 
 | Column | Written for | Read back |
 | --- | --- | --- |
@@ -483,7 +503,7 @@ install, then commit the queue. **Preserved:**
 - The payee to within `cleanHumanName`: NFKC, trimmed, internal whitespace
   collapsed, and rewritten to the receiving ledger's canonical spelling where it
   already has one (section 9). `canonicalizeImportedPayees`
-  (`src/server/services/import-export.ts:411-451`) does that on every import, so
+  (`src/server/services/import-export.ts:411-466`) does that on every import, so
   `ACME  Co` comes back as `ACME Co` and a payee the receiving ledger already
   spells its own way comes back in that spelling. Byte-exact payee text is not
   preserved and is not meant to be.
@@ -492,7 +512,7 @@ install, then commit the queue. **Preserved:**
 - The category, by name, matched or created in the receiving ledger. Including
   on a transfer, which stages as a partial rather than a draft and had its
   category silently dropped until the resolver learned to look there
-  (`src/server/services/import-export.ts:512-515`).
+  (`src/server/services/import-export.ts:527-530`).
 - The split, leg by leg, by category name, with each leg's note.
 
 *Checked by:* `tests/integration/csv-roundtrip-fidelity.integration.test.ts` end
@@ -505,11 +525,11 @@ different person import an export of someone else's ledger").
 | --- | --- |
 | The transaction id | It is a foreign ledger's primary key |
 | Accounts, by id or by name | An import names one account and that is the only thing deciding where rows land |
-| The category id, where this ledger does not own it | It is dropped so the name can resolve instead, rather than importing with no category at all (`src/server/services/import-export.ts:896-909`) |
+| The category id, where this ledger does not own it | It is dropped so the name can resolve instead, rather than importing with no category at all (`src/server/services/import-export.ts:911-924`) |
 | Leg ids | Same reason as category ids |
 | The currency | It comes from the chosen account |
 | `effective_rate` | Recomputed from the two amounts |
-| Deleted transactions | Never exported. The format has no column saying an entry is void, so a row indistinguishable from live money would go in front of the importer and reading it back would raise the amount from the dead (`src/server/services/import-export.ts:1025-1030`) |
+| Deleted transactions | Never exported. The format has no column saying an entry is void, so a row indistinguishable from live money would go in front of the importer and reading it back would raise the amount from the dead (`src/server/services/import-export.ts:1040-1045`) |
 | Version, timestamps, audit history, template and recurrence provenance | Not in the format. An import is new provenance |
 | Committed status | See below |
 | Byte-exact payee capitalization and spacing | `cleanHumanName` and the canonical rewrite above |
@@ -567,7 +587,7 @@ preserved on what gets stored and ignored on what gets matched.
 - **Payees.** An imported payee is rewritten to the spelling the payee screen
   already considers canonical, using the same query and the same comparator that
   screen uses (`canonicalizeImportedPayees`,
-  `src/server/services/import-export.ts:411-451`). Two copies of "which spelling
+  `src/server/services/import-export.ts:411-466`). Two copies of "which spelling
   wins" is two places for the answer to drift.
 - **What the caller gets back.** `referenceResolution` reports every category as
   `existing`, `new`, `updated` or `deferred`, and every payee as `existing` or
@@ -592,9 +612,15 @@ resolves, it is cleared from the draft and from the leg. A staged row holding
 both had the name re-applied at commit, which silently undid a mass edit that
 had cleared the category.
 
-*Not checked mechanically.* The invariant is held by `assign` and `writeTarget`
-in `resolveImportedCategories` clearing `categoryName` alongside every id they
-write, and by nothing else.
+The invariant is held by `assign` and `writeTarget` in
+`resolveImportedCategories` clearing `categoryName` alongside every id they
+write, and by nothing else — two call sites and a convention.
+
+*Checked by:* `tests/integration/import-resolved-category-channel.integration.test.ts`,
+which stages all three shapes against a real database: a name the importer
+resolved, an id the file carried beside a name, and a split leg, which resolves
+through its own branch. The defect is invisible until somebody's categories come
+back, so it needs a test rather than a sentence.
 
 ## 10. Duplicates
 
@@ -609,7 +635,7 @@ Three mechanisms, and they are deliberately not the same strictness:
    (`stagedDuplicateKey`, `src/server/services/transactions.ts:2614-2662`).
 2. **The advisory badge.** The queue also looks for a committed transaction of
    the same type, account and amount within `LIKELY_DUPLICATE_DAYS`, which is
-   three (`src/shared/domain.ts:1363`, `src/server/services/staging.ts:586-662`).
+   three (`src/shared/domain.ts:1381`, `src/server/services/staging.ts:586-662`).
    The payee is ignored outright and the date gets three days of latitude, on
    purpose: the bank posts when it settles rather than when the card was swiped,
    and it names the merchant its own way. This decides nothing. It opens a
@@ -652,7 +678,7 @@ is all-or-nothing at its own level:
 
 - **The file.** `stageCsv` runs in one transaction. It refuses the whole file
   for a file-level fault: over the byte limit, over the row cap, unterminated
-  quotes (`MissingQuotes`, `src/server/services/import-export.ts:809-821`), an
+  quotes (`MissingQuotes`, `src/server/services/import-export.ts:824-836`), an
   account the caller does not own, or no mapping for a file we do not recognize.
   It never refuses a file for a bad row.
 - **The batch.** One import is one `import_batch`, and the queue can be
@@ -714,7 +740,7 @@ right preview and a wrong import is a bug rather than a surprise.
 Before a dry run the panel shows the file's own cells. A dry run replaces them
 with the first rows as the server read them — date, payee, account, category,
 amount and the issues each row carries — out of the same `sample` an MCP caller
-receives (`src/server/services/import-export.ts:929`), rendered through
+receives (`src/server/services/import-export.ts:944`), rendered through
 `summarizeStagedDraft`, which is the queue's own summarizer rather than a second
 copy of it. A row that could not be assembled is shown from its `partial`,
 exactly as `stageCsv` will store it.
@@ -763,7 +789,7 @@ import that stages more than one action can clear is a cap doing damage."
 
 `DEFAULT_CSV_MAX_ROWS` is `MAX_BULK_SELECTION_ENTRIES`, by construction rather
 than by coincidence (`src/server/config-limits.ts:13`,
-`src/shared/domain.ts:1258`). `CSV_MAX_ROWS` may lower it; raising it past the
+`src/shared/domain.ts:1276`). `CSV_MAX_ROWS` may lower it; raising it past the
 bulk cap only moves the refusal further along, so the configuration ceiling is
 the same number.
 
@@ -808,7 +834,7 @@ export somebody is most likely to want to open — "did it work, or is my filter
 wrong?" — was the one that could not be opened.
 
 It now takes its columns from a declared list when there are no rows to take
-them from (`src/server/services/import-export.ts:989-1011`).
+them from (`src/server/services/import-export.ts:1004-1026`).
 
 *Checked by:* `tests/integration/import-export.integration.test.ts`, which
 asserts the empty file's header is character-for-character the header a
@@ -838,7 +864,7 @@ and never neutralize the channel.**
   close at this function, bracketing a neighbour, while the next bullet spelled
   its own as doc-comment-plus-function — one guide, one list, two rules.
 - It is applied to exactly seven columns, named at the call site
-  (`src/server/services/import-export.ts:1084-1094`): `payee`, `description`,
+  (`src/server/services/import-export.ts:1099-1109`): `payee`, `description`,
   `category_name`, `external_id`, `notes`, `source_account_name`,
   `destination_account_name`. Free text a person reads, and nothing else.
 - It is **not** applied to an amount, a rate, a date or an id. A negative amount
@@ -893,7 +919,7 @@ be.
   infers a mapping from header aliases each time
   (`src/client/pages/ImportPage.tsx:68-99`), and `import_batch.mapping` is
   stored for the record rather than for reuse
-  (`src/server/services/import-export.ts:941`). The inference is also
+  (`src/server/services/import-export.ts:956`). The inference is also
   browser-only: an MCP caller composes the mapping itself.
 - **No conditional rules.** No `if` blocks, no auto-categorization by pattern.
   The roadmap records why, and records the counter-argument: the agent is the
@@ -952,7 +978,7 @@ Checked:
 | The media type names a header, and every export writes one | `tests/domain.test.ts` |
 | A BOM is stripped, and our own export is still recognized | `tests/csv-guide.test.ts` |
 | Departure 1: the trim, and interior whitespace left alone | `tests/csv-guide.test.ts` |
-| An inherited property name is a missing column | `tests/domain.test.ts` |
+| An inherited property name is a missing column | `tests/domain.test.ts` for the server reader, and `tests/import-preview-inherited-column.test.tsx` for the one place in the client that indexes a parsed row by a name the uploaded file chose. A `__proto__` header parses to a row with no own property of that name, so `?? ""` does not catch it, React refuses to render the object it answers with, and the error boundary replaces the whole app the moment the file is chosen |
 | The recognition set, against addition | `tests/integration/csv-roundtrip-fidelity.integration.test.ts` |
 | External reference, transfer category, formula-named category, same-ledger reimport | `tests/integration/csv-roundtrip-fidelity.integration.test.ts` |
 | Splits across a round trip, and the always-present column | `tests/integration/splits-roundtrip.integration.test.ts` |
@@ -963,8 +989,15 @@ Checked:
 | A row number is the file's own line, whichever fault it came from | `tests/domain.test.ts` |
 | The dry run's rows are shown as read, and dropped when the controls change | `tests/import-ui.test.tsx` |
 | A dry run names the category it has not created, and creates nothing | `tests/integration/import-export.integration.test.ts` |
+| What §9's `referenceResolution` reports about payees is what §11's preview shows and what the import stored, on a row that stages `partial` rather than as a draft | `tests/integration/import-partial-payees.integration.test.ts`, which is the identical defect the categories resolver had one field over: `canonicalizeImportedPayees` opened its loop with `if (!row.draft) continue;` and never looked at why a row had no draft |
 | Row cap, byte cap, request envelope | `tests/bulk-row-cap.test.ts`, `tests/config-limits.test.ts`, `tests/http-security.test.ts` |
 | The export route is a named MCP-parity exception | `tests/mcp-parity.test.ts` |
+| Departures 2 and 4: a blank line is not a record, a repeated header is not overwritten | `tests/csv-departures-and-columns.test.ts` |
+| Section 5: an empty cell, a zero and a label are three different things | `tests/csv-departures-and-columns.test.ts` |
+| Section 9: a resolved row carries an id or a name, never both | `tests/integration/import-resolved-category-channel.integration.test.ts` |
+| The neutralized column list matches the free-text columns, in the code, section 6's table and section 15's prose | `tests/csv-departures-and-columns.test.ts` |
+| Section 6: the columns are recognized in any order and read by name, and the recognition set is exactly what has shipped — held as set equality, so a removal widens recognition and an addition orphans every older file | `tests/csv-guide.test.ts` |
+| Section 16: a header a file chose cannot reach `row[header]` in the preview, so an inherited property name such as `__proto__` cannot replace the whole app with the error screen the moment the file is picked | `tests/import-preview-inherited-column.test.tsx` |
 
 Not checked mechanically, in the order they are worth building:
 
@@ -973,14 +1006,24 @@ Not checked mechanically, in the order they are worth building:
    exist in three files; none of them commits a restored cross-currency transfer
    and compares the rate, which is the half of the `AGENTS.md` round-trip
    sentence with no test behind it.
-2. **The recognition set against removal**, and out from behind the integration
-   gate, since the assertion needs no database. Section 12 made exactly that
-   move for the header-only export, so this is now a worked example to copy
-   rather than an argument to win.
-3. **The neutralized column list matches the free-text columns**, so a new text
-   column cannot be added unprotected.
-4. Whether the preview shows what the import will do. That one is review, and it
+2. **Landed.** The recognition set against removal, out from behind the
+   integration gate exactly as this item argued: `tests/csv-guide.test.ts`
+   spells the committed set out and holds it to `APP_CSV_COLUMNS` as set
+   equality, so a removal widens recognition and an addition makes every older
+   file unrecognizable. The same file shuffles the nineteen columns into reverse
+   order and re-imports, which is section 6's claim that order is not part of
+   the contract. Kept here with its number because the items around it are cited
+   by position.
+3. Whether the preview shows what the import will do. That one is review, and it
    stays review, because the thing being judged is whether two screens agree.
+
+The neutralized column list was item 3 and is in the table above. It is held
+three ways round — the list the exporter passes, section 6's "formula-
+neutralized" rows and section 15's "exactly seven columns" — plus the relation
+to the reader: a column the reader puts through `restoreNeutralizedCell` is one
+the writer neutralized, and a column the writer neutralizes that the reader does
+not restore is one section 6 marks as never read back. That last pair is what a
+new text column added on one side alone breaks.
 
 Row addressing used to be item 5 here. The convention is adopted: `csvFileLine`
 (`src/shared/csv.ts:194`) counts the header as row 1, which is RFC 7111's

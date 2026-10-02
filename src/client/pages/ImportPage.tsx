@@ -2,7 +2,7 @@ import { Link } from "../router.js";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, FileSpreadsheet, FlaskConical, Upload } from "lucide-react";
 import { type ChangeEvent, useMemo, useRef, useState } from "react";
-import { isAppExportCsv, type CsvMapping } from "../../shared/csv.js";
+import { csvCell, isAppExportCsv, type CsvMapping } from "../../shared/csv.js";
 import {
   PROGRESS_STREAM_MIN_ROWS,
   type CategoryKind,
@@ -744,8 +744,20 @@ export default function ImportPage() {
                     <tbody>
                       {preview.rows.slice(0, PREVIEW_ROWS).map((row, index) => (
                         <tr key={index}>
+                          {/* `csvCell`, not `row[header]`, and this is the one
+                              place in the client that indexes a parsed row by a
+                              name the uploaded file chose. A header line
+                              containing `__proto__` leaves no own property of
+                              that name — assigning a string to it on an object
+                              literal sets the prototype and is dropped — so
+                              indexing answers `Object.prototype`, React throws
+                              rather than render an object as a child, and the
+                              root boundary replaces the whole app the moment
+                              the file is picked, before any mapping or
+                              staging. The file is RFC 4180-conformant; the
+                              server reader has used `csvCell` all along. */}
                           {sampleHeaders.map((header) => (
-                            <td key={header}>{row[header]}</td>
+                            <td key={header}>{csvCell(row, header)}</td>
                           ))}
                         </tr>
                       ))}

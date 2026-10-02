@@ -1063,6 +1063,14 @@ export default function StagingPage() {
                 const summary = stageSummary(stage, accounts.data ?? []);
                 const date = stagedString(draft.date);
                 const payee = stagedString(draft.payee).trim() || "Incomplete row";
+                // 8.10 rule 6: a trigger's accessible name leads with its
+                // visible text, and this cell's visible text is the payee. The
+                // three sibling triggers build the same shape from an
+                // expression that wraps; this one is a plain string, so it is
+                // named here instead — which is also what keeps the dash off an
+                // `aria-label=` line, where `common.md` reads one as a label
+                // nobody finished deciding.
+                const payeeTriggerName = `${payee} — edit the payee of ${payee}`;
                 const description = stagedString(draft.description).trim();
                 const type = stagedString(draft.type).trim() || "Unknown type";
                 return (
@@ -1131,7 +1139,7 @@ export default function StagingPage() {
                         <button
                           type="button"
                           className="inline-edit"
-                          aria-label={`Edit the payee of ${payee}`}
+                          aria-label={payeeTriggerName}
                           data-inline-trigger={`payee:${stage.id}`}
                           onClick={() => openInline(stage, "payee", stagedString(draft.payee))}
                         >

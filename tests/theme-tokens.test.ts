@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { SERIES_COLORS } from "../src/client/charts.js";
 import { blocks, ruleFor, stylesheet, tokensIn, type Block } from "./support/css.js";
+import { fillTokens, textTokens } from "./support/token-grammar.js";
 import { sourceFiles } from "./support/source.js";
 
 /**
@@ -112,37 +113,33 @@ describe("colors in the stylesheet", () => {
 });
 
 describe("what each token is for", () => {
-  // A color that reads as text in one theme can be a fill in the other only if
-  // the two roles are two tokens. They were one token, and in dark that put
-  // white text on a bright mint button at 1.9:1.
-  const TEXT = new Set([
-    "--ink",
-    "--ink-soft",
-    "--muted",
-    "--green",
-    "--green-dark",
-    "--red",
-    "--amber",
-    "--blue",
-  ]);
-  const FILL = new Set([
-    "--ground",
-    "--surface",
-    "--surface-soft",
-    "--fill-subtle",
-    "--track",
-    "--green-fill",
-    "--green-fill-hover",
-    "--red-fill",
-    "--green-soft",
-    "--green-wash",
-    "--red-soft",
-    "--amber-soft",
-    "--blue-soft",
-    "--fill-deep",
-    "--field",
-    "--field-disabled",
-  ]);
+  /**
+   * Derived from the naming grammar rather than listed.
+   *
+   * These were two lists kept by hand, and `web.md` 17.2 item 2 asked for this
+   * because a hand list is the thing that rots: 1.4's own by-name exemptions
+   * lost `--art-glow-b` for a release and nothing said so. `tokenKind` reads
+   * the role out of the name and the two closed lists out of 1.4 itself, so a
+   * token added to the stylesheet is classified the moment it is declared and a
+   * role added without an edit to that paragraph fails in
+   * `tests/token-grammar.test.ts`.
+   *
+   * The reason the distinction exists at all is unchanged: a color that reads
+   * as text in one theme can be a fill in the other only if the two roles are
+   * two tokens. They were one token, and in dark that put white text on a
+   * bright mint button at 1.9:1.
+   */
+  const TEXT = textTokens(Object.keys(light));
+  const FILL = fillTokens(Object.keys(light));
+
+  it("derives both sets from the names, and gets the whole palette", () => {
+    // The guard. Everything below is a search for a wrong pairing, and two
+    // empty sets would report a stylesheet full of them as clean.
+    expect(TEXT.size).toBeGreaterThanOrEqual(8);
+    expect(FILL.size).toBeGreaterThanOrEqual(16);
+    expect(TEXT.has("--ink")).toBe(true);
+    expect(FILL.has("--green-fill")).toBe(true);
+  });
 
   it("never paints an area with a text color, or writes text in a surface color", () => {
     const wrong: string[] = [];

@@ -29,6 +29,7 @@ import {
 import { formatDate, formatTime, compareMoney, formatMoney, movementSign } from "../money.js";
 import { TemplateForm } from "../forms.js";
 import { Link, useLocation } from "../router.js";
+import { allTimeSearch } from "../date-range.js";
 import { newIdempotencyKey } from "../idempotency.js";
 import type { TransactionTemplateBulkPatch } from "../../shared/domain.js";
 import { emptyScreen, waysOut } from "../list-filters.js";
@@ -587,8 +588,20 @@ export default function TemplatesPage() {
                         )}
                       </td>
                       <td className="align-right">
+                        {/* This link's whole text is an all-time count, so
+                            11.7 applies to it as plainly as it does to the
+                            post-import review link: it has to open on the rows
+                            it counted. Forwarding `location.search` was the
+                            fix recorded as made and it pins nothing, because
+                            this page mounts no `DateRangeBar` and so has no
+                            `preset` in its URL to forward — the detail page
+                            then reads the missing param as this-month and a
+                            link saying 40 opens a list of none. */}
                         <Link
-                          to={{ pathname: `/templates/${template.id}`, search: location.search }}
+                          to={{
+                            pathname: `/templates/${template.id}`,
+                            search: allTimeSearch(location.search),
+                          }}
                           aria-label={`Transactions from ${template.name}`}
                         >
                           {template.totalTransactionCount ?? 0}

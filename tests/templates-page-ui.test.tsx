@@ -464,15 +464,24 @@ describe("the templates screen", () => {
       name: "Transactions from Rent",
     });
     expect(used).toHaveTextContent("6");
-    expect(used).toHaveAttribute("href", `/templates/${rent.id}`);
+    // `web.md` 11.7: the link's whole text is an all-time count, so it has to
+    // open on the rows it counted. This page mounts no `DateRangeBar`, so
+    // forwarding `location.search` — which is what it did, and what the guide
+    // recorded as the fix — pins nothing: the detail page reads a missing
+    // `preset` as this-month and a link saying 6 opens a list of however many
+    // happen to fall in the current month. The assertion is on the query
+    // string rather than on the path for that reason.
+    expect(used).toHaveAttribute("href", `/templates/${rent.id}?preset=all-time`);
     expect(within(rowFor("Rent")).getByText("4 committed · 2 pending")).toBeInTheDocument();
 
-    // A template nothing came from reads zero rather than being left out.
-    expect(
-      within(rowFor("Coffee")).getByRole("link", {
-        name: "Transactions from Coffee",
-      }),
-    ).toHaveTextContent("0");
+    // A template nothing came from reads zero rather than being left out, and
+    // its link pins the range too: a count of zero is still a claim about
+    // every row there has ever been.
+    const unused = within(rowFor("Coffee")).getByRole("link", {
+      name: "Transactions from Coffee",
+    });
+    expect(unused).toHaveTextContent("0");
+    expect(unused).toHaveAttribute("href", `/templates/${coffee.id}?preset=all-time`);
   });
 
   it("sorts by how much each template has been used", async () => {

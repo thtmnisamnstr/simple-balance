@@ -64,6 +64,10 @@ type AccountSortField = (typeof accountSortFields)[number]["field"];
 /** Non-zero without turning a decimal string into a float. */
 const hasBalance = (amount: string) => isPositiveMoney(amount) || isNegativeMoney(amount);
 
+/** "A", "A and B", "A, B and C" — names in a sentence rather than as a list. */
+const readableNames = (names: readonly string[]) =>
+  names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+
 export default function AccountsPage({ session }: { session: Session }) {
   const [editing, setEditing] = useState<Account | "new" | null>(null);
   const [includeArchived, setIncludeArchived] = useState(false);
@@ -487,6 +491,21 @@ export function ActiveAccountChooser({
   const queryClient = useQueryClient();
   const live = useMemo(() => accounts.filter((account) => !account.archivedAt), [accounts]);
   const [chosen, setChosen] = useState<ReadonlySet<string> | null>(null);
+  /**
+   * What the save did, kept here rather than read off the mutation.
+   *
+   * 13.3's shape, and this panel is the newest instance of it: the button
+   * disables itself while it works, so the browser has already blurred it when
+   * the answer arrives, and then either the panel unmounts — the save unfroze
+   * everything — or `unchanged` turns true and the button comes back disabled.
+   * Either way focus is on `<body>`, and the only text that changed was
+   * `disabledReason`, which says "Nothing to save yet." — the sentence written
+   * for an untouched form standing in as the report of a save that worked.
+   *
+   * State rather than `save.isSuccess` because it has to survive the panel:
+   * see the two returns below.
+   */
+  const [saved, setSaved] = useState<string | null>(null);
   // Where the selection starts: the accounts that work right now, which before
   // the choice is the ordering rule standing in for one.
   const current = useMemo(
@@ -517,7 +536,22 @@ export function ActiveAccountChooser({
   const save = useMutation({
     mutationFn: (accountIds: string[]) =>
       api<Account[]>("/api/v1/accounts/active", { ...json({ accountIds }), method: "PUT" }),
-    onSuccess: async () => {
+    onMutate: () => setSaved(null),
+    onSuccess: async (updated) => {
+      // Read out of the write's own answer rather than off the boxes that were
+      // ticked: the server decides which accounts end up in use, and this is
+      // the list the panel is about to re-render from.
+      const names = updated
+        .filter((account) => !account.archivedAt && !account.frozen)
+        .map((account) => account.name);
+      setSaved(
+        names.length
+          ? `${readableNames(names)} ${names.length === 1 ? "is the account" : "are the accounts"} ` +
+              "you are using now. The rest stay here in full, and refuse changes until a place " +
+              "opens up."
+          : "No account is in use now. They all stay here in full, and refuse changes until you " +
+              "put one back.",
+      );
       setChosen(null);
       await queryClient.invalidateQueries({ queryKey: ["accounts"] });
       // Every figure on every other page is unchanged, but what those pages
@@ -528,7 +562,19 @@ export function ActiveAccountChooser({
   });
 
   const anyFrozen = live.some((account) => account.frozen);
-  if (limit === null || !anyFrozen) return null;
+  if (limit === null) return null;
+  // The save can be the thing that removes the panel: unfreeze the last frozen
+  // account and there is no longer a choice to put. The sentence saying so has
+  // to outlive it, or the one control on the page that decides which accounts a
+  // downgraded ledger can still write to answers "did that land?" with an empty
+  // space where the panel was.
+  if (!anyFrozen) {
+    return saved ? (
+      <Alert kind="success" takeFocus>
+        {saved}
+      </Alert>
+    ) : null;
+  }
 
   // The same predicate the server asks, so the panel cannot offer a choice the
   // save would refuse, or fix a row the save would let go. Before the choice
@@ -599,6 +645,11 @@ export function ActiveAccountChooser({
         </Note>
       ) : null}
       {save.error ? <Alert>{save.error.message}</Alert> : null}
+      {saved ? (
+        <Alert kind="success" takeFocus>
+          {saved}
+        </Alert>
+      ) : null}
       <div className="form-actions">
         <span className="subtle">{`${selection.size} of ${limit} in use`}</span>
         <Button

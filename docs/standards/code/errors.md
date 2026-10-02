@@ -68,10 +68,10 @@ from a session and never from a token, which is exactly the pair `AGENTS.md`
 names as the boundary between the surfaces.
 
 **The type is not what keeps them out, and believing it is would mislead.**
-Both are in `serviceErrorCodes` already (`src/shared/domain.ts:2597-2607`),
+Both are in `serviceErrorCodes` already (`src/shared/domain.ts:2615-2625`),
 which is why `new AppError("FORBIDDEN", …)` type-checks anywhere at all; what
 `ServiceErrorCode` narrows against is the transport list beside it
-(`src/shared/domain.ts:2619-2636`), and neither of these is in that. So the
+(`src/shared/domain.ts:2637-2654`), and neither of these is in that. So the
 reason there is no sixth constructor is an argument rather than a compiler
 error, and it has to be made rather than assumed: a constructor is an
 invitation, and what it would invite is a service raising
@@ -315,7 +315,7 @@ that let somebody start something the server would refuse.
 what the plan tab disables both plan buttons with, imported rather than
 retyped. `subscriptionAction` decides on both sides which of the moves a press
 is, so a button is disabled exactly where the route would refuse it.
-`frozenAccountRefusal` (`src/shared/domain.ts:3822`) is thrown by
+`frozenAccountRefusal` (`src/shared/domain.ts:3840`) is thrown by
 `assertAccountsWritable` (`src/server/services/accounts.ts:832`) and is the
 reason an account card's **Edit**, **Archive** and **Delete** now carry, and a
 transaction row's **Edit**, **Delete** and **Restore** with them.
@@ -368,11 +368,17 @@ constraint moves — 0018 widened the incremental floor — the twin moves in th
 same change, which is why the twin lives beside the schema field rather than in
 a service.
 
-*Checked by:* `human`, and deliberately half of it could be a test: a program
-can enumerate the check constraints in `src/server/db/schema.ts` but cannot
-prove a refinement is the same predicate. What exists instead is the pattern's
-instances under test — `tests/domain.test.ts` for the refinements, the
-integration suites for the constraints — and this sentence for the pairing.
+*Checked by:* `tests/constraint-twins.test.ts` for the half a program can do,
+and a reader for the other half. A program can enumerate the check constraints
+in `src/server/db/schema.ts` — fifty-five today — but cannot prove a refinement
+is the same predicate, so the test refuses a constraint nobody has paired with
+anything and leaves what the pairing *means* in the register's reason column.
+An entry either names the shared symbol carrying the twin, which has to exist
+in `src/shared`, or argues that no request reaches the column at all: a posting
+nothing outside the services writes, a hash the server computes, a status that
+is the queue's own state machine. The pattern's instances stay under test as
+well — `tests/domain.test.ts` for the refinements, the integration suites for
+the constraints.
 
 ### 4.2 What is read back is validated more loosely than what is written
 
@@ -385,7 +391,7 @@ unusable (missing keys, wrong types), never what makes a row ugly: ugliness is
 the row's own issue list's job.
 
 *Checked by:* `human`. The instance is pinned where it bit
-(`src/shared/domain.ts:1145-1150`, the comment on `payeeSummarySchema.name`).
+(`src/shared/domain.ts:1163-1168`, the comment on `payeeSummarySchema.name`).
 
 ## 5. What is not enforced
 
@@ -393,11 +399,14 @@ the row's own issue list's job.
 | --- | --- |
 | 3.1 Messages say what to do | Editorial. |
 | 3.2 Refusals name the specific case | Editorial. |
-| 4.1 Constraint twins | A program can list the constraints; it cannot prove a refinement is the same predicate. |
+| 4.1 Constraint twins, the predicate half | A program can list the constraints and refuse an unpaired one, which `tests/constraint-twins.test.ts` does; it cannot prove a refinement is the same predicate. |
 | 4.2 Read-back looseness | Which strictness a schema needs is a fact about who reads it. |
 
-Four `human` rules in this guide, which is the four rows above and no others.
-1 is not among them, and how it stopped being one is the pattern the rest of
+Three `human` rules in this guide and a half: 3.1, 3.2 and 4.2 whole, and 4.1's
+predicate half. 4.1 was whole until `tests/constraint-twins.test.ts` took the
+enumeration, which is the smallest useful move a `human` rule can make — the
+part a program can refuse is split off and the part it cannot is left saying so.
+Section 1 is not among them, and how it stopped being one is the pattern the rest of
 this guide copies: a blanket ban on `throw new Error` under
 `src/server/services` would flag the twelve correct ones, and which kind a throw
 is cannot be read off its syntax. So `tests/service-errors.test.ts` inverts it —

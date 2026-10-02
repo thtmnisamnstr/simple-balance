@@ -307,11 +307,21 @@ function SignIn({ error }: { error?: Error }) {
         {awaitingVerification ? (
           <div className="local-auth-form">
             <h2>Confirm your email address</h2>
-            <Note>
+            {/* 13.3's shape: the press that got here was the only button on
+                screen, `loading` disabled it so the browser had already blurred
+                it, and the answer replaced it with this panel. A `Note` is a
+                plain `<p>`, so the outcome was neither focused nor announced —
+                a keyboard user got silence and a focus ring that had gone.
+                `info` rather than `success` because two different outcomes
+                arrive here: an account that was just created, and a sign-in
+                refused because the address was never confirmed. A green tick
+                over the second one would be the wrong signal, and the sentence
+                itself is true of both. */}
+            <Alert kind="info" takeFocus>
               A message is on its way to {email}. Open the link in it to confirm the address. Until
               that is done the account cannot be signed in to. The link lasts an hour, and trying to
               sign in again sends a fresh one.
-            </Note>
+            </Alert>
             <Button
               type="button"
               variant="secondary"
@@ -330,10 +340,13 @@ function SignIn({ error }: { error?: Error }) {
             <h2>Reset your password</h2>
             {resetRequested ? (
               <>
-                <Note>
+                {/* The same shape again: "Send the link" disabled itself while
+                    it worked and this replaced it, so there was nothing left to
+                    hold focus and nothing with a role to announce. */}
+                <Alert kind="success" takeFocus>
                   If {email} has an account here, a link to choose a new password is on its way. It
                   works once and expires in an hour.
-                </Note>
+                </Alert>
                 <Button
                   type="button"
                   variant="secondary"

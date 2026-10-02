@@ -285,8 +285,15 @@ writes a `console` line somewhere in it, which
 a file whose warning had left the first configuration read would also pass —
 and that read is the whole of what the exception is for. The structural half is
 `tests/observability-guide.test.ts`: none of the three imports `log`, so none
-of them has anywhere else to write. Whether the warning is still inside
-`getConfig()` is review.
+of them has anywhere else to write. Where inside each file is
+`tests/config-console-scope.test.ts`, which reads the enclosing function off the
+brace scope and holds it to a register: `getConfig` in `config.ts`, and nothing
+else there; `warnOnce` in `config-files.ts`; `boundedEnvironmentInteger` and
+`configuredIdempotencyRetentionHours` in `config-limits.ts`. Those last three
+are not inside `getConfig`, and the argument is the same one step along — they
+are read before anything has a level, and two of them on a schedule afterwards.
+A register entry naming a function that has stopped writing a `console` line
+fails too, so the excuse cannot outlive what it excuses.
 
 ### 2.2 The level says who the line is for
 

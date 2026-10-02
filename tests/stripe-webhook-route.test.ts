@@ -363,7 +363,11 @@ describe("verifying a delivery before acting on it", () => {
     const response = await deliver(app, tampered, { signature });
 
     expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: { code: "UNAUTHORIZED" } });
+    // `INVALID_SIGNATURE` rather than `UNAUTHORIZED`, which means 401 and "sign
+    // in" at every other refusal in this process. One word for both statuses is
+    // what `http.md` §Errors refuses, and `tests/transport-code-status.test.ts`
+    // is what now holds it. The status is unchanged, which is all Stripe reads.
+    expect(await response.json()).toMatchObject({ error: { code: "INVALID_SIGNATURE" } });
     expect(stubs.applyCustomerDeletion).not.toHaveBeenCalled();
   });
 

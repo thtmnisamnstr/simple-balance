@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { APP_CSV_COLUMNS, isAppExportCsv, previewCsv, rowsToCsv } from "../src/shared/csv.js";
+import {
+  APP_CSV_COLUMNS,
+  APP_CSV_EXTERNAL_ID_COLUMN,
+  APP_CSV_FORMAT,
+  APP_CSV_LEGS_COLUMN,
+  csvCell,
+  isAppExportCsv,
+  previewCsv,
+  rowsToCsv,
+} from "../src/shared/csv.js";
 
 /**
  * The two reading rules `docs/standards/csv.md` states and nothing asserted.
@@ -98,5 +107,119 @@ describe("whitespace around a cell", () => {
     const preview = previewCsv(rowsToCsv([{ payee: "ACME  Co", notes: "line 1\nline 2" }]));
 
     expect(preview.rows[0]).toEqual({ payee: "ACME  Co", notes: "line 1\nline 2" });
+  });
+});
+
+/**
+ * §6: column order is not part of the contract.
+ *
+ * The guide's own ranking calls this "the cheapest to mechanize and the one I
+ * would build first", and it has never been asserted. An importer that started
+ * reading by position would pass every test in this repository, because every
+ * fixture is written in the order the exporter writes — and the first file to
+ * break would be one that had been through a spreadsheet with a column dragged,
+ * which is the single most likely thing to happen to a CSV between two people.
+ *
+ * Reversed rather than shuffled, so the file is the same on every machine and a
+ * failure is the same failure twice.
+ */
+describe("the columns of one of our own exports", () => {
+  const reversed = [...APP_CSV_COLUMNS].reverse();
+  const values: Record<string, string> = {
+    ...Object.fromEntries(APP_CSV_COLUMNS.map((column) => [column, ""])),
+    simple_balance_format: APP_CSV_FORMAT,
+    transaction_id: "11111111-1111-4111-8111-111111111111",
+    transaction_type: "withdrawal",
+    date: "2026-03-14",
+    payee: "Blue Bottle",
+    source_amount: "12.34",
+    source_currency: "USD",
+  };
+  const fileOf = (columns: readonly string[]) =>
+    `${columns.join(",")}\r\n${columns.map((column) => values[column] ?? "").join(",")}\r\n`;
+
+  it("are recognized in any order, and read by name", () => {
+    const written = previewCsv(fileOf(APP_CSV_COLUMNS));
+    const dragged = previewCsv(fileOf(reversed));
+
+    expect(isAppExportCsv(written.headers)).toBe(true);
+    expect(isAppExportCsv(dragged.headers)).toBe(true);
+    // The header row really did move, or the two files are the same file and
+    // this asserts nothing.
+    expect(dragged.headers).not.toEqual(written.headers);
+    expect(new Set(dragged.headers)).toEqual(new Set(written.headers));
+
+    const one = written.rows[0]!;
+    const other = dragged.rows[0]!;
+    expect(csvCell(other, "date")).toBe(csvCell(one, "date"));
+    expect(csvCell(other, "transaction_type")).toBe(csvCell(one, "transaction_type"));
+    expect(csvCell(other, "date")).toBe("2026-03-14");
+    expect(csvCell(other, "transaction_type")).toBe("withdrawal");
+    // And every other column with it, so a reader that got two right by
+    // coincidence of position does not pass.
+    expect(other).toEqual(one);
+  });
+});
+
+/**
+ * §15, and §16 item 2: the recognition set is never shortened.
+ *
+ * `isAppExportCsv` asks for every column in `APP_CSV_COLUMNS` to be present, so
+ * removing one from the list widens what is recognized and adding one narrows
+ * it — and narrowing is the direction that does the damage. A file written by
+ * any earlier version carries exactly these nineteen; the moment a twentieth is
+ * required, every one of those files stops being recognized as an export and is
+ * read as a foreign bank file instead, with its ids and its round-trip text
+ * ignored.
+ *
+ * So the committed list is written out here rather than derived. A test that
+ * read the same constant it is checking would agree with any edit, which is the
+ * failure `tests/product-facts.test.ts` names: a check that rewrites what it is
+ * checking is not a check.
+ */
+describe("the columns a file must carry to be read as one of ours", () => {
+  const SHIPPED = [
+    "simple_balance_format",
+    "transaction_id",
+    "transaction_type",
+    "date",
+    "payee",
+    "description",
+    "category_id",
+    "category_name",
+    "notes",
+    "roundtrip_text_json",
+    "source_account_id",
+    "source_account_name",
+    "source_amount",
+    "source_currency",
+    "destination_account_id",
+    "destination_account_name",
+    "destination_amount",
+    "destination_currency",
+    "effective_rate",
+  ];
+
+  it("is exactly what has shipped, so no older file stops being recognized", () => {
+    // Set equality rather than a superset, because the two directions fail for
+    // different reasons and both are defects: a column dropped from the list
+    // widens recognition onto files that are not ours, and one added to it
+    // makes every file written before today unrecognizable.
+    expect([...APP_CSV_COLUMNS].sort()).toEqual([...SHIPPED].sort());
+  });
+
+  it("recognizes a file carrying the shipped columns and nothing else", () => {
+    expect(isAppExportCsv(SHIPPED)).toBe(true);
+    // The two columns an export writes and does not require, named in the
+    // module for this reason: a file from a version before splits carries
+    // neither, and is still ours.
+    expect(SHIPPED).not.toContain(APP_CSV_LEGS_COLUMN);
+    expect(SHIPPED).not.toContain(APP_CSV_EXTERNAL_ID_COLUMN);
+    expect(isAppExportCsv([...SHIPPED, APP_CSV_LEGS_COLUMN, APP_CSV_EXTERNAL_ID_COLUMN])).toBe(
+      true,
+    );
+    // And one short of the set is not ours, which is what makes the assertion
+    // above about recognition rather than about a list.
+    expect(isAppExportCsv(SHIPPED.slice(1))).toBe(false);
   });
 });

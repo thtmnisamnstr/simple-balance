@@ -79,18 +79,29 @@ export default function PayeesPage() {
       );
     },
     onMutate: () => setMergeOutcome(null),
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       // 13.3's shape, which the rule states as a list of pages rather than as
       // a property: a control whose success unmounts the control. Merging
       // empties the participant set, the panel renders only at two or more, so
       // the button goes and focus falls to `<body>` — and the only Alert in
       // this panel was the error one, so a merge of nine spellings reported
       // nothing at all.
-      const folded = selectedPayees.length - 1;
+      //
+      // Read off the answer, not off the request, for the reason 11.9 gives
+      // and the one `CategoriesPage` gives beside its identical call: the
+      // server returns which spellings it actually folded and how many rows it
+      // rewrote, and a sentence derived from `selectedPayees.length - 1` is
+      // the one figure after an irreversible write that is not read from that
+      // write's own result.
+      const folded = result.mergedSourcePayees.length;
+      const moved = result.updatedTransactionCount;
+      const staged = result.updatedStagedTransactionCount;
       setMergeOutcome(
         `${folded} ${folded === 1 ? "spelling" : "spellings"} folded into “${
-          selectedTarget?.name ?? ""
-        }”.`,
+          result.targetPayee
+        }”. ${moved} committed ${moved === 1 ? "entry" : "entries"} and ${staged} staged ${
+          staged === 1 ? "row" : "rows"
+        } now name it.`,
       );
       mergeIdempotencyKey.current = newIdempotencyKey();
       setParticipants(new Set());

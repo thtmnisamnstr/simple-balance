@@ -382,6 +382,12 @@ export type BillingStatus = {
 };
 
 export type SubscriptionResult = {
+  /**
+   * `subscriptionId` is Stripe's id for the subscription. The browser never
+   * renders it and never sends it back: every later call names the signed-in
+   * person's own subscription from the session, so an id on the page would be
+   * an identifier nobody can use and one more thing to get wrong.
+   */
   subscriptionId: string;
   clientSecret: string | null;
   status: string;
@@ -415,6 +421,13 @@ export type AuthPublicOptions = {
   notificationsAvailable: boolean;
   /** Whether this deployment sells a plan, and whether it serves ads. */
   billingAvailable: boolean;
+  /**
+   * `adsAvailable` is read by nothing in the browser, deliberately. Whether a
+   * slot renders is decided by whether the session carried an `AdPlacement` at
+   * all, and `ads.tsx` argues at length why a second gate written here would be
+   * the wrong shape: it would have to be the right way round AND wait for an
+   * entitlement that lands after first paint.
+   */
   adsAvailable: boolean;
   /**
    * The deployment's own documents, each absent where the operator has not
@@ -438,6 +451,11 @@ import type { Theme } from "../shared/domain.js";
 export type { Theme } from "../shared/domain.js";
 
 export type Preferences = {
+  /**
+   * Never rendered and never sent. The id is the session's — a write that
+   * accepted one from the browser would be the thing `AGENTS.md` forbids
+   * outright — so `userId` is here only because the preferences row carries it.
+   */
   userId: string;
   timezone: string;
   defaultCurrency: string;
@@ -549,6 +567,15 @@ export type CategoryMergeResult = {
  * stopped sending.
  */
 export type { PayeeSummary, PayeeDuplicateGroup, PayeeMergeResult } from "../shared/domain.js";
+/**
+ * Two fields of `BulkTransactionEditResult` are read by nothing here, and both
+ * are restraint rather than oversight. `selectionFingerprint` is the
+ * fingerprint the request itself sent, handed back so a caller that did not
+ * keep it can match the answer to the ask — this page kept it. `itemsTruncated`
+ * says the `items` sample was cut short, and the register reports the count and
+ * reloads the list rather than showing a sample, so there is nothing for the
+ * flag to qualify.
+ */
 export type {
   BulkTransactionSelectionSnapshot as TransactionBulkSelectionPreview,
   BulkTransactionEditResult as TransactionBulkEditResult,
@@ -585,8 +612,19 @@ export type Transaction = {
   destinationAmount?: string | null;
   sourceCurrency?: string | null;
   destinationCurrency?: string | null;
+  /**
+   * The implied rate the two native amounts work out to, kept for the audit
+   * trail. `effectiveRate` is not shown back: the form asks for the two amounts
+   * and says the implied rate is saved with the transfer, and printing the
+   * quotient would read as a rate somebody chose rather than one derived.
+   */
   effectiveRate?: string | null;
   deletedAt?: string | null;
+  /**
+   * `legCount` is for a caller that asked for rows without their legs. Every
+   * page here receives `legs` with the row and reads `legs.length`, so a second
+   * count that could disagree with it is left alone.
+   */
   legCount?: number;
   legs: TransactionLeg[];
   version: number;
@@ -697,6 +735,11 @@ export type TemplateNotification = {
   /** `HH:MM` on this person's own clock. */
   time: string;
   repeats: boolean;
+  /**
+   * `lastNotifiedDate` is the sweep's own watermark — what was sent, so a
+   * backlog collapses to one message. The form shows `nextNotificationDate`
+   * instead, which is the one somebody can still act on.
+   */
   lastNotifiedDate: string | null;
   /**
    * Null when nothing further is owed, which is where a one-time reminder ends
@@ -715,6 +758,12 @@ export type TransactionTemplate = {
   notification: TemplateNotification | null;
   version: number;
   createdAt: string;
+  /**
+   * `updatedAt` is carried on both this and `Recurrence` and rendered on
+   * neither. "Has anybody touched this" is the activity log's question, and it
+   * answers with who and what; a bare date on the row invites that question
+   * without being able to answer it.
+   */
   updatedAt: string;
 };
 
@@ -738,6 +787,11 @@ export type Recurrence = {
   positionWeekday: number | null;
   proposesFrom: string;
   lastOccurrenceDate: string | null;
+  /**
+   * The cached column, which `nextOccurrence` above is recomputed in place of.
+   * `nextOccurrenceDate` is not read here for exactly that reason: a stale
+   * cache has to show as an overdue recurrence rather than as a wrong date.
+   */
   nextOccurrenceDate: string;
   /** Whether proposing from this sends an email saying so. */
   notifyOnCreate: boolean;
@@ -765,6 +819,11 @@ export type Summary = {
   range: { start: string | null; end: string | null };
   /** The day the figures are really as of, which is today when the range runs past it. */
   asOf: string;
+  /**
+   * `includesArchived` echoes the request's own toggle. Nothing renders it on
+   * either report: the control that set it is on the screen above, and printing
+   * the answer back reads as a second, disagreeing control.
+   */
   includesArchived: boolean;
   currencies: {
     currency: string;
@@ -855,6 +914,11 @@ export type AuditEvent = {
   actorSource: ActorSource;
   clientId?: string | null;
   entityType: string;
+  /**
+   * `entityId` is not shown and is not a link. The log writes a sentence naming
+   * what changed and what happened to it; a link would need a route per entity
+   * type and would land on nothing for a record deleted since.
+   */
   entityId: string;
   operation: string;
   createdAt: string;

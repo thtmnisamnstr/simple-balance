@@ -56,10 +56,10 @@ A token is added to all three blocks in the same change. A token in one block
 and not another is invisible in review and obvious to whoever is using it.
 
 *Checked by:* `tests/theme-tokens.test.ts` asserts the three blocks exist, that
-the key sets are identical (`:42`), that the two dark blocks declare the same
-values (`:49`, compared as parsed name-to-value maps rather than character for
+the key sets are identical (`:43`), that the two dark blocks declare the same
+values (`:50`, compared as parsed name-to-value maps rather than character for
 character, so a reordering passes), that the attribute block comes after the
-media one (`:56`), and that each block declares `color-scheme`.
+media one (`:57`), and that each block declares `color-scheme`.
 
 ### 1.3 What is a token, and what is not
 
@@ -75,7 +75,7 @@ it twice. A spacing step qualifies because a gap that is 11px on one card and
 12px on the next is not a decision, it is two accidents. A one-off geometry
 value does not qualify: nine of the ten inline `style` props in the client
 (`charts.tsx:273`, `charts.tsx:322`, `components.tsx:789`, `components.tsx:1163`,
-`BudgetsPage.tsx:1221`, `DashboardPage.tsx:274`, `DashboardPage.tsx:415`,
+`BudgetsPage.tsx:1236`, `DashboardPage.tsx:274`, `DashboardPage.tsx:415`,
 `DashboardPage.tsx:475`, `DashboardPage.tsx:521`) are runtime geometry — a bar's
 width, a chart's offset — and are correct as they are.
 
@@ -122,9 +122,14 @@ Adopt the Design Tokens Format Module's naming constraints as a discipline
 completeness checklist. Do not adopt its JSON file format and do not add Style
 Dictionary. Saying so is what stops a future self adding a build step.
 
-*Not checked mechanically.* The grammar is regex-shaped and a test could
-derive the `TEXT` and `FILL` sets that `tests/theme-tokens.test.ts:118-145`
-maintains by hand.
+*Checked by:* `tests/token-grammar.test.ts`, which reads both closed lists out
+of the paragraph above — so the guide is the one place a role is added — and
+parses every declared token against them. The six exempted by name are a
+register there, held to this paragraph in both directions: a seventh fails
+until it is named here, and a name here that no longer matches a token fails
+too. `tests/support/token-grammar.ts` derives the `TEXT` and `FILL` sets from
+the parse, and `tests/theme-tokens.test.ts` now imports them rather than
+keeping two lists by hand.
 
 ### 1.5 The field role
 
@@ -687,7 +692,7 @@ runs with Stripe's origins allowed. `src/client/router.tsx` enforces the second
 half, so leaving that document is a load however it is reached.
 
 **One screen renders controls this library did not make.** The plan and billing
-tab mounts Stripe's `PaymentElement` (`PlanPage.tsx:1581-1598`), which draws its
+tab mounts Stripe's `PaymentElement` (`PlanPage.tsx:1698-1715`), which draws its
 own card fields inside an iframe from `js.stripe.com`. They are not in the
 inventory and cannot be: the markup is Stripe's and no script on this side can
 reach into a cross-origin document. That is the point — no card number ever
@@ -696,11 +701,11 @@ where a form control does not come from `components.tsx`. Everything around it,
 including the submit button and the error message, does.
 
 **The markup being out of reach does not put the colors out of reach, and this
-section used to say it did.** `Elements` takes an `appearance` option and is
-given none here, so the card fields render in the vendor's default light theme
-on a dark deployment. That is 6.4's rule and 6.4 is where it is argued; the
-sentence that used to sit here was not a description of a limit but the reason
-nobody looked for one.
+section used to say it did.** `Elements` takes an `appearance` option and is now
+given one, built from this page's own tokens, so the card fields follow the
+theme the panel around them is drawn in. That is 6.4's rule and 6.4 is where it
+is argued; the sentence that used to sit here was not a description of a limit
+but the reason nobody looked for one.
 
 *Checked by:* `tests/web-guide.test.ts`, which asserts every export of
 `components.tsx` has a row and that the counts above match the file. It catches
@@ -825,16 +830,24 @@ that accepts none is named here with the consequence stated.**
 
 Two exist, and they are the two halves of the rule.
 
-- **Stripe's `PaymentElement` accepts one and is not given it.** `Elements`
-  takes an `appearance` option; the plan tab passes
-  `options={{ clientSecret }}` and nothing else (`PlanPage.tsx:1581-1598`), and
-  the word appears nowhere in `src`. So the card fields render in the vendor's
-  default light theme, and on a dark deployment the one screen that takes
-  somebody's money is a white rectangle inside a dark panel. **That is the only
-  surface in the product answering for one of the two themes 1.2 requires.**
-  Satisfying this rule here is a small change and a real one: the appearance has
-  to be read off the live token values rather than re-typed, or it becomes a
-  fourth place a color is written and 1.2's whole argument is lost.
+- **Stripe's `PaymentElement` accepts one and is given it.** For two releases it
+  was not: the plan tab passed `options={{ clientSecret }}` and nothing else and
+  the word appeared nowhere in `src`, so the card fields rendered in the vendor's
+  default light theme and on a dark deployment the one screen that takes
+  somebody's money was a white rectangle inside a dark panel — the only surface
+  in the product answering for one of the two themes 1.2 requires.
+  `stripeAppearance` (`PlanPage.tsx:442-460`) now builds one and `Elements` is
+  given it (`PlanPage.tsx:1698-1715`). **Every value in it is read rather than
+  re-typed**, which is the half of this that is easy to get wrong: the colors
+  come off `:root` through `getComputedStyle`, and the radius and font size are
+  measured off a `span.input` the stylesheet draws, because a hex or a radius
+  typed there would be a fourth place a color is written and 1.2's whole
+  argument would be lost. The base theme is picked by what is painted rather
+  than overridden variable by variable, because Stripe's sub-elements have
+  defaults no variable reaches, and `usePaintedTheme`
+  (`src/client/theme.ts:238-253`) is what says which — it observes the
+  `data-theme` attribute and the machine, the same two inputs the stylesheet
+  consults, so it cannot end up disagreeing with what is on screen.
 - **The ad unit accepts none.** `ads.tsx:141-148` renders Google's `<ins>` and what
   fills it is an advertiser's creative inside a cross-origin iframe; there is no
   theming interface to pass and no prospect of one. Naming it is the whole
@@ -848,12 +861,14 @@ a one-line gap stayed open for a release with the guide reading as though it had
 been considered. Scope here follows what a person sees, not what a selector can
 reach.
 
-*Not checked mechanically, and it cannot be from either tier.* jsdom renders no
-iframe content, and the browser tier cannot read into a cross-origin document,
-so no test in this repository can see what color either surface came out. What a
-test could hold is the half on this side — that the appearance passed to
-`Elements` is built from the token values — and there is nothing to assert until
-one is passed. Section 17.3 carries it.
+*Checked by:* `tests/stripe-appearance.test.tsx`, for the half on this side.
+There is now an appearance to assert about, and the test sets the tokens to
+values no stylesheet uses and requires those exact values back out — so a
+hardcoded hex, which would satisfy a check that only asked whether the key was
+present, fails. **The far half still cannot be checked from either tier**: jsdom
+renders no iframe content and the browser tier cannot read into a cross-origin
+document, so no test here can see what color the vendor's own surface came out.
+Section 17.3 carries that half.
 
 ## 7. Layout primitives
 
@@ -1431,8 +1446,19 @@ currency symbol rendered as an input prefix is not part of the control's label
 and is not announced, so the instruction is missing for anybody who does not see
 it. Put the currency in the label: "Amount (USD)".
 
-*Not checked mechanically.* A grep test scoped to money-bound fields is listed
-in section 17.
+*Checked by:* `tests/money-field-controls.test.ts` for the `type="number"` half.
+The population is every money-bound control in `src/client` rather than every
+`type="number"`, which is the scoping §17.2 item 4 said this check would need or
+"it fails on the recurrence interval and gets deleted on first contact". The two
+integer counts that legitimately spin — the recurrence interval and the reminder
+interval — are registered by the value they bind rather than by line number,
+because both have moved since this section first cited them. The tag walk is
+brace- and quote-aware, so a prop sitting after a multi-line `onChange` arrow is
+still read; a self-test pins fifteen such elements, because the first version of
+it stopped at the opening tag's first `>` and reported the product clean.
+
+The currency-in-the-label half stays review. Whether "Amount (USD)" names the
+currency the field is actually bound to is a reading of the form, not a shape.
 
 ### 8.6 Autocomplete and redundant entry
 
@@ -1459,8 +1485,14 @@ standards backing for templates, for payee autocomplete, and for the CSV import
 flow carrying its column mapping and default account forward into the staged-row
 commit path.
 
-*Not checked mechanically.* A grep for `autocomplete` on the auth forms would
-cover the first half.
+*Checked by:* `tests/auth-autocomplete.test.ts`, in two populations derived
+from the product rather than from the presence of a token: every
+`type="password"` control anywhere in the client, which is SC 3.3.8's own
+population and names itself, and every control inside an auth form, found by
+the form's class. It holds the two tokens, that neither is `off`, and that
+nothing has been added to take the field away from a clipboard or a manager.
+Read from the source, because these forms branch on what the deployment offers
+and a rendered pass would check whichever branch it reached.
 
 ### 8.7 The dense form exception
 
@@ -1585,7 +1617,12 @@ before the render that would update state.
 
 *Checked by:* `tests/staged-inline-edit-ui.test.tsx` — the whole-draft PUT, the
 Escape and empty-value cancels, the same-value silence, the categoryKind drop,
-and the editors a split does not get.
+and the editors a split does not get. Rule 6's naming shape is
+`tests/client-inline-edit-names.test.ts`, and it reads the source rather than a
+rendered name: the rule is about the *order* of two things inside one string, and
+a rendered name is already interpolated, so "Corner shop — edit the payee" and
+"Edit the payee of Corner shop" are both a name containing the visible text.
+Three of the four triggers led with it and the payee one read it out last.
 
 ### 8.11 What never travels on a copy
 
@@ -1630,9 +1667,11 @@ control somebody came to press, and Tab past a row is still one keystroke per
 control rather than a second navigation model to learn. Recording that the APG
 leans the other way is what makes this read as a decision.
 
-*Not checked mechanically.* A test asserting no `role="grid"` in `src/client`
-would hold the decision and is worth roughly nothing until somebody reaches for
-one.
+*Checked by:* `tests/sorting-and-grid-roles.test.tsx`, over `grid`, `treegrid`
+and `gridcell` — the pattern's own roles and nothing wider, since `role="region"`
+is required by 9.6 and `role="status"` by 12.2. It is worth roughly nothing
+until somebody reaches for one, which is exactly the moment it is worth
+something: the rest of the pattern follows the role.
 
 ### 9.2 Semantics
 
@@ -1664,7 +1703,22 @@ fill the moment they became `th`.
 *Checked by:* `tests/table-overflow.test.ts` asserts a caption on every table
 and a `scope` on every header cell, read from the source because jsdom computes
 no layout and would report a captioned table and an uncaptioned one
-identically.
+identically. That check cannot see a cell that is not a `<th>` at all, which is
+the shape the defect took, so `tests/table-row-headers.test.ts` asks the
+question of the `<tbody>` instead: a table that heads one of its rows heads all
+of them. The register renders two kinds of row into one body, and the staged
+branch opened the payee column as a bare `<td>` while the committed branch a
+hundred lines below opened it as `<th scope="row">` — one table, one column, two
+markup branches, both green.
+
+Neither of those asks *which* scope a header carries, and a `scope="row"` in a
+`thead` would have passed both. `tests/table-column-headers.test.ts` asserts the
+scope **value**: every column header of every `thead` is `scope="col"`, and no
+body or footer cell is. `SortableHeader` is registered as a header component,
+because its single `scope` is the only copy twenty-five of the product's column
+headers have — which is also why a check reading call sites alone would see
+almost none of them, and why the same register refuses a `SortableHeader` used
+inside a `tbody`.
 
 ### 9.3 Numeric columns
 
@@ -1719,7 +1773,13 @@ Its `lean` prop is a real decision and is written down here because most systems
 leave it implicit: **text columns start ascending, dates and amounts start
 descending.** Somebody sorting by amount wants the largest first.
 
-*Not checked mechanically.* The `aria-sort` single-header rule is assertable.
+*Checked by:* `tests/sorting-and-grid-roles.test.tsx`, in three parts, because
+ARIA 1.2's rule is about the table and no one of them reaches it alone:
+`aria-sort` has exactly one writer in the client; every `SortableHeader` inside
+one `<thead>` is handed the same sort state, which is the half a rendered test
+cannot see — two states in one table renders two sorted columns and leaves each
+page's own test green; and the component marks the active column and says
+`none` on the rest rather than omitting the attribute.
 
 ### 9.5 Selection
 
@@ -1735,8 +1795,8 @@ produced by the first.
 The mixed state is already handled. `SelectionCheckbox`
 (`src/client/components.tsx:186-201`) takes an `indeterminate` prop and writes it
 onto the DOM node in an effect, because React does not expose it, and all three
-select-all checkboxes pass it: `TransactionBrowser.tsx:1038`,
-`TemplatesPage.tsx:494`, `StagingPage.tsx:1013`.
+select-all checkboxes pass it: `TransactionBrowser.tsx:1064`,
+`TemplatesPage.tsx:495`, `StagingPage.tsx:1013`.
 
 *Checked by:* `tests/bulk-row-cap.test.ts` and the server-side selection tests
 cover the contract. The two sentences are review.
@@ -1923,10 +1983,16 @@ is the answer and "1 June" is a boundary somebody would misread. Naming them is
 what keeps the grep below meaningful: an unnamed third one is drift.
 
 *Checked by:* `tests/recurrence-dates.test.ts` and
-`tests/locale-detection.test.ts` cover the arithmetic. The rendering paths are
-review, and a grep for `toLocaleString`, `toLocaleDateString` and
-`Intl.DateTimeFormat` outside `money.ts` and the two exceptions above would
-catch the drift.
+`tests/locale-detection.test.ts` cover the arithmetic. A grep for
+`toLocaleString`, `toLocaleDateString` and `Intl.DateTimeFormat` outside
+`money.ts` and the two exceptions above would catch a *second* formatter, and is
+still unwritten. `tests/raw-dates-on-screen.test.ts` is the inverse and is the
+shape the defect took: no formatter at all. Five sites on the budgets page
+interpolated a `YYYY-MM-DD` straight into an `.sr-only` caption or an
+`aria-label` while the visible heading beside them read "June 2026" — so the two
+surfaces of one panel disagreed, and the one that disagreed was the one nobody
+looks at. Which fields count as dates is derived from what the client already
+passes to a formatter rather than listed.
 
 ## 11. Charts
 
@@ -2049,8 +2115,13 @@ with a real table carrying an `.sr-only` caption and `scope` on every header.
 `.chart-figure` uses `<figure>` and `<figcaption>`, which is the recommended
 structure.
 
-*Not checked mechanically.* A test asserting a table alongside every chart
-component is structural and worth writing.
+*Checked by:* `tests/chart-alternatives.test.tsx`, which derives the chart
+components from `charts.tsx` — every export rendering a `.chart-figure` — and
+asserts a real `<table>` beside each of their call sites, so a chart added on a
+page nobody listed is covered. It also renders the categories report and holds
+the table to the two properties named above, an `.sr-only` caption and a `scope`
+on every header, since a table failing either is a grid of numbers rather than a
+long description.
 
 ### 11.5 Pixels may be lossy
 
@@ -2073,8 +2144,10 @@ and the categories report assigns it from the unfiltered rows
 (`src/client/pages/ReportsPage.tsx:322`); a chart whose set cannot shrink may
 leave it out, because there position and identity are the same number.
 
-*Not checked mechanically.* A jsdom test excluding one series and asserting the
-survivors' `chart-series-N` classes did not move is cheap and worth writing.
+*Checked by:* `tests/chart-alternatives.test.tsx`, which excludes the second of
+four categories and asserts the survivors kept `chart-series-2` and
+`chart-series-3`. Dealt by position they become 1 and 2, which is the recorded
+defect exactly: with `paint` removed the test reports that pair moving.
 
 ### 11.7 A link into a filtered list carries the filter that shows its subject
 
@@ -2093,8 +2166,17 @@ are exactly the rows that link exists for; and the template used-count link
 dropped the range every sibling detail link carries.
 
 *Checked by:* `tests/recurrences-page-ui.test.tsx` pins the recurrence link's
-query string. The class is review: whether a link's text makes a promise is a
-reading of the text.
+query string, and `tests/count-link-range.test.ts` holds the one shape of this
+rule a program can decide: a link whose text interpolates a count, landing on a
+page that mounts a `DateRangeBar`, pins a preset unless the page it leaves has a
+bar of its own to forward. Which pages are ranged is read off `App.tsx`'s
+`<Route>` table and one hop into the component each route renders, which is how
+`/transactions` qualifies through `TransactionBrowser`. The rest is review:
+whether a link's text makes a promise is a reading of the text, and the
+record-name links on Categories and Payees are the open case — their text is the
+record's name and the all-time count sits in a badge beside them, so 11.7's
+trigger does not plainly reach them. `allTimeSearch`
+(`src/client/date-range.ts`) is in place if it is ever widened to.
 
 ### 11.8 Where a view choice lives
 
@@ -2133,9 +2215,21 @@ silently, because the page renders fine without it. When a page deliberately
 drops a field, the drop is a comment naming the field and the reason, so the
 next reader can tell restraint from oversight.
 
-*Checked by:* `human`. The client types in `src/client/api.ts` mirror the
-server's views, so an unused declared field is at least greppable; nothing
-mechanical can say whether an omission was argued.
+*Checked by:* `tests/api-fields-rendered.test.ts`, which derives the population
+from the client's own declarations — the field names in `src/client/api.ts`'s
+type bodies **and** the six shared Zod shapes it re-exports, which is the half
+that hid the payee merge drop — and fails any field whose name appears nowhere
+else in `src/client` and in no comment. The register is the comment itself, kept
+beside the declaration rather than in a list, so the argument sits where the
+next reader meets it. Twelve drops were argued that way when it was first run.
+`tests/merge-outcome-from-result.test.tsx` holds the case this rule was written
+from, at the other end: both merge panels are answered with a result naming one
+source and a *different* target name from the request, so a sentence built from
+the request reads differently from one built from the answer.
+
+What a test cannot decide is whether a field that *is* mentioned is really
+rendered, or whether an argued omission was restraint rather than oversight.
+That half stays in 17.3.
 
 ### 11.10 A named figure links to the thing it is about
 
@@ -2160,7 +2254,10 @@ green bar.
 
 *Checked by:* `human`. Whether a figure has a subject worth linking is a
 judgement; what a test could catch — that the link carries the search string —
-is 11.7's, and it is not caught there either.
+is 11.7's, and `tests/count-link-range.test.ts` catches it only where the link's
+text is a **count**. A named figure is not one, so these links are still outside
+it. That is a scope the check states rather than a gap it hides: widening it to
+every link that interpolates anything would fire on every row of every table.
 
 ## 12. Empty, loading and error states
 
@@ -2250,7 +2347,7 @@ look.
 *Checked by:* `npm run typecheck`, which is the whole check for the required
 icon and is why making it required was worth more than a test — the three sites
 that omitted it were three compile errors. `tests/ui-copy.test.ts` holds two
-more: that every page rendering an empty state decides the screen through
+more: that every **list** rendering an empty state decides the screen through
 `emptyScreen` or is named with a one-sentence argument for why it has no
 question to ask, and that an empty state sits *behind* its query's error rather
 than beside it. `tests/app-name.test.tsx` holds the page half: a page
@@ -2258,11 +2355,24 @@ component's first JSX return has to carry its header. And
 `tests/web-guide.test.ts` holds the site count, which is the part that came
 apart twice inside one section.
 
-**The first of those let a file off for having two `<EmptyState>` elements**, on
-the reasoning that two elements say the same thing as one conditional. They do —
-but the short-circuit skipped the whole FILE, so Categories sat outside the
-check entirely while its condition ignored the archived toggle. An opt-out that
-costs nothing is taken by accident.
+**The first of those was asked per FILE until 0.2.0, and let a file off for
+having two `<EmptyState>` elements**, on the reasoning that two elements say the
+same thing as one conditional. They do — but the short-circuit skipped the whole
+file, so Categories sat outside the check entirely while its condition ignored
+the archived toggle, and one `emptyScreen(` anywhere in a file excused every
+other list in it. An opt-out that costs nothing is taken by accident. It now
+asks the question of each of the 23 elements, keyed by file and by the longest
+literal in its title — not the first, because the register's title expression
+carries a `"0"` out of `compareMoney` — and the register is keyed the same way.
+Four lists were being excused by one file-level row each: the Categories groups
+table and all three on Budgets.
+
+`tests/register-ways-out.test.tsx` holds the register's three screens where only
+a render can see them, because `tests/ui-copy.test.ts` reads the `emptyScreen`
+call's own text and says so. The register is the one list in the product whose
+default hides rows before anybody touches a control — "Show deleted" ships off —
+so it reads three ways, and somebody who had deleted everything matching the
+view was told "No transactions yet".
 
 That last one had been three screens and a banner on six lists. React Query's
 `isPending` is `status === "pending"`, so a query that errored is not pending
@@ -2316,7 +2426,12 @@ sentence and gained `role="status"`.
 *Checked by:* `tests/styles-skeleton.test.ts` covers the shimmer's containment,
 not where the skeleton is used. `tests/web-guide.test.ts` holds the two counts
 in this section, which is the number 17.2 item 6 reads rather than recounting.
-A grep test for a loading paragraph is still the missing one.
+`tests/loading-paragraph.test.ts` is the grep that was missing: the population
+is every `<p>` in the client whose own text says it is waiting, the four that
+survive are a register keyed by file and sentence rather than by line, and the
+register fails in both directions — a fifth paragraph, and an entry excusing
+one that has become a skeleton. It also holds the `role="status"` those four
+owe.
 
 ### 12.3 Busy controls
 
@@ -2512,7 +2627,7 @@ The rules, in the order they matter:
   that guessed would guess wrong in the direction that matters: telling somebody
   their four thousand rows did not post when they did.
 - **The threshold at which a bar earns its row of layout is
-  `PROGRESS_STREAM_MIN_ROWS`** (`src/shared/domain.ts:1273`), not a literal in a
+  `PROGRESS_STREAM_MIN_ROWS`** (`src/shared/domain.ts:1291`), not a literal in a
   page. Fifty is a judgement rather than a boundary in nature — below it the work
   is over before a bar could be read, and a bar that flashes is worse than none.
   It sits under the cap `AGENTS.md` fixes: "Ten thousand rows is the cap, and it
@@ -2523,7 +2638,7 @@ The rules, in the order they matter:
 - **Three bars now, and a fourth has to say which of them it is not.**
   `.progress-track` (`styles.css:1492`, `DashboardPage.tsx:273`) is a decorative
   share-of-total meter under a row that already states its figure.
-  `.budget-bar` (`styles.css:3984`, `BudgetsPage.tsx:1212`) is money, with an
+  `.budget-bar` (`styles.css:3984`, `BudgetsPage.tsx:1229`) is money, with an
   over state. `.progress-meter` is work in flight. Neither of the first two
   appeared in this guide before this section, which by 17.3's closing test was a
   defect in the guide.
@@ -2536,14 +2651,23 @@ a total under the threshold, that it is removed rather than frozen when the work
 settles or is refused, that the sentence beside it names the phase and its
 figures, and that a connection ending without an answer earns no claim about
 what was written. `tests/progress-frames.test.ts` holds the fraction monotonic
-across a phase change and the threshold below the bulk cap. **Not covered:**
-that the bar is *painted*. jsdom has no layout engine and the fill comes from
-vendor pseudo-elements, so only 13.5 could see it and nothing there does yet; it
-was checked by hand in Chromium in both themes. **It is 17.2 item 7**, not
-17.3's: filing it as review was itself the defect, because Chromium resolves
-`::-webkit-progress-value` through `getComputedStyle` and the one tier built to
-catch it was never asked. The pointer at the end of this section said 17.3 for a
-release after the item had moved.
+across a phase change and the threshold below the bulk cap. **That the bar is
+*painted* is now covered**, by `tests/browser/progress-paint.spec.ts` in the
+browser tier, in both themes: filing it as review was itself the defect,
+because the one tier built to catch it was never asked.
+
+**It is measured from the painted image, and the mechanism this guide proposed
+does not work.** `getComputedStyle(element, "::-webkit-progress-value")` does
+not resolve that pseudo-element in Playwright's Chromium — it answers with the
+*element's* own computed style, so it reports `--track` for the fill and would
+pass a stylesheet with both vendor rules deleted. `::-moz-progress-bar` comes
+back blank from the same call, which is what an unrecognized pseudo-element
+does, so the webkit one is accepted and then ignored. The spec screenshots the
+element, decodes it with `sharp`, and samples a pixel either side of the value:
+deleting `.progress-meter::-webkit-progress-value` leaves Chromium's own
+`rgb(0, 128, 0)` in the bar, which is neither the brand green nor a color that
+answers the theme, and the check names it. Sampling also sees the clipping case,
+which no computed style could.
 
 ## 13. Focus and keyboard
 
@@ -2559,8 +2683,14 @@ simplification to one color reads as a regression rather than a tidy-up.
 Meeting SC 2.4.13 Focus Appearance (level AAA) is cheap here, a 2px perimeter at
 3:1, and meeting it does not move the target.
 
-*Not checked mechanically.* The two ratios above are hand-computed, and the
-contrast test in 17.2 item 1 is what would hold them.
+*Checked by:* `tests/contrast.test.ts`, which derives both ratios from the
+palette and holds them to the two figures printed above, read out of this
+sentence rather than copied — so a token that moves fails naming the row to
+update, and so does a figure edited here that the palette does not support. It
+was the precision that was unheld rather than the criterion: the check beside it
+asks only that the pair clears 3:1, and `--focus-ring` can fall to 4.02:1 light
+while that stays green. The pointer this replaced sent a reader to 17.2 item 1,
+which is the spacing and radius scales.
 
 ### 13.2 `:focus-visible`, and what it covers
 
@@ -2649,11 +2779,11 @@ and starting again.
   so every result there — a payment, a saved payment method, a refusal, and a
   change that needs no payment, such as canceling or scheduling a switch — is a
   sentence that takes focus, worded after the plan has been read again so any
-  date in it is the new one (`src/client/pages/PlanPage.tsx:63-79`). **A form
+  date in it is the new one (`src/client/pages/PlanPage.tsx:72-88`). **A form
   that opens from a press takes focus as well**, because the button that opened
   it has gone or let go: the payment panel is a labeled region with
-  `tabIndex={-1}` (`PlanPage.tsx:1562-1567`), focused whenever a new form mounts
-  (`:988-991`), and the region rather than its heading for the reason `<main>`
+  `tabIndex={-1}` (`PlanPage.tsx:1679-1684`), focused whenever a new form mounts
+  (`:1105-1108`), and the region rather than its heading for the reason `<main>`
   is the target on a route change. Neither moves focus on a page load. Coming
   back from a bank's confirmation page is a fresh document, and its sentence is
   announced by its role and left where a reader finds it.
@@ -2679,8 +2809,35 @@ Modals were already correct: a native `<dialog>` driven by `showModal()` and
 intercepted (`components.tsx:800-850`), and with the form body mounted only while
 the dialog is open so closing discards what was half-typed.
 
-*Checked by:* `tests/shell-focus.test.tsx` for all four, and `tests/browser/budgets.spec.ts`
-for the two halves only a browser can see — that pressing the skip link actually
+*Checked by:* `tests/shell-focus.test.tsx` for all four. Its population used to
+be a hand-kept array of three files while seven more had grown the same shape,
+which is the listing failure this rule has now suffered twice; it derives two
+shapes from the product instead — every `<SelectionBar>`, and every panel gated
+on two or more selected rows — and counts per surface rather than per file,
+accepting a `takeFocus` `Alert` or a ref that returns focus.
+
+All three of the 0.2.0 defects fell outside both shapes, so
+`tests/success-alert-focus.test.ts` derives a third from the **answer** rather
+than from the trigger: every `<Alert kind="success">` in the browser takes focus
+or is named with the reason it does not. A success alert exists to report a
+finished action, which is the moment this rule is about, and every one of the
+seven defects showed up as one. `tests/client-success-focus.test.tsx` then
+renders the three the source check cannot speak for — the account chooser in
+both its branches, the duplicate queue's last drop, and both auth panels —
+asserting for each that the sentence carries `role="status"` and that
+`document.activeElement` is that sentence rather than `<body>`.
+
+**One thing in that register is unsettled, and is recorded rather than
+implied.** `Button` renders `disabled={loading || props.disabled}`, and a
+browser blurs an element it disables, so after *any* pending submit focus is on
+`<body>` whether or not the control comes back. The four in-form success alerts
+are registered on an argument from reading order — the sentence is the next
+thing after the control that produced it, inside the same form — and that is a
+judgement this section leaves open rather than a rule it states. It is worth
+somebody settling; the register is where the question is visible.
+
+`tests/browser/budgets.spec.ts` holds
+the two halves only a browser can see — that pressing the skip link actually
 moves focus into `<main>`, and that following a navigation link lands focus on
 the page it opened. jsdom has neither layout nor fragment navigation, so it can
 say the link exists and nothing about whether it works, which is exactly the
@@ -2707,9 +2864,18 @@ area without growing the row, and a comment saying why
 The spacing exception never has to be reached here. It applies only to targets
 under 24 by 24 CSS pixels, and `.icon-button` is 31 by 31, so it passes on size
 alone and no spacing constraint follows. The exception is what would govern if a
-control ever dropped below 24px, which is the reason to know it exists.
+control ever dropped below 24px, which is the reason to know it exists — and
+the row checkbox is exactly that, 15 by 15 by the stylesheet's own rule, so the
+spacing branch is reached there and nowhere else.
 
-*Not checked mechanically.*
+*Checked by:* `tests/browser/target-size.spec.ts`, in the browser tier and not
+in jsdom, which is the correction §17.2 item 7 already made for the progress
+bar. A source read gets as far as `width: 15px` and can reason about row
+padding; whether two 24px circles intersect on a row that has wrapped needs a
+layout engine. The spec measures every interactive target at desktop width and
+at 390px and applies both branches of the criterion — 24 by 24 outright, else
+centers 24 pixels apart — with the criterion's own exclusions and no exclusion
+for being small.
 
 ### 13.5 The browser tier
 
@@ -2759,7 +2925,7 @@ three processes does not belong in the fast gate.
 configured and this deployment does not serve: `LegalLinks`, which both the
 sign-in screen and the sidebar render (`App.tsx:127`, `:132`); the sign-up
 acceptance sentence (`:164`, `:170`); and the terms in the plan tab's renewal
-paragraph (`PlanPage.tsx:470`). They are the only anchors written in
+paragraph (`PlanPage.tsx:565`). They are the only anchors written in
 `src/client` with a destination outside this app — every other one is a literal
 route, or `Link`, which builds its href out of the router's own location. The
 rule has three parts that belong together because each of them was written
@@ -2776,7 +2942,7 @@ three different ways before there was a rule.
   dead.** `privacyPolicyUrl` and `termsOfUseUrl` are optional, so each anchor
   renders only when its own URL is set, and the sentence around it changes
   shape rather than naming a document that is not there
-  (`App.tsx:123`, `:160`, `PlanPage.tsx:466-475`). A link to nothing is worse
+  (`App.tsx:123`, `:160`, `PlanPage.tsx:561-570`). A link to nothing is worse
   than no link: it reads as a promise the deployment has made.
 - **The new tab is not announced**, and this is the one most reviewers will ask
   to change, so the reason is here rather than waiting to be rediscovered.
@@ -2973,6 +3139,24 @@ is which.
 | `tests/page-stack.test.ts` | The page's rhythm comes from `.content` and no page-level block carries a vertical margin or a negative one; no filter bar wraps a control in `Field`; every one of the fourteen scrolling table containers is a named, focusable region; the focus-indicator selectors cover every focusable element type and `.file-drop` carries `:focus-within`; every sticky or fixed region is paired with a container declaring `scroll-padding` (7.4, 7.5, 7.6, 9.5, 9.6, 13.2) |
 | `tests/theme-tokens.test.ts` (chart palette) | `.chart-bar` declares a stroke, and not `none`, so two adjacent bars at 1.05:1 have an edge; nine of the ten line series carry a distinct dash rhythm and every dashed series' legend swatch carries the same one (11.2, 11.3) |
 | `tests/progress-bar-ui.test.tsx`, `tests/progress-frames.test.ts` | When a progress bar is drawn, what it says, and that it is removed rather than frozen (12.6) |
+| `tests/browser/progress-paint.spec.ts` | That the bar's fill is actually painted, in both themes, measured from the screenshot rather than from a computed style that does not resolve the pseudo-element (12.6, 17.2 item 7) |
+| `tests/token-grammar.test.ts` | Every declared token parses against 1.4's grammar, with the two closed lists read out of 1.4 itself and the six by-name exemptions held to that paragraph in both directions; `TEXT` and `FILL` are derived from the parse rather than listed (1.4, 17.2 item 2) |
+| `tests/auth-autocomplete.test.ts` | Every password control names `current-password` or `new-password` and nothing blocks a clipboard or a manager; every control in an auth form carries a purpose (8.6) |
+| `tests/sorting-and-grid-roles.test.tsx` | No grid-pattern role in the client; `aria-sort` has one writer; every sortable header of one table shares one sort state; the active column is marked and the rest say `none` (9.1, 9.4) |
+| `tests/loading-paragraph.test.ts` | No loading paragraph outside the four registered by file and sentence, and those four announce themselves (12.2, 17.2 item 6) |
+| `tests/table-row-headers.test.ts` | A table that heads one of its row branches heads all of them, asked of every `<tbody>` in the client — the shape a scope check cannot see, because the offending cell is not a `<th>` at all (9.2) |
+| `tests/table-column-headers.test.ts` | Every column header of every `thead` is `scope="col"` and no body or footer cell is; `SortableHeader` is registered as the one copy twenty-five of the product's headers share, and is refused inside a `tbody` (9.2, 17.2 item 5) |
+| `tests/money-field-controls.test.ts` | No `type="number"` on a control bound to a decimal-string money value, over a population of money-bound controls rather than of number inputs, with the two integer counts registered by what they bind (8.5, 17.2 item 4) |
+| `tests/count-link-range.test.ts` | A link whose text interpolates a count, landing on a page that mounts a range bar, pins a preset unless its own page has a bar to forward; which pages are ranged is read off the `<Route>` table and one hop into each page component (11.7) |
+| `tests/api-fields-rendered.test.ts` | Every field `src/client/api.ts` declares — in its type bodies and in the six shared Zod shapes it re-exports — is mentioned somewhere in the client or is argued in a comment naming it (11.9) |
+| `tests/merge-outcome-from-result.test.tsx` | Both merge panels report the server's answer rather than their own request, answered with a result whose target name and counts differ from what was asked for (11.9) |
+| `tests/register-ways-out.test.tsx` | The register's three empty screens rendered: the default in force names "Show deleted" as a way out, turning it on reaches "nothing yet", and a filter the reader set still says "match this view" (12.1) |
+| `tests/success-alert-focus.test.ts`, `tests/client-success-focus.test.tsx` | Every `<Alert kind="success">` in the browser takes focus or is registered with the reason it does not — the third shape of 13.3, derived from the answer rather than the trigger — and the three the source check cannot speak for are rendered, each asserting `role="status"` and where `document.activeElement` lands (13.3) |
+| `tests/stripe-appearance.test.tsx` | The appearance handed to Stripe's `Elements` is read off the live tokens and never re-typed, its base theme follows what is painted, and it follows a theme switched while the form is open (6.4, 17.3) |
+| `tests/chart-alternatives.test.tsx` | Every chart component call site has a real table beside it, with an `.sr-only` caption and scoped headers in a real render; a series keeps its color when the visible set shrinks (11.4, 11.6) |
+| `tests/raw-dates-on-screen.test.ts` | No date-shaped field reaches JSX text, an `aria-label` or a `title` without a formatter; which names are date-shaped is derived from the fields the client already formats, so no list goes stale (10.4) |
+| `tests/client-inline-edit-names.test.ts` | Every click-to-edit trigger's accessible name leads with its visible value, read through a brace-aware tag walk that follows one hop into a named `const` (8.10 rule 6) |
+| `tests/browser/target-size.spec.ts` | Every interactive target on three screens measured at desktop width and at 390px, against both branches of SC 2.5.8 — 24 by 24 outright, else centers 24 pixels apart (13.4, 13.5) |
 | `tests/recurrence-dates.test.ts`, `tests/locale-detection.test.ts` | The date and locale arithmetic every rendered date rests on (10.4) |
 | `tests/page-stack.test.ts` (continued) | A page-prefixed class is used on its own page, or is one of the registered components — in both spellings, and with the English singular, because stripping a trailing `s` made `categories` into `categorie` and examined no `.category-` class at all; every full-height rule measures `dvh`; every table cell gets tabular figures, and `.align-right` means alignment alone (6.3, 9.3, 15) |
 | `tests/pagination-focus.test.tsx` | A page turn gives focus back to the control that was pressed, or to the page number now current when that control has gone disabled (13.3) |
@@ -3013,9 +3197,13 @@ change is worth nothing if it can quietly fall behind.
    rather than recounted — `tests/standards-citations.test.ts` holds section 3's
    numbers to the file, which is what stopped this item and section 3.1 quoting
    two different totals for one measurement.
-2. **Every token name matches the grammar and its role is in the closed list.**
-   Turns the hand-maintained `TEXT` and `FILL` sets at
-   `tests/theme-tokens.test.ts:118-145` into something derivable.
+2. **Landed.** Every token name matches the grammar and its role is in the
+   closed list: `tests/token-grammar.test.ts`, reading both lists out of 1.4 so
+   a new role is an edit to that paragraph. The hand-maintained `TEXT` and
+   `FILL` sets are gone — `tests/support/token-grammar.ts` derives them from the
+   parse and `tests/theme-tokens.test.ts` imports them. Kept here with its
+   number rather than struck out, because four other files cite these items by
+   position.
 3. **Duration and easing tokens exist and the reduced-motion block sets them**,
    so a new animation cannot forget the second block. The bar separation half of
    what used to be item 5 has landed; the adjacent-series half is deliberately
@@ -3023,29 +3211,43 @@ change is worth nothing if it can quietly fall behind.
    a compliant six-color one on the measure that matters, and a test demanding
    3:1 between adjacent series would contradict the guide it is attached to.
    Section 11.3's dash patterns were the honest successor and have landed.
-4. **No `type="number"` on a field bound to a decimal-string money value.**
-   Scope it, or it fails on the recurrence interval at `forms.tsx:1305` and
-   `:3043` and gets deleted on first contact.
-5. **`th[scope="col"]` on every column header of every `.data-table`.**
-   `tests/table-overflow.test.ts` covers the caption and that every `th` carries
-   *a* scope; which one it should be is still uncounted, and a `scope="row"` in a
-   `thead` would pass today.
-6. **No loading paragraph.** The `Skeleton` migration is done; 12.2 has the
-   count and this item reads it rather than keeping a second one. The four
-   deliberate paragraphs are at `App.tsx:300`, `AccountDetailPage.tsx:155`,
-   `CategoryDetailPage.tsx:72` and `TemplateDetailPage.tsx:64`, each a
-   whole-page swap rather than a region, so this is a grep with a four-line
-   allow-list rather than a grep waiting on a migration.
-7. **The progress bar is actually painted.** Moved here from 17.3, where it was
-   filed as untestable. Chromium resolves `::-webkit-progress-value` through
-   `getComputedStyle(element, "::-webkit-progress-value")`, so the browser tier
-   can see it; filing it as review meant the one tier built to catch it would
-   never be asked.
+4. **Landed.** No `type="number"` on a field bound to a decimal-string money
+   value: `tests/money-field-controls.test.ts`. This item's warning was the
+   whole design problem and it was right — the population is every money-**bound**
+   control rather than every `type="number"`, so the recurrence interval and the
+   reminder interval are outside it by binding rather than by line number, which
+   is what stops the register going stale when they move. They have moved since
+   this item named them. Kept here with its number rather than struck out,
+   because other files cite these items by position.
+5. **Landed.** `th[scope="col"]` on every column header:
+   `tests/table-column-headers.test.ts`, which asserts the scope *value* and the
+   inverse on body and footer cells. `tests/table-overflow.test.ts` covers the
+   caption and that every `th` carries *a* scope, which is what left a
+   `scope="row"` in a `thead` passing. `SortableHeader` is registered as a header
+   component: its one `scope` is the only copy twenty-five of the product's
+   column headers have, so a check reading call sites alone sees almost none of
+   them.
+6. **Landed.** No loading paragraph: `tests/loading-paragraph.test.ts`. The
+   population is every `<p>` in the client whose own text says it is waiting,
+   and the four deliberate ones — the sign-in options and the three detail
+   pages, each a whole-page swap rather than a region — are a register keyed by
+   file and sentence rather than by the line numbers this item used to carry,
+   which drift the first time anything above them moves.
+7. **Landed, by a different mechanism than this item proposed.** The progress
+   bar is actually painted: `tests/browser/progress-paint.spec.ts`, in both
+   themes. This item said Chromium resolves `::-webkit-progress-value` through
+   `getComputedStyle(element, "::-webkit-progress-value")`. It does not — that
+   call returns the element's own computed style, so it reports `--track` for
+   the fill and passes a stylesheet with both vendor rules deleted. The spec
+   screenshots the element and samples pixels either side of the value instead,
+   which also sees the clipping case. 12.6 has the detail. The premise was
+   wrong and the conclusion was right: filing it as review meant the one tier
+   built to catch it was never asked.
 
 `eslint-plugin-jsx-a11y` used to be item 7 here and has been removed rather than
 demoted: it is enabled at `.oxlintrc.json:15` with 38 rules, and the two this
 item wanted are off **by name with recorded reasons** at
-`docs/standards/code/index.md:222-223`, because neither can see through `Field`.
+`docs/standards/code/index.md:228-229`, because neither can see through `Field`.
 `code/index.md` owns that decision and has made it; listing shipped-and-refused
 work under "worth building" is how a backlog stops being one.
 
@@ -3065,13 +3267,21 @@ These cannot be tested and the guide says so rather than pretending.
 - Whether a glossary term is used correctly, as opposed to being present.
 - Whether a link's text makes a promise its destination's defaults would break
   (11.7), and whether a dropped response field was restraint or oversight
-  (11.9).
+  (11.9). Both lost their decidable half in 0.2.0 and keep the rest: a link
+  whose text is a *count* is now held by `tests/count-link-range.test.ts`, and
+  that a dropped field was at least *argued* by `tests/api-fields-rendered.test.ts`.
+  What neither can read is whether the words promise anything, or whether the
+  argument is a good one.
+- Whether a field bound to money names its currency in the label (8.5). The
+  spinner half landed; "Amount (USD)" naming the right currency is a reading of
+  the form.
 - **What color a third-party iframe came out (6.4).** Neither tier can see it:
   jsdom renders no iframe content and the browser tier cannot read into a
   cross-origin document. So the card form on the plan tab is checked by somebody
-  opening it in both themes, and the half a test *could* hold — that the
-  appearance handed to `Elements` is built from the token values — does not
-  exist to hold yet.
+  opening it in both themes. The half a test *could* hold — that the appearance
+  handed to `Elements` is built from the live token values — now exists and is
+  `tests/stripe-appearance.test.tsx`, which sets the tokens to values no
+  stylesheet uses so a re-typed hex cannot pass it.
 - The keyboard pass in section 14, and the responsive pass beside it.
 
 A rule that appears in none of these three lists is a rule nobody is responsible

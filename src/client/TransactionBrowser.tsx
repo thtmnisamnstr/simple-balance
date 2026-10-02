@@ -64,7 +64,7 @@ import {
   templateDraftFromDraft,
 } from "./staged-draft.js";
 import type { TransactionSortField, TransactionType } from "../shared/domain.js";
-import { frozenAccountRefusal, MAX_FREE_ACCOUNTS } from "../shared/domain.js";
+import { frozenAccountRefusal, MAX_FREE_ACCOUNTS, transactionTypes } from "../shared/domain.js";
 import { emptyScreen, waysOut } from "./list-filters.js";
 
 /** The share a split is named by in a list: its biggest one. */
@@ -191,7 +191,16 @@ export function TransactionBrowser({
   const [savingTemplate, setSavingTemplate] = useState<Transaction | null>(null);
   const [savingRecurrence, setSavingRecurrence] = useState<Transaction | null>(null);
   const [search, setSearch] = useState("");
-  const [type, setType] = useState("");
+  /**
+   * The type filter, held as the shared type rather than as a bare string.
+   *
+   * It used to be a `string` cast back to `"deposit" | "withdrawal" |
+   * "transfer"` where the bulk filter takes it, which is `transactionTypes`
+   * spelled a second time (typescript.md 2.3) and an assertion rather than a
+   * narrowing: a fourth transaction type would have left the cast claiming a
+   * value it no longer covered, with nothing failing at compile time.
+   */
+  const [type, setType] = useState<TransactionType | "">("");
   const [accountId, setAccountId] = useState(fixedAccountId ?? "");
   const [showDeleted, setShowDeleted] = useState(false);
   const [selection, setSelection] = useState<SelectionState>(emptySelection);
@@ -235,12 +244,25 @@ export function TransactionBrowser({
     { set: Boolean(settledSearch), clear: "clear the search" },
     { set: Boolean(type), clear: "clear the type filter" },
     { set: Boolean(accountFilter), clear: "clear the account filter" },
+    // The fourth control on the bar, and it was the one left out. Deleting
+    // voids an entry by posting its reversal rather than removing the row, so
+    // "Show deleted" is hiding rows that are still there — and it ships off,
+    // which makes it `fromTheStart` for the same reason the two archived
+    // toggles are: counting it would put "No transactions yet" out of reach on
+    // a ledger that really is empty. Without it, somebody who had deleted
+    // everything matching this view was told they had never had anything,
+    // with the one checkbox that would show their rows unnamed.
+    {
+      set: !showDeleted,
+      clear: "turn on Show deleted to look at the entries you have removed",
+      fromTheStart: true,
+    },
   ]);
   const bulkFilter: TransactionBulkEditFilter = {
     ...(start ? { start } : {}),
     ...(end ? { end } : {}),
     ...(settledSearch ? { search: settledSearch } : {}),
-    ...(type ? { type: type as "deposit" | "withdrawal" | "transfer" } : {}),
+    ...(type ? { type } : {}),
     ...(selectedAccountId ? { accountId: selectedAccountId } : {}),
     ...(fixedCategoryId ? { categoryId: fixedCategoryId } : {}),
     ...(fixedTemplateId ? { templateId: fixedTemplateId } : {}),
@@ -854,7 +876,12 @@ export function TransactionBrowser({
         <Select
           aria-label="Filter by type"
           value={type}
-          onChange={(event) => setType(event.target.value)}
+          onChange={(event) =>
+            // Narrowed through the tuple rather than asserted past it: the
+            // element hands back a bare string, and this is the one place the
+            // value enters the app.
+            setType(transactionTypes.find((one) => one === event.target.value) ?? "")
+          }
         >
           <option value="">All types</option>
           <option value="deposit">Deposits</option>
@@ -1101,12 +1128,22 @@ export function TransactionBrowser({
                         <span className="sr-only">Not selectable</span>
                       </td>
                       <td>{stagedDate ? formatDate(stagedDate) : "—"}</td>
-                      <td>
+                      {/* The same cell the committed rows below open with, and
+                          for the same reason (9.2): the payee is what names a
+                          row here, so it is the row header in both branches of
+                          this one `tbody`. It was a bare `td` while the
+                          committed branch 114 lines down was already a
+                          `th scope="row"`, so a staged row announced "Checking,
+                          −$45.00" with nothing tying those cells to anything —
+                          on exactly the rows somebody opened the page to
+                          repair. `.data-table th[scope="row"]` takes the body
+                          cell's treatment, so nothing about the look moves. */}
+                      <th scope="row">
                         <div className="transaction-payee">
                           <span>{stagedPayee}</span>
                           <Badge tone="amber">Staged</Badge>
                         </div>
-                      </td>
+                      </th>
                       <td>{stagedSummary.account}</td>
                       {/* The draft's own category, not a literal dash. This cell
                           wrote one as cell text rather than as a fallback, so a
@@ -1384,14 +1421,28 @@ export function TransactionBrowser({
           // because the row count is the thing that is zero either way. The
           // date range is deliberately not one of them: every view carries one,
           // so counting it would make every empty ledger look filtered.
-          title={narrowed ? "No transactions match this view" : "No transactions yet"}
+          // Three ways rather than two, the same read Accounts and Categories
+          // have: nothing set at all, only the default in force, and a filter
+          // the reader set. The middle arm is what "Show deleted" needs —
+          // it hides rows before anybody touches it, so the honest screen is
+          // "nothing in this view, and here is the thing that is also hidden"
+          // rather than either of the other two sentences.
+          title={
+            narrowed
+              ? "No transactions match this view"
+              : ways.length
+                ? "No transactions in this view"
+                : "No transactions yet"
+          }
           body={
             narrowed
               ? // The range is named as a way out and never counted as one of
                 // the filters that decided this screen, which is the split
                 // `list-filters.ts` exists to keep.
                 waysOut([...ways, "widen the date range"])
-              : "Add a deposit, a withdrawal or a transfer, or import a CSV of what has already happened."
+              : `Add a deposit, a withdrawal or a transfer, or import a CSV of what has already happened.${
+                  ways.length ? ` ${waysOut(ways)}` : ""
+                }`
           }
           action={
             allowCreate && writableAccounts.length ? (

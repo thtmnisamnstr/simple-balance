@@ -57,9 +57,14 @@ Four mechanisms, and every rule names exactly one:
 | `test` | A named test fails. |
 | `human` | Nothing catches it. A rule marked `human` is a candidate for deletion, and the count below is a number that should be going down. |
 
-**There are 48 `human` rules across the eight guides** — 43 in the seven that
+**There are 46 `human` rules across the eight guides** — 41 in the seven that
 enforce something, and five in `comments.md`, which argues rather than enforces
-and says so. `tests/standards-citations.test.ts` counts the rows and holds the
+and says so. **It went down in 0.2.0, for the first time, and by being worked on
+rather than by being unstated** — which is the whole point of keeping it.
+`testing.md` 5.3 and `services.md` 2.6 both got the mechanism their rows said
+could not exist, and both rows say above their tables what the reasoning was
+that kept them unbuilt, because in each case the row was wrong about *where* the
+fact lives rather than about whether it was checkable. `tests/standards-citations.test.ts` counts the rows and holds the
 total to them, so the number cannot drift by a guide gaining a rule and
 nobody coming back here. It held the total only: the split either side of the
 dash is two more numbers in prose, and the total staying still while both halves
@@ -85,7 +90,8 @@ for — and `testing.md` §4. Two of the four now have one; the other two are ro
 in their own tables, which is why the number moved by two rather than by four.
 
 It then went 33 → 40 when `observability.md` arrived carrying seven of its own,
-the most of any guide until `testing.md`'s table grew to twelve, and the honest
+the most of any guide until `testing.md`'s table grew to eleven — it reached
+twelve and 5.3 left it again — and the honest
 shape of that subject: a
 label that identifies somebody and a counter that moves when nothing happened
 are both properties a test holds, and both are held. Whether a line was worth

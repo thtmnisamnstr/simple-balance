@@ -1181,7 +1181,7 @@ if (getConfig().billing) {
       // worth more to somebody guessing than to an operator.
       log.warn("Refused a Stripe delivery whose signature did not verify");
       billingWebhookDeliveries.inc({ outcome: "signature_refused" });
-      return c.json(transportError("UNAUTHORIZED", "Signature verification failed"), 400);
+      return c.json(transportError("INVALID_SIGNATURE", "Signature verification failed"), 400);
     }
 
     const customerId = stripeCustomerIdForEvent(event);

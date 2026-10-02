@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { Alert } from "../src/client/components.js";
@@ -144,15 +144,65 @@ describe("an alert that reports a finished action", () => {
     expect(screen.getByRole("status").getAttribute("tabindex")).toBeNull();
   });
 
-  it("is asked for on each of the three bulk surfaces", () => {
-    // The three pages that unmount their own button. Named rather than counted,
-    // so a fourth is a decision.
-    for (const path of [
-      "src/client/TransactionBrowser.tsx",
-      "src/client/pages/StagingPage.tsx",
-      "src/client/pages/TemplatesPage.tsx",
-    ]) {
-      expect(readFileSync(path, "utf8"), path).toMatch(/<Alert[^>]*\s+takeFocus/);
+  /**
+   * Asked of every surface of this shape the product has, and not of a list.
+   *
+   * The check that stood here named three files and said "named rather than
+   * counted, so a fourth is a decision". Four more arrived without one:
+   * Categories, Payees, Accounts and the plan tab all grew a control whose own
+   * success removes it, and this went on asking about three. That is `web.md`
+   * 17.2's opening failure — a check that derives its population from a list
+   * somebody maintains rather than from the product — and it is the one 13.3
+   * was rewritten about, because stating the rule as a count of pages is what
+   * let the first three ship.
+   *
+   * So the population is derived from the two shapes the product uses for "a
+   * control whose own success removes the control": a `<SelectionBar>`, which
+   * unmounts when the selection it reports empties, and a panel gated on two or
+   * more selected rows, which is how both merge panels are drawn. Counted per
+   * surface rather than per file, so a page with two of them cannot pass on one
+   * `takeFocus`.
+   *
+   * A focus-returning ref satisfies it too: moving focus back to the control
+   * that opened the thing is the other right answer, and the drawer above uses
+   * it.
+   */
+  it("is asked for on every surface whose own success removes it", () => {
+    const client = "src/client";
+    const files: string[] = [];
+    const walk = (directory: string) => {
+      for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        const path = `${directory}/${entry.name}`;
+        if (entry.isDirectory()) walk(path);
+        else if (entry.name.endsWith(".tsx")) files.push(path);
+      }
+    };
+    walk(client);
+    expect(files.length, "no client component was read").toBeGreaterThan(10);
+
+    let surfaces = 0;
+    const uncovered: string[] = [];
+    for (const path of files) {
+      const code = readFileSync(path, "utf8");
+      const bars = code.match(/<SelectionBar\b/g)?.length ?? 0;
+      const panels =
+        code.match(/\{\s*[A-Za-z_$][\w$.]*\.(?:length|size)\s*>=?\s*2\s*\?\s*\(/g)?.length ?? 0;
+      const needed = bars + panels;
+      if (needed === 0) continue;
+      surfaces += needed;
+      const answers =
+        (code.match(/<Alert[^>]*\s+takeFocus/gs)?.length ?? 0) +
+        (code.match(/\.current\?\.focus\(\)/g)?.length ?? 0);
+      if (answers < needed) {
+        uncovered.push(`${path}: ${needed} self-removing surface(s), ${answers} focus answer(s)`);
+      }
     }
+    // An empty population passes every claim made over it, and this one is
+    // derived, so a rename of `SelectionBar` would empty it silently.
+    expect(surfaces, "no self-removing surface was found, so nothing was asked").toBeGreaterThan(4);
+    expect(
+      uncovered,
+      "give this surface a takeFocus Alert or return focus to the control that opened it",
+    ).toEqual([]);
   });
 });

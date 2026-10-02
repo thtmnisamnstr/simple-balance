@@ -1433,14 +1433,23 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Budget one period only",
         description:
-          "Set the amount for a single period, overriding whatever standing budget covers it. Use this for a one-time change, such as a larger food budget in December, and create_budget_plan for anything ongoing. periodStart is truncated to the period unit, so any day inside the period names it. Leave expectedVersion out the first time; setting one that already exists needs its version, which list_budget_entries returns.",
+          "Set the amount for a single period, overriding whatever standing budget covers it. Use this for a one-time change, such as a larger food budget in December, and create_budget_plan for anything ongoing. periodStart is truncated to the period unit, so any day inside the period names it. Leave expectedVersion out the first time; setting one that already exists needs its version, which list_budget_entries returns. Changing one replaces the figure that was there, which then survives only in the audit log, so confirm the new amount first; delete_budget_entry puts the period back to whatever standing budget covers it.",
         inputSchema: budgetEntrySetSchema
           .extend({
             idempotencyKey: idempotencyKeySchema,
           })
           .strict(),
         outputSchema: mcpOutputSchema(budgetEntryResultSchema),
-        annotations: additiveAnnotations,
+        // Destructive although it is a `set_` that usually creates, and the
+        // `expectedVersion` in its own schema is the tell: a version is asked
+        // for only where there is already a row to replace. Calling it on a
+        // period that is already budgeted overwrites the amount and writes
+        // `budgetEntry.update`, so the previous figure survives nowhere but the
+        // audit log. Annotating it by the common case is the obvious
+        // alternative and it is wrong for the reason the one-way-door rule
+        // gives: the annotation is read by a client deciding what runs without
+        // a prompt, and the person whose budget it is would never see one.
+        annotations: destructiveAnnotations,
       },
       ({ idempotencyKey, ...input }) =>
         runTool(() =>

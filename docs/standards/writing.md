@@ -683,9 +683,29 @@ it: it is what the last two cuts used, and what `cut-release` names.
 **Dependabot subjects are left alone.** They are the one place a machine writes
 the subject, and rewriting them would lose the correspondence with the PR.
 
-*Not checked mechanically.* There is no commit-message tooling of any kind, and
-adding a hook would be new infrastructure. A subject-length and prefix check in
-CI would be cheap and does not exist.
+*Not checked mechanically, and the decision was made with the measurement in
+hand rather than from the armchair.* There is no commit-message tooling of any
+kind, and adding a hook would be new infrastructure. A subject-length and prefix
+check in CI would be cheap; here is what it would do, measured over the 384
+non-merge subjects reachable on 2026-10-01, two commits later than the 387 this
+section's other figures were counted over.
+
+**The half a program can decide has never been broken by anybody, with nothing
+watching.** Zero subjects carry a `feat:` / `fix:` / `chore:` prefix or any
+other conventional one, and zero end in a full stop. A gate on either would have
+nothing to catch and would go green forever, which is a check that teaches
+nobody anything.
+
+**The half that is broken cannot be gated without becoming a different rule.**
+Twenty-five subjects exceed the 70-character ceiling, the longest at 79. A CI
+step at 70 fails on history, so it would have to be a rule about *new* commits
+only — and "treat 70 as the ceiling and let a subject be short when it can be"
+is not that rule. Writing it as a check would be deciding it rather than
+recording it, which is what `index.md` says this guide does not do.
+
+So it stays review, on the argument the section already makes: a length check
+catches the shape and not the substance, and "could somebody who has not seen
+the diff tell whether it affects them" is not a shape.
 
 ## Code comments
 
@@ -728,7 +748,7 @@ them cover the whole range:
   costs, and then the harder half: "Deliberately not `role="menu"` ... menu
   roles without the keyboard behavior they imply are worse than none."
 - **The invariant with the consequence of breaking it.**
-  `src/shared/domain.ts:2354-2356`: "`.strict()` is the load-bearing part: a
+  `src/shared/domain.ts:2372-2374`: "`.strict()` is the load-bearing part: a
   filter this cannot honor is an error rather than a key quietly dropped,
   because a selection resolves twice and an ignored filter makes the count and
   the fingerprint agree about the wrong set."
@@ -856,15 +876,19 @@ What is not, in the order they are likely to drift:
   and a compose file drops now fails. What is left is the example files
   themselves: nothing compares the set of names they *offer* against the set the
   source reads.
-- `docs/deployment.md`'s stated defaults against `config.ts`. The names are
-  held; the values beside them are not, and a default that moved is the likelier
-  drift of the two.
 - `docs/architecture.md`'s "Where things live" paths against the tree.
 - `docs/how-to.md`'s named buttons and fields against the screens that carry
   them. This one has already drifted once, and the commit that repaired it is
   titled "Correct the manual where the fact-check caught it inventing UI".
 
-All four hold today, by hand.
+All three hold today, by hand. There were four, and the one that left is worth
+naming because it was called "the likelier drift of the two":
+`docs/deployment.md`'s stated defaults against `config.ts`. The names were held
+and the values beside them were not.
+`tests/operations-defaults-and-send-failures.test.ts` holds them now — sixteen
+literal defaults read back off the running configuration with nothing set, with
+an inventory case holding the register to the table in both directions, so a
+default argued to belong to the nginx container has to say so by name.
 
 **House, and specific to this product.** Any convention stated in `docs/mcp.md`
 prose that an agent must obey also appears in a tool or field description,
@@ -1031,15 +1055,15 @@ edit.
   - `App.tsx:696`, the scope description on the authorization page.
   - `select-options.ts:110`, the timezone label.
   - `components.tsx:994`, every page title: `` `${title} — ${APP_NAME}` ``.
-  - `TemplatesPage.tsx:615`, "never — every date is skipped".
+  - `TemplatesPage.tsx:628`, "never — every date is skipped".
   - `AccountsPage.tsx:557-558`, the sentence explaining what a frozen account
-    still does, and `BudgetsPage.tsx:1370`, the note under an average with
+    still does, and `BudgetsPage.tsx:1387`, the note under an average with
     nothing behind it. Both arrived this release.
   - `SettingsPage.tsx:522`, the warning about what cancelling takes with it.
-  - `PlanPage.tsx:1679` and `:1691`, the "Annual — $30.00 a year" price
+  - `PlanPage.tsx:1796` and `:1808`, the "Annual — $30.00 a year" price
     labels.
-  - The review queue's inline-edit labels at `StagingPage.tsx:1106`, `:1225` and
-    `:1300`, which lead with the visible value and set the instruction off
+  - The review queue's inline-edit labels at `StagingPage.tsx:1114`, `:1233` and
+    `:1308`, which lead with the visible value and set the instruction off
     behind a dash.
 
   The lone "—" in an empty table cell is a placeholder glyph rather than
