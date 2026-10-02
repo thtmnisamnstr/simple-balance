@@ -132,19 +132,27 @@ docker rm -f sb-kit-pg
   photographs as *"This deployment is not selling subscriptions at the
   moment"*, which is exactly the picture §4 says not to publish.
 
-  So grant the kit's account Premium before capturing, after the sign-up has
-  happened and before the run that keeps the pictures:
+  So give the kit's account a subscription before capturing, after the sign-up
+  has happened and before the run that keeps the pictures. `price_id` has to be
+  the id in `STRIPE_PRICE_YEARLY_ID`, or the tab cannot tell which interval the
+  row is for and shows the plan as one it no longer sells:
 
   ```sh
-  docker exec sb-kit-pg psql -U postgres -d sb_kit -c "insert into billing_override (user_id, plan, reason, operator) select id, 'plus', 'Product-kit capture', 'product-kit' from auth_user on conflict (user_id) do update set plan = 'plus';"
+  docker exec sb-kit-pg psql -U postgres -d sb_kit -c "insert into billing_subscription (user_id, stripe_subscription_id, status, price_id, current_period_end, synced_at) select id, 'sub_kit', 'active', '<STRIPE_PRICE_YEARLY_ID>', now() + interval '1 year', now() from auth_user;"
   ```
 
-  The pictures are then of the unconstrained product, which is what they are
-  for. One cost to know about: the plan tab then carries the sentence *"An
-  operator granted you Premium with no end date"*, which is true and is also a
-  mechanism a general reader has no context for. The alternative is a free-plan
-  capture with one of the four accounts visibly frozen. Neither is free, and
-  this is the one that keeps the prices on the screen.
+  **Not a `billing_override`, and the reason is the picture.** A grant is the
+  other way to lift the cap and it was how this was first done, but an in-force
+  grant makes the plan tab refuse to sell — both plan buttons disabled, reading
+  *"Your plan was set by whoever runs this server"* — so the one screen that
+  exists to say what the product costs photographs as the screen that will not
+  sell it. It also carried *"An operator granted you Premium with no end
+  date"*, a mechanism a general reader has no context for. A subscription row
+  gives the ordinary paid state instead: the plan named, a real renewal date,
+  the annual button reading as the plan already held and the monthly one live.
+  Nothing reaches Stripe — `resolveEntitlement` reads this table, and the row
+  is the same shape `tests/integration/billing-stripe.integration.test.ts`
+  writes with its own `subscribe()` helper.
 
 - **Mail settings leak in if you load the whole `.env`.** Reaching for
   `node --env-file=.env` to get the five `STRIPE_*` values also brings

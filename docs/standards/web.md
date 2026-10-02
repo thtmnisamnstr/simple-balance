@@ -692,7 +692,7 @@ runs with Stripe's origins allowed. `src/client/router.tsx` enforces the second
 half, so leaving that document is a load however it is reached.
 
 **One screen renders controls this library did not make.** The plan and billing
-tab mounts Stripe's `PaymentElement` (`PlanPage.tsx:1698-1715`), which draws its
+tab mounts Stripe's `PaymentElement` (`PlanPage.tsx:1711-1728`), which draws its
 own card fields inside an iframe from `js.stripe.com`. They are not in the
 inventory and cannot be: the markup is Stripe's and no script on this side can
 reach into a cross-origin document. That is the point — no card number ever
@@ -836,8 +836,8 @@ Two exist, and they are the two halves of the rule.
   default light theme and on a dark deployment the one screen that takes
   somebody's money was a white rectangle inside a dark panel — the only surface
   in the product answering for one of the two themes 1.2 requires.
-  `stripeAppearance` (`PlanPage.tsx:442-460`) now builds one and `Elements` is
-  given it (`PlanPage.tsx:1698-1715`). **Every value in it is read rather than
+  `stripeAppearance` (`PlanPage.tsx:444-462`) now builds one and `Elements` is
+  given it (`PlanPage.tsx:1711-1728`). **Every value in it is read rather than
   re-typed**, which is the half of this that is easy to get wrong: the colors
   come off `:root` through `getComputedStyle`, and the radius and font size are
   measured off a `span.input` the stylesheet draws, because a hex or a radius
@@ -2779,11 +2779,11 @@ and starting again.
   so every result there — a payment, a saved payment method, a refusal, and a
   change that needs no payment, such as canceling or scheduling a switch — is a
   sentence that takes focus, worded after the plan has been read again so any
-  date in it is the new one (`src/client/pages/PlanPage.tsx:72-88`). **A form
+  date in it is the new one (`src/client/pages/PlanPage.tsx:74-90`). **A form
   that opens from a press takes focus as well**, because the button that opened
   it has gone or let go: the payment panel is a labeled region with
-  `tabIndex={-1}` (`PlanPage.tsx:1679-1684`), focused whenever a new form mounts
-  (`:1105-1108`), and the region rather than its heading for the reason `<main>`
+  `tabIndex={-1}` (`PlanPage.tsx:1692-1697`), focused whenever a new form mounts
+  (`:1107-1110`), and the region rather than its heading for the reason `<main>`
   is the target on a route change. Neither moves focus on a page load. Coming
   back from a bank's confirmation page is a fresh document, and its sentence is
   announced by its role and left where a reader finds it.
@@ -2925,7 +2925,7 @@ three processes does not belong in the fast gate.
 configured and this deployment does not serve: `LegalLinks`, which both the
 sign-in screen and the sidebar render (`App.tsx:127`, `:132`); the sign-up
 acceptance sentence (`:164`, `:170`); and the terms in the plan tab's renewal
-paragraph (`PlanPage.tsx:565`). They are the only anchors written in
+paragraph (`PlanPage.tsx:567`). They are the only anchors written in
 `src/client` with a destination outside this app — every other one is a literal
 route, or `Link`, which builds its href out of the router's own location. The
 rule has three parts that belong together because each of them was written
@@ -2942,7 +2942,7 @@ three different ways before there was a rule.
   dead.** `privacyPolicyUrl` and `termsOfUseUrl` are optional, so each anchor
   renders only when its own URL is set, and the sentence around it changes
   shape rather than naming a document that is not there
-  (`App.tsx:123`, `:160`, `PlanPage.tsx:561-570`). A link to nothing is worse
+  (`App.tsx:123`, `:160`, `PlanPage.tsx:563-572`). A link to nothing is worse
   than no link: it reads as a promise the deployment has made.
 - **The new tab is not announced**, and this is the one most reviewers will ask
   to change, so the reason is here rather than waiting to be rediscovered.

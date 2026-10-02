@@ -4017,6 +4017,42 @@ export const PLAN_ENDING_REFUSAL =
   "Your plan is set to end. Press Keep my plan before changing it.";
 
 /**
+ * The refusal when an operator's grant is what puts somebody on their plan.
+ *
+ * It names no plan, for the reason `PLAN_ENDING_REFUSAL` names none: the
+ * sentence is read beside a button that already says which plan it is for, and
+ * a label interpolated here would be the second place a plan is named on one
+ * line. `PLAN_LABELS` therefore never reaches it.
+ *
+ * It says who to ask rather than only what is refused, because the person
+ * cannot lift this themselves and the tab is otherwise a dead end: a grant is
+ * written at a `psql` prompt and expired at one, and nothing in the product
+ * reaches it. `docs/billing-operations.md` Granting a plan by hand is what
+ * whoever runs the server does about it.
+ */
+export const PLAN_GRANTED_REFUSAL =
+  "Your plan was set by whoever runs this server. Ask them to change it.";
+
+/**
+ * Whether an operator's grant is what decides somebody's plan right now.
+ *
+ * The browser disables every press that would spend money with it and the
+ * service refuses the same presses by it, which is `errors.md` 4: one
+ * predicate and one sentence, so the screen cannot offer what the server will
+ * refuse. `billing` is tested first because an entitlement from a deployment
+ * that sells nothing carries no `source` at all.
+ *
+ * An in-force grant of the *free* plan locks the tab too, and that is meant
+ * rather than overlooked. A grant is the operator overriding what Stripe would
+ * say, in whichever direction, and `docs/billing-operations.md` says an
+ * override beats everything -- so letting somebody buy their way out of one
+ * would make that sentence false in the one case it most needs to be true.
+ */
+export function planIsGranted(entitlement: Entitlement): boolean {
+  return entitlement.billing && entitlement.source === "override";
+}
+
+/**
  * Whether a cancellation is pending at all, in either of the two spellings
  * Stripe has for it.
  *

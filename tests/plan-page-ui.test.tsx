@@ -18,6 +18,7 @@ import {
   graceEndsAt,
   MAX_FREE_ACCOUNTS,
   PLAN_ENDING_REFUSAL,
+  PLAN_GRANTED_REFUSAL,
   PLAN_LABELS,
 } from "../src/shared/domain.js";
 
@@ -73,19 +74,42 @@ const session = {
   user: { id: "u1", name: "Tester", email: "tester@example.com" },
 } as unknown as Session;
 
-const status = (over: Partial<BillingStatus> = {}): BillingStatus => ({
-  selling: true,
-  publishableKey: "pk_test_ui",
-  prices: {
-    monthly: { id: "price_monthly", unitAmount: 300, currency: "usd", interval: "month" },
-    yearly: { id: "price_yearly", unitAmount: 3000, currency: "usd", interval: "year" },
-  },
-  entitlement: { billing: true, plan: "plus", accountLimit: null } as BillingStatus["entitlement"],
-  accountsUsed: null,
-  subscription: null,
-  override: null,
-  ...over,
-});
+const status = (over: Partial<BillingStatus> = {}): BillingStatus => {
+  const base: BillingStatus = {
+    selling: true,
+    publishableKey: "pk_test_ui",
+    prices: {
+      monthly: { id: "price_monthly", unitAmount: 300, currency: "usd", interval: "month" },
+      yearly: { id: "price_yearly", unitAmount: 3000, currency: "usd", interval: "year" },
+    },
+    entitlement: {
+      billing: true,
+      plan: "plus",
+      accountLimit: null,
+    } as BillingStatus["entitlement"],
+    accountsUsed: null,
+    subscription: null,
+    override: null,
+    ...over,
+  };
+  // The entitlement a server would have resolved from these very rows, rather
+  // than one written beside them. A caller that sets a grant gets the
+  // entitlement a grant produces, because the two disagreeing is exactly the
+  // state the page can no longer be asked about: `planIsGranted` reads the
+  // entitlement and the note reads the row, and a fixture free to set one
+  // without the other tests a server that cannot exist.
+  return over.entitlement
+    ? base
+    : {
+        ...base,
+        entitlement: {
+          billing: true,
+          plan: base.override?.plan ?? "plus",
+          accountLimit: null,
+          source: base.override ? "override" : "subscription",
+        } as BillingStatus["entitlement"],
+      };
+};
 
 type Subscription = NonNullable<BillingStatus["subscription"]>;
 const subscription = (over: Partial<Subscription> = {}): Subscription => ({
@@ -696,6 +720,120 @@ describe("the plan tab", () => {
     const note = await screen.findByText(/An operator granted you/);
     expect(note).toHaveTextContent(/granted you Premium with no end date/);
     expect(note).not.toHaveTextContent(/\bplus\b/);
+  });
+
+  /**
+   * A grant is the operator's decision and it already beats Stripe, so a sale
+   * under one charges for something the person has. Both plan buttons say so
+   * in the server's words rather than going quietly gray, and they say who to
+   * ask, because nothing in the product lifts a grant.
+   */
+  it("holds both plans while an operator's grant is in force, in the server's words", async () => {
+    mount(status({ override: { plan: "plus", expiresAt: null } }));
+    const annual = await screen.findByRole("button", { name: /Annual —/ });
+    expect(annual).toBeDisabled();
+    expect(annual).toHaveAccessibleDescription(including(PLAN_GRANTED_REFUSAL));
+    const monthly = screen.getByRole("button", { name: /Monthly —/ });
+    expect(monthly).toBeDisabled();
+    expect(monthly).toHaveAccessibleDescription(including(PLAN_GRANTED_REFUSAL));
+  });
+
+  /**
+   * The half that stays open, and it is the half that costs money to get
+   * wrong. Somebody granted a plan may be paying Stripe for the same thing —
+   * the runbook's own use case is a payment that went wrong — so the way to
+   * stop being charged cannot be behind the refusal that says they need not
+   * pay.
+   */
+  it("leaves cancelling a real subscription open under a grant", async () => {
+    mount(
+      status({
+        override: { plan: "plus", expiresAt: null },
+        subscription: subscription({ interval: "yearly" }),
+      }),
+    );
+    expect(await screen.findByRole("button", { name: /Cancel/ })).toBeEnabled();
+  });
+
+  /**
+   * Where the line falls inside `resume`, and it is the service's line rather
+   * than a second one. `sellsSomething` counts a resume as a sale only on
+   * `incomplete` — nothing was ever paid, so finishing it buys a plan the
+   * grant already gives. An `unpaid` renewal is a debt on a subscription that
+   * did run, and settling it is not a purchase, so it stays on both sides.
+   */
+  it("refuses a first payment under a grant and still lets a renewal be paid", async () => {
+    mount(
+      status({
+        override: { plan: "plus", expiresAt: null },
+        subscription: subscription({ status: "incomplete", payable: true }),
+      }),
+    );
+    await screen.findByText(/An operator granted you/);
+    expect(screen.queryByRole("button", { name: "Finish your payment" })).toBeNull();
+    cleanup();
+
+    mount(
+      status({
+        override: { plan: "plus", expiresAt: null },
+        subscription: subscription({ status: "unpaid", payable: true }),
+      }),
+    );
+    expect(await screen.findByRole("button", { name: "Pay what is owed" })).toBeEnabled();
+  });
+
+  /**
+   * Two reasons are true at once and only one is the answer. A grant and a
+   * plan set to end both disable the same button, and the route decides
+   * `ending` first -- its early check reaches that line before it has looked at
+   * a grant at all -- so a tab blaming the grant would preview a sentence the
+   * server never sends. The same holds for the plan somebody is already on: it
+   * is disabled on its own account, and the grant is not why.
+   */
+  it("blames the grant only for the presses the grant is blocking", async () => {
+    mount(
+      status({
+        override: { plan: "plus", expiresAt: null },
+        subscription: subscription({ interval: "yearly", cancelAtPeriodEnd: true }),
+      }),
+    );
+    const monthly = await screen.findByRole("button", { name: /Monthly —/ });
+    expect(monthly).toHaveAccessibleDescription(including(PLAN_ENDING_REFUSAL));
+    cleanup();
+
+    mount(
+      status({
+        override: { plan: "plus", expiresAt: null },
+        subscription: subscription({ interval: "yearly" }),
+      }),
+    );
+    const annual = await screen.findByRole("button", { name: /Annual —/ });
+    expect(annual).toBeDisabled();
+    expect(annual).toHaveAccessibleDescription(including("already"));
+    expect(annual).not.toHaveAccessibleDescription(including(PLAN_GRANTED_REFUSAL));
+  });
+
+  /**
+   * An expired grant is a row that is still there. The note read that row and
+   * claimed precedence "over anything below" beside two buttons that were,
+   * correctly, live again — so the tab contradicted itself in the one state
+   * the runbook recommends arranging, since it asks for an `expires_at`.
+   */
+  it("says nothing about a grant that has expired, and sells again", async () => {
+    mount(
+      status({
+        override: { plan: "plus", expiresAt: "2020-01-01T00:00:00.000Z" },
+        entitlement: {
+          billing: true,
+          plan: "free",
+          accountLimit: MAX_FREE_ACCOUNTS,
+          source: "free",
+        } as BillingStatus["entitlement"],
+      }),
+    );
+    const annual = await screen.findByRole("button", { name: /Annual —/ });
+    expect(annual).toBeEnabled();
+    expect(screen.queryByText(/An operator granted you/)).toBeNull();
   });
 });
 

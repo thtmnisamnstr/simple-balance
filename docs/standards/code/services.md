@@ -155,7 +155,7 @@ server to send the count, and a server that sends none gets no sentence.
 
 There is a second shape, for when the browser has no business previewing at all.
 Rather than send the data and a rule for using it, **send nothing and let the
-absence be the answer.** `getAdPlacement` (`src/server/services/billing.ts:2374`)
+absence be the answer.** `getAdPlacement` (`src/server/services/billing.ts:2539`)
 returns the publisher and slot ids, or `null`: a session belonging to somebody
 who should see no advertising simply carries no ad configuration, so the page
 has nothing to render a slot from. `AdSlot` (`src/client/ads.tsx:70`) has no
@@ -247,7 +247,7 @@ doing.
 
 Billing added the other two, and both argue it where they are written rather
 than here — `beginBillingOperation` cites this rule by name
-(`src/server/services/billing.ts:583-594`). The seventh carries a reason none of
+(`src/server/services/billing.ts:585-596`). The seventh carries a reason none of
 the first six has, and it is the one to copy: **the row has to be durable before
 the network call.** `beginBillingOperation` records the intent to call Stripe
 and commits it, because a process that dies mid-call otherwise leaves no record
@@ -751,7 +751,7 @@ sends after `claimDueNotification`'s transaction has moved the watermark and
 committed.
 
 **A follow-up write, and a follow-up read.** `deferSubscriptionRead`
-(`src/server/services/billing.ts:2086`) stamps a failed attempt *after* the
+(`src/server/services/billing.ts:2228`) stamps a failed attempt *after* the
 locked write it follows has let its lock go, "so it can land where the locked
 write above timed out". And `setActiveAccounts` returns `listAccounts(actor)`
 from outside its own transaction, because `listAccounts` reads through the pool

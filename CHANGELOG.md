@@ -532,6 +532,30 @@ granting a plan by hand, what a refund does and does not change, and the order
 to shut billing down in. This release collects no tax, and the fee arithmetic
 in `docs/monetization.md` counts none.
 
+**A plan can be granted by hand, and while one is granted the tab stops
+selling.** `billing_override` puts somebody on a plan without Stripe — two SQL
+statements against `auth_user` by email address, one to grant and one to expire,
+both in `docs/billing-operations.md` §Granting a plan by hand — and it already
+outranked Stripe wherever the plan is resolved. What it did not do was stop the
+plan tab offering to sell what it had just given away: every plan button stayed
+live, and a first payment that was never finished kept its button too, so
+somebody granted Premium could be charged for Premium. Nothing in the product
+showed it — the tab said Premium, the grant note said Premium, and only the
+Stripe dashboard disagreed. Now both plan buttons are disabled with a sentence
+naming who to ask, the unfinished first payment is withdrawn, and the route
+refuses the same requests with `409` and `details.planGranted: true` rather than
+relying on the buttons. The route that collects a first payment refuses it too,
+which is a second door and the one that actually charges a card: closing the
+subscribe button alone would have left a granted person able to buy the plan
+they had been given by replacing their card, which is the same door that had
+already been closed once for a deployment that had stopped selling. Cancelling a subscription somebody is still being
+charged for stays open, and so does paying off a renewal whose retries ran out:
+both stop a charge rather than starting one, and the person a plan was granted
+to is exactly the person who may also still be paying for it. An expired grant
+sells again at once, with nothing to clear and no session to end — and the note
+claiming the grant "takes precedence over anything below" now goes when the
+grant does, where it used to stay beside buttons that were live again.
+
 **No advertising on the plan and billing tab**, enforced in the shell rather
 than by the policy. The policy is the obvious place and the wrong one: under
 `SB_CSP_REPORT_ONLY` — the mode an operator is told to run on exactly that page

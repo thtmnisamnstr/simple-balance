@@ -1060,7 +1060,7 @@ edit.
     still does, and `BudgetsPage.tsx:1387`, the note under an average with
     nothing behind it. Both arrived this release.
   - `SettingsPage.tsx:522`, the warning about what cancelling takes with it.
-  - `PlanPage.tsx:1796` and `:1808`, the "Annual — $30.00 a year" price
+  - `PlanPage.tsx:1914` and `:1926`, the "Annual — $30.00 a year" price
     labels.
   - The review queue's inline-edit labels at `StagingPage.tsx:1114`, `:1233` and
     `:1308`, which lead with the visible value and set the instruction off

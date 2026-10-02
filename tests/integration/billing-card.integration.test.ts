@@ -33,6 +33,7 @@ import type { Actor } from "../../src/shared/domain.js";
 import { getDb } from "../../src/server/db/client.js";
 import {
   billingCustomers,
+  billingOverrides,
   billingSubscriptions,
   billingWebhookEvents,
   user,
@@ -463,5 +464,90 @@ integration("replacing the card a subscription is billed on", () => {
       expect(byBrowser).toBe(billing);
       expect(byDelivery).not.toBe(abandoned);
     });
+  });
+});
+
+/**
+ * The door the subscribe button's refusal does not close.
+ *
+ * `confirmPaymentSetup` is the call that actually charges a card: it finds the
+ * open invoice and pays it. It was guarded against a wound-down deployment and
+ * against prices that had stopped being sellable -- the comment above the guard
+ * records that door being closed once already -- and when a grant was added to
+ * the subscribe route it was not added here. Somebody granted a plan could
+ * therefore still pay a full year for it by replacing their card, and nothing
+ * in the product would have shown it: the tab said Premium, the grant note said
+ * Premium, and only the Stripe dashboard disagreed.
+ */
+integration("what an operator's grant refuses on the card route", () => {
+  beforeAll(async () => {
+    await database.create();
+  }, 60_000);
+  afterAll(async () => {
+    await database.drop();
+  });
+
+  it("attaches the card and leaves the first payment uncollected", async () => {
+    const actor = await seed("card-granted");
+    await mapCustomer(actor.userId, "cus_card_granted");
+    await subscribe(actor.userId, { status: "incomplete", priceId: "price_yearly" });
+    await getDb().insert(billingOverrides).values({
+      userId: actor.userId,
+      plan: "plus",
+      expiresAt: null,
+      reason: "Integration test",
+      operator: "test",
+    });
+    stripe.fetchStripeSetupIntent.mockResolvedValue({
+      status: "succeeded",
+      customerId: "cus_card_granted",
+      paymentMethodId: "pm_granted",
+      paymentMethodType: "card",
+      paymentMethodCreated: new Date("2026-09-03T00:00:00.000Z"),
+    });
+    // There really is an open invoice to take, so nothing but the guard stands
+    // between this press and the charge.
+    stripe.openStripeInvoiceFor.mockResolvedValue("in_card_granted");
+
+    await expect(
+      confirmPaymentSetup(actor, {
+        setupIntentId: "seti_card_granted",
+        idempotencyKey: idempotencyKey(),
+      }),
+    ).resolves.toMatchObject({ attached: true, paidInvoice: false, invoice: "none" });
+
+    // The card is attached and pinned, which is what was asked for. What does
+    // not happen is the charge.
+    expect(stripe.payStripeInvoice).not.toHaveBeenCalled();
+    expect(stripe.setStripeDefaultPaymentMethod).toHaveBeenCalled();
+  });
+
+  it("collects it again once the grant has expired", async () => {
+    const actor = await seed("card-grant-expired");
+    await mapCustomer(actor.userId, "cus_card_grant_expired");
+    await subscribe(actor.userId, { status: "incomplete", priceId: "price_yearly" });
+    await getDb()
+      .insert(billingOverrides)
+      .values({
+        userId: actor.userId,
+        plan: "plus",
+        expiresAt: new Date(Date.now() - 60_000),
+        reason: "Integration test",
+        operator: "test",
+      });
+    stripe.fetchStripeSetupIntent.mockResolvedValue({
+      status: "succeeded",
+      customerId: "cus_card_grant_expired",
+      paymentMethodId: "pm_grant_expired",
+      paymentMethodType: "card",
+      paymentMethodCreated: new Date("2026-09-03T00:00:00.000Z"),
+    });
+    stripe.openStripeInvoiceFor.mockResolvedValue("in_card_grant_expired");
+
+    await confirmPaymentSetup(actor, {
+      setupIntentId: "seti_card_grant_expired",
+      idempotencyKey: idempotencyKey(),
+    });
+    expect(stripe.payStripeInvoice).toHaveBeenCalled();
   });
 });

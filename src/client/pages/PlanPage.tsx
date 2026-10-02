@@ -9,6 +9,8 @@ import {
   PLAN_LABELS,
   periodIsPaid,
   planChangeTakesEffect,
+  PLAN_GRANTED_REFUSAL,
+  planIsGranted,
   subscriptionAction,
   type OwedInvoiceOutcome,
   type PlanChangeInvoice,
@@ -1250,6 +1252,12 @@ export function PlanPage({
   // a decline does not do, so no way to pay goes missing. A card form is not
   // this: Pay now beside it is a different way to pay, and stays.
   const paymentOpen = pending?.kind === "payment";
+  // An operator's grant decides this plan, so nothing here may spend money on
+  // one. Asked of the resolved entitlement rather than of `billing.override`,
+  // which is the stored row and is still there after it has expired -- the
+  // grant note below read that row and claimed precedence over buttons that
+  // were, correctly, live again.
+  const granted = planIsGranted(billing.entitlement);
   // What each plan button would do, asked of the shared rule the server acts
   // by, with the pending cancellation in it: the tab previews the answer and
   // the server enforces the same one (`AGENTS.md`).
@@ -1316,11 +1324,15 @@ export function PlanPage({
   // running asks for no new consent, so a price Stripe could not say does not
   // hold that up.
   const finishingFirst =
-    subscription?.status === "incomplete" && subscription.payable && billing.selling
+    subscription?.status === "incomplete" && subscription.payable && billing.selling && !granted
       ? owingInterval
       : null;
   const finishInterval =
     subscription?.payable &&
+    // A grant refuses the first payment and nothing else: `sellsSomething`
+    // counts a resume as a sale only on `incomplete`, so the service's line and
+    // this one are the same line.
+    !(granted && subscription.status === "incomplete") &&
     (billing.selling || subscription.status !== "incomplete") &&
     (finishingFirst === null || priced(finishingFirst))
       ? owingInterval
@@ -1438,17 +1450,27 @@ export function PlanPage({
     const action = actionFor(interval);
     const set = subscription?.interval !== interval && subscription?.scheduledInterval === interval;
     return {
-      disabled: planChangeTakesEffect(action) === null,
+      disabled: granted || planChangeTakesEffect(action) === null,
+      // The grant is blamed only for the presses it is actually blocking.
+      // `planChangeTakesEffect` is non-null for exactly the four that spend
+      // money, so a plan somebody is already on, a switch already set and a
+      // plan set to end keep their own sentence -- each is disabled on its own
+      // account, and saying "your plan was set by an operator" there would
+      // answer a question nobody asked. It is also what keeps this agreeing
+      // with the route: the early check answers `ending` before it looks at a
+      // grant at all.
       reason:
-        action.kind === "ending"
-          ? PLAN_ENDING_REFUSAL
-          : set
-            ? `Your switch to the ${planWord(interval)} plan is already set${
-                subscription?.scheduledAt
-                  ? ` for ${formatTimestamp(subscription.scheduledAt, timezone)}`
-                  : ""
-              }.`
-            : `You are on the ${planWord(interval)} plan already.`,
+        granted && planChangeTakesEffect(action) !== null
+          ? PLAN_GRANTED_REFUSAL
+          : action.kind === "ending"
+            ? PLAN_ENDING_REFUSAL
+            : set
+              ? `Your switch to the ${planWord(interval)} plan is already set${
+                  subscription?.scheduledAt
+                    ? ` for ${formatTimestamp(subscription.scheduledAt, timezone)}`
+                    : ""
+                }.`
+              : `You are on the ${planWord(interval)} plan already.`,
     };
   };
   const annualButton = planButton("yearly");
@@ -1664,7 +1686,7 @@ export function PlanPage({
               </p>
             ) : null}
 
-            {billing.override ? (
+            {granted && billing.override ? (
               <Note>
                 An operator granted you {PLAN_LABELS[billing.override.plan]}
                 {billing.override.expiresAt

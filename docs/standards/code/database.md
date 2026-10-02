@@ -263,7 +263,7 @@ into something that cannot hold, or the next unscoped read gets waved through by
 analogy to the one already there.
 
 The exception is the webhook path, which has no actor at all. Stripe names a
-customer; `src/server/services/billing.ts:484` reads `billing_customer` by
+customer; `src/server/services/billing.ts:486` reads `billing_customer` by
 `stripe_customer_id` alone to find out whose it is. There is nothing to scope it
 by, because this read is *how* the user is derived. It is safe for one reason,
 and the reason is what a second unscoped read would have to supply too:

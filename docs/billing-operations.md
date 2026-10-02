@@ -276,6 +276,30 @@ An override beats everything. `resolveEntitlement` reads it first, so an
 unexpired override grants its plan whether or not there is a subscription, and
 whatever state that subscription is in.
 
+**While one is in force the plan tab stops selling.** Both plan buttons are
+disabled and say so in a sentence that names you rather than the product --
+"Your plan was set by whoever runs this server. Ask them to change it." -- and
+a first payment that was never finished stops being offered. Otherwise every
+one of those presses charged somebody for a plan the grant already gives them,
+and the only place it showed was your Stripe dashboard: the tab said Premium,
+the note below said Premium, and the card was charged anyway. The person the
+grant is about cannot lift it, so the sentence says who to ask.
+
+Three things stay open on purpose, and none of them starts a charge for the
+plan. **Cancelling a real subscription**, because whoever you granted a plan to
+may also be paying Stripe for it -- the case this section recommends the
+override for is a payment that went wrong -- and the way to stop being billed
+must not sit behind the refusal that says they need not pay. **Paying a renewal
+whose retries ran out**, which is a debt on a subscription that really did run,
+rather than the purchase of a plan. And **replacing the card**, which attaches
+and pins the new card as it always did; under a grant it stops short of
+collecting an unfinished first payment, which is the one thing on that path
+that would have been a sale.
+
+So granting a plan does not cancel anything. If they are paying Stripe and
+should stop, cancel the subscription in the Stripe dashboard, or have them
+press Cancel before you write the grant.
+
 ```sql
 -- Put somebody on Premium ('plus', the wire value) for a year. Find the id by
 -- the address they sign in with.
@@ -291,9 +315,12 @@ on conflict (user_id) do update
       updated_at = now();
 ```
 
-`expires_at` may be `null`, which means forever. Prefer a date: an override that
-never expires is one nobody ever revisits, and the free plan is generous enough
-that a lapsed one is not a crisis.
+`expires_at` may be `null`, which means forever. Prefer a date, and the reason
+is stronger than housekeeping now: an override that never expires is one nobody
+ever revisits, and for as long as it sits there that person cannot buy a
+subscription even if they come to want one. A lapsed grant is not a crisis --
+the free plan is generous and the tab starts selling again the moment it
+expires, with no further action from you.
 
 To end an override, expire it rather than deleting it:
 
@@ -303,6 +330,8 @@ where user_id = (select id from auth_user where lower(email) = lower('them@examp
 ```
 
 The row that stays is the record of what was done. Deleting it leaves nothing.
+Either way the plan tab goes back to selling as soon as the row stops being in
+force: nothing is cached and no session has to be ended.
 
 ### Why this writes no `audit_event`
 

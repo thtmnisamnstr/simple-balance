@@ -152,7 +152,7 @@ abandons the scheduled change. Which of these a request means is
 previews it with.
 
 While a cancellation is pending, a change of interval is refused with
-`409 CONFLICT`, `details.cancelAtPeriodEnd: true` and the sentence the plan tab
+`409 CONFLICT`, `details.planEnding: true` and the sentence the plan tab
 disables its buttons with, and nothing is sent to Stripe. Either move did
 something nobody was shown: the schedule to monthly replaced the cancellation,
 so the plan renewed after all, and the upgrade charged the difference for a
@@ -160,6 +160,30 @@ year set to end. Turning renewal back on is consent the renewal terms are
 displayed for, so it belongs to `PUT …/cancellation` alone. Paying what is owed,
 asking for the plan already held, and letting a scheduled switch go still
 succeed.
+
+While an operator's grant is in force the same route refuses every request that
+would sell something, with `409 CONFLICT` and `details.planGranted: true`. A
+grant already outranks Stripe in `resolveEntitlement`, so a sale under one
+charges for a plan the person has; the refusal is what stops the charge rather
+than merely hiding the button. It is read twice and the second read is the one
+that decides -- once before a Stripe customer is made, so a doomed request
+leaves nothing behind, and again inside the transaction that does the writing,
+which `code/services.md` 2.8 requires because an override expires at a moment
+no code observes. Which requests it covers is `sellsSomething`, the same
+predicate the wound-down refusal uses, so letting a scheduled switch go and
+asking for the plan already held still succeed -- and so does paying a renewal
+whose retries ran out, because that settles a debt rather than buying a plan.
+A first payment that was never finished is a sale and is refused, on this route
+and on `POST …/payment-setups/confirmations`, which is the one that collects it:
+refusing the button and leaving that open would have let a granted person buy
+the plan they had been given by replacing their card.
+
+A plan set to end is answered before a grant is looked at, so a request that is
+both gets `details.planEnding` rather than `details.planGranted`. The order is
+the early check's and the locked check follows it, because the two answering one
+state differently would put the tab's preview at odds with whichever the request
+reached. The plan tab blames the grant only for the presses the grant is
+blocking, which is the same line.
 
 `POST /api/v1/billing/payment-setups` answers `200` with no `Location`, alone
 among the creates here: what it makes lives at Stripe and has no address in this

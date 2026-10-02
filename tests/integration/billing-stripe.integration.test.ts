@@ -20,7 +20,7 @@ Object.assign(process.env, billingEnvironment);
 
 import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { type Actor, PLAN_ENDING_REFUSAL } from "../../src/shared/domain.js";
+import { type Actor, PLAN_ENDING_REFUSAL, PLAN_GRANTED_REFUSAL } from "../../src/shared/domain.js";
 import { getDb } from "../../src/server/db/client.js";
 import {
   billingCustomers,
@@ -2555,5 +2555,120 @@ integration("the plan tab's count of accounts", () => {
       accountsFrozenOnFree: null,
       activeChoicePendingOnFree: false,
     });
+  });
+});
+
+/**
+ * An operator's grant, against the one route that spends money.
+ *
+ * A grant already beats Stripe in `resolveEntitlement`, so before this every
+ * sale under one charged for a plan the person already had, and the only place
+ * it showed was the Stripe dashboard: the tab said Premium, the grant note said
+ * Premium, and the charge went through. `docs/billing-operations.md` Granting a
+ * plan by hand names "somebody whose payment went wrong" as the case to use it
+ * for, which is precisely somebody holding an unfinished subscription with a
+ * live button on it.
+ */
+integration("what an operator's grant refuses", () => {
+  beforeAll(async () => {
+    await database.create();
+  }, 60_000);
+  afterAll(async () => {
+    await database.drop();
+  });
+
+  const grant = async (userId: string, expiresAt: Date | null = null) => {
+    await getDb()
+      .insert(billingOverrides)
+      .values({ userId, plan: "plus", expiresAt, reason: "Integration test", operator: "test" });
+  };
+
+  it("refuses a first subscription before anything reaches Stripe", async () => {
+    const actor = await seed("grant-refused-first");
+    await grant(actor.userId);
+
+    await expect(
+      setSubscription(actor, { interval: "yearly", idempotencyKey: idempotencyKey() }),
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: PLAN_GRANTED_REFUSAL,
+      details: { planGranted: true },
+    });
+    // The early read earns its place here: no customer is made for a request
+    // that was never going to be allowed to buy anything.
+    expect(stripe.createStripeCustomer).not.toHaveBeenCalled();
+    expect(stripe.createStripeSubscription).not.toHaveBeenCalled();
+  });
+
+  it("refuses an upgrade on a subscription somebody already has", async () => {
+    const actor = await seed("grant-refused-upgrade");
+    await mapCustomer(actor.userId, "cus_grant_upgrade");
+    await subscribe(actor.userId, { priceId: "price_monthly" });
+    await grant(actor.userId);
+
+    await expect(
+      setSubscription(actor, { interval: "yearly", idempotencyKey: idempotencyKey() }),
+    ).rejects.toMatchObject({ code: "CONFLICT", details: { planGranted: true } });
+    expect(stripe.switchStripeSubscriptionNow).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The decision is made late, not carried down from the edge. The grant is
+   * written here *after* the early read has already let the request through,
+   * so a service that reused that answer would charge this card -- which is
+   * the failure `docs/standards/code/services.md` 2.8 calls out by name,
+   * resolving an entitlement once in the route and passing the answer along.
+   *
+   * What this does *not* pin is the `tx` argument on that second read. Proved
+   * by mutation: changing it to `getEntitlement(actor)` leaves all 82 cases
+   * here green, because by then the grant is committed and a pool read sees it
+   * too. The argument still has to be the transaction's -- a second connection
+   * taken while `lockBillingState` is held deadlocks on the one-connection
+   * pool the deployment profiles document -- but that is held by 2.8 and by
+   * review, not by this test, and saying otherwise would make this one of the
+   * checks that cannot fail for what it claims.
+   */
+  it("refuses a grant written while the request was already in flight", async () => {
+    const actor = await seed("grant-mid-flight");
+    await mapCustomer(actor.userId, "cus_grant_midflight");
+
+    stripe.stripeCustomerStanding.mockImplementationOnce(async () => {
+      await grant(actor.userId);
+      return "present";
+    });
+
+    await expect(
+      setSubscription(actor, { interval: "yearly", idempotencyKey: idempotencyKey() }),
+    ).rejects.toMatchObject({ code: "CONFLICT", details: { planGranted: true } });
+    expect(stripe.createStripeSubscription).not.toHaveBeenCalled();
+  });
+
+  /**
+   * And the line inside `resume`, which is the service's own rather than a
+   * second one: `sellsSomething` counts a resume as a sale on `incomplete`
+   * only. A renewal whose retries ran out is a debt on a subscription that did
+   * run, and settling it is not buying a plan, so a grant leaves it alone --
+   * which also keeps `docs/standards/http.md`'s "paying what is owed still
+   * succeeds" true.
+   */
+  it("leaves a renewal that is owed payable", async () => {
+    const actor = await seed("grant-owed-renewal");
+    await mapCustomer(actor.userId, "cus_grant_owed");
+    await subscribe(actor.userId, { status: "unpaid", priceId: "price_yearly" });
+    await grant(actor.userId);
+
+    await expect(
+      setSubscription(actor, { interval: "yearly", idempotencyKey: idempotencyKey() }),
+    ).resolves.toMatchObject({ subscriptionId: `sub_${actor.userId}` });
+  });
+
+  it("stops refusing once the grant has expired", async () => {
+    const actor = await seed("grant-expired");
+    await mapCustomer(actor.userId, "cus_grant_expired");
+    await grant(actor.userId, new Date(Date.now() - 60_000));
+
+    await expect(
+      setSubscription(actor, { interval: "yearly", idempotencyKey: idempotencyKey() }),
+    ).resolves.toBeTruthy();
   });
 });

@@ -402,7 +402,11 @@ or changing the payment method, settles it right away. The tab says why the
 last attempt failed and when Stripe will try again. A payment your bank wants
 you to confirm is the one Stripe does not retry on its own: press **Pay now**
 to confirm it there. An operator can also grant a plan directly, and the tab
-says so when one has.
+says so when one has. While a granted plan is in force the tab stops selling:
+both plan buttons are disabled and say to ask whoever runs the server, because
+the grant already gives you that plan and paying for it again would change
+nothing. Cancelling a subscription you are still being charged for stays
+available, and so does paying off a renewal that failed.
 
 **A card is not the only way to pay.** The form offers a card — which is also
 how Apple Pay and Google Pay arrive — and Link, Stripe's saved-details wallet,

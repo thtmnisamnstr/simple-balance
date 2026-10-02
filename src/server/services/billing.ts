@@ -16,6 +16,8 @@ import {
   type Plan,
   type PlanChangeInvoice,
   PLAN_ENDING_REFUSAL,
+  PLAN_GRANTED_REFUSAL,
+  planIsGranted,
   paymentSetupCreateSchema,
   resolveEntitlement,
   subscriptionAction,
@@ -772,6 +774,9 @@ function actionFor(row: SubscriptionRow, requested: BillingInterval): Subscripti
 /** The refusal `subscriptionAction` answers `ending` with. */
 const planEnding = () => conflict(PLAN_ENDING_REFUSAL, { planEnding: true });
 
+/** The refusal an operator's grant answers every sale with. */
+const planGranted = () => conflict(PLAN_GRANTED_REFUSAL, { planGranted: true });
+
 /**
  * PaymentIntent statuses that mean a first payment is no longer the person's
  * to make: on its way, or already made. The complement of the three Stripe
@@ -1435,6 +1440,19 @@ export async function setSubscription(actor: Actor, input: unknown): Promise<Sub
     throw refusal;
   }
   if (earlyAction?.kind === "ending") throw planEnding();
+  // A grant is one person's where both refusals above are the deployment's, so
+  // it is read here rather than folded into `saleRefusal`. This is the early
+  // read and it decides nothing: like the one above it, it is here only so a
+  // request that will be refused makes no Stripe customer on the way. The read
+  // that decides is on the transaction below, which `services.md` 2.8 is
+  // Binding about -- a grant written or expired between here and the lock
+  // changes the answer, and the write is the thing that has to be refused.
+  if (
+    planIsGranted(await getEntitlement(actor)) &&
+    (!early || !earlyAction || sellsSomething(earlyAction, early.status))
+  ) {
+    throw planGranted();
+  }
 
   return underIdempotency(
     actor,
@@ -1455,9 +1473,15 @@ export async function setSubscription(actor: Actor, input: unknown): Promise<Sub
       const changed = await getDb().transaction(async (tx): Promise<StripeChange> => {
         await lockBillingState(tx, actor.userId);
         const row = await currentSubscription(actor, tx);
+        // The read that decides, on the transaction that enforces it
+        // (`docs/standards/code/services.md` 2.8). Not the early one reused: an
+        // override expires at a moment no code observes, so the answer here is
+        // the only one the write may be refused against.
+        const granted = planIsGranted(await getEntitlement(actor, tx));
 
         if (!row) {
           if (refusal) throw refusal;
+          if (granted) throw planGranted();
           const created = await createStripeSubscription(
             { customerId, priceId: targetPriceId },
             stripeKey,
@@ -1480,7 +1504,12 @@ export async function setSubscription(actor: Actor, input: unknown): Promise<Sub
 
         const action = actionFor(row, parsed.interval);
         if (refusal && sellsSomething(action, row.status)) throw refusal;
+        // `ending` first, as the early check above has it. A plan set to end
+        // and a grant in force are both true at once, and the two paths
+        // answering that state with different sentences would put the tab's
+        // preview at odds with whichever one the request happened to reach.
         if (action.kind === "ending") throw planEnding();
+        if (granted && sellsSomething(action, row.status)) throw planGranted();
 
         if (action.kind === "resume") {
           // A renewal that is owed — Pay now, Pay what is owed — has its
@@ -1818,7 +1847,20 @@ export async function confirmPaymentSetup(
         //
         // Asked only where the answer can differ, so an ordinary card
         // replacement costs no extra call: `saleRefusal` reaches Stripe.
-        const refused = sellsSomething({ kind: "resume" }, row.status) ? await saleRefusal() : null;
+        // A grant is the third reason this door has to stay shut, and the
+        // other two are above it: `saleRefusal` answers for the deployment,
+        // this answers for the person. It belongs here and not only on the
+        // subscribe route because *this* is the call that charges the card --
+        // `payStripeInvoice` is a dozen lines below -- and the note above
+        // records this same door being closed once already, for prices that
+        // had stopped being sellable. Refusing the subscribe button and
+        // leaving this open would have let somebody who was granted a plan
+        // pay a full year for it by replacing their card, with the tab, the
+        // grant note and every test still saying Premium.
+        const refused = sellsSomething({ kind: "resume" }, row.status)
+          ? ((await saleRefusal()) ??
+            (planIsGranted(await getEntitlement(actor)) ? planGranted() : null))
+          : null;
         if (refused) {
           // Reported as `none` rather than thrown: the card is attached and
           // pinned, which is what was asked for, and `declined` would say a

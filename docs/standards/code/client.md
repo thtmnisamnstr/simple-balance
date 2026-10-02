@@ -178,7 +178,7 @@ same question two ways.
 
 **One value in this client is money-shaped and outside this rule.** The plan
 tab divides a float to render a price: `formatPrice`
-(`src/client/pages/PlanPage.tsx:576-596`) takes Stripe's integer count of minor
+(`src/client/pages/PlanPage.tsx:578-598`) takes Stripe's integer count of minor
 units and divides by the scale `Intl` already knows. The membership test is
 [`common.md`](../common.md) §Money that is not a ledger amount, which owns the
 carve-out for the whole guide set — all four of its clauses, because a value
@@ -371,7 +371,7 @@ imports it and the app shell imports `PlanPage`, so every page of every
 deployment fetched Stripe.js: the sign-in screen, a subscriber reading
 balances, a deployment that sells nothing at all. The fix is the `/pure` entry
 plus a loader keyed by the publishable key, called on the plan tab when there
-is something to confirm (`src/client/pages/PlanPage.tsx:17-24` and `:355-374`).
+is something to confirm (`src/client/pages/PlanPage.tsx:19-26` and `:357-376`).
 The ad script is the same shape by hand — keyed by publisher id, fetched by the
 first `AdSlot` that mounts and by nothing else (`src/client/ads.tsx:24-57`).
 The schema library's `eval` probe is the third face of it: a library doing

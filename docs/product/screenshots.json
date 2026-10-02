@@ -145,13 +145,13 @@
       "file": "settings-plan-dark.webp",
       "route": "/settings/plan",
       "theme": "dark",
-      "kb": 66
+      "kb": 72
     },
     {
       "file": "settings-plan-light.webp",
       "route": "/settings/plan",
       "theme": "light",
-      "kb": 66
+      "kb": 72
     },
     {
       "file": "staged-dark.webp",
@@ -181,7 +181,7 @@
       "file": "transactions-dark.webp",
       "route": "/transactions",
       "theme": "dark",
-      "kb": 64
+      "kb": 63
     },
     {
       "file": "transactions-light.webp",

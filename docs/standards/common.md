@@ -309,7 +309,7 @@ sentence is "Everything in it goes: accounts, transactions, categories…"
 confirmation repeats it (`:572`, `:578`). `AGENTS.md` wins over this guide and
 calls a sign-in an account throughout, as do three places in the product
 (`src/client/App.tsx:394`, `src/client/pages/SettingsPage.tsx:169`,
-`src/client/pages/PlanPage.tsx:1123`), so the old row — "A user. A person has a
+`src/client/pages/PlanPage.tsx:1125`), so the old row — "A user. A person has a
 sign-in, not an account." — was asserting a rule the repository has never
 followed, and the sharp case is the one screen where the ambiguity it was written
 to prevent actually bites. Rewriting the panel is a copy change this guide cannot
@@ -346,13 +346,13 @@ commit subject and a comment: plain, declarative, specific.
   below ten. A count that arrives as a *value* cannot be spelled out by writing
   the sentence differently, so it is spelled out by a map where the sentence
   reads as a sentence — `NUMBER_WORDS` and `GRACE_IN_WORDS`
-  (`src/client/pages/PlanPage.tsx:626-632`) turn `BILLING_GRACE_DAYS` into words
+  (`src/client/pages/PlanPage.tsx:628-634`) turn `BILLING_GRACE_DAYS` into words
   and fall back to digits past the end of the list, which "reads worse and is
   still true" — and left as a digit where it reads as a figure beside others.
   The plan and freezing copy is all of the second kind and none of the first,
   and the two halves of it currently disagree: the grace period is spelled out
   and the account limit is not. `MAX_FREE_ACCOUNTS` is three, and it renders as
-  "up to 3 accounts" (`src/client/pages/PlanPage.tsx:1554`), "Your plan keeps 3
+  "up to 3 accounts" (`src/client/pages/PlanPage.tsx:1567`), "Your plan keeps 3
   accounts usable" (`src/client/pages/AccountsPage.tsx:556`) and "All 3 places
   are in use" (`src/client/pages/AccountsPage.tsx:597`), the last of which is a
   figure beside a figure and right as a digit. The first two are sentences and
@@ -412,8 +412,8 @@ The membership test is the whole of it, and all four clauses have to hold:
 
 One value passes today. Stripe reports a subscription price as an integer count
 of the currency's smallest unit (`src/server/stripe.ts:1261`), the server hands
-it on untouched (`src/server/services/billing.ts:1147`), and `formatPrice`
-(`src/client/pages/PlanPage.tsx:576-596`) divides it by the scale `Intl` already
+it on untouched (`src/server/services/billing.ts:1152`), and `formatPrice`
+(`src/client/pages/PlanPage.tsx:578-598`) divides it by the scale `Intl` already
 knows and formats it in the same breath. The argument is written at the site and
 ends "Do not copy this into anything that touches a posting", which is the
 sentence to read before deciding a second value qualifies.

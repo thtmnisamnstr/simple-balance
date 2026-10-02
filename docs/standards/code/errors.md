@@ -33,7 +33,7 @@ returns the row (`src/server/services/budgets.ts:560`, `:934` and
 doubting something established moments earlier — the route's own registration,
 the actor's user row, a customer row whose insert had just lost a conflict, and
 a subscription Stripe cannot return without a price
-(`src/server/services/billing.ts:676`, `:931`, `:960` and `:1491`). The reason
+(`src/server/services/billing.ts:678`, `:936`, `:965` and `:1516`). The reason
 each cannot happen is written beside it in the test rather than copied here.
 
 So the rule is not "never throw a bare `Error` here". It is "never throw one for
@@ -207,7 +207,7 @@ Six throw sites carry one today and the shape recurs: the archive restore meets
 the same ceiling from the other side
 (`src/server/services/accounts.ts:1176`), the frozen-account refusal is the same
 argument under a 422 (`src/server/services/accounts.ts:847`), and the two in
-`closeBillingForDeletion` (`src/server/services/billing.ts:1921` and `:1928`)
+`closeBillingForDeletion` (`src/server/services/billing.ts:1946` and `:1953`)
 send a person to whoever runs the server while naming the cause, and whether
 retrying helps, for a program. Those last two are reached only from the
 session-only deletion path, so nothing renders them today — written that way
@@ -309,12 +309,19 @@ server about what is allowed.
 The rule for deciding: if the browser can tell in advance, it must, and the
 sentence must be the same one.
 
-Three more arrived with the plan and the frozen account, and each was a screen
+Four more arrived with the plan and the frozen account, and each was a screen
 that let somebody start something the server would refuse.
 `PLAN_ENDING_REFUSAL` is thrown by `PUT /api/v1/billing/subscription` and is
 what the plan tab disables both plan buttons with, imported rather than
 retyped. `subscriptionAction` decides on both sides which of the moves a press
 is, so a button is disabled exactly where the route would refuse it.
+`PLAN_GRANTED_REFUSAL` is the same shape for an operator's grant, thrown by
+that route and by `POST …/payment-setups/confirmations`, and `planIsGranted`
+is the predicate both sides ask. It is the one of the four where the browser
+has to be told *when* to blame it: a plan already held and a plan set to end
+are disabled on their own account, so the tab offers the grant's sentence only
+where `planChangeTakesEffect` says the press would have spent money, which is
+the same line the route draws with `sellsSomething`.
 `frozenAccountRefusal` (`src/shared/domain.ts:3840`) is thrown by
 `assertAccountsWritable` (`src/server/services/accounts.ts:842`) and is the
 reason an account card's **Edit**, **Archive** and **Delete** now carry, and a
