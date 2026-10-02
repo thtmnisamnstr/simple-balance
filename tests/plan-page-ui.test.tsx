@@ -783,6 +783,40 @@ describe("the plan tab", () => {
   });
 
   /**
+   * A button grayed because its sibling is working carries no reason, and the
+   * plan buttons were the one pair that broke the rule this file states at
+   * `PlanPage.tsx:1239-1244` -- `web.md` 12.3 exempts a button disabled only by
+   * a sibling's spinner, "and a reason beside it would be a second answer to a
+   * question already answered". Theirs was worse than a second answer: it was
+   * false. `annualButton.reason` falls through to "You are on the annual plan
+   * already" for anybody the Annual button is live for, so pressing Monthly
+   * with no subscription at all told them they were on the annual plan, through
+   * `aria-describedby` rather than merely on screen.
+   *
+   * `tests/field-contract.test.tsx` cannot see it: it drops any tag carrying a
+   * `disabledReason` before the working-not-blocked rule is consulted, so the
+   * two buttons that have one are the two it never checks.
+   */
+  it("says nothing on the button its sibling's press disabled", async () => {
+    mount(status({ subscription: null }));
+    const annual = await screen.findByRole("button", { name: /Annual —/ });
+    expect(annual).toBeEnabled();
+
+    // Hold the press open so the page stays in its pending state. `serve` does
+    // not await its answer, so the hang has to be stubbed over it.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise(() => {})),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Monthly —/ }));
+
+    await waitFor(() => expect(annual).toBeDisabled());
+    expect(annual).not.toHaveAccessibleDescription(
+      including("You are on the annual plan already."),
+    );
+  });
+
+  /**
    * Two reasons are true at once and only one is the answer. A grant and a
    * plan set to end both disable the same button, and the route decides
    * `ending` first -- its early check reaches that line before it has looked at

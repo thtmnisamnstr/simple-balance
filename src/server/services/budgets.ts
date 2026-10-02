@@ -156,7 +156,7 @@ type BudgetPeriodRow = {
  * members are two readings of the same money: adding both into one list would
  * make the period's totals count a grocery bill twice.
  */
-export type BudgetGroupRow = {
+type BudgetGroupRow = {
   groupId: string;
   name: string;
   policy: BudgetGroupPolicy;

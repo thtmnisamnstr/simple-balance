@@ -337,6 +337,48 @@ describe("a disabled button", () => {
     "src/client/pages/PlanPage.tsx",
   ]);
 
+  /**
+   * The half of 12.3 the census above cannot see, and it shipped a false
+   * sentence before this existed.
+   *
+   * That check drops any tag carrying a `disabledReason` on the first line of
+   * its filter -- the question it asks is whether a reason is *present*. So the
+   * two buttons that have one are the two it never looks at again, and
+   * `WORKING_NOT_BLOCKED` never reaches them either. The plan tab's buttons are
+   * both: each is `disabled={its own refusal || anyPending}` and each handed
+   * over a reason computed only for the first half. Pressing Monthly with no
+   * subscription at all therefore disabled Annual and described it, through
+   * `aria-describedby`, as "You are on the annual plan already."
+   *
+   * So where a button is disabled by its own refusal *or* by something being in
+   * flight, the reason has to be withheld in the second case -- a conditional,
+   * not a bare expression. `web.md` 12.3 is the rule: the sibling's spinner is
+   * the answer, and a reason beside it answers a question nobody asked.
+   */
+  it("withholds the reason where a busy flag is what disabled the button", () => {
+    const BUSY = /\b(anyPending|isPending|isLoading|pending)\b/;
+    const unconditional = computedDisabledButtons().filter(({ tag }) => {
+      const at = tag.indexOf("disabledReason={");
+      if (at === -1) return false;
+      const predicate = /\sdisabled=\{([^}]*)\}/.exec(tag)?.[1] ?? "";
+      // Only a compound predicate can disable for two different reasons.
+      if (!predicate.includes("||") || !BUSY.test(predicate)) return false;
+      // The reason expression, by brace depth: it may itself contain braces.
+      let depth = 0;
+      let end = at + "disabledReason=".length;
+      for (; end < tag.length; end += 1) {
+        if (tag[end] === "{") depth += 1;
+        else if (tag[end] === "}") {
+          depth -= 1;
+          if (depth === 0) break;
+        }
+      }
+      const reason = tag.slice(at + "disabledReason={".length, end);
+      return !reason.includes("?") && !reason.includes("undefined");
+    });
+    expect(unconditional.map((b) => b.where)).toEqual([]);
+  });
+
   it("says why at every submit disabled on a computed predicate", () => {
     const silent = computedDisabledButtons().filter(({ where, tag }) => {
       if (/disabledReason/.test(tag)) return false;

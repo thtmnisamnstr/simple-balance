@@ -2486,6 +2486,26 @@ keeps and the one the census reports. Four of them are exempt and named in
 `WORKING_NOT_BLOCKED`: the unpressed half of a pair, grayed while its sibling
 works, where the answer is the sibling's spinner.
 
+**A button that can be disabled for two reasons gives the one that applies.**
+The census above asks whether a reason is *present*, so it drops a tag the
+moment it finds a `disabledReason` -- and the buttons that have one are
+therefore the buttons it never looks at again, `WORKING_NOT_BLOCKED` included.
+The plan tab's two were both: each is `disabled={its own refusal || anyPending}`
+and each handed over a reason computed for the first half alone. Pressing
+Monthly with no subscription at all disabled Annual and described it, through
+`aria-describedby`, as "You are on the annual plan already." A reason beside a
+sibling's spinner was already the thing this section forbids; a *false* one is
+that plus a sentence nobody can act on. So where the predicate is compound and
+one half of it is a busy flag, the reason is withheld in that half --
+`annualButton.disabled ? annualButton.reason : undefined`
+(`src/client/pages/PlanPage.tsx:1907`), never the bare expression.
+
+*Checked by:* `tests/field-contract.test.tsx` ("withholds the reason where a
+busy flag is what disabled the button"), which reads the compound predicates the
+census already collects and fails on a reason handed over unconditionally. It
+was mutation-proved against the defect it was written for: restoring the bare
+expression fails it by name and prints the line.
+
 **Where the reason sits decides whether the row still lines up.** The reason is
 a line under its button, so the wrapper showing one is the tallest thing in its
 row, and a row that centers its items centers every neighbor in that height:
@@ -3161,9 +3181,9 @@ is which.
 | `tests/page-stack.test.ts` (continued) | A page-prefixed class is used on its own page, or is one of the registered components — in both spellings, and with the English singular, because stripping a trailing `s` made `categories` into `categorie` and examined no `.category-` class at all; every full-height rule measures `dvh`; every table cell gets tabular figures, and `.align-right` means alignment alone (6.3, 9.3, 15) |
 | `tests/pagination-focus.test.tsx` | A page turn gives focus back to the control that was pressed, or to the page number now current when that control has gone disabled (13.3) |
 | `tests/app-name.test.tsx` | A page component's first JSX return carries its header, so a skeleton or an alert cannot take the title, the eyebrow, the tab strip and the back link down with it (12.1) |
-| `tests/field-contract.test.tsx` | Every `<Button>` with a computed `disabled` carries a `disabledReason`, which is shown and pointed at while disabled, absent while enabled or working, and does not remount the button (12.3); a field names its control explicitly, points it at the hint and the error, marks it invalid, and is a labeled group around a composite; every `<input>`, `<select>` and `<textarea>` in the client goes through the three shared components, with two named exceptions (8.1) |
+| `tests/field-contract.test.tsx` | Every `<Button>` with a computed `disabled` carries a `disabledReason`, which is shown and pointed at while disabled, absent while enabled or working, and does not remount the button; a button disabled by its own refusal *or* by a busy flag withholds the reason in the second case (12.3); a field names its control explicitly, points it at the hint and the error, marks it invalid, and is a labeled group around a composite; every `<input>`, `<select>` and `<textarea>` in the client goes through the three shared components, with two named exceptions (8.1) |
 | `tests/shell-focus.test.tsx`, `tests/browser/budgets.spec.ts` | The skip link is first and lands in `<main>`; a route change moves focus and resets scroll; the drawer makes the page behind it inert, moves focus in and out, and closes on Escape; a finished bulk action puts focus on the sentence saying so (13.3) |
-| `tests/plan-page-ui.test.tsx` | Every result on the plan tab is a sentence that takes focus, a form opening from a press takes it too, and a page load moves nothing (13.3); a form's action row and a modal's footer line up on the tops only while a reason shows, and a line of text in one keeps the buttons' height (12.3); while a payment form is open it is the only way to pay, and every disabled plan button gives the reason the route would refuse with |
+| `tests/plan-page-ui.test.tsx` | Every result on the plan tab is a sentence that takes focus, a form opening from a press takes it too, and a page load moves nothing (13.3); a form's action row and a modal's footer line up on the tops only while a reason shows, and a line of text in one keeps the buttons' height (12.3); while a payment form is open it is the only way to pay, every plan button disabled by its own refusal gives the reason the route would refuse with, and one disabled only because its sibling's press is in flight gives none |
 | `tests/frozen-accounts-ui.test.tsx`, `tests/ad-slot-ui.test.tsx` | A frozen account's disabled card actions and row actions each point at a reason, and its rows carry the badge that says so, beside a stylesheet that now dims and un-hovers both — and does not dim twice, which is asserted against the rendered tree in a voided row and an archived card (1.5, 12.3); an ad slot renders nothing and fetches nothing without a placement, and an unfilled unit and the slot around it are collapsed rather than left as a band (7.7) |
 | `tests/legal-links-ui.test.tsx` | Both operator documents are linked where a person meets them, each opens a new tab, the sentence reshapes when only one is configured, and nothing is drawn when neither is (13.6) |
 | `tests/browser/plan-buttons.spec.ts` | Two priced buttons keep the same top while one of them shows a reason, measured against a real layout engine at desktop width and at 390px where the reason wraps — the half 12.3 could not check (12.3, 13.5) |

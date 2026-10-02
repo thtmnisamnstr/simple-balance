@@ -1909,7 +1909,15 @@ export function PlanPage({
                     loading={working === "yearly"}
                     aria-describedby={renewalTermsId}
                     disabled={annualButton.disabled || anyPending}
-                    disabledReason={annualButton.reason}
+                    // The reason belongs to the button's own refusal, never to the
+                    // sibling that happens to be working. `annualButton.reason` answers
+                    // "why can you not press this", and `anyPending` is a different
+                    // question with its own answer -- the spinner beside it, which
+                    // the rule above says is the whole answer. Handed over anyway,
+                    // somebody on no plan at all who pressed the other button was
+                    // told "You are on the annual plan already", and told it through
+                    // `aria-describedby` rather than only in passing.
+                    disabledReason={annualButton.disabled ? annualButton.reason : undefined}
                   >
                     {yearly ? `Annual — ${yearly}` : "Annual"}
                   </Button>
@@ -1921,7 +1929,15 @@ export function PlanPage({
                     loading={working === "monthly"}
                     aria-describedby={renewalTermsId}
                     disabled={monthlyButton.disabled || anyPending}
-                    disabledReason={monthlyButton.reason}
+                    // The reason belongs to the button's own refusal, never to the
+                    // sibling that happens to be working. `monthlyButton.reason` answers
+                    // "why can you not press this", and `anyPending` is a different
+                    // question with its own answer -- the spinner beside it, which
+                    // the rule above says is the whole answer. Handed over anyway,
+                    // somebody on no plan at all who pressed the other button was
+                    // told "You are on the monthly plan already", and told it through
+                    // `aria-describedby` rather than only in passing.
+                    disabledReason={monthlyButton.disabled ? monthlyButton.reason : undefined}
                   >
                     {monthly ? `Monthly — ${monthly}` : "Monthly"}
                   </Button>
