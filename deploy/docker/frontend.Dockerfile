@@ -12,7 +12,7 @@
 # reproduce, and the digest is what the `base.digest` label below claims of the
 # runtime stage. `.github/dependabot.yml` watches Docker so neither pin freezes,
 # and the `apk upgrade` below still takes whatever Alpine has published since.
-FROM node:24-alpine@sha256:50c8e8ca1d27439048670df5883f32d57cf81cff6233222c893fd0d9884cbd81 AS build
+FROM node:26-alpine@sha256:0b36e8c136b94cd4fcf02188228e76c31ad5872eef3fec8cbd2eee500cfd9e80 AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -21,7 +21,7 @@ COPY public ./public
 COPY src ./src
 RUN npm run build:client
 
-FROM nginxinc/nginx-unprivileged:1.29-alpine@sha256:0c79d56aee561a1d81c63f00eee5fb5fe29279560cdc55e91425133104c7fbe6 AS runtime
+FROM nginxinc/nginx-unprivileged:1.31-alpine@sha256:26b0bf6fbf07297983cb341998d79c831508787de26627dd2a112321b9c3a4af AS runtime
 ARG APP_VERSION=0.1.6
 # `created` and `revision` are deliberately absent. A Dockerfile cannot emit a
 # label conditionally, so a defaulted ARG would give every hand-built image
