@@ -453,7 +453,7 @@ exception to.
 exception. Six closed sets already read against that sentence:
 `accountTypeLabels` (`src/shared/domain.ts:53`), `PLAN_LABELS`
 (`src/shared/domain.ts:3329`), `kindLabels`
-(`src/client/pages/CategoriesPage.tsx:45`), `transactionTypeLabels`
+(`src/client/pages/CategoriesPage.tsx:46`), `transactionTypeLabels`
 (`src/client/pages/TemplatesPage.tsx:68`), and `ORDINAL_LABELS` and
 `FREQUENCY_LABELS` (`src/client/forms.tsx:2449`, `:2477`) for the two schedule
 pickers. In four of the six the label is a different *word* rather than the same

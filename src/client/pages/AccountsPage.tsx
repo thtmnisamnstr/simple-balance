@@ -162,6 +162,19 @@ export default function AccountsPage({ session }: { session: Session }) {
     },
   ]);
 
+  /**
+   * What the row action just did, said where focus can reach it.
+   *
+   * 13.3: a control that acts and then unmounts has to send focus somewhere.
+   * Archiving an account with no balance is the one action on this page that
+   * runs straight from the row menu with no dialog in between, so the menu
+   * closed, the button went with the card, and focus fell to `<body>` — the
+   * reader was left at the top of the document with nothing saying what had
+   * happened. The two dialogs keep their own focus return, and a refusal is
+   * already an `Alert` a line below this one.
+   */
+  const [notice, setNotice] = useState("");
+
   const mutation = useMutation({
     mutationFn: ({ account, action }: { account: Account; action: "archive" | "delete" }) =>
       action === "archive"
@@ -175,7 +188,14 @@ export default function AccountsPage({ session }: { session: Session }) {
             ...json({ expectedVersion: account.version }),
             method: "DELETE",
           }),
-    onSuccess: async () => {
+    onSuccess: async (_result, { account, action }) => {
+      setNotice(
+        action === "delete"
+          ? `${account.name} deleted.`
+          : account.archivedAt
+            ? `${account.name} restored.`
+            : `${account.name} archived.`,
+      );
       await queryClient.invalidateQueries({ queryKey: ["accounts"] });
       await queryClient.invalidateQueries({ queryKey: ["summary"] });
       // The session carries how many accounts the plan has left, so without
@@ -204,10 +224,16 @@ export default function AccountsPage({ session }: { session: Session }) {
           </Button>
         }
       />
-      {/* Alerts above the bar, as on every other page: this was the one that
-          put a refusal below the controls that caused it. */}
-      {accounts.error ? <Alert>{accounts.error.message}</Alert> : null}
+      {/* A refusal above the bar, beside the controls that caused it. The read
+          failure is not here: it renders where the list would have been, so
+          the page does not become a header, a filter bar and nothing with the
+          explanation scrolled off the top. 7.6. */}
       {mutation.error ? <Alert>{mutation.error.message}</Alert> : null}
+      {notice ? (
+        <Alert kind="success" takeFocus>
+          {notice}
+        </Alert>
+      ) : null}
       <div className="filter-bar">
         <SearchBox
           label="Search accounts"
@@ -364,7 +390,9 @@ export default function AccountsPage({ session }: { session: Session }) {
         ))
       ) : accounts.isPending ? (
         <Skeleton height={120} label="Loading accounts…" />
-      ) : accounts.error ? null : (
+      ) : accounts.error ? (
+        <Alert>{accounts.error.message}</Alert>
+      ) : (
         <EmptyState
           icon={Landmark}
           // Two screens, `web.md` 12.1, and this list needs the distinction more

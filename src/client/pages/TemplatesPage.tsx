@@ -371,8 +371,22 @@ export default function TemplatesPage() {
   };
 
   const anyChange = BULK_FIELDS.some((field) => actions[field.key] !== "leave");
-  const error =
-    templates.error ?? accounts.error ?? categories.error ?? bulkDelete.error ?? deletion.error;
+  /**
+   * Split in two, because the two belong in different places and one of them
+   * was blanking the list.
+   *
+   * `readError` is the list failing to load: it renders where the list would
+   * have been, so the explanation sits in the hole rather than above controls
+   * that still work. `actionError` is a refusal of something pressed, and it
+   * renders beside the controls that caused it, above the bar.
+   *
+   * They were one `error` folding all five, which put a read failure above the
+   * bar and — worse — made `error ? null` blank the whole list on a refused
+   * delete. A delete that was turned down is not a reason to stop showing
+   * somebody their templates.
+   */
+  const readError = templates.error ?? accounts.error ?? categories.error;
+  const actionError = bulkDelete.error ?? deletion.error;
 
   return (
     <>
@@ -387,7 +401,7 @@ export default function TemplatesPage() {
         }
       />
 
-      {error ? <Alert>{error.message}</Alert> : null}
+      {actionError ? <Alert>{actionError.message}</Alert> : null}
       {notice ? (
         <Alert kind="success" takeFocus>
           {notice}
@@ -466,7 +480,9 @@ export default function TemplatesPage() {
           and the page said "No templates yet" over an alert explaining that it
           could not tell — 12.1's four states collapsed into three and a banner.
           The Alert above already carries the message. */}
-      {error ? null : templates.isPending || accounts.isPending || categories.isPending ? (
+      {readError ? (
+        <Alert>{readError.message}</Alert>
+      ) : templates.isPending || accounts.isPending || categories.isPending ? (
         <Skeleton height={120} label="Loading templates…" />
       ) : filtered.length === 0 ? (
         <EmptyState
@@ -526,7 +542,9 @@ export default function TemplatesPage() {
                     sort={sort}
                     onSort={setSort}
                   />
-                  <th scope="col" aria-label="Actions" />
+                  <th scope="col">
+                    <span className="sr-only">Actions</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>

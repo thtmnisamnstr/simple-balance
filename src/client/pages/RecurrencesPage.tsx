@@ -128,7 +128,11 @@ export default function RecurrencesPage() {
   }, [recurrences.data, search, typeFilter, sort]);
 
   const overdue = visible.filter((recurrence) => recurrence.overdue).length;
-  const error = recurrences.error ?? accounts.error ?? deletion.error;
+  /** Split for the reason `TemplatesPage` gives: a read failure belongs where
+   *  the list would have been, a refusal belongs beside the control, and
+   *  folding them made a refused delete blank the list. */
+  const readError = recurrences.error ?? accounts.error;
+  const actionError = deletion.error;
 
   return (
     <>
@@ -143,7 +147,7 @@ export default function RecurrencesPage() {
         }
       />
 
-      {error ? <Alert>{error.message}</Alert> : null}
+      {actionError ? <Alert>{actionError.message}</Alert> : null}
       {overdue ? (
         <Alert kind="error">
           <AlertTriangle size={16} aria-hidden />{" "}
@@ -173,7 +177,9 @@ export default function RecurrencesPage() {
       {/* As on Templates: an errored query is not pending, so the empty state
           announced there were no recurrences over an alert saying the list
           could not be read. */}
-      {error ? null : recurrences.isPending || accounts.isPending ? (
+      {readError ? (
+        <Alert>{readError.message}</Alert>
+      ) : recurrences.isPending || accounts.isPending ? (
         <Skeleton height={120} label="Loading recurrences…" />
       ) : visible.length === 0 ? (
         <EmptyState
@@ -225,7 +231,9 @@ export default function RecurrencesPage() {
                     sort={sort}
                     onSort={setSort}
                   />
-                  <th scope="col" aria-label="Actions" />
+                  <th scope="col">
+                    <span className="sr-only">Actions</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>

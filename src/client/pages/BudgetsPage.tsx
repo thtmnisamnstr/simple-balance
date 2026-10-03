@@ -884,14 +884,19 @@ export default function BudgetsPage({ session }: { session: Session }) {
                       {formatMoney(entry.amount, entry.currency)}
                     </td>
                     <td>{periodName(entry.periodUnit, entry.periodStart)}</td>
-                    <td className="align-right">
-                      <Button
-                        variant="ghost"
-                        loading={clearEntry.isPending}
+                    {/* The same icon the standing-budget table above uses,
+                        for the reason its comment gives: a text button naming
+                        the row made the actions column the widest on the table
+                        and said the name twice. */}
+                    <td className="row-actions">
+                      <button
+                        type="button"
+                        aria-label={`Remove the override for ${entry.targetName}`}
+                        disabled={clearEntry.isPending}
                         onClick={() => clearEntry.mutate(entry)}
                       >
-                        Remove {entry.targetName} override
-                      </Button>
+                        <Trash2 size={16} />
+                      </button>
                     </td>
                   </tr>
                 ))}

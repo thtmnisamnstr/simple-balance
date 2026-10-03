@@ -1,7 +1,7 @@
 # Web
 
 The browser app. A React 19 single-page app with a hand-rolled router, TanStack
-Query for server state, and 4,331 lines of hand-written CSS in
+Query for server state, and 4,337 lines of hand-written CSS in
 `src/client/styles.css`. No component library, no CSS framework, no token build
 step, and none is coming, so every rule here has to be reachable with plain CSS
 custom properties and components written by hand.
@@ -83,7 +83,7 @@ width, a chart's offset — and are correct as they are.
 like one of the nine. `ads.tsx:143` writes `display: block` on the AdSense
 `<ins>`, which is how Google documents its own tag, and the stylesheet then
 outranks it deliberately: an unfilled unit is collapsed by
-`styles.css:3585-3587` with `!important`, because an important declaration is
+`styles.css:3591-3593` with `!important`, because an important declaration is
 the one thing that beats an inline style. So this prop is a vendor requirement
 held in check by a rule written against it, which is a decision rather than a
 coordinate, and nothing about the token rule covers it.
@@ -162,7 +162,7 @@ did not when freezing first gave a reason to disable the row icons in the
 transaction list and the items inside an account's row menu. Each sets its own
 `color`, `background` and `cursor` — `.row-actions button`
 (`styles.css:2152-2162`), `.menu-popover button` (`styles.css:1809-1822`) and
-`.link-button` (`styles.css:3158-3166`) — so the browser's disabled rendering
+`.link-button` (`styles.css:3164-3172`) — so the browser's disabled rendering
 was overridden exactly as `.input`'s was, and a dead control was
 pixel-identical to a live one down to the hover fill. The house answer applies
 unchanged and is now written three times, at `styles.css:2218-2221`,
@@ -308,7 +308,7 @@ The rule for this stylesheet: **`--line-strong` for a control edge,
 | `--green-fill` on `--track` | 5.42 | 3.73 |
 
 **Settled.** The reasoning is written out twice in the file, at
-`styles.css:954-962` for `.input` and at `styles.css:3687-3693` for
+`styles.css:954-962` for `.input` and at `styles.css:3693-3699` for
 `.chart-zero`, and it had been applied to two of the eighteen
 `border: 1px solid var(--line…)` rules. Six control edges have now joined them —
 `.pagination-step`, `.sort-direction`, `.bulk-edit-field`, `.transaction-type`,
@@ -479,10 +479,10 @@ alone is chosen against:
 
 | Value | What sits there |
 | --- | --- |
-| 1 | A decoration inside a card — the search icon (`styles.css:1878`), the sign-in art (`:3316`) |
+| 1 | A decoration inside a card — the search icon (`styles.css:1878`), the sign-in art (`:3322`) |
 | 2 | A header sticking inside its own scroller — the modal header (`:2483`), the sign-in card (`:3034`) |
 | 10 | A popover over the page — the row menu (`:1786`) |
-| 15 | The mobile header, below 780px (`:4129`) |
+| 15 | The mobile header, below 780px (`:4135`) |
 | 20 | A bar sticking over a list — the merge panel (`:2952`) |
 | 25 | The mobile nav scrim, which covers everything above except the drawer (`:4106`) |
 | 30 | The sidebar itself (`:362`) |
@@ -526,8 +526,8 @@ this section came apart.
 ### 3.6 Breakpoints
 
 Four hardcoded max-widths, all four now contiguous at the foot of the
-stylesheet in descending order: 1050px (`styles.css:4058`), 980px
-(`styles.css:4089`), 780px (`styles.css:4096`) and 560px (`styles.css:4191`).
+stylesheet in descending order: 1050px (`styles.css:4064`), 980px
+(`styles.css:4095`), 780px (`styles.css:4102`) and 560px (`styles.css:4197`).
 Putting them in one place was section 7.3's doing; how many of them there should
 be is still this section's question.
 
@@ -551,10 +551,10 @@ prevent.
 
 Today there are no motion tokens. Transitions are written inline at 120ms (six
 declarations), 140ms (one) and 180ms (the mobile drawer's paired `transform` and
-`visibility`, `styles.css:4100-4102`), and there are two reduced-motion
+`visibility`, `styles.css:4106-4108`), and there are two reduced-motion
 blocks: `styles.css:820-823`, which turns off the skeleton shimmer specifically
 and stays beside `.skeleton` on purpose rather than joining the responsive body
-(section 7.3), and `styles.css:4306-4315`, a blanket rule setting
+(section 7.3), and `styles.css:4312-4321`, a blanket rule setting
 `animation-duration`, `transition-duration` and `scroll-behavior` on
 everything.
 
@@ -852,7 +852,7 @@ Two exist, and they are the two halves of the rule.
   fills it is an advertiser's creative inside a cross-origin iframe; there is no
   theming interface to pass and no prospect of one. Naming it is the whole
   obligation, and what follows from the naming is that the slot is collapsed
-  when it is empty (`styles.css:3585-3591`) rather than left as a light band.
+  when it is empty (`styles.css:3591-3597`) rather than left as a light band.
 
 **The obvious alternative is what 6.1 used to say**: the markup is somebody
 else's, so the surface is out of scope. That is right about the markup and wrong
@@ -910,7 +910,7 @@ there silently outranked the responsive overrides above it —
 would have lost to `.chart-grid` written later, with nothing on screen to say
 why. `.report-tabs` and the chart grid appear in no breakpoint block, and
 neither is a gap. `.report-tabs` carries `flex-wrap: wrap`
-(`styles.css:3496-3500`), which reflows at every width rather than at three
+(`styles.css:3502-3506`), which reflows at every width rather than at three
 chosen ones and is the better answer; and `.chart-grid` is an SVG stroke with no
 layout to change. This sentence used to call both a gap "somebody can fill",
 which is how a list of work comes to include work nobody should do — the
@@ -926,7 +926,7 @@ prevent is a *component rule after the responsive body*.
 
 The four breakpoints run in descending order at the foot of the file, each under
 the comment naming its constant, then the blanket reduced-motion block
-(`styles.css:4306-4315`), then the print block (`:4327-4331`) and nothing after
+(`styles.css:4312-4321`), then the print block (`:4327-4331`) and nothing after
 it. **Print is last and that is the rule, not an accident of when it arrived**:
 it is the one query that describes a different medium rather than a different
 width or preference, so anything it needs to undo has already been written.
@@ -1118,8 +1118,22 @@ drifted into two answers:
 
 - **Selects before checkboxes.** Five pages put every toggle after every
   select and Accounts led with its checkbox.
-- **Alerts above the bar, never below it.** Accounts was the one page that
-  rendered a refusal underneath the controls that caused it.
+- **A refusal goes above the bar; a read failure goes where the list would
+  have been.** These are two different alerts and the rule used to treat them
+  as one, which made it wrong in both directions. It said "alerts above the
+  bar, never below it" and named Accounts as the only offender; a count found
+  three pages above and four below, and the four were mostly right. A refusal
+  is the answer to something somebody pressed, so it belongs beside the control
+  that caused it. A list that failed to load is a hole, and the explanation
+  belongs in the hole — hoisting it leaves a header, a filter bar and nothing,
+  with the one sentence that would explain it scrolled off the top. Budgets,
+  Settings and the category-groups table already render theirs in the slot.
+
+  **Folding the two into one `error` is what made this hard to see, and it
+  cost more than placement.** Templates and Recurring each had
+  `const error = read ?? read ?? deletion.error` and then `error ? null` in the
+  list slot, so a delete the server turned down blanked the whole list. A
+  refused delete is not a reason to stop showing somebody their templates.
 - **`Filter by X` is the accessible name of a filter**, against `X` alone. It
   was five uses to two, and it is also what tells a filter apart from a form
   field of the same name — a register has both an "Account" select in its
@@ -1747,7 +1761,7 @@ every table costs a column of words nothing and takes the decision off the call
 site.
 
 One loose end remains. `.amount` is declared as a money hook in the same rule
-and is used by nothing; delete it or adopt it at the 75 `formatMoney` call
+and is used by nothing; delete it or adopt it at the 77 `formatMoney` call
 sites, some of which render currency outside a table in proportional digits.
 `.money`'s weight and `white-space: nowrap` are still applied by hand, and the
 case for making the money CELL a component rather than a class is the staged
@@ -1854,8 +1868,8 @@ There were **no `scroll-padding` or `scroll-margin` declarations anywhere in
 | `.modal-header` | `styles.css:2481` | sticky |
 | `.import-preview` | `styles.css:2632` | sticky |
 | `.merge-panel` | `styles.css:2944` | sticky |
-| `.nav-scrim` | `styles.css:4117` | fixed |
-| `.mobile-header` | `styles.css:4127` | sticky |
+| `.nav-scrim` | `styles.css:4123` | fixed |
+| `.mobile-header` | `styles.css:4133` | sticky |
 
 `.merge-panel` was the live case. It exists because the list is long enough to
 scroll, which is the same condition that puts a focused row underneath it. Every
@@ -2017,7 +2031,7 @@ Series 3 at 3.64 light is the tightest and is the one to watch.
 Gridlines do not have to contrast with the data. The Understanding document for
 1.4.11 says data lines "should have 3:1 contrast against their background, but
 as there is little overlap with other lines they do not need to contrast with
-each other or the graduated lines". `.chart-grid` at `styles.css:3677-3685` is
+each other or the graduated lines". `.chart-grid` at `styles.css:3683-3691` is
 correctly faint and says why; `.chart-zero` is correctly held to 3:1 because it
 is where money in becomes money out, and says why.
 
@@ -2035,7 +2049,7 @@ where all adjacent colors clear 3:1 against each other, caps categories at four
 as best practice, and treats five and six as "only when essential". Read
 literally, that says this product should cut ten series to six.
 
-This product keeps ten, on measured grounds recorded at `styles.css:3750-3762`.
+This product keeps ten, on measured grounds recorded at `styles.css:3756-3768`.
 The previous six-color set had a worst dichromatic pair of 1.78 in CIEDE2000
 under simulated deuteranopia and protanopia, where the green and the pink were
 the same color; the current ten reach 5.6 in light and 4.7 in dark. Going from
@@ -2052,7 +2066,7 @@ it was not.** `BarChart` lays each series' bar at `index * barWidth` with no gap
 set `stroke: none`. Two touching bars at 1.05:1 had no visible boundary.
 
 The fix was geometry rather than a repainted palette: `.chart-bar` now carries a
-one-pixel `--surface` stroke (`styles.css:3706-3709`), which separates every
+one-pixel `--surface` stroke (`styles.css:3712-3715`), which separates every
 adjacent pair against the page they are drawn on and disturbs none of the
 measured dichromatic separation the ten-color set was chosen for.
 
@@ -2072,7 +2086,7 @@ light, which is three times better than the six it replaced and still not enough
 on its own.
 
 **The remedy the CSS comment named has landed.** Nine of the ten line series
-carry a `stroke-dasharray` (`styles.css:3811-3819`) and series 0 stays solid,
+carry a `stroke-dasharray` (`styles.css:3817-3825`) and series 0 stays solid,
 because that is what a single-series chart gets and what a plain line should look
 like. A dash pattern is orthogonal to hue, which is the whole point: two series
 that look alike to one reader are still two different lines. The patterns differ
@@ -2604,7 +2618,7 @@ The rules, in the order they matter:
 
 - **A bar is determinate or it is not shown.** `<progress>` with no `value` is
   indeterminate and animates in every engine, and the blanket reduced-motion
-  block at `styles.css:4306-4315` freezes it into a bar that reads as stuck.
+  block at `styles.css:4312-4321` freezes it into a bar that reads as stuck.
   That is section 4's spinner defect a second time, and a determinate bar is the
   fix for that class of failure rather than a new instance of it.
 - **A bar never appears before its total is a real count.** A commit does fixed
@@ -2658,7 +2672,7 @@ The rules, in the order they matter:
 - **Three bars now, and a fourth has to say which of them it is not.**
   `.progress-track` (`styles.css:1500`, `DashboardPage.tsx:273`) is a decorative
   share-of-total meter under a row that already states its figure.
-  `.budget-bar` (`styles.css:4031`, `BudgetsPage.tsx:1229`) is money, with an
+  `.budget-bar` (`styles.css:4037`, `BudgetsPage.tsx:1229`) is money, with an
   over state. `.progress-meter` is work in flight. Neither of the first two
   appeared in this guide before this section, which by 17.3's closing test was a
   defect in the guide.
@@ -3053,7 +3067,7 @@ Two rules that follow:
   the same arithmetic stay, because nothing retracts horizontally.
 
 **There is a print stylesheet, and it holds one rule.**
-`@media print` at `styles.css:4327-4331` hides `.ad-slot`, because a statement
+`@media print` at `styles.css:4333-4337` hides `.ad-slot`, because a statement
 of accounts somebody prints or saves as a PDF is a record they may keep and hand
 on, and an advertisement in one is not a thing this product does. The block is
 last in the file for 7.3's reason, and that is where a second print rule goes —

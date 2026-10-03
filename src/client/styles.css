@@ -2252,7 +2252,7 @@ input[type="radio"] {
 
 .bulk-edit-form {
   display: grid;
-  gap: 14px;
+  gap: 16px;
 }
 
 .bulk-edit-selection-summary {
@@ -3064,9 +3064,15 @@ input[type="radio"] {
   text-align: center;
 }
 
+/* The same 16px `.form-grid` uses, for the reason recorded above `.two-columns`:
+   a stack of fields has one rhythm or it has two. This was 13px and
+   `.bulk-edit-form` 14px, which is three numbers for one idea and no decision
+   behind any of them. `.panel-stack` keeps its 20px because it stacks
+   sections rather than fields, and `.budget-form` keeps its 12px because its
+   gap is a wrapping row's and works on both axes. */
 .local-auth-form {
   display: grid;
-  gap: 13px;
+  gap: 16px;
   margin-top: 18px;
 }
 

@@ -33,6 +33,7 @@ import {
   Input,
   Modal,
   PageHeader,
+  RowMenu,
   SearchBox,
   Select,
   Skeleton,
@@ -594,17 +595,24 @@ export default function CategoriesPage() {
                       </Select>
                     </td>
                     <td className="align-right">{group.categoryCount}</td>
-                    <td className="align-right">
-                      <Button
-                        variant="ghost"
+                    {/* A trash icon in `.row-actions`, like every other
+                        per-row delete in the product. It was a full-width ghost
+                        button reading "Delete Fixed costs" in a row whose first
+                        cell is an input already holding "Fixed costs", which is
+                        the argument `BudgetsPage` records above its own table
+                        and the state this one was left in. */}
+                    <td className="row-actions">
+                      <button
+                        type="button"
+                        aria-label={`Delete the group ${group.name}`}
                         onClick={() =>
                           removeGroup.ask(group, () =>
                             groupMutation.mutate({ action: "delete", group }),
                           )
                         }
                       >
-                        Delete {group.name}
-                      </Button>
+                        <Trash2 size={16} />
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -801,17 +809,15 @@ export default function CategoriesPage() {
                   </option>
                 ))}
               </Select>
+              {/* Edit and Delete as icons, the rest behind a menu, which is
+                  what the register and the staged queue do and what this was
+                  the only list not to: three bare icons and no menu made it a
+                  fourth pattern in a product that already had three. Archive is
+                  the one that moves, because it is the action a person reaches
+                  for least often on a category they are looking at. */}
               <div className="row-actions">
                 <button aria-label={`Edit ${category.name}`} onClick={() => setEditing(category)}>
                   <Pencil size={16} />
-                </button>
-                <button
-                  aria-label={
-                    category.archivedAt ? `Restore ${category.name}` : `Archive ${category.name}`
-                  }
-                  onClick={() => categoryMutation.mutate({ action: "archive", category })}
-                >
-                  {category.archivedAt ? <ArchiveRestore size={16} /> : <Archive size={16} />}
                 </button>
                 <button
                   aria-label={`Delete unused ${category.name}`}
@@ -823,6 +829,22 @@ export default function CategoriesPage() {
                 >
                   <Trash2 size={16} />
                 </button>
+                <RowMenu label={`Actions for ${category.name}`}>
+                  <button
+                    type="button"
+                    onClick={() => categoryMutation.mutate({ action: "archive", category })}
+                  >
+                    {category.archivedAt ? (
+                      <>
+                        <ArchiveRestore size={15} /> Restore {category.name}
+                      </>
+                    ) : (
+                      <>
+                        <Archive size={15} /> Archive {category.name}
+                      </>
+                    )}
+                  </button>
+                </RowMenu>
               </div>
             </div>
           ))}
