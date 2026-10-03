@@ -201,7 +201,7 @@ describe("the templates screen", () => {
     fireEvent.click(screen.getByLabelText("Select Rent"));
     expect(screen.getByText("1 template selected")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByPlaceholderText("Search templates"), {
+    fireEvent.change(screen.getByLabelText("Search templates"), {
       target: { value: "coffee" },
     });
     expect(screen.queryByText("Rent")).toBeNull();
@@ -312,7 +312,7 @@ describe("the templates screen", () => {
 
     // Narrowing to one match while sitting on page two has to show it rather
     // than an empty page the person cannot get off.
-    fireEvent.change(screen.getByPlaceholderText("Search templates"), {
+    fireEvent.change(screen.getByLabelText("Search templates"), {
       target: { value: "Filler 03" },
     });
     expect(await screen.findByText("Filler 03")).toBeInTheDocument();
@@ -464,15 +464,24 @@ describe("the templates screen", () => {
       name: "Transactions from Rent",
     });
     expect(used).toHaveTextContent("6");
-    expect(used).toHaveAttribute("href", `/templates/${rent.id}`);
+    // `web.md` 11.7: the link's whole text is an all-time count, so it has to
+    // open on the rows it counted. This page mounts no `DateRangeBar`, so
+    // forwarding `location.search` — which is what it did, and what the guide
+    // recorded as the fix — pins nothing: the detail page reads a missing
+    // `preset` as this-month and a link saying 6 opens a list of however many
+    // happen to fall in the current month. The assertion is on the query
+    // string rather than on the path for that reason.
+    expect(used).toHaveAttribute("href", `/templates/${rent.id}?preset=all-time`);
     expect(within(rowFor("Rent")).getByText("4 committed · 2 pending")).toBeInTheDocument();
 
-    // A template nothing came from reads zero rather than being left out.
-    expect(
-      within(rowFor("Coffee")).getByRole("link", {
-        name: "Transactions from Coffee",
-      }),
-    ).toHaveTextContent("0");
+    // A template nothing came from reads zero rather than being left out, and
+    // its link pins the range too: a count of zero is still a claim about
+    // every row there has ever been.
+    const unused = within(rowFor("Coffee")).getByRole("link", {
+      name: "Transactions from Coffee",
+    });
+    expect(unused).toHaveTextContent("0");
+    expect(unused).toHaveAttribute("href", `/templates/${coffee.id}?preset=all-time`);
   });
 
   it("sorts by how much each template has been used", async () => {
@@ -528,6 +537,10 @@ describe("the templates screen", () => {
     expect(within(rowFor("Rent")).getByText("Once")).toBeInTheDocument();
     expect(within(rowFor("Coffee")).getByText("Repeating")).toBeInTheDocument();
     expect(within(rowFor("Salary")).getByText("none")).toBeInTheDocument();
+    // The stored "09:00" is written the way the reader's clock reads, as the
+    // date beside it already was. This suite runs in en-US, so a raw 24-hour
+    // time here is the stored value leaking through unformatted.
+    expect(within(rowFor("Rent")).getByText(/^Jun 15, 2026 at 9:00\sAM$/)).toBeInTheDocument();
   });
 
   it("sorts by what it is going to remind you about", async () => {
@@ -602,7 +615,7 @@ describe("the templates screen", () => {
    * will actually fire on. A reminder can answer the same question, and "when
    * will this email me" is the one thing the settings above do not say outright.
    */
-  it("previews the dates a one-off reminder will send on", async () => {
+  it("previews the dates a one-time reminder will send on", async () => {
     stubApi([rent]);
     await renderPage([rent]);
     const dialog = await openEditor("Rent");
@@ -615,9 +628,10 @@ describe("the templates screen", () => {
 
     expect(dialog.getByText("Sends on")).toBeInTheDocument();
     const preview = dialog.getByText("Sends on").parentElement!;
-    // One date, because a one-off owes exactly one, and the hour it goes at.
+    // One date, because a one-time reminder owes exactly one, and the hour it
+    // goes at, in the reader's own clock style rather than the stored "18:45".
     expect(within(preview).getAllByRole("listitem")).toHaveLength(1);
-    expect(within(preview).getByText(/Jul 4, 2026 at 18:45/)).toBeInTheDocument();
+    expect(within(preview).getByText(/Jul 4, 2026 at 6:45\sPM/)).toBeInTheDocument();
   });
 
   it("previews five dates for a repeating reminder", async () => {
@@ -664,7 +678,7 @@ describe("the templates screen", () => {
     expect(posts[0]!.body).toMatchObject({ notification: null });
   });
 
-  it("sends a one-off reminder as a date and a time, and nothing else", async () => {
+  it("sends a one-time reminder as a date and a time, and nothing else", async () => {
     const posts = stubApi([rent]);
     await renderPage([rent]);
     const dialog = await openEditor("Rent");
@@ -680,8 +694,8 @@ describe("the templates screen", () => {
     expect(posts[0]!.body).toMatchObject({
       notification: { frequency: null, anchorDate: "2026-07-04", time: "18:45" },
     });
-    // The fields a one-off cannot use are left out rather than sent as defaults,
-    // because the server refuses them outright.
+    // The fields a one-time reminder cannot use are left out rather than sent
+    // as defaults, because the server refuses them outright.
     const notification = (posts[0]!.body as { notification: Record<string, unknown> }).notification;
     expect(Object.keys(notification).sort()).toEqual(["anchorDate", "frequency", "time"]);
   });
@@ -742,7 +756,7 @@ describe("the templates screen", () => {
     });
 
     expect(await screen.findByText(/would land two on the same date/)).toBeInTheDocument();
-    expect(dialog.getByRole("option", { name: "Send it on the Friday" })).toBeDisabled();
+    expect(dialog.getByRole("option", { name: "Send it the Friday before" })).toBeDisabled();
   });
 
   it("seeds the reminder from the template being edited", async () => {
@@ -796,7 +810,7 @@ describe("the templates screen", () => {
     expect(await screen.findByText(/no mail server configured/)).toBeInTheDocument();
   });
 
-  it("says a one-off reminder has been sent once nothing further is owed", async () => {
+  it("says a one-time reminder has been sent once nothing further is owed", async () => {
     const spent: TransactionTemplate = {
       ...rent,
       notification: {

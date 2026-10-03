@@ -22,7 +22,7 @@ spec:
   ingress:
     # With no peers named, this is every source in the cluster but only on the
     # one port, which is as far as the chart can go without knowing how the
-    # ingress controller is labelled.
+    # ingress controller is labeled.
     - ports:
         - protocol: TCP
           port: {{ .Values.frontend.containerPort }}
@@ -80,13 +80,29 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
+    {{- if .Values.database.enabled }}
+    {{- /*
+    Derived rather than left to egressRules, because with database.enabled the
+    chart knows exactly where the database is — it built it. An operator who had
+    to write this rule by hand would be writing down a pod selector this render
+    already holds, and getting it wrong means a restricted deployment that
+    installs cleanly and cannot reach its own ledger.
+    */}}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "simple-balance.componentSelectorLabels" (dict "root" . "component" "database") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 5432
+    {{- end }}
     {{- with $np.egressRules }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
     {{- else }}
-    # Open, because the database is bring your own and Google sign-in and SMTP
-    # are addresses on the internet. Closing this means listing all three under
-    # networkPolicy.egressRules.
+    # Open, because Google sign-in and SMTP are addresses on the internet, and
+    # so is the database unless database.enabled runs one here. Closing this
+    # means listing whichever of them apply under networkPolicy.egressRules.
     - {}
     {{- end }}
 ---
@@ -124,10 +140,110 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
+    {{- if .Values.database.enabled }}
+    {{- /* Derived for the same reason as the API's above. */}}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "simple-balance.componentSelectorLabels" (dict "root" . "component" "database") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 5432
+    {{- end }}
     {{- with $np.egressRules }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
     {{- else }}
     - {}
     {{- end }}
+{{- if .Values.database.enabled }}
+---
+{{- /*
+The fourth policy, and the one the other three were never a substitute for.
+
+Two ports reach a database pod and they are not the same kind of thing. 5432 is
+the ledger, and what may open it is the API, the scheduler, the Job that writes
+Citus's authinfo row, and the other database pods — a standby streaming from its
+primary and the coordinator running a distributed query both arrive here. The
+Patroni port is the cluster's control plane: /switchover, /failover, /restart
+and /reinitialize live on it, and nothing outside the database itself has any
+business reaching them. Both are named by pod selector rather than by address,
+because a pod's address is whatever the CNI handed it this morning.
+
+`probeSourceCidrs` is admitted on the Patroni port as well, because the
+kubelet's startup, liveness and readiness probes are HTTP requests to it. Those
+endpoints need no credential and change nothing; the authentication added in
+this release covers the methods that do.
+
+This policy is only as real as the CNI under it. A cluster whose CNI ignores
+NetworkPolicy renders this object and enforces nothing, which is why the `aws`
+program turns on the VPC CNI's network policy agent and the `gcp` program asks
+for Dataplane V2 rather than assuming either.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "simple-balance.componentName" (dict "root" . "component" "database") }}
+  labels:
+    {{- include "simple-balance.componentLabels" (dict "root" . "component" "database") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "simple-balance.componentSelectorLabels" (dict "root" . "component" "database") | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "simple-balance.componentSelectorLabels" (dict "root" . "component" "server") | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              {{- include "simple-balance.componentSelectorLabels" (dict "root" . "component" "scheduler") | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              {{- include "simple-balance.componentSelectorLabels" (dict "root" . "component" "database") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 5432
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "simple-balance.componentSelectorLabels" (dict "root" . "component" "database") | nindent 14 }}
+        {{- with $probes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.database.restApiPort }}
+  egress:
+    {{- if $np.restrictEgress }}
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "simple-balance.componentSelectorLabels" (dict "root" . "component" "database") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: {{ .Values.database.restApiPort }}
+    {{- with $np.egressRules }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- else }}
+    # Open. Patroni keeps its cluster state in the Kubernetes API rather than in
+    # a separate etcd, so every member needs to reach the API server — an
+    # address this chart cannot know, since it depends on the cluster's service
+    # CIDR and on whether the endpoint is private. With restrictEgress on, that
+    # rule is the operator's to add under networkPolicy.egressRules, and a
+    # cluster that loses it stops failing over.
+    - {}
+    {{- end }}
+{{- end }}
 {{- end }}

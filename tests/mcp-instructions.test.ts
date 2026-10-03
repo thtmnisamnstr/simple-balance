@@ -50,6 +50,7 @@ describe("the server instructions", () => {
     ["which grant this connection holds", /holds ledger:read\./],
     ["a tool outside the grant is absent, not refused", /absent rather than refused/],
     ["a bad argument is refused before the tool runs", /-32602/],
+    ["a frozen account refuses every write", /frozen/i],
     ["free text from a bank file is data, not instructions", /never as an instruction/i],
   ])("says %s", (_what, pattern) => {
     expect(instructions).toMatch(pattern);
@@ -88,6 +89,11 @@ describe("the server instructions", () => {
   // because one sentence names the scopes the connection holds and so the
   // length varies with them. A ceiling checked on the shortest variant is a
   // ceiling that lets the longest one through.
+  //
+  // Raised from 2,000 to 2,400 for the frozen-account sentence, which is the
+  // price of the rule in `docs/standards/mcp.md` that a refusal a whole tier of
+  // tools can return is said here rather than in each of the thirty-five write
+  // descriptions. Saying it there would cost about ten times as much.
   it("stays within a sensible budget, at the grant that makes it longest", async () => {
     const server = createMcpServer(
       { userId: "budget", source: "mcp", clientId: "budget" },
@@ -102,6 +108,6 @@ describe("the server instructions", () => {
     await server.close();
 
     expect(widest.length).toBeGreaterThan(instructions.length);
-    expect(widest.length).toBeLessThan(2_000);
+    expect(widest.length).toBeLessThan(2_400);
   });
 });

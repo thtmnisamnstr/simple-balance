@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
  * "Is this name free" and "take it" are two statements, and between them a
  * second transaction can read the same answer. PostgreSQL cannot help: there is
  * no row to lock for a name that does not exist yet, and the comparison is over
- * a normalised form rather than over a column, so a unique index would not
+ * a normalized form rather than over a column, so a unique index would not
  * catch it either. The product's answer is an advisory namespace lock per
  * tenant, taken before the check.
  *
@@ -17,10 +17,13 @@ import { describe, expect, it } from "vitest";
  * which does not serialize two *different* accounts being renamed to the same
  * name. Two concurrent `POST /api/v1/accounts` with one name both succeeded.
  *
- * Read from the source rather than exercised, because the race needs two
- * connections and the thing worth holding is the shape: a check with no lock
- * above it in the same function body. A test that raced would be a test that
- * usually passed.
+ * Read from the source rather than exercised, because the thing worth holding
+ * is the shape: a check with no lock above it in the same function body. Not
+ * because a race cannot be held — `tests/integration/account-limit.integration.test.ts`
+ * races the same lock four times and passes every run, and `services.md` 2.4's
+ * *Checked by:* says why a blocked waiter makes that deterministic. The reason
+ * here is narrower: a name check has nothing to assert on afterwards except the
+ * refusal, and the refusal is already covered sequentially.
  */
 const SERVICES = globSync("src/server/services/*.ts");
 

@@ -2,20 +2,17 @@ import { describe, expect, it } from "vitest";
 import { sourceFiles } from "./support/source.js";
 
 /**
- * `docs/standards/code/errors.md` 1: anything a caller could act on is an
- * `AppError`, and a bare `Error` means "this cannot happen" and becomes a 500.
+ * `docs/standards/code/errors.md` 1, which argues the rule this holds to: a
+ * bare `Error` in a service means "this cannot happen" and becomes a 500, and
+ * anything a caller could have got right is an `AppError` instead.
  *
- * The guide marks this `human` and gives the reason: a rule banning
- * `throw new Error` under `src/server/services` "would be **wrong** — it would
- * flag the five correct ones. Which kind a throw is cannot be read off its
- * syntax." That is true, and it is an argument against the ban rather than
- * against every check.
- *
- * So this is not a ban. It is a list of the five, each with the reason it is
- * the impossible kind, and a sixth fails until somebody says which kind it is.
- * The judgement stays where only a person can make it — at the moment of
- * writing the throw — and the thing that used to be invisible, a validation
- * refusal dressed as a 500, now has to be argued for in a diff.
+ * A blanket ban would be wrong, because which kind a throw is cannot be read
+ * off its syntax — it would flag every correct one below. So this is not a ban
+ * but a list, each entry carrying the reason it is the impossible kind, and one
+ * more throw fails until somebody writes down which kind it is. The judgement
+ * stays where only a person can make it, at the moment of writing the throw,
+ * and the thing that used to be invisible — a validation refusal dressed as a
+ * 500 — now has to be argued for in a diff.
  *
  * Whether a listed reason is honest is still review. Whether a new throw was
  * thought about at all is now this test.
@@ -24,7 +21,7 @@ const IMPOSSIBLE = [
   {
     where: "src/server/services/helpers.ts",
     message: "Idempotency payload numbers must be finite",
-    because: "The canonicaliser has already refused anything that is not a JSON number.",
+    because: "The canonicalizer has already refused anything that is not a JSON number.",
   },
   {
     where: "src/server/services/helpers.ts",
@@ -62,6 +59,30 @@ const IMPOSSIBLE = [
     message: "Category group insert returned no row",
     because: "The same impossibility again.",
   },
+  {
+    where: "src/server/services/billing.ts",
+    message: "Stripe is not configured on this deployment",
+    because:
+      "Every caller is reached from a route registered only when Stripe is configured. Getting here means the code asked the wrong question, not that the deployment is wrong — and there is nothing an operator could do about a refusal on a route that would not exist.",
+  },
+  {
+    where: "src/server/services/billing.ts",
+    message: "No such user",
+    because:
+      "The actor came from an authenticated session or token, so the row it names was read moments earlier to build it.",
+  },
+  {
+    where: "src/server/services/billing.ts",
+    message: "Billing customer disappeared between insert and read",
+    because:
+      "The insert lost its conflict, which means a row exists; only a delete between the two statements could empty it, and nothing deletes one but account deletion, which cannot run for somebody mid-request.",
+  },
+  {
+    where: "src/server/services/billing.ts",
+    message: "Stripe returned a subscription with no items",
+    because:
+      "Every subscription this product creates carries exactly one price, and Stripe has no way to produce one with none.",
+  },
 ];
 
 type Throw = { where: string; text: string };
@@ -70,7 +91,7 @@ const bareThrows: Throw[] = sourceFiles("src/server/services").flatMap((file) =>
   [...file.code.matchAll(/\bthrow\s+new\s+(Error|TypeError|RangeError|SyntaxError)\s*\(/g)].map(
     (match) => ({
       where: file.path,
-      // Enough of the line to recognise, and the message is what the list below
+      // Enough of the line to recognize, and the message is what the list below
       // matches on, so a reworded throw comes back here for a second look.
       text: file.code
         .slice(match.index, match.index + 160)
@@ -97,7 +118,7 @@ describe("a bare Error in a service", () => {
   });
 
   // The other half of the ratchet, borrowed from `tests/lint-budget.test.ts`: a
-  // throw that has been fixed or deleted must not leave its licence behind for
+  // throw that has been fixed or deleted must not leave its license behind for
   // the next one to inherit.
   it("has no entry standing for a throw that is no longer there", () => {
     const stale = IMPOSSIBLE.filter(

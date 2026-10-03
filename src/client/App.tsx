@@ -21,8 +21,18 @@ import {
   UserRound,
   X,
 } from "lucide-react";
-import { type FormEvent, useEffect, useRef, useState } from "react";
-import { Navigate, NavLink, Route, Routes, useLocation, useSearchParams } from "./router.js";
+import { type FormEvent, useEffect, useId, useRef, useState } from "react";
+import {
+  addressCarriesLedgerText,
+  isPlanSurfacePath,
+  withoutLedgerText,
+  Navigate,
+  NavLink,
+  Route,
+  Routes,
+  useLocation,
+  useSearchParams,
+} from "./router.js";
 import { api, ApiClientError, json, type AuthPublicOptions, type Session } from "./api.js";
 import { authClient } from "./auth-client.js";
 import { Alert, Button, Field, Input, Note } from "./components.js";
@@ -41,12 +51,15 @@ import ImportPage from "./pages/ImportPage.js";
 import TemplateDetailPage from "./pages/TemplateDetailPage.js";
 import RecurrencesPage from "./pages/RecurrencesPage.js";
 import TemplatesPage from "./pages/TemplatesPage.js";
+import { AdSlot } from "./ads.js";
+import { PlanPage } from "./pages/PlanPage.js";
 import SettingsPage from "./pages/SettingsPage.js";
 import StagingPage from "./pages/StagingPage.js";
 import TransactionsPage from "./pages/TransactionsPage.js";
 import { detectedCurrency, detectedTimezone } from "./locale.js";
 import { clearCachedTheme, useThemeSetting } from "./theme.js";
 import { TimezoneProvider } from "./timezone.js";
+import { APP_NAME } from "../shared/version.js";
 
 /**
  * Reading order rather than alphabetical: where the money is and what moved it,
@@ -85,6 +98,86 @@ export function samePagePath(path: string) {
   return /^\/[^/\\]/.test(path) ? path : "/";
 }
 
+/**
+ * The deployment's privacy policy and terms of use, as links, or nothing.
+ *
+ * One function for both places that draw them, the sign-in screen and the
+ * sidebar, so the words and their order cannot drift apart between the screen
+ * somebody signs up on and the pages they use afterward. The words are the
+ * documents' names in full: California's online privacy law asks for a link
+ * that says "privacy", and "Terms" alone is a word somebody has to guess at.
+ *
+ * A new tab, as the privacy link always opened, because both are read partway
+ * through something — a form half filled in, a ledger open — that following
+ * the link should not throw away.
+ */
+function LegalLinks({
+  documents,
+  className,
+}: {
+  documents: AuthPublicOptions | undefined;
+  className: string;
+}) {
+  const privacy = documents?.privacyPolicyUrl;
+  const terms = documents?.termsOfUseUrl;
+  if (!privacy && !terms) return null;
+  return (
+    <div className={`legal-links ${className}`}>
+      {privacy ? (
+        <a href={privacy} target="_blank" rel="noreferrer">
+          Privacy policy
+        </a>
+      ) : null}
+      {terms ? (
+        <a href={terms} target="_blank" rel="noreferrer">
+          Terms of use
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * What creating an account accepts, in one sentence, for the button that does
+ * the creating: the email form's "Create account", and "Continue with Google".
+ *
+ * One function for both so the two cannot come to say different things. Google
+ * gets its own because that button creates an account too: config refuses to
+ * start with Google on and an `ALLOWED_EMAILS` that admits nobody, so whoever
+ * the list admits and has no account yet gets one from that press, with no
+ * form in between. Only where there are terms to accept: a deployment with no
+ * terms asks nobody to agree to any.
+ */
+function TermsAcceptance({
+  id,
+  withGoogle = false,
+  documents,
+}: {
+  id: string;
+  withGoogle?: boolean;
+  documents: AuthPublicOptions;
+}) {
+  if (!documents.termsOfUseUrl) return null;
+  return (
+    <p className="auth-terms" id={id}>
+      By creating an account{withGoogle ? " with Google" : ""} you accept the{" "}
+      <a href={documents.termsOfUseUrl} target="_blank" rel="noreferrer">
+        terms of use
+      </a>
+      {documents.privacyPolicyUrl ? (
+        <>
+          , and the{" "}
+          <a href={documents.privacyPolicyUrl} target="_blank" rel="noreferrer">
+            privacy policy
+          </a>{" "}
+          says how your information is used
+        </>
+      ) : null}
+      .
+    </p>
+  );
+}
+
 function SignIn({ error }: { error?: Error }) {
   const location = useLocation();
   const [name, setName] = useState("");
@@ -93,6 +186,8 @@ function SignIn({ error }: { error?: Error }) {
   const [confirmation, setConfirmation] = useState("");
   const [setupToken, setSetupToken] = useState("");
   const confirmationInput = useRef<HTMLInputElement>(null);
+  const termsNotice = useId();
+  const googleTermsNotice = useId();
   const [localFormError, setLocalFormError] = useState("");
   // Null until somebody picks, so the screen can open on whichever form is
   // the likely one once the server says which deployment this is.
@@ -193,11 +288,12 @@ function SignIn({ error }: { error?: Error }) {
         <div className="brand-mark large">
           <CircleDollarSign size={31} />
         </div>
-        <span className="eyebrow">Personal accounting</span>
-        <h1>Where your money is, and where it went.</h1>
+        <span className="eyebrow">Personal finance</span>
+        <h1>Your money should add up.</h1>
         <p>
-          Every account in one place, bank statements that import and file themselves, and the bills
-          and paychecks you only set up once. Nothing counts until you say so.
+          Every account on one page, with a running balance beside every row. When a total looks
+          wrong, you can open it and find the entry that made it wrong. Nothing counts until you say
+          so.
         </p>
         {error && !(error instanceof ApiClientError && error.code === "UNAUTHORIZED") ? (
           <Alert>{error.message}</Alert>
@@ -212,11 +308,21 @@ function SignIn({ error }: { error?: Error }) {
         {awaitingVerification ? (
           <div className="local-auth-form">
             <h2>Confirm your email address</h2>
-            <Note>
+            {/* 13.3's shape: the press that got here was the only button on
+                screen, `loading` disabled it so the browser had already blurred
+                it, and the answer replaced it with this panel. A `Note` is a
+                plain `<p>`, so the outcome was neither focused nor announced —
+                a keyboard user got silence and a focus ring that had gone.
+                `info` rather than `success` because two different outcomes
+                arrive here: an account that was just created, and a sign-in
+                refused because the address was never confirmed. A green tick
+                over the second one would be the wrong signal, and the sentence
+                itself is true of both. */}
+            <Alert kind="info" takeFocus>
               A message is on its way to {email}. Open the link in it to confirm the address. Until
               that is done the account cannot be signed in to. The link lasts an hour, and trying to
               sign in again sends a fresh one.
-            </Note>
+            </Alert>
             <Button
               type="button"
               variant="secondary"
@@ -235,10 +341,13 @@ function SignIn({ error }: { error?: Error }) {
             <h2>Reset your password</h2>
             {resetRequested ? (
               <>
-                <Note>
+                {/* The same shape again: "Send the link" disabled itself while
+                    it worked and this replaced it, so there was nothing left to
+                    hold focus and nothing with a role to announce. */}
+                <Alert kind="success" takeFocus>
                   If {email} has an account here, a link to choose a new password is on its way. It
                   works once and expires in an hour.
-                </Note>
+                </Alert>
                 <Button
                   type="button"
                   variant="secondary"
@@ -382,7 +491,16 @@ function SignIn({ error }: { error?: Error }) {
             ) : null}
             {localFormError ? <Alert>{localFormError}</Alert> : null}
             {localAuth.error ? <Alert>{localAuth.error.message}</Alert> : null}
-            <Button type="submit" loading={localAuth.isPending}>
+            {/* Directly above the button it is about, so it is read before
+                the press rather than after, and tied to the button as its
+                description, so somebody who tabs straight to it on a screen
+                reader is told the same thing. */}
+            {setup ? <TermsAcceptance id={termsNotice} documents={options.data} /> : null}
+            <Button
+              type="submit"
+              loading={localAuth.isPending}
+              aria-describedby={setup && options.data.termsOfUseUrl ? termsNotice : undefined}
+            >
               {setup ? "Create account" : "Sign in"}
             </Button>
             {/* Only offered when there is a mail server to send the link. */}
@@ -428,8 +546,14 @@ function SignIn({ error }: { error?: Error }) {
                 <span>or</span>
               </div>
             ) : null}
+            {/* Whichever form is showing, because this press creates an
+                account on either: signing in with Google as somebody the list
+                admits and nobody has seen yet is signing up. Above the button
+                and its description, as the email form's is. */}
+            <TermsAcceptance id={googleTermsNotice} withGoogle documents={options.data} />
             <Button
               className="google-button"
+              aria-describedby={options.data.termsOfUseUrl ? googleTermsNotice : undefined}
               onClick={() =>
                 authClient.signIn.social({
                   provider: "google",
@@ -471,6 +595,10 @@ function SignIn({ error }: { error?: Error }) {
             </small>
           </>
         ) : null}
+        {/* On the screen where an address is first asked for, whichever form
+            is showing, which is where California's online privacy law expects
+            the policy to be conspicuous. */}
+        <LegalLinks documents={options.data} className="auth-legal" />
       </section>
       <aside className="auth-art" aria-hidden>
         <div className="auth-orbit orbit-one" />
@@ -521,7 +649,7 @@ export function OAuthConsent() {
   const [error, setError] = useState("");
   // Which answer is in flight, not merely that one is. A single boolean put
   // the spinner on "Allow access" when Deny was pressed — the busy state on the
-  // button nobody touched, while the pressed one only greyed out.
+  // button nobody touched, while the pressed one only grayed out.
   const [deciding, setDeciding] = useState<null | boolean>(null);
   const request = useQuery<ConsentRequest>({
     queryKey: ["consent-request", consentCode],
@@ -651,9 +779,44 @@ function useAdoptBrowserRegion(session: Session) {
 }
 
 function Shell({ session }: { session: Session }) {
+  /*
+   * The deployment's capabilities, for the privacy and terms links below and
+   * the terms the plan tab links. This is the same `["auth-methods"]` query
+   * the sign-in screen ran, so it is served from the cache rather than fetched
+   * again.
+   */
+  const deployment = useQuery({
+    queryKey: ["auth-methods"],
+    queryFn: () => api<AuthPublicOptions>("/api/auth/methods"),
+    retry: false,
+  });
   const [mobileNav, setMobileNav] = useState(false);
   const location = useLocation();
   const main = useRef<HTMLElement>(null);
+
+  /**
+   * No ad on the plan and billing tab, which three documents promise and which
+   * the content security policy does not deliver.
+   *
+   * The policy is the obvious place to look and the wrong one: under
+   * `SB_CSP_REPORT_ONLY` nothing on that page is enforced at all, so a slot
+   * left mounted there would put live Google ads beside the payment form rather
+   * than an empty box. And that page is the one whose entire purpose is selling
+   * their removal.
+   *
+   * Read from the router's location rather than `window`, because this has to
+   * be right for a client-side arrival as well as a document load, and it uses
+   * the router's own predicate so the two cannot disagree about which spellings
+   * are that page.
+   */
+  //
+  // Nor wherever the address carries a payee's name, which an ad request would
+  // send to Google as the page it was on — see addressCarriesLedgerText.
+  const ads =
+    isPlanSurfacePath(location.pathname) ||
+    addressCarriesLedgerText(location.search, document.referrer, window.location.origin)
+      ? null
+      : session.ads;
   const hamburger = useRef<HTMLButtonElement>(null);
   const drawerClose = useRef<HTMLButtonElement>(null);
   useAdoptBrowserRegion(session);
@@ -751,8 +914,8 @@ function Shell({ session }: { session: Session }) {
             <CircleDollarSign size={23} />
           </span>
           <div>
-            <strong>Simple Balance</strong>
-            <small>Personal accounting</small>
+            <strong>{APP_NAME}</strong>
+            <small>Personal finance</small>
           </div>
           <button
             ref={drawerClose}
@@ -767,7 +930,8 @@ function Shell({ session }: { session: Session }) {
           {nav.map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
-              to={{ pathname: to, search: location.search }}
+              // The date range travels; a payee name does not.
+              to={{ pathname: to, search: withoutLedgerText(location.search) }}
               end={end}
               onClick={() => setMobileNav(false)}
             >
@@ -814,6 +978,13 @@ function Shell({ session }: { session: Session }) {
             <LogOut size={17} />
           </button>
         </div>
+        {/* Reachable from every page, which is what Google's policy asks of a
+            deployment serving ads — and what anybody looking for either
+            document expects anyway. Under the foot rather than in it: the row
+            had room for one short link between two icon buttons, and every
+            pixel a second one took came out of the name beside the avatar.
+            Absent when the operator has configured neither. */}
+        <LegalLinks documents={deployment.data} className="sidebar-legal" />
       </aside>
       {mobileNav ? (
         <button
@@ -838,7 +1009,7 @@ function Shell({ session }: { session: Session }) {
             <span className="brand-mark">
               <CircleDollarSign size={21} />
             </span>
-            <strong>Simple Balance</strong>
+            <strong>{APP_NAME}</strong>
           </div>
         </header>
         <main className="content" id="main" tabIndex={-1} ref={main}>
@@ -866,10 +1037,40 @@ function Shell({ session }: { session: Session }) {
               <Route path="/import" element={<ImportPage />} />
               <Route path="/activity" element={<ActivityPage />} />
               <Route path="/settings" element={<SettingsPage session={session} />} />
+              {/* A separate document, not a tab rendered in place, and the
+                  reason is the content security policy: the payment form loads
+                  a script and an iframe from Stripe, which every other page in
+                  this app forbids. A policy belongs to the document it was
+                  served with, so reaching this by a client-side push would keep
+                  the strict one and Elements would fail to load with nothing to
+                  say why. The link into it is a plain anchor for that reason. */}
+              <Route
+                path="/settings/plan"
+                element={
+                  <PlanPage session={session} termsOfUseUrl={deployment.data?.termsOfUseUrl} />
+                }
+              />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </TimezoneProvider>
         </main>
+        {/* Outside `<main>`, and that is an accessibility decision rather than a
+            layout one. `<main>` is what the skip link targets and what focus
+            moves to on every route change, and a screen reader entering it
+            reads from the top — so a slot inside it put an advertisement in
+            front of the page on every navigation, for exactly the people least
+            able to skip past it. Below the content, they are reached by
+            continuing rather than by being interrupted.
+
+            Each names itself, so somebody navigating by landmark can pass them.
+            Neither is `aria-hidden`: an ad is content, and hiding it from a
+            screen reader while showing it to everybody else is concealment
+            dressed as accessibility. */}
+        <AdSlot placement={ads} slotId={ads?.bannerSlotId} label="Advertisement" />
+        {/* Off unless the operator asked for a second unit, which is what
+            `footerSlotId` being absent means. An addition to the first rather
+            than a replacement. */}
+        <AdSlot placement={ads} slotId={ads?.footerSlotId} label="Advertisement" />
       </div>
     </div>
   );
@@ -909,7 +1110,7 @@ function ResetPassword() {
         <div className="brand-mark large">
           <CircleDollarSign size={31} />
         </div>
-        <span className="eyebrow">Simple Balance</span>
+        <span className="eyebrow">{APP_NAME}</span>
         {unusable ? (
           <>
             <h1>That link has expired.</h1>

@@ -49,7 +49,7 @@ function resolveTheme(preference: Theme): Resolved {
  * It records what this BROWSER last painted, not whose it is. Nothing here can
  * know who is about to be signed in — the session cookie is HttpOnly — so on a
  * browser two people share, the second one sees the first one's theme until the
- * session answers a moment later and this overwrites it. A background colour is
+ * session answers a moment later and this overwrites it. A background color is
  * not somebody's data, so that is a fair trade for never flashing; and sign-out
  * clears it, so the sign-in screen does not keep it either.
  *
@@ -117,7 +117,7 @@ function applyChrome(preference: Theme) {
       }
     }
   } catch {
-    // A wrong chrome colour is not worth breaking a page over.
+    // A wrong chrome color is not worth breaking a page over.
   }
 }
 
@@ -206,4 +206,49 @@ export function useThemeSetting(session: Session) {
     setTheme: save.mutate,
     error: save.error,
   };
+}
+
+/** The palette the stylesheet is painting with right now. */
+function paintedTheme(): Resolved {
+  try {
+    const chosen = document.documentElement.getAttribute("data-theme");
+    if (chosen === "light" || chosen === "dark") return chosen;
+    return systemTheme();
+  } catch {
+    return "light";
+  }
+}
+
+/**
+ * What is on screen right now, for a surface that cannot read CSS.
+ *
+ * `useThemeSetting` above is the writer and this is a reader: it observes the
+ * same two inputs the stylesheet consults — the `data-theme` attribute
+ * `applyTheme` stamps, and the machine's setting that a missing attribute
+ * defers to — so it cannot end up disagreeing with what is painted. Deriving
+ * it from the session's preference instead would miss `public/theme-boot.js`,
+ * which stamps the attribute before this bundle exists, and would lag the
+ * optimistic repaint `useThemeSetting`'s `onMutate` does.
+ *
+ * It exists for Stripe's `Elements` (`web.md` 6.4), which draws card fields in
+ * a cross-origin iframe and takes its colors as values rather than as CSS. A
+ * `MutationObserver` is what covers the attribute, because it is written
+ * outside React and no render is scheduled when it changes.
+ */
+export function usePaintedTheme(): Resolved {
+  const [painted, setPainted] = useState<Resolved>(() => paintedTheme());
+  useEffect(() => {
+    const read = () => setPainted(paintedTheme());
+    // The attribute may have been stamped between the initializer and here.
+    // oxlint-disable-next-line react/set-state-in-effect
+    read();
+    const observer = new MutationObserver(read);
+    observer.observe(document.documentElement, { attributeFilter: ["data-theme"] });
+    const stopWatching = watchSystemTheme(read);
+    return () => {
+      observer.disconnect();
+      stopWatching();
+    };
+  }, []);
+  return painted;
 }

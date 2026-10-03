@@ -7,7 +7,7 @@
  * tool annotated `readOnlyHint` reaches nothing that writes
  * (`tests/mcp-parity.test.ts`). A second copy of "does this write" would drift,
  * and the direction it drifts in is the dangerous one — a writer nobody
- * recognised as a writer.
+ * recognized as a writer.
  */
 
 /** The shape both callers already have: a declaration's name and its body. */

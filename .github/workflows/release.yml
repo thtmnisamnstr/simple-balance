@@ -168,7 +168,7 @@ jobs:
       packages: write
     strategy:
       # One image failing must not cancel a push already under way in another.
-      # Four that all failed is a state somebody can describe; three cancelled
+      # Four that all failed is a state somebody can describe; three canceled
       # halfway through is not.
       fail-fast: false
       matrix:
@@ -242,7 +242,7 @@ jobs:
             type=raw,value=${{ needs.resolve.outputs.version }}
             type=raw,value=latest,enable=${{ needs.resolve.outputs.prerelease == 'false' }}
           # Both are stated rather than derived. metadata-action reads the
-          # licence from what GitHub detected, which is the deprecated
+          # license from what GitHub detected, which is the deprecated
           # `AGPL-3.0` rather than the `AGPL-3.0-only` this repository and the
           # Dockerfile both state, and its labels are applied after the
           # Dockerfile's own, so it wins. v0.1.0 shipped carrying the derived

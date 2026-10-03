@@ -3,10 +3,17 @@ node_modules/
 dist/
 *.tsbuildinfo
 
-# Local configuration. The example is the template and stays tracked.
+# Local configuration. The examples are the templates and stay tracked.
+#
+# The second negation is for the `vps` profile, which has one example per machine
+# rather than one per deployment — `.env.app.example` and its two siblings match
+# `.env.*` and would otherwise have been ignored into existence: present on the
+# machine that wrote them, absent from the repository, and missed by nobody until
+# somebody cloned it.
 .env
 .env.*
 !.env.example
+!.env.*.example
 
 # Test and tooling output
 coverage/

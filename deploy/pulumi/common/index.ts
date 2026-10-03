@@ -17,6 +17,41 @@ export const ingressName = releaseName;
 
 export const certManagerVersion = "v1.21.1";
 
+/**
+ * Where the PostgreSQL this deployment writes to lives, which is the one
+ * question these programs cannot answer on an operator's behalf.
+ *
+ * `external` is what every release up to this one did, and is still the
+ * default: the connection string is a stack secret, the cluster runs no
+ * database, and `pulumi up` on a stack written for 0.1.6 plans exactly what it
+ * planned then. `in-cluster` turns on the chart's Citus cluster instead.
+ *
+ * A closed set rather than a boolean, because these are not two ends of one
+ * switch. A third answer is entirely plausible later — a managed PostgreSQL
+ * this program provisions, say — and a boolean would have to be retired to
+ * admit it, which is the rename a released setting may not have.
+ */
+export type DatabaseLocation = "external" | "in-cluster";
+
+const databaseLocations: DatabaseLocation[] = ["external", "in-cluster"];
+
+/**
+ * `max_connections` as the chart's Patroni configuration sets it.
+ *
+ * The connection budget below measures a scaled-out deployment against whatever
+ * the database allows, and with `database: "in-cluster"` that number is no
+ * longer the operator's to know — the chart decides it. Left at the 100 that
+ * stands for a default PostgreSQL, the budget would refuse replica ceilings
+ * this cluster can serve perfectly well, which is wrong in the direction that
+ * looks like caution and costs capacity.
+ *
+ * Written here rather than read out of the template, because a Pulumi program
+ * cannot render Helm. `tests/helm-cluster-database.test.ts` holds the two
+ * together, and the direction that matters is this number being the larger:
+ * that would let a stack plan a peak the database then refuses at runtime.
+ */
+export const inClusterMaxConnections = 200;
+
 export interface Settings {
   namespace: string;
   hostname: string;
@@ -32,7 +67,51 @@ export interface Settings {
   schedulerMaxReplicas: number;
   maxConnections: number;
   kubernetesVersion?: string;
-  databaseUrl: pulumi.Output<string>;
+  /**
+   * What the frontend's nginx believes X-Forwarded-For from, as the operator
+   * wrote it: one address or CIDR, or several separated by commas or spaces,
+   * each a proxy's own and nothing wider. Unset leaves the answer to the
+   * program, which knows the network it built — see {@link TrustedProxies}.
+   */
+  trustedProxyCidr?: string;
+  /**
+   * Whether nginx walks X-Forwarded-For past those addresses. Unset means off
+   * beside an operator's own list — one written before recursion existed was
+   * written for a header that is replaced — and the program's choice beside
+   * the program's list.
+   */
+  realIpRecursive?: boolean;
+  /**
+   * Whether the chart runs the database or the operator brings one. See
+   * {@link DatabaseLocation}.
+   */
+  database: DatabaseLocation;
+  /**
+   * Who may reach the Kubernetes API server over the internet, as the operator
+   * wrote it: one address or CIDR, or several separated by commas or spaces.
+   *
+   * Empty leaves it open, which is what every release so far did and what an
+   * existing stack therefore keeps. It is a setting rather than a value this
+   * program picks because the program cannot know where its operator is, and
+   * the failure mode of guessing is the worst one available: a control plane
+   * that refuses the next `pulumi up`, from a stack that can now only be
+   * repaired through the cloud console.
+   *
+   * The endpoint stays reachable at all rather than being closed outright — a
+   * private-only control plane means every `pulumi up` and every `kubectl` runs
+   * from inside the VPC, which is a bastion this profile does not build.
+   */
+  controlPlaneCidrs: string[];
+  /**
+   * The connection string, when the operator brings the database.
+   *
+   * Absent with `database: "in-cluster"`, and there is nothing a stack secret
+   * could usefully hold there: the password is generated inside the render and
+   * the host is a Service that does not exist until the release does. The chart
+   * derives the whole string, including the `sslmode=verify-full` and the CA
+   * path that go with a cluster whose certificate it also issued.
+   */
+  databaseUrl?: pulumi.Output<string>;
   authSecret: pulumi.Output<string>;
   directDatabaseUrl?: pulumi.Output<string>;
   setupToken?: pulumi.Output<string>;
@@ -44,6 +123,28 @@ export interface Settings {
  */
 export function readSettings(): Settings {
   const cfg = new pulumi.Config("simple-balance");
+
+  const database = (cfg.get("database") ?? "external") as DatabaseLocation;
+  if (!databaseLocations.includes(database)) {
+    throw new Error(
+      `simple-balance:database is one of ${databaseLocations.join(" or ")}. Got "${database}". ` +
+        "Leave it unset for the bring-your-own database every release so far has had.",
+    );
+  }
+
+  // Refused here rather than left to the chart's own guard, which says the same
+  // thing but says it once Helm is already rolling — three minutes into an
+  // install, with a namespace and a Secret already created. Every other
+  // contradiction in this file refuses at plan time and this one is no
+  // different for being about two settings instead of one.
+  if (database === "in-cluster" && cfg.getSecret("databaseUrl") !== undefined) {
+    throw new Error(
+      "simple-balance:database is in-cluster and simple-balance:databaseUrl names a database as well. " +
+        "The chart derives the connection string for the cluster it runs, so the secret would be ignored " +
+        "rather than honored. Remove it with `pulumi config rm --secret simple-balance:databaseUrl`, or " +
+        "set simple-balance:database to external to go on using it.",
+    );
+  }
 
   const settings: Settings = {
     namespace: cfg.get("namespace") ?? "simple-balance",
@@ -58,9 +159,29 @@ export function readSettings(): Settings {
     serverMaxReplicas: cfg.getNumber("serverMaxReplicas") ?? 4,
     frontendMaxReplicas: cfg.getNumber("frontendMaxReplicas") ?? 4,
     schedulerMaxReplicas: cfg.getNumber("schedulerMaxReplicas") ?? 2,
-    maxConnections: cfg.getNumber("maxConnections") ?? 100,
+    // The operator's number wins either way; what changes with an in-cluster
+    // database is only what "unset" means. 100 stands for a stock PostgreSQL
+    // nobody here configured, and is the wrong floor for one this chart
+    // configured itself.
+    maxConnections:
+      cfg.getNumber("maxConnections") ??
+      (database === "in-cluster" ? inClusterMaxConnections : 100),
     kubernetesVersion: cfg.get("kubernetesVersion"),
-    databaseUrl: cfg.requireSecret("databaseUrl"),
+    trustedProxyCidr: cfg.get("trustedProxyCidr"),
+    realIpRecursive: cfg.getBoolean("realIpRecursive"),
+    database,
+    // Split the way the chart splits trustedProxyCidr, so an operator who has
+    // written one of these lists has written both.
+    controlPlaneCidrs: (cfg.get("controlPlaneCidrs") ?? "")
+      .split(/[,\s]+/)
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0),
+    // Still required when the operator brings the database, which is the
+    // default, so an existing stack meets the same demand it always has. It is
+    // `require` rather than `get` for the reason it always was: with neither a
+    // secret here nor a cluster to derive one from, the only thing left to
+    // refuse is the chart, and it refuses in the middle of a rollout.
+    databaseUrl: database === "external" ? cfg.requireSecret("databaseUrl") : undefined,
     authSecret: cfg.requireSecret("authSecret"),
     directDatabaseUrl: cfg.getSecret("directDatabaseUrl"),
     setupToken: cfg.getSecret("setupToken"),
@@ -186,19 +307,79 @@ export function certManager(args: CertManagerArgs): CertManager {
   return { release, clusterIssuer, issuerName };
 }
 
+/**
+ * Who the frontend's nginx should believe on the network one program built,
+ * used when the operator set no `simple-balance:trustedProxyCidr`.
+ *
+ * A default rather than a requirement, because the program is the one party
+ * that knows the answer. Left to the chart's 127.0.0.1 — which is what these
+ * programs did before — every visitor's sign-in attempts counted against one
+ * allowance, and one stranger could spend it for everybody, on every stack
+ * whose operator had not read far enough to find the setting.
+ */
+export interface TrustedProxies {
+  /** Every hop's own address or range. Outputs are fine: the chart takes a list. */
+  addresses: pulumi.Input<string>[];
+  /** Whether those hops append to X-Forwarded-For rather than replacing it. */
+  recursive: boolean;
+}
+
+/**
+ * The two chart values that decide whose word the frontend takes for an
+ * address. The operator's list wins whenever there is one, with recursion off
+ * unless they asked for it; otherwise the program's. An explicit
+ * `simple-balance:realIpRecursive` wins over the program's choice either way,
+ * because it is a decision and the program's is a default.
+ */
+function frontendTrust(settings: Settings, cloud?: TrustedProxies): Record<string, unknown> {
+  if (settings.trustedProxyCidr) {
+    return {
+      trustedProxyCidr: settings.trustedProxyCidr,
+      realIpRecursive: settings.realIpRecursive ?? false,
+    };
+  }
+  if (cloud) {
+    return {
+      trustedProxyCidr: cloud.addresses,
+      realIpRecursive: settings.realIpRecursive ?? cloud.recursive,
+    };
+  }
+  return settings.realIpRecursive === undefined
+    ? {}
+    : { realIpRecursive: settings.realIpRecursive };
+}
+
 export interface AppArgs {
   provider: k8s.Provider;
   settings: Settings;
   issuerName: string;
+  /** What to trust when the operator named nothing. See {@link TrustedProxies}. */
+  trustedProxies?: TrustedProxies;
+  /**
+   * On the frontend Service, which is what the ingress points at. The GCP
+   * program names container-native load balancing here rather than relying on
+   * GKE's default, because what the frontend trusts depends on which of the two
+   * paths the load balancer takes.
+   */
+  frontendServiceAnnotations?: Record<string, pulumi.Input<string>>;
   /**
    * Left out for a controller that does not read `spec.ingressClassName`.
-   * GKE's built-in controller is one: it honours only the legacy
+   * GKE's built-in controller is one: it honors only the legacy
    * `kubernetes.io/ingress.class` annotation, so the GCP program passes the
    * annotation instead and omits this — a class name here selected nothing,
    * and no load balancer was ever provisioned.
    */
   ingressClassName?: string;
   ingressAnnotations?: Record<string, pulumi.Input<string>>;
+  /**
+   * The StorageClass the database's volumes are cut from, with
+   * `database: "in-cluster"`. Named by the program rather than left to the
+   * cluster's default, because the default StorageClass is where a provider
+   * writes its own idea of a volume and neither cloud's says `encrypted`. This
+   * is the one place at-rest encryption for the ledger is actually decided, so
+   * the class has to be one of these programs' own.
+   */
+  databaseStorageClass?: pulumi.Input<string>;
   dependsOn?: pulumi.Resource[];
 }
 
@@ -218,10 +399,18 @@ export function simpleBalance(args: AppArgs): App {
     { provider },
   );
 
+  const inCluster = settings.database === "in-cluster";
+
   const credentialData: Record<string, pulumi.Input<string>> = {
-    DATABASE_URL: settings.databaseUrl,
     AUTH_SECRET: settings.authSecret,
   };
+  // Left out entirely with an in-cluster database rather than written blank.
+  // This Secret is the *later* of the two envFrom sources the chart gives the
+  // pods, so a key here beats the one the chart derived — an empty DATABASE_URL
+  // would not be ignored, it would win, and the API would start against nothing.
+  if (settings.databaseUrl) {
+    credentialData.DATABASE_URL = settings.databaseUrl;
+  }
   if (settings.directDatabaseUrl) {
     credentialData.DIRECT_DATABASE_URL = settings.directDatabaseUrl;
   }
@@ -265,7 +454,40 @@ export function simpleBalance(args: AppArgs): App {
           allowedEmails: settings.allowedEmails,
           databasePoolSize: settings.databasePoolSize,
         },
-        secret: { create: false, existingSecret: credentials.metadata.name },
+        // `create` turns on only for an in-cluster database, and then both are
+        // set at once — which the chart permits in that one case and refuses in
+        // every other. The split is the point: the chart's own Secret is the
+        // only place a connection string for a cluster it built can be written,
+        // because it generated the password; the Secret above is the only place
+        // AUTH_SECRET may go, because chart values land in the release Secret
+        // and in Helm's history. Neither could carry both.
+        secret: { create: inCluster, existingSecret: credentials.metadata.name },
+        ...(inCluster
+          ? {
+              // The chart's own defaults for shape — two worker groups at two
+              // replicas each — which is the redundant one of the profile's two
+              // shapes and the one a three-zone autoscaling cluster is for. The
+              // smaller shape is a values file laid over a `helm upgrade
+              // --install`, not a stack setting: it turns off the autoscaling
+              // and the disruption budgets these programs exist to set up, so
+              // offering it here would be offering a cluster at odds with
+              // itself.
+              database: {
+                enabled: true,
+                ...(args.databaseStorageClass
+                  ? { persistence: { storageClass: args.databaseStorageClass } }
+                  : {}),
+              },
+              // Worth having only now. Until the database was in the cluster,
+              // the policies guarded an API and a frontend that talk to each
+              // other and to the internet; now there is a ledger behind them
+              // that nothing outside those two should ever open a socket to.
+              // Both programs make their CNI enforce it — this object is inert
+              // on a cluster whose CNI ignores NetworkPolicy, and inert is the
+              // most dangerous thing a security control can be.
+              networkPolicy: { enabled: true },
+            }
+          : {}),
         server: {
           image: image("server"),
           autoscaling: { enabled: true, maxReplicas: settings.serverMaxReplicas },
@@ -273,6 +495,18 @@ export function simpleBalance(args: AppArgs): App {
         frontend: {
           image: image("frontend"),
           autoscaling: { enabled: true, maxReplicas: settings.frontendMaxReplicas },
+          // The operator's list, or else the one the program worked out for the
+          // network it built. The chart's schema refuses an entry that is not an
+          // address or a CIDR, and the image refuses it again at startup. Behind
+          // the ingress every request arrives from a proxy, so until this names
+          // it the API counts every visitor's sign-in attempts against one
+          // allowance.
+          ...frontendTrust(settings, args.trustedProxies),
+          // Annotations only: Helm merges this into the chart's own
+          // frontend.service, so the port stays the chart's to decide.
+          ...(args.frontendServiceAnnotations
+            ? { service: { annotations: args.frontendServiceAnnotations } }
+            : {}),
         },
         scheduler: {
           image: image("scheduler"),

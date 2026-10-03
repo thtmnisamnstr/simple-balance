@@ -1,6 +1,6 @@
 /*
  * The app writes its own CSS and uses no utility classes, so it carries its own
- * reset rather than pulling in a framework for one. These are the normalisations
+ * reset rather than pulling in a framework for one. These are the normalizations
  * the components actually rely on: icons that sit on the line rather than the
  * text baseline, controls that inherit their type, and elements that start
  * without the browser's own spacing.
@@ -71,8 +71,8 @@ a {
 }
 
 /*
- * Every colour in this file comes from here, and each one is declared once per
- * theme. A colour written inline further down is a colour that has only one
+ * Every color in this file comes from here, and each one is declared once per
+ * theme. A color written inline further down is a color that has only one
  * theme, which is the bug that makes half an app unreadable, so
  * `tests/theme-tokens.test.ts` fails on any literal outside these blocks.
  *
@@ -295,7 +295,7 @@ a {
 
 /*
  * Declared because there was no rule for it at all, which left the selection
- * colour to the user agent. That was survivable while `color-scheme` was always
+ * color to the user agent. That was survivable while `color-scheme` was always
  * light; once it can be dark the browser picks its own highlight for the theme
  * and it has no reason to match this palette.
  */
@@ -510,6 +510,34 @@ a {
   cursor: pointer;
 }
 
+/* The privacy policy and terms of use, on the sign-in screen and under the
+   sidebar foot. Quiet by default: they are things somebody looks for rather
+   than things that should compete with the navigation, and they sit outside
+   the nav list because both leave the application. A row that wraps with a
+   12px gap rather than a stack, so each link's 24px target circle clears the
+   other's (web.md 13.4) at a size two stacked lines of small type would not. */
+.legal-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  font-size: 12px;
+}
+
+.legal-links a {
+  color: var(--muted);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.legal-links a:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
+.sidebar-legal {
+  padding: 12px 2px 0;
+}
+
 .sign-out:hover,
 .theme-toggle:hover,
 .mobile-close:hover,
@@ -532,7 +560,7 @@ a {
 
    Every gap between two top-level sections used to be a margin on whichever
    block happened to be there, and the five blocks that most often sit at page
-   level — .panel, .table-card, .alert, .empty-state, .category-page-list —
+   level — .panel, .table-card, .alert, .empty-state, .record-list-card —
    carry none at all. So four stacked panels on Budgets touched, and the rest of
    the app ran on eight different numbers (26, 20, 28, 18, 16, 14, 12, 0). A
    container gap is one decision instead of eight, and a block that moves to a
@@ -671,9 +699,8 @@ a {
 }
 
 /* In a wrapping toolbar the reason is a line of its own, not a caption under
-   one button. Both bars named below wrap and end their rows to the right —
-   `.bulk-actions` did already, and `.transaction-selection-actions` is given
-   both above, because it is the box these buttons actually sit in: the bar
+   one button. `.selection-bar-actions` is given the wrap and the right-hand
+   end above, because it is the box these buttons actually sit in: the bar
    itself is `space-between` with a count on one side and the actions on the
    other, so the rule has to reach the inner group or it lands on the wrong
    container.
@@ -681,26 +708,54 @@ a {
    The column above is right in a form, where the actions are the last thing on
    a stack. In a selection bar it is wrong twice over: the wrapper is
    `inline-flex`, so it takes the width of its widest child — "Some selected
-   rows look like duplicates. Tick the box to commit them anyway." is 470px —
-   and `align-items: stretch` then pulls the button out to match, while the
-   two-line box sitting in an `align-items: center` row lifts that button off
-   the line its siblings are on. On a narrower window the extra width also
-   pushed the duplicate checkbox onto a row of its own.
+   rows look like duplicates. Check the box to commit them anyway." runs past
+   400px even at 11px — and `align-items: stretch` then pulls the button out to
+   match, while the two-line box sitting in an `align-items: center` row lifts
+   that button off the line its siblings are on. On a narrower window the extra
+   width also pushed the duplicate checkbox onto a row of its own.
 
    `display: contents` puts the button back in the row at its own size, and
    `order` with a full basis drops the sentence to its own line beneath the
    whole bar rather than splitting it after the button it belongs to. */
-:is(.bulk-actions, .transaction-selection-bar) .button-with-reason:has(> .button-reason) {
+.selection-bar .button-with-reason:has(> .button-reason) {
   display: contents;
 }
 
-:is(.bulk-actions, .transaction-selection-bar) .button-reason {
+.selection-bar .button-reason {
   order: 1;
   flex-basis: 100%;
   /* Right, like the buttons it explains, which end their row at the right in
      both bars. A left-aligned sentence under a right-aligned row reads as a
      note about the panel rather than about the button. */
   text-align: right;
+}
+
+/* The same lift in a form's action row and a modal's footer, where the column
+   above is right and the centering is what is wrong. Both rows are
+   `align-items: center`, so the one wrapper showing a reason — button, 4px,
+   the sentence — is the tallest thing in the row and sets its height, and
+   every button beside it is centered in that height: half the reason lower
+   than the one it sits next to, 8.5px with a one-line reason and 15px with a
+   two-line one on a phone. The plan tab showed it on every visit, because one
+   of its two plan buttons is always disabled with a reason; a ghost Cancel
+   beside a disabled submit in a modal is the same row.
+
+   Lined up on the tops instead, and only while a reason is showing: every
+   `.button` is `min-height: 39px`, so equal tops are equal midlines, and the
+   reason goes on hanging under its own button. Not for every row, because a
+   row with no reason is centered correctly and a line of text in one would
+   be lifted off the buttons' midline. The one row that holds text beside a
+   captioned button — the count beside Save on Accounts — gives that text a
+   button's height, centered in it, so it keeps the line it had. */
+.form-actions:has(> .button-with-reason > .button-reason),
+.modal-footer:has(> .button-with-reason > .button-reason) {
+  align-items: flex-start;
+}
+
+.form-actions > .subtle {
+  display: inline-flex;
+  min-height: 39px;
+  align-items: center;
 }
 
 .button-secondary {
@@ -788,13 +843,18 @@ a {
 }
 
 /* Money lines up column to column only when every digit is the same width.
-   `:is(th, td)` rather than `td` alone: `web.md` 9.3 says header alignment, cell
-   alignment and tabular figures travel together, and this selector was the
-   sentence not being true — `<th className="align-right">` on Reports and
-   Budgets got the alignment and not the figures, so a column of period totals
-   in a header row failed to line up with the identical column beneath it. A
-   `th[scope="row"]` holding a date wants them for the same reason. */
-.data-table :is(th, td).align-right,
+
+   Every cell of every table, not only the right-aligned ones in `.data-table`.
+   Keyed on `.align-right`, this was a rule about a class rather than about a
+   cell, and it missed three things at once: 10.4 asks for tabular figures on
+   dates either way and no date column in the product had them; a money table
+   that is not a `.data-table` — the CSV preview and the reports grid — got
+   none at all; and a cell holding no digits was switching the feature on for
+   nothing, which is what stopped a grep for numeric columns finding them.
+   `font-variant-numeric` touches digits alone, so naming every cell costs a
+   column of words nothing. */
+.data-table :is(th, td),
+.preview-table :is(th, td),
 .amount,
 .currency-heading h2 {
   font-variant-numeric: tabular-nums;
@@ -814,7 +874,15 @@ a {
   border-bottom: 1px solid var(--line-soft);
 }
 
-.panel-header h3 {
+/* The heading, whatever level the document outline wants it to be. Written
+   against `h3` alone, this was a rule about a tag rather than about a panel
+   title — so Reports, whose per-currency panel sits directly under the page's
+   `h1` and correctly reached for an `h2`, matched nothing and fell back to the
+   UA's 1.5em bold beside an 11px muted span in a row tuned for 14px. The
+   review queue hit the same thing and answered it with a second rule of its
+   own further down. Off the class, both are one rule, and a panel heading can
+   be moved to the level its outline needs without being silently unstyled. */
+.panel-header :is(h2, h3, h4) {
   margin: 0;
   font-size: 14px;
 }
@@ -824,9 +892,15 @@ a {
   font-size: 11px;
 }
 
+/* One filter bar, one gap, one wrap rule. It was three classes — `.toolbar`
+   on Accounts alone, `.category-toolbar` on four pages, `.filter-bar` on the
+   other two — at two gaps, and only `.filter-bar` wrapped. That last one is
+   the difference that broke: `.search-box` is `min-width: 260px` and `.select`
+   is 130px, so between roughly 560px and 900px the four `.category-toolbar`
+   pages held a bar that could neither shrink nor wrap. 7.6 settled what a
+   filter bar HOLDS and nothing said what it IS. */
 .date-bar,
-.filter-bar,
-.toolbar {
+.filter-bar {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -838,6 +912,14 @@ a {
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface);
+  /* The same wrap `.filter-bar` got, for the same reason, on the sibling that
+     did not get it. The note above describes a bar that between 560px and
+     900px "could neither shrink nor wrap"; the remedy reached `.filter-bar`
+     at base and `.date-bar` only inside the 560px block, so Budgets'
+     four-control view bar and Reports' options bar went on overflowing
+     `.content` exactly where the note says. Measured at 620, 820 and 900px:
+     /budgets was 958px wide inside a 900px viewport. SC 1.4.10. */
+  flex-wrap: wrap;
 }
 
 /* The two dates and their joining word, kept together so the bar wraps around
@@ -896,12 +978,12 @@ a {
 /* A disabled control is exempt from SC 1.4.3 and SC 1.4.11, which is what lets
    this edge drop back to the decorative --line: something that is no longer a
    control needs no control boundary. The fill is what states the condition, and
-   it has to, because .input paints its own background, colour and border and so
+   it has to, because .input paints its own background, color and border and so
    overrides the rendering the browser would otherwise give a dead field — which
    is why fourteen disabled fields shipped pixel-identical to live ones. Not
    opacity, which is the house answer for a disabled button: these sit on
    .bulk-edit-field.enabled's green row, and dimming one would let the row's
-   colour through instead of saying anything. */
+   color through instead of saying anything. */
 .input:disabled {
   border-color: var(--line);
   color: var(--muted);
@@ -911,7 +993,7 @@ a {
 
 .input:focus {
   /* --focus-ring, not --green-line-strong. Now that a resting edge holds 3:1, the
-     old focus colour sat at the same lightness as it — 1.05:1 between the two —
+     old focus color sat at the same lightness as it — 1.05:1 between the two —
      so focusing a field changed its hue and almost nothing else. This is the
      token named for the job, and it is darker than the resting edge as well as
      greener. */
@@ -975,7 +1057,7 @@ a {
    Red text on the page's own background rather than a tinted box: an error box
    here would stack with `ErrorSummary`'s at the top of the same form, and two
    boxes saying one thing reads as two problems. The control beside it carries
-   `aria-invalid` and points at this sentence, so the colour is a third cue
+   `aria-invalid` and points at this sentence, so the color is a third cue
    rather than the only one. */
 .field-error {
   color: var(--red);
@@ -992,10 +1074,13 @@ a {
   gap: 16px;
 }
 
+/* The same 16px `.form-grid` uses. A row of fields was 16px from the next row
+   and its own stacked fields were 13px apart, which at 560px — where both
+   collapse to one column — is two rhythms in one form. */
 .two-columns,
 .three-columns {
   display: grid;
-  gap: 13px;
+  gap: 16px;
 }
 
 .two-columns {
@@ -1065,7 +1150,7 @@ input[type="radio"] {
 }
 
 /* Only what is new. The summary carries `alert alert-error` as well, so its
-   border, radius, fill, colour, size and line height are the ones every other
+   border, radius, fill, color, size and line height are the ones every other
    alert already uses, and it stays one family with them rather than becoming a
    second red box with its own geometry. */
 
@@ -1148,6 +1233,31 @@ input[type="radio"] {
   background: var(--green-soft);
 }
 
+/* The same answer in a panel's slot rather than as a page's whole reply. The
+   full card is 250px of minimum height, which inside the dashboard's
+   per-currency panels would be the tallest thing on screen saying the least —
+   which is why six such lists answered with a bare muted paragraph instead and
+   fell outside 12.1's check along with its look. */
+.empty-state-compact {
+  min-height: 0;
+  padding: 18px 14px;
+}
+
+.empty-state-compact .empty-icon {
+  width: 38px;
+  height: 38px;
+  margin-bottom: 10px;
+  border-radius: 11px;
+}
+
+.empty-state-compact h3 {
+  font-size: 14px;
+}
+
+.empty-state-compact p {
+  margin-bottom: 0;
+}
+
 .empty-state h3 {
   margin-bottom: 7px;
   font-size: 16px;
@@ -1166,7 +1276,9 @@ input[type="radio"] {
   /* A grid item defaults to its min-content width, which a wide table pushes
      past the viewport instead of scrolling inside its own card. */
   grid-template-columns: minmax(0, 1fr);
-  gap: 34px;
+  /* The page's own 24px. 34 was the largest gap in the product, for a repeat
+     of one section per currency that Budgets does at 24. */
+  gap: 24px;
 }
 
 /* One currency's own stack. Its parts are not children of `.content`, so the
@@ -1202,18 +1314,31 @@ input[type="radio"] {
   font-size: 11px;
 }
 
+/* 13px, and the same on all three card grids — the metrics, the account
+   cards and the balance tiles were 11, 13 and 11. Below 560px every one of
+   them is a single column, so the gap is the vertical rhythm between cards on
+   a phone and three numbers were three rhythms. */
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 11px;
+  gap: 13px;
 }
 
+/* `flex-start` rather than `center`, which is the one of the five settled
+   differences worth a sentence: a tile with a note under its figure is taller
+   than one without, and centring then floats the glyph beside the middle of
+   the text rather than beside the line it labels. */
 .metric-card {
   display: flex;
-  align-items: center;
+  min-width: 0;
+  align-items: flex-start;
   gap: 12px;
   padding: 16px;
   border-radius: 11px;
+}
+
+.metric-card > div {
+  min-width: 0;
 }
 
 .metric-balance {
@@ -1235,26 +1360,47 @@ input[type="radio"] {
 .metric-icon.positive { color: var(--green); background: var(--green-soft); }
 .metric-icon.negative { color: var(--red); background: var(--red-soft); }
 
-.metric-card div > span {
+.metric-card div > span,
+.metric-card strong,
+.metric-card small {
   display: block;
+}
+
+.metric-card div > span {
   margin-bottom: 4px;
   color: var(--muted);
   font-size: 12px;
 }
 
+/* Wrapped, never truncated. One of the two tiles clipped a long figure with an
+   ellipsis, so the same money read two ways on two pages — and a clipped
+   amount is a wrong amount, where a wrapped one is only a taller one. */
 .metric-card strong {
   font-size: 15px;
   letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+
+.metric-card small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .money-negative {
   color: var(--red) !important;
 }
 
+/* `align-items: start` for the reason written out at `.settings-column`: a
+   tall card cannot push a short one's neighbour down to meet it. This was the
+   one two-column page grid that stretched instead, so the Accounts panel grew
+   to the height of Spending by category and ended in blank card. */
 .dashboard-detail-grid {
   display: grid;
   grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
   gap: 24px;
+  align-items: start;
 }
 
 .account-mini-row,
@@ -1289,8 +1435,9 @@ input[type="radio"] {
   display: block;
 }
 
-.account-mini-group + .account-mini-group {
-  margin-top: 14px;
+.account-mini-list {
+  display: grid;
+  gap: 14px;
 }
 
 .account-mini-heading,
@@ -1306,11 +1453,19 @@ input[type="radio"] {
   margin: 0 0 2px;
 }
 
+/* A section decides the distance to its own cards, the way `.content` decides
+   the distance between sections (7.4). The 12px lived on the heading, which
+   is the block deciding its own gap — the shape that rule exists to stop. */
+.account-type-section {
+  display: grid;
+  gap: 12px;
+}
+
 .account-type-heading {
   display: flex;
   align-items: baseline;
   gap: 10px;
-  margin: 0 0 12px;
+  margin: 0;
 }
 
 
@@ -1324,7 +1479,7 @@ input[type="radio"] {
 
 /* The category name is a link now, so it would otherwise take the green every
    anchor gets and sit next to a green bar reading as two different things. Same
-   treatment as .account-mini-row: the row's own colour, green on hover. */
+   treatment as .account-mini-row: the row's own color, green on hover. */
 .spending-row a {
   color: inherit;
   text-decoration: none;
@@ -1392,12 +1547,6 @@ input[type="radio"] {
 }
 .progress-meter::-moz-progress-bar {
   background: var(--green-fill);
-}
-
-.panel-empty {
-  margin: 22px 0 4px;
-  color: var(--muted);
-  font-size: 12px;
 }
 
 .account-card-grid {
@@ -1502,6 +1651,24 @@ input[type="radio"] {
   font-size: 14px;
 }
 
+/* SC 2.5.8 Target Size, met on the spacing branch rather than the size one.
+   A checkbox is 15 by 15 by this stylesheet's own rule, and §13.4 names it as
+   the one control here small enough to reach that branch — every other passes
+   on size, or on the padding the row around it carries. These rows had
+   neither: the reset at the top strips a list's margin and padding, nothing
+   else ever named this class, so the boxes stacked flush and a 24px circle
+   centered on any of them cut through the one below. Measured in Chromium
+   against this stylesheet, centers were 18px apart at desktop width and 20px
+   at 390px and 320px; with 8px of gap they are 26px and 28px. 4px is not
+   enough — it lands on exactly 24.00 narrow and 22 at desktop. The numbers are
+   written down because `tests/browser/target-size.spec.ts` cannot reach this
+   panel: billing is off in that tier, so there is no account limit and the
+   panel returns null before any markup. */
+.active-account-choices {
+  display: grid;
+  gap: 8px;
+}
+
 .back-link {
   display: inline-flex;
   align-items: center;
@@ -1514,60 +1681,6 @@ input[type="radio"] {
 
 .back-link:hover {
   color: var(--green);
-}
-
-.balance-snapshot-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 11px;
-}
-
-.balance-snapshot {
-  display: flex;
-  min-width: 0;
-  align-items: flex-start;
-  gap: 11px;
-  padding: 15px;
-  border: 1px solid var(--line);
-  border-radius: 11px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
-}
-
-.balance-snapshot .account-icon {
-  width: 33px;
-  height: 33px;
-  flex: 0 0 auto;
-}
-
-.balance-snapshot div {
-  min-width: 0;
-}
-
-.balance-snapshot div > span,
-.balance-snapshot strong,
-.balance-snapshot small {
-  display: block;
-}
-
-.balance-snapshot div > span {
-  margin-bottom: 4px;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.balance-snapshot strong {
-  overflow: hidden;
-  font-size: 15px;
-  letter-spacing: -0.02em;
-  text-overflow: ellipsis;
-}
-
-.balance-snapshot small {
-  margin-top: 4px;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.35;
 }
 
 /* A detail page nests the browser inside a section of its own, so its parts are
@@ -1708,12 +1821,46 @@ input[type="radio"] {
   cursor: pointer;
 }
 
-.menu-popover button:hover {
+/* Narrowed rather than answered by a later rule repainting the hover fill: two
+   rules fighting leaves both spellings live, and the next hover state added
+   here would have to remember the second one. */
+.menu-popover button:hover:not(:disabled) {
   background: var(--fill-subtle);
+}
+
+/* A menu item paints its own color and background and sets its own cursor, so
+   the rendering the browser gives a disabled button never shows and a dead
+   item was pixel-identical to a live one down to the hover fill — the defect
+   --field-disabled closed for fields, one family along, and freezing an
+   account is what started disabling these. Opacity is the house answer for a
+   button and it is right here where it was wrong for a field: an item sits on
+   the popover's own surface rather than a colored row, so dimming it states
+   the condition instead of letting something through. 0.5, which is
+   .button:disabled's value; the pagination controls' 0.45 is the odd one out
+   and not the number to copy. */
+.menu-popover button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .menu-popover button.danger {
   color: var(--red);
+}
+
+/* Why a menu item is disabled, said under it. `.button-reason` is centered and
+   as wide as its sentence, and the popover grows to fit its widest child, so a
+   sentence left alone would stretch the whole menu to one long line. Capped at
+   a readable measure and wrapped instead.
+
+   The left padding is the item's own 8px, its 15px icon and the 8px gap after
+   it, so the sentence starts under the label it explains rather than under the
+   icon. The cap adds that padding back, because `border-box` counts it and the
+   measure is meant for the words. */
+.menu-popover .menu-reason {
+  max-width: calc(32ch + 39px);
+  padding: 0 8px 6px calc(8px + 15px + 8px);
+  text-align: left;
+  white-space: normal;
 }
 
 .filter-bar {
@@ -1739,24 +1886,12 @@ input[type="radio"] {
   padding-left: 34px;
 }
 
-.bulk-actions {
-  display: flex;
-  align-items: center;
-  /* Six controls fit here at once: the count, whole-list selection, commit,
-     edit, delete, clear, and the duplicate override. Wrapping keeps the last
-     of them on screen on a narrow window rather than off the edge of it. */
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 7px;
-  margin-left: auto;
-}
-
-.bulk-actions > span {
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.transaction-selection-bar {
+/* One bar for every selection in the product, and named for what it is rather
+   than for the page it was born on. The staged queue had a second one,
+   `.bulk-actions`, which was `margin-left: auto` inside the filter bar — no
+   border, no background, no padding, an 11px muted span where this has a 12px
+   `<strong>`, and no live region at all. */
+.selection-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1767,8 +1902,8 @@ input[type="radio"] {
   background: var(--green-soft);
 }
 
-.transaction-selection-bar > div,
-.transaction-selection-actions {
+.selection-bar > div,
+.selection-bar-actions {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1777,27 +1912,27 @@ input[type="radio"] {
 /* The actions group wraps, so a disabled button's reason can take a line under
    it. Without this the rule below put a full-basis item in a nowrap row, which
    squeezes the buttons instead of dropping the sentence beneath them. */
-.transaction-selection-actions {
+.selection-bar-actions {
   flex-wrap: wrap;
   justify-content: flex-end;
 }
 
-.transaction-selection-bar > div:first-child {
+.selection-bar > div:first-child {
   min-width: 0;
   color: var(--green-dark);
   font-size: 12px;
 }
 
-.transaction-selection-bar strong {
+.selection-bar strong {
   font-size: 12px;
 }
 
-.transaction-selection-bar span {
+.selection-bar span {
   color: var(--muted);
   font-size: 12px;
 }
 
-.transaction-selection-actions {
+.selection-bar-actions {
   flex: 0 0 auto;
 }
 
@@ -2056,7 +2191,7 @@ input[type="radio"] {
 /*
  * The painted button stays small so a row does not grow, but the area that
  * responds to a finger reaches the 44px a touch target needs. The overlay sits
- * behind the icon so neighbouring buttons still take their own taps.
+ * behind the icon so neighboring buttons still take their own taps.
  */
 .row-actions button::after,
 .icon-button::after {
@@ -2070,9 +2205,42 @@ input[type="radio"] {
   position: relative;
 }
 
-.row-actions button:hover {
+.row-actions button:hover:not(:disabled) {
   color: var(--ink);
   background: var(--fill-subtle);
+}
+
+/* The same as the menu item above, for the same reason: this button sets its
+   own color, background and cursor, so a frozen row's Edit and Delete icons
+   looked and hovered exactly like live ones. The 44px touch overlay stays
+   where it is — a disabled button takes no taps, and moving it would change a
+   live row's target to fix a dead one. */
+.row-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Where the house dim is the wrong number: a control inside something that is
+   already dimmed. Opacity composites down the subtree, so the two multiply.
+   A voided row is at 0.5 (`.row-deleted` above) and an archived account card at
+   0.65 (`.account-card.archived`), which put a disabled control at 0.25 and
+   0.325 — `--muted` at 1.39:1 and `--ink-soft` at 1.75:1 on `--surface`, a
+   control that has vanished rather than one stating a condition, which is the
+   opposite of what the dim is for.
+
+   Both are reachable and both are what disabling these families created: a
+   voided entry on a frozen account shows Restore alone, and an archived card's
+   Restore is refused while every place is in use. Dropped rather than scaled to
+   a product of 0.5, because the container's dim is already the whole answer the
+   eye gets in there, and a control dimmer than the row it sits in reads as
+   missing. What still separates a dead control from a live one inside a dimmed
+   container is the cursor, the hover that does not light, and the reason it
+   points at. The next container that dims a subtree joins this list; nothing
+   else can be done about it in CSS, because a descendant combinator cannot say
+   "no ancestor dims". */
+.row-deleted .row-actions button:disabled,
+.account-card.archived .menu-popover button:disabled {
+  opacity: 1;
 }
 
 .checkbox-cell {
@@ -2084,7 +2252,7 @@ input[type="radio"] {
 
 .bulk-edit-form {
   display: grid;
-  gap: 14px;
+  gap: 16px;
 }
 
 .bulk-edit-selection-summary {
@@ -2112,7 +2280,7 @@ input[type="radio"] {
 
 /* The stronger green, not `--green-line`: this is a control edge, and §2.2 holds
    one to 3:1. The decorative green sat at 1.4 against its own fill, so the
-   enabled state was signalled almost entirely by the background — colour as the
+   enabled state was signaled almost entirely by the background — color as the
    only cue, and a faint one. */
 .bulk-edit-field.enabled {
   border-color: var(--green-line-strong);
@@ -2373,10 +2541,15 @@ input[type="radio"] {
   border-top: 1px solid var(--line);
 }
 
+/* 24px, the gutter every two-column page grid uses. There were four of them
+   at 14, 20, 24 and 24, and below their breakpoint the gutter BECOMES the
+   page's vertical rhythm — so a page that collapsed to one column ran at a
+   different rhythm from the page beside it, for a number nobody chose. 24 is
+   `.content`'s own gap, which is what those collapsed columns then match. */
 .import-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.3fr) minmax(300px, 0.7fr);
-  gap: 14px;
+  gap: 24px;
   align-items: start;
 }
 
@@ -2454,16 +2627,22 @@ input[type="radio"] {
   opacity: 0;
 }
 
+/* The card decides the distance under its header, rather than the table
+   below it carrying a `margin-top` nobody can see in the markup. */
 .import-preview {
   position: sticky;
   top: 20px;
   min-width: 0;
+  display: grid;
+  /* A grid item takes its min-content width, and this one holds a 520px table
+     that would push the card past its column instead of scrolling inside it. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
 }
 
 .preview-table-wrap {
   max-width: 100%;
   overflow: auto;
-  margin-top: 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
 }
@@ -2486,10 +2665,18 @@ input[type="radio"] {
   white-space: nowrap;
 }
 
-.preview-table th {
+/* `[scope="col"]` rather than every `th`, the way `.data-table` already splits
+   them: the interpreted preview now heads each row by its payee, and a row
+   header drawn as a column header reads as a second header band. */
+.preview-table th[scope="col"] {
   color: var(--muted);
   background: var(--surface-soft);
   font-weight: 700;
+}
+
+.preview-table th[scope="row"] {
+  color: var(--ink-soft);
+  font-weight: 400;
 }
 
 /* The one cell in this table that is prose. The shared rule above clips at
@@ -2523,12 +2710,33 @@ input[type="radio"] {
 }
 
 /* Each column stacks its own cards, so a tall card cannot push a short one's
-   neighbour down to meet it. */
+   neighbor down to meet it. */
 .settings-column {
   display: grid;
   gap: 24px;
   align-content: start;
   min-width: 0;
+}
+
+/* The plan tab's automatic renewal terms, beside a request to pay. Set off by a
+   rule and a fill, and in ink at 13px where the notes around it are muted at
+   12px, because California's automatic renewal law asks for exactly that where
+   consent is asked for: type larger than or contrasting with the text around
+   it, or set off from it. */
+.plan-renewal-terms {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  color: var(--ink);
+  background: var(--surface-soft);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.plan-renewal-terms p {
+  margin: 0;
 }
 
 /* A panel whose contents stack. Named for what it does rather than for the page
@@ -2640,11 +2848,11 @@ input[type="radio"] {
   color: var(--muted);
 }
 
-.category-list {
+.record-list {
   display: grid;
 }
 
-.category-row {
+.record-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2653,28 +2861,22 @@ input[type="radio"] {
   border-bottom: 1px solid var(--line-soft);
 }
 
-.category-row:last-child {
+.record-row:last-child {
   border-bottom: 0;
 }
 
-.category-row > div:first-child {
+.record-row > div:first-child {
   display: flex;
   align-items: center;
   gap: 7px;
 }
 
-.category-row strong {
+.record-row strong {
   margin-right: 5px;
   font-size: 11px;
 }
 
-.category-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.category-page-list {
+.record-list-card {
   padding: 0 18px;
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -2684,7 +2886,7 @@ input[type="radio"] {
 
 /* Three tracks: the name, the badges, the row actions. Payees uses this list
    too and has no fourth cell. */
-.category-page-list .category-row {
+.record-list-card .record-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 12px;
@@ -2697,15 +2899,15 @@ input[type="radio"] {
    Counted rather than named, and `:where()` so the count costs no specificity:
    at its natural weight this would outrank the 560px override below and leave
    a phone with four tracks. */
-.category-page-list .category-row:has(> :where(:nth-child(4))) {
+.record-list-card .record-row:has(> :where(:nth-child(4))) {
   grid-template-columns: minmax(0, 1fr) auto 160px auto;
 }
 
-.category-page-list .category-row > .select-wrap {
+.record-list-card .record-row > .select-wrap {
   width: 160px;
 }
 
-.category-select {
+.record-name {
   display: flex;
   min-width: 0;
   align-items: center;
@@ -2713,17 +2915,17 @@ input[type="radio"] {
   cursor: pointer;
 }
 
-.category-select .account-icon {
+.record-name .account-icon {
   width: 31px;
   height: 31px;
 }
 
-.category-select strong,
-.category-select small {
+.record-name strong,
+.record-name small {
   display: block;
 }
 
-.category-select small {
+.record-name small {
   margin-top: 2px;
   color: var(--muted);
   font-size: 11px;
@@ -2732,10 +2934,6 @@ input[type="radio"] {
 .duplicate-groups {
   display: grid;
   gap: 8px;
-}
-
-.duplicate-groups > .section-title {
-  margin-bottom: 3px;
 }
 
 .duplicate-groups .alert {
@@ -2766,8 +2964,10 @@ input[type="radio"] {
   font-size: 12px;
 }
 
+/* The same inset as `.record-list-card`, which is the same card one page
+   over: 19 against 18 was one shape built twice. */
 .activity-list {
-  padding: 0 19px;
+  padding: 0 18px;
 }
 
 .activity-row {
@@ -2775,7 +2975,8 @@ input[type="radio"] {
   grid-template-columns: 36px minmax(0, 1fr) auto;
   align-items: center;
   gap: 11px;
-  padding: 13px 0;
+  /* 13px against the record row's 10px was the same list at two heights. */
+  padding: 10px 0;
   border-bottom: 1px solid var(--line-soft);
 }
 
@@ -2805,7 +3006,15 @@ input[type="radio"] {
 
 .activity-row strong {
   font-size: 11px;
-  text-transform: capitalize;
+}
+
+/* Sentence case, which is 16, and `capitalize` is not it: CSS capitalizes
+   every word, so `activitySentence`'s "create user preferences" reached the
+   screen as "Create User Preferences". The sentence is built lowercase on
+   purpose and `tests/activity-sentence.test.ts` holds it that way, so the
+   first letter is the only one CSS has any business touching. */
+.activity-row strong::first-letter {
+  text-transform: uppercase;
 }
 
 .activity-row small {
@@ -2855,9 +3064,15 @@ input[type="radio"] {
   text-align: center;
 }
 
+/* The same 16px `.form-grid` uses, for the reason recorded above `.two-columns`:
+   a stack of fields has one rhythm or it has two. This was 13px and
+   `.bulk-edit-form` 14px, which is three numbers for one idea and no decision
+   behind any of them. `.panel-stack` keeps its 20px because it stacks
+   sections rather than fields, and `.budget-form` keeps its 12px because its
+   gap is a wrapping row's and works on both axes. */
 .local-auth-form {
   display: grid;
-  gap: 13px;
+  gap: 16px;
   margin-top: 18px;
 }
 
@@ -2877,6 +3092,29 @@ input[type="radio"] {
   color: var(--muted);
   font-size: 13px;
   text-align: center;
+}
+
+/* What creating an account agrees to, directly above the button. Its links
+   keep the anchor color rather than the muted one `.legal-links` uses, because
+   here they are part of the sentence saying what the press accepts. */
+.auth-terms {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+/* The one above "Continue with Google" sits in the card itself rather than in
+   a form, where `.auth-card > p` would make it body text. */
+.auth-card > .auth-terms {
+  margin-top: 12px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.auth-legal {
+  justify-content: center;
+  margin-top: 28px;
 }
 
 /* The categories report's per-row menu sits beside the label without pushing
@@ -2933,8 +3171,21 @@ input[type="radio"] {
   text-decoration: underline;
 }
 
-.link-button:hover {
+/* Narrowed the same way as the two families above, and for the same reason:
+   a second rule putting the underline back would leave both spellings live. */
+.link-button:hover:not(:disabled) {
   text-decoration: none;
+}
+
+/* The third family that ships disabled, found by looking for the defect rather
+   than waiting for it: "Add a category" in the split editor goes dead at the
+   fifty-leg cap (`MAX_TRANSACTION_LEGS`), and this rule sets its own color and
+   cursor, so a dead link was pixel-identical to a live one — measured in
+   Chrome 152 as `opacity: 1, cursor: pointer`, the same underline and the same
+   green. The house answer, read off `.button:disabled` like the others. */
+.link-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .auth-divider {
@@ -2987,7 +3238,7 @@ input[type="radio"] {
 }
 
 /* Set apart from the panels above it, because nothing in it can be undone. The
-   page's own gap supplies the distance; only the colour is this rule's job. */
+   page's own gap supplies the distance; only the color is this rule's job. */
 .danger-zone {
   border-color: var(--red-line);
 }
@@ -3274,6 +3525,77 @@ input[type="radio"] {
   background: var(--green-soft);
   color: var(--green-dark);
 }
+/* The Settings section strip. Same visual language as the reports picker, and
+   deliberately not the same class: these are plain anchors that reload the
+   document, because the two pages are served under different content security
+   policies, and a shared class would invite somebody to swap one for the other.
+
+   `page-stack.test.ts` has both names registered as shared, since Settings and
+   the plan tab are two pages of one section rather than two unrelated screens. */
+.settings-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.settings-tab {
+  padding: 6px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 99px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 620;
+  text-decoration: none;
+}
+
+.settings-tab:hover {
+  color: var(--ink);
+}
+
+.settings-tab.is-current {
+  border-color: transparent;
+  background: var(--green-soft);
+  color: var(--green-dark);
+}
+
+/* An ad, and the box it is allowed to occupy.
+
+   No fixed height and no reserved space. The usual argument for reserving is
+   layout shift, and it does not apply the same way here: these slots sit below
+   the page content rather than above it, so an ad arriving late pushes nothing
+   somebody is reading. Reserving would instead leave a permanent empty band on
+   every page for every subscriber — the people who paid for it not to be there
+   — because the component renders `null` for them and a reserved box cannot
+   tell the difference.
+
+   No vertical margin, because 7.4: the distance between two blocks in the page
+   stack is the container's to decide, and `.main-column` already sets it. */
+.ad-slot {
+  overflow: hidden;
+  max-width: 100%;
+}
+
+/* An ad unit Google had nothing to fill, collapsed rather than left as blank
+   space. AdSense marks the `<ins>` with `data-ad-status="unfilled"` once it
+   knows, and its help page on hiding unfilled ad units gives exactly this rule
+   for it, `!important` included: the unit carries `display: block` inline,
+   which is what the tag is documented with and what `ads.tsx` renders, and
+   only an important declaration outranks an inline one. Left alone, an
+   unfilled responsive unit kept its 280px: a blank band at the foot of the
+   page, which is the reserved box the rule above refuses by another route.
+
+   The slot goes with it, because an empty `<aside>` is still a block in
+   `.main-column`'s stack and would keep the stack's gap on both sides of
+   nothing. The landmark goes too, which is right: there is no ad to skip. */
+.ad-slot ins.adsbygoogle[data-ad-status="unfilled"] {
+  display: none !important;
+}
+
+.ad-slot:has(> ins.adsbygoogle[data-ad-status="unfilled"]) {
+  display: none;
+}
+
 
 .chart-figure {
   margin: 0 0 12px;
@@ -3351,7 +3673,7 @@ input[type="radio"] {
   line-height: 1;
 }
 
-/* The two ends are pinned inside the drawing rather than centred on it, or half
+/* The two ends are pinned inside the drawing rather than centered on it, or half
    of the first date hangs off the left of the panel. */
 .chart-axis-x span.at-start,
 .chart-axis-x span.at-end {
@@ -3383,7 +3705,7 @@ input[type="radio"] {
   stroke-linecap: round;
 }
 
-/* A hairline in the surface colour, because adjacent series sit as low as
+/* A hairline in the surface color, because adjacent series sit as low as
    1.05:1 against each other (section 11.2 argues why ten distinguishable hues
    are not available) and two bars touching at that ratio read as one shape.
    The stroke separates them without changing any measured pair. */
@@ -3417,28 +3739,28 @@ input[type="radio"] {
 
 /* Ten hues, kept apart under three kinds of vision rather than swept round a
    wheel, so a ledger with ten accounts still has a readable legend. There were
-   six, and a seventh account shared a colour with the first. Beyond ten they do
+   six, and a seventh account shared a color with the first. Beyond ten they do
    wrap; the table under the chart is what carries the exact figures.
-   SERIES_COLOURS in charts.tsx counts these, and a test fails if the two
+   SERIES_COLORS in charts.tsx counts these, and a test fails if the two
    disagree.
 
    Each slot keeps its hue family across the two themes — slot 3 is the amber one
    in both — because otherwise switching theme silently reassigns every account's
-   colour and a chart somebody had learned to read stops being readable.
+   color and a chart somebody had learned to read stops being readable.
 
    The values are in the token blocks at the top. They are not the semantic
    --green/--red/--blue: a series is an arbitrary identity, and borrowing the
-   colour that means "money out" for whichever account happens to sort second
+   color that means "money out" for whichever account happens to sort second
    says something the chart does not mean.
 
-   An honest limit: ten categorical colours cannot all be told apart by somebody
+   An honest limit: ten categorical colors cannot all be told apart by somebody
    with dichromatic vision, and no choice of ten fixes that. Measured as CIEDE2000
    between every pair under simulated deuteranopia and protanopia, the set that
    shipped before this had a worst pair of 1.78 — the green and the pink were the
-   same colour. These reach 5.6 in light and 4.7 in dark, which is three times
+   same color. These reach 5.6 in light and 4.7 in dark, which is three times
    better and still not enough on its own: a search that held hue identity and the
    3:1 a line needs could not beat about 7 in light or 4 in dark. The remedy is a
-   second channel that is not colour — a dash pattern per series — which is a
+   second channel that is not color — a dash pattern per series — which is a
    change to the charts rather than to this palette, and is not made here. Until
    then the legend and the table under every chart are what carry identity, and
    both are always present. */
@@ -3474,9 +3796,9 @@ polyline.chart-line {
 .chart-swatch.chart-series-9 { background: var(--series-9); }
 
 /*
- * A second channel that is not colour, which section 11.3 has been asking for.
+ * A second channel that is not color, which section 11.3 has been asking for.
  *
- * Ten categorical colours cannot all be told apart under dichromatic vision and
+ * Ten categorical colors cannot all be told apart under dichromatic vision and
  * no choice of ten fixes that — the palette comment above measures the best
  * available set at 5.6 in light and 4.7 in dark, which is three times better
  * than the six it replaced and still not enough on its own. A dash pattern is
@@ -3506,8 +3828,8 @@ polyline.chart-line {
  * And the same pattern in the legend, which is what makes it usable.
  *
  * The legend was the wrong way round for the reader who needs it most: the
- * swatch is `aria-hidden`, so a screen reader gets the label and a colour-blind
- * sighted reader gets only a block of colour they may not be able to match to a
+ * swatch is `aria-hidden`, so a screen reader gets the label and a color-blind
+ * sighted reader gets only a block of color they may not be able to match to a
  * line. A swatch that carries the line's rhythm can be matched by shape.
  *
  * A repeating gradient rather than a border, because the swatch is a `<span>`
@@ -3576,6 +3898,19 @@ polyline.chart-line {
   font-variant-numeric: tabular-nums;
 }
 
+/* A linked row name takes the row's own ink and greens on hover, the treatment
+   `.account-mini-row` already had: 11.10's second condition, so the name does
+   not read as a second green thing beside the figures. */
+.report-row-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.report-row-link:hover {
+  color: var(--green);
+  text-decoration: underline;
+}
+
 .report-table th[scope="row"] {
   text-align: left;
   background: transparent;
@@ -3603,7 +3938,7 @@ polyline.chart-line {
 .duplicate-review {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px;
+  gap: 24px;
   align-items: start;
 }
 
@@ -3613,11 +3948,12 @@ polyline.chart-line {
   gap: 14px;
 }
 
+/* A badge sits beside the words in this one. The size and the margin come
+   from the shared panel-header rule now, so only the row is left here. */
 .duplicate-side .panel-header h2 {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 0;
 }
 
 .duplicate-side-actions {
@@ -3627,19 +3963,8 @@ polyline.chart-line {
   padding-top: 14px;
 }
 
-.duplicate-side-actions .panel-empty {
-  margin: 0;
+.duplicate-side-actions .note {
   text-align: right;
-}
-
-/* Previous, Next and the way out, in one row in the page header. Wraps rather
-   than shrinking, because a comparison is reached on a phone as often as a
-   desktop and a squashed "Previous" is worse than a second line. */
-.duplicate-queue-nav {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
 }
 
 .duplicate-badge-link {
@@ -3658,15 +3983,18 @@ polyline.chart-line {
 /* Budgets.
    The bar carries how much, and the badge beside it carries the state as a
    word. That split is deliberate: fullness already says "nearly there", so the
-   bar needs no third colour for it, and nothing on the row is told by colour
-   alone. Over budget is the one state worth a colour of its own, because it is
+   bar needs no third color for it, and nothing on the row is told by color
+   alone. Over budget is the one state worth a color of its own, because it is
    the one somebody scans for. */
+/* No left or right padding of its own: the panel around it already pads 21px,
+   so 18px more gave one card three left edges — the heading's, the form's and
+   the table's. */
 .budget-form {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
   align-items: flex-end;
-  padding: 0 18px 4px;
+  padding: 0 0 4px;
 }
 .budget-form .field { margin-bottom: 0; }
 
@@ -3712,16 +4040,6 @@ polyline.chart-line {
 }
 .budget-bar[data-state="over"] > span { background: var(--red-fill); }
 
-/* The archived-spending toggle sits in the budget period bar, which is a row of
-   controls rather than a form, so the label wraps its own checkbox. */
-.date-bar-check {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--ink-soft);
-  white-space: nowrap;
-}
-
 .error-boundary {
   max-width: 560px;
   margin: 48px auto;
@@ -3750,11 +4068,18 @@ polyline.chart-line {
   .account-card-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .balance-snapshot-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
   .import-layout,
   .settings-grid {
+    grid-template-columns: 1fr;
+  }
+  /* The band where the sidebar is up and the viewport is not wide: content is
+     the viewport less 248px of nav and the shell's padding, so this form's
+     four tracks (120 + 160 + 160 + a button, plus gaps = 559px) stopped fitting
+     at 820px and pushed the document to 871px. The one-column collapse was
+     written into the 560 block only, which is the band where there is no
+     sidebar and the form had room all along. Measured by
+     `tests/browser/reflow.spec.ts`. */
+  .inline-form {
     grid-template-columns: 1fr;
   }
   .import-preview {
@@ -3840,6 +4165,22 @@ polyline.chart-line {
   .page-heading > .page-actions .button {
     flex: 1;
   }
+  /* The same stacking for a section heading that carries actions, which is the
+     embedded transaction browser on the three detail pages. It was written as
+     a hand-rolled copy of the page header and took the horizontal half without
+     the responsive half, so at 390px the two buttons kept their width and the
+     description wrapped to four lines in whatever column was left. */
+  .section-title:has(> .page-actions) {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .section-title:has(> .page-actions) > .page-actions {
+    width: 100%;
+    margin-left: 0;
+  }
+  .section-title:has(> .page-actions) > .page-actions .button {
+    flex: 1;
+  }
   .dashboard-detail-grid,
   .auth-shell {
     grid-template-columns: 1fr;
@@ -3855,7 +4196,7 @@ polyline.chart-line {
 /* --break-mobile: 560px */
 @media (max-width: 560px) {
   /* A panel header is a title and something said about it, side by side. At
-     this width that is two narrow columns: "September 2026, GBP (so far)" over
+     this width that is two narrow columns: "September 2026, USD (so far)" over
      three lines beside a sentence over three more. Stacked, both read. */
   .panel-header {
     flex-direction: column;
@@ -3884,16 +4225,17 @@ polyline.chart-line {
     flex: 1 1 100%;
     min-width: 0;
   }
-  /* "Count spending through closed accounts" is 325px of unwrappable text, so
-     at 320px the two budget checkboxes pushed the document wider than the
-     window — SC 1.4.10, which section 15 makes Binding. `nowrap` is right in a
-     control row and wrong when the row is narrower than one control; the box
-     keeps its size and aligns with the first line of what it labels. */
-  .date-bar-check {
+  /* "Count spending through archived accounts" is 325px of text, so at 320px
+     the two budget checkboxes pushed the document wider than the window —
+     SC 1.4.10, which section 15 makes Binding. The box keeps its size and
+     aligns with the first line of what it labels rather than with its middle.
+     On `.check-label` rather than on a second class for the same control:
+     the bar's checkbox and a form's were 12px muted and 16px `--ink-soft`,
+     which is one control rendered two ways on two pages a person compares. */
+  .check-label {
     align-items: flex-start;
-    white-space: normal;
   }
-  .date-bar-check > input {
+  .check-label > input {
     flex: none;
     margin-top: 2px;
   }
@@ -3904,7 +4246,6 @@ polyline.chart-line {
   }
   .metric-grid,
   .account-card-grid,
-  .balance-snapshot-grid,
   .two-columns,
   .three-columns,
   .transaction-type-grid,
@@ -3924,23 +4265,18 @@ polyline.chart-line {
   .search-box {
     min-width: 100%;
   }
-  .bulk-actions {
-    width: 100%;
-    flex-wrap: wrap;
-    margin-left: 0;
-  }
-  .transaction-selection-bar,
-  .transaction-selection-actions {
+  .selection-bar,
+  .selection-bar-actions {
     width: 100%;
     align-items: stretch;
     flex-direction: column;
   }
-  .transaction-selection-bar > div:first-child {
+  .selection-bar > div:first-child {
     align-items: flex-start;
     flex-direction: row;
     flex-wrap: wrap;
   }
-  .transaction-selection-actions .button {
+  .selection-bar-actions .button {
     width: 100%;
   }
   .bulk-edit-field {
@@ -3952,21 +4288,20 @@ polyline.chart-line {
   .inline-form {
     grid-template-columns: 1fr;
   }
-  .category-toolbar,
   .merge-panel {
     align-items: stretch;
     flex-direction: column;
   }
-  .category-page-list .category-row {
+  .record-list-card .record-row {
     grid-template-columns: minmax(0, 1fr) auto;
     /* The picker moves under the name rather than squeezing three cells into a
        phone's width; it keeps the row's own reading order. */
   }
-  .category-page-list .category-row > .select-wrap {
+  .record-list-card .record-row > .select-wrap {
     width: 100%;
     grid-column: 1 / -1;
   }
-  .category-page-list .category-row > div:nth-child(2) {
+  .record-list-card .record-row > div:nth-child(2) {
     display: none;
   }
 }
@@ -3982,5 +4317,21 @@ polyline.chart-line {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* Nothing advertising survives onto paper.
+
+   `docs/monetization.md` promises no ads in a print view, and until this rule
+   existed that promise was kept by nothing at all — there was no print
+   stylesheet in the file. A statement of accounts that a person prints or saves
+   as a PDF is a record they may keep for years and hand to somebody else, and
+   an advertisement embedded in one is not a thing this product does.
+
+   Last in the file, after the responsive blocks, because `tests/styles-order.test.ts`
+   requires media queries at the end and this is one. */
+@media print {
+  .ad-slot {
+    display: none;
   }
 }

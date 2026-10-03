@@ -8,11 +8,14 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ListChecks,
   LoaderCircle,
   MoreHorizontal,
+  Search,
   X,
 } from "lucide-react";
 import {
+  type ComponentType,
   type InputHTMLAttributes,
   type PropsWithChildren,
   type ReactNode,
@@ -25,6 +28,7 @@ import {
   useState,
 } from "react";
 import type { SortDirection } from "../shared/domain.js";
+import { APP_NAME } from "../shared/version.js";
 import { PROGRESS_VERB, type ProgressEvent } from "../shared/progress.js";
 import { errorMessages } from "./api.js";
 import type { DatePreset } from "./date-range.js";
@@ -224,11 +228,45 @@ export function Pagination({
   itemLabel: string;
   busy?: boolean;
 }) {
+  /**
+   * Where focus goes when the page turn lands.
+   *
+   * `disabled={busy}` sits on every control here, and a disabled element
+   * cannot hold focus — so the browser blurs the button the moment the request
+   * starts, and a keyboard reader who pressed Next was dropped on `<body>` and
+   * had to tab from the top of the document to get back to the list. 13.3's
+   * focus move is keyed on the pathname alone, deliberately, so nothing
+   * catches this: paging changes no path. It is the same shape as a bulk
+   * action — a control whose own success unmounts or disables it — and the
+   * only one of them no per-page edit can reach, because the control belongs
+   * to this component.
+   *
+   * Templates is the one list that paged correctly, and only because it pages
+   * in the browser and passes no `busy` at all.
+   */
+  const pressed = useRef<string | null>(null);
+  const bar = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (busy || !pressed.current) return;
+    const want = bar.current?.querySelector<HTMLButtonElement>(
+      `[data-page-control="${pressed.current}"]`,
+    );
+    pressed.current = null;
+    // Next on the last page has just become disabled and cannot take focus,
+    // so the page number that is now current takes it instead — which is
+    // where the reader is.
+    if (want && !want.disabled) want.focus();
+    else bar.current?.querySelector<HTMLButtonElement>('[aria-current="page"]')?.focus();
+  }, [busy, page]);
   if (!totalCount) return null;
   const first = (page - 1) * pageSize + 1;
   const last = Math.min(page * pageSize, totalCount);
+  const turn = (to: number, control: string) => {
+    pressed.current = control;
+    onPageChange(to);
+  };
   return (
-    <nav className="pagination" aria-label={`${itemLabel} pages`}>
+    <nav ref={bar} className="pagination" aria-label={`${itemLabel} pages`}>
       <p className="pagination-summary" aria-live="polite">
         {`Showing ${first}–${last} of ${totalCount} ${itemLabel}`}
       </p>
@@ -238,8 +276,9 @@ export function Pagination({
             type="button"
             className="pagination-step"
             aria-label="Previous page"
+            data-page-control="previous"
             disabled={page <= 1 || busy}
-            onClick={() => onPageChange(page - 1)}
+            onClick={() => turn(page - 1, "previous")}
           >
             <ChevronLeft size={16} aria-hidden />
           </button>
@@ -255,8 +294,9 @@ export function Pagination({
                 className="pagination-page"
                 aria-label={`Page ${entry}`}
                 aria-current={entry === page ? "page" : undefined}
+                data-page-control={`page-${entry}`}
                 disabled={busy}
-                onClick={() => onPageChange(entry)}
+                onClick={() => turn(entry, `page-${entry}`)}
               >
                 {entry}
               </button>
@@ -266,8 +306,9 @@ export function Pagination({
             type="button"
             className="pagination-step"
             aria-label="Next page"
+            data-page-control="next"
             disabled={page >= totalPages || busy}
-            onClick={() => onPageChange(page + 1)}
+            onClick={() => turn(page + 1, "next")}
           >
             <ChevronRight size={16} aria-hidden />
           </button>
@@ -294,16 +335,19 @@ export function Button({
    * completely silent: nothing has been typed wrongly, so there is no field
    * error, and nothing has been submitted, so there is no summary. Six of them
    * shipped and one had a sentence — the split remainder line, which is the
-   * model this generalises.
+   * model this generalizes.
    *
    * Rendered only while `disabled` is true and `loading` is not, because a
    * button that is working already says so and a reason for that state would
    * be a second answer to a question already answered.
    *
-   * Wired with `aria-describedby` rather than left as a neighbouring
+   * Wired with `aria-describedby` rather than left as a neighboring
    * paragraph: a sighted person reads what is next to the button, and somebody
    * on a screen reader is told the button's name and its state and then has to
-   * go looking. The description is what makes "disabled" say why.
+   * go looking. The description is what makes "disabled" say why. Added to
+   * a description the caller gave rather than replacing it: the plan tab's pay
+   * button is described by the renewal terms, and it is disabled while
+   * Stripe's form loads, which is exactly when somebody is reading them.
    */
   disabledReason?: string;
 }) {
@@ -318,7 +362,10 @@ export function Button({
       {...props}
       disabled={loading || props.disabled}
       aria-busy={loading || undefined}
-      aria-describedby={explained ? reasonId : props["aria-describedby"]}
+      aria-describedby={
+        [explained ? reasonId : null, props["aria-describedby"]].filter(Boolean).join(" ") ||
+        undefined
+      }
       className={`button button-${variant} ${className}`}
     >
       {loading ? <LoaderCircle size={16} className="animate-spin" /> : null}
@@ -404,7 +451,7 @@ export function ErrorSummary({
   // name; a second `<h2>` in the body reads as a peer section of the dialog
   // rather than as content in it. Same reasoning as `EmptyState`.
   const Heading = level === 2 ? "h2" : "h3";
-  // Plain defence against a refusal carrying an unbounded list. No call site
+  // Plain defense against a refusal carrying an unbounded list. No call site
   // reaches it today.
   const shown = messages.slice(0, 10);
   const rest = messages.length - shown.length;
@@ -471,12 +518,25 @@ export function Field({
   label,
   hint,
   error,
+  optional = false,
   as,
   children,
 }: PropsWithChildren<{
   label: string;
   hint?: string;
   error?: string;
+  /**
+   * Said in the HINT, never in the label.
+   *
+   * 8.4 settles that a form states one scheme and marks the exceptions to it;
+   * 8.1 settles that a name computed from `<label for>` is the label's entire
+   * text. Put together, "(optional)" written into a label becomes part of the
+   * control's accessible NAME — "Saving up for (optional)" is then what a
+   * voice user has to say to reach it (SC 2.5.3). Three fields on Budgets did
+   * exactly that while thirteen elsewhere said it in the hint, so the word is
+   * a prop now and the slot is not a per-page decision.
+   */
+  optional?: boolean;
   /**
    * `"group"` for a composite: `CategoryLegs` renders up to fifty rows of three
    * inputs, and a wrapping `<label>` binds to the first of them, so legs two
@@ -487,7 +547,10 @@ export function Field({
 }>) {
   const base = useId();
   const controlId = `${base}-control`;
-  const hintId = hint ? `${base}-hint` : undefined;
+  // "Optional." leads, because it is the shorter claim and the one a reader
+  // scanning a column of fields is looking for.
+  const hintText = optional ? (hint ? `Optional. ${hint}` : "Optional.") : hint;
+  const hintId = hintText ? `${base}-hint` : undefined;
   const errorId = error ? `${base}-error` : undefined;
   const describedBy = [hintId, errorId].filter(Boolean).join(" ") || undefined;
   return (
@@ -514,9 +577,9 @@ export function Field({
           {label}
         </label>
       )}
-      {hint ? (
+      {hintText ? (
         <span className="field-hint" id={hintId}>
-          {hint}
+          {hintText}
         </span>
       ) : null}
       {error ? (
@@ -601,6 +664,51 @@ export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement
 }
 
 /**
+ * The search box in a filter bar: the icon, and one bare control that names
+ * itself.
+ *
+ * Six pages pasted the same three elements, and with nothing holding them the
+ * same they disagreed on the one thing that is not cosmetic: two passed
+ * `type="search"` and four left the default. WebKit and Blink draw a clear (×)
+ * button inside a search input and clear it on Escape, so four of the six were
+ * missing an affordance and a keystroke their siblings had, on the same
+ * control, one click apart in the nav.
+ *
+ * Bare with an `aria-label` rather than inside a `Field`, which is 7.6: a
+ * filter takes effect on change, has no error and no submit, and `Field`'s
+ * stacked label made the one filter that used it twenty pixels taller than the
+ * box beside it.
+ *
+ * `placeholder` is separate from `label` because it is for saying what is
+ * searched — a placeholder that repeats its own accessible name tells a sighted
+ * reader nothing the label did not.
+ */
+export function SearchBox({
+  label,
+  placeholder,
+  value,
+  onChange,
+}: {
+  label: string;
+  placeholder: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="search-box">
+      <Search size={16} />
+      <Input
+        type="search"
+        aria-label={label}
+        placeholder={placeholder}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
+  );
+}
+
+/**
  * The overflow menu on a row, as a native disclosure.
  *
  * The popover is positioned fixed rather than absolute, which the accounts
@@ -613,7 +721,7 @@ export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement
  * Deliberately not `role="menu"`. Those roles promise a screen reader arrow-key
  * navigation, and a roving tabindex exists nowhere else in this client. A
  * disclosure that behaves like a disclosure is honest; menu roles without the
- * keyboard behaviour they imply are worse than none.
+ * keyboard behavior they imply are worse than none.
  */
 export function RowMenu({ label, children }: { label: string; children: ReactNode }) {
   const details = useRef<HTMLDetailsElement>(null);
@@ -680,7 +788,7 @@ export function RowMenu({ label, children }: { label: string; children: ReactNod
         className="menu-popover row-menu-popover"
         style={anchor ? { top: anchor.top, right: anchor.right } : undefined}
         // Choosing something closes the menu. Without this it stays open behind
-        // whatever the choice opened, and is still there afterwards.
+        // whatever the choice opened, and is still there afterward.
         onClick={() => close()}
       >
         {children}
@@ -869,6 +977,23 @@ export function PageHeader({
   description?: string;
   actions?: ReactNode;
 }) {
+  /*
+   * The tab says which page you are on.
+   *
+   * It said "Simple Balance" on all thirteen for five releases, which is the
+   * state where two windows of this app are indistinguishable in a task
+   * switcher and a bookmark records nothing about what was bookmarked.
+   *
+   * Setting it here rather than from a table in the router is deliberate:
+   * `title` is already the page's `h1`, so the tab cannot drift from the
+   * heading, and a page added later gets a correct tab without anybody
+   * remembering a second list. The router is where the obvious alternative
+   * lives and it is the one that goes stale.
+   */
+  useEffect(() => {
+    document.title = `${title} — ${APP_NAME}`;
+  }, [title]);
+
   return (
     <header className="page-header">
       {/* The actions sit in the title row rather than beside the whole block,
@@ -884,6 +1009,54 @@ export function PageHeader({
       </div>
       {description ? <p>{description}</p> : null}
     </header>
+  );
+}
+
+/**
+ * The strip across the top of Settings, and the one place in this app that
+ * navigates by document load on purpose.
+ *
+ * Settings and the plan tab are two documents rather than two panels because
+ * they are served under different content security policies — the plan tab
+ * mounts Stripe's payment form, which loads a script and an iframe from Stripe
+ * that every other page forbids — and a policy belongs to the document it
+ * arrived with. A client-side push between them would carry one page's policy
+ * onto the other: into the plan tab that means the payment form never appears,
+ * and out of it that means the pages showing somebody's balances run with
+ * Stripe's origins allowed.
+ *
+ * So these are plain anchors, and the cost is a reload on a strip most people
+ * use twice. Written as one component rather than copied into both pages,
+ * because a strip that disagrees with itself about which tab is current is the
+ * obvious thing to get wrong with two copies.
+ */
+export function SettingsTabs({
+  current,
+  billingAvailable,
+}: {
+  current: "preferences" | "plan";
+  billingAvailable: boolean;
+}) {
+  // Nothing to choose between when the deployment sells nothing, and a strip
+  // with one tab in it is furniture rather than navigation.
+  if (!billingAvailable) return null;
+  const tabs = [
+    { id: "preferences", href: "/settings", label: "Preferences" },
+    { id: "plan", href: "/settings/plan", label: "Plan and billing" },
+  ] as const;
+  return (
+    <nav className="settings-tabs" aria-label="Settings sections">
+      {tabs.map((tab) => (
+        <a
+          key={tab.id}
+          href={tab.href}
+          className={tab.id === current ? "settings-tab is-current" : "settings-tab"}
+          aria-current={tab.id === current ? "page" : undefined}
+        >
+          {tab.label}
+        </a>
+      ))}
+    </nav>
   );
 }
 
@@ -938,6 +1111,52 @@ export function BulkEditToggle({
  * Pass `label` on the first skeleton of a group and leave it off the rest — a
  * list of eight rows should say "Loading transactions…" once, not eight times.
  */
+/**
+ * The bar that appears when rows are selected: how many, and what may be done
+ * to them.
+ *
+ * 6.2 named this past the component threshold — "three toolbars, three label
+ * sets, three variant assignments" — and only the label sets were closed, by
+ * `tests/ui-copy.test.ts`. Two pages shared a standalone band; the staged
+ * queue rendered its own as a CHILD of the filter bar, so ticking a row grew
+ * the filter row into a second and third line and pushed the filters down the
+ * page. That third one also carried no live region, on the one queue where
+ * selecting everything stops silently at the ten-thousand cap and nothing
+ * announced the number it stopped at.
+ *
+ * One element, one `aria-live`, one icon, one actions group, one 560px step.
+ * The count sentence stays a prop because the three say genuinely different
+ * things — a filtered selection is still being counted while a template
+ * selection is not — but `selectionCount` is here so the thousands separator
+ * is one decision rather than three.
+ */
+export function SelectionBar({
+  summary,
+  notes,
+  children,
+}: PropsWithChildren<{ summary: ReactNode; notes?: ReactNode }>) {
+  return (
+    <div className="selection-bar" aria-live="polite">
+      <div>
+        <ListChecks size={17} aria-hidden />
+        <strong>{summary}</strong>
+        {notes}
+      </div>
+      <div className="selection-bar-actions">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * A selection count, with its thousands grouped.
+ *
+ * Ten thousand is the cap on every bulk operation in the product
+ * (`AGENTS.md`), and four digits with no separator is where a count starts
+ * being misread — so the one queue that already grouped was right and the two
+ * that can reach the same cap were not.
+ */
+export const selectionCount = (count: number) => count.toLocaleString();
+
 export function Skeleton({ height = 16, label }: { height?: number; label?: string }) {
   return (
     <>
@@ -951,11 +1170,66 @@ export function Skeleton({ height = 16, label }: { height?: number; label?: stri
   );
 }
 
+/**
+ * One figure in a row of them: the dashboard's four metrics and the account
+ * page's four balances.
+ *
+ * Two classes did this job and had already drifted. `.balance-snapshot` and
+ * `.metric-card` were the same markup, the same radius and the same grid, and
+ * differed only where nobody chose: padding 15 against 16, gap 11 against 12,
+ * `flex-start` against `center`, a 33px icon against 35, and
+ * `overflow: hidden; text-overflow: ellipsis` on one `strong` and not the
+ * other. That last one is consequential rather than cosmetic — the same money
+ * truncated on one page and wrapped on the other — and the argument settles
+ * it: a cut-off figure is worse than a figure on two lines, so it wraps.
+ *
+ * The icon says WHICH figure this is, which is why it is required. The account
+ * page drew the same saturated green glyph on all four of its tiles — four
+ * identical blocks distinguishing none of the four figures beside them, and
+ * the loudest thing in the band. A channel that repeats carries nothing.
+ */
+export function MetricTile({
+  icon: Icon,
+  tone,
+  emphasis = false,
+  label,
+  figure,
+  negative = false,
+  note,
+}: {
+  icon: ComponentType<{ size?: number }>;
+  /** Green or red on the glyph's tile, where the figure has a direction. */
+  tone?: "positive" | "negative";
+  /** The one tile that is the headline figure of its row. */
+  emphasis?: boolean;
+  label: string;
+  figure: string;
+  negative?: boolean;
+  note?: string;
+}) {
+  return (
+    <article className={`metric-card ${emphasis ? "metric-balance" : ""}`}>
+      <span className={`metric-icon ${tone ?? ""}`}>
+        <Icon size={18} />
+      </span>
+      <div>
+        <span>{label}</span>
+        <strong className={negative ? "money-negative" : ""}>{figure}</strong>
+        {note ? <small>{note}</small> : null}
+      </div>
+    </article>
+  );
+}
+
+/** The one size an empty state's glyph is drawn at, inside its 48px tile. */
+const EMPTY_ICON = 24;
+
 export function EmptyState({
-  icon,
+  icon: Icon,
   title,
   body,
   action,
+  compact = false,
   level = 3,
 }: {
   /**
@@ -964,11 +1238,28 @@ export function EmptyState({
    * that answered their question with nothing, and the three that had no icon
    * were a heading and a sentence floating in a card — which reads as a page
    * that failed to load rather than as an answer.
+   *
+   * A component rather than a node, because a node carries its own size and
+   * the size was written at the call site: 20, 22, 23, 24 and 25 across
+   * eighteen of them, varying by a quarter inside a tile that is a fixed 48px
+   * either way, on pages one click apart. A node cannot be corrected from
+   * here; a component can, so the size stops being something anybody types.
    */
-  icon: ReactNode;
+  icon: ComponentType<{ size?: number }>;
   title: string;
   body: string;
   action?: ReactNode;
+  /**
+   * For a slot inside a panel rather than a page's whole answer.
+   *
+   * The full card is `min-height: 250px`, which is right when it is what the
+   * page came back with and wrong inside the dashboard's per-currency panels
+   * or the budgets forecast — there it would be the tallest thing on screen
+   * saying the least. Six such lists answered with a bare muted paragraph
+   * instead, which put all six outside 12.1's check as well as outside its
+   * look; a variant keeps them inside both.
+   */
+  compact?: boolean;
   /**
    * The heading level, because a component that hard-codes one misstates the
    * document wherever it is used. `<h3>` is right under a page `<h1>` and a
@@ -980,8 +1271,10 @@ export function EmptyState({
 }) {
   const Heading = level === 2 ? "h2" : "h3";
   return (
-    <div className="empty-state">
-      <div className="empty-icon">{icon}</div>
+    <div className={`empty-state ${compact ? "empty-state-compact" : ""}`}>
+      <div className="empty-icon">
+        <Icon size={EMPTY_ICON} />
+      </div>
       <Heading>{title}</Heading>
       <p>{body}</p>
       {action}

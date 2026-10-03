@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Pencil, Plus, Repeat, Search, Trash2 } from "lucide-react";
+import { AlertTriangle, Pencil, Plus, Repeat, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
   api,
@@ -16,11 +16,11 @@ import {
   compareForSort,
   ConfirmDialog,
   EmptyState,
-  Input,
-  Select,
   Modal,
   PageHeader,
   RowMenu,
+  SearchBox,
+  Select,
   Skeleton,
   SortableHeader,
   type SortState,
@@ -30,6 +30,7 @@ import { compareMoney, formatDate, formatMoney, movementSign } from "../money.js
 import { RecurrenceForm, scheduleSentence } from "../forms.js";
 import { Link } from "../router.js";
 import { transactionTypeLabels } from "./TemplatesPage.js";
+import { emptyScreen, waysOut } from "../list-filters.js";
 
 type RecurrenceSortField = "name" | "schedule" | "amount" | "next" | "proposed" | "notifies";
 
@@ -37,6 +38,10 @@ export default function RecurrencesPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
+  const { ways } = emptyScreen([
+    { set: Boolean(search.trim()), clear: "clear the search" },
+    { set: Boolean(typeFilter), clear: "clear the type filter" },
+  ]);
   const [sort, setSort] = useState<SortState<RecurrenceSortField>>({
     field: "next",
     direction: "asc",
@@ -123,14 +128,18 @@ export default function RecurrencesPage() {
   }, [recurrences.data, search, typeFilter, sort]);
 
   const overdue = visible.filter((recurrence) => recurrence.overdue).length;
-  const error = recurrences.error ?? accounts.error ?? deletion.error;
+  /** Split for the reason `TemplatesPage` gives: a read failure belongs where
+   *  the list would have been, a refusal belongs beside the control, and
+   *  folding them made a refused delete blank the list. */
+  const readError = recurrences.error ?? accounts.error;
+  const actionError = deletion.error;
 
   return (
     <>
       <PageHeader
         eyebrow="Ledger"
         title="Recurring"
-        description="Standing instructions that add a row to Staged transactions on a schedule. Nothing is posted until you commit it."
+        description="Rules that add a row to Staged transactions on a schedule. Nothing is posted until you commit it."
         actions={
           <Button type="button" onClick={() => setCreating(true)}>
             <Plus size={16} /> New recurrence
@@ -138,7 +147,7 @@ export default function RecurrencesPage() {
         }
       />
 
-      {error ? <Alert>{error.message}</Alert> : null}
+      {actionError ? <Alert>{actionError.message}</Alert> : null}
       {overdue ? (
         <Alert kind="error">
           <AlertTriangle size={16} aria-hidden />{" "}
@@ -146,17 +155,13 @@ export default function RecurrencesPage() {
         </Alert>
       ) : null}
 
-      <div className="category-toolbar">
-        <label className="search-box">
-          <Search size={16} />
-          <Input
-            type="search"
-            aria-label="Search recurrences"
-            placeholder="Search recurrences"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
-        </label>
+      <div className="filter-bar">
+        <SearchBox
+          label="Search recurrences"
+          placeholder="Search name or payee"
+          value={search}
+          onChange={setSearch}
+        />
         <Select
           aria-label="Filter by type"
           value={typeFilter}
@@ -172,15 +177,19 @@ export default function RecurrencesPage() {
       {/* As on Templates: an errored query is not pending, so the empty state
           announced there were no recurrences over an alert saying the list
           could not be read. */}
-      {error ? null : recurrences.isPending || accounts.isPending ? (
+      {readError ? (
+        <Alert>{readError.message}</Alert>
+      ) : recurrences.isPending || accounts.isPending ? (
         <Skeleton height={120} label="Loading recurrences…" />
       ) : visible.length === 0 ? (
         <EmptyState
-          icon={<Repeat size={25} />}
-          title={recurrences.data?.items.length ? "No recurrence matches" : "No recurrences yet"}
+          icon={Repeat}
+          title={recurrences.data?.items.length ? "No recurrences match" : "No recurrences yet"}
           body={
             recurrences.data?.items.length
-              ? "Nothing here matches that search."
+              ? // As on Templates: the Type select is the other way this list
+                // empties, and it was never named.
+                waysOut(ways)
               : "Set one up for anything that arrives on a schedule: rent, a salary, a subscription. Make one here, or open the menu on any transaction and choose “Save as recurring transaction”. Each due date puts a row on Staged transactions for you to check."
           }
         />
@@ -222,7 +231,9 @@ export default function RecurrencesPage() {
                     sort={sort}
                     onSort={setSort}
                   />
-                  <th scope="col" aria-label="Actions" />
+                  <th scope="col">
+                    <span className="sr-only">Actions</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>

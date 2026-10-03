@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LayoutTemplate, ListChecks, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { LayoutTemplate, Pencil, Plus, Trash2 } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
 import { api, json, type Account, type Category, type TransactionTemplate } from "../api.js";
 import {
@@ -16,18 +16,23 @@ import {
   PageHeader,
   Pagination,
   RowMenu,
+  SearchBox,
   Select,
+  SelectionBar,
   SelectionCheckbox,
+  selectionCount,
   Skeleton,
   SortableHeader,
   type SortState,
   useConfirm,
 } from "../components.js";
-import { formatDate, compareMoney, formatMoney, movementSign } from "../money.js";
+import { formatDate, formatTime, compareMoney, formatMoney, movementSign } from "../money.js";
 import { TemplateForm } from "../forms.js";
 import { Link, useLocation } from "../router.js";
+import { allTimeSearch } from "../date-range.js";
 import { newIdempotencyKey } from "../idempotency.js";
 import type { TransactionTemplateBulkPatch } from "../../shared/domain.js";
+import { emptyScreen, waysOut } from "../list-filters.js";
 
 const PAGE_SIZE = 25;
 
@@ -125,6 +130,11 @@ export default function TemplatesPage() {
   const location = useLocation();
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
+  // Both of the controls on the bar, not just the search box.
+  const { ways } = emptyScreen([
+    { set: Boolean(search.trim()), clear: "clear the search" },
+    { set: Boolean(typeFilter), clear: "clear the type filter" },
+  ]);
   const [sort, setSort] = useState<SortState<TemplateSortField>>({
     field: "name",
     direction: "asc",
@@ -361,8 +371,22 @@ export default function TemplatesPage() {
   };
 
   const anyChange = BULK_FIELDS.some((field) => actions[field.key] !== "leave");
-  const error =
-    templates.error ?? accounts.error ?? categories.error ?? bulkDelete.error ?? deletion.error;
+  /**
+   * Split in two, because the two belong in different places and one of them
+   * was blanking the list.
+   *
+   * `readError` is the list failing to load: it renders where the list would
+   * have been, so the explanation sits in the hole rather than above controls
+   * that still work. `actionError` is a refusal of something pressed, and it
+   * renders beside the controls that caused it, above the bar.
+   *
+   * They were one `error` folding all five, which put a read failure above the
+   * bar and — worse — made `error ? null` blank the whole list on a refused
+   * delete. A delete that was turned down is not a reason to stop showing
+   * somebody their templates.
+   */
+  const readError = templates.error ?? accounts.error ?? categories.error;
+  const actionError = bulkDelete.error ?? deletion.error;
 
   return (
     <>
@@ -377,7 +401,7 @@ export default function TemplatesPage() {
         }
       />
 
-      {error ? <Alert>{error.message}</Alert> : null}
+      {actionError ? <Alert>{actionError.message}</Alert> : null}
       {notice ? (
         <Alert kind="success" takeFocus>
           {notice}
@@ -390,21 +414,17 @@ export default function TemplatesPage() {
           bought nothing and made this control 20px taller than the search box
           beside it — which `align-items: center` then rendered as two boxes at
           different heights. Every other filter in the app is already bare. */}
-      <div className="category-toolbar">
-        <label className="search-box">
-          <Search size={16} />
-          <Input
-            type="search"
-            aria-label="Search templates"
-            placeholder="Search templates"
-            value={search}
-            onChange={(event) => {
-              setSearch(event.target.value);
-              setPage(1);
-              clearSelection();
-            }}
-          />
-        </label>
+      <div className="filter-bar">
+        <SearchBox
+          label="Search templates"
+          placeholder="Search name, payee, or notes"
+          value={search}
+          onChange={(next) => {
+            setSearch(next);
+            setPage(1);
+            clearSelection();
+          }}
+        />
         <Select
           aria-label="Filter by type"
           value={typeFilter}
@@ -422,41 +442,37 @@ export default function TemplatesPage() {
       </div>
 
       {selectedIds.length ? (
-        <div className="transaction-selection-bar" aria-live="polite">
-          <div>
-            <ListChecks size={17} aria-hidden />
-            <strong>
-              {`${selectedIds.length} template${selectedIds.length === 1 ? "" : "s"} selected`}
-            </strong>
-          </div>
-          <div className="transaction-selection-actions">
-            {selectedIds.length < filtered.length ? (
-              <Button type="button" variant="secondary" onClick={selectAllMatching}>
-                {`Select all ${filtered.length} matching`}
-              </Button>
-            ) : null}
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => {
-                resetBulkForm();
-                setBulkEditing(true);
-              }}
-            >
-              <Pencil size={16} /> Edit selected
+        <SelectionBar
+          summary={`${selectionCount(selectedIds.length)} template${
+            selectedIds.length === 1 ? "" : "s"
+          } selected`}
+        >
+          {selectedIds.length < filtered.length ? (
+            <Button type="button" variant="secondary" onClick={selectAllMatching}>
+              {`Select all ${selectionCount(filtered.length)} matching`}
             </Button>
-            <Button
-              type="button"
-              variant="danger"
-              onClick={() => bulkRemoval.ask(selectedIds.length, () => bulkDelete.mutate())}
-            >
-              <Trash2 size={16} /> Delete selected
-            </Button>
-            <Button type="button" variant="ghost" onClick={clearSelection}>
-              Clear selection
-            </Button>
-          </div>
-        </div>
+          ) : null}
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => {
+              resetBulkForm();
+              setBulkEditing(true);
+            }}
+          >
+            <Pencil size={16} /> Edit selected
+          </Button>
+          <Button
+            type="button"
+            variant="danger"
+            onClick={() => bulkRemoval.ask(selectedIds.length, () => bulkDelete.mutate())}
+          >
+            <Trash2 size={16} /> Delete selected
+          </Button>
+          <Button type="button" variant="ghost" onClick={clearSelection}>
+            Clear selection
+          </Button>
+        </SelectionBar>
       ) : null}
 
       {/* The error takes the list's slot rather than stacking above it. An
@@ -464,15 +480,20 @@ export default function TemplatesPage() {
           and the page said "No templates yet" over an alert explaining that it
           could not tell — 12.1's four states collapsed into three and a banner.
           The Alert above already carries the message. */}
-      {error ? null : templates.isPending || accounts.isPending || categories.isPending ? (
+      {readError ? (
+        <Alert>{readError.message}</Alert>
+      ) : templates.isPending || accounts.isPending || categories.isPending ? (
         <Skeleton height={120} label="Loading templates…" />
       ) : filtered.length === 0 ? (
         <EmptyState
-          icon={<LayoutTemplate size={25} />}
-          title={templates.data?.length ? "No template matches" : "No templates yet"}
+          icon={LayoutTemplate}
+          title={templates.data?.length ? "No templates match" : "No templates yet"}
           body={
             templates.data?.length
-              ? "Nothing here matches that search."
+              ? // The Type select empties this list as readily as the search
+                // box does, and blaming the search to somebody who typed
+                // nothing sends them to the wrong control.
+                waysOut(ways)
               : "Make one here, or open the menu on any transaction and choose “Save as template”."
           }
         />
@@ -521,7 +542,9 @@ export default function TemplatesPage() {
                     sort={sort}
                     onSort={setSort}
                   />
-                  <th scope="col" aria-label="Actions" />
+                  <th scope="col">
+                    <span className="sr-only">Actions</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -583,8 +606,20 @@ export default function TemplatesPage() {
                         )}
                       </td>
                       <td className="align-right">
+                        {/* This link's whole text is an all-time count, so
+                            11.7 applies to it as plainly as it does to the
+                            post-import review link: it has to open on the rows
+                            it counted. Forwarding `location.search` was the
+                            fix recorded as made and it pins nothing, because
+                            this page mounts no `DateRangeBar` and so has no
+                            `preset` in its URL to forward — the detail page
+                            then reads the missing param as this-month and a
+                            link saying 40 opens a list of none. */}
                         <Link
-                          to={{ pathname: `/templates/${template.id}`, search: location.search }}
+                          to={{
+                            pathname: `/templates/${template.id}`,
+                            search: allTimeSearch(location.search),
+                          }}
                           aria-label={`Transactions from ${template.name}`}
                         >
                           {template.totalTransactionCount ?? 0}
@@ -603,7 +638,7 @@ export default function TemplatesPage() {
                             </Badge>
                             <span className="table-subtitle">
                               {template.notification.nextNotificationDate
-                                ? `${formatDate(template.notification.nextNotificationDate)} at ${template.notification.time}`
+                                ? `${formatDate(template.notification.nextNotificationDate)} at ${formatTime(template.notification.time)}`
                                 : template.notification.repeats
                                   ? // A repeating rule owing nothing is not a
                                     // rule that has finished: every occurrence

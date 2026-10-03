@@ -277,7 +277,7 @@ export function templateReminderMessage(
       `\n${
         repeats
           ? "This reminder repeats. Change or turn it off on the template's edit screen."
-          : "This was a one-off reminder, so there will not be another."
+          : "This was a one-time reminder, so there will not be another."
       }\n`,
   };
 }

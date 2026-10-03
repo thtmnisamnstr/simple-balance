@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { ArrowLeft, Landmark } from "lucide-react";
+import { ArrowLeft, CalendarCheck, History, Landmark, Scale, TrendingUp } from "lucide-react";
 import { Link, useLocation, useParams } from "../router.js";
 import {
   api,
@@ -15,6 +15,7 @@ import {
   Button,
   DateRangeBar,
   EmptyState,
+  MetricTile,
   Note,
   PageHeader,
   Skeleton,
@@ -23,21 +24,33 @@ import { compareMoney, formatDate, formatMoney, isNegativeMoney } from "../money
 import { useDateRange } from "../date-range.js";
 import { TransactionBrowser } from "../TransactionBrowser.js";
 
+/**
+ * The four figures, each with the glyph that says which one it is.
+ *
+ * One icon drawn four times is a channel carrying nothing: the band was four
+ * identical saturated green squares beside four different numbers, and the
+ * loudest thing on the page. `Scale` and `TrendingUp` are the same two the
+ * Overview uses for the same two meanings.
+ */
 const balanceLabels = {
   beginning: {
     title: "Beginning balance",
+    icon: History,
     description: "Immediately before this date range",
   },
   ending: {
     title: "Ending balance",
+    icon: CalendarCheck,
     description: "At the end of this date range",
   },
   current: {
     title: "Current balance",
+    icon: Scale,
     description: "As of today",
   },
   future: {
     title: "Future balance",
+    icon: TrendingUp,
     description: "Including every future transaction",
   },
 } as const;
@@ -77,52 +90,110 @@ export default function AccountDetailPage() {
     enabled: Boolean(accountId) && showRegister,
   });
 
-  if (account.error) return <Alert>{account.error.message}</Alert>;
-  if (!account.data) return <p role="status">Loading account…</p>;
-
-  return (
+  /**
+   * The back link and the page header, before any of the four states rather
+   * than after them.
+   *
+   * `web.md` 12.1 says four states per list, and nothing said the four states
+   * are states of the page's BODY. So this page returned its skeleton and its
+   * alert from above the header and took the title, the eyebrow and the way
+   * back to the list down with them — and `document.title` is set inside
+   * `PageHeader`, whose own comment is that two windows of this app are
+   * otherwise indistinguishable in a task switcher. A fresh tab on this URL
+   * read the bare app name until the query landed, and forever if it failed.
+   *
+   * The eyebrow waits for the name, because an eyebrow and an `h1` saying the
+   * same word is decoration that reads as structure (16).
+   */
+  const header = (
     <>
       <Link className="back-link" to={{ pathname: "/accounts", search: location.search }}>
         <ArrowLeft size={16} /> All accounts
       </Link>
       <PageHeader
-        eyebrow="Account"
-        title={account.data.name}
-        description={account.data.institution || "Transactions and balances for this account."}
+        eyebrow={account.data ? "Account" : undefined}
+        title={account.data?.name ?? "Account"}
+        description="Transactions and balances for this account."
         actions={
-          <>
-            <Badge tone="blue">{account.data.currency}</Badge>
-            {account.data.archivedAt ? <Badge>Archived</Badge> : null}
-          </>
+          account.data ? (
+            <>
+              {/* The institution was the description until it was moved here,
+                  and the move is the rule rather than taste: the description
+                  slot is authored copy and a varying fact belongs in a badge
+                  (web.md 7.5). As a description it rendered a bare noun —
+                  "Chase" — where the other three detail pages render a
+                  sentence, and it pushed the one authored sentence this page
+                  has out of every account that names its bank. Beside the
+                  currency it reads as what it is, and all four detail pages
+                  are one shape: eyebrow, name, badges, sentence. */}
+              {account.data.institution ? (
+                <Badge>
+                  <Landmark size={14} /> {account.data.institution}
+                </Badge>
+              ) : null}
+              <Badge tone="blue">{account.data.currency}</Badge>
+              {account.data.archivedAt ? <Badge>Archived</Badge> : null}
+              {account.data.frozen ? <Badge tone="amber">Frozen</Badge> : null}
+            </>
+          ) : undefined
         }
       />
+    </>
+  );
+
+  if (account.error)
+    return (
+      <>
+        {header}
+        <Alert>{account.error.message}</Alert>
+      </>
+    );
+  if (!account.data)
+    return (
+      <>
+        {header}
+        <p role="status">Loading account…</p>
+      </>
+    );
+
+  return (
+    <>
+      {header}
       {balances.error ? <Alert>{balances.error.message}</Alert> : null}
       <DateRangeBar />
-      <section className="balance-snapshot-grid" aria-label="Account balances">
+      <section className="metric-grid" aria-label="Account balances">
         {(Object.keys(balanceLabels) as (keyof typeof balanceLabels)[]).map((key) => {
           const value = balances.data?.[key];
+          const prefix =
+            value?.balancePresentation.label === "Amount owed"
+              ? "Amount owed · "
+              : value?.balancePresentation.label === "Credit balance"
+                ? "Credit balance · "
+                : "";
+          // Which day "today" was, which the server has computed in the
+          // account's own timezone and sent since the first release and this
+          // page never printed. `AGENTS.md` makes it an invariant that a
+          // summary reports the day it used, and the Overview, the reports and
+          // the register three inches below all name theirs.
+          // Guarded the way `value` above it is: this band already renders
+          // from a response that may be missing pieces, and a snapshot without
+          // a range falls back to the static words rather than taking the page
+          // down.
+          const today = balances.data?.range?.today;
+          const asOf =
+            key === "current" && today
+              ? `As of ${formatDate(today)}`
+              : balanceLabels[key].description;
           return (
-            <article className="balance-snapshot" key={key}>
-              <span className="account-icon">
-                <Landmark size={18} />
-              </span>
-              <div>
-                <span>{balanceLabels[key].title}</span>
-                <strong>
-                  {value
-                    ? formatMoney(value.balancePresentation.amount, account.data.currency)
-                    : "—"}
-                </strong>
-                <small>
-                  {value?.balancePresentation.label === "Amount owed"
-                    ? "Amount owed · "
-                    : value?.balancePresentation.label === "Credit balance"
-                      ? "Credit balance · "
-                      : ""}
-                  {balanceLabels[key].description}
-                </small>
-              </div>
-            </article>
+            <MetricTile
+              key={key}
+              icon={balanceLabels[key].icon}
+              label={balanceLabels[key].title}
+              figure={
+                value ? formatMoney(value.balancePresentation.amount, account.data.currency) : "—"
+              }
+              note={`${prefix}${asOf}`}
+            />
           );
         })}
       </section>
@@ -134,7 +205,10 @@ export default function AccountDetailPage() {
             description: "Filter, search, export, or add activity for this account.",
           }}
           fixedAccountId={accountId}
-          allowCreate={!account.data.archivedAt}
+          // A frozen account refuses a new entry exactly as an archived one
+          // does, and the form this opens is preselected to it, so offering
+          // the button would be offering a save the server then refuses.
+          allowCreate={!account.data.archivedAt && !account.data.frozen}
           showDateRange={false}
         />
       </section>
@@ -148,9 +222,20 @@ export default function AccountDetailPage() {
               is wrong and you need the row it went wrong on.
             </p>
           </div>
-          <Button type="button" variant="secondary" onClick={() => setShowRegister(!showRegister)}>
-            {showRegister ? "Hide register" : "Show register"}
-          </Button>
+          {/* In `page-actions` rather than loose, which is what every other
+              section heading with a button does. `.page-actions` is the thing
+              carrying `flex: 0 0 auto`; a bare button is a shrinkable flex item
+              beside a long description, and this one was rendering as two
+              lines reading "Show" and "register". */}
+          <div className="page-actions">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setShowRegister(!showRegister)}
+            >
+              {showRegister ? "Hide register" : "Show register"}
+            </Button>
+          </div>
         </div>
 
         {showRegister ? (
@@ -248,7 +333,7 @@ export default function AccountDetailPage() {
                 // account held before this range began, so a non-zero one means
                 // the postings exist and are simply outside the window.
                 <EmptyState
-                  icon={<Landmark size={22} />}
+                  icon={Landmark}
                   title={
                     compareMoney(register.data.openingBalance, "0") === 0
                       ? "Nothing posted to this account yet"

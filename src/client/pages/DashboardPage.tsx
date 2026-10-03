@@ -1,6 +1,14 @@
 import { Link, useLocation } from "../router.js";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowDownLeft, ArrowUpRight, Landmark, Plus, Scale, TrendingUp } from "lucide-react";
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  Landmark,
+  Plus,
+  Scale,
+  Target,
+  TrendingUp,
+} from "lucide-react";
 import { useState } from "react";
 import { groupAccountsByType } from "../../shared/domain.js";
 import {
@@ -18,6 +26,7 @@ import {
   Button,
   DateRangeBar,
   EmptyState,
+  MetricTile,
   Modal,
   Note,
   PageHeader,
@@ -62,7 +71,7 @@ export default function DashboardPage() {
   // showing. Keyed under "budgets" so setting one over there refreshes this.
   //
   // Some of what it carries is dropped here on purpose (§11.9), and neither
-  // `rows` nor `groups` is among them any more. "How is the budget going"
+  // `rows` nor `groups` is among them anymore. "How is the budget going"
   // turned out to be two questions — how is it going, and where is it going
   // wrong — and the second needs the categories, so a reader had to leave the
   // page to learn which budget the period's red bar was about. Every budgeted
@@ -83,7 +92,7 @@ export default function DashboardPage() {
   // group's own budget is pushed to `groups` and skipped — so a ledger
   // budgeted entirely at the group level had a period of zero and was filtered
   // out, taking its group rows with it. It said nothing was budgeted while the
-  // budgets page showed the group, and one unrelated £1 category budget was
+  // budgets page showed the group, and one unrelated $1 category budget was
   // enough to make the whole thing appear.
   const budgetPeriodsFor = (currency: string) =>
     (budgets.data?.periods ?? []).filter(
@@ -120,7 +129,7 @@ export default function DashboardPage() {
         </div>
       ) : summary.error ? null : !summary.data?.currencies.length ? (
         <EmptyState
-          icon={<Landmark size={25} />}
+          icon={Landmark}
           title="Create your first account"
           body="An account is where your money lives. Once one exists, deposits, withdrawals, and transfers show up here."
           action={
@@ -143,46 +152,30 @@ export default function DashboardPage() {
                 </span>
               </div>
               <div className="metric-grid">
-                <article className="metric-card metric-balance">
-                  <span className="metric-icon">
-                    <Scale size={18} />
-                  </span>
-                  <div>
-                    <span>Balance</span>
-                    <strong>{formatMoney(currency.balance, currency.currency)}</strong>
-                  </div>
-                </article>
-                <article className="metric-card">
-                  <span className="metric-icon positive">
-                    <ArrowDownLeft size={18} />
-                  </span>
-                  <div>
-                    <span>Deposits</span>
-                    <strong>{formatMoney(currency.deposits, currency.currency)}</strong>
-                  </div>
-                </article>
-                <article className="metric-card">
-                  <span className="metric-icon negative">
-                    <ArrowUpRight size={18} />
-                  </span>
-                  <div>
-                    <span>Withdrawals</span>
-                    <strong>{formatMoney(currency.withdrawals, currency.currency)}</strong>
-                  </div>
-                </article>
-                <article className="metric-card">
-                  <span className="metric-icon">
-                    <TrendingUp size={18} />
-                  </span>
-                  <div>
-                    <span>Net cash flow</span>
-                    <strong
-                      className={isNegativeMoney(currency.netCashFlow) ? "money-negative" : ""}
-                    >
-                      {formatMoney(currency.netCashFlow, currency.currency)}
-                    </strong>
-                  </div>
-                </article>
+                <MetricTile
+                  emphasis
+                  icon={Scale}
+                  label="Balance"
+                  figure={formatMoney(currency.balance, currency.currency)}
+                />
+                <MetricTile
+                  icon={ArrowDownLeft}
+                  tone="positive"
+                  label="Deposits"
+                  figure={formatMoney(currency.deposits, currency.currency)}
+                />
+                <MetricTile
+                  icon={ArrowUpRight}
+                  tone="negative"
+                  label="Withdrawals"
+                  figure={formatMoney(currency.withdrawals, currency.currency)}
+                />
+                <MetricTile
+                  icon={TrendingUp}
+                  label="Net cash flow"
+                  figure={formatMoney(currency.netCashFlow, currency.currency)}
+                  negative={isNegativeMoney(currency.netCashFlow)}
+                />
               </div>
               <div className="dashboard-detail-grid">
                 <article className="panel">
@@ -194,7 +187,10 @@ export default function DashboardPage() {
                       As of {formatDate(summary.data?.asOf ?? end ?? "") || "today"}
                     </span>
                   </header>
-                  <div>
+                  {/* Named, so the distance between two groups is the list's
+                      decision rather than a `+` margin on whichever group
+                      happens to be second (7.4). */}
+                  <div className="account-mini-list">
                     {groupAccountsByType(currency.accounts).map((group) => (
                       <div className="account-mini-group" key={group.type}>
                         <h4 className="account-mini-heading">{group.label}</h4>
@@ -231,7 +227,7 @@ export default function DashboardPage() {
                   {currency.spendingByCategory.length ? (
                     <div>
                       {(() => {
-                        // Uncategorised arrives last from the server and stays
+                        // Uncategorized arrives last from the server and stays
                         // last here, but it is kept rather than cut: it is the
                         // one row that says there is filing left to do, and
                         // losing it at rank eight would hide that.
@@ -244,7 +240,7 @@ export default function DashboardPage() {
                         return [...named.slice(0, 7), ...unnamed];
                       })().map((item, _index, shown) => {
                         // Scaled against the largest row on show rather than
-                        // the first. With uncategorised moved off the top the
+                        // the first. With uncategorized moved off the top the
                         // first row is no longer necessarily the biggest, and a
                         // ratio over one is clamped to a full bar, which would
                         // draw two different amounts the same width.
@@ -254,7 +250,7 @@ export default function DashboardPage() {
                           <div key={item.categoryId ?? "uncategorized"} className="spending-row">
                             <div>
                               {/* Linked where there is something to link to.
-                                  Uncategorised has no id — it is the absence of
+                                  Uncategorized has no id — it is the absence of
                                   a category rather than one of them — and a
                                   link to /categories/null is a 404. The range
                                   travels, because the detail page mounts its
@@ -282,7 +278,12 @@ export default function DashboardPage() {
                       })}
                     </div>
                   ) : (
-                    <p className="panel-empty">No withdrawals in this date range.</p>
+                    <EmptyState
+                      compact
+                      icon={ArrowUpRight}
+                      title="No spending in this range"
+                      body="Withdrawals land here, largest category first, as soon as there are any."
+                    />
                   )}
                 </article>
               </div>
@@ -323,7 +324,12 @@ export default function DashboardPage() {
                 {!budgets.isError &&
                 !budgets.isPending &&
                 budgetPeriodsFor(currency.currency).length === 0 ? (
-                  <p className="panel-empty">No budget set in this range.</p>
+                  <EmptyState
+                    compact
+                    icon={Target}
+                    title="No budget in this range"
+                    body="Set one on the budgets page and how it is going shows here."
+                  />
                 ) : null}
                 {budgetPeriodsFor(currency.currency).map((period, index, all) => {
                   const state = periodState(period);
@@ -339,7 +345,7 @@ export default function DashboardPage() {
                   // at two hundred and spent nothing on is the row this panel
                   // exists to show, and an unbudgeted category is spending
                   // "Spending by category" above already reports — a row
-                  // reading "£100.00 of —" is a budget nobody set.
+                  // reading "$100.00 of —" is a budget nobody set.
                   //
                   // Uncapped, because a cap on a list somebody chose the length
                   // of is a cap on their own budget: the budgets page shows all
@@ -361,9 +367,9 @@ export default function DashboardPage() {
                           period budgeted only at the group level has nothing
                           for it to measure: `available` is zero, which
                           `periodState` reads as over and `fillPercent` draws as
-                          a full bar. It would say "£500.00 of £0.00, Over"
-                          directly above a group row reading "£500.00 of
-                          £800.00, So far". The name alone is honest; the group
+                          a full bar. It would say "$500.00 of $0.00, Over"
+                          directly above a group row reading "$500.00 of
+                          $800.00, So far". The name alone is honest; the group
                           rows beneath carry the figures. Folding group limits
                           into the total is the other tempting answer and is
                           refused in the service for the same reason
@@ -379,8 +385,8 @@ export default function DashboardPage() {
                             </span>
                             {/* `available`, like the bar at the end of this row
                               and the badge beside it. It printed `budgeted`, so
-                              a period carrying money forward read "£450.00 of
-                              £100.00" next to a bar at 90% and a "Nearly there"
+                              a period carrying money forward read "$450.00 of
+                              $100.00" next to a bar at 90% and a "Nearly there"
                               badge — the disagreement the category rows below
                               were written to end, left in the line above them. */}
                             <strong>
@@ -482,8 +488,8 @@ export default function DashboardPage() {
                         // badge. `remaining` is `available` minus what was
                         // spent (`budgets.ts:1665`), so printing the bare
                         // limit beside a bar drawn against `available` made a
-                        // category that carried money forward read "£245.00 of
-                        // £200.00" next to a bar under half full.
+                        // category that carried money forward read "$245.00 of
+                        // $200.00" next to a bar under half full.
                         const room = row.available ?? row.limit!;
                         const spent = formatMoney(row.actual, currency.currency);
                         const limit = formatMoney(room, currency.currency);

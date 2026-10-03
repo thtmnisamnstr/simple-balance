@@ -154,7 +154,7 @@ describe("a scheduler started without one", () => {
  * route survives migrations and that nothing else is mounted beside it.
  */
 describe("the scheduler's metrics endpoint", () => {
-  it("answers on the health port, labelled as the scheduler", async () => {
+  it("answers on the health port, labeled as the scheduler", async () => {
     vi.stubEnv("METRICS_ENABLED", "true");
 
     await startScheduler();

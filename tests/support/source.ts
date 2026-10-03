@@ -56,6 +56,84 @@ export function sourceFiles(relative: string): SourceFile[] {
 }
 
 /**
+ * Every file in the repository, for a rule that is about a *kind* of file rather
+ * than a named one.
+ *
+ * `sourceFiles` above answers "every module under `src/`", which is the shape
+ * most rules in `docs/standards/code/` need. This answers the other shape: every
+ * Dockerfile, every compose file, every workflow — populations that live all over
+ * the tree and that a test would otherwise have to enumerate.
+ *
+ * Enumerating is the failure this exists to prevent, and it is not hypothetical.
+ * Three checks in this repository listed their files, and each was wrong the
+ * moment a file was added: the readiness check missed four of the five places
+ * that wait for PostgreSQL, the image guard missed the database image entirely
+ * while `operations.md` claimed every image pins its base by digest, and a
+ * document check skipped documents. A list is a claim about what exists, made
+ * once, by somebody who could not see the future.
+ *
+ * The distinction worth holding is between a **population** and an
+ * **exception**. A population is discovered — that is this function. An
+ * exception is written down, named, and argued, the way `CONFIGURATION_LAYER` in
+ * `tests/log-level.test.ts` and `ALLOWED` in
+ * `tests/transport-database-access.test.ts` are. Those arrays are correct
+ * precisely because they are the exceptions rather than the population.
+ */
+export type RepoFile = {
+  /** Repository-relative and slash-separated. */
+  readonly path: string;
+  readonly text: string;
+};
+
+/**
+ * Directories with nothing to check in them. Kept small on purpose: every entry
+ * is a place a rule cannot reach, so a long list is a large blind spot.
+ */
+const UNCHECKED = new Set([
+  "node_modules",
+  ".git",
+  "dist",
+  "coverage",
+  "playwright-report",
+  "test-results",
+  ".pulumi",
+]);
+
+/**
+ * Every repository file whose path satisfies `match`, read.
+ *
+ * The predicate runs on the path before the file is read, so a sweep for one
+ * kind of file does not pay for the rest of the tree.
+ */
+export function repoFiles(match: (relativePath: string) => boolean): RepoFile[] {
+  const found: RepoFile[] = [];
+  const walk = (directory: string) => {
+    const entries = readdirSync(directory, { withFileTypes: true });
+    // Sorted, so a failure lists the same files in the same order everywhere.
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      if (UNCHECKED.has(entry.name)) continue;
+      const full = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+        continue;
+      }
+      const relative = path.relative(repoRoot, full).split(path.sep).join("/");
+      if (!match(relative)) continue;
+      // A binary or unreadable file is skipped rather than failing the sweep:
+      // this walks the whole tree, and one image would stop every rule using it.
+      try {
+        found.push({ path: relative, text: readFileSync(full, "utf8") });
+      } catch {
+        continue;
+      }
+    }
+  };
+  walk(repoRoot);
+  return found;
+}
+
+/**
  * The characters after which a `/` starts a regular expression rather than
  * dividing.
  *

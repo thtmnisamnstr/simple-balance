@@ -114,7 +114,7 @@ integration("what a split looks like in the reports", () => {
     expect(total).toBe("125");
   });
 
-  it("moves past spending when a leg is recategorised, and still adds up", async () => {
+  it("moves past spending when a leg is recategorized, and still adds up", async () => {
     const before = await spending();
     const current = (await listTransactions(actor, { limit: 50 })).items.find(
       (item) => item.id === splitId,
@@ -265,7 +265,7 @@ integration("what a split looks like in the reports", () => {
       (item) => item.id === splitId,
     )!;
     expect(after.legs.map((leg) => leg.category?.name)).toEqual(["Pets", "Household"]);
-    // A relabelled leg has to move the row's version, or a mass edit's
+    // A relabeled leg has to move the row's version, or a mass edit's
     // description of the set it is about to change agrees about a row that
     // changed underneath it.
     expect(after.version).toBeGreaterThan(before.version);

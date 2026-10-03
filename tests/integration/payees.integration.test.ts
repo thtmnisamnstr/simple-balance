@@ -495,11 +495,11 @@ integration("derived payee management", () => {
 
   /**
    * `payeeSummariesMatching` narrows in SQL what `payeeSummaries` groups in
-   * JavaScript, so the two normalisations have to agree exactly. Divergence would
+   * JavaScript, so the two normalizations have to agree exactly. Divergence would
    * not fail visibly: a write would simply stop reusing the spelling already in
    * the ledger and quietly start a second one.
    */
-  describe("the two spellings of one normalisation", () => {
+  describe("the two spellings of one normalization", () => {
     it.each([
       ["Trader Joe's", "  trader   JOE'S  "],
       ["Cafe\u0301 Rio", "CAFE\u0301 RIO"],
@@ -507,7 +507,7 @@ integration("derived payee management", () => {
       ["Ünïcode Store", "ÜNÏCODE   store"],
     ])("groups %s and %s together either way", async (stored, variant) => {
       const account = await createAccount(primary, {
-        name: `Normalisation ${stored}`,
+        name: `Normalization ${stored}`,
         type: "checking",
         currency: "USD",
         openingDate: "2029-01-01",
@@ -523,7 +523,7 @@ integration("derived payee management", () => {
           fromAccountId: account.id,
           amount: "1.00",
         },
-        `normalisation-${normalizeHumanName(stored)}`,
+        `normalization-${normalizeHumanName(stored)}`,
       );
 
       const db = getDb();
@@ -532,7 +532,7 @@ integration("derived payee management", () => {
       const inJs = (await payeeSummaries(db, primary)).filter(
         (summary) => summary.normalizedName === normalized,
       );
-      // The write canonicalises the payee on the way in, so what is stored is
+      // The write canonicalizes the payee on the way in, so what is stored is
       // the NFKC form of what was typed, not the keystrokes.
       const canonical = cleanHumanName(stored);
       expect(inJs.map((summary) => summary.name)).toContain(canonical);

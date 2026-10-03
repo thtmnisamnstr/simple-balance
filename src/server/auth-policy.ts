@@ -1,5 +1,7 @@
 import { and, eq, isNotNull } from "drizzle-orm";
 import {
+  adsEnabled,
+  stripeConfigured,
   getConfig,
   isEmailAllowed,
   isRegistrationClosed,
@@ -220,7 +222,7 @@ export async function getPublicAuthOptions() {
     setupTokenOffered: config.isProduction && unclaimed && !isRegistrationOpenToAnyone(),
     // Both need a mail server. Without one there is no link to send, so the
     // screen must not offer a reset it cannot perform, and a new account is
-    // usable straight away rather than waiting on a message that never comes.
+    // usable right away rather than waiting on a message that never comes.
     passwordResetAvailable: config.localAuthEnabled && mailEnabled(),
     emailVerificationRequired: config.localAuthEnabled && mailEnabled(),
     // Not gated on local auth, unlike the two above: somebody who signed in
@@ -228,6 +230,43 @@ export async function getPublicAuthOptions() {
     // offering a reminder can say when the deployment has no way to deliver one,
     // rather than accepting a setting that quietly never fires.
     notificationsAvailable: mailEnabled(),
+    // Whether this deployment has a billing surface at all, and whether it
+    // serves ads. Both are properties of the deployment rather than of the
+    // person, which is why they sit here and are readable before anybody signs
+    // in: the sign-in screen and the application shell both need to know the
+    // shape of the product before there is a session to ask about. What a
+    // *given* person is entitled to is a different question and is answered on
+    // the session.
+    //
+    // `stripeConfigured()`, deliberately, and not `billingEnabled()`. This is
+    // what the browser gates the only link to the plan tab on, and the plan tab
+    // is where somebody cancels and where somebody replaces an expired card.
+    // Reading the selling flag here would board that door up the moment an
+    // operator stopped selling — while their subscriptions carried on being
+    // charged at Stripe, which is the trap `docs/billing-operations.md` promises
+    // a pause is not. Whether anything is for sale is reported separately, as
+    // `selling` on the plan tab's own payload.
+    billingAvailable: stripeConfigured(),
+    adsAvailable: adsEnabled(),
+    /*
+     * Published whenever there is one, not only to the people who see ads, and
+     * before anybody has signed in.
+     *
+     * Google's policy requires the link on pages serving ads, which would
+     * argue for putting it on the ad placement — and the ad placement is null
+     * for anybody on a paid plan, so a subscriber would lose the link to the
+     * policy that still describes what happens to their data. It travels with
+     * the deployment's capabilities instead.
+     *
+     * And not gated on ads at all. It was, and a deployment selling a plan
+     * with no advertising then published no policy anywhere, while the sign-up
+     * form collected a name and an address and the plan tab a payment — the
+     * places California's online privacy law expects the policy to be
+     * conspicuous. Here is before a session exists, which is what lets the
+     * sign-up screen draw both links where the collecting starts.
+     */
+    ...(config.legal.privacyPolicyUrl ? { privacyPolicyUrl: config.legal.privacyPolicyUrl } : {}),
+    ...(config.legal.termsOfUseUrl ? { termsOfUseUrl: config.legal.termsOfUseUrl } : {}),
     minimumPasswordLength: 12,
   };
 }

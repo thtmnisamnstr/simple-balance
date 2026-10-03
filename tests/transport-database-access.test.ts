@@ -3,7 +3,7 @@ import { sourceFiles } from "./support/source.js";
 
 /**
  * `docs/standards/code/services.md` 1.2: a route parses, calls one service
- * function, and serialises.
+ * function, and serializes.
  *
  * The rule's own test for whether a line is in the wrong place is "would the
  * MCP and the HTTP API both need it?", and that question cannot be asked of a
@@ -40,7 +40,7 @@ const ALLOWED = [
     file: "src/server/api.ts",
     snippet: "getAuthBootstrapLockPool().connect()",
     because:
-      "The first-account claim's advisory lock, which AGENTS.md requires to be serialised " +
+      "The first-account claim's advisory lock, which AGENTS.md requires to be serialized " +
       "outside the application pool — the pool it would otherwise take the last connection of.",
   },
   {

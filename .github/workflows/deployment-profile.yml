@@ -1,0 +1,234 @@
+name: deployment profile
+
+# The `single` profile's material, checked on every pull request.
+#
+# Its own workflow file, and the reason is a CodeQL finding rather than tidiness.
+#
+# `actions/cache-poisoning/poisonable-step` reports a step that runs content out
+# of a checkout, in a workflow whose trigger can write the *default branch's*
+# cache scope. `verify.yml`'s can: `release.yml` is dispatched and calls into it
+# with an `inputs.ref` naming a tree that is not this one, and three of its jobs
+# set up Node with an npm cache. The rule's own guidance says it "reports only
+# workflows whose trigger can write to that scope", so the way out is a workflow
+# whose trigger cannot.
+#
+# `pull_request` cannot. A fork's run gets a read-only token and its own cache
+# scope; a branch's run writes to the branch's scope, never the default branch's.
+# There is also no cache in this file at all, and nothing here takes an input.
+#
+# Three other attempts are recorded because the next person will have the same
+# ideas. Moving the step after `npm ci` did not clear it — the query is not about
+# ordering, and the same rule fired again on the new position as a fresh alert.
+# Moving it to a job with no cache of its own did not clear it either, so the
+# cache it cares about is the workflow's rather than the job's. Replacing
+# `sh -n` with `shellcheck` did not clear it, so a shell interpreter pointed at a
+# checkout path was not the trigger.
+#
+# The finding is a false positive in substance and that is still worth writing
+# down. Nothing below executes what it reads: `docker compose config`
+# interpolates, `systemd-analyze verify` parses, `shellcheck` lints. Two steps
+# away in `verify.yml`, `npm ci` genuinely runs untrusted lifecycle scripts and
+# is not reported at all.
+#
+# What is lost by leaving `verify.yml`: this no longer runs on the release
+# republish path. That is acceptable. It checks repository material rather than
+# anything that reaches an image, and the one property a release depends on —
+# that the profile's pinned image tag matches the version being cut — is held by
+# `tests/version.test.ts`, which does run there.
+on:
+  pull_request:
+
+# Nothing here needs to read anything but the code it is checking.
+permissions:
+  contents: read
+
+jobs:
+  profile:
+    name: single profile material
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: The single profile's material is what it claims to be
+        run: |
+          set -euo pipefail
+          cd deploy/compose/single
+          # The guards are the point of the exercise, so supply what they ask
+          # for rather than what a real deployment would use.
+          cat > .env <<'ENV'
+          DATABASE_URL=postgresql://user:pass@db.example.org:5432/simple_balance
+          AUTH_SECRET=0123456789012345678901234567890123456789
+          APP_BASE_URL=https://books.example.org
+          SITE_ADDRESS=books.example.org
+          ENV
+          docker compose -f compose.yml config >/dev/null
+          echo "compose.yml interpolates"
+          docker compose -f compose.yml -f compose.caddy.yml config >/dev/null
+          echo "the Caddy overlay interpolates"
+          # The overlay's whole job: the application starts believing
+          # X-Forwarded-For because something is now in front of it.
+          docker compose -f compose.yml -f compose.caddy.yml config \
+            | grep -q 'TRUST_PROXY: "true"'
+          echo "the overlay turns TRUST_PROXY on"
+          # The certificate's overlay, in the order the cloud programs name it
+          # in COMPOSE_FILE, and what Compose makes of its one mount: the
+          # directory at the path it has on the host, because DATABASE_URL
+          # names the file once and the backup's client mounts that same path.
+          # create_host_path is left to tests/systemd-scripts.test.ts, which
+          # pins the file's text, because Compose versions disagree about how
+          # to print it: 5.5 omits it when true, Ubuntu's 2.40 when false, and
+          # `bind: {}` means opposite things on the two.
+          docker compose -f compose.yml -f compose.caddy.yml -f compose.db-tls.yml config >/dev/null
+          echo "the certificate overlay interpolates"
+          docker compose -f compose.yml -f compose.db-tls.yml config --format json \
+            | jq -e '[.services.app.volumes[]? | select(.target == "/var/lib/simple-balance/tls")]
+                     | length == 1 and (.[0] | .type == "bind" and .source == .target and .read_only == true)' \
+            >/dev/null || {
+            echo "::error::compose.db-tls.yml does not mount /var/lib/simple-balance/tls read-only at the path it has on the host"
+            exit 1
+          }
+          echo "the certificate overlay mounts the directory read-only at its own path"
+          # And that each required setting is genuinely required, since a `:?`
+          # that was softened to `:-` is invisible until somebody deploys
+          # without it.
+          for name in DATABASE_URL AUTH_SECRET APP_BASE_URL; do
+            if grep -v "^$name=" .env > .env.missing && \
+               docker compose --env-file .env.missing -f compose.yml config >/dev/null 2>&1; then
+              echo "::error::compose.yml rendered without $name instead of refusing"
+              exit 1
+            fi
+            echo "refused without $name"
+          done
+          rm -f .env .env.missing
+          # The profile's other machine, checked the same way. `single` is two
+          # machines in this release and the database is the second of them, so
+          # a file that does not interpolate is half the profile failing to come
+          # up. The unit tests read this file closely — tests/compose-database-node.test.ts
+          # pins the pg_hba lines and the binds, tests/compose-bind-address.test.ts
+          # pins the `:?` on the address — but all of them read it as text, so
+          # none of them would notice YAML that Compose refuses to parse.
+          #
+          # `--env-file` rather than a `.env`, because Compose reads `.env` from
+          # the working directory and this machine's settings are not the
+          # application machine's: sharing one file is how the deleted `vps`
+          # recipe ended up with the application connecting as the superuser.
+          cat > .env.db <<'ENV'
+          POSTGRES_PASSWORD=0123456789012345678901234567890123456789
+          POSTGRES_APP_PASSWORD=9876543210987654321098765432109876543210
+          SB_BIND_ADDRESS=10.30.0.11
+          ENV
+          docker compose --env-file .env.db -f compose.postgres.yml config >/dev/null
+          echo "compose.postgres.yml interpolates"
+          # Only on the private address the operator names, and only on 5432.
+          # A `:?` softened to `:-0.0.0.0` here is the whole ledger on the
+          # internet, which is the one mistake in this file that cannot be
+          # taken back once somebody has scanned the host.
+          docker compose --env-file .env.db -f compose.postgres.yml config --format json \
+            | jq -e '.services.postgres.ports
+                     | length == 1 and (.[0] | .host_ip == "10.30.0.11" and .target == 5432)' \
+            >/dev/null || {
+            echo "::error::compose.postgres.yml does not publish 5432 on the operator's private address alone"
+            exit 1
+          }
+          echo "the database publishes one port, on the private address"
+          for name in POSTGRES_PASSWORD POSTGRES_APP_PASSWORD SB_BIND_ADDRESS; do
+            if grep -v "^$name=" .env.db > .env.db.missing && \
+               docker compose --env-file .env.db.missing -f compose.postgres.yml config >/dev/null 2>&1; then
+              echo "::error::compose.postgres.yml rendered without $name instead of refusing"
+              exit 1
+            fi
+            echo "refused without $name"
+          done
+          rm -f .env.db .env.db.missing
+          cd ../../..
+          # Fail loudly rather than skip. The first spelling of this check used
+          # `|| true` and printed "parsed" for every unit on an image where the
+          # binary was absent — a check that could not fail, which is the one
+          # kind this repository refuses to keep.
+          command -v systemd-analyze >/dev/null || {
+            echo "::error::systemd-analyze is not installed, so the units were not checked"
+            exit 1
+          }
+          for unit in deploy/systemd/*.service deploy/systemd/*.timer; do
+            # The exit code is no use in either direction, which was measured
+            # rather than assumed: it is 1 for these units on any machine
+            # without docker.service, and it is 0 for a unit carrying an unknown
+            # directive. What systemd prints is the signal, so the two
+            # environment complaints are filtered and anything left is a defect.
+            complaints=$(systemd-analyze verify "$unit" 2>&1 \
+              | grep -v 'Unit .* not found' \
+              | grep -v 'is not executable: No such file or directory' || true)
+            if [ -n "$complaints" ]; then
+              echo "::error::$unit did not parse cleanly"
+              echo "$complaints"
+              exit 1
+            fi
+            echo "parsed $unit"
+          done
+          # Using shellcheck rather than `sh -n`, for two reasons and in that
+          # order. (Worded this way round deliberately: a comment starting with
+          # the word `shellcheck` is parsed as a directive and fails the lint.)
+          #
+          # It is a better check: `sh -n` finds a syntax error and nothing else,
+          # while shellcheck found a real fragility in the pruning here — an
+          # `ls` piped into `grep`, whose output is meant for people rather than
+          # for parsing. These scripts are written into cloud-init and run
+          # unattended on somebody's machine — at three in the morning, or before
+          # every start of the deployment — which is the worst place to discover
+          # a quoting bug. tests/systemd-scripts.test.ts holds this list to every
+          # script in deploy/systemd, so a new one cannot miss the lint.
+          #
+          # And `sh -n "$script"` is a shell interpreter pointed at a path out
+          # of the checkout, which is the shape CodeQL's
+          # actions/cache-poisoning/poisonable-step reports. It does not execute
+          # — that is what -n means — but the query matches the command line
+          # rather than its meaning, and a linter is not that shape.
+          command -v shellcheck >/dev/null || {
+            echo "::error::shellcheck is not installed, so the scripts were not checked"
+            exit 1
+          }
+          shellcheck deploy/systemd/simple-balance-backup \
+                     deploy/systemd/simple-balance-restore \
+                     deploy/systemd/simple-balance-firstboot \
+                     deploy/systemd/simple-balance-env \
+                     deploy/systemd/simple-balance-db-firstboot \
+                     deploy/systemd/simple-balance-growfs \
+                     deploy/systemd/simple-balance-waitdb
+          echo "shellcheck passed all seven scripts"
+
+      # Not the single profile's, but linted here for the reason at the top of
+      # this file: verify.yml's images job is where the script would otherwise
+      # go, and a linter pointed at a checkout path in that workflow is one of
+      # the shapes CodeQL reported there. The image's entrypoint sources it on
+      # every start, before nginx reads a line, and an `exit` in it stops the
+      # container — so a quoting bug in it is an outage rather than a warning.
+      - name: The frontend image's entrypoint script lints clean
+        run: |
+          set -euo pipefail
+          command -v shellcheck >/dev/null || {
+            echo "::error::shellcheck is not installed, so the script was not checked"
+            exit 1
+          }
+          shellcheck deploy/docker/nginx-real-ip.envsh
+          echo "shellcheck passed the frontend's entrypoint script"
+
+      # The database machine's one script, and the only one in the profile that
+      # is not in deploy/systemd — so tests/systemd-scripts.test.ts, which holds
+      # the six-script list above to that directory, cannot see it. It runs once,
+      # inside the postgres container, at the moment the cluster is created:
+      # everything it does is `initdb` work that cannot be redone afterwards
+      # without throwing the data directory away, and a quoting bug in it is a
+      # database that comes up owned by the wrong role.
+      #
+      # Its own step rather than a second path on the command above, because
+      # that command's argument list is compared against deploy/systemd exactly,
+      # and a seventh path there would be a failure rather than a wider check.
+      - name: The database machine's first-boot script lints clean
+        run: |
+          set -euo pipefail
+          command -v shellcheck >/dev/null || {
+            echo "::error::shellcheck is not installed, so the script was not checked"
+            exit 1
+          }
+          shellcheck deploy/compose/single/db-init.sh
+          echo "shellcheck passed the database's first-boot script"

@@ -1,0 +1,39 @@
+# Grow the data volume's filesystem at every boot, and by hand with
+# `sudo systemctl start simple-balance-growfs.service`.
+[Unit]
+Description=Grow the Simple Balance data filesystem to fill its volume
+Documentation=https://github.com/thtmnisamnstr/simple-balance/blob/main/docs/deployment-sizing.md
+
+# A unit rather than a line in either first-boot script, and it is the only
+# shape that works. Both of those are run by cloud-init's `runcmd`, which is
+# once per instance: a `pulumi up` that grows a volume replaces no machine, so
+# nothing re-runs them, and the space stays unreachable however many times the
+# machine reboots. A unit runs at every boot, which is exactly the frequency
+# this needs — resize2fs on a filesystem already filling its device prints
+# "Nothing to do!" and exits 0.
+#
+# RequiresMountsFor rather than After=local-fs.target alone: the volume is
+# mounted by an fstab line with `nofail`, so it is a mount unit of its own that
+# local-fs.target does not wait for, and growing before it is mounted would
+# resize nothing. Both machines keep their data under this path.
+RequiresMountsFor=/var/lib/simple-balance
+
+# Before the deployment, so a database that is about to fill its disk gets the
+# space first. Not Requires= or Wants= in either direction: a failed resize is a
+# warning rather than a reason to keep PostgreSQL down, and the script exits 0
+# when there is nothing mounted to grow.
+Before=simple-balance.service
+
+[Service]
+Type=oneshot
+# The state stays on disk, so systemd should report the unit as finished rather
+# than as running — which is what makes `systemctl status` after a boot say
+# whether the growth happened.
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/simple-balance-growfs
+# An online resize of a large ext4 is minutes rather than seconds, and a boot
+# that gave up halfway would leave the filesystem needing an fsck.
+TimeoutStartSec=1800
+
+[Install]
+WantedBy=multi-user.target

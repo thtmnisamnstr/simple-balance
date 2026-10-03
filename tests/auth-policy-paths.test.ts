@@ -80,9 +80,9 @@ describe("what the auth policy sees as a social callback", () => {
     expect(mayCreateAuthUser("allowed@example.com", "/callback/:id", true)).toBe(true);
   });
 
-  // Nothing else may create a user. A path the policy does not recognise has to
+  // Nothing else may create a user. A path the policy does not recognize has to
   // fail closed, which is what made this bug safe rather than dangerous.
-  it("refuses a path it does not recognise", async () => {
+  it("refuses a path it does not recognize", async () => {
     const { mayCreateAuthUser } = await policy();
     for (const path of ["/callback", "/sign-in/email", "/whatever", undefined]) {
       expect(mayCreateAuthUser("someone@example.com", path, true), String(path)).toBe(false);

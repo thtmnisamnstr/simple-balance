@@ -100,7 +100,7 @@ function renderCategories() {
   );
 }
 
-const rowFor = (name: string) => screen.getByText(name).closest(".category-row") as HTMLElement;
+const rowFor = (name: string) => screen.getByText(name).closest(".record-row") as HTMLElement;
 
 const listedNames = () =>
   screen

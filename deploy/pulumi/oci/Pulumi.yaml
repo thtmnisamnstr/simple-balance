@@ -1,0 +1,12 @@
+name: simple-balance-oci
+runtime:
+  name: nodejs
+  options:
+    typescript: true
+description: >-
+  Simple Balance on OKE: a VCN with a private worker subnet behind a NAT
+  gateway, a managed node pool, ingress-nginx on an OCI network load balancer,
+  cert-manager with a Let's Encrypt ClusterIssuer, a block-volume StorageClass
+  the database's volumes are cut from, and the Simple Balance Helm chart from
+  deploy/helm. The database is bring your own unless simple-balance:database is
+  in-cluster, which runs the chart's Citus cluster on this cluster instead.

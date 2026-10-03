@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, Target, Trash2 } from "lucide-react";
+import { Pencil, Repeat, Target, Trash2, TrendingUp } from "lucide-react";
 import { useState } from "react";
 import {
   api,
@@ -42,7 +42,7 @@ import {
   unitNoun,
   unitNounPlural,
 } from "../budget-display.js";
-import { compareMoney, formatDate, formatMoney } from "../money.js";
+import { compareMoney, formatDate, formatMoney, isNegativeMoney } from "../money.js";
 
 const periodUnits: { value: BudgetPeriodUnitName; label: string }[] = [
   { value: "week", label: "Weekly" },
@@ -58,6 +58,8 @@ export default function BudgetsPage({ session }: { session: Session }) {
   const [periodUnit, setPeriodUnit] = useState<BudgetPeriodUnitName>("month");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  /** What a row action in the single-periods table did, said where focus reaches it. */
+  const [rowOutcome, setRowOutcome] = useState("");
   // Defaults to counting it, matching the server: a budget's limit was never
   // scoped to an account, so money spent on a card since closed is money the
   // budget covered.
@@ -129,7 +131,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
           // Always sent, both ways. `queryString` drops a falsy value, so
           // sending only "true" meant unchecked sent nothing and fell through
           // to the server default, which is now true: the box changed nothing
-          // in either position while the two behaviours differ by every penny
+          // in either position while the two behaviors differ by every penny
           // spent through a closed account.
           includeArchived: includeArchived ? "true" : "false",
           // Both ways for the same reason.
@@ -278,7 +280,16 @@ export default function BudgetsPage({ session }: { session: Session }) {
         ...json({ expectedVersion: entry.version }),
         method: "DELETE",
       }),
-    onSuccess: () => {
+    onSuccess: (_result, entry) => {
+      /*
+       * 13.3, and the shape `web.md` 9.8 names. Removing an override takes its
+       * own row out of the single-periods table, so the button that did it goes
+       * with the row and focus falls to `<body>`. The `{notice}` above is a
+       * different alert for a different action — it reports a standing budget
+       * beside the form that made one, which is why it is registered in
+       * `tests/success-alert-focus.test.ts` as leaving focus alone.
+       */
+      setRowOutcome(`Override for ${entry.targetName} removed.`);
       setError("");
       setOverride(null);
       invalidate();
@@ -403,18 +414,18 @@ export default function BudgetsPage({ session }: { session: Session }) {
             limit was never scoped to an account: leaving out a closed card
             makes a budget spent to the penny read as underspent. The box is
             here so somebody can ask the other question. */}
-        <label className="date-bar-check">
+        <label className="check-label">
           <input
             type="checkbox"
             checked={includeArchived}
             onChange={(event) => setIncludeArchived(event.target.checked)}
           />
-          Count spending through closed accounts
+          Count spending through archived accounts
         </label>
         {/* The guide has promised this since the first budget shipped and the
             page never had it: the API took `includeUnbudgeted` and only an
             agent could send it. */}
-        <label className="date-bar-check">
+        <label className="check-label">
           <input
             type="checkbox"
             checked={includeUnbudgeted}
@@ -424,9 +435,15 @@ export default function BudgetsPage({ session }: { session: Session }) {
         </label>
       </div>
 
+      {rowOutcome ? (
+        <Alert kind="success" takeFocus>
+          {rowOutcome}
+        </Alert>
+      ) : null}
+
       <section className="panel">
         <header className="panel-header">
-          <h3>Set a budget</h3>
+          <h2>Set a budget</h2>
         </header>
         {error && editing === null && override === null ? (
           <Alert kind="error">{error}</Alert>
@@ -537,7 +554,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
               onChange={(event) => setActiveFrom(event.target.value)}
             />
           </Field>
-          <Field label="Saving up for (optional)">
+          <Field label="Saving up for" optional>
             <Input
               inputMode="decimal"
               value={targetAmount}
@@ -569,7 +586,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
               />
             </Field>
           )}
-          <label className="date-bar-check">
+          <label className="check-label">
             <input
               type="checkbox"
               checked={rollover}
@@ -579,7 +596,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
             Carry what is left over into the next {unitNoun[periodUnit]}
           </label>
           {rollover ? (
-            <Field label="Most to carry (optional)">
+            <Field label="Most to carry" optional>
               <Input
                 inputMode="decimal"
                 value={rolloverCap}
@@ -590,7 +607,8 @@ export default function BudgetsPage({ session }: { session: Session }) {
           ) : null}
           {target.startsWith("group:") ? null : (
             <Field
-              label="Funded first (optional)"
+              label="Funded first"
+              optional
               hint="Lower goes first when a period's income will not cover everything. Leave blank for unranked, which is funded last."
             >
               <Input
@@ -614,14 +632,14 @@ export default function BudgetsPage({ session }: { session: Session }) {
           {targetAmount === ""
             ? rollover
               ? `What this ${unitNoun[periodUnit]} does not spend is added to the next one, and anything overspent is taken off it. Nothing is stored ${unitNoun[periodUnit]} by ${unitNoun[periodUnit]}: the figures are worked out from what you budgeted and what you spent, so turning this off leaves nothing behind.`
-              : `Each ${unitNoun[periodUnit]} starts again at the amount. Tick the box to carry the difference forward instead.`
+              : `Each ${unitNoun[periodUnit]} starts again at the amount. Check the box to carry the difference forward instead.`
             : `Each ${unitNoun[periodUnit]} puts aside what is still needed, divided by the ${unitNoun[periodUnit]}s left before the date. There is no amount to type: the figure changes as the fund fills up, and stops once it is full.`}
         </Note>
       </section>
 
       <section className="panel">
         <header className="panel-header">
-          <h3>Standing budgets</h3>
+          <h2>Standing budgets</h2>
         </header>
         {plans.isError ? (
           <Alert kind="error">
@@ -631,7 +649,12 @@ export default function BudgetsPage({ session }: { session: Session }) {
         ) : plans.isPending ? (
           <Skeleton height={80} label="Loading standing budgets…" />
         ) : (plans.data ?? []).length === 0 ? (
-          <Note>No standing budgets yet.</Note>
+          <EmptyState
+            compact
+            icon={Repeat}
+            title="No standing budgets yet"
+            body="A standing budget repeats from the date it starts, so there is nothing to set again next period."
+          />
         ) : (
           <div className="table-wrap" tabIndex={0} role="region" aria-label="Standing budgets">
             <table className="data-table">
@@ -684,7 +707,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
                     <td className="align-right money">
                       {plan.amountRule === "fixed" || plan.amountRule === "incremental"
                         ? formatMoney(plan.amount, plan.currency)
-                        : "Worked out"}
+                        : "Calculated"}
                     </td>
                     <td>{unitNoun[plan.periodUnit]}</td>
                     <td>
@@ -785,14 +808,20 @@ export default function BudgetsPage({ session }: { session: Session }) {
             </Note>
           ) : (
             <>
+              {/* Required in fact and unmarked, with a marked sibling two
+                  fields away — which is what makes it a slip rather than a
+                  decision. 8.3's point is that the native half needs nothing:
+                  no form here sets `noValidate`, so the browser blocks the
+                  submit, focuses the field and says why, for one word. */}
               <Field label="Amount">
                 <Input
+                  required
                   inputMode="decimal"
                   value={editAmount}
                   onChange={(event) => setEditAmount(event.target.value)}
                 />
               </Field>
-              <label className="date-bar-check">
+              <label className="check-label">
                 <input
                   type="checkbox"
                   checked={editRollover}
@@ -837,7 +866,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
       {(entries.data ?? []).length > 0 ? (
         <section className="panel">
           <header className="panel-header">
-            <h3>Single periods</h3>
+            <h2>Single periods</h2>
           </header>
           {/* Listed because an override set in one period was invisible from
               every other, so it could be created and then lost: the figure it
@@ -872,14 +901,19 @@ export default function BudgetsPage({ session }: { session: Session }) {
                       {formatMoney(entry.amount, entry.currency)}
                     </td>
                     <td>{periodName(entry.periodUnit, entry.periodStart)}</td>
-                    <td className="align-right">
-                      <Button
-                        variant="ghost"
-                        loading={clearEntry.isPending}
+                    {/* The same icon the standing-budget table above uses,
+                        for the reason its comment gives: a text button naming
+                        the row made the actions column the widest on the table
+                        and said the name twice. */}
+                    <td className="row-actions">
+                      <button
+                        type="button"
+                        aria-label={`Remove the override for ${entry.targetName}`}
+                        disabled={clearEntry.isPending}
                         onClick={() => clearEntry.mutate(entry)}
                       >
-                        Remove {entry.targetName} override
-                      </Button>
+                        <Trash2 size={16} />
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -946,6 +980,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
         >
           <Field label="Amount" hint={`Applies to this ${unitNoun[periodUnit]} only.`}>
             <Input
+              required
               inputMode="decimal"
               value={overrideAmount}
               onChange={(event) => setOverrideAmount(event.target.value)}
@@ -974,7 +1009,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
         </section>
       ) : periods.length === 0 ? (
         <EmptyState
-          icon={<Target size={20} />}
+          icon={Target}
           title="Nothing budgeted in this range"
           body="Set a budget above, or widen the dates."
         />
@@ -982,7 +1017,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
         periods.map((period) => {
           // The carry columns appear only where something carries. A table of
           // dashes says a budget has a feature it does not have, and every
-          // ledger that has never ticked the box would grow two of them.
+          // ledger that has never checked the box would grow two of them.
           const carries = period.rows.some((row) => row.carriedIn !== null);
           // Same rule as the carry columns: the funded figure appears only
           // where somebody set an order, so a ledger that never did is not told
@@ -991,10 +1026,10 @@ export default function BudgetsPage({ session }: { session: Session }) {
           return (
             <div className="panel" key={`${period.periodStart}:${period.currency}`}>
               <header className="panel-header">
-                <h3>
+                <h2>
                   {periodName(periodUnit, period.periodStart)}, {period.currency}
                   {period.partial ? " (so far)" : ""}
-                </h3>
+                </h2>
                 <span className="subtle">
                   {/* Named as the categories' total, because a group's own
                       budget is beside the rows rather than in them: adding both
@@ -1027,11 +1062,23 @@ export default function BudgetsPage({ session }: { session: Session }) {
                   className="table-wrap"
                   tabIndex={0}
                   role="region"
-                  aria-label={`Groups for ${period.start} to ${period.end}`}
+                  aria-label={`Groups for ${formatDate(period.start)} to ${formatDate(period.end)}`}
                 >
                   <table className="data-table">
                     <caption className="sr-only">
-                      Groups for {period.start} to {period.end} in {period.currency}
+                      {/* Formatted, like every other date a person reads
+                          (`common.md` §Dates and times). These five read
+                          `2026-06-01` to a screen reader while the visible
+                          heading on the same panel read "June 2026" —
+                          `periodName` just above — so the two surfaces of one
+                          panel disagreed, and the one that disagreed was the
+                          one nobody looks at. `formatDate` rather than
+                          `periodName` because `start` and `end` are the
+                          period's span and may be clipped, so the span is the
+                          honest thing to show and only its writing was
+                          wrong. */}
+                      Groups for {formatDate(period.start)} to {formatDate(period.end)} in{" "}
+                      {period.currency}
                     </caption>
                     <thead>
                       <tr>
@@ -1062,7 +1109,20 @@ export default function BudgetsPage({ session }: { session: Session }) {
                           <td className="align-right money">
                             {formatMoney(group.actual, period.currency)}
                           </td>
-                          <td className="align-right money">
+                          {/* Marked when it is negative, like every other
+                              computed total in the product. Budgets rendered
+                              seventeen money cells and never once used the
+                              class, on the one page where "am I over?" is the
+                              only question — so the figure was the one element
+                              on the row not saying what its badge and its bar
+                              already said. */}
+                          <td
+                            className={`align-right money ${
+                              group.remaining !== null && isNegativeMoney(group.remaining)
+                                ? "money-negative"
+                                : ""
+                            }`}
+                          >
                             {group.remaining === null
                               ? "—"
                               : formatMoney(group.remaining, period.currency)}
@@ -1077,11 +1137,14 @@ export default function BudgetsPage({ session }: { session: Session }) {
                 className="table-wrap"
                 tabIndex={0}
                 role="region"
-                aria-label={`Budget against spending for ${period.start} to ${period.end}`}
+                aria-label={`Budget against spending for ${formatDate(
+                  period.start,
+                )} to ${formatDate(period.end)}`}
               >
                 <table className="data-table">
                   <caption className="sr-only">
-                    Budget against spending for {period.start} to {period.end} in {period.currency}
+                    Budget against spending for {formatDate(period.start)} to{" "}
+                    {formatDate(period.end)} in {period.currency}
                   </caption>
                   <thead>
                     <tr>
@@ -1167,7 +1230,13 @@ export default function BudgetsPage({ session }: { session: Session }) {
                           <td className="align-right money">
                             {formatMoney(row.actual, period.currency)}
                           </td>
-                          <td className="align-right money">
+                          <td
+                            className={`align-right money ${
+                              row.remaining !== null && isNegativeMoney(row.remaining)
+                                ? "money-negative"
+                                : ""
+                            }`}
+                          >
                             {row.remaining === null
                               ? "—"
                               : formatMoney(row.remaining, period.currency)}
@@ -1249,7 +1318,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
 
       <section className="panel">
         <header className="panel-header">
-          <h3>What happens next</h3>
+          <h2>What happens next</h2>
           <span className="subtle">
             {forecastBasis === "recurring"
               ? "Projected from your recurring transactions."
@@ -1326,14 +1395,18 @@ export default function BudgetsPage({ session }: { session: Session }) {
              who owns an account has a currency, so the old test never fired:
              a ledger with nothing to project showed a table of zeroes and no
              sentence saying why. */
-          <Note>
-            Nothing to project yet.{" "}
-            {forecastBasis === "recurring"
-              ? "This basis counts recurring transactions alone, and there are none. Set one up, or count what you usually spend instead."
-              : forecastBasis === "recurring_and_budgets"
-                ? "This basis counts recurring transactions and budgets, and there are neither."
-                : "There is no spending or income behind this yet — a finished period has to have something in it before an average means anything."}
-          </Note>
+          <EmptyState
+            compact
+            icon={TrendingUp}
+            title="Nothing to project yet"
+            body={
+              forecastBasis === "recurring"
+                ? "This basis counts recurring transactions alone, and there are none. Set one up, or count what you usually spend instead."
+                : forecastBasis === "recurring_and_budgets"
+                  ? "This basis counts recurring transactions and budgets, and there are neither."
+                  : "There is no spending or income behind this yet — a finished period has to have something in it before an average means anything."
+            }
+          />
         ) : (
           (forecast.data?.currencies ?? []).map((currency) => (
             <div
@@ -1345,7 +1418,8 @@ export default function BudgetsPage({ session }: { session: Session }) {
             >
               <table className="data-table">
                 <caption className="sr-only">
-                  Projected balances in {currency.currency}, from {forecast.data?.from}
+                  Projected balances in {currency.currency}
+                  {forecast.data ? `, from ${formatDate(forecast.data.from)}` : ""}
                 </caption>
                 <thead>
                   <tr>

@@ -31,9 +31,9 @@ describe("a version conflict tells each caller something it can act on", () => {
   });
 
   /**
-   * Thirteen of the fifty throw sites carry no details. Naming a field that is
-   * not in the payload is the same fault as telling an agent to refresh: advice
-   * it cannot follow.
+   * Thirteen of the fifty-three throw sites carry no details. Naming a field
+   * that is not in the payload is the same fault as telling an agent to
+   * refresh: advice it cannot follow.
    */
   it("does not name a field the refusal is not carrying", () => {
     for (const error of [staleVersion(), staleVersion({ id: "a" }), staleVersion("odd")]) {

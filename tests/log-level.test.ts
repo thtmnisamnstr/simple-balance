@@ -348,7 +348,7 @@ describe("what the work leaves in the log", () => {
     });
     logging.log.failure("Request failed", failure);
 
-    // Serialised rather than stringified: `String(error)` is "Error: insert
+    // Serialized rather than stringified: `String(error)` is "Error: insert
     // failed" whichever way this went, so an assertion on that would pass on
     // the error object being handed over whole — the exact thing being
     // refused. JSON reaches the own properties Drizzle attaches.

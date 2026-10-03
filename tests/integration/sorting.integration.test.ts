@@ -121,7 +121,7 @@ integration("list ordering", () => {
     expect(ascending.slice(0, 2).sort()).toEqual(["Acacia", "Marigold"]);
   });
 
-  it("orders by category and puts uncategorised rows last either way", async () => {
+  it("orders by category and puts uncategorized rows last either way", async () => {
     expect(await payeesInOrder("category", "asc")).toEqual(["Acacia", "Yarrow", "Marigold"]);
     expect(await payeesInOrder("category", "desc")).toEqual(["Yarrow", "Acacia", "Marigold"]);
   });

@@ -47,7 +47,7 @@ describe("what a client is told to ask for", () => {
    *
    * Narrowing this to the read tier is a real improvement and is deliberately
    * not made here. The RFC 9728 document is what a client builds its scope
-   * request from, so narrowing it means anybody who re-authorises after
+   * request from, so narrowing it means anybody who re-authorizes after
    * upgrading comes back read-only, and regains write only if their client
    * implements the RFC 6750 step-up. The MCP SDK does. A client written by hand
    * or against an older SDK may not, and would lose the ability to write with

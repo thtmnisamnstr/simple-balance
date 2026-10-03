@@ -19,6 +19,23 @@ This is the shape `deploy/helm/simple-balance/` deploys, without Kubernetes. One
 container is still the supported way to run this in production; see
 [docs/deployment.md](../../docs/deployment.md).
 
+**This is not a deployment profile.** It runs the split containers on one
+machine to exercise the shape the Helm chart deploys, with a bundled PostgreSQL
+for convenience, and nothing in it holds a ledger anybody depends on. There are
+two profiles and this is neither:
+
+- **`single`**, in [`single/`](single/README.md) — the application container on
+  one machine with TLS, backups and a systemd unit, and PostgreSQL 18 on a
+  second machine with no public address. Two Compose projects, one per machine,
+  both in that directory.
+- **`ha`**, in [`../helm/simple-balance/`](../helm/simple-balance/README.md) —
+  the same three containers as this file, on Kubernetes, with PostgreSQL and
+  Citus underneath them. It has two shapes, one node per service and fully
+  redundant, and they differ by a values file rather than by a migration.
+
+[`docs/deployment-profiles.md`](../../docs/deployment-profiles.md) is which of
+the two to pick.
+
 ## Bring it up
 
 ```sh
@@ -111,6 +128,41 @@ docker compose -f deploy/compose/compose.distributed.yml exec -T postgres \
   pg_dump --format=custom -U simple_balance simple_balance > simple-balance.dump
 ```
 
+## The bundled database, and which PostgreSQL it runs
+
+Two settings in `.env` belong to the `postgres` container rather than to Simple
+Balance, alongside `POSTGRES_PASSWORD`:
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `POSTGRES_IMAGE` | `postgres:16-alpine` | The image the bundled database runs |
+| `POSTGRES_DATA_MOUNT` | `/var/lib/postgresql/data` | Where `postgres-data` is mounted inside it |
+
+The defaults are what 0.1.6 ran, so pulling this release onto an existing
+`postgres-data` volume starts the database it already has. A PostgreSQL
+container cannot read the previous major version's data directory, so moving
+the default would have stopped this recipe — and with `restart: unless-stopped`
+and the health gate the server waits on, stopped it in a loop.
+
+PostgreSQL 18 is worth taking: it is what the `ha` profile runs, so a dump
+restores between profiles, and it is Debian rather than Alpine, whose musl
+`strcoll` compares text byte by byte whatever collation is declared and puts
+capitals first and accents last in every category and payee list. Take it with
+the dump and restore in [docs/upgrades.md](../../docs/upgrades.md), then set
+**both** lines together:
+
+```sh
+POSTGRES_IMAGE=postgres:18
+POSTGRES_DATA_MOUNT=/var/lib/postgresql
+```
+
+Neither is any use alone. The new image against the old path loops on
+`mkdir: cannot create directory '/var/lib/postgresql': Permission denied`,
+because Alpine's data directory belongs to uid 70 and Debian's `postgres` is
+999. The old image against the new path is the quieter mistake: 16 initialises a
+second, empty cluster in a subdirectory of the volume, beside data it then never
+reads.
+
 ## How this differs from the rest of the repository
 
 **`compose.dev.yml`,** at the repository root, is a development database and
@@ -129,15 +181,17 @@ have to line up there, because there is nothing to line them up between.
 images to Kubernetes with an Ingress, cert-manager, autoscaling and network
 policies. The differences here are the ones a single machine forces:
 
-- The chart provisions no database. A cluster's PostgreSQL is bring your own,
-  since whoever runs it owns its backups, its version and its
-  `max_connections`. Here it is a container, because a trial on one machine
-  should take one command.
+- The chart provisions no database by default. A cluster's PostgreSQL is bring
+  your own unless `database.enabled` runs one, and it stays off in `values.yaml`
+  so that an upgrade from 0.1.6 finds the values it had; both of the `ha`
+  profile's shapes turn it on through a values file of their own, and get Citus
+  under Patroni. Here it is one plain container with no redundancy at all,
+  because a trial on one machine should take one command.
 - The chart runs two API replicas and one scheduler; this runs one API and two
   schedulers, which is the arrangement that shows the scheduler dividing work.
 - nginx's graceful stop is stated as `stop_signal: SIGQUIT` rather than the
   chart's preStop hook. The image already declares SIGQUIT and compose would
-  honour that, but the reason the frontend can stop without cutting a response
+  honor that, but the reason the frontend can stop without cutting a response
   is worth stating where somebody reading the file will find it — nginx reads
   SIGQUIT as a graceful shutdown and SIGTERM as a fast one.
 - The tmpfs mounts carry `uid=101`, which the chart's emptyDirs do not need.
@@ -184,10 +238,14 @@ The role it names needs `CREATEDB` if the database does not exist yet. See
 which refuses an `APP_BASE_URL` that is neither HTTPS nor loopback, and that is
 the setting that also decides secure cookies and the OAuth issuer. So this needs
 a reverse proxy terminating TLS in front of the frontend and an `https://` origin
-in `.env`, not a wider port binding. Give that proxy the `X-Forwarded-For`
-handling `docs/deployment.md` shows, and add `set_real_ip_from` to
-`deploy/docker/nginx.conf.template`, or `$remote_addr` inside nginx is the proxy
-and every visitor shares one sign-in allowance again.
+in `.env`, not a wider port binding. Have that proxy set `X-Forwarded-For`, and
+set `SB_TRUSTED_PROXY_CIDR` in `.env` to the proxy's own address or range, or
+`$remote_addr` inside nginx is the proxy and every visitor shares one sign-in
+allowance again. That one value is the whole fix: the image already carries
+`set_real_ip_from ${SB_TRUSTED_PROXY_CIDR}`, so there is no template to edit and
+no image to rebuild, and it keeps `real_ip_recursive off` on purpose —
+`deploy/docker/nginx.conf.template` says why. Name the proxy's range and nothing
+wider, because this decides whose word is taken for a visitor's address.
 
 **Mail.** Off unless `SMTP_HOST` and `MAIL_FROM` are both set in `.env`. With
 neither there is no password reset and nobody is asked to confirm an address,

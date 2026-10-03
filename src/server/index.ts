@@ -10,6 +10,7 @@ import { getOwnerSetupToken } from "./setup-token.js";
 import { createRecurrenceScheduler } from "./recurrence-scheduler.js";
 import { createGracefulShutdown } from "./server-lifecycle.js";
 import { log } from "./log.js";
+import { checkStripeAccess, checkStripePrices } from "./stripe.js";
 
 async function main() {
   const config = getConfig();
@@ -33,6 +34,14 @@ async function main() {
     );
   }
   await checkMailTransport();
+  // Stripe's two prices, checked at boot so an id from the wrong mode or the
+  // wrong account is in the log before anybody opens the plan tab. It never
+  // refuses to start: an unreachable Stripe is a warning, and a definite
+  // mismatch stops sales rather than the process. Without billing configured
+  // it returns without touching the network. Beside it, and at the same time
+  // so an unreachable Stripe costs startup one wait rather than two, what a
+  // restricted key may read — it writes nothing and refuses nothing either.
+  await Promise.all([checkStripePrices(), checkStripeAccess()]);
   if (config.isProduction && !config.trustProxy) {
     // Sign-in attempts are counted per client address, and with no trusted
     // proxy that address is the other end of the TCP connection. Reached

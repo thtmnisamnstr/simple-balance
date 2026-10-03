@@ -48,7 +48,7 @@ async function createDatabaseIfMissing(connectionString: string) {
 
   try {
     // The name comes from the operator's own connection string, and an
-    // identifier cannot be parameterised, so it is quoted rather than bound.
+    // identifier cannot be parameterized, so it is quoted rather than bound.
     await client.query(`create database "${name.replaceAll('"', '""')}"`);
     log.info(`Created database "${name}".`);
   } catch (error) {
@@ -103,9 +103,9 @@ export async function runMigrations() {
 
 /**
  * Certificate failures node-postgres reports when TLS is on but the chain does
- * not check out. A self-hosted PostgreSQL almost always presents a certificate
- * it signed itself, and Node's own advice for this is to install the root CA,
- * which there is no root CA for.
+ * not check out. Node's own advice for these is to install the root CA
+ * system-wide, which in a container means rebuilding the image; the connection
+ * string can carry the CA instead, and that is what the message below says.
  */
 const TLS_TRUST_FAILURES = new Set([
   "DEPTH_ZERO_SELF_SIGNED_CERT",
@@ -115,6 +115,25 @@ const TLS_TRUST_FAILURES = new Set([
   "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
   "CERT_HAS_EXPIRED",
   "ERR_TLS_CERT_ALTNAME_INVALID",
+]);
+
+/**
+ * What two of those codes rule out, said in the refusal rather than left to a
+ * guess. Each fails with the right CA named, so the reading every other code
+ * gets — the named CA is not the one that signed — would send the operator
+ * looking for a CA that does not exist.
+ */
+const TLS_FAILURE_READINGS = new Map([
+  [
+    "CERT_HAS_EXPIRED",
+    "Here a certificate has expired, the server's or the CA's the URL names, so a " +
+      "renewal rather than another CA is what fixes it: the server's certificate " +
+      "on the server, or a current copy of the CA's. ",
+  ],
+  [
+    "ERR_TLS_CERT_ALTNAME_INVALID",
+    "Here the CA is not what failed: the certificate does not carry the host the URL names. ",
+  ],
 ]);
 
 /**
@@ -140,13 +159,28 @@ async function connectForMigration() {
       // `sslmode=require` reads as "encrypt, do not check the certificate" in
       // libpq, and node-postgres does check it, so the setting most people
       // reach for is the one that fails here.
+      //
+      // The verified way out comes first, because it is nearly always there:
+      // a managed PostgreSQL publishes the CA that signs its certificates, and
+      // a server that signed its own can be handed that certificate. Both are
+      // a file, and node-postgres reads `sslrootcert` as a path and trusts
+      // that file alone. The path is a placeholder rather than any profile's,
+      // because this runs in every shape and only one of them has a directory
+      // set aside for it. no-verify is the last resort and says what it gives
+      // up: it is the one that tells nobody when a different server answers.
       throw new Error(
         `The database refused a verified TLS connection (${code}). ` +
-          "If it presents a certificate it signed itself, which a self-hosted " +
-          "PostgreSQL usually does, use ?sslmode=no-verify in DATABASE_URL: " +
-          "that still encrypts the connection but stops checking who signed " +
-          "the certificate. Use ?sslmode=verify-full only when the server has " +
-          "a certificate from a CA this container already trusts.",
+          "To keep the check, save the certificate of the CA that signed the server's " +
+          "(a managed PostgreSQL offers it for download; a server that signed its own " +
+          "certificate can be given that certificate) where this process can read it, " +
+          "and name it in DATABASE_URL: " +
+          "?sslmode=verify-full&sslrootcert=/path/to/ca.pem. " +
+          (TLS_FAILURE_READINGS.get(code) ??
+            "If the URL names one already, it is not the one that signed this " +
+              "server's certificate. ") +
+          "The host in the URL has to be a name the certificate carries. Only where there is " +
+          "no certificate to trust, use ?sslmode=no-verify: that still encrypts the " +
+          "connection but stops checking who is on the other end.",
         { cause: error },
       );
     }

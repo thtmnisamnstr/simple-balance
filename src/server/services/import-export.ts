@@ -86,7 +86,7 @@ export const csvStageInputSchema = z.object({
     .enum(["YMD", "MDY", "DMY"])
     .default("YMD")
     .describe(
-      "How to read an ambiguous date. 03/04/2026 is 3 April under DMY and 4 March under MDY, and nothing in the file says which, so getting this wrong misfiles rows silently rather than failing.",
+      "How to read an ambiguous date. 03/04/2026 is April 3 under DMY and March 4 under MDY, and nothing in the file says which, so getting this wrong misfiles rows silently rather than failing.",
     ),
   decimalSeparator: z
     .enum([".", ","])
@@ -191,7 +191,8 @@ export async function listActiveImportBatches(
       ),
     )
     .where(and(...conditions))
-    .groupBy(importBatches.id)
+    // Both key columns, for the reason given in accounts.ts.
+    .groupBy(importBatches.userId, importBatches.id)
     .orderBy(desc(importBatches.createdAt), desc(importBatches.id))
     .limit(query.limit + 1);
   const hasMore = rows.length > query.limit;
@@ -281,7 +282,7 @@ function appExportDraft(row: Record<string, string>, accountId: string): CsvStag
     date: row.date,
     // The fallbacks go through restoreNeutralizedCell like category_name and
     // external_id beside them: a file written before the JSON column carries
-    // the neutraliser's apostrophe in its visible cells, and keeping it filed
+    // the neutralizer's apostrophe in its visible cells, and keeping it filed
     // "'=SUM(...)" under a payee nobody typed.
     payee: protectedText.success
       ? protectedText.data.payee
@@ -297,9 +298,9 @@ function appExportDraft(row: Record<string, string>, accountId: string): CsvStag
           categoryId: row.category_id || null,
           // By name, because the id names a category in the ledger the file
           // came from. The name travels in the JSON where the spreadsheet
-          // formula neutraliser cannot reach it; the visible column is the
+          // formula neutralizer cannot reach it; the visible column is the
           // fallback for a file written before that, and the apostrophe the
-          // neutraliser may have added is taken back off.
+          // neutralizer may have added is taken back off.
           categoryName:
             (roundtripExtras.success ? roundtripExtras.data.categoryName : undefined) ??
             (cleanHumanName(restoreNeutralizedCell(row.category_name || "")) || null),
@@ -425,15 +426,30 @@ async function canonicalizeImportedPayees(tx: DbTransaction, actor: Actor, rows:
   const existingNames = new Set(canonicalByName.keys());
   const resolutionByName = new Map<string, CsvReferenceResolution["payees"][number]>();
 
+  // A transfer stages as a `partial` rather than a draft, because an import
+  // names one account and a transfer needs two; so does any row whose date or
+  // amount would not parse. Reading only `draft` skipped every one of them,
+  // which is the defect the category resolver below already has fixed — see its
+  // `stageTarget`. What was stored stayed right, because `insertImportedStages`
+  // canonicalizes a partial on the way in; what was REPORTED did not, and the
+  // two are built at different moments. So a Simple Balance export holding a
+  // cross-currency transfer for `ACME  Co` showed `ACME  Co` in "As it will be
+  // read" and in the MCP sample while the queue held `Acme Co`, and a file of
+  // nothing but transfers reported "0 matched and 0 new" while creating payees.
   for (const row of rows) {
-    if (!row.draft) continue;
-    const inputPayee = row.draft.payee;
+    const target = row.draft ?? row.partial;
+    // A partial is `Record<string, unknown>`: it holds whatever parsed, and the
+    // payee is one of the fields that may not have.
+    if (!target || typeof target.payee !== "string") continue;
+    const inputPayee = target.payee;
     const normalized = normalizeHumanName(inputPayee);
     const resolvedPayee = canonicalByName.get(normalized) ?? cleanHumanName(inputPayee);
     if (!canonicalByName.has(normalized)) {
       canonicalByName.set(normalized, resolvedPayee);
     }
-    row.draft = { ...row.draft, payee: resolvedPayee };
+    // Back to whichever of the two this row has, never to both.
+    if (row.draft) row.draft = { ...row.draft, payee: resolvedPayee };
+    else if (row.partial) row.partial = { ...row.partial, payee: resolvedPayee };
     if (!resolutionByName.has(normalized)) {
       resolutionByName.set(normalized, {
         inputPayee: cleanHumanName(inputPayee),
@@ -543,7 +559,7 @@ async function resolveImportedCategories(
     }
     const inputName = cleanHumanName(
       // An app export carries the name on the target, restored from the JSON
-      // the neutraliser never touched. A mapped file carries it in the column
+      // the neutralizer never touched. A mapped file carries it in the column
       // whoever set up the mapping named.
       typeof target.categoryName === "string" && target.categoryName
         ? target.categoryName
@@ -613,7 +629,7 @@ async function resolveImportedCategories(
    * A `ledger:stage` caller may not create or reopen one, so the row is staged
    * saying which category it wants and the commit, which needs `ledger:write`,
    * makes it. Without this the name is dropped here and the row commits
-   * uncategorised.
+   * uncategorized.
    */
   const defer = (group: {
     inputName: string;
@@ -1059,7 +1075,7 @@ export async function exportTransactionsCsv(actor: Actor, query: unknown) {
       : "",
     notes: transaction.notes,
     // Everything the visible columns cannot carry exactly. The spreadsheet
-    // formula neutraliser rewrites a cell beginning with =, +, - or @, which is
+    // formula neutralizer rewrites a cell beginning with =, +, - or @, which is
     // right for a person opening the file and wrong for a value read back
     // mechanically: a category named "-Reimbursements" grew an apostrophe on
     // every round trip and became a second category each time.

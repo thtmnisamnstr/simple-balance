@@ -6,6 +6,7 @@ screen. The [guide](guide.md) is the companion that explains *why* things work
 the way they do; this page only tells you *what to do*.
 
 - [Set up your accounts](#set-up-your-accounts)
+- [Choose which accounts stay usable](#choose-which-accounts-stay-usable)
 - [Record a transaction](#record-a-transaction)
 - [The three kinds of transaction](#the-three-kinds-of-transaction)
 - [Record a refund](#record-a-refund)
@@ -19,7 +20,7 @@ the way they do; this page only tells you *what to do*.
 
 ## Set up your accounts
 
-An account is anywhere money sits or is owed: a current account, a savings
+An account is anywhere money sits or is owed: a checking account, a savings
 account, a credit card, a loan, cash in a drawer.
 
 1. Open **Accounts** in the sidebar and press **New account**.
@@ -32,9 +33,46 @@ account, a credit card, a loan, cash in a drawer.
    positive number and leave **Starting balance type** on **Amount owed**.
 4. Press **Create account**.
 
-Start with the accounts you actually use. You can add more at any time, and an
+Start with the accounts you actually use. You can add more whenever you like,
+unless you are on the **Free** plan of a deployment that sells plans and every
+place it keeps is in use: then **New account** is disabled and says why, and
+[the next section](#choose-which-accounts-stay-usable) says what to do. An
 account you stop using can be archived from its row menu; its history stays
 readable, and its balance stops counting toward your totals.
+
+## Choose which accounts stay usable
+
+This only happens on a deployment that sells plans, while you are on **Free**
+with more accounts than it keeps usable. Anywhere else the Accounts page shows
+no such panel and there is nothing to do. The [guide](guide.md#plans) explains
+the plans and why this choice is made once.
+
+1. Open **Accounts**. The panel above your accounts is headed **Choose which
+   accounts stay usable**. Until you choose, your oldest accounts in use are
+   the usable ones, so those are the ones checked.
+2. Check the accounts you want to keep using, up to the number the panel
+   names, and clear the rest. The count beside the button says how many
+   places you have filled.
+3. Press **Save which accounts are usable**. This is the one time you choose.
+   The accounts you saved are marked **In use** and stay that way until you
+   archive or delete one. The rest are marked **Frozen**: still listed, still
+   readable, still counted in every balance and report, and closed to every
+   change until they are back in use. If the checked accounts are already the
+   ones you want, there is nothing to save. The button stays disabled, those
+   accounts stay usable, and the question stays open until you save a
+   different set.
+
+To bring a frozen account back later:
+
+1. Archive or delete an account you are using, from its row menu. That opens
+   up its place. A frozen account cannot be archived or deleted itself.
+2. In the same panel, now headed **Accounts you are using**, check the frozen
+   account and press **Bring these back**.
+
+Restoring an archived account and pressing **New account** each take a free
+place too, and each says so when there is none. **Settings > Plan and billing**
+shows how many places are in use, and upgrading to **Premium** there makes
+every account usable.
 
 ## Record a transaction
 
@@ -48,7 +86,7 @@ readable, and its balance stops counting toward your totals.
 5. Press **Commit transaction**.
 
 That is the whole job. Categories are what the reports and budgets group
-spending by, so the more consistently you categorise, the more the rest of the
+spending by, so the more consistently you categorize, the more the rest of the
 app can tell you.
 
 ## The three kinds of transaction
@@ -58,7 +96,7 @@ app can tell you.
 - **Withdrawal**: money leaving. Shopping, rent, fees. It leaves one account
   and usually carries a spending category such as Groceries.
 - **Transfer**: money moving between two of *your own* accounts, like paying
-  the credit card from the current account or topping up savings. A transfer
+  the credit card from the checking account or adding to savings. A transfer
   is not income and not spending, so it carries no category and never appears
   in spending reports.
 
@@ -68,7 +106,7 @@ the two amounts you type *are* the rate you actually got.
 
 ## Record a refund
 
-Money coming back from a shop is not income; it is spending undone. Record it
+Money coming back from a store is not income; it is spending undone. Record it
 as a **deposit** into your account, and give it the **same spending category**
 the original purchase had. The category's spending goes down by that amount,
 which is what your budget wants to know. Nothing special to press: picking a
@@ -105,8 +143,8 @@ category side to divide.
   press **Show register**. Every movement is listed with the balance before
   and after it. Read down until the running balance stops matching your
   statement, and that is the row to fix.
-- **Change many rows at once**: tick their checkboxes on Transactions (or use
-  the select-all box), then use the bulk bar to recategorise, redate, rename
+- **Change many rows at once**: check the rows you want on Transactions (or use
+  the select-all box), then use the bulk bar to recategorize, redate, rename
   the payee, or delete. Up to 10,000 rows, all-or-nothing, after being told
   exactly how many rows the change will touch.
 - **Repeat something similar**: open the row's ⋯ menu and choose **Clone
@@ -131,7 +169,7 @@ Staging and committing fifty rows or more at once both show a bar counting
 the rows as they go, so a batch of several thousand tells you where it is
 instead of leaving you guessing. If either is refused partway, nothing was
 written and the message beside the bar says so. If the connection drops instead,
-nobody can say — the work carries on at the server whatever the browser does —
+nobody can say — the work continues at the server whatever the browser does —
 so the message asks you to reload and look.
 
 Small repairs happen right in the list: click a row's **date, payee, category
@@ -155,7 +193,7 @@ both sides of a conversion, everything.
 ## Save time with templates
 
 For transactions you type often but irregularly, like the vet, the barber, or
-a top-up:
+a transit card reload:
 
 1. Open the ⋯ menu on any transaction and choose **Save as template**, or make
    one from scratch on **Templates**.
@@ -178,7 +216,7 @@ For money that moves on a schedule, like rent, salary, and subscriptions:
 2. Set the schedule: daily, weekly, monthly or yearly, every N of those, on a
    day of the month or a relative day such as the last Friday. Choose what
    happens when the date lands on a weekend or a too-short month.
-3. Leave the amount blank if it varies. The electricity bill recurs; its
+3. Leave the amount blank if it varies. The electric bill recurs; its
    amount does not.
 
 On each due date the recurrence **proposes** a row in Staged. It never posts
@@ -220,27 +258,27 @@ interesting row.
 
 ### Step 2: make the leftovers mean something (envelopes)
 
-Tick **Carry what is left over into the next month** on a budget and it
-becomes an envelope: the £50 you did not spend on groceries in March is £50
+Check **Carry what is left over into the next month** on a budget and it
+becomes an envelope: the $50 you did not spend on groceries in March is $50
 more grocery money in April, and overspending carries forward too, as a debt
 the calendar does not forgive. This is the whole of "envelope budgeting".
 Money you did not spend stays earmarked instead of evaporating at month end.
 
 Once anything carries, the page says what is left to assign: what the accounts
 your budget is about hold, minus what the envelopes have already claimed.
-Getting that figure to zero is "zero-based budgeting", where every pound has a
+Getting that figure to zero is "zero-based budgeting", where every dollar has a
 job. Two dials control whose money counts:
 
 - On each account's form, **The budget is about the money in this account**
-  decides whether it is inside the budget's perimeter. Leave your pension out;
-  keep the credit card in (spending on a card empties an envelope even though
-  no cash moved yet).
-- A **Most to carry** cap stops an envelope hoarding without limit, in both
-  directions: the fund nobody draws on, the debt nobody repays.
+  decides whether it is inside the budget's perimeter. Leave your retirement
+  account out; keep the credit card in (spending on a card empties an envelope
+  even though no cash moved yet).
+- A **Most to carry** cap keeps an envelope from hoarding without limit, in
+  both directions: the fund nobody draws on, the debt nobody repays.
 
 ### Step 3: save toward a date (sinking funds)
 
-For a known future expense, like insurance in June or a holiday in August:
+For a known future expense, like insurance in June or a vacation in August:
 
 1. Set a budget on the category and fill **Saving up for** with the target
    amount and the date you need it by.
@@ -261,10 +299,10 @@ Under **Amount decided by**, three alternatives to typing a number:
   month". The [guide](guide.md#budgets) explains why it reads last month and
   not this one.
 
-An amount you set for a single month beats any rule, and the rule carries on
+An amount you set for a single month beats any rule, and the rule continues
 from what you set.
 
-### Step 5: when there is not enough to go round
+### Step 5: when there is not enough to go around
 
 Give your most important budgets a **Funded first** rank (lower goes first).
 The report then shows how much of each budget the month's income actually
@@ -282,7 +320,7 @@ file a new category as you make it. A group is budgeted one of two ways, chosen
 when you make it:
 
 - **Has a budget of its own**: one number for the whole group ("Eating out:
-  £200 across restaurants, takeaway, coffee"). Bucket budgeting; three such
+  $200 across restaurants, takeout, coffee"). Bucket budgeting; three such
   groups make 50/30/20. The Budgets page badges these **Own budget**.
 - **Adds up its categories' budgets**: the group is whatever its member
   budgets total, badged **Adds up**. Hierarchical budgeting; the group line is
@@ -312,7 +350,7 @@ it rather than quietly flattering every month.
 
 For a first real month of budgeting: import or enter last month's spending;
 set plain budgets on your five biggest spending categories at roughly what
-they cost; tick **Carry what is left over** on the two you most want to
+they cost; check **Carry what is left over** on the two you most want to
 control; add one sinking fund for the next known bill; then come back weekly
 and read **Left to assign** and the **So far** rows. Adjust the numbers, not
 your honesty. The report only works if the entries are true.

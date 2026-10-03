@@ -48,7 +48,7 @@ const malformedStage: StagedTransaction = {
  * An agent may stage a row naming its category by name and no id, and a CSV
  * import defers the name the same way when the token may only stage. Opening
  * such a row to review it and pressing Save used to write null over the name,
- * and the row then committed uncategorised.
+ * and the row then committed uncategorized.
  */
 describe("a staged row filed by category name", () => {
   const namedStage: StagedTransaction = {
@@ -122,7 +122,7 @@ describe("a staged row filed by category name", () => {
   // A transfer may carry a category — it has no counter-account side, so the
   // picker is not rendered — and what the row arrived saying is kept. "Not
   // shown" is not a reason to erase it, which is what a CSV round trip of a
-  // categorised transfer depends on.
+  // categorized transfer depends on.
   it("keeps the category the row arrived with when it is made a transfer", async () => {
     let body: { draft?: Record<string, unknown> } | undefined;
     renderStaged(namedStage, (next) => (body = next));
@@ -138,11 +138,11 @@ describe("a staged row filed by category name", () => {
   // is still there.
   it("drops a name typed into a picker the type change then hid", async () => {
     let body: { draft?: Record<string, unknown> } | undefined;
-    const uncategorised = {
+    const uncategorized = {
       ...namedStage,
       draft: { ...(namedStage.draft as object), categoryName: undefined },
     } as StagedTransaction;
-    renderStaged(uncategorised, (next) => (body = next));
+    renderStaged(uncategorized, (next) => (body = next));
     fireEvent.change(screen.getByPlaceholderText("Type to search or add"), {
       target: { value: "Typed By Hand" },
     });

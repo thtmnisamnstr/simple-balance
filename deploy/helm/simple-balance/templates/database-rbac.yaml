@@ -1,0 +1,64 @@
+{{- if .Values.database.enabled }}
+{{/*
+Patroni keeps its cluster state in the Kubernetes API rather than in a separate
+etcd, which is what makes this a database with no second distributed system
+under it. That state lives in Endpoints and ConfigMaps, so the pods need to
+write them — the permissions below are Patroni's own documented set, narrowed to
+this namespace.
+
+`delete` and `deletecollection` are here because `patronictl remove` needs them,
+and removing a cluster member is part of the runbook rather than an emergency.
+*/}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "simple-balance.databaseName" . }}
+  labels:
+    {{- include "simple-balance.componentLabels" (dict "root" . "component" "database") | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "simple-balance.databaseName" . }}
+  labels:
+    {{- include "simple-balance.componentLabels" (dict "root" . "component" "database") | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create", "get", "list", "patch", "update", "watch", "delete", "deletecollection"]
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    verbs: ["get", "patch", "update", "create", "list", "watch", "delete", "deletecollection"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "patch", "update", "watch"]
+  {{/*
+  Patroni labels its own pod with the role it currently holds, which is how the
+  leader Service below finds the primary. That is a patch on `pods`, already
+  granted above; `services` is create-only and exists so Patroni can make the
+  headless `-config` service if this chart's own copy is ever removed.
+  */}}
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "simple-balance.databaseName" . }}
+  labels:
+    {{- include "simple-balance.componentLabels" (dict "root" . "component" "database") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "simple-balance.databaseName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "simple-balance.databaseName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

@@ -19,7 +19,7 @@ let accountId: string;
 let categoryId: string;
 
 /**
- * The schema tests prove a tool publishes a contract; this proves it honours it.
+ * The schema tests prove a tool publishes a contract; this proves it honors it.
  *
  * Worth having as its own file because the two can disagree silently: a tool
  * whose result does not satisfy its declared output schema has that result
@@ -150,9 +150,9 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
       }),
     ).rejects.toThrow(/cannot include split transactions/);
 
-    // A leg relabelled by id, which the ledger records without writing a single
-    // posting, and the reader sees the new label straight away.
-    const relabelled = (await call("update_transaction", {
+    // A leg relabeled by id, which the ledger records without writing a single
+    // posting, and the reader sees the new label right away.
+    const relabeled = (await call("update_transaction", {
       id: created.id,
       idempotencyKey: "split-relabel",
       input: {
@@ -170,7 +170,7 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
         },
       },
     })) as { legs: { category: { name: string } | null }[] };
-    expect(relabelled.legs.map((leg) => leg.category?.name)).toEqual(["Household", "Groceries"]);
+    expect(relabeled.legs.map((leg) => leg.category?.name)).toEqual(["Household", "Groceries"]);
   });
 
   /**
@@ -512,7 +512,7 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
   /**
    * An agent's only way to change a reminder is to read one, edit a field and
    * send it back — it has no form to fill in. The object it reads carries three
-   * fields the scheduler owns, and sending them back was refused as unrecognised
+   * fields the scheduler owns, and sending them back was refused as unrecognized
    * keys, so the natural edit failed and the workaround was to guess which
    * fields were safe to strip.
    */

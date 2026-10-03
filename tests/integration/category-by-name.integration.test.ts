@@ -373,7 +373,7 @@ integration("naming a category on a transaction instead of picking one", () => {
     });
 
     // A category that exists has a right answer already, and this field is not
-    // a licence to overwrite it. Letting it through would be the widening bug
+    // a license to overwrite it. Letting it through would be the widening bug
     // again wearing a different hat.
     it("leaves a category that already exists alone", async () => {
       const before = await named("Groceries");

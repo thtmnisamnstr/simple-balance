@@ -6,7 +6,7 @@ description: Bring the standards guides, AGENTS.md, CHANGELOG.md and docs/upgrad
 # Bring the documents back to true
 
 `docs/standards/writing.md` §Keeping a document true states the rule: **a change
-that alters behaviour a document describes changes that document in the same
+that alters behavior a document describes changes that document in the same
 commit.** This skill is that step done systematically instead of from memory.
 
 **Point at the guides, never copy them.** If you find yourself restating a rule
@@ -20,9 +20,9 @@ git diff main...HEAD --stat
 git log --oneline main..HEAD | cat
 ```
 
-For each change, write one sentence about the *behaviour* — not the edit. "A
+For each change, write one sentence about the *behavior* — not the edit. "A
 disabled submit now says why" rather than "added a `disabledReason` prop". The
-behaviour sentence is what a document describes; the edit is not.
+behavior sentence is what a document describes; the edit is not.
 
 Then sort each into exactly one of:
 
@@ -159,6 +159,6 @@ npm run format && npm run verify
 
 ## 9. Report
 
-Name the documents changed and why, any rule newly mechanised, any disagreement
+Name the documents changed and why, any rule newly mechanized, any disagreement
 recorded rather than resolved, and anything you found false that you did not fix
 — with the reason.

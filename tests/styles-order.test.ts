@@ -73,7 +73,7 @@ describe("the order of the stylesheet", () => {
   it("names the two at-rules that sit above the responsive body", () => {
     // Otherwise "nothing follows the responsive body" says nothing about a
     // preference block scattered through the component rules, which is the
-    // other half of what this is here to prevent. The colour block belongs to
+    // other half of what this is here to prevent. The color block belongs to
     // the three the theme needs at the top; the other is four lines qualifying
     // the rule six lines above it.
     const above = constructs

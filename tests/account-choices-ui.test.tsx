@@ -34,7 +34,9 @@ const account = (id: string, name: string, archivedAt: string | null = null): Ac
 const LIVE = account("live-1", "Everyday");
 const OTHER = account("live-2", "Savings");
 const CLOSED = account("closed-1", "Closed last year", "2026-02-01");
-const accounts = [LIVE, OTHER, CLOSED];
+/** Frozen answers to the same rule as archived, and the forms share one. */
+const FROZEN: Account = { ...account("frozen-1", "Old joint account"), frozen: true };
+const accounts = [LIVE, OTHER, CLOSED, FROZEN];
 const categories: Category[] = [{ id: "cat-1", name: "Food", kind: "expense", version: 1 }];
 
 function mount(node: React.ReactNode) {
@@ -93,6 +95,10 @@ describe("the accounts a form offers", () => {
         options.join(" "),
         "a closed account is not something new money can be pointed at",
       ).not.toContain("Closed last year");
+      expect(
+        options.join(" "),
+        "a frozen account refuses a new entry, so offering it offers a refusal",
+      ).not.toContain("Old joint account");
     });
   }
 

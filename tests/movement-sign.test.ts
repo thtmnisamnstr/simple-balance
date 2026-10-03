@@ -7,8 +7,8 @@ import { movementSign } from "../src/client/money.js";
  * A stored amount is always positive — `AGENTS.md` keeps direction in the
  * transaction's type — so nothing about the number says whether money arrived
  * or left. Four lists have to say it anyway, and they used to say it three
- * different ways: the register signed and coloured by type, the reports
- * coloured by the value's own sign, and the review queue, the templates and the
+ * different ways: the register signed and colored by type, the reports
+ * colored by the value's own sign, and the review queue, the templates and the
  * recurrences said nothing at all. The same withdrawal read three ways in three
  * places, and one of the three did not read at all.
  */
@@ -31,8 +31,8 @@ describe("which way a movement went", () => {
   /**
    * A transfer's direction depends on which account is being looked at, so a
    * transfer seen from neither side has no direction to show. It is signed but
-   * left uncoloured either way: moving money between your own accounts is not
-   * spending, and colouring it red would say it was.
+   * left uncolored either way: moving money between your own accounts is not
+   * spending, and coloring it red would say it was.
    */
   it("takes a transfer's direction from the account being viewed", () => {
     expect(movementSign("transfer", true)).toEqual({ sign: "+", className: "deposit" });

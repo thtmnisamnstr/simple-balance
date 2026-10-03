@@ -1,6 +1,21 @@
+# The development database, and nothing else.
+#
+# `name:` is set, and it is not decoration. Compose takes a project name from
+# the directory when a file does not give one, which for this file is
+# `simple-balance` — the same name `deploy/compose/single/compose.yml` declares
+# for itself. Two files claiming one project means two files claiming the same
+# containers, so bringing the single profile up on a development machine
+# silently replaced this database with that one, bind mount and all. It is the
+# kind of thing that is obvious once and baffling the first time.
+name: simple-balance-dev
+
 services:
   postgres:
-    image: postgres:16-alpine
+    # The same 18 the deployment profiles ship, so development and production
+    # agree about collation, planner behavior and anything else a version
+    # changes. Alpine is fine here and nowhere else: this database holds test
+    # data, and nobody reads a sorted list out of it.
+    image: postgres:18-alpine
     environment:
       POSTGRES_DB: simple_balance
       POSTGRES_USER: postgres
@@ -8,12 +23,19 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d simple_balance"]
+      # `-h 127.0.0.1` rather than the socket: the entrypoint runs a temporary
+      # server while it executes initdb scripts, and that one sets
+      # `listen_addresses=''`. A socket check therefore reports healthy against
+      # a server about to be replaced, and whatever was waiting on it connects
+      # to `FATAL: the database system is shutting down`.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d simple_balance"]
       interval: 2s
       timeout: 3s
       retries: 20
     volumes:
-      - dev-postgres:/var/lib/postgresql/data
+      # The parent, not `.../data`: PostgreSQL 18 moved PGDATA and refuses to
+      # start against a volume mounted at the old path.
+      - dev-postgres:/var/lib/postgresql
       - ./scripts/dev-databases.sql:/docker-entrypoint-initdb.d/10-databases.sql:ro
 
 volumes:

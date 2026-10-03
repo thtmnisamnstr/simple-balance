@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useThemeSetting } from "../theme.js";
-import { Bot, KeyRound, Link, Settings2, SunMoon, TriangleAlert } from "lucide-react";
+import { Bot, KeyRound, Link, Plug, Settings2, SunMoon, TriangleAlert } from "lucide-react";
 import { useState, useId } from "react";
 import { useSearchParams } from "../router.js";
 import { formatTimestamp } from "../money.js";
@@ -12,11 +12,13 @@ import {
   Badge,
   Button,
   ConfirmDialog,
+  EmptyState,
   Field,
   Input,
   Note,
   PageHeader,
   Select,
+  SettingsTabs,
   Skeleton,
   useConfirm,
 } from "../components.js";
@@ -29,7 +31,7 @@ import {
 
 /**
  * Named for what each one does rather than for the value it stores. "Follow my
- * system" is a standing instruction, not a colour, and calling it "System"
+ * system" is a standing instruction, not a color, and calling it "System"
  * leaves somebody guessing whose system and when.
  */
 const THEME_CHOICES = [
@@ -111,9 +113,13 @@ export default function SettingsPage({ session }: { session: Session }) {
   return (
     <>
       <PageHeader
-        eyebrow="Preferences"
-        title="Settings"
+        eyebrow="Settings"
+        title="Preferences"
         description="Choose how the app looks, how dates and amounts are shown, and how you sign in."
+      />
+      <SettingsTabs
+        current="preferences"
+        billingAvailable={authOptions.data?.billingAvailable ?? false}
       />
       <div className="settings-grid">
         {/* Two columns of independent cards rather than a grid of rows. Sharing
@@ -128,7 +134,7 @@ export default function SettingsPage({ session }: { session: Session }) {
               </span>
               <div>
                 <h2>Appearance</h2>
-                <p>How the app is coloured. Nothing here changes a figure.</p>
+                <p>How the app is colored. Nothing here changes a figure.</p>
               </div>
             </header>
             {/* Outside a form and with no Save button, unlike everything else on
@@ -363,7 +369,7 @@ export default function SettingsPage({ session }: { session: Session }) {
               {session.auth.localPasswordConfigured ? (
                 <Note>
                   {authOptions.data?.passwordResetAvailable
-                    ? "Forgotten this password? The sign-in screen can send a link to reset it."
+                    ? "Forgot this password? The sign-in screen can send a link to reset it."
                     : "This deployment has no mail server, so a forgotten password cannot be reset. Keep it in a password manager."}
                 </Note>
               ) : null}
@@ -386,6 +392,7 @@ type OwnDataSummary = {
   importBatches: number;
   payees: number;
   connectedAgents: number;
+  activeSubscription: boolean;
 };
 
 const plural = (count: number, one: string, many = `${one}s`) =>
@@ -401,13 +408,17 @@ const readableList = (parts: (string | null)[]) => {
 /**
  * Leaving, and taking everything with you.
  *
- * Its own section at the foot of the page rather than a menu item, because
+ * Its own section at the bottom of the page rather than a menu item, because
  * nothing here is recoverable and it should not sit next to anything somebody
  * clicks by habit. What will be destroyed is counted and shown before the
  * confirmation, and the address has to be typed: it is the one thing on the
  * screen a stray click cannot produce.
+ *
+ * Exported for `tests/account-deletion-ui.test.tsx`, which renders it alone:
+ * the page around it needs the auth client and four other sections, and none
+ * of them is what the deletion copy is about.
  */
-function DeleteAccount({ session }: { session: Session }) {
+export function DeleteAccount({ session }: { session: Session }) {
   const [confirmEmail, setConfirmEmail] = useState("");
   const [open, setOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -445,7 +456,18 @@ function DeleteAccount({ session }: { session: Session }) {
       </header>
 
       {open ? (
-        <>
+        // A `<form>`, so Enter in the one text field does what the button
+        // does. BudgetsPage diagnosed this identical shape twice and left the
+        // reason in a comment both times; this is the third instance, and a
+        // lone confirmation field outside a form is the one where pressing
+        // Enter and nothing happening reads as a page that is broken.
+        <form
+          className="panel-stack"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (matches) setConfirmDelete(true);
+          }}
+        >
           {summary.isLoading ? <Skeleton height={20} label="Counting your records…" /> : null}
           {summary.error ? <Alert>{summary.error.message}</Alert> : null}
           {summary.data ? (
@@ -469,10 +491,45 @@ function DeleteAccount({ session }: { session: Session }) {
                   : null,
               ])}
               .
+              {/* Last, and a sentence of its own rather than an item in the
+                  list above. Everything in that list is a number saying how
+                  much is lost; this is the one that costs money, cannot be
+                  undone by re-entering it, and is the thing somebody would most
+                  want to have been told before they typed their address.
+
+                  Worded to be true of everything the flag covers, which is
+                  narrower than what the deletion cancels and deliberately so.
+                  `hasLiveSubscription` reads `paidForSubscriptionStatuses` —
+                  the live statuses minus `incomplete` — while
+                  `closeBillingForDeletion` deletes the Stripe customer and so
+                  ends every subscription it owns, a first payment that never
+                  finished included. Saying nothing about that one is the point:
+                  nothing was charged for it and the plan tab calls its owner
+                  Free, so a note about a canceled plan told somebody who had
+                  paid nothing that they were losing one. The one status in the
+                  set nobody paid for is an operator's hand-made `trialing`, and
+                  the sentence below does not claim they did. And it says what
+                  the deletion does not do:
+                  deleting the Stripe customer ends the subscription at once
+                  with no proration and no refund, and the sentence used to stop
+                  at "cannot be restored", which a person who paid for a year in
+                  March could read as the rest of it coming back. A refund is
+                  the operator's to give by hand, so it names who to ask, in the
+                  words the deletion's own refusal uses. */}
+              {summary.data.activeSubscription ? (
+                <>
+                  {" "}
+                  Your subscription is canceled at the same time, immediately and for good — a
+                  canceled subscription cannot be restored. Nothing is refunded, so any time left on
+                  what you paid for is lost. If you think you are owed a refund, contact whoever
+                  runs this server before you delete.
+                </>
+              ) : null}
             </Note>
           ) : null}
           <Field label="Type your email address to confirm" hint={session.user.email}>
             <Input
+              required
               value={confirmEmail}
               autoComplete="off"
               onChange={(event) => setConfirmEmail(event.target.value)}
@@ -493,17 +550,16 @@ function DeleteAccount({ session }: { session: Session }) {
               Cancel
             </Button>
             <Button
-              type="button"
+              type="submit"
               variant="danger"
               disabled={!matches}
               loading={deletion.isPending}
               disabledReason="Type your email address exactly as it appears above."
-              onClick={() => setConfirmDelete(true)}
             >
               Delete my account and all my data
             </Button>
           </div>
-        </>
+        </form>
       ) : (
         <div className="form-actions">
           <Button type="button" variant="danger" onClick={() => setOpen(true)}>
@@ -515,9 +571,17 @@ function DeleteAccount({ session }: { session: Session }) {
       <ConfirmDialog
         open={confirmDelete}
         title="Delete this account for good?"
+        // The last thing somebody confirms, so it names the one item that
+        // costs money as the note above does. It used to leave the subscription
+        // out entirely, although the summary saying there is one has loaded by
+        // the time this can open.
         description={
           summary.data
-            ? `${plural(summary.data.transactions, "transaction")} across ${plural(summary.data.accounts, "account")} and everything else in this ledger will be removed now. There is no copy and no undo. Any agent you have connected loses access immediately.`
+            ? `${plural(summary.data.transactions, "transaction")} across ${plural(summary.data.accounts, "account")} and everything else in this ledger will be removed now. There is no copy and no undo. Any agent you have connected loses access immediately.${
+                summary.data.activeSubscription
+                  ? " Your subscription ends now, and nothing is refunded."
+                  : ""
+              }`
             : "Everything in this ledger will be removed now. There is no copy and no undo."
         }
         confirmLabel="Delete everything"
@@ -590,51 +654,68 @@ function ConnectedApps() {
         </div>
       </header>
 
-      {apps.isLoading ? <Skeleton height={64} label="Loading connected apps…" /> : null}
-      {apps.error ? <Alert>{apps.error.message}</Alert> : null}
       {revokeMutation.error ? <Alert>{revokeMutation.error.message}</Alert> : null}
 
-      {apps.data && apps.data.length === 0 ? (
-        <Note>
-          Nothing is connected. An agent appears here once you approve it, and you can withdraw that
-          approval at any time.
-        </Note>
-      ) : null}
-
-      {apps.data?.map((app) => (
-        <div key={app.clientId} className="connected-app">
-          <div>
-            <strong>{app.name}</strong>
-            <Badge tone={app.hasLiveAccess ? "green" : undefined}>
-              {app.hasLiveAccess ? "Active" : "No live token"}
-            </Badge>
-            <Note>
-              {/* When it last took a token and how many it holds, because
-                  "is this thing still using my ledger" is the question this
-                  page exists to answer — the API sent both from the first
-                  day and the page dropped them on the floor. */}
-              {scopeSummary(app.scopes)}
-              {when(app.authorizedAt, timezone)
-                ? ` · approved ${when(app.authorizedAt, timezone)}`
-                : ""}
-              {when(app.lastIssuedAt, timezone)
-                ? ` · last token ${when(app.lastIssuedAt, timezone)}`
-                : ""}
-              {app.activeTokenCount > 0
-                ? ` · ${app.activeTokenCount} active token${app.activeTokenCount === 1 ? "" : "s"}`
-                : ""}
-            </Note>
+      {/* One chain, not three sibling expressions. 12.1's four states are
+          exclusive, and written as siblings the error rendered BESIDE the
+          empty state rather than in front of it — the same shape six other
+          lists were fixed out of. `isPending` rather than `isLoading`, which
+          is `isPending && isFetching`: this was the one list slot in the app
+          keyed on the second, so a query that had not started yet showed the
+          empty state instead of the skeleton. */}
+      {apps.isPending ? (
+        <Skeleton height={64} label="Loading connected apps…" />
+      ) : apps.isError ? (
+        <Alert>{apps.error.message}</Alert>
+      ) : apps.data.length === 0 ? (
+        <EmptyState
+          compact
+          icon={Plug}
+          title="Nothing is connected"
+          body="An agent appears here once you approve it, and you can withdraw that approval at any time."
+        />
+      ) : (
+        apps.data.map((app) => (
+          <div key={app.clientId} className="connected-app">
+            <div>
+              <strong>{app.name}</strong>
+              <Badge tone={app.hasLiveAccess ? "green" : undefined}>
+                {app.hasLiveAccess ? "Active" : "No live token"}
+              </Badge>
+              <Note>
+                {/* When it last took a token, how many it holds, and when the
+                    approval runs out, because "is this thing still using my
+                    ledger" is the question this page exists to answer — the
+                    API sent all four from the first day and the page dropped
+                    them on the floor. `expiresAt` was still on the floor after
+                    the other two were picked up, two lines from the comment
+                    recording it. */}
+                {scopeSummary(app.scopes)}
+                {when(app.authorizedAt, timezone)
+                  ? ` · approved ${when(app.authorizedAt, timezone)}`
+                  : ""}
+                {when(app.lastIssuedAt, timezone)
+                  ? ` · last token ${when(app.lastIssuedAt, timezone)}`
+                  : ""}
+                {when(app.expiresAt, timezone)
+                  ? ` · approval runs out ${when(app.expiresAt, timezone)}`
+                  : ""}
+                {app.activeTokenCount > 0
+                  ? ` · ${app.activeTokenCount} active token${app.activeTokenCount === 1 ? "" : "s"}`
+                  : ""}
+              </Note>
+            </div>
+            <Button
+              type="button"
+              variant="danger"
+              loading={revokeMutation.isPending && revokeMutation.variables === app.clientId}
+              onClick={() => revocation.ask(app, () => revokeMutation.mutate(app.clientId))}
+            >
+              Revoke
+            </Button>
           </div>
-          <Button
-            type="button"
-            variant="danger"
-            loading={revokeMutation.isPending && revokeMutation.variables === app.clientId}
-            onClick={() => revocation.ask(app, () => revokeMutation.mutate(app.clientId))}
-          >
-            Revoke
-          </Button>
-        </div>
-      ))}
+        ))
+      )}
 
       <ConfirmDialog
         open={revocation.open}

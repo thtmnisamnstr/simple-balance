@@ -98,7 +98,7 @@ integration("the scheduler process", () => {
     await admin.end();
   }, 60_000);
 
-  it("serves its own metrics, labelled as the scheduler", async () => {
+  it("serves its own metrics, labeled as the scheduler", async () => {
     const response = await fetch(`http://127.0.0.1:${port}/metrics`);
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/plain");
