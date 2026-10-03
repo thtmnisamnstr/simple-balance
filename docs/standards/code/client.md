@@ -55,8 +55,8 @@ matching: an invalidation naming a resource no query files itself under fails,
 because that write refetches nothing and says nothing. The other direction is
 deliberately open. A query nothing invalidates passes, because invalidation is
 not the only sanctioned way to stay fresh: the reports page files
-`["report", ...]` (`src/client/pages/ReportsPage.tsx:117`) and refetches on
-every mount instead (`:131-132`), since no mutation knows which report a change
+`["report", ...]` (`src/client/pages/ReportsPage.tsx:145`) and refetches on
+every mount instead (`:159-160`), since no mutation knows which report a change
 touches. A new query whose data a mutation does change still needs its
 invalidation written by hand, and no test will remind you.
 

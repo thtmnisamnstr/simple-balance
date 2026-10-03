@@ -19,6 +19,34 @@ import { Link, useLocation, useParams, useSearchParams } from "../router.js";
 import { reportBuckets, reportNames, type ReportName } from "../../shared/domain.js";
 import { emptyScreen, waysOut } from "../list-filters.js";
 
+/**
+ * Where a report row's subject lives, or null where it has none.
+ *
+ * 11.10: a summary that names something the app has a page for links to it,
+ * carrying `location.search` so the range travels. Every row on this page was a
+ * plain heading, which is the same omission the overview's spending panel had
+ * for a release — and the worse one here, because this is the page that
+ * provokes "why is Groceries $182?" most often.
+ *
+ * Read off the payload rather than off a second copy of the server's preset
+ * table. `accumulation` is how `getReport` itself chooses the cell builder, so
+ * the two cannot drift: historical accumulation is `balanceCells`, whose `key`
+ * is the account id, and the categories report is `flowCells` with
+ * `byCategory`, whose key is `"<kind>:<categoryId>"`.
+ *
+ * Three kinds of row link nowhere, and each is an absence rather than an
+ * oversight. Income and expenses buckets by kind alone, so its key is the word
+ * "income"; cash flow's keys are segments of an arithmetic; and an
+ * uncategorized row is the absence of a category, so `/categories/uncategorized`
+ * would be a 404 — the condition 11.10 names.
+ */
+function rowSubject(report: Report, key: string): string | null {
+  if (report.accumulation === "historical") return `/accounts/${key}`;
+  if (report.report !== "categories") return null;
+  const categoryId = key.slice(key.indexOf(":") + 1);
+  return categoryId === "uncategorized" ? null : `/categories/${categoryId}`;
+}
+
 const TITLES: Record<ReportName, string> = {
   "net-worth": "Net worth",
   "income-expense": "Income and expenses",
@@ -375,62 +403,76 @@ export default function ReportsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {rows.map((entry) => (
-                        <tr key={entry.key}>
-                          {/* Named as the label alone: content naming would
+                      {rows.map((entry) => {
+                        const subject = rowSubject(data, entry.key);
+                        /* The name, linked where it has somewhere to go. Kept
+                           as one expression because both branches of the
+                           `excludable` split below render it and a second copy
+                           is how the two stop agreeing. */
+                        const name = (
+                          <>
+                            {subject ? (
+                              <Link
+                                className="report-row-link"
+                                to={{ pathname: subject, search: location.search }}
+                              >
+                                {entry.label}
+                              </Link>
+                            ) : (
+                              entry.label
+                            )}
+                            {entry.archived ? <span className="row-note"> (closed)</span> : null}
+                          </>
+                        );
+                        return (
+                          <tr key={entry.key}>
+                            {/* Named as the label alone: content naming would
                               read every rowheader as "Rent Actions for Rent",
                               the menu's own label included. The menu button
                               keeps its name for when it is reached. */}
-                          <th scope="row" aria-label={excludable ? entry.label : undefined}>
-                            {excludable ? (
-                              <span className="report-row-heading">
-                                <span>
-                                  {entry.label}
-                                  {entry.archived ? (
-                                    <span className="row-note"> (closed)</span>
-                                  ) : null}
+                            <th scope="row" aria-label={excludable ? entry.label : undefined}>
+                              {excludable ? (
+                                <span className="report-row-heading">
+                                  <span>{name}</span>
+                                  <RowMenu label={`Actions for ${entry.label}`}>
+                                    <button
+                                      onClick={() => {
+                                        setExcluded(new Map(excluded).set(entry.key, entry.label));
+                                        // The row this control lived on is
+                                        // leaving; the pills that undo it are
+                                        // where a keyboard user lands.
+                                        requestAnimationFrame(() =>
+                                          exclusionsNote.current?.focus(),
+                                        );
+                                      }}
+                                    >
+                                      Exclude from this view
+                                    </button>
+                                  </RowMenu>
                                 </span>
-                                <RowMenu label={`Actions for ${entry.label}`}>
-                                  <button
-                                    onClick={() => {
-                                      setExcluded(new Map(excluded).set(entry.key, entry.label));
-                                      // The row this control lived on is
-                                      // leaving; the pills that undo it are
-                                      // where a keyboard user lands.
-                                      requestAnimationFrame(() => exclusionsNote.current?.focus());
-                                    }}
-                                  >
-                                    Exclude from this view
-                                  </button>
-                                </RowMenu>
-                              </span>
-                            ) : (
-                              <>
-                                {entry.label}
-                                {/* A balance report keeps a closed account's
-                                    history, so without saying so its past reads
-                                    as money still held. */}
-                                {entry.archived ? (
-                                  <span className="row-note"> (closed)</span>
-                                ) : null}
-                              </>
-                            )}
-                          </th>
-                          {entry.values.map((value, position) => (
+                              ) : (
+                                /* A balance report keeps a closed account's
+                                 history, so without saying so its past reads as
+                                 money still held. `name` carries that. */
+                                name
+                              )}
+                            </th>
+                            {entry.values.map((value, position) => (
+                              <td
+                                className={`align-right${isNegativeMoney(value) ? " money-negative" : ""}`}
+                                key={data.buckets[position]?.start ?? position}
+                              >
+                                {formatMoney(value, currency.currency)}
+                              </td>
+                            ))}
                             <td
-                              className={`align-right${isNegativeMoney(value) ? " money-negative" : ""}`}
-                              key={data.buckets[position]?.start ?? position}
+                              className={`align-right${isNegativeMoney(entry.total) ? " money-negative" : ""}`}
                             >
-                              {formatMoney(value, currency.currency)}
+                              <strong>{formatMoney(entry.total, currency.currency)}</strong>
                             </td>
-                          ))}
-                          <td
-                            className={`align-right${isNegativeMoney(entry.total) ? " money-negative" : ""}`}
-                          >
-                            <strong>{formatMoney(entry.total, currency.currency)}</strong>
-                          </td>
-                        </tr>
-                      ))}
+                          </tr>
+                        );
+                      })}
                     </tbody>
                     <tfoot>
                       <tr>

@@ -3892,6 +3892,19 @@ polyline.chart-line {
   font-variant-numeric: tabular-nums;
 }
 
+/* A linked row name takes the row's own ink and greens on hover, the treatment
+   `.account-mini-row` already had: 11.10's second condition, so the name does
+   not read as a second green thing beside the figures. */
+.report-row-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.report-row-link:hover {
+  color: var(--green);
+  text-decoration: underline;
+}
+
 .report-table th[scope="row"] {
   text-align: left;
   background: transparent;

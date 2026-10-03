@@ -1,7 +1,7 @@
 # Web
 
 The browser app. A React 19 single-page app with a hand-rolled router, TanStack
-Query for server state, and 4,318 lines of hand-written CSS in
+Query for server state, and 4,331 lines of hand-written CSS in
 `src/client/styles.css`. No component library, no CSS framework, no token build
 step, and none is coming, so every rule here has to be reachable with plain CSS
 custom properties and components written by hand.
@@ -482,7 +482,7 @@ alone is chosen against:
 | 1 | A decoration inside a card — the search icon (`styles.css:1878`), the sign-in art (`:3316`) |
 | 2 | A header sticking inside its own scroller — the modal header (`:2483`), the sign-in card (`:3034`) |
 | 10 | A popover over the page — the row menu (`:1786`) |
-| 15 | The mobile header, below 780px (`:4116`) |
+| 15 | The mobile header, below 780px (`:4129`) |
 | 20 | A bar sticking over a list — the merge panel (`:2952`) |
 | 25 | The mobile nav scrim, which covers everything above except the drawer (`:4106`) |
 | 30 | The sidebar itself (`:362`) |
@@ -526,8 +526,8 @@ this section came apart.
 ### 3.6 Breakpoints
 
 Four hardcoded max-widths, all four now contiguous at the foot of the
-stylesheet in descending order: 1050px (`styles.css:4045`), 980px
-(`styles.css:4076`), 780px (`styles.css:4083`) and 560px (`styles.css:4178`).
+stylesheet in descending order: 1050px (`styles.css:4058`), 980px
+(`styles.css:4089`), 780px (`styles.css:4096`) and 560px (`styles.css:4191`).
 Putting them in one place was section 7.3's doing; how many of them there should
 be is still this section's question.
 
@@ -551,10 +551,10 @@ prevent.
 
 Today there are no motion tokens. Transitions are written inline at 120ms (six
 declarations), 140ms (one) and 180ms (the mobile drawer's paired `transform` and
-`visibility`, `styles.css:4087-4089`), and there are two reduced-motion
+`visibility`, `styles.css:4100-4102`), and there are two reduced-motion
 blocks: `styles.css:820-823`, which turns off the skeleton shimmer specifically
 and stays beside `.skeleton` on purpose rather than joining the responsive body
-(section 7.3), and `styles.css:4293-4302`, a blanket rule setting
+(section 7.3), and `styles.css:4306-4315`, a blanket rule setting
 `animation-duration`, `transition-duration` and `scroll-behavior` on
 everything.
 
@@ -926,7 +926,7 @@ prevent is a *component rule after the responsive body*.
 
 The four breakpoints run in descending order at the foot of the file, each under
 the comment naming its constant, then the blanket reduced-motion block
-(`styles.css:4293-4302`), then the print block (`:4314-4318`) and nothing after
+(`styles.css:4306-4315`), then the print block (`:4327-4331`) and nothing after
 it. **Print is last and that is the rule, not an accident of when it arrived**:
 it is the one query that describes a different medium rather than a different
 width or preference, so anything it needs to undo has already been written.
@@ -1854,8 +1854,8 @@ There were **no `scroll-padding` or `scroll-margin` declarations anywhere in
 | `.modal-header` | `styles.css:2481` | sticky |
 | `.import-preview` | `styles.css:2632` | sticky |
 | `.merge-panel` | `styles.css:2944` | sticky |
-| `.nav-scrim` | `styles.css:4104` | fixed |
-| `.mobile-header` | `styles.css:4114` | sticky |
+| `.nav-scrim` | `styles.css:4117` | fixed |
+| `.mobile-header` | `styles.css:4127` | sticky |
 
 `.merge-panel` was the live case. It exists because the list is long enough to
 scroll, which is the same condition that puts a focused row underneath it. Every
@@ -2110,7 +2110,7 @@ description, so the table is free.
 
 The table goes **in the page**, not behind `aria-describedby`. A described-by
 target is flattened to one continuous paragraph and a screen reader loses the
-table structure entirely. `ReportsPage.tsx:360-373` already does this correctly,
+table structure entirely. `ReportsPage.tsx:388-401` already does this correctly,
 with a real table carrying an `.sr-only` caption and `scope` on every header.
 `.chart-figure` uses `<figure>` and `<figcaption>`, which is the recommended
 structure.
@@ -2604,7 +2604,7 @@ The rules, in the order they matter:
 
 - **A bar is determinate or it is not shown.** `<progress>` with no `value` is
   indeterminate and animates in every engine, and the blanket reduced-motion
-  block at `styles.css:4293-4302` freezes it into a bar that reads as stuck.
+  block at `styles.css:4306-4315` freezes it into a bar that reads as stuck.
   That is section 4's spinner defect a second time, and a determinate bar is the
   fix for that class of failure rather than a new instance of it.
 - **A bar never appears before its total is a real count.** A commit does fixed
@@ -2658,7 +2658,7 @@ The rules, in the order they matter:
 - **Three bars now, and a fourth has to say which of them it is not.**
   `.progress-track` (`styles.css:1500`, `DashboardPage.tsx:273`) is a decorative
   share-of-total meter under a row that already states its figure.
-  `.budget-bar` (`styles.css:4018`, `BudgetsPage.tsx:1229`) is money, with an
+  `.budget-bar` (`styles.css:4031`, `BudgetsPage.tsx:1229`) is money, with an
   over state. `.progress-meter` is work in flight. Neither of the first two
   appeared in this guide before this section, which by 17.3's closing test was a
   defect in the guide.
@@ -3053,7 +3053,7 @@ Two rules that follow:
   the same arithmetic stay, because nothing retracts horizontally.
 
 **There is a print stylesheet, and it holds one rule.**
-`@media print` at `styles.css:4314-4318` hides `.ad-slot`, because a statement
+`@media print` at `styles.css:4327-4331` hides `.ad-slot`, because a statement
 of accounts somebody prints or saves as a PDF is a record they may keep and hand
 on, and an advertisement in one is not a thing this product does. The block is
 last in the file for 7.3's reason, and that is where a second print rule goes —
