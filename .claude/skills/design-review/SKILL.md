@@ -97,10 +97,34 @@ space, whether a section is in a sensible position, and whether a layout holds
 at each breakpoint. jsdom has no layout, so unit tests cannot see any of it.
 
 If screenshots were provided, work from them — they are evidence and usually
-contain more findings than were reported. If a visual question cannot be settled
-from them, say so and ask, rather than guessing. The browser tier
+contain more findings than were reported. The browser tier
 (`BROWSER_DATABASE_URL=... npm run test:browser`) exercises real rendering and is
 where a keyboard or responsive assertion belongs.
+
+**If none were provided, take them.** Do not ask, and do not review the layout
+from source — the whole point of the previous paragraph is that source cannot
+answer. A throwaway spec under `tests/browser/` that signs up, seeds a ledger
+through the forms and photographs every route is about forty lines and runs in
+under a minute; `budgets.spec.ts` has the sign-up and the seeding to copy, and
+`playwright.config.ts` starts PostgreSQL, the API and Vite on its own. Point
+`BROWSER_DATABASE_URL` at a throwaway database, write the files somewhere
+outside the repository, **and delete the spec when the review is over** —
+`tests/testing-guide-counts.test.ts` counts the files in that directory and
+will tell you if you forget.
+
+**Measure what eyes judge badly.** Horizontal overflow is the one to automate
+while you are in there: `document.documentElement.scrollWidth > clientWidth` is
+a yes-or-no answer per route per width, and it found four pages this way that
+three rounds of looking at screenshots had not. A `.table-wrap` scrolling
+sideways is allowed; the *document* scrolling is the defect, so measure the
+document.
+
+**And measure the band above the largest breakpoint, not just a phone.** The
+sidebar is 248px and it is present above 780px, so the narrowest the content
+ever gets relative to the window is around 820px — not 390px, where the sidebar
+is gone. Every responsive defect found in the source session lived between
+780px and 1050px, and a check at a phone width and a desktop width saw none of
+them.
 
 ## Read the whole report before fixing
 

@@ -101,6 +101,17 @@ fixed by *narrowing the rule*, never by changing the code:
 A script that reports zero hits has usually broken, not passed. Prove it can
 report something before believing a clean run.
 
+**The mirror failure is a check that cannot see half its surface, and it looks
+exactly like a clean sweep.** A scan over JSX that walks string literals sees
+`"Archived accounts are listed"` and does not see
+`<span className="row-note"> (closed)</span>`, because the second is text
+between a `>` and a `<` and not a literal anywhere. One of this repository's
+vocabulary checks shipped in that state and passed with the defect it was
+written for still in the file; mutation-proving it is what found that, which is
+why 5 says to do it to every new check rather than to the interesting ones.
+`jsxText` in `tests/ui-copy.test.ts` is the other half, and any new copy check
+wants both.
+
 The checks that repeatedly find real defects:
 
 - **Four states per list** (`web.md` 12.1). Empty must distinguish "nothing yet"
