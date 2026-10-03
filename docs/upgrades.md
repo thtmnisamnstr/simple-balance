@@ -688,7 +688,10 @@ one who can lift a limit, and the server's instructions say once, to every
 connection, that a frozen account refuses every write. Nothing an agent sends
 changes, and that refusal's code and status are unchanged. No tool, argument,
 field or stored value was renamed or removed. A prompt or a test of your own
-that quotes a description word for word is the one thing that notices.
+that quotes a description word for word is the one thing that notices. One more
+moved late: `budget-report`'s `includeArchived` said "an account you have since
+closed" and now says "since archived", which is the word the rest of the product
+uses for an account that has been put away.
 
 **One field is new on the plan and billing response, and nothing else about it
 moved.** `GET /api/v1/billing` now carries `advertises`, a boolean saying
