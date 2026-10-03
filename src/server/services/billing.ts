@@ -1036,6 +1036,22 @@ type PlanPrice = {
 /** What the plan tab reads. Entirely from this deployment's own tables, bar the two prices. */
 export type BillingStatus = {
   readonly selling: boolean;
+  /**
+   * Whether this deployment serves advertising at all.
+   *
+   * Not the same question as `getAdPlacement`, which answers "show an ad to
+   * this person now" and is therefore null for every subscriber. The plan tab
+   * has to tell somebody what the paid plan buys them, and half of what it
+   * buys is the absence of something they cannot currently see — so the
+   * placement is exactly the wrong signal to read for it. A Premium customer
+   * asking what they pay for would be told only about accounts.
+   *
+   * Read from the configuration rather than from the entitlement, because it
+   * is a property of the deployment and not of the person: it is the same
+   * answer before and after somebody subscribes, which is what makes it usable
+   * on both sides of the upgrade.
+   */
+  readonly advertises: boolean;
   readonly publishableKey: string;
   readonly prices: {
     readonly monthly: PlanPrice | null;
@@ -1242,6 +1258,7 @@ export async function getBillingStatus(actor: Actor): Promise<BillingStatus> {
 
   return {
     selling,
+    advertises: getConfig().ads !== undefined,
     publishableKey: billing.publishableKey,
     prices: { monthly: shown(prices.monthly), yearly: shown(prices.yearly) },
     entitlement: summary.entitlement,

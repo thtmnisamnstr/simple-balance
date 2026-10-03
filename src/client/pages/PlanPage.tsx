@@ -1652,12 +1652,30 @@ export function PlanPage({
               </span>
               <div>
                 <h2>Your plan</h2>
+                {/* Half of what the paid plan buys is the absence of
+                    something a subscriber cannot see, so the ads are named on
+                    both plans rather than only on the one that shows them.
+                    `billing.advertises` is the deployment's configuration and
+                    not this person's entitlement, which is why it still reads
+                    true after somebody subscribes; `getAdPlacement` answers the
+                    other question and is null for them.
+
+                    "accounts in use at once" rather than "up to N accounts".
+                    The free plan caps how many you can keep adding to, never
+                    how many you keep, and the shorter phrasing is the limit
+                    this product stopped enforcing two releases ago. The
+                    pricing page corrected it and this tab did not, which is
+                    one customer reading two numbers. */}
                 <p>
                   {plan === "plus"
-                    ? `${PLAN_LABELS.plus}: as many accounts as you need.`
+                    ? `${PLAN_LABELS.plus}: as many accounts as you need${
+                        billing.advertises === true ? ", and no ads" : ""
+                      }.`
                     : limit === null
                       ? "Everything is included on this deployment."
-                      : `${PLAN_LABELS.free}: up to ${limit} accounts.`}
+                      : `${PLAN_LABELS.free}: up to ${limit} accounts in use at once${
+                          billing.advertises === true ? ", and ads on the page" : ""
+                        }.`}
                 </p>
               </div>
             </header>
@@ -1829,9 +1847,19 @@ export function PlanPage({
               </span>
               <div>
                 <h2>{hasPlanToChange ? "Change your plan" : `Upgrade to ${PLAN_LABELS.plus}`}</h2>
+                {/* What the money buys, before the reassurance about stopping.
+                    The tab described the plans by account count alone, which
+                    left a customer on the pricing page and a customer on this
+                    screen reading two different offers — and the pricing page's
+                    whole argument is that the paid plan adds no feature, it
+                    lifts a limit and removes advertising. `content.md` 6.3 in
+                    the site's guides is the rule, and it is about exactly this:
+                    two surfaces using different words at one customer. */}
                 <p>
                   {billing.selling
-                    ? "Cancel whenever you like. A canceled plan runs to the end of the period you paid for."
+                    ? `Every feature is on both plans. What ${PLAN_LABELS.plus} buys is the account limit lifted${
+                        billing.advertises === true ? " and the ads gone" : ""
+                      }. Cancel whenever you like; a canceled plan runs to the end of the period you paid for.`
                     : "This deployment is not selling subscriptions at the moment."}
                 </p>
               </div>

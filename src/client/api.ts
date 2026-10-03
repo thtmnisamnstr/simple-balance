@@ -315,6 +315,14 @@ export type PlanPrice = {
 export type BillingStatus = {
   /** False where nothing is for sale, and where the prices are known not to fit. */
   selling: boolean;
+  /**
+   * Whether this deployment serves advertising at all, so the tab can say that
+   * the paid plan takes it away. Optional for the reason the later fields are,
+   * and absent reads as "says nothing about ads" rather than as "no ads": a
+   * bundle running against a container from before the field existed should
+   * leave the claim out rather than make the wrong half of it.
+   */
+  advertises?: boolean;
   publishableKey: string;
   prices: {
     monthly: PlanPrice | null;

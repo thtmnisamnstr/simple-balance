@@ -2638,3 +2638,60 @@ describe("a press on the plan tab", () => {
     expect(saysWorking(), "the form's request, and the form's spinner").toEqual([save.textContent]);
   });
 });
+
+/**
+ * The advertising, named on both plans.
+ *
+ * Half of what the paid plan buys is the absence of something a subscriber
+ * cannot see, so a tab that describes the plans by account count alone tells a
+ * paying customer only half of what they are paying for. It did, for a
+ * release: the word "ad" appeared nowhere on this screen while the pricing
+ * page's whole argument was that the paid plan lifts a limit and removes
+ * advertising. `content.md` 6.3 in the site's guides is that rule, and it is
+ * about exactly this — two surfaces using different words at one customer.
+ *
+ * `advertises` is the deployment's configuration rather than the reader's
+ * entitlement, which is the point of it: `getAdPlacement` answers "show an ad
+ * to this person now" and is null for every subscriber, so reading that would
+ * make the claim disappear from the one person who is paying for it.
+ */
+describe("advertising on the plan tab", () => {
+  const free = { billing: true, plan: "free", accountLimit: 3 } as BillingStatus["entitlement"];
+
+  it("tells a subscriber the ads are part of what they pay for", async () => {
+    mount(status({ advertises: true }));
+    expect(await screen.findByText(/as many accounts as you need, and no ads\./)).toBeVisible();
+  });
+
+  it("names the ads on the free plan, beside the limit", async () => {
+    mount(status({ advertises: true, entitlement: free, accountsUsed: 1 }));
+    expect(
+      await screen.findByText(/up to 3 accounts in use at once, and ads on the page\./),
+    ).toBeVisible();
+  });
+
+  it("says what the money buys before it says how to stop paying", async () => {
+    mount(status({ advertises: true, entitlement: free }));
+    const said = await screen.findByText(/Every feature is on both plans\./);
+    expect(said).toHaveTextContent("the account limit lifted and the ads gone");
+    expect(said).toHaveTextContent("runs to the end of the period you paid for");
+  });
+
+  /**
+   * The direction a missing answer fails in. A deployment with no
+   * `ADSENSE_CLIENT_ID`, and a browser bundle served by a container from
+   * before the field existed, both leave the claim out rather than promising
+   * there are no ads — which would be the half of it that can be wrong.
+   */
+  it("claims nothing about ads where the deployment serves none", async () => {
+    mount(status({ advertises: false, entitlement: free }));
+    expect(await screen.findByText(/up to 3 accounts in use at once\./)).toBeVisible();
+    expect(screen.queryByText(/ads on the page/)).toBeNull();
+    expect(screen.queryByText(/the ads gone/)).toBeNull();
+    cleanup();
+
+    mount(status({ entitlement: free }));
+    expect(await screen.findByText(/up to 3 accounts in use at once\./)).toBeVisible();
+    expect(screen.queryByText(/ads on the page/)).toBeNull();
+  });
+});

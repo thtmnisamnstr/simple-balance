@@ -818,6 +818,28 @@ README, `index.html`'s description and the sign-in screen are rewritten around
 it. The marketing site at smpl.money reads both product files, so this is the
 half of the change that reaches a reader.
 
+**The plan tab says what the money buys, which until now was half the answer.**
+It described both plans by account count and the word "ad" appeared nowhere on
+it, while the pricing page's whole argument is that the paid plan adds no
+feature: it lifts a limit and removes advertising. A paying customer reading
+this screen was told one of the two things they pay for. Both plans now name
+the advertising, and the upgrade panel opens on "Every feature is on both
+plans" before it gets to how to stop paying.
+
+`GET /api/v1/billing` carries a new `advertises` for it, read from the
+deployment's configuration rather than from the reader's entitlement.
+`getAdPlacement` answers a different question — show an ad to this person
+now — and is null for every subscriber, so reading that would have taken the
+claim away from the one person paying to be rid of them. The field is additive
+and optional in the browser's own type: a deployment with no `ADSENSE_CLIENT_ID`
+and a bundle served by a container from before the field existed both leave the
+sentence out rather than promising there are no ads.
+
+The same line stopped saying "up to 3 accounts" and now says **"up to 3
+accounts in use at once"**, which is the limit this product actually enforces.
+The shorter phrasing is the one freezing replaced, and the marketing site
+corrected it while this tab did not.
+
 **Three surfaces said statements arrive on their own, and none of them do.**
 "Bank statements that import and file themselves" was in the README twice, in
 `index.html`'s meta description, in `features.json` as the name of feature A2,

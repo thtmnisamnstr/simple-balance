@@ -2498,7 +2498,7 @@ sibling's spinner was already the thing this section forbids; a *false* one is
 that plus a sentence nobody can act on. So where the predicate is compound and
 one half of it is a busy flag, the reason is withheld in that half --
 `annualButton.disabled ? annualButton.reason : undefined`
-(`src/client/pages/PlanPage.tsx:1907`), never the bare expression.
+(`src/client/pages/PlanPage.tsx:1948`), never the bare expression.
 
 *Checked by:* `tests/field-contract.test.tsx` ("withholds the reason where a
 busy flag is what disabled the button"), which reads the compound predicates the

@@ -368,6 +368,19 @@ Stripe, and the controls to change or cancel. Stripe's script loads there and
 nowhere else, and only once there is something to confirm — a payment or a
 card — so no other page fetches it, sign-in included.
 
+**It names the advertising where there is any**, on both plans rather than only
+on the one that shows it. Half of what the paid plan buys is the absence of
+something a subscriber cannot see, so a tab describing the plans by account
+count alone tells a paying customer only half of what they are paying for.
+`GET /api/v1/billing` carries `advertises` for this: the deployment's
+configuration rather than the reader's entitlement, so it answers the same
+before and after somebody subscribes. `getAdPlacement` answers the other
+question — show an ad to this person now — and is null for every subscriber,
+which is what makes it the wrong signal to read here. Where `ADSENSE_CLIENT_ID`
+is unset the sentence leaves the ads out rather than promising there are none,
+and a browser bundle served by a container from before the field existed does
+the same.
+
 **It takes a card or Link, and Link only where the account has it on.**
 **Change payment method** is the one request that names the two: its SetupIntent
 sends `card` and `link` as the methods the account's configuration may offer,
