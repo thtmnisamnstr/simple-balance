@@ -818,6 +818,33 @@ README, `index.html`'s description and the sign-in screen are rewritten around
 it. The marketing site at smpl.money reads both product files, so this is the
 half of the change that reaches a reader.
 
+**Every figure on a report links to the thing it is about.** A row naming an
+account opens that account; a row naming a category opens that category; and
+both carry the range you were looking at, so the page you land on shows the same
+window. The three kinds of row with no subject — income and expenses bucketed by
+kind, cash flow's segments, and the uncategorized row — stay as plain text,
+because there is nothing behind them to open.
+
+**A category now says what it cost you.** Its page had a header, a date range
+and then straight into the list, which on the page you open to ask what a
+category costs reads as one that failed to load its middle. Two figures now, for
+the range you are looking at and for all time, split by currency where a
+category holds more than one.
+
+**A row offers its actions the same way everywhere.** There were four shapes
+across eight lists: a menu, a menu plus one or two icons, three bare icons, and
+a full-width button naming the row it sat on. There are two now — the actions
+you repeat as icons, the rest behind the menu after them, and a row with only
+two actions putting both in the menu. Two "Delete Groceries"-style buttons
+became the trash icon every other per-row delete already used, which also
+narrows the widest column on two tables.
+
+**A refusal and a failed load no longer look like the same thing.** A refusal
+appears beside the control that caused it, above the filters. A list that could
+not load now says so where the list would have been, instead of hoisting the
+one sentence that explains it above the filters and leaving the page looking
+finished and empty.
+
 **The plan tab says what the money buys, which until now was half the answer.**
 It described both plans by account count and the word "ad" appeared nowhere on
 it, while the pricing page's whole argument is that the paid plan adds no
@@ -1177,6 +1204,45 @@ rather than only the fields it names, so a hand edit fails. The marketing
 site's copy loses the key on its next sync.
 
 ### Fixed
+
+**No page scrolls sideways any more, at any width.** The stylesheet's own note
+describes a bar that "could neither shrink nor wrap" between 560 and 900px, and
+the remedy for it reached one container and not its siblings: Budgets' view bar
+and Reports' options bar overflowed, and so did the Categories add-a-category
+row. Above 780px the sidebar takes 248px of the window, so the narrowest the
+content ever gets is around 820px rather than on a phone — which is why a check
+at phone and desktop widths had found none of it. The documents were 958px wide
+inside a 900px viewport, 871 inside 820, 837 inside 820. Every route is now
+measured at each breakpoint, at each breakpoint minus one, in the middle of each
+gap and at 320px, so the next one of these fails in CI rather than on somebody's
+laptop. WCAG 2.2 SC 1.4.10.
+
+**The Transactions heading on an account, a category or a payee no longer
+squashes itself on a phone.** Its two buttons kept their full width at 390px and
+wrapped the sentence beside them to four lines in whatever column was left. The
+same heading's Register button, a few inches below, had been rendering as two
+lines reading "Show" and "register" at every width.
+
+**The activity log reads as sentences again.** It said "Create User
+Preferences", because the text is built lowercase on purpose and CSS was
+capitalizing every word of it rather than the first.
+
+**An archived category said so nowhere on a phone.** The badge that marks it
+shares a cell with the kind and the count, and that cell is hidden below 560px —
+correct for the other two, which the row's own subtitle repeats, and wrong for
+this one, which nothing else says. On the one screen you reach by turning Show
+archived on.
+
+**Archiving an account with no balance no longer loses the keyboard.** It is the
+only action on that page that runs with no dialog in between, so the menu
+closed, the button went with the card, and focus fell to the top of the
+document with nothing saying what had happened. It now says what it did, where
+focus can reach it.
+
+**A delete the server turned down no longer blanks the list.** Templates and
+Recurring each folded every error into one value and then rendered nothing in
+the list's place when it was set, so a refused delete took the whole list with
+it.
 
 **The auth library no longer writes email addresses to the log.** At the
 default `LOG_LEVEL=info`, Better Auth logged `Sign-up attempt for existing

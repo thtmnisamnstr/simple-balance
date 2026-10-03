@@ -690,6 +690,30 @@ changes, and that refusal's code and status are unchanged. No tool, argument,
 field or stored value was renamed or removed. A prompt or a test of your own
 that quotes a description word for word is the one thing that notices.
 
+**One field is new on the plan and billing response, and nothing else about it
+moved.** `GET /api/v1/billing` now carries `advertises`, a boolean saying
+whether this deployment serves advertising at all — read from the configuration
+rather than from the reader's plan, so it answers the same before and after
+somebody subscribes. The tab uses it to say that the paid plan takes the ads
+away, which is half of what the paid plan does and was said nowhere on that
+screen. It is additive: a client that has never heard of it is unaffected, no
+field was renamed or removed, and the route's scope and status codes are
+unchanged. A deployment with no `ADSENSE_CLIENT_ID` sends `false` and the tab
+says nothing about ads.
+
+**The same screen stopped saying "up to 3 accounts" and now says "up to 3
+accounts in use at once".** The short phrasing is the limit this product stopped
+enforcing when freezing arrived two releases ago, and the marketing site had
+already been corrected. Nothing about the limit itself changed.
+
+**What this product says it is changed on every surface that says it**, which
+matters to you only if you publish something downstream of `docs/product/`. The
+feature list is reordered so that being able to follow a figure back leads, and
+the three places that said bank statements "file themselves" — the README, the
+page description and the sign-in screen — now describe the file you downloaded,
+because there is no bank connection and there never was. No setting, route,
+tool or stored value is involved.
+
 **If you run your own copy of a compose file, take this release's.** Every
 compose shape now passes `DIRECT_DATABASE_URL` through to the application, which
 the split recipe never did — so a pooled deployment that set it got no bypass

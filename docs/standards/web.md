@@ -1068,6 +1068,20 @@ a fact that varies goes to a `Badge` in `actions`.**
   a `Badge` beside the currency now, which is where category and template detail
   already put the fact that varies, and all four are one shape: eyebrow, name,
   badges, sentence.
+- **Below the header the shape is a band of figures, where the page has
+  figures.** Account detail has had four tiles since it was written and category
+  detail had none, which on the page somebody opens to ask what a category costs
+  them reads as a page that failed to load its middle rather than as a page with
+  nothing to say. It has two now, In this range and All time, one pair per
+  currency where a category spans more than one
+  (`src/client/pages/CategoryDetailPage.tsx:156-181`). **Where the figures come
+  from is the part worth copying.** They are read out of the categories report,
+  which already computes a sum per category over a range, rather than out of a
+  route of this page's own: a new `/api/v1` route arrives with an MCP tool beside
+  it by `AGENTS.md`'s parity invariant, and a summary band is not worth widening
+  the agent surface for. Payee and template detail still have none, and that is
+  the honest state rather than a decision — a payee is not a reporting dimension
+  in this product, so there is nothing to read without building one.
 
 *Checked by:* `tests/page-stack.test.ts` for the absence of the hoist, and for
 the two silences above that a grep can reach: that no `PageHeader`'s `actions`
@@ -1850,6 +1864,54 @@ count as well as the absence of offenders, so widening the pattern is a decision
 somebody makes rather than something that slips in — and so a pattern that
 matches nothing fails instead of passing quietly.
 
+### 9.8 Row actions
+
+**House.** A row offers its actions one of two ways and there is no third. The
+one or two a person repeats are icon buttons inside `.row-actions`; everything
+else goes behind the `RowMenu` that sits after them. A row with only two actions
+puts both in the menu and shows no icon at all.
+
+The register is the full shape — Edit and Delete as icons, then a menu holding
+Clone, Save as template and Save as recurring
+(`src/client/TransactionBrowser.tsx:1333-1390`) — and the staged queue is the
+same with Commit in front (`src/client/pages/StagingPage.tsx:1330-1374`).
+Templates and Recurring have exactly two and put both in the menu
+(`TemplatesPage.tsx:654-667`, `RecurrencesPage.tsx:316-329`). Nine
+`.row-actions` and seven `RowMenu`s across the client say the same thing.
+
+**Categories was a third shape and that is what this rule is for**: three bare
+icons, no menu, in a product that already had two patterns and did not need a
+third. It keeps Edit and Delete, which is what the two richest lists do, and
+Archive moved into a menu — the action a person reaches for least often on a
+category they are already looking at.
+
+**The obvious alternative is "every action is an icon", and the register
+disproves it.** Five icons in a table cell is a row of unlabeled glyphs a reader
+has to hover to read, and the three that moved into the menu there are the three
+that carry a sentence rather than a verb. The other obvious alternative, "every
+action is in the menu", costs two clicks on the two actions every list uses most.
+
+**A per-row destructive action is a trash icon, never a text button naming the
+row.** `BudgetsPage.tsx:705-711` records the argument from the time it was one:
+a column of buttons reading "Delete Groceries" in a row whose first cell already
+said Groceries was the widest column on the table and said the name three times.
+The name a screen reader needs is in the `aria-label`. Two cells were still text
+buttons — the category group and the budget override — and are icons now.
+
+**An action that runs with no dialog in between has to say so somewhere focus
+can reach.** Archiving a zero-balance account is the only one on Accounts that
+does, so the menu closed, the button went with the card, and focus fell to
+`<body>`; it renders the sentence every other finished action on that page
+already renders, and the sentence takes focus. That is 13.3 rather than a rule
+of its own, and it is named here because the row menu is where it keeps
+happening.
+
+*Checked by:* `tests/row-menu.test.tsx` for the menu's dismissal and focus
+return, and `tests/success-alert-focus.test.ts` for the sentence taking focus.
+**Which actions are icons and which are in the menu is `human`** — it is a
+judgement about how often a person reaches for each, and a test that counted
+icons would only pin whatever is there today.
+
 ### 9.7 Sticky regions
 
 **Binding, WCAG 2.2 SC 2.4.11 Focus Not Obscured (Minimum), level AA.** A
@@ -2257,6 +2319,23 @@ was written — and every other list in the product links its subject, so this w
 an omission rather than a decision. A figure a person wants to ask a question
 about is exactly the figure worth linking, and "why is Groceries $182?" is the
 question that panel provokes.
+
+**The reports page was the same omission at larger scale and is fixed the same
+way.** Every row name on every report was a plain heading, on the page that
+provokes that question more often than the overview does. `rowSubject`
+(`src/client/pages/ReportsPage.tsx:43-48`) reads the destination off the payload
+rather than off a second copy of the server's preset table: `accumulation` is how
+`getReport` itself chooses the cell builder, so historical accumulation means
+`balanceCells`, whose `key` is the account id, and the categories report means
+`flowCells` with `byCategory`, whose key is `"<kind>:<categoryId>"`. Deriving it
+from the report *name* would have been that second copy, and it would go wrong
+the first time a report changed accumulation.
+
+**Three kinds of row link nowhere, and the rule's first condition is why.**
+Income and expenses buckets by kind alone, so its key is the word "income"; cash
+flow's keys are segments of an arithmetic; and an uncategorized row is the
+absence of a category, so `/categories/uncategorized` is the 404 this rule
+already names.
 
 **Two conditions.** The link appears only where there is something to link to:
 the uncategorized row has a null id, because it is the absence of a category
