@@ -116,7 +116,7 @@ export default function ReportsPage() {
   const { ways } = emptyScreen([
     {
       set: !includeArchived,
-      clear: "turn on Include archived accounts to count the ones you have closed",
+      clear: "turn on Include archived accounts to count the ones you have put away",
       fromTheStart: true,
     },
   ]);
@@ -251,8 +251,8 @@ export default function ReportsPage() {
         <Note>
           {data.accumulation === "historical"
             ? includeArchived
-              ? "Archived accounts are listed. What they held before they closed is in these figures either way."
-              : "Archived accounts are left out of the list. What they held before they closed is still in these figures."
+              ? "Archived accounts are listed. What they held before they were archived is in these figures either way."
+              : "Archived accounts are left out of the list. What they held before they were archived is still in these figures."
             : includeArchived
               ? "What was earned and spent through archived accounts is counted here."
               : "What was earned and spent through archived accounts is left out."}
@@ -421,7 +421,7 @@ export default function ReportsPage() {
                             ) : (
                               entry.label
                             )}
-                            {entry.archived ? <span className="row-note"> (closed)</span> : null}
+                            {entry.archived ? <span className="row-note"> (archived)</span> : null}
                           </>
                         );
                         return (

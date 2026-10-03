@@ -194,6 +194,114 @@ describe("what the product says", () => {
  * bare on another, which is one word for one state rendered two ways on two
  * screens a person moves between.
  */
+/**
+ * The text between a `>` and a `<` on one line: what JSX renders as words.
+ *
+ * `literals` cannot see any of it, and the defect this was written for was
+ * exactly there — `<span className="row-note"> (closed)</span>` is a sentence a
+ * reader sees and not a string literal anywhere. Mutation-proving the first
+ * version of this check is what found that: putting the defect back left it
+ * green.
+ *
+ * Deliberately per line and deliberately crude. A fragment carrying an
+ * expression (`{entry.label}`) comes back as the surrounding words with a gap,
+ * which is enough for a word check and nothing like enough for a parser. What
+ * it must not do is match attribute values, so a `>` inside a tag is not a
+ * boundary: a line is only considered once its last `<` is behind its last `>`.
+ */
+function jsxText(source: string) {
+  const found: { text: string; line: number }[] = [];
+  source.split("\n").forEach((line, index) => {
+    if (/^\s*(?:\/\/|\*|\/\*)/.test(line)) return;
+    for (const match of line.matchAll(/>([^<>{}"]{2,})</g)) {
+      const text = match[1]!.trim();
+      if (text) found.push({ text, line: index + 1 });
+    }
+  });
+  return found;
+}
+
+/**
+ * Legitimate uses of "close", named one at a time.
+ *
+ * Every one is either a control that dismisses something or the accounting
+ * sense of a balance a window closes on, and neither is what `web.md` 7.6 is
+ * about. A blanket skip for "anything short" or "anything containing balance"
+ * is how a check like this stops meaning anything, so each is here by its
+ * exact text.
+ */
+const CLOSE_IS_NOT_ARCHIVED = new Set([
+  // Dismissal: a className, two labels on the navigation drawer's button, and
+  // the shared modal's own.
+  "mobile-close",
+  "Close navigation",
+  "Close",
+  // The accounting sense. A register and a balance report both state the
+  // figure a window closes on, which is a different word from an account
+  // having been put away.
+  "Closing balance",
+  "Closing",
+  // Wire values, never sentences: a register posting's origin, and the band a
+  // budget's fill lands in.
+  "closing",
+  "close",
+]);
+
+/**
+ * The frozen sense, which is a live account refusing writes rather than an
+ * archived one.
+ *
+ * `common.md`'s table draws exactly this distinction — Frozen is "a live
+ * account a plan's limit leaves closed to every write", against Archived — so
+ * "closed to" is the one phrasing that may carry the word next to the word
+ * "account".
+ */
+const CLOSED_TO = /\bclosed to\b/i;
+
+describe("the word for an account that has been put away", () => {
+  /**
+   * `web.md` 7.6: **`archived`, never `closed`**, for `ledger_account.archived_at`.
+   *
+   * The rule's own argument names the page that was breaking it: somebody who
+   * archives an account on Accounts and then asks Reports whether it is counted
+   * is looking for the word they just used, and Reports said "(closed)" on every
+   * archived row, "the ones you have closed" in its empty state and "before they
+   * closed" in the note above the table. A shared schema description said
+   * "an account you have since closed" to the browser and to every agent at once.
+   *
+   * 7.6 filed this as one of four grep-shaped rules with no grep. This is the
+   * grep. It is narrow on purpose: the word is fine as a control and fine as the
+   * accounting sense, so the register above names those rather than the pattern
+   * trying to tell senses apart.
+   */
+  it("is archived, in every sentence a person or an agent reads", () => {
+    const offenders: string[] = [];
+    for (const path of SOURCES) {
+      if (path.startsWith("src/server/")) continue;
+      const source = readFileSync(path, "utf8");
+      const candidates = [...literals(source), ...jsxText(source)];
+      for (const { text, line } of candidates) {
+        if (!/\bclos(e|ed|es|ing)\b/i.test(text)) continue;
+        if (CLOSE_IS_NOT_ARCHIVED.has(text.trim())) continue;
+        if (CLOSED_TO.test(text)) continue;
+        offenders.push(`${path}:${line} "${text.trim().slice(0, 70)}"`);
+      }
+    }
+    expect(offenders, "an account that has been put away is archived, never closed").toEqual([]);
+  });
+
+  it("has something to check, so a broken pattern cannot pass as a clean sweep", () => {
+    // The register itself is the population: if these stop being found, the
+    // literal walk above has broken rather than the product having improved.
+    const found = SOURCES.filter((path) => !path.startsWith("src/server/")).flatMap((path) =>
+      literals(readFileSync(path, "utf8"))
+        .map(({ text }) => text)
+        .filter((text) => CLOSE_IS_NOT_ARCHIVED.has(text)),
+    );
+    expect(new Set(found).size, "the register names uses that no longer exist").toBeGreaterThan(4);
+  });
+});
+
 describe("a cell with nothing in it", () => {
   it("writes the dash as a fallback and never as cell text", () => {
     const literal: string[] = [];

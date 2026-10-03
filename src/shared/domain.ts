@@ -1831,7 +1831,7 @@ export const budgetReportQuerySchema = z
     // to an account, so money spent on a card since closed is money the budget
     // covered: filtering it makes a budget spent to the penny read as underspent.
     includeArchived: queryBoolean(true).describe(
-      "Include spending that went through an account you have since closed. On by default, and unlike every other report: a budget was never scoped to an account, so money spent on a card you have closed is money the budget covered, and leaving it out makes a budget spent to the penny read as underspent.",
+      "Include spending that went through an account you have since archived. On by default, and unlike every other report: a budget was never scoped to an account, so money spent on a card you have archived is money the budget covered, and leaving it out makes a budget spent to the penny read as underspent.",
     ),
     // Spending in categories nobody budgeted. On by default, because the
     // question "where did the rest go" is the one a budget raises, and a page

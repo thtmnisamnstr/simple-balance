@@ -1227,6 +1227,18 @@ lines reading "Show" and "register" at every width.
 Preferences", because the text is built lowercase on purpose and CSS was
 capitalizing every word of it rather than the first.
 
+**An account you have put away is "archived" everywhere now, not sometimes
+"closed".** Reports said "(closed)" on every archived row, "the ones you have
+closed" in its empty state and "before they closed" in the note above its
+table — on the page you go to after archiving something on Accounts, looking
+for the word you just used. A shared description said "an account you have
+since closed" to the browser and to every connected agent at once.
+
+**Three row actions that finish and take their own row with them now say so.**
+Archiving or deleting a category, committing a staged row, and removing a
+budget override all ran with nothing in between and left the keyboard at the
+top of the document. Each now reports what it did, where focus lands.
+
 **An archived category said so nowhere on a phone.** The badge that marks it
 shares a cell with the kind and the count, and that cell is hidden below 560px —
 correct for the other two, which the row's own subtitle repeats, and wrong for

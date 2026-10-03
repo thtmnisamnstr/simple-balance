@@ -295,8 +295,8 @@ them used to be the opposite:
 
 **In a form that stacks.** Two shapes take a bare control and an `aria-label`
 instead: a filter bar, which `web.md` §7.6 governs, and `.inline-form` — the
-one-row "add a category" (`src/client/pages/CategoriesPage.tsx:447`) and "add a
-group" (`:497`) bars, which are both of them. This sentence named a third, "add
+one-row "add a category" (`src/client/pages/CategoriesPage.tsx:465`) and "add a
+group" (`:515`) bars, which are both of them. This sentence named a third, "add
 a payee", which does not exist and never did: the payees page has no form on it
 at all, and a carve-out listing a site that is not there invites the next one
 to be written because the list implied a pattern. In the second shape, a

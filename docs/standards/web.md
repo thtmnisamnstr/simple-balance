@@ -1163,9 +1163,25 @@ off-the-shelf answer was `eslint-plugin-jsx-a11y`, which used to be an item in
 17.2 and is not one any more: it is enabled, and the two rules that would cover
 this are off by name with recorded reasons at
 [`code/index.md`](code/index.md):175-184, because neither can see through
-`Field`. That decision is `code/index.md`'s to revisit. Not checked either: the
-control order, the alert placement and the two vocabularies, all four of which
-are grep-shaped and none of which has a grep.
+`Field`. That decision is `code/index.md`'s to revisit.
+
+**One of the four grep-shaped rules now has its grep.** `tests/ui-copy.test.ts`
+holds **`archived`, never `closed`** over every literal and every run of JSX
+text in `src/client` and `src/shared`, with a named register for the uses that
+are a control (`Close navigation`) or the accounting sense (`Closing balance`)
+and one pattern for the frozen sense, which is the only phrasing allowed to put
+the word beside an account. It was written because the sweep found the rule
+broken four times on Reports — the page its own argument names — and once in a
+shared schema description that said it to the browser and to every agent at
+once. **Its first version could not fail**: `(closed)` was JSX text rather than
+a string literal, so mutation-proving it is what found the gap and `jsxText` is
+what closed it.
+
+Still not checked: the control order, the alert placement, and `Filter by X`.
+The sweep found all three clean, which is why they are not worth a grep yet —
+and the alert placement is the one that would need to tell a query's error from
+a mutation's, which a source scan cannot do without naming every page's
+variables.
 
 ### 7.7 Where an advertisement sits in the document
 
@@ -1604,7 +1620,7 @@ same query passes in a browser — which is why the browser tier owns that check
 comments that first specified it.** The queue is where imports get repaired,
 and repairing a date or a payee through the full modal is four clicks for a
 one-word change, so a row's date, payee, category and amount cells open an
-editor in place (`src/client/pages/StagingPage.tsx:574-584`). The pattern has
+editor in place (`src/client/pages/StagingPage.tsx:576-586`). The pattern has
 six rules, and each exists because the obvious alternative shipped a bug or an
 inconsistency during review:
 
@@ -1665,7 +1681,7 @@ future field: identity and provenance never travel, values always do.
 
 The same reasoning holds one level down in the queue's inline category editor,
 which drops a stored `categoryKind` when the category is re-chosen
-(`StagingPage.tsx:682-686`): the stored kind was somebody's answer about the
+(`StagingPage.tsx:684-688`): the stored kind was somebody's answer about the
 old name, and riding along it would file a brand-new category on a side nobody
 chose.
 
@@ -1892,7 +1908,7 @@ that carry a sentence rather than a verb. The other obvious alternative, "every
 action is in the menu", costs two clicks on the two actions every list uses most.
 
 **A per-row destructive action is a trash icon, never a text button naming the
-row.** `BudgetsPage.tsx:705-711` records the argument from the time it was one:
+row.** `BudgetsPage.tsx:722-728` records the argument from the time it was one:
 a column of buttons reading "Delete Groceries" in a row whose first cell already
 said Groceries was the widest column on the table and said the name three times.
 The name a screen reader needs is in the `aria-label`. Two cells were still text
@@ -3298,6 +3314,7 @@ is which.
 | `tests/legal-links-ui.test.tsx` | Both operator documents are linked where a person meets them, each opens a new tab, the sentence reshapes when only one is configured, and nothing is drawn when neither is (13.6) |
 | `tests/browser/plan-buttons.spec.ts` | Two priced buttons keep the same top while one of them shows a reason, measured against a real layout engine at desktop width and at 390px where the reason wraps — the half 12.3 could not check (12.3, 13.5) |
 | `tests/web-guide.test.ts` | The numbers and lists this guide argues from, derived rather than recounted: the component inventory and its three counts (6.1), the ten inline `style` props (1.3), every `z-index` having a rung (3.5), the stylesheet's tail order and its one print block (7.3, 15), the `Field`, optional, `formatMoney`, `EmptyState`, `Skeleton`, computed-disabled and scrolling-container censuses (8.1, 8.4, 9.3, 9.6, 12.1, 12.2, 12.3), where an ad slot sits in the shell (7.7), and the shape of every link that leaves the app (13.6) |
+| `tests/ui-copy.test.ts` (vocabulary) | An account that has been put away is **archived**, never *closed*, in every literal and every run of JSX text in `src/client` and `src/shared`, with a named register for the control and accounting senses and one pattern for the frozen one (7.6) |
 | `tests/ui-copy.test.ts` | No banned word in any string a person reads, in all three of client, shared and server; every literal button label is a verb phrase or one of the four bare actions; the three bulk bars use the four sanctioned strings; no eyebrow repeats its title; a blank cell's dash is a fallback and never cell text; `Uncategorized` is styled once; every worked sentence in `common.md`'s table appears verbatim in `src`; every page rendering a list's empty state decides the screen through `emptyScreen` or carries a one-sentence argument for having no question to ask, and no `emptyScreen` call names a row count, the shared date range or the page's own subject; and an empty state sits behind its query's error rather than beside it, with three named exceptions (6.2, 12.1, 16) |
 
 ### 17.2 Worth building, ranked by bugs caught per hour

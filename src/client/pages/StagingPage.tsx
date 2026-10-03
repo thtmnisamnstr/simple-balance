@@ -168,6 +168,8 @@ export default function StagingPage() {
   // inside the selection bar, success empties the selection, and the bar and
   // the button went with it (`web.md` 13.3).
   const [bulkOutcome, setBulkOutcome] = useState<string | null>(null);
+  /** What a single row's commit or delete did, said where focus can reach it. */
+  const [rowOutcome, setRowOutcome] = useState<string | null>(null);
   // Whether anything but the date range is narrowing this queue. The range is
   // left out because every view carries one, so counting it would report an
   // empty queue as a filtered one.
@@ -758,7 +760,21 @@ export default function StagingPage() {
         }),
       });
     },
-    onSuccess: async () => {
+    onSuccess: async (_result, { stage, action }) => {
+      /*
+       * 13.3, and the shape `web.md` 9.8 names: committing a row runs straight
+       * from the row with no dialog unless it is a possible repeat, and the
+       * committed row leaves this queue — so the button went with it and focus
+       * fell to `<body>`. The delete beside it always asks first and its dialog
+       * returns focus itself, but it is said here too, because the row is gone
+       * either way and the dialog returns focus to a button that no longer
+       * exists.
+       */
+      setRowOutcome(
+        action === "commit"
+          ? `${stage.draft.payee || "The staged row"} committed.`
+          : `${stage.draft.payee || "The staged row"} deleted.`,
+      );
       rowCommitKeys.current.clear();
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["staged"] }),
@@ -988,6 +1004,11 @@ export default function StagingPage() {
       {bulkOutcome ? (
         <Alert kind="success" takeFocus>
           {bulkOutcome}
+        </Alert>
+      ) : null}
+      {rowOutcome ? (
+        <Alert kind="success" takeFocus>
+          {rowOutcome}
         </Alert>
       ) : null}
       {inlineError ? <Alert>{inlineError}</Alert> : null}

@@ -58,6 +58,8 @@ export default function BudgetsPage({ session }: { session: Session }) {
   const [periodUnit, setPeriodUnit] = useState<BudgetPeriodUnitName>("month");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  /** What a row action in the single-periods table did, said where focus reaches it. */
+  const [rowOutcome, setRowOutcome] = useState("");
   // Defaults to counting it, matching the server: a budget's limit was never
   // scoped to an account, so money spent on a card since closed is money the
   // budget covered.
@@ -278,7 +280,16 @@ export default function BudgetsPage({ session }: { session: Session }) {
         ...json({ expectedVersion: entry.version }),
         method: "DELETE",
       }),
-    onSuccess: () => {
+    onSuccess: (_result, entry) => {
+      /*
+       * 13.3, and the shape `web.md` 9.8 names. Removing an override takes its
+       * own row out of the single-periods table, so the button that did it goes
+       * with the row and focus falls to `<body>`. The `{notice}` above is a
+       * different alert for a different action — it reports a standing budget
+       * beside the form that made one, which is why it is registered in
+       * `tests/success-alert-focus.test.ts` as leaving focus alone.
+       */
+      setRowOutcome(`Override for ${entry.targetName} removed.`);
       setError("");
       setOverride(null);
       invalidate();
@@ -423,6 +434,12 @@ export default function BudgetsPage({ session }: { session: Session }) {
           Show categories with no budget
         </label>
       </div>
+
+      {rowOutcome ? (
+        <Alert kind="success" takeFocus>
+          {rowOutcome}
+        </Alert>
+      ) : null}
 
       <section className="panel">
         <header className="panel-header">

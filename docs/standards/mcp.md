@@ -555,12 +555,12 @@ them more often.
 | Token holds | Tools | `tools/list` characters | Approx tokens |
 | --- | --- | --- | --- |
 | no ledger scope | 0 | `tools/list` is not offered at all | 0 |
-| `ledger:read` | 37 | 170,051 | ~43,000 |
-| `ledger:stage` | 42 | 209,579 | ~52,000 |
-| `ledger:write` | 77 | 486,879 | ~122,000 |
+| `ledger:read` | 37 | 170,055 | ~43,000 |
+| `ledger:stage` | 42 | 209,583 | ~52,000 |
+| `ledger:write` | 77 | 486,883 | ~122,000 |
 
 Composition at the write tier: names 1,467, titles 1,884, descriptions 28,153,
-input schemas 211,064, output schemas 227,740. **Descriptions are 5.8% of what
+input schemas 211,068, output schemas 227,740. **Descriptions are 5.8% of what
 an agent loads; names, titles and descriptions together are 6.5%.** Output
 schemas are 46.8%.
 

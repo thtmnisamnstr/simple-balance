@@ -176,6 +176,8 @@ export default function CategoriesPage() {
     direction: "asc",
   });
   const [includeArchived, setIncludeArchived] = useState(false);
+  /** What a row action just did, said where focus can reach it. See the mutation below. */
+  const [rowNotice, setRowNotice] = useState("");
   // Two controls empty this list and the condition only ever read one of them,
   // so somebody who had archived every category was told they had none. The
   // toggle is `fromTheStart` because it ships off: counting it as narrowing
@@ -307,7 +309,23 @@ export default function CategoriesPage() {
         method: "DELETE",
       });
     },
-    onSuccess: async () => {
+    onSuccess: async (_result, input) => {
+      /*
+       * 13.3, and `web.md` 9.8 names this as the shape that keeps recurring:
+       * archiving runs straight from the row menu with no dialog, and the row
+       * leaves the list whenever Show archived is off — which it is by
+       * default — so the menu closed, the button went with the row, and focus
+       * fell to `<body>`. Deleting does the same whatever the toggle says. A
+       * rename is not here: that row stays where it is and the dialog it came
+       * from returns focus itself.
+       */
+      if (input.action === "archive")
+        setRowNotice(
+          input.category.archivedAt
+            ? `${input.category.name} restored.`
+            : `${input.category.name} archived.`,
+        );
+      if (input.action === "delete") setRowNotice(`${input.category.name} deleted.`);
       setName("");
       // A rename changes what every transaction row and every category figure
       // says, so those have to be refetched too. The merge below already does
@@ -722,6 +740,12 @@ export default function CategoriesPage() {
       {mergeOutcome ? (
         <Alert kind="success" takeFocus>
           {mergeOutcome}
+        </Alert>
+      ) : null}
+
+      {rowNotice ? (
+        <Alert kind="success" takeFocus>
+          {rowNotice}
         </Alert>
       ) : null}
 
