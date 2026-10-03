@@ -1,7 +1,7 @@
 # Web
 
 The browser app. A React 19 single-page app with a hand-rolled router, TanStack
-Query for server state, and 4,276 lines of hand-written CSS in
+Query for server state, and 4,318 lines of hand-written CSS in
 `src/client/styles.css`. No component library, no CSS framework, no token build
 step, and none is coming, so every rule here has to be reachable with plain CSS
 custom properties and components written by hand.
@@ -83,7 +83,7 @@ width, a chart's offset — and are correct as they are.
 like one of the nine. `ads.tsx:143` writes `display: block` on the AdSense
 `<ins>`, which is how Google documents its own tag, and the stylesheet then
 outranks it deliberately: an unfilled unit is collapsed by
-`styles.css:3569-3571` with `!important`, because an important declaration is
+`styles.css:3585-3587` with `!important`, because an important declaration is
 the one thing that beats an inline style. So this prop is a vendor requirement
 held in check by a rule written against it, which is a decision rather than a
 coordinate, and nothing about the token rule covers it.
@@ -161,14 +161,14 @@ anything.
 did not when freezing first gave a reason to disable the row icons in the
 transaction list and the items inside an account's row menu. Each sets its own
 `color`, `background` and `cursor` — `.row-actions button`
-(`styles.css:2144-2154`), `.menu-popover button` (`styles.css:1801-1814`) and
-`.link-button` (`styles.css:3142-3150`) — so the browser's disabled rendering
+(`styles.css:2152-2162`), `.menu-popover button` (`styles.css:1809-1822`) and
+`.link-button` (`styles.css:3158-3166`) — so the browser's disabled rendering
 was overridden exactly as `.input`'s was, and a dead control was
 pixel-identical to a live one down to the hover fill. The house answer applies
-unchanged and is now written three times, at `styles.css:2210-2213`,
-`:1833-1836` and `:3164-3167`: `cursor: not-allowed` and `.button`'s own
+unchanged and is now written three times, at `styles.css:2218-2221`,
+`:1841-1844` and `:3180-3183`: `cursor: not-allowed` and `.button`'s own
 `opacity: 0.5` (`:656-659`), read from there rather than chosen again —
-the pagination controls' `0.45` (`:1742-1745`) is the one divergence and is not
+the pagination controls' `0.45` (`:1750-1753`) is the one divergence and is not
 the number to copy.
 
 The third was found rather than remembered, and how it was found is the rule
@@ -181,7 +181,7 @@ stylesheet keeps. What names it is the source — every element rendered with a
 has to come from.
 
 The hover half is done by narrowing rather than by answering: the three hover
-rules became `:hover:not(:disabled)` (`:2200-2203`, `:1819-1821`, `:3154-3156`)
+rules became `:hover:not(:disabled)` (`:2208-2211`, `:1827-1829`, `:3170-3172`)
 instead of gaining a second rule that repaints what the first painted. Two
 rules fighting leaves both spellings live and makes the next hover state added
 to that family remember the second one. This is the shape for any family that
@@ -190,14 +190,14 @@ ships disabled, not a fact about these three.
 **The one place the house `0.5` is the wrong number is a control that already
 sits inside something dimmed.** Opacity composites down the subtree, so the two
 multiply: a voided transaction row is at `0.5` (`.row-deleted`,
-`styles.css:2135-2138`) and an archived account card at `0.65`
-(`.account-card.archived`, `:1556-1558`), which put a disabled control in one at
+`styles.css:2143-2146`) and an archived account card at `0.65`
+(`.account-card.archived`, `:1564-1566`), which put a disabled control in one at
 `0.25` and the other at `0.325` — `--muted` at 1.39:1 and `--ink-soft` at
 1.75:1 on `--surface`, a control that has vanished rather than one stating a
 condition. Both are reachable and both are what disabling these families
 created: a voided entry on a frozen account shows **Restore** alone, and an
 archived card's **Restore** is refused while every place is in use. So the dim
-is dropped there rather than scaled (`:2233-2236`), and inside such a container
+is dropped there rather than scaled (`:2241-2244`), and inside such a container
 what separates a dead control from a live one is the cursor, the hover that
 does not light, and the reason it points at. The next container that dims a
 subtree joins that rule, because a descendant combinator cannot say "no
@@ -308,12 +308,12 @@ The rule for this stylesheet: **`--line-strong` for a control edge,
 | `--green-fill` on `--track` | 5.42 | 3.73 |
 
 **Settled.** The reasoning is written out twice in the file, at
-`styles.css:946-954` for `.input` and at `styles.css:3671-3677` for
+`styles.css:954-962` for `.input` and at `styles.css:3687-3693` for
 `.chart-zero`, and it had been applied to two of the eighteen
 `border: 1px solid var(--line…)` rules. Six control edges have now joined them —
 `.pagination-step`, `.sort-direction`, `.bulk-edit-field`, `.transaction-type`,
 `.commit-choice label` and `.report-tab` — along with `.button-secondary`
-(`styles.css:761`) and `.file-drop` (`styles.css:2583`), both of which rested on
+(`styles.css:761`) and `.file-drop` (`styles.css:2591`), both of which rested on
 the failing token and reached the compliant one only on hover. Both now hold it
 at rest, as `.input` already did; their hover states also shift `background`, so
 the hover affordance survives the change.
@@ -375,7 +375,7 @@ section is a proposal, and says so.
 
 **House, and a proposal rather than a rule until the tokens exist.**
 
-Today: 291 padding, margin and gap declarations across **35 distinct pixel
+Today: 292 padding, margin and gap declarations across **35 distinct pixel
 values**, running 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
 19, 20, 21, 22, 24, 26, 28, 30, 32, 34, 35, 38, 42, 48, 55, 72, 248. `gap` alone
 takes 16 distinct single values, the commonest being 8px seventeen times, 10px
@@ -449,7 +449,7 @@ Name the productive set and the expressive set separately. The expressive set
 has two members and both are the `clamp()` expressions counted above:
 `clamp(28px, 3.2vw, 40px)` on `.page-header h1` (`styles.css:603`), which is the
 `<h1>` of every page, and `clamp(35px, 4vw, 52px)` on the sign-in shell
-(`styles.css:3033`). The page title is deliberately outside the productive ramp
+(`styles.css:3049`). The page title is deliberately outside the productive ramp
 because it is the one size that answers to the viewport rather than to the
 scale. Naming both is what stops a display size leaking into a page of
 accounts.
@@ -479,14 +479,14 @@ alone is chosen against:
 
 | Value | What sits there |
 | --- | --- |
-| 1 | A decoration inside a card — the search icon (`styles.css:1870`), the sign-in art (`:3300`) |
-| 2 | A header sticking inside its own scroller — the modal header (`:2475`), the sign-in card (`:3018`) |
-| 10 | A popover over the page — the row menu (`:1778`) |
-| 15 | The mobile header, below 780px (`:4090`) |
-| 20 | A bar sticking over a list — the merge panel (`:2944`) |
-| 25 | The mobile nav scrim, which covers everything above except the drawer (`:4080`) |
+| 1 | A decoration inside a card — the search icon (`styles.css:1878`), the sign-in art (`:3316`) |
+| 2 | A header sticking inside its own scroller — the modal header (`:2483`), the sign-in card (`:3034`) |
+| 10 | A popover over the page — the row menu (`:1786`) |
+| 15 | The mobile header, below 780px (`:4116`) |
+| 20 | A bar sticking over a list — the merge panel (`:2952`) |
+| 25 | The mobile nav scrim, which covers everything above except the drawer (`:4106`) |
 | 30 | The sidebar itself (`:362`) |
-| 40 | The skip link (`:3386`), above everything because it is the first thing a keyboard user meets |
+| 40 | The skip link (`:3402`), above everything because it is the first thing a keyboard user meets |
 
 **Two of the eight were on neither the ladder nor the comment that reproduces
 it**, which is the failure this section was written about, one release on. The
@@ -526,8 +526,8 @@ this section came apart.
 ### 3.6 Breakpoints
 
 Four hardcoded max-widths, all four now contiguous at the foot of the
-stylesheet in descending order: 1050px (`styles.css:4029`), 980px
-(`styles.css:4050`), 780px (`styles.css:4057`) and 560px (`styles.css:4136`).
+stylesheet in descending order: 1050px (`styles.css:4045`), 980px
+(`styles.css:4076`), 780px (`styles.css:4083`) and 560px (`styles.css:4178`).
 Putting them in one place was section 7.3's doing; how many of them there should
 be is still this section's question.
 
@@ -551,10 +551,10 @@ prevent.
 
 Today there are no motion tokens. Transitions are written inline at 120ms (six
 declarations), 140ms (one) and 180ms (the mobile drawer's paired `transform` and
-`visibility`, `styles.css:4061-4063`), and there are two reduced-motion
+`visibility`, `styles.css:4087-4089`), and there are two reduced-motion
 blocks: `styles.css:820-823`, which turns off the skeleton shimmer specifically
 and stays beside `.skeleton` on purpose rather than joining the responsive body
-(section 7.3), and `styles.css:4251-4260`, a blanket rule setting
+(section 7.3), and `styles.css:4293-4302`, a blanket rule setting
 `animation-duration`, `transition-duration` and `scroll-behavior` on
 everything.
 
@@ -852,7 +852,7 @@ Two exist, and they are the two halves of the rule.
   fills it is an advertiser's creative inside a cross-origin iframe; there is no
   theming interface to pass and no prospect of one. Naming it is the whole
   obligation, and what follows from the naming is that the slot is collapsed
-  when it is empty (`styles.css:3569-3575`) rather than left as a light band.
+  when it is empty (`styles.css:3585-3591`) rather than left as a light band.
 
 **The obvious alternative is what 6.1 used to say**: the markup is somebody
 else's, so the surface is out of scope. That is right about the markup and wrong
@@ -910,7 +910,7 @@ there silently outranked the responsive overrides above it —
 would have lost to `.chart-grid` written later, with nothing on screen to say
 why. `.report-tabs` and the chart grid appear in no breakpoint block, and
 neither is a gap. `.report-tabs` carries `flex-wrap: wrap`
-(`styles.css:3480-3484`), which reflows at every width rather than at three
+(`styles.css:3496-3500`), which reflows at every width rather than at three
 chosen ones and is the better answer; and `.chart-grid` is an SVG stroke with no
 layout to change. This sentence used to call both a gap "somebody can fill",
 which is how a list of work comes to include work nobody should do — the
@@ -926,7 +926,7 @@ prevent is a *component rule after the responsive body*.
 
 The four breakpoints run in descending order at the foot of the file, each under
 the comment naming its constant, then the blanket reduced-motion block
-(`styles.css:4251-4260`), then the print block (`:4272-4276`) and nothing after
+(`styles.css:4293-4302`), then the print block (`:4314-4318`) and nothing after
 it. **Print is last and that is the rule, not an accident of when it arrived**:
 it is the one query that describes a different medium rather than a different
 width or preference, so anything it needs to undo has already been written.
@@ -992,7 +992,7 @@ the remaining work, and it is work that has to be looked at: it changes the
 inside of some thirty panels at once and jsdom can see none of it.
 
 **Flex rather than grid, and it is load-bearing rather than taste.**
-`.merge-panel` (`styles.css:2936`) is `position: sticky` and sits at page level
+`.merge-panel` (`styles.css:2944`) is `position: sticky` and sits at page level
 on Categories and Payees. A sticky *grid item* is bounded by its own grid area,
 which in a single-column grid is its own height, so it would stop following the
 list with nothing on screen to say why. A sticky *flex item* is bounded by the
@@ -1435,7 +1435,7 @@ float. GOV.UK's reasons (accidental scroll increments, no feedback on a
 non-numeric entry) are secondary and point the same way.
 
 **Scope this exactly.** A blanket ban on `type="number"` in the client would
-fail on correct code: `src/client/forms.tsx:1305` and `:3043` both use it for
+fail on correct code: `src/client/forms.tsx:1305` and `:3059` both use it for
 the recurrence interval, with `min` and `max`, which is an integer count where a
 spinner is arguably right. The rule is: no `type="number"` on a field bound to a
 decimal-string money value.
@@ -1849,13 +1849,13 @@ There were **no `scroll-padding` or `scroll-margin` declarations anywhere in
 | Selector | Line | Position |
 | --- | --- | --- |
 | `.sidebar` | `styles.css:359` | fixed |
-| `.row-menu-popover` | `styles.css:1795` | fixed |
-| `.modal` | `styles.css:2440` | fixed |
-| `.modal-header` | `styles.css:2473` | sticky |
-| `.import-preview` | `styles.css:2624` | sticky |
-| `.merge-panel` | `styles.css:2936` | sticky |
-| `.nav-scrim` | `styles.css:4078` | fixed |
-| `.mobile-header` | `styles.css:4088` | sticky |
+| `.row-menu-popover` | `styles.css:1803` | fixed |
+| `.modal` | `styles.css:2448` | fixed |
+| `.modal-header` | `styles.css:2481` | sticky |
+| `.import-preview` | `styles.css:2632` | sticky |
+| `.merge-panel` | `styles.css:2944` | sticky |
+| `.nav-scrim` | `styles.css:4104` | fixed |
+| `.mobile-header` | `styles.css:4114` | sticky |
 
 `.merge-panel` was the live case. It exists because the list is long enough to
 scroll, which is the same condition that puts a focused row underneath it. Every
@@ -1865,7 +1865,7 @@ scroll container holding a sticky element sets `scroll-padding-top` (or
 There are two scroll containers, so there are two declarations: `html` carries
 `scroll-padding-top: 80px` (`styles.css:321`), which clears the mobile header
 and the merge panel alike, and `.modal-card` carries 64px
-(`styles.css:2470`) for the sticky `.modal-header` inside it. The other six
+(`styles.css:2478`) for the sticky `.modal-header` inside it. The other six
 regions are inside one of those two or are the container itself.
 
 *Checked by:* `tests/page-stack.test.ts`, which pairs each sticky or fixed
@@ -2017,7 +2017,7 @@ Series 3 at 3.64 light is the tightest and is the one to watch.
 Gridlines do not have to contrast with the data. The Understanding document for
 1.4.11 says data lines "should have 3:1 contrast against their background, but
 as there is little overlap with other lines they do not need to contrast with
-each other or the graduated lines". `.chart-grid` at `styles.css:3661-3669` is
+each other or the graduated lines". `.chart-grid` at `styles.css:3677-3685` is
 correctly faint and says why; `.chart-zero` is correctly held to 3:1 because it
 is where money in becomes money out, and says why.
 
@@ -2035,7 +2035,7 @@ where all adjacent colors clear 3:1 against each other, caps categories at four
 as best practice, and treats five and six as "only when essential". Read
 literally, that says this product should cut ten series to six.
 
-This product keeps ten, on measured grounds recorded at `styles.css:3734-3746`.
+This product keeps ten, on measured grounds recorded at `styles.css:3750-3762`.
 The previous six-color set had a worst dichromatic pair of 1.78 in CIEDE2000
 under simulated deuteranopia and protanopia, where the green and the pink were
 the same color; the current ten reach 5.6 in light and 4.7 in dark. Going from
@@ -2052,7 +2052,7 @@ it was not.** `BarChart` lays each series' bar at `index * barWidth` with no gap
 set `stroke: none`. Two touching bars at 1.05:1 had no visible boundary.
 
 The fix was geometry rather than a repainted palette: `.chart-bar` now carries a
-one-pixel `--surface` stroke (`styles.css:3690-3693`), which separates every
+one-pixel `--surface` stroke (`styles.css:3706-3709`), which separates every
 adjacent pair against the page they are drawn on and disturbs none of the
 measured dichromatic separation the ten-color set was chosen for.
 
@@ -2072,7 +2072,7 @@ light, which is three times better than the six it replaced and still not enough
 on its own.
 
 **The remedy the CSS comment named has landed.** Nine of the ten line series
-carry a `stroke-dasharray` (`styles.css:3795-3803`) and series 0 stays solid,
+carry a `stroke-dasharray` (`styles.css:3811-3819`) and series 0 stays solid,
 because that is what a single-series chart gets and what a plain line should look
 like. A dash pattern is orthogonal to hue, which is the whole point: two series
 that look alike to one reader are still two different lines. The patterns differ
@@ -2604,7 +2604,7 @@ The rules, in the order they matter:
 
 - **A bar is determinate or it is not shown.** `<progress>` with no `value` is
   indeterminate and animates in every engine, and the blanket reduced-motion
-  block at `styles.css:4251-4260` freezes it into a bar that reads as stuck.
+  block at `styles.css:4293-4302` freezes it into a bar that reads as stuck.
   That is section 4's spinner defect a second time, and a determinate bar is the
   fix for that class of failure rather than a new instance of it.
 - **A bar never appears before its total is a real count.** A commit does fixed
@@ -2656,9 +2656,9 @@ The rules, in the order they matter:
 - **Binding, SC 1.4.11.** The fill is `--green-fill` on `--track`, measured in
   2.2, and the bar keeps the `--line-strong` edge 2.2 requires of a control.
 - **Three bars now, and a fourth has to say which of them it is not.**
-  `.progress-track` (`styles.css:1492`, `DashboardPage.tsx:273`) is a decorative
+  `.progress-track` (`styles.css:1500`, `DashboardPage.tsx:273`) is a decorative
   share-of-total meter under a row that already states its figure.
-  `.budget-bar` (`styles.css:4002`, `BudgetsPage.tsx:1229`) is money, with an
+  `.budget-bar` (`styles.css:4018`, `BudgetsPage.tsx:1229`) is money, with an
   over state. `.progress-meter` is work in flight. Neither of the first two
   appeared in this guide before this section, which by 17.3's closing test was a
   defect in the guide.
@@ -2723,7 +2723,7 @@ were live SC 2.4.7 failures. `summary` is the `RowMenu` trigger
 got only `accent-color`; and `.file-drop`'s `<input>` is visually hidden, so
 tabbing to the CSV file picker showed nothing at all.
 
-One rule now covers the set (`styles.css:996-1006`):
+One rule now covers the set (`styles.css:1004-1014`):
 `:is(button, a, summary, input, select, textarea, [tabindex]):focus-visible`
 plus `.file-drop:focus-within`, which is where the wrapper takes the indicator
 its hidden input cannot show. `.input:focus` stays as it is — a field's ring is
@@ -2803,7 +2803,7 @@ and starting again.
   that opens from a press takes focus as well**, because the button that opened
   it has gone or let go: the payment panel is a labeled region with
   `tabIndex={-1}` (`PlanPage.tsx:1692-1697`), focused whenever a new form mounts
-  (`:1107-1110`), and the region rather than its heading for the reason `<main>`
+  (`:1115-1118`), and the region rather than its heading for the reason `<main>`
   is the target on a route change. Neither moves focus on a page load. Coming
   back from a bank's confirmation page is a fresh document, and its sentence is
   announced by its role and left where a reader finds it.
@@ -2877,9 +2877,9 @@ subject to the spacing exception: if a 24px circle centered on each target's
 bounding box does not intersect another target's circle, the target passes.
 
 This is already solved, deliberately. `.icon-button` is 31 by 31
-(`styles.css:2498-2509`) with an `::after` at `inset: -7px` giving a 45px hit
+(`styles.css:2506-2517`) with an `::after` at `inset: -7px` giving a 45px hit
 area without growing the row, and a comment saying why
-(`styles.css:2183-2187`). **That is the house answer for a dense-row control.**
+(`styles.css:2191-2195`). **That is the house answer for a dense-row control.**
 
 The spacing exception never has to be reached here. It applies only to targets
 under 24 by 24 CSS pixels, and `.icon-button` is 31 by 31, so it passes on size
@@ -3033,6 +3033,17 @@ Two rules that follow:
   `min-width` at every step, inside a container that scrolls and is keyboard
   reachable (section 9.6). Prefer dropping non-essential columns to shrinking
   the text.
+- **A responsive remedy belongs at base, or in every band it is needed, and
+  the band to check is the one above 780px.** `.filter-bar` was given
+  `flex-wrap: wrap` unconditionally after a bar "could neither shrink nor wrap"
+  between 560px and 900px; its sibling `.date-bar` got the same remedy inside
+  the 560px block alone, and went on overflowing in exactly the band the note
+  describes. `.inline-form` collapsed to one column at 560px and nowhere else.
+  `.section-title` carrying actions never stacked at all. Three containers, one
+  mistake: the fix was filed against the width where the author was looking.
+  **Above 780px the sidebar is 248px of the viewport**, so content is at its
+  most cramped relative to the window at 820px, not at 390px — which is why a
+  check at a phone width and a desktop width found none of the three.
 - **`dvh`, not `vh`, for anything full-height.** There were seven `100vh` uses
   and no `dvh`; on a mobile browser with a retracting toolbar `100vh` is taller
   than the viewport and the bottom of the page is unreachable until the toolbar
@@ -3042,7 +3053,7 @@ Two rules that follow:
   the same arithmetic stay, because nothing retracts horizontally.
 
 **There is a print stylesheet, and it holds one rule.**
-`@media print` at `styles.css:4272-4276` hides `.ad-slot`, because a statement
+`@media print` at `styles.css:4314-4318` hides `.ad-slot`, because a statement
 of accounts somebody prints or saves as a PDF is a record they may keep and hand
 on, and an advertisement in one is not a thing this product does. The block is
 last in the file for 7.3's reason, and that is where a second print rule goes —
@@ -3056,14 +3067,19 @@ no `forced-colors` handling anywhere in the file. This paragraph used to call
 both halves missing, which would have sent somebody to write a second print
 block rather than add to the one that is there.
 
-*Checked by:* `tests/styles-order.test.ts` for the breakpoint list and its
-order, and `tests/page-stack.test.ts` for the reflow rules a class can carry.
-The `dvh` half is one grep and is held there too. `tests/web-guide.test.ts`
-holds the print block — that there is exactly one, that it is last, and that
-what it hides is the ad slot — so "a print stylesheet exists" stays a fact
-rather than a sentence. The responsive *pass* in `AGENTS.md`'s definition of
-done stays review: whether a page is usable at 320px is a judgement about a
-screen.
+*Checked by:* `tests/browser/reflow.spec.ts` for the one half a layout engine
+can settle — every route, at each breakpoint, at each breakpoint minus one, in
+the middle of each gap and at 320px, asserting the *document* never scrolls
+sideways (SC 1.4.10). It measures `document.documentElement` and not a
+container, because a `.data-table` scrolling inside `.table-wrap` is the rule
+directly above this one. `tests/styles-order.test.ts` for the breakpoint list
+and its order, and `tests/page-stack.test.ts` for the reflow rules a class can
+carry. The `dvh` half is one grep and is held there too.
+`tests/web-guide.test.ts` holds the print block — that there is exactly one,
+that it is last, and that what it hides is the ad slot — so "a print stylesheet
+exists" stays a fact rather than a sentence. What stays review is everything
+after "does not overflow": whether a page is *usable* at 320px, and whether a
+bar four lines deep still reads as one bar, are judgements about a screen.
 
 ## 16. Words
 
@@ -3176,6 +3192,7 @@ is which.
 | `tests/chart-alternatives.test.tsx` | Every chart component call site has a real table beside it, with an `.sr-only` caption and scoped headers in a real render; a series keeps its color when the visible set shrinks (11.4, 11.6) |
 | `tests/raw-dates-on-screen.test.ts` | No date-shaped field reaches JSX text, an `aria-label` or a `title` without a formatter; which names are date-shaped is derived from the fields the client already formats, so no list goes stale (10.4) |
 | `tests/client-inline-edit-names.test.ts` | Every click-to-edit trigger's accessible name leads with its visible value, read through a brace-aware tag walk that follows one hop into a named `const` (8.10 rule 6) |
+| `tests/browser/reflow.spec.ts` | No route's document scrolls sideways, at each breakpoint, each breakpoint minus one, the middle of each gap and 320px — the band above 780px included, where the sidebar takes 248px and a check at phone and desktop widths sees nothing (15) |
 | `tests/browser/target-size.spec.ts` | Every interactive target on three screens measured at desktop width and at 390px, against both branches of SC 2.5.8 — 24 by 24 outright, else centers 24 pixels apart (13.4, 13.5) |
 | `tests/recurrence-dates.test.ts`, `tests/locale-detection.test.ts` | The date and locale arithmetic every rendered date rests on (10.4) |
 | `tests/page-stack.test.ts` (continued) | A page-prefixed class is used on its own page, or is one of the registered components — in both spellings, and with the English singular, because stripping a trailing `s` made `categories` into `categorie` and examined no `.category-` class at all; every full-height rule measures `dvh`; every table cell gets tabular figures, and `.align-right` means alignment alone (6.3, 9.3, 15) |
@@ -3212,7 +3229,7 @@ change is worth nothing if it can quietly fall behind.
 
 1. **No spacing, radius, size or weight literal outside the scales.** The same
    trick the color test uses, with an allow-list for `1px` borders, `0` and
-   percentages. This is the largest unmanaged surface in the stylesheet: 291
+   percentages. This is the largest unmanaged surface in the stylesheet: 292
    spacing declarations across 35 values. The census itself is now derived
    rather than recounted — `tests/standards-citations.test.ts` holds section 3's
    numbers to the file, which is what stopped this item and section 3.1 quoting

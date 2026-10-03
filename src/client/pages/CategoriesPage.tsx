@@ -181,7 +181,7 @@ export default function CategoriesPage() {
   // would make "no categories yet" unreachable on a ledger that really has
   // none.
   const { narrowed, ways } = emptyScreen([
-    { set: Boolean(search.trim()), clear: "change what you typed" },
+    { set: Boolean(search.trim()), clear: "clear the search" },
     {
       set: !includeArchived,
       clear: "turn on Show archived to look at the ones you have put away",
@@ -758,6 +758,14 @@ export default function CategoriesPage() {
                     {category.stagedTransactionCount} staged
                   </small>
                 </span>
+                {/* Here rather than in the badge cell below, which
+                    `styles.css`'s 560px block hides outright. That is right for
+                    the two badges under it — the kind and the count are both
+                    already in the subtitle a line up — and wrong for this one,
+                    which is said nowhere else. An archived category on a phone
+                    showed nothing at all saying it was archived, on the only
+                    screen you reach by turning "Show archived" on. */}
+                {category.archivedAt ? <Badge>Archived</Badge> : null}
               </div>
               <div>
                 <Badge tone={category.kind === "expense" ? "red" : "green"}>
@@ -767,7 +775,6 @@ export default function CategoriesPage() {
                   {category.totalCount} transaction
                   {category.totalCount === 1 ? "" : "s"}
                 </Badge>
-                {category.archivedAt ? <Badge>Archived</Badge> : null}
               </div>
               {/* The group, on the row, because until now the only way to put a
                   category in one was an unlabeled pencil that opens a modal —

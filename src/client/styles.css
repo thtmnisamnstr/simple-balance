@@ -912,6 +912,14 @@ a {
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface);
+  /* The same wrap `.filter-bar` got, for the same reason, on the sibling that
+     did not get it. The note above describes a bar that between 560px and
+     900px "could neither shrink nor wrap"; the remedy reached `.filter-bar`
+     at base and `.date-bar` only inside the 560px block, so Budgets'
+     four-control view bar and Reports' options bar went on overflowing
+     `.content` exactly where the note says. Measured at 620, 820 and 900px:
+     /budgets was 958px wide inside a 900px viewport. SC 1.4.10. */
+  flex-wrap: wrap;
 }
 
 /* The two dates and their joining word, kept together so the bar wraps around
@@ -2998,7 +3006,15 @@ input[type="radio"] {
 
 .activity-row strong {
   font-size: 11px;
-  text-transform: capitalize;
+}
+
+/* Sentence case, which is 16, and `capitalize` is not it: CSS capitalizes
+   every word, so `activitySentence`'s "create user preferences" reached the
+   screen as "Create User Preferences". The sentence is built lowercase on
+   purpose and `tests/activity-sentence.test.ts` holds it that way, so the
+   first letter is the only one CSS has any business touching. */
+.activity-row strong::first-letter {
+  text-transform: uppercase;
 }
 
 .activity-row small {
@@ -4037,6 +4053,16 @@ polyline.chart-line {
   .settings-grid {
     grid-template-columns: 1fr;
   }
+  /* The band where the sidebar is up and the viewport is not wide: content is
+     the viewport less 248px of nav and the shell's padding, so this form's
+     four tracks (120 + 160 + 160 + a button, plus gaps = 559px) stopped fitting
+     at 820px and pushed the document to 871px. The one-column collapse was
+     written into the 560 block only, which is the band where there is no
+     sidebar and the form had room all along. Measured by
+     `tests/browser/reflow.spec.ts`. */
+  .inline-form {
+    grid-template-columns: 1fr;
+  }
   .import-preview {
     position: static;
   }
@@ -4118,6 +4144,22 @@ polyline.chart-line {
     width: 100%;
   }
   .page-heading > .page-actions .button {
+    flex: 1;
+  }
+  /* The same stacking for a section heading that carries actions, which is the
+     embedded transaction browser on the three detail pages. It was written as
+     a hand-rolled copy of the page header and took the horizontal half without
+     the responsive half, so at 390px the two buttons kept their width and the
+     description wrapped to four lines in whatever column was left. */
+  .section-title:has(> .page-actions) {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .section-title:has(> .page-actions) > .page-actions {
+    width: 100%;
+    margin-left: 0;
+  }
+  .section-title:has(> .page-actions) > .page-actions .button {
     flex: 1;
   }
   .dashboard-detail-grid,

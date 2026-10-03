@@ -222,9 +222,20 @@ export default function AccountDetailPage() {
               is wrong and you need the row it went wrong on.
             </p>
           </div>
-          <Button type="button" variant="secondary" onClick={() => setShowRegister(!showRegister)}>
-            {showRegister ? "Hide register" : "Show register"}
-          </Button>
+          {/* In `page-actions` rather than loose, which is what every other
+              section heading with a button does. `.page-actions` is the thing
+              carrying `flex: 0 0 auto`; a bare button is a shrinkable flex item
+              beside a long description, and this one was rendering as two
+              lines reading "Show" and "register". */}
+          <div className="page-actions">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setShowRegister(!showRegister)}
+            >
+              {showRegister ? "Hide register" : "Show register"}
+            </Button>
+          </div>
         </div>
 
         {showRegister ? (

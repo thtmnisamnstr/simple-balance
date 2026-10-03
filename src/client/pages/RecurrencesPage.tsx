@@ -178,7 +178,7 @@ export default function RecurrencesPage() {
       ) : visible.length === 0 ? (
         <EmptyState
           icon={Repeat}
-          title={recurrences.data?.items.length ? "No recurrence matches" : "No recurrences yet"}
+          title={recurrences.data?.items.length ? "No recurrences match" : "No recurrences yet"}
           body={
             recurrences.data?.items.length
               ? // As on Templates: the Type select is the other way this list

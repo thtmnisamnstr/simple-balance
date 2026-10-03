@@ -471,7 +471,7 @@ export default function TemplatesPage() {
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={LayoutTemplate}
-          title={templates.data?.length ? "No template matches" : "No templates yet"}
+          title={templates.data?.length ? "No templates match" : "No templates yet"}
           body={
             templates.data?.length
               ? // The Type select empties this list as readily as the search

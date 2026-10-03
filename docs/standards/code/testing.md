@@ -8,7 +8,7 @@ keeping.
 | Unit (node) | 193 | `npm test` | nothing |
 | Unit (jsdom) | 59 | `npm test` | nothing |
 | Integration | 75 | `npm test` **or** `npm run test:integration` | PostgreSQL |
-| Browser | 4 | `npm run test:browser` | PostgreSQL, Chromium |
+| Browser | 5 | `npm run test:browser` | PostgreSQL, Chromium |
 
 **`npm test` collects the integration tier too**, which surprises people and is
 worth stating plainly. `vitest.config.ts:21` excludes four things and only two
