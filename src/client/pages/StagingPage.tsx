@@ -930,15 +930,25 @@ export default function StagingPage() {
                 {`Select all ${selectionCount(selectableTotal)} matching`}
               </Button>
             ) : null}
+            {/* One mutation runs both actions, so each button asks which one is
+                running. Both spun on either, and Delete selected showed a
+                spinner for the whole of a commit — work that was not
+                happening, on the button that destroys rows. The other is
+                still disabled while one runs, and withholds its reason then,
+                because the busy flag is what disabled it (12.3). */}
             <Button
               variant="secondary"
-              disabled={invalidSelected || (duplicateSelected && !allowDuplicates)}
-              disabledReason={
-                invalidSelected
-                  ? "Some selected rows have issues to fix first."
-                  : "Some selected rows look like duplicates. Check the box to commit them anyway."
+              disabled={
+                invalidSelected || (duplicateSelected && !allowDuplicates) || bulkMutation.isPending
               }
-              loading={bulkMutation.isPending}
+              disabledReason={
+                bulkMutation.isPending
+                  ? undefined
+                  : invalidSelected
+                    ? "Some selected rows have issues to fix first."
+                    : "Some selected rows look like duplicates. Check the box to commit them anyway."
+              }
+              loading={bulkMutation.isPending && bulkMutation.variables === "commit"}
               onClick={() => bulkMutation.mutate("commit")}
             >
               <CheckCheck size={16} /> Commit selected
@@ -948,7 +958,8 @@ export default function StagingPage() {
             </Button>
             <Button
               variant="danger"
-              loading={bulkMutation.isPending}
+              disabled={bulkMutation.isPending}
+              loading={bulkMutation.isPending && bulkMutation.variables === "delete"}
               onClick={() => {
                 bulkRemoval.ask(selectedRows.length, () => bulkMutation.mutate("delete"));
               }}

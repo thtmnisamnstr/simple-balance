@@ -97,7 +97,9 @@ space, whether a section is in a sensible position, and whether a layout holds
 at each breakpoint. jsdom has no layout, so unit tests cannot see any of it.
 
 If screenshots were provided, work from them — they are evidence and usually
-contain more findings than were reported. The browser tier
+contain more findings than were reported. If they arrive blank or unreadable,
+say so and reproduce the state yourself (below) rather than reasoning from the
+description: a description says where something looked wrong, not why. The browser tier
 (`BROWSER_DATABASE_URL=... npm run test:browser`) exercises real rendering and is
 where a keyboard or responsive assertion belongs.
 
@@ -118,6 +120,27 @@ a yes-or-no answer per route per width, and it found four pages this way that
 three rounds of looking at screenshots had not. A `.table-wrap` scrolling
 sideways is allowed; the *document* scrolling is the defect, so measure the
 document.
+
+**Photograph the states, not just the routes.** A route visited at rest shows
+each bar empty or in its default state, and the defect usually lives in a state
+somebody has to reach: a selection across pages (the extra "Select all N
+matching" button, the longest count), a button disabled with its reason
+showing, a button busy mid-request, a row with an error under it. The staged
+queue's selection bar overflowed at 1440px once a duplicate disabled Commit —
+and `reflow.spec.ts`, which walks every route at every width, never saw it,
+because at rest there is no selection bar. So for each section that changes
+with its contents, list its states, seed the data that reaches each one through
+the real API, and photograph each at the widths below. A transient state is
+made to last with `page.route`: hold the request, measure, then abort it, so a
+fast machine cannot outrun the screenshot and the seeded data survives.
+`tests/browser/selection-bar.spec.ts` has the seeding and the hold to copy.
+
+**A layout fix is measured, never argued.** That same bar had been fixed once
+already, in a long and accurate-sounding stylesheet comment that `web.md` cited
+as the answer — right about the cause, wrong about the cure, and never opened in
+a browser. Before calling a layout defect fixed, photograph the state that
+showed it at the widths that matter, and turn the measurement into a browser
+spec so the next rule on that row cannot bring it back with the suite green.
 
 **And measure the band above the largest breakpoint, not just a phone.** The
 sidebar is 248px and it is present above 780px, so the narrowest the content
@@ -159,6 +182,15 @@ BROWSER_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/simple_balanc
 Then check the keyboard by hand on anything that changed: tab order, focus
 visibility, Escape, and that focus does not fall to `<body>` when something
 unmounts. Check each breakpoint. `web.md` §14 is the pass to follow.
+
+**The browser tier wants ports 3000 and 5173, and a person testing has them.**
+`playwright.config.ts` refuses to reuse a running server, so with `npm run dev`
+up it stops at "already used". Do not stop somebody's dev server to get the
+ports back. Start a second pair instead: a scratch Vite config proxying to
+another API port, and a scratch Playwright config pointing both `webServer`
+entries and `baseURL` at them. Check a port is free before taking it — an old
+orphaned server can be holding the obvious next one — and delete both scratch
+configs afterwards.
 
 ## Report
 

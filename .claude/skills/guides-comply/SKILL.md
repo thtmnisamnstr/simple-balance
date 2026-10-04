@@ -132,6 +132,16 @@ The checks that repeatedly find real defects:
   it.
 - **Nothing outside the configuration layer naming `console`**, including as a
   default parameter.
+- **A row of controls in every state its controls can take** (`web.md` 15, 12.3):
+  a disabled button's reason, a busy button, the longest label or count, the
+  extra button a wider selection adds. A sweep that reads the markup or visits
+  a page at rest sees none of them. Grep for `disabledReason`, `loading=` and
+  conditionally rendered buttons inside a toolbar, and every row that has them
+  needs a photograph or a measurement in each state — `selection-bar.spec.ts`
+  is the shape. Two things from the same defect: a busy button's width must not
+  change (the spinner takes the icon's place), and where one mutation serves
+  several buttons, each asks which action is running rather than whether
+  anything is.
 
 ## 5. Fix, with a test each
 

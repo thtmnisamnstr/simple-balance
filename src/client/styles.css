@@ -716,7 +716,14 @@ a {
 
    `display: contents` puts the button back in the row at its own size, and
    `order` with a full basis drops the sentence to its own line beneath the
-   whole bar rather than splitting it after the button it belongs to. */
+   whole bar rather than splitting it after the button it belongs to.
+
+   That line only drops if the group it sits in has a width of its own to wrap
+   inside, which is what `.selection-bar-actions` below gives it. While the
+   group took its width from its content instead, a full-basis sentence in a
+   wrapping row counted as a sentence on the same line as the buttons: the group
+   asked for the buttons plus 400px of reason, ran out past the bar's right
+   edge, and the count beside it was squeezed to one word a line. */
 .selection-bar .button-with-reason:has(> .button-reason) {
   display: contents;
 }
@@ -785,6 +792,17 @@ a {
 
 .animate-spin {
   animation: spin 700ms linear infinite;
+}
+
+/* The spinner stands in for a button's icon rather than arriving beside it.
+   Added beside it, every button with an icon grew by the spinner and a gap the
+   moment it started working, and a row of them reflowed on the click: on the
+   staged queue, Commit selected and Delete selected each widened by 24px while
+   a commit ran, which moved every button in the selection bar and rewrapped
+   the count beside them. A button with no icon still gains the spinner, since
+   there is nothing for it to replace. */
+.button[aria-busy="true"] > svg:not(.animate-spin) {
+  display: none;
 }
 
 @keyframes spin {
@@ -1891,9 +1909,15 @@ input[type="radio"] {
    `.bulk-actions`, which was `margin-left: auto` inside the filter bar — no
    border, no background, no padding, an 11px muted span where this has a 12px
    `<strong>`, and no live region at all. */
+/* Lined up on the tops, with the count given a button's height to center in,
+   for the reason 12.3 gives for the form's action row: the actions can grow a
+   second line — a disabled button's reason, or buttons wrapping on a narrower
+   window — and a centered row would then float the count between the two
+   lines rather than beside the buttons it describes. */
 .selection-bar {
   display: flex;
-  align-items: center;
+  flex-wrap: wrap;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 14px;
   padding: 10px 12px;
@@ -1918,9 +1942,17 @@ input[type="radio"] {
 }
 
 .selection-bar > div:first-child {
+  flex: 0 1 auto;
   min-width: 0;
+  min-height: 39px;
   color: var(--green-dark);
   font-size: 12px;
+}
+
+/* An icon is a flex item like any other, and shrank to nothing the moment the
+   count was squeezed. */
+.selection-bar > div:first-child > svg {
+  flex: none;
 }
 
 .selection-bar strong {
@@ -1932,8 +1964,25 @@ input[type="radio"] {
   font-size: 12px;
 }
 
+/* The count takes the width it needs, and the actions share its line only
+   while they would still have 30rem of it; below that the bar wraps and the
+   actions take a line of their own at full width. Either way they wrap inside
+   whatever width they are given.
+
+   Both obvious versions failed, one in each direction. The actions at their
+   content size and never shrinking is what this was until it broke: a group's
+   content size counts everything it holds as though on one line, so a
+   disabled button's reason, or one more button ("Select all 230 matching"),
+   made the group wider than the bar — it ran out past the right edge while the
+   count beside it was crushed to one word a line. A zero basis fixed that and
+   starved the actions instead: under about 1050px they were squeezed into one
+   column beside a count that kept its whole line, and labels wrapped inside
+   their buttons. A fixed basis is what neither can do. Nothing the group holds
+   can inflate it, so the count keeps its width, and it is a floor the actions
+   wrap to a new line rather than fall below. */
 .selection-bar-actions {
-  flex: 0 0 auto;
+  flex: 1 1 30rem;
+  min-width: 0;
 }
 
 .table-card {
@@ -4271,7 +4320,15 @@ polyline.chart-line {
     align-items: stretch;
     flex-direction: column;
   }
+  /* The 30rem basis is a width, and in a column it would be read as a
+     height: 480px of empty bar under the buttons. */
+  .selection-bar-actions {
+    flex: none;
+  }
+  /* A button's height is for sitting beside buttons, and here nothing does:
+     kept, it hung 25px of empty box under the count, above the first button. */
   .selection-bar > div:first-child {
+    min-height: 0;
     align-items: flex-start;
     flex-direction: row;
     flex-wrap: wrap;

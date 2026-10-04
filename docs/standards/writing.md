@@ -1062,8 +1062,8 @@ edit.
   - `SettingsPage.tsx:522`, the warning about what cancelling takes with it.
   - `PlanPage.tsx:1914` and `:1926`, the "Annual — $30.00 a year" price
     labels.
-  - The review queue's inline-edit labels at `StagingPage.tsx:1114`, `:1233` and
-    `:1308`, which lead with the visible value and set the instruction off
+  - The review queue's inline-edit labels at `StagingPage.tsx:1142-1146`, `:1262-1265` and
+    `:1336-1340`, which lead with the visible value and set the instruction off
     behind a dash.
 
   The lone "—" in an empty table cell is a placeholder glyph rather than
@@ -1072,7 +1072,7 @@ edit.
   comments, so they answer to the comment rule rather than to this one.
 
   The inline-edit citation is the one worth dwelling on. It read
-  `StagingPage.tsx:1075`, and that line is now a row checkbox — a non-blank line
+  `StagingPage.tsx:1075`, and that line had become a row checkbox — a non-blank line
   of plausible-looking code, so every check in
   `tests/standards-citations.test.ts` passed on it, including the one that
   catches a citation landing on a closing brace. §Cite by name, then by line is

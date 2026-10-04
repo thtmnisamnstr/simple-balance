@@ -1205,6 +1205,18 @@ site's copy loses the key on its next sync.
 
 ### Fixed
 
+**Selecting staged transactions no longer pushes the filters down the page,
+and the bar that appears instead holds together through a commit.** Ticking
+rows on Staged transactions used to grow the filter row into a second and third
+line, moving the filters that made the selection out from under the pointer.
+The selection now gets a bar of its own, the same one Transactions and
+Templates use, and it keeps its shape whatever it is showing: a selection
+across pages, Commit disabled with the reason beside it, a commit under way.
+A button at work, anywhere in the app, now shows its spinner where its icon
+was rather than growing to fit both, so a row of buttons no longer shifts on a
+click. And Delete selected no longer looks busy during a commit — it showed a
+spinner for the whole of every one, on the button that deletes rows.
+
 **No page scrolls sideways any more, at any width.** The stylesheet's own note
 describes a bar that "could neither shrink nor wrap" between 560 and 900px, and
 the remedy for it reached one container and not its siblings: Budgets' view bar

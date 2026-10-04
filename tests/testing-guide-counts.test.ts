@@ -146,8 +146,28 @@ describe("testing.md file counts", () => {
       22: "Twenty-two",
       23: "Twenty-three",
     };
-    expect(guide, `the browser tier holds ${tests} tests`).toContain(
-      `${words[tests] ?? String(tests)} tests, one file, one worker`,
+    // Read with its line breaks folded, since a phrase can wrap anywhere.
+    expect(guide.replace(/\s+/g, " "), `the browser tier holds ${tests} tests`).toContain(
+      `${(words[tests] ?? String(tests)).toLowerCase()} tests of a person getting through the budgets page`,
     );
+  });
+
+  /**
+   * The prose said "one file" and "the two specs" for three releases after the
+   * tier held five, because the check above counts one file and the table
+   * check counts files without reading the sentences about them. So the
+   * section names each spec and says what it measures, and this holds the list
+   * to the directory: a spec that lands without a sentence fails here.
+   */
+  it("names every browser spec in 1.2", () => {
+    const section = guide.slice(
+      guide.indexOf("### 1.2 The browser tier is small on purpose"),
+      guide.indexOf("### 1.3"),
+    );
+    const specs = readdirSync(path.join(repoRoot, "tests/browser")).filter((file) =>
+      file.endsWith(".spec.ts"),
+    );
+    expect(specs.length).toBeGreaterThan(0);
+    expect(specs.filter((file) => !section.includes(`\`${file}\``))).toEqual([]);
   });
 });

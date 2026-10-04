@@ -8,7 +8,7 @@ keeping.
 | Unit (node) | 193 | `npm test` | nothing |
 | Unit (jsdom) | 59 | `npm test` | nothing |
 | Integration | 75 | `npm test` **or** `npm run test:integration` | PostgreSQL |
-| Browser | 5 | `npm run test:browser` | PostgreSQL, Chromium |
+| Browser | 6 | `npm run test:browser` | PostgreSQL, Chromium |
 
 **`npm test` collects the integration tier too**, which surprises people and is
 worth stating plainly. `vitest.config.ts:21` excludes four things and only two
@@ -95,22 +95,25 @@ two assumptions with nothing watching.
 
 ### 1.2 The browser tier is small on purpose
 
-**House.** Twenty-three tests, one file, one worker, against a real API and a real
-PostgreSQL — that file is `budgets.spec.ts`. `plan-buttons.spec.ts` is the
-second, one test, and it is here rather than in jsdom for the reason 1.1 gives:
-what it measures is an offset between two buttons, which needs a layout engine.
-The tier is slow and it is the only one that proves the whole stack works, so
-it covers a path per capability rather than a case per branch.
-`tests/testing-guide-counts.test.ts` holds the first of those numbers to the
-file it counts, because it sat at eleven while the file grew to eighteen and
-nothing noticed; the second file's own count is held by nothing finer than the
-tier table above.
+**House.** Six files, one worker, against a real API and a real PostgreSQL.
+`budgets.spec.ts` is the one that drives flows — twenty-three tests of a
+person getting through the budgets page — and the other five are each here
+rather than in jsdom for the reason 1.1 gives: what they assert is something
+only a layout or paint engine computes. `plan-buttons.spec.ts` measures an
+offset between two buttons, `progress-paint.spec.ts` reads a progress bar's
+pixels, `reflow.spec.ts` and `target-size.spec.ts` measure the document and
+every target, and `selection-bar.spec.ts` measures one bar in each state its
+controls can take. The tier is slow and it is the only one that proves the
+whole stack works, so it covers a path per capability rather than a case per
+branch. `tests/testing-guide-counts.test.ts` holds the first of those numbers
+to the file it counts, because it sat at eleven while the file grew to eighteen
+and nothing noticed; the others are held by nothing finer than the tier table
+above.
 
 Everything it asserts that a cheaper tier could assert is a test in the wrong
 place.
 
-**One of the two specs does not drive the whole stack, and that is the
-boundary.** `plan-buttons.spec.ts:110` intercepts the one response the plan tab
+**One spec does not drive the whole stack, and that is the boundary.** `plan-buttons.spec.ts:110` intercepts the one response the plan tab
 reads and answers it from the spec. The reason is not convenience: a priced
 button exists only at a price Stripe gave, so reaching that state for real needs
 a Stripe account, its keys in the server's environment, and a subscription
@@ -126,6 +129,14 @@ browser where the two buttons ended up, because jsdom has no layout engine
 else, and a faked response is the cheapest way to reach the state it measures —
 not a second, worse copy of the jsdom test. A spec that faked a response and
 then asserted what the page said about it would be in the wrong place.
+
+**Holding a request is not faking one.** `selection-bar.spec.ts` intercepts the
+staged commit too, and answers nothing: it holds the request open while it
+measures the bar in its busy state, then aborts it. A busy state lasts as long
+as the request does, which on a fast machine is shorter than a measurement, so
+a timer would make the check pass or fail by the machine it ran on. Every
+response the page acts on is still the real server's, and the abort is what
+keeps the queue the spec seeded the queue it leaves.
 
 **CI runs it, on one combination.** It was written and then run only by
 whoever remembered, which is how two of its assertions came to be pinning a
@@ -146,8 +157,11 @@ and deleted.
 *Checked by:* `tests/testing-guide-counts.test.ts` for the size, which counts
 `tests/browser` on disk against the tier table at the top of this page: a spec
 file cannot appear without somebody editing the sentences that say how many
-there are, which is how the second one came to be named above. What the
-twenty-three tests choose to assert is nobody's check but a reviewer's.
+there are. It did not stop this section saying "one file" and "the two specs"
+for three releases after there were five, because it counts the table and not
+the prose — so the prose names the files, and the same test holds that list to
+`tests/browser` ("names every browser spec in 1.2"). What the specs choose to
+assert is nobody's check but a reviewer's.
 
 ### 1.3 Deployment material is read as text here and rendered where the tool is
 
