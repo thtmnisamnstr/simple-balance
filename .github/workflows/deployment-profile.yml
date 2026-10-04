@@ -193,8 +193,9 @@ jobs:
                      deploy/systemd/simple-balance-env \
                      deploy/systemd/simple-balance-db-firstboot \
                      deploy/systemd/simple-balance-growfs \
+                     deploy/systemd/simple-balance-settings \
                      deploy/systemd/simple-balance-waitdb
-          echo "shellcheck passed all seven scripts"
+          echo "shellcheck passed all eight scripts"
 
       # Not the single profile's, but linted here for the reason at the top of
       # this file: verify.yml's images job is where the script would otherwise
@@ -214,7 +215,7 @@ jobs:
 
       # The database machine's one script, and the only one in the profile that
       # is not in deploy/systemd — so tests/systemd-scripts.test.ts, which holds
-      # the six-script list above to that directory, cannot see it. It runs once,
+      # the script list above to that directory, cannot see it. It runs once,
       # inside the postgres container, at the moment the cluster is created:
       # everything it does is `initdb` work that cannot be redone afterwards
       # without throwing the data directory away, and a quoting bug in it is a

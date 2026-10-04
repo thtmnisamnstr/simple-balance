@@ -116,6 +116,13 @@ disk is still the application node's, and it still holds the dumps:
 | `medium` | `t4g.medium` + 130 GiB — **about $39** | 2/4 + 160 GB — about $23, or **$0** against Always Free |
 | `large` | `t4g.large` + 360 GiB — **about $82** | 2/8 + 390 GB — about $33, or **about $5** against Always Free, all of it disk |
 
+Both tables leave out one line each, because it is too small to move a
+figure: where the stack's settings are kept. On AWS that is one Secrets
+Manager secret, **$0.40 a month**, plus about four cents for the reads the
+machine's five-minute check makes. On Oracle Cloud it is a DEFAULT vault with a
+software-protected key and one secret, **$0** against Always Free, which
+covers all three.
+
 The AWS figures are us-east-1 on-demand at 730 hours a month: `t4g.medium`
 $0.0336 an hour, `t4g.large` $0.0672, `m7g.xlarge` $0.1632, `m7g.2xlarge`
 $0.3264; every disk at gp3's $0.08 per GB-month, which is a 20 GiB boot disk on
@@ -191,7 +198,7 @@ pulumi -C oci-single up
 
 Settle it before the first `up` that succeeds and leave it there, because both
 data volumes live in the domain, and changing it afterward would replace them
-along with the secret, `env.local`, the backups — and the ledger. While
+along with the secret, the backups — and the ledger. While
 `simple-balance:protectDataVolume` is on, as it is by default, the program
 refuses that `up` before it touches either machine or either volume. Until a
 launch succeeds the domain is free to change, because the volumes are built only

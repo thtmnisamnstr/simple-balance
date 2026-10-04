@@ -21,6 +21,15 @@ be and [`deployment-costs.md`](deployment-costs.md) what they cost.
 Everything is an environment variable. `.env.example` has all of them; these are
 the ones that matter.
 
+Where the variables are set depends on how the deployment was built. Installed
+by hand, they are the `.env` file. Built by one of the programs in
+`deploy/pulumi/`, they are the Pulumi stack's — `simple-balance:env` for the
+plain ones and `simple-balance:secrets` for the ones this page calls secrets —
+and the program keeps them in the cloud's own secret store and delivers them to
+the machine or the cluster; a `pulumi up` changes one.
+[deploy/pulumi/README.md](../deploy/pulumi/README.md#the-applications-settings)
+has the commands, with a `.env` file to fill a stack from and without one.
+
 ### Required in production
 
 | Variable | What it is |

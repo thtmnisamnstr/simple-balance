@@ -27,8 +27,7 @@ minutes is unacceptable, not when the load gets interesting.
 **Bringing your own database is still a supported answer**, and it is a setting
 rather than a profile: `simple-balance:databaseNode: false` builds no database
 node, no private subnet and no NAT gateway, and the application node waits for a
-`DATABASE_URL` you write into `env.local` exactly as it did when that was the
-only way. Use it when you already keep a PostgreSQL, or on AWS to avoid the NAT
+`DATABASE_URL` you set in the stack's `simple-balance:secrets`. Use it when you already keep a PostgreSQL, or on AWS to avoid the NAT
 gateway's bill — `docs/deployment-costs.md` prices both.
 
 ## The `ha` profile's two shapes
@@ -137,7 +136,7 @@ in either profile with a volume that matters.
 
 The `single` profile has two data volumes now, one per machine, and they hold
 different things. The application node's holds the nightly dumps, the generated
-`AUTH_SECRET`, the settings in `env.local` and the database's CA certificate —
+`AUTH_SECRET` and the database's CA certificate —
 see [host lifecycle](#host-lifecycle-in-the-single-profile). The database node's
 holds `PGDATA` and the superuser password generated on that machine, and nothing
 else: the server certificate and its key stay on the boot disk, because
@@ -740,8 +739,9 @@ files.
 **Disks.** Each machine has a boot disk that holds the operating system, the
 images and the logs and does not grow, and a data volume that outlives it. The
 application node's data volume holds the backups, the generated secret in
-`secrets.env`, the settings in `env.local` and the database's CA certificate in
-`tls/`. The database node's holds `PGDATA` and the superuser password generated
+`secrets.env` and the database's CA certificate in `tls/`. The stack's settings
+are on neither volume: they are fetched from the cloud's secret store at every
+start. The database node's holds `PGDATA` and the superuser password generated
 on that machine. Both are separate volumes on both clouds, so replacing either
 machine keeps what was on it, and on Oracle Cloud neither is ever made smaller
 than 50 GB, which is that provider's minimum.
@@ -821,36 +821,39 @@ each gets the minimum:
 The generated `DATABASE_URL` is written by cloud-init into
 `/opt/simple-balance/env.db` at `0600`, holding that one line and nothing else.
 
-Everything an operator genuinely supplies goes in
-`/var/lib/simple-balance/env.local`: an SMTP password, a Stripe key, the AdSense
-ids — and a `DATABASE_URL` of your own, if you would rather point this machine
-at a database you keep. It is on the data volume rather than the boot disk, and
-it is folded into `.env` every time the deployment starts, because the drop-in
-runs `/usr/local/sbin/simple-balance-env` first. So a setting is an edit and a
-restart:
+Everything an operator genuinely supplies is the stack's: an SMTP password, a
+Stripe key, the AdSense ids — and a `DATABASE_URL` of your own, if you would
+rather point this machine at a database you keep — in `simple-balance:env` and
+`simple-balance:secrets`. The program writes them into one secret in the
+cloud's store, OCI Vault or AWS Secrets Manager, and grants the application
+machine's own identity read on that secret and nothing else. The machine fetches
+it every time the deployment starts, through a drop-in that runs
+`/usr/local/sbin/simple-balance-settings` and then `simple-balance-env`, and a
+timer checks it every five minutes, so a setting is a `pulumi up` and reaches
+the machine with nobody logged in. `deploy/pulumi/README.md`, "The
+application's settings", has both ways to set them.
 
-```sh
-sudo nano /var/lib/simple-balance/env.local
-sudo systemctl restart simple-balance
-```
+That replaces a file on the data volume that settings used to be typed into
+over SSH, and the reason it could not have been the stack before is the reason
+it can be now: anything a program put on the machine arrived as user data,
+which anyone who can describe the instance can read. The settings now travel
+by a fetch only the machine can make, so a Stripe key is in the stack's
+encrypted config and the cloud's secret store, and in nobody's shell history.
+A rebuilt machine has every setting it had, without anybody having kept a copy.
 
-**The fold order is what makes a hand-written setting win.**
+**The fold order is what makes the stack's setting win.**
 `simple-balance-env` folds `env.base`, then `env.db`, then `secrets.env`, then
-`env.local`, and Compose reads the last assignment of a variable. So an operator
-who writes their own `DATABASE_URL` into `env.local` gets theirs, on a machine
-whose program generated one, with nothing to turn off first. A machine built
-with `simple-balance:databaseNode: false` has no `env.db` at all and folds
-exactly as it did before the file existed; firstboot's gate then holds the
-deployment installed-and-stopped, and writes `/etc/motd` saying so, until a
-`DATABASE_URL` appears.
+the fetched settings, and Compose reads the last assignment of a variable. So
+an operator who sets their own `DATABASE_URL` gets theirs, on a machine whose
+program generated one, with nothing to turn off first. A machine built with
+`simple-balance:databaseNode: false` has no `env.db` at all; firstboot's gate
+then holds the deployment installed-and-stopped, and writes `/etc/motd` saying
+so, until the stack has a `DATABASE_URL`.
 
 The first time, when there is no `DATABASE_URL` yet and nothing started,
-`sudo /usr/local/sbin/simple-balance-firstboot` does it instead. The disk is the
-point: `/opt` is destroyed when the instance is rebuilt, so a key kept there
-would survive until the machine was replaced and then vanish with no error and
-no mention of itself. A machine set up by hand has no drop-in and no parts to
-fold, so there the settings are `/opt/simple-balance/.env` itself, followed by
-the same restart. `docs/deployment.md` describes the `_FILE` variants for a
+`sudo /usr/local/sbin/simple-balance-firstboot` after the `pulumi up` does it.
+A machine set up by hand has no drop-in and no parts to fold, so there the
+settings are `/opt/simple-balance/.env` itself, followed by a restart. `docs/deployment.md` describes the `_FILE` variants for a
 deployment that keeps secrets somewhere else entirely.
 
 **A `pulumi up` does not re-run any of this, on either machine.** Cloud-init's

@@ -345,10 +345,11 @@ describes turning ads on points here rather than keeping a copy.
      Helm chart from an `ADSENSE_CLIENT_ID` in `config.extraEnv`; set
      `frontend.adsConfigured` only if the id is kept in an `existingSecret`.
 
-   On the single machines the Pulumi programs build, that is: edit
-   `/var/lib/simple-balance/env.local`, then
-   `sudo systemctl restart simple-balance`. A `single` profile installed by hand
-   keeps its settings in `/opt/simple-balance/.env` instead.
+   On the machines and clusters the Pulumi programs build, that is the stack's
+   `simple-balance:env` and `simple-balance:secrets`, then `pulumi up`;
+   `deploy/pulumi/README.md`, "The application's settings", has the commands.
+   A `single` profile installed by hand keeps its settings in
+   `/opt/simple-balance/.env` instead.
 
 9. **Check that both `ads.txt` files name you.** `curl` this deployment's
    `/ads.txt` and, where it is on a subdomain, the root domain's too: each has
@@ -581,10 +582,9 @@ this software will not make on an operator's behalf.
 Removing the AdSense variables stops the ads and restores the original content
 security policy at the next restart.
 
-On the single machines the Pulumi programs build, either change is an edit to
-`/var/lib/simple-balance/env.local` followed by
-`sudo systemctl restart simple-balance`; a `single` profile installed by hand
-keeps its settings in `/opt/simple-balance/.env`.
+On the machines and clusters the Pulumi programs build, either change is the
+stack's `simple-balance:env`, then `pulumi up`; a `single` profile installed by
+hand keeps its settings in `/opt/simple-balance/.env`.
 
 `docs/billing-operations.md` has the order to do it in when there are live
 subscriptions, and the step that charges somebody for nothing if it is taken

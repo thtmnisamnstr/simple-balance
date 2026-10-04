@@ -12,6 +12,7 @@ import {
 import { databaseCertificates } from "../single-common/tls";
 
 import {
+  AWS_CLI_IMAGE,
   IPV6_APT_REWRITE,
   PLACEHOLDER_VOLUME_ID,
   SSM_SHELL_ENDPOINTS,
@@ -52,8 +53,8 @@ const size = settings.size;
  *
  * False builds no second machine, no private subnet and no NAT gateway, and
  * the application node is then exactly what it was before this profile grew a
- * second one: the operator writes a DATABASE_URL of their own into env.local
- * and firstboot waits for it. That is the escape hatch for somebody who
+ * second one: the operator sets a DATABASE_URL of their own in
+ * `simple-balance:secrets` and firstboot waits for it. That is the escape hatch for somebody who
  * already keeps a PostgreSQL. It is no longer the only way to avoid the NAT
  * gateway's monthly charge, which `docs/deployment-costs.md` prices:
  * `simple-balance:databaseEgress` drops the gateway and keeps the database
@@ -293,6 +294,14 @@ userDataBase64(
   database && {
     url: databaseUrl(databaseDnsName, PLACEHOLDER_PASSWORD),
     caCertificate: PLACEHOLDER_CERTIFICATE,
+  },
+  {
+    kind: "aws-secretsmanager",
+    // An ARN of the real shape and a generous length: the stack name and
+    // Pulumi's suffix are both in the real one.
+    id: `arn:aws:secretsmanager:${awsRegion}:000000000000:secret:${name}-settings-0000000-AbCdEf`,
+    region: awsRegion,
+    image: AWS_CLI_IMAGE,
   },
 );
 if (database) {
@@ -862,11 +871,75 @@ function shellRole(roleName: string) {
     policyArn: "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore",
   });
 
-  return new aws.iam.InstanceProfile(roleName, { role: role.name, tags });
+  return { role, profile: new aws.iam.InstanceProfile(roleName, { role: role.name, tags }) };
 }
 
-const instanceProfile = shellRole(name);
-const databaseInstanceProfile = database ? shellRole(`${name}-db`) : undefined;
+const applicationRole = shellRole(name);
+const instanceProfile = applicationRole.profile;
+const databaseInstanceProfile = database ? shellRole(`${name}-db`).profile : undefined;
+
+// --------------------------------------------------------------- settings ---
+
+/**
+ * The stack's own settings, in AWS Secrets Manager — every SMTP password,
+ * Stripe key and AdSense id given to `simple-balance:env` and
+ * `simple-balance:secrets`.
+ *
+ * One secret holding the whole file, for the reason `../oci-single/` gives: the
+ * machine wants all of them at once, and one secret is one grant. It changes
+ * with the stack, as a new version of the same secret, and the machine's timer
+ * picks the new version up within five minutes.
+ *
+ * Named by Pulumi with a random suffix rather than fixed: a deleted secret
+ * keeps its name through a recovery window, so a destroy and a fresh `up`
+ * would otherwise collide on it. Encrypted with `simple-balance:kmsKeyArn`
+ * when the stack names one, the same key as the volumes, and with Secrets
+ * Manager's own AWS-managed key when it does not. $0.40 a month, and the
+ * timer's reads add about four cents more.
+ */
+const settingsSecret = new aws.secretsmanager.Secret(`${name}-settings`, {
+  description:
+    "Simple Balance: the stack's settings, fetched by the application node at every start",
+  kmsKeyId: kmsKeyId,
+  tags,
+});
+
+new aws.secretsmanager.SecretVersion(`${name}-settings`, {
+  secretId: settingsSecret.id,
+  secretString: settings.appSettingsFile,
+});
+
+/**
+ * The application node, and only it, may read that one secret.
+ *
+ * Its role's own credentials, from the instance metadata service, rather than
+ * an access key on the machine. Read on this ARN and nothing else; and the key
+ * when the stack named one, because a customer key's policy is the stack's to
+ * write and Secrets Manager decrypts with the caller's permission on it.
+ */
+new aws.iam.RolePolicy(`${name}-settings`, {
+  role: applicationRole.role.id,
+  policy: pulumi.all([settingsSecret.arn, kmsKeyId ?? pulumi.output("")]).apply(([arn, key]) =>
+    JSON.stringify({
+      Version: "2012-10-17",
+      Statement: [
+        { Effect: "Allow", Action: "secretsmanager:GetSecretValue", Resource: arn },
+        ...(key
+          ? [
+              {
+                Effect: "Allow",
+                Action: "kms:Decrypt",
+                Resource: key,
+                Condition: {
+                  StringEquals: { "kms:ViaService": `secretsmanager.${awsRegion}.amazonaws.com` },
+                },
+              },
+            ]
+          : []),
+      ],
+    }),
+  ),
+});
 
 // Only where a key was given. Without one, `simple-balance:sshCidr` is refused
 // by `readSingleSettings`, so there is never an open port with nothing behind
@@ -938,7 +1011,7 @@ const availabilityZone = subnet.availabilityZone;
 /**
  * The application node's data disk, separate from the machine's.
  *
- * It holds the generated secret, env.local, the database's CA certificate and
+ * It holds the generated secret, the database's CA certificate and
  * the nightly dumps — not the ledger itself, which is on the database node.
  * Separate because the two disks have different lifetimes. A new `size` is not
  * a replacement: EC2 stops the instance, changes its type and starts it again,
@@ -1055,12 +1128,14 @@ const userData = pulumi
     dataVolume.id,
     databasePassword ?? pulumi.output(""),
     certificates?.caCertificate ?? pulumi.output(""),
+    settingsSecret.arn,
   ])
-  .apply(([volumeId, password, caCertificate]) =>
+  .apply(([volumeId, password, caCertificate, settingsArn]) =>
     userDataBase64(
       settings,
       volumeId,
       database ? { url: databaseUrl(databaseDnsName, password), caCertificate } : undefined,
+      { kind: "aws-secretsmanager", id: settingsArn, region: awsRegion, image: AWS_CLI_IMAGE },
     ),
   );
 
@@ -1080,9 +1155,9 @@ const instance = new aws.ec2.Instance(
       // exactly this reason. No database, so it does not grow.
       volumeSize: 20,
       volumeType: "gp3",
-      // env.local reaches this disk only by way of the data volume's mount, but
-      // the boot disk still holds the database's CA certificate as cloud-init
-      // staged it and every log line the deployment has written. Encrypted for
+      // The boot disk holds the stack's settings as the machine last fetched
+      // them, the database's CA certificate as cloud-init staged it, and every
+      // log line the deployment has written. Encrypted for
       // the same reason the data volume is, and on the same key — AWS's own
       // when the stack names none.
       encrypted: true,
@@ -1309,6 +1384,7 @@ new aws.ec2.EipAssociation(
 );
 
 export const region = awsRegion;
+export const settingsSecretArn = settingsSecret.arn;
 export const publicIp = address.publicIp;
 export const instanceId = instance.id;
 export const dataVolumeId = dataVolume.id;
@@ -1374,20 +1450,21 @@ const databaseStep = database
    in which case it is a hop through this machine — and then
      sudo docker compose -f /opt/simple-balance/compose.postgres.yml exec postgres \\
        psql -U postgres simple_balance
-   To point this machine at a database of your own instead, put your own DATABASE_URL
-   in /var/lib/simple-balance/env.local: it is folded last and wins over the generated
-   one, with nothing to turn off first.`
-  : `3. Give it a database. None was created, because simple-balance:databaseNode is false:
-   install the certificate of the CA that signed the database's, then put the
-   connection string in env.local,
+   To point this machine at a database of your own instead, set your own DATABASE_URL
+   in simple-balance:secrets: the stack's settings win over the generated one, with
+   nothing to turn off first.`
+  : `3. Give it a database. None was created, because simple-balance:databaseNode is false.
+   On the machine, install the certificate of the CA that signed the database's:
      sudo install -m 0644 ca.pem /var/lib/simple-balance/tls/db-ca.pem
          (Amazon RDS: https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem;
          for a public CA, skip this and leave &sslrootcert=... off the URL)
-     sudo nano /var/lib/simple-balance/env.local
-         DATABASE_URL='postgresql://user:password@<FQDN>:5432/simple_balance?sslmode=verify-full&sslrootcert=/var/lib/simple-balance/tls/db-ca.pem'
-   and, if that URL goes through a transaction pooler, DIRECT_DATABASE_URL beside it,
-   the same database past the pooler, for the migrations and the first-account claim.
-   Then run
+   Where you run Pulumi, give the stack the connection string and apply it:
+     pulumi config set --secret --path 'simple-balance:secrets.DATABASE_URL' \\
+       'postgresql://user:password@<FQDN>:5432/simple_balance?sslmode=verify-full&sslrootcert=/var/lib/simple-balance/tls/db-ca.pem'
+     pulumi up
+   and, if that URL goes through a transaction pooler, secrets.DIRECT_DATABASE_URL beside
+   it, the same database past the pooler, for the migrations and the first-account claim.
+   Then, on the machine, run
      sudo /usr/local/sbin/simple-balance-firstboot
    which starts the deployment and its nightly backup. Until then it is installed and
    stopped, and /etc/motd says so. journalctl -u simple-balance -f follows it from here.`;
@@ -1401,10 +1478,10 @@ export const nextSteps = pulumi.interpolate`
 ${databaseStep}
 4. Find the setup code:   sudo docker compose -f /opt/simple-balance/compose.yml logs app | grep -i setup
 5. Optional settings — SMTP, Stripe, AdSense and the PRIVACY_POLICY_URL it requires,
-   TERMS_OF_USE_URL — go in /var/lib/simple-balance/env.local, which is on the data
-   volume and survives a rebuild. Once the deployment has started,
-   a setting is an edit to it, then
-   sudo systemctl restart simple-balance.
+   TERMS_OF_USE_URL — are the stack's: simple-balance:env, and simple-balance:secrets
+   with --secret for the secret ones, then 'pulumi up'. They are kept in Secrets
+   Manager (${settingsSecret.arn}), and the machine applies a change within five minutes.
+   deploy/pulumi/README.md, "The application's settings", has both ways to set them.
 6. A later 'pulumi up' does not re-run either machine's setup. How to apply a change
    is at the top of what it ran:   sudo cloud-init query userdata | head -16
 `;

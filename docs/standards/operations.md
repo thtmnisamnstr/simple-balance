@@ -369,7 +369,7 @@ image declares a default for: `SB_FRONTEND_PORT`, `SB_API_ORIGIN`,
 `SB_MAX_UPLOAD_SIZE`, `SB_BILLING_CONFIGURED`, `SB_CSP_REPORT_ONLY`,
 `SB_ADS_CONFIGURED`, `SB_TRUSTED_PROXY_CIDR` and `SB_REAL_IP_RECURSIVE`
 (`deploy/docker/frontend.Dockerfile:49-90`, documented at
-`docs/deployment.md:855-862`). It was three for two releases and the rule held
+`docs/deployment.md:864-871`). It was three for two releases and the rule held
 through five more arriving, which is the evidence the rule is worth something.
 `AUTH_MODE` and `TRUST_PROXY` are generic enough to collide with a sidecar or a
 base image.
@@ -644,6 +644,51 @@ secret %s in production"), over two of the three entries in the set. *Not
 checked:* that the set covers whatever `.env.example` currently carries, which is
 the half that has to be extended by hand every time the example file changes.
 
+### A deployment program keeps the settings in the stack and the cloud's store
+
+**House.** A program in `deploy/pulumi/` takes every application setting it
+has no key of its own for in two maps, `simple-balance:env` and
+`simple-balance:secrets`, and delivers them through the cloud's own secret
+store to the workload's own identity: one OCI Vault secret or one AWS Secrets
+Manager secret that the application machine alone may read, or the Kubernetes
+Secret the program builds. The rules — which names a stack may set, which are
+secret, which a program decides itself — are one module,
+`deploy/pulumi/common/app-settings.ts`, and every program reads them through it.
+
+The obvious alternative was the one these programs shipped with on the branch:
+settings typed over SSH into a file on the machine's data volume. It was argued
+for honestly — anything a program put on the machine arrived as user data,
+which anyone who can describe the instance can read — and that argument was
+about the delivery, not the stack. It left a Stripe key in nobody's version
+control and nobody's secret store, made a rebuilt machine the moment somebody
+found out whether they had kept a copy, and made "change a setting" an SSH
+session where everything else about a deployment was `pulumi up`. A fetch the
+machine makes with its own identity removes the user-data objection, and with
+it the reason for the file.
+
+Two consequences worth knowing before adding a setting or a program:
+
+- **A secret is decided by the server, not by the deploy program.** The names
+  that go in `secrets` are the nine with a `_FILE` form, which the section above
+  defines; `app-settings.ts` keeps a copy because `deploy/` is vendored without
+  `src/`, and a test holds the copy to the source. A secret in `env` is refused
+  at plan time rather than moved, because the plain copy is already in a
+  committed file by the time the program sees it.
+- **What says where a deployment runs is not copied from a `.env`.**
+  `settings-from-env.mjs` leaves out `DATABASE_URL`, `APP_BASE_URL`,
+  `TRUST_PROXY` and their kind, because a development `.env` has every one of
+  them pointing at a laptop. Those are set deliberately or decided by the
+  program.
+
+*Checked by:* `tests/app-settings.test.ts` — the two lists against the server's
+source, every refusal, the Compose quoting, the chart mapping and the `.env`
+script's choices; `tests/cloud-init.test.ts`, that the machine is told where its
+settings are and never what they are, and fetches before it folds; and
+`tests/systemd-scripts.test.ts`, the fetch's behavior against a fake CLI. Each
+was mutation-proved. *Not checked:* that a real Vault or Secrets Manager grant
+works end to end, which needs a cloud account — `docs/acceptance.md` carries
+the cloud programs as outstanding.
+
 ### A vendor's public identifier reaches the browser at runtime
 
 **House, and the one that is easiest to get wrong once and never notice.** A
@@ -771,24 +816,24 @@ happens when it is set wrong.
 
 There is no specification for this. `docs/deployment.md` delivers the first five
 for every variable. The sixth is given wherever there is a ceiling
-(`docs/deployment.md:59-67`, of which `CSV_MAX_ROWS` at `:62` is the fullest: the
+(`docs/deployment.md:68-76`, of which `CSV_MAX_ROWS` at `:71` is the fullest: the
 cap matches the bulk-action cap so an import always fits one review-queue
-action). The seventh appears for `TRUST_PROXY` (`:58`, "getting it wrong costs
-per-visitor rate limiting"), `RECURRENCE_SCHEDULER` (`:63`, "A value other than
+action). The seventh appears for `TRUST_PROXY` (`:67`, "getting it wrong costs
+per-visitor rate limiting"), `RECURRENCE_SCHEDULER` (`:72`, "A value other than
 `true` or `false` refuses to start, because the wrong setting is otherwise
-silent") and the seven bounded integers (`:72-93`), and nowhere else.
+silent") and the seven bounded integers (`:81-102`), and nowhere else.
 `SB_MAX_UPLOAD_SIZE` (`deploy/docker/frontend.Dockerfile:51-54`) models the
 sixth best of all, because it gives the arithmetic so an operator can compute
 their own value rather than copy a number.
 
 **The seventh is the one that needed a paragraph of its own and got one**
-(`docs/deployment.md:79-83`). `IDEMPOTENCY_RETENTION_HOURS` takes zero as a real
+(`docs/deployment.md:88-92`). `IDEMPOTENCY_RETENTION_HOURS` takes zero as a real
 answer where the other six take it as a mistake, and the document says so in the
 terms this rule asks for: what a wrong value does, which way the fallback goes,
 and why it goes that way rather than the other — *off* rather than a window,
 since a typo must never start pruning. Worth copying wherever a bound and a
 sentinel share a variable. The same document is honest about the one thing this
-guide records as a gap: `:85` says *six* are read at startup, and does not
+guide records as a gap: `:94` says *six* are read at startup, and does not
 claim the seventh among them.
 
 *Not checked mechanically.* A test can assert that every variable has a row; it
@@ -859,12 +904,12 @@ file by name, so an optional variable added uncommented later fails with its own
 name in the message.
 
 The root file is the model for all five. `AUTH_SECRET=` is empty with
-`openssl rand -base64 32` above it (`.env.example:8-13`),
-`RECURRENCE_SCHEDULER` carries its own silence warning (`.env.example:133-137`),
-and the mail block is commented out as a group (`.env.example:31-51`).
+`openssl rand -base64 32` above it (`.env.example:33-38`),
+`RECURRENCE_SCHEDULER` carries its own silence warning (`.env.example:251-261`),
+and the mail block is commented out as a group (`.env.example:83-106`).
 
 It also does one thing beyond the rule, worth generalizing: it warns about
-`NODE_ENV` (`.env.example:1-4`), a variable the images set and the operator is
+`NODE_ENV` (`.env.example:27-31`), a variable the images set and the operator is
 not meant to touch, because unset reads as development "with nothing said about
 it". **A silent hazard gets a comment even when the variable is not one you are
 meant to set.**
@@ -874,7 +919,7 @@ parsers read `.env` in this repository and they disagree about quoting.
 
 | Path | Parser | Rule |
 | --- | --- | --- |
-| `docker run --env-file .env` (`README.md:122`, `docs/deployment.md:720`) | Docker CLI | `NAME=value`, `#` only at line start, values passed as-is. **No interpolation and no quote processing. Do not quote.** Quoting an `SMTP_PASSWORD` here puts the quote marks in the password. |
+| `docker run --env-file .env` (`README.md:122`, `docs/deployment.md:729`) | Docker CLI | `NAME=value`, `#` only at line start, values passed as-is. **No interpolation and no quote processing. Do not quote.** Quoting an `SMTP_PASSWORD` here puts the quote marks in the password. |
 | Compose `.env` and `env_file` (`deploy/compose/compose.distributed.yml`) | Compose | Interpolation applies to unquoted and double-quoted values, `${VAR:-default}` and friends work. **Single-quote a value containing `$`.** |
 
 The intuitive advice, "quote your secrets in `.env`", is wrong on the path this
@@ -896,14 +941,14 @@ is believed.
 **Settled, and six variables had drifted.** Three were in the root example and
 in no table, because prose was doing the work a table row does: `NODE_ENV` and
 the two Google settings, which are now rows of their own
-(`docs/deployment.md:31`, `:124-125`). Prose is where the reasoning goes and a
+(`docs/deployment.md:40`, `:133-134`). Prose is where the reasoning goes and a
 table is what somebody scans for a name, so a variable mentioned only in a
 sentence is one an operator searching the tables concludes does not exist.
 
 **The other three were a named exception rather than an omission, and the
 exception is now five.** `SB_API_ORIGIN`, `SB_FRONTEND_PORT`,
 `SB_MAX_UPLOAD_SIZE`, `SB_BILLING_CONFIGURED` and `SB_ADS_CONFIGURED` — rows of
-the nginx table at `docs/deployment.md:853-862` — belong to the nginx container,
+the nginx table at `docs/deployment.md:862-871` — belong to the nginx container,
 and no example file configures it: the root file serves the single container,
 which has no nginx in it, and the compose recipe sets each of them on the
 frontend service itself (`deploy/compose/compose.distributed.yml:289-335`),
@@ -1028,7 +1073,7 @@ returns 200 or 503 (`src/server/api.ts:417-432`, and the same pair on the
 scheduler at `src/server/scheduler.ts:30-38`). Both are registered above every
 auth middleware and neither is authenticated.
 
-The rule that generalizes best is already written in `docs/deployment.md:1026`: "A
+The rule that generalizes best is already written in `docs/deployment.md:1035`: "A
 process with the scheduler switched off is not an unhealthy one." A readiness
 check that fails because an optional subsystem is off takes a working server out
 of rotation. Readiness must not consult mail, and it must not consult the
@@ -1044,7 +1089,7 @@ shutdown, is the slow half.** Migrations run at startup under advisory lock
 (`src/server/index.ts:28,78`; `src/server/scheduler.ts:73,101`), so readiness
 cannot open before they finish. The 0.1.5 notes record that the payee index
 "takes a moment to build while the container starts, before it opens readiness"
-(`docs/upgrades.md:991-995`). So the generous number is `--start-period`,
+(`docs/upgrades.md:1073-1075`). So the generous number is `--start-period`,
 currently 20s (`Dockerfile:58`), plus a Kubernetes startup probe. Not the
 shutdown deadline.
 
@@ -1052,7 +1097,7 @@ shutdown deadline.
 `/health/ready` "says configuration, the database, and the migrations have all
 succeeded, and stays closed until they have", and readiness never knew anything
 about configuration or migrations. Both now say what it does:
-`docs/deployment.md:1017-1022` and `README.md:137-140` describe one statement
+`docs/deployment.md:1026-1031` and `README.md:137-140` describe one statement
 against the database and nothing else, and `src/server/api.ts:424-430` says the
 same beside the route. The difference matters to an operator designing alerting:
 a migration that succeeded on an older image leaves readiness green against a
@@ -1385,7 +1430,7 @@ chart sets `terminationGracePeriodSeconds: 30`
 (`deploy/helm/simple-balance/values.yaml:268`).
 
 **Settled.** Both documented `docker run` commands now pass
-`--stop-timeout 30` (`README.md:122-127`, `docs/deployment.md:720-727`). Docker's
+`--stop-timeout 30` (`README.md:122-127`, `docs/deployment.md:729-736`). Docker's
 default is 10 seconds, exactly the drain deadline, so the forced exit and
 SIGKILL used to land in the same instant and the drain never got to finish.
 
@@ -1675,7 +1720,7 @@ never created by the program that uses it.
 **Refusing late is useless, which is what makes this a plan-time check.** Both
 single-machine programs refuse at plan time unless the key is enabled,
 customer-managed, symmetric and encrypt/decrypt
-(`deploy/pulumi/aws-single/platform.ts:146-178`, and `readKmsSelection` with
+(`deploy/pulumi/aws-single/platform.ts:157-189`, and `readKmsSelection` with
 `requireUsableKmsKey` in `deploy/pulumi/oci-single/platform.ts`). AWS writes the
 reason itself: a disabled key has no effect on a running instance, because EBS
 encrypts disk I/O with the data key held in the Nitro card. So nothing breaks
@@ -1685,7 +1730,7 @@ the volume is unreadable by anybody, its owner included. A check that ran at
 first use would be a check that ran at the reboot.
 
 **Creating the key with the stack is refused, and the AWS program already states
-why** (`deploy/pulumi/aws-single/index.ts:137-158`): a key this program made
+why** (`deploy/pulumi/aws-single/index.ts:138-159`): a key this program made
 would have the *stack's* lifetime, and that is the wrong lifetime for the thing
 that decrypts a ledger. `pulumi destroy --exclude-protected` is this
 repository's own documented teardown and it deliberately keeps both data
@@ -1695,6 +1740,16 @@ that the same key material in a new key will not decrypt it. Accepting keeps the
 program's blast radius at "machines and disks" and never at "the key that reads
 them". An operator who wants a customer-managed key has one, or has a policy
 saying where keys come from.
+
+**The one key a program does create is outside that argument, and is checked to
+stay there.** `oci-single` keeps the stack's settings in OCI Vault, which holds
+no secret outside a vault, so with no `kmsVaultOcid` named it creates a vault
+and a software key for them. The argument above is about what a deletion
+countdown does to *data on disk*, and nothing on disk is encrypted with this
+key: a destroyed stack's settings go into pending deletion with only the
+settings in them. `tests/single-customer-keys.test.ts` holds both halves — that
+the settings vault and key are the only `oci.kms` resources the program
+creates, and that no volume or instance is handed that key.
 
 **Unset means the provider's own key, which is already encryption at rest**, and
 it has to pass `undefined` rather than the empty string: `kms_key_id` is
@@ -1722,8 +1777,8 @@ on AWS and is the largest single line in a `small` bill: a NAT gateway is about
 $36.50 a month against that stack's $96, and $32.85 of it is the hour rather
 than the bytes, so moving less data saves nothing. Two cheaper ways out
 exist — `ssm` at about $14.60, `ipv6` at nothing at all
-(`deploy/pulumi/aws-single/platform.ts:252`,
-`deploy/pulumi/aws-single/platform.ts:376`). Each gives something up, and the
+(`deploy/pulumi/aws-single/platform.ts:263`,
+`deploy/pulumi/aws-single/platform.ts:387`). Each gives something up, and the
 rule is about what happens to the thing given up.
 
 Three properties hold it, and they are the ones to carry to the next priced
@@ -1731,7 +1786,7 @@ choice rather than the dollar figures, which will age.
 
 **Unset builds what the stack built before the setting existed.** Blank and
 absent both resolve to `nat`, and the comment at
-`deploy/pulumi/aws-single/platform.ts:380-383` says why a blank is not a third
+`deploy/pulumi/aws-single/platform.ts:391-394` says why a blank is not a third
 value: `pulumi config set ... ""` and an empty key in a stack file arrive
 identically, and refusing them would refuse a stack that asked for nothing. That
 half is not a preference — `AGENTS.md` §A release upgrades cleanly from the
@@ -1742,7 +1797,7 @@ configuration an operator already has.
 takes Session Manager away from the machine holding the ledger: the agent
 resolves an IPv4-only endpoint and the subnet has no IPv4 route once the gateway
 is gone. So `ipv6` without `simple-balance:sshPublicKey` is refused outright
-(`deploy/pulumi/aws-single/platform.ts:399`), because the alternative is a
+(`deploy/pulumi/aws-single/platform.ts:410`), because the alternative is a
 routing setting that silently leaves no way onto the database node at all.
 `ssm` demands no key for the opposite reason, stated where somebody would
 otherwise add one as a safeguard: it buys the agent's shell back with two
@@ -1959,7 +2014,8 @@ a renamed variable moved the version.
 | A `reverse_proxy` upstream names a service that exists in a compose file beside it, on a port it listens on | `tests/caddyfile-upstream.test.ts` |
 | The database's `NetworkPolicy` admits 5432 from the API and scheduler only, and Patroni's REST port from database pods only | `tests/helm-network-policy.test.ts` |
 | No unconfigured outbound network call: `src/server` makes no bare `fetch`, one module imports `stripe`, and that module declines the SDK's telemetry | `tests/outbound-connections.test.ts` |
-| A customer-managed key is accepted and never created, and an unusable one is refused at plan time | `tests/single-customer-keys.test.ts` |
+| A customer-managed key for the disks is accepted and never created, an unusable one is refused at plan time, and the settings vault's key reaches no disk | `tests/single-customer-keys.test.ts` |
+| A deployment program's application settings are the stack's two maps, checked at plan time, and reach the workload through the cloud's secret store and never through user data | `tests/app-settings.test.ts`, `tests/cloud-init.test.ts`, `tests/systemd-scripts.test.ts` |
 | Both application workloads wait for every Citus worker group to register before the process that runs migrations starts | `tests/operations-startup-gate.test.ts` |
 | A cheaper way out of the database subnet is a named choice, unset is the NAT gateway every older stack has, and the one that removes the shell is refused without the key that replaces it | `tests/single-database-egress.test.ts` |
 | Each of the two machines is sized from its own row, neither node is handed the other's shape, and the application node never has more memory or cores than the database node | `tests/single-node-sizing.test.ts` |

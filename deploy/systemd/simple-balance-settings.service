@@ -1,0 +1,13 @@
+# Applies a setting changed by `pulumi up` to a running deployment: fetches the
+# stack's settings from the cloud's secret store and restarts the deployment if
+# they changed. Started by simple-balance-settings.timer; the script says the
+# rest.
+[Unit]
+Description=Simple Balance settings refresh
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/simple-balance-settings refresh

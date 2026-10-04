@@ -399,6 +399,34 @@ nothing connects to. Decide before the `up`:
   takes effect, followed by `sudo systemctl restart simple-balance`.
   `deploy/compose/single/README.md` has the restore command.
 
+**The `single` machines' settings moved out of `env.local` and into the stack.**
+SMTP, Stripe, AdSense, the legal pages and a `DATABASE_URL` of your own are now
+`simple-balance:env` and `simple-balance:secrets` in the stack, and the program
+writes them into the cloud's own secret store — OCI Vault for `oci-single`,
+AWS Secrets Manager for `aws-single` — and lets the application machine, alone,
+read them. The machine fetches them before every start and checks every five
+minutes, so `pulumi up` changes a setting. `deploy/pulumi/README.md`, "The
+application's settings", has both ways to set them, one at a time or from a
+`.env` file with `deploy/pulumi/settings-from-env.mjs`.
+
+A machine built before this still runs the scripts it was built with, which read
+`env.local` and know nothing of the store: cloud-init runs once, and a second
+`pulumi up` does not reach it. The `up` creates the vault or the Secrets Manager
+secret, its key and the grant, and changes nothing on the machine. To move
+over:
+
+1. Copy every setting in `/var/lib/simple-balance/env.local` into the stack —
+   `node deploy/pulumi/settings-from-env.mjs deploy/pulumi/<program> env.local`
+   on a copy of the file does it, and leaves `DATABASE_URL` for you to set
+   deliberately with `--secret` if you keep your own database.
+2. `pulumi up`.
+3. Take a backup, then replace the application instance, which keeps its data
+   volume — `pulumi up --replace <the instance's URN>`, the URN from
+   `pulumi stack --show-urns`. The new machine fetches every setting at its
+   first start.
+4. Once it is running, delete `/var/lib/simple-balance/env.local`. The new fold
+   does not read it and says so on every start until it is gone.
+
 `simple-balance:databaseSubnet`, which some branch READMEs described, is
 accepted and superseded: it logs a line naming `databaseNode` and carries on.
 It is never refused.
@@ -474,8 +502,10 @@ earlier one gave up after two — copy `deploy/compose/single/compose.db-tls.yml
 `/etc/default/simple-balance` to
 `compose.yml:compose.caddy.yml:compose.db-tls.yml`, run
 `sudo install -d -m 0755 /var/lib/simple-balance/tls`, install the CA
-certificate there as `db-ca.pem` (0644), edit `DATABASE_URL` in
-`/var/lib/simple-balance/env.local`, then
+certificate there as `db-ca.pem` (0644), change `DATABASE_URL` where that
+machine keeps it — `/var/lib/simple-balance/env.local` on a machine that
+predates the settings moving into the stack, `simple-balance:secrets` and a
+`pulumi up` on one that does not — then
 `sudo systemctl restart simple-balance` and
 `sudo systemctl start simple-balance-backup.service` to see a verified dump. A
 hand install does the same with its own copies. `sslmode=no-verify` goes on

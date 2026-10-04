@@ -172,12 +172,6 @@ if [ ! -f "$secrets" ]; then
 	chmod 0600 "$secrets"
 fi
 
-# On the data volume, not beside the compose files, for the reason the other
-# script gives: /opt is the boot disk, which a rebuild destroys.
-local_env="$SB_STATE_DIR/env.local"
-[ -f "$local_env" ] || : >"$local_env"
-chmod 0600 "$local_env"
-
 # The server's certificate and key. Cloud-init writes both onto the boot disk
 # and a rebuild re-receives them, so nothing here copies them onto the volume —
 # there is nothing in them worth keeping that the next boot would not be handed
@@ -220,7 +214,9 @@ fi
 
 # Rebuilt from its parts by the same script the application machine uses, so
 # there is one fold on this profile rather than two: env.base and env.db from
-# cloud-init, secrets.env from just above, env.local from whoever edited it.
+# cloud-init and secrets.env from just above. This machine has no settings of
+# the stack's to fetch — nothing an operator sets reaches PostgreSQL — so the
+# fourth part the application machine folds is simply absent here.
 /usr/local/sbin/simple-balance-env
 
 systemctl daemon-reload
@@ -252,7 +248,7 @@ this machine cannot invent for itself, all of which deploy/pulumi supplies:
 
   $SB_COMPOSE_DIR/db-tls/server.crt   the certificate the application checks
   $SB_COMPOSE_DIR/db-tls/server.key   its private key
-  $SB_STATE_DIR/env.local             POSTGRES_APP_PASSWORD=...
+  $SB_COMPOSE_DIR/env.db              POSTGRES_APP_PASSWORD=...
 
 The certificate's subject alternative name has to be the host the application's
 DATABASE_URL names, or the application will refuse the connection under
@@ -262,10 +258,8 @@ application machine's DATABASE_URL.
   sudo /usr/local/sbin/simple-balance-db-firstboot
 
 That command applies all of it and starts the database. It is the same script
-that ran at boot and is safe to run again.
-
-env.local is on the data volume, so what you put there survives the machine
-being rebuilt or resized.
+that ran at boot and is safe to run again. All three are on the boot disk,
+where cloud-init puts them, so a rebuilt machine is handed them again.
 
 MOTD
 	echo "simple-balance: no $missing yet; enabled but not started. See /etc/motd." >&2

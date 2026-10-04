@@ -11,8 +11,8 @@ import {
 
 /**
  * The two things an AWS single-machine stack cannot get back once they are
- * wrong: the region it was built in, and the EBS volume holding the secret,
- * env.local and every nightly dump. `tests/oci-single.test.ts` holds the same
+ * wrong: the region it was built in, and the EBS volume holding the secret
+ * and every nightly dump. `tests/oci-single.test.ts` holds the same
  * two for Oracle Cloud.
  *
  * The region rule is a function in `platform.ts` and is run here. The volume

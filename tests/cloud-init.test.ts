@@ -28,6 +28,7 @@ import {
   stripComments,
   type DatabaseSettings,
   type MachineSettings,
+  type SettingsSource,
   type Size,
 } from "../deploy/pulumi/single-common/cloud-init.js";
 
@@ -85,6 +86,24 @@ function longSettings(sizeName: string): MachineSettings {
     backupKeep: 365,
   };
 }
+
+/**
+ * Where the application node fetches its settings from, at the longest each
+ * provider plausibly makes it: an OCI secret OCID and an AWS secret ARN carry
+ * the stack name and a suffix, and the measurement has to be of those.
+ */
+const LONG_OCI_SETTINGS: SettingsSource = {
+  kind: "oci-vault",
+  id: `ocid1.vaultsecret.oc1.sa-saopaulo-1.${"a".repeat(60)}`,
+  region: "sa-saopaulo-1",
+  image: oci.OCI_CLI_IMAGE,
+};
+const LONG_AWS_SETTINGS: SettingsSource = {
+  kind: "aws-secretsmanager",
+  id: `arn:aws:secretsmanager:ap-southeast-4:123456789012:secret:simple-balance-a-rather-long-stack-name-settings-1a2b3c4-AbCdEf`,
+  region: "ap-southeast-4",
+  image: aws.AWS_CLI_IMAGE,
+};
 
 /**
  * What the database node is told, at each size. `maxConnections` is the
@@ -211,7 +230,7 @@ describe("what the single-machine programs send", () => {
 
   it("fits OCI's metadata ceiling, key and all, as gzip that decodes back to the document", () => {
     for (const { sizeName, settings } of renders) {
-      const metadata = oci.instanceMetadata(settings, LONG_KEY);
+      const metadata = oci.instanceMetadata(settings, LONG_KEY, undefined, LONG_OCI_SETTINGS);
       const bytes = Buffer.byteLength(JSON.stringify(metadata));
       expect(bytes, `OCI metadata at ${sizeName}`).toBeLessThan(OCI_METADATA_LIMIT);
 
@@ -223,6 +242,7 @@ describe("what the single-machine programs send", () => {
           settings,
           dataDevice: oci.DATA_DEVICE,
           platformCommands: oci.PLATFORM_COMMANDS,
+          settingsSource: LONG_OCI_SETTINGS,
         }),
       );
       expect(metadata.ssh_authorized_keys).toBe(LONG_KEY);
@@ -236,7 +256,12 @@ describe("what the single-machine programs send", () => {
       // sends. Measured without them, the check would pass on a deployment
       // nobody builds and say nothing about the one everybody does.
       const sent = Buffer.from(
-        aws.userDataBase64(settings, aws.PLACEHOLDER_VOLUME_ID, longApplicationDatabase()),
+        aws.userDataBase64(
+          settings,
+          aws.PLACEHOLDER_VOLUME_ID,
+          longApplicationDatabase(),
+          LONG_AWS_SETTINGS,
+        ),
         "base64",
       );
       expect(sent.length, `AWS gzipped user data at ${sizeName}`).toBeLessThanOrEqual(
@@ -249,7 +274,10 @@ describe("what the single-machine programs send", () => {
         `SB_DATA_DEVICE=/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_${aws.PLACEHOLDER_VOLUME_ID.replace(/-/g, "")}`,
       );
       // And without one, which is what simple-balance:databaseNode false sends.
-      const bare = Buffer.from(aws.userDataBase64(settings, aws.PLACEHOLDER_VOLUME_ID), "base64");
+      const bare = Buffer.from(
+        aws.userDataBase64(settings, aws.PLACEHOLDER_VOLUME_ID, undefined, LONG_AWS_SETTINGS),
+        "base64",
+      );
       expect(
         bare.length,
         `AWS gzipped user data at ${sizeName}, no database node`,
@@ -357,17 +385,66 @@ describe("what the single-machine programs send", () => {
     expect([...sent].sort()).toEqual([...named!].sort());
   });
 
-  it("installs the drop-in that makes a restart fold env.local in", () => {
-    const document = cloudInit({ settings: longSettings("small"), dataDevice: oci.DATA_DEVICE });
+  it("installs the drop-in that makes every start fetch the stack's settings, then fold them", () => {
+    const document = cloudInit({
+      settings: longSettings("small"),
+      dataDevice: oci.DATA_DEVICE,
+      settingsSource: LONG_OCI_SETTINGS,
+    });
     const dropIn = writtenFile(document, "/etc/systemd/system/simple-balance.service.d/env.conf");
     expect(dropIn).toContain("[Unit]\nRequiresMountsFor=/var/lib/simple-balance\n");
-    expect(dropIn).toContain("[Service]\nExecStartPre=/usr/local/sbin/simple-balance-env\n");
-    // And the thing it runs is on the machine, at that path.
-    expect(APP_FILES.map((file) => file.target)).toContain("/usr/local/sbin/simple-balance-env");
-    // The header nextSteps points at says the same restart the drop-in makes true.
-    expect(document).toMatch(
-      /a setting +edit \/var\/lib\/simple-balance\/env\.local, then\n# +sudo systemctl restart simple-balance\n/,
+    // Fetch, then fold, as two lines and in that order: a fetch that fails stops
+    // the start before a fold could run on settings that are not there.
+    expect(dropIn).toContain(
+      "[Service]\nExecStartPre=/usr/local/sbin/simple-balance-settings\n" +
+        "ExecStartPre=/usr/local/sbin/simple-balance-env\n",
     );
+    // And what it runs is on the machine, at those paths, with the timer that
+    // applies a changed setting to a running deployment.
+    expect(APP_FILES.map((file) => file.target)).toEqual(
+      expect.arrayContaining([
+        "/usr/local/sbin/simple-balance-env",
+        "/usr/local/sbin/simple-balance-settings",
+        "/etc/systemd/system/simple-balance-settings.service",
+        "/etc/systemd/system/simple-balance-settings.timer",
+      ]),
+    );
+    // The header nextSteps points at says where a setting is changed now.
+    expect(document).toMatch(
+      /a setting +set it in the stack and run pulumi up; it lands\n# +here within five minutes, with one restart\n/,
+    );
+    // The header sends nobody to the file settings used to be typed into. The
+    // embedded fold still names it, to say it is no longer read.
+    expect(document.split("\n").slice(0, 16).join("\n")).not.toContain("env.local");
+  });
+
+  it("tells the machine where its settings are, and never what they are", () => {
+    const document = cloudInit({
+      settings: longSettings("small"),
+      dataDevice: oci.DATA_DEVICE,
+      settingsSource: LONG_OCI_SETTINGS,
+    });
+    const defaults = writtenFile(document, "/etc/default/simple-balance");
+    expect(defaults).toContain(`SB_SETTINGS_SOURCE=oci-vault\n`);
+    expect(defaults).toContain(`SB_SETTINGS_ID=${LONG_OCI_SETTINGS.id}\n`);
+    expect(defaults).toContain(`SB_SETTINGS_REGION=sa-saopaulo-1\n`);
+    expect(defaults).toContain(`SB_SETTINGS_IMAGE=${oci.OCI_CLI_IMAGE}\n`);
+    // Nothing the stack sets is assigned in the document: user data is readable
+    // by anybody who can describe the instance, which is the reason for the
+    // store. The compose file names these settings, as `${NAME:-}` pass-throughs
+    // for Compose to fill from .env; what must not appear is a value.
+    expect(document).not.toMatch(/^\s*(STRIPE_|SMTP_PASSWORD|ADSENSE_|SB_BILLING_)[A-Z_]*=/m);
+    // Without a store, the lines are absent and the fetch has nothing to do.
+    const bare = cloudInit({ settings: longSettings("small"), dataDevice: oci.DATA_DEVICE });
+    expect(writtenFile(bare, "/etc/default/simple-balance")).not.toContain("SB_SETTINGS");
+  });
+
+  it("pins each provider's CLI to a version, never a floating tag", () => {
+    for (const image of [oci.OCI_CLI_IMAGE, aws.AWS_CLI_IMAGE]) {
+      const tag = image.slice(image.lastIndexOf(":") + 1);
+      expect(tag, image).not.toBe("latest");
+      expect(tag, image).toMatch(/^\d/);
+    }
   });
 });
 
@@ -839,9 +916,9 @@ describe("what the programs tell a person to do next", () => {
       const settled = text.indexOf("The database is already running");
       expect(settled, "the database-node branch").toBeGreaterThan(-1);
       expect(settled, "before the setup code").toBeLessThan(setupCode);
-      // Without one, the step that was always here, and the gate in firstboot
-      // that holds the deployment stopped until a URL appears, are untouched.
-      const byo = text.indexOf("DATABASE_URL=");
+      // Without one, the stack is given a URL of the operator's own, and the
+      // gate in firstboot holds the deployment stopped until it appears.
+      const byo = text.indexOf("'simple-balance:secrets.DATABASE_URL'");
       expect(byo, "the bring-your-own branch").toBeGreaterThan(-1);
       expect(byo, "before the setup code").toBeLessThan(setupCode);
       expect(text).toContain("sudo /usr/local/sbin/simple-balance-firstboot");
@@ -849,24 +926,26 @@ describe("what the programs tell a person to do next", () => {
       // The first start is firstboot and not a restart, which would leave the
       // backup timer waiting for a reboot and /etc/motd saying nothing runs.
       expect(text).not.toContain("once it has run");
-      // A later setting is an edit and a restart, which the drop-in makes true.
+      // A later setting is the stack's, and reaches the machine on its own.
       expect(text).toMatch(
-        /env\.local, which[\s\S]{0,120}a setting is an edit to it, then\n\s+sudo systemctl restart simple-balance\./,
+        /simple-balance:env, and simple-balance:secrets[\s\S]{0,240}applies a change within five minutes/,
       );
+      expect(text).not.toContain("env.local");
     });
 
-    it(`${program} says a hand-written DATABASE_URL still wins over the generated one`, () => {
-      // simple-balance-env folds env.base, env.db, secrets.env, env.local in
-      // that order, so the last one to name a variable is what Compose reads.
-      // Saying so here is what makes "nothing to turn off first" checkable.
+    it(`${program} says the stack's own DATABASE_URL still wins over the generated one`, () => {
+      // simple-balance-env folds env.base, env.db, secrets.env and the fetched
+      // env.settings in that order, so the last one to name a variable is what
+      // Compose reads. Saying so here is what makes "nothing to turn off first"
+      // checkable.
       expect(steps(program)).toContain(
-        "it is folded last and wins over the generated\n   one, with nothing to turn off first.",
+        "the stack's settings win over the generated one, with\n   nothing to turn off first.",
       );
     });
 
     it(`${program} names the settings a pooled database and AdSense cannot start without`, () => {
       const text = steps(program);
-      expect(text).toMatch(/transaction pooler, DIRECT_DATABASE_URL beside it/);
+      expect(text).toMatch(/transaction pooler, secrets\.DIRECT_DATABASE_URL beside/);
       expect(text).toMatch(/AdSense and the PRIVACY_POLICY_URL it requires/);
     });
 

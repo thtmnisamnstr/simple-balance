@@ -80,8 +80,34 @@ export interface MachineSettings {
   backupKeep: number;
 }
 
+/**
+ * Where the application node reads the stack's own settings from: one secret in
+ * the cloud's store, and the image of the CLI that reads it.
+ *
+ * Every field is an identifier rather than a value, and that is what lets it go
+ * in user data. The settings themselves never do — user data is readable by
+ * anybody who can describe the instance — so the machine fetches them with an
+ * identity of its own, which the program grants read on this one secret and
+ * nothing else. `deploy/systemd/simple-balance-settings` does the fetching.
+ */
+export interface SettingsSource {
+  kind: "oci-vault" | "aws-secretsmanager";
+  /** The secret's OCID on OCI, its ARN on AWS. */
+  id: string;
+  region: string;
+  /** The provider's CLI, as a pinned image that publishes linux/arm64. */
+  image: string;
+}
+
 export interface CloudInitArgs {
   settings: MachineSettings;
+  /**
+   * The stack's settings, as a place to fetch them from. Always present from
+   * the two programs; optional so a render with no store — the test suite's,
+   * or a program on a cloud without one — still describes a working machine
+   * that simply has no settings beyond the generated ones.
+   */
+  settingsSource?: SettingsSource;
   /**
    * The block device the data volume appears as. AWS NVMe presents an EBS
    * volume under a name the kernel chooses, so that program passes a
@@ -104,9 +130,9 @@ export interface CloudInitArgs {
    * Absent is `simple-balance:databaseNode: false`, and then the machine is
    * exactly what it was before this profile grew a second node: no env.db, no
    * CA on the boot disk, and firstboot's `grep -q '^DATABASE_URL=..*'` gate
-   * stopping the deployment until an operator writes a URL of their own into
-   * env.local. That gate is untouched by any of this; with a database node it
-   * simply never fires, because cloud-init supplied one.
+   * stopping the deployment until the stack's `simple-balance:secrets` carries a
+   * DATABASE_URL of the operator's own. With a database node that gate simply
+   * never fires, because cloud-init supplied one.
    */
   database?: ApplicationDatabase;
 }
@@ -559,6 +585,25 @@ export const APP_FILES: readonly EmbeddedFile[] = [
     permissions: "0700",
     syntax: "shell",
   },
+  {
+    // 0700 like the first-boot script, because it writes a file of secrets.
+    source: "deploy/systemd/simple-balance-settings",
+    target: "/usr/local/sbin/simple-balance-settings",
+    permissions: "0700",
+    syntax: "shell",
+  },
+  {
+    source: "deploy/systemd/simple-balance-settings.service",
+    target: "/etc/systemd/system/simple-balance-settings.service",
+    permissions: "0644",
+    syntax: "systemd",
+  },
+  {
+    source: "deploy/systemd/simple-balance-settings.timer",
+    target: "/etc/systemd/system/simple-balance-settings.timer",
+    permissions: "0644",
+    syntax: "systemd",
+  },
 ];
 
 /**
@@ -568,9 +613,9 @@ export const APP_FILES: readonly EmbeddedFile[] = [
  * get the backup or the restore script: the backups are taken from the
  * application node over the network onto its protected data volume, which is
  * what keeps `simple-balance-backup`'s "is postgres a service in this project"
- * branch answering the same thing it answers today. Nor the env drop-in, since
- * nothing on this machine folds an env.local — there is no setting a person
- * adds to a database node by hand that is not already in the compose file.
+ * branch answering the same thing it answers today. Nor the settings fetch or
+ * its timer: nothing a stack sets reaches PostgreSQL, so this machine reads
+ * nothing from the secret store and is granted nothing in it.
  *
  * The unit is the same `simple-balance.service` the application node runs, with
  * a different COMPOSE_FILE in /etc/default. That is the whole of the
@@ -626,7 +671,7 @@ export const DATABASE_FILES: readonly EmbeddedFile[] = [
     // simple-balance-db-firstboot runs it to build this machine's .env from
     // env.base, env.db and the superuser password it has just generated. A
     // second copy here would be a second place the precedence order — the one
-    // that keeps env.local winning — could quietly differ.
+    // that keeps the stack's settings winning — could quietly differ.
     source: "deploy/systemd/simple-balance-env",
     target: "/usr/local/sbin/simple-balance-env",
     permissions: "0700",
@@ -817,9 +862,10 @@ export function databaseUrl(host: string, password: string): string {
  * enters Pulumi's state file either. The database's superuser password is
  * generated on the database node and never leaves it. The CA's private key
  * exists only in Pulumi's state. The settings that genuinely come from outside
- * — an SMTP password, a Stripe key — are added to
- * /var/lib/simple-balance/env.local afterward; the README says so, because
- * putting them here would undo the whole point.
+ * — an SMTP password, a Stripe key — are not here either: they are the
+ * stack's, held in the cloud's secret store, and the machine fetches them with
+ * an identity of its own. All this document carries is where to look
+ * (`SettingsSource`), which is why it can carry that.
  *
  * The cloud-config's own comments are kept short, and they are the one set that
  * reaches the machine whole: the header is what `nextSteps` points people at.
@@ -828,24 +874,26 @@ export function databaseUrl(host: string, password: string): string {
  * - Ubuntu's own docker.io and docker-compose-v2 rather than Docker's apt
  *   repository: one less third-party key to trust at first boot, and the same
  *   plugin under a different maintainer.
- * - The drop-in is what makes "edit env.local, then restart" true. The unit
- *   runs Compose against /opt/simple-balance/.env and only simple-balance-env
- *   folds env.local into it, so without the drop-in a restart re-read the old
- *   file and a new setting silently did nothing. It is written here, for the
+ * - The drop-in is what makes a restart pick up the stack's settings. The unit
+ *   runs Compose against /opt/simple-balance/.env, and only the drop-in's two
+ *   lines fetch the settings and fold them into it, so without it a restart
+ *   re-read the old file and a changed setting silently did nothing. Fetch, then
+ *   fold, in that order and as two lines, so a fetch that fails stops the start
+ *   before a fold could run on nothing. It is written here, for the
  *   machines these programs build, and not into the shared unit: that unit also
  *   serves a hand-installed `single` profile, whose .env is written
  *   by hand and has no env.base to be assembled from. RequiresMountsFor because
  *   fstab mounts the data volume `nofail`, and at boot the fold would otherwise
  *   race the mount and find no secrets.env.
- * - DATABASE_URL is in env.db and not in env.base, and the split is what keeps a
- *   hand-written setting winning. simple-balance-env folds env.base, then
- *   env.db, then secrets.env, then env.local, and the last file to name a
- *   variable is the one Compose reads — so an operator who points this machine
- *   at a database of their own by writing DATABASE_URL into env.local still gets
- *   theirs, with nothing to turn off first. env.base is 0644 and holds nothing
- *   secret; env.db is 0600 and holds one line. With no database node there is no
- *   env.db at all, and firstboot's gate leaves the deployment
- *   enabled-but-stopped until somebody writes one.
+ * - DATABASE_URL is in env.db and not in env.base, and the split is what keeps
+ *   the stack's own setting winning. simple-balance-env folds env.base, then
+ *   env.db, then secrets.env, then the fetched env.settings, and the last file
+ *   to name a variable is the one Compose reads — so an operator who points this
+ *   machine at a database of their own with `simple-balance:secrets.DATABASE_URL`
+ *   gets theirs, with nothing to turn off first. env.base is 0644 and holds
+ *   nothing secret; env.db is 0600 and holds one line. With no database node
+ *   there is no env.db at all, and firstboot's gate leaves the deployment
+ *   enabled-but-stopped until the stack sets one.
  * - There are no POSTGRES_* tuning settings here. They belong to the database
  *   node, whose own render applies them as `-c` flags on the server; nothing on
  *   this machine would read them.
@@ -857,7 +905,7 @@ export function databaseUrl(host: string, password: string): string {
  *   starting at all.
  */
 export function cloudInit(args: CloudInitArgs): string {
-  const { settings, dataDevice, database } = args;
+  const { settings, dataDevice, database, settingsSource } = args;
   const image = `${settings.imageRepository}:${settings.imageTag}`;
 
   const files = writeFiles(APP_FILES, (file, text) =>
@@ -873,6 +921,16 @@ export function cloudInit(args: CloudInitArgs): string {
 ${generatedFile("/opt/simple-balance/env.db", "0600", `DATABASE_URL=${database.url}\n`)}`
     : "";
 
+  // Identifiers only; `SettingsSource` says why that is the line. Left out
+  // entirely without a store, and the fetch then has nothing to do.
+  const settingsLines = settingsSource
+    ? `
+      SB_SETTINGS_SOURCE=${settingsSource.kind}
+      SB_SETTINGS_ID=${settingsSource.id}
+      SB_SETTINGS_REGION=${settingsSource.region}
+      SB_SETTINGS_IMAGE=${settingsSource.image}`
+    : "";
+
   return `#cloud-config
 # Generated by deploy/pulumi/single-common and applied once, when this machine
 # first booted. The files below are the repository's own, from
@@ -880,15 +938,15 @@ ${generatedFile("/opt/simple-balance/env.db", "0600", `DATABASE_URL=${database.u
 # to fit the provider's limit on user data; the commented originals are there.
 #
 # A later \`pulumi up\` neither re-runs this nor replaces the machine when it
-# changes. These programs provision the machine; they do not keep managing it.
-# So apply a change here, not there:
+# changes, with one exception: the stack's settings, which this machine reads
+# from the cloud's secret store and checks for changes every five minutes.
+#   a setting                set it in the stack and run pulumi up; it lands
+#                            here within five minutes, with one restart
 #   an application upgrade   edit the image tag in /opt/simple-balance/compose.yml, then
 #                            sudo docker compose -f /opt/simple-balance/compose.yml pull
 #                            sudo systemctl restart simple-balance
-#   a setting                edit /var/lib/simple-balance/env.local, then
-#                            sudo systemctl restart simple-balance
 #
-# env.local is on the data volume, so it survives the machine being rebuilt.
+# The settings are fetched at every start, so a rebuilt machine has them all.
 timezone: ${settings.timezone}
 
 package_update: true
@@ -907,6 +965,7 @@ ${files}${databaseFiles}
       RequiresMountsFor=/var/lib/simple-balance
 
       [Service]
+      ExecStartPre=/usr/local/sbin/simple-balance-settings
       ExecStartPre=/usr/local/sbin/simple-balance-env
 
   - path: /etc/default/simple-balance
@@ -916,7 +975,7 @@ ${files}${databaseFiles}
       SB_BACKUP_DIR=/var/lib/simple-balance/backups
       SB_BACKUP_KEEP=${settings.backupKeep}
       SB_DATA_DEVICE=${dataDevice}
-      SB_PG_CLIENT_IMAGE=postgres:18
+      SB_PG_CLIENT_IMAGE=postgres:18${settingsLines}
 
   - path: /opt/simple-balance/env.base
     permissions: "0644"
@@ -991,7 +1050,7 @@ export interface DatabaseCloudInitArgs {
  *
  * A second render rather than a flag on the first, and the reason is that
  * almost nothing is shared: this machine runs one service, has no Caddy, no
- * ACME, no backup timer and no env.local anybody edits, and it is measured
+ * ACME, no backup timer and no settings of the stack's, and it is measured
  * against the provider's cap on its own. A single render with branches would
  * be a document whose size depended on a boolean, which is exactly the thing
  * `tests/cloud-init.test.ts` measures and the thing a provider refuses late.

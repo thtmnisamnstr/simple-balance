@@ -752,6 +752,164 @@ describe("the certificate the backup and restore give libpq", () => {
   );
 });
 
+/**
+ * simple-balance-settings, which fetches the stack's settings from the cloud's
+ * secret store with the machine's own identity.
+ *
+ * Run against a fake `docker` and a fake `systemctl` on PATH, because what is
+ * under test is everything the script decides around the CLI call: what it
+ * accepts as settings, what it does when the store does not answer, and when it
+ * restarts the deployment. The CLI calls themselves are the providers'.
+ */
+describe("simple-balance-settings, which fetches the stack's settings", () => {
+  const script = path.join(root, "deploy/systemd/simple-balance-settings");
+  let dirs: string[] = [];
+  afterEach(() => {
+    for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+    dirs = [];
+  });
+
+  const SETTINGS =
+    "# Written by Pulumi.\nSB_BILLING_ENABLED='true'\nSMTP_PASSWORD='p@ss $word #1'\n";
+
+  function machine(source: "oci-vault" | "aws-secretsmanager" | "" = "aws-secretsmanager") {
+    const dir = mkdtempSync(path.join(tmpdir(), "sb-settings-"));
+    dirs.push(dir);
+    const bin = path.join(dir, "bin");
+    mkdirSync(bin);
+    // The fake CLI: prints $FAKE_OUT (base64-decoded first, so a test can hand
+    // it anything), writes $FAKE_ERR to stderr, exits $FAKE_STATUS, and records
+    // its arguments so a test can see which provider's command ran.
+    writeFileSync(
+      path.join(bin, "docker"),
+      '#!/bin/sh\necho "$*" >>"$FAKE_LOG"\n[ -n "$FAKE_ERR" ] && echo "$FAKE_ERR" >&2\n' +
+        'printf %s "$FAKE_OUT" | base64 -d\nexit "${FAKE_STATUS:-0}"\n',
+      { mode: 0o755 },
+    );
+    writeFileSync(path.join(bin, "systemctl"), '#!/bin/sh\necho "systemctl $*" >>"$FAKE_LOG"\n', {
+      mode: 0o755,
+    });
+    const defaults = path.join(dir, "defaults");
+    writeFileSync(
+      defaults,
+      source
+        ? `SB_COMPOSE_DIR=${dir}\nSB_SETTINGS_SOURCE=${source}\nSB_SETTINGS_ID=secret-id\n` +
+            `SB_SETTINGS_REGION=us-sanjose-1\nSB_SETTINGS_IMAGE=example/cli:1\n`
+        : `SB_COMPOSE_DIR=${dir}\n`,
+    );
+    const log = path.join(dir, "log");
+    writeFileSync(log, "");
+    const run = (mode?: string, answer: { out?: string; err?: string; status?: number } = {}) => {
+      // The OCI branch decodes what the CLI prints, because Vault hands back
+      // base64; the AWS branch takes it as it comes.
+      const printed =
+        source === "oci-vault"
+          ? Buffer.from(answer.out ?? "").toString("base64")
+          : (answer.out ?? "");
+      return spawnSync("sh", [script, ...(mode ? [mode] : [])], {
+        encoding: "utf8",
+        env: {
+          PATH: `${bin}:${process.env.PATH}`,
+          SB_DEFAULTS: defaults,
+          SB_SETTINGS_RETRY_SECONDS: "0",
+          FAKE_LOG: log,
+          FAKE_OUT: Buffer.from(printed).toString("base64"),
+          FAKE_ERR: answer.err ?? "",
+          FAKE_STATUS: String(answer.status ?? 0),
+        },
+      });
+    };
+    const target = path.join(dir, "env.settings");
+    return {
+      run,
+      target,
+      settings: () => readFileSync(target, "utf8"),
+      log: () => readFileSync(log, "utf8"),
+    };
+  }
+
+  it("does nothing at all on a machine with no settings source", () => {
+    const box = machine("");
+    const result = box.run();
+    expect(result.status).toBe(0);
+    expect(existsSync(box.target)).toBe(false);
+    expect(box.log()).toBe("");
+  });
+
+  it("writes what the store answers, readable by root alone, on either cloud", () => {
+    for (const source of ["aws-secretsmanager", "oci-vault"] as const) {
+      const box = machine(source);
+      const result = box.run(undefined, { out: SETTINGS });
+      expect(result.status, source).toBe(0);
+      expect(box.settings(), source).toBe(SETTINGS);
+      expect(statSync(box.target).mode & 0o777, source).toBe(0o600);
+      // The provider's own command, with the machine's own identity.
+      expect(box.log(), source).toContain(
+        source === "oci-vault"
+          ? "secrets secret-bundle get --secret-id secret-id --auth instance_principal --region us-sanjose-1"
+          : "secretsmanager get-secret-value --secret-id secret-id --region us-sanjose-1",
+      );
+      expect(box.log(), source).toContain("--network host example/cli:1");
+    }
+  });
+
+  it("refuses an answer that is not settings, and says what the CLI said", () => {
+    const box = machine();
+    const result = box.run(undefined, {
+      out: "An error occurred (AccessDeniedException)\n",
+      err: "denied",
+    });
+    expect(result.status).toBe(1);
+    expect(existsSync(box.target)).toBe(false);
+    expect(result.stderr).toContain("could not read secret-id");
+    expect(result.stderr).toContain("denied");
+  });
+
+  it("treats an empty answer as a failure, which is what a failed CLI looks like on OCI", () => {
+    // sh has no pipefail, so `cli | base64 -d` succeeds with nothing when the
+    // CLI fails. Accepting that would start the deployment with no settings.
+    const box = machine("oci-vault");
+    const result = box.run(undefined, {
+      out: "",
+      err: "NotAuthorizedOrNotFound",
+      status: 0,
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("NotAuthorizedOrNotFound");
+  });
+
+  it("starts on the last settings when the store does not answer, rather than staying down", () => {
+    const box = machine();
+    expect(box.run(undefined, { out: SETTINGS }).status).toBe(0);
+    const result = box.run(undefined, { err: "timeout", status: 255 });
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain("starting on the settings fetched last time");
+    expect(box.settings()).toBe(SETTINGS);
+  });
+
+  it("restarts the deployment when, and only when, the settings changed", () => {
+    const box = machine();
+    expect(box.run(undefined, { out: SETTINGS }).status).toBe(0);
+    expect(box.run("refresh", { out: SETTINGS }).status).toBe(0);
+    expect(box.log()).not.toContain("systemctl");
+
+    const changed = `${SETTINGS}ADSENSE_CLIENT_ID='ca-pub-0000000000000000'\n`;
+    const result = box.run("refresh", { out: changed });
+    expect(result.status).toBe(0);
+    expect(box.settings()).toBe(changed);
+    // try-restart: a deployment stopped on purpose stays stopped.
+    expect(box.log()).toContain("systemctl try-restart simple-balance.service");
+  });
+
+  it("refreshes nothing before the first fetch, so it cannot start a deployment early", () => {
+    const box = machine();
+    const result = box.run("refresh", { out: SETTINGS });
+    expect(result.status).toBe(0);
+    expect(existsSync(box.target)).toBe(false);
+    expect(box.log()).toBe("");
+  });
+});
+
 describe("simple-balance-env, which builds the .env Compose reads", () => {
   const script = path.join(root, "deploy/systemd/simple-balance-env");
   let dirs: string[] = [];
@@ -765,6 +923,9 @@ describe("simple-balance-env, which builds the .env Compose reads", () => {
     base?: string;
     db?: string;
     secrets?: string;
+    /** The stack's settings, as simple-balance-settings last fetched them. */
+    settings?: string;
+    /** The file the settings used to be typed into, which must not be read. */
     local?: string;
     env?: string;
   }) {
@@ -775,6 +936,8 @@ describe("simple-balance-env, which builds the .env Compose reads", () => {
     if (parts.db !== undefined) writeFileSync(path.join(compose, "env.db"), parts.db);
     if (parts.env !== undefined) writeFileSync(path.join(compose, ".env"), parts.env);
     if (parts.secrets !== undefined) writeFileSync(path.join(state, "secrets.env"), parts.secrets);
+    if (parts.settings !== undefined)
+      writeFileSync(path.join(compose, "env.settings"), parts.settings);
     if (parts.local !== undefined) writeFileSync(path.join(state, "env.local"), parts.local);
     const run = () =>
       spawnSync("sh", [script], {
@@ -793,34 +956,51 @@ describe("simple-balance-env, which builds the .env Compose reads", () => {
     };
   }
 
-  it("folds the three parts together, the hand-added ones last, readable by root alone", () => {
+  it("folds the parts together, the stack's settings last, readable by root alone", () => {
     const box = machine({
       base: "APP_BASE_URL=https://books.example.com\n",
       secrets: "AUTH_SECRET=abc\n",
-      local: "DATABASE_URL='postgresql://u:p@db/simple_balance'\n",
+      settings: "DATABASE_URL='postgresql://u:p@db/simple_balance'\n",
     });
     expect(box.run().status).toBe(0);
     expect(box.env()).toBe(
       "APP_BASE_URL=https://books.example.com\nAUTH_SECRET=abc\n" +
-        "# --- added by hand, on the volume that survives a rebuild ---\n" +
+        "# --- the stack's settings, from the cloud's secret store ---\n" +
         "DATABASE_URL='postgresql://u:p@db/simple_balance'\n",
     );
     expect(statSync(path.join(box.compose, ".env")).mode & 0o777).toBe(0o600);
     expect(existsSync(path.join(box.compose, ".env.partial"))).toBe(false);
   });
 
-  it("picks up an edit to env.local on the next run, which is what a restart now is", () => {
+  it("picks up newly fetched settings on the next run, which is what a restart now is", () => {
     const box = machine({
       base: "A=1\n",
       secrets: "AUTH_SECRET=abc\n",
-      local: "",
+      settings: "",
     });
     expect(box.run().status).toBe(0);
     expect(box.env()).toBe("A=1\nAUTH_SECRET=abc\n");
 
-    writeFileSync(path.join(box.state, "env.local"), "SB_BILLING_ENABLED=true\n");
+    writeFileSync(path.join(box.compose, "env.settings"), "SB_BILLING_ENABLED='true'\n");
     expect(box.run().status).toBe(0);
-    expect(box.env()).toContain("SB_BILLING_ENABLED=true\n");
+    expect(box.env()).toContain("SB_BILLING_ENABLED='true'\n");
+  });
+
+  it("does not read env.local any more, and says so at every start", () => {
+    // A machine built while settings were typed into a file on the volume may
+    // still have one. Folding it would make the stack not the one place a
+    // setting lives; ignoring it silently would leave somebody editing a file
+    // that does nothing. So: not read, and named on every start.
+    const box = machine({
+      base: "A=1\n",
+      secrets: "AUTH_SECRET=abc\n",
+      local: "SB_BILLING_ENABLED=true\n",
+    });
+    const result = box.run();
+    expect(result.status).toBe(0);
+    expect(box.env()).not.toContain("SB_BILLING_ENABLED");
+    expect(result.stderr).toContain("env.local is no longer read");
+    expect(result.stderr).toContain("simple-balance:secrets");
   });
 
   it("leaves a hand-written .env alone on a machine no cloud program built", () => {
@@ -838,7 +1018,7 @@ describe("simple-balance-env, which builds the .env Compose reads", () => {
     const box = machine({
       base: "A=1\n",
       env: "A=0\nAUTH_SECRET=old\n",
-      local: "B=2\n",
+      settings: "B=2\n",
     });
     const result = box.run();
     expect(result.status).toBe(1);
@@ -853,10 +1033,8 @@ describe("simple-balance-env, which builds the .env Compose reads", () => {
    * Compose reads the *last* assignment of a name, so the order below is what
    * decides who wins. An operator who writes their own DATABASE_URL — pointing
    * at a database they already keep, or at a replica during a move — has to
-   * keep getting it on a machine whose program now generates one, with nothing
-   * to turn off first. That is the release rule at `docs/standards/writing.md`
-   * applied to a file rather than to a setting: what was accepted stays
-   * accepted.
+   * get it on a machine whose program generates one, with nothing to turn off
+   * first. The stack's settings are folded last for exactly that.
    */
   const URL_FROM_THE_PROGRAM =
     "DATABASE_URL=postgresql://simple_balance:generated@db.db.simplebalance.oraclevcn.com:5432/simple_balance?sslmode=verify-full&sslrootcert=/var/lib/simple-balance/tls/db-ca.pem\n";
@@ -866,7 +1044,7 @@ describe("simple-balance-env, which builds the .env Compose reads", () => {
       base: "APP_BASE_URL=https://books.example.com\n",
       db: URL_FROM_THE_PROGRAM,
       secrets: "AUTH_SECRET=abc\n",
-      local: "",
+      settings: "",
     });
     expect(box.run().status).toBe(0);
     expect(box.env()).toBe(
@@ -876,18 +1054,18 @@ describe("simple-balance-env, which builds the .env Compose reads", () => {
     );
   });
 
-  it("lets a hand-written DATABASE_URL beat the generated one, which is what env.local is for", () => {
+  it("lets the stack's own DATABASE_URL beat the generated one", () => {
     const mine =
       "DATABASE_URL=postgresql://u:p@db.example.com/simple_balance?sslmode=verify-full\n";
     const box = machine({
       base: "A=1\n",
       db: URL_FROM_THE_PROGRAM,
       secrets: "AUTH_SECRET=abc\n",
-      local: mine,
+      settings: mine,
     });
     expect(box.run().status).toBe(0);
     // Both are present — nothing is filtered out, which would need this script
-    // to parse rather than concatenate — and the hand-written one is last.
+    // to parse rather than concatenate — and the stack's is last.
     const folded = box.env();
     expect(folded).toContain(URL_FROM_THE_PROGRAM);
     expect(folded.lastIndexOf("DATABASE_URL=")).toBe(folded.indexOf(mine));
@@ -896,16 +1074,19 @@ describe("simple-balance-env, which builds the .env Compose reads", () => {
   it("carries on with no env.db at all, for a machine told to build no database node", () => {
     // And for every machine built before this file existed, which is the same
     // case: an upgrade must not need a file the old release never wrote.
-    const box = machine({ base: "A=1\n", secrets: "AUTH_SECRET=abc\n", local: "" });
+    const box = machine({
+      base: "A=1\n",
+      secrets: "AUTH_SECRET=abc\n",
+      local: "",
+    });
     expect(box.run().status).toBe(0);
     expect(box.env()).toBe("A=1\nAUTH_SECRET=abc\n");
     expect(box.env()).not.toContain("the database credential");
   });
 
   it("warns about a URL that encrypts nothing, and still writes it", () => {
-    // Said, never enforced. `sslmode=disable` in a hand-written env.local was
-    // accepted by the release before this one, so refusing here would stop a
-    // deployment that worked yesterday, on a machine whose operator is not
+    // Said, never enforced. A URL the stack set is the operator's decision, and
+    // refusing here would stop a deployment on a machine whose operator is not
     // watching, for a reason they would have to find in the journal anyway.
     for (const [label, url] of [
       ["disable", "postgresql://u:p@h/db?sslmode=disable"],
@@ -915,7 +1096,7 @@ describe("simple-balance-env, which builds the .env Compose reads", () => {
       const box = machine({
         base: "A=1\n",
         secrets: "AUTH_SECRET=abc\n",
-        local: `DATABASE_URL=${url}\n`,
+        settings: `DATABASE_URL=${url}\n`,
       });
       const result = box.run();
       expect(result.status, label).toBe(0);
@@ -931,7 +1112,7 @@ describe("simple-balance-env, which builds the .env Compose reads", () => {
       base: "A=1\n",
       db: URL_FROM_THE_PROGRAM,
       secrets: "AUTH_SECRET=abc\n",
-      local: "",
+      settings: "",
     });
     expect(verified.run().stderr).toBe("");
     // The database machine, whose env.db holds the role's password rather than
@@ -940,7 +1121,7 @@ describe("simple-balance-env, which builds the .env Compose reads", () => {
       base: "A=1\n",
       db: "POSTGRES_APP_PASSWORD=abc\n",
       secrets: "POSTGRES_PASSWORD=def\n",
-      local: "",
+      settings: "",
     });
     expect(database.run().stderr).toBe("");
   });
@@ -951,7 +1132,7 @@ describe("simple-balance-env, which builds the .env Compose reads", () => {
     const box = machine({
       base: "A=1\n",
       secrets: "AUTH_SECRET=abc\n",
-      local: `DATABASE_URL="postgresql://u:p@h/db?sslmode=verify-full&sslrootcert=/x.pem"\n`,
+      settings: `DATABASE_URL="postgresql://u:p@h/db?sslmode=verify-full&sslrootcert=/x.pem"\n`,
     });
     expect(box.run().stderr).toBe("");
   });
@@ -1152,8 +1333,11 @@ describe("the first-boot script", () => {
 describe("the path of the database's CA certificate", () => {
   const DIR = "/var/lib/simple-balance/tls";
   const FILE = `${DIR}/db-ca.pem`;
+  // Every verified URL, however it is introduced: as `DATABASE_URL=` in a file,
+  // or on its own line after `pulumi config set ... secrets.DATABASE_URL`, which
+  // is how the machine's own instructions now give it.
   const verified = (text: string) =>
-    [...text.matchAll(/DATABASE_URL='?(postgresql:\/\/[^'\n]*?sslmode=verify-full[^'\s]*)/g)].map(
+    [...text.matchAll(/(postgresql:\/\/[^'\n]*?sslmode=verify-full[^'\s]*)/g)].map(
       (match) => match[1]!,
     );
 
@@ -1328,7 +1512,10 @@ describe("the units", () => {
     // the same unit file is enabled on both hosts.
     const split = header.indexOf("# The database machine");
     expect(split, "the header describes the database machine too").toBeGreaterThan(-1);
-    const recipes = { application: header.slice(0, split), database: header.slice(split) };
+    const recipes = {
+      application: header.slice(0, split),
+      database: header.slice(split),
+    };
     for (const [machine, recipe] of Object.entries(recipes)) {
       for (const program of programs) {
         const name = path.basename(program);

@@ -2,7 +2,9 @@
 # Turns a bare Ubuntu into the application machine of a `single` deployment. Run
 # once per instance by cloud-init, and written to be safe to run again: a
 # rebuilt machine is a new instance and runs all of this a second time against a
-# data volume that already holds its secret, its settings and its backups.
+# data volume that already holds its secret and its backups. Its settings are
+# not on the volume: they are the stack's, fetched from the cloud's secret
+# store at every start.
 #
 # The database is not on this machine. It is the second machine the same Pulumi
 # stack builds — simple-balance-db-firstboot is its half of this script — or,
@@ -26,9 +28,9 @@ set +a
 : "${SB_BACKUP_DIR:=/var/lib/simple-balance/backups}"
 
 # Wait for the volume to be attached. On both clouds the instance can boot
-# before the block device appears, and a mount that races it writes the secret,
-# env.local and every backup onto the boot disk — which works, until the machine
-# is rebuilt and all three go with the disk.
+# before the block device appears, and a mount that races it writes the secret
+# and every backup onto the boot disk — which works, until the machine is
+# rebuilt and both go with the disk.
 #
 # For as long as Pulumi would go on waiting for the device before calling the
 # `up` failed, which is forty minutes, from the providers' own timeouts. On
@@ -54,8 +56,8 @@ if [ ! -b "$SB_DATA_DEVICE" ]; then
 fi
 
 # Format only if it is not already a filesystem. This one line decides whether
-# rebuilding the machine keeps the secret that signs everybody's sessions, the
-# settings added by hand and the backups, or erases them.
+# rebuilding the machine keeps the secret that signs everybody's sessions and
+# the backups, or erases them.
 if ! blkid "$SB_DATA_DEVICE" >/dev/null 2>&1; then
 	mkfs.ext4 -L simple-balance "$SB_DATA_DEVICE"
 fi
@@ -144,22 +146,22 @@ if [ ! -f "$secrets" ]; then
 	chmod 0600 "$secrets"
 fi
 
-# On the data volume, not beside the compose files. /opt is the boot disk, which
-# a rebuild destroys — so an SMTP password or a Stripe key put there would
-# survive exactly until the machine was rebuilt, and then vanish with no error
-# and no mention of itself.
-local_env=/var/lib/simple-balance/env.local
-[ -f "$local_env" ] || : >"$local_env"
-chmod 0600 "$local_env"
-
-# Rebuilt from the three parts every time this runs, by the same script the
-# unit's drop-in runs before every start, so there is one fold rather than a
-# copy here that a restart would not use. Run here as well because the question
-# below is asked of the assembled file.
-/usr/local/sbin/simple-balance-env
-
 systemctl daemon-reload
+# Started before the settings are fetched, because the fetch runs the cloud's
+# CLI in a container.
 systemctl enable --now docker
+
+# The stack's settings — every SMTP password, Stripe key and AdSense id the
+# operator gave `simple-balance:env` and `simple-balance:secrets` — from the
+# cloud's secret store, read with this machine's own identity. Waits for the
+# store on a first boot, when the grant naming this machine is still new.
+/usr/local/sbin/simple-balance-settings
+
+# Rebuilt from its parts every time this runs, by the same script the unit's
+# drop-in runs before every start, so there is one fold rather than a copy here
+# that a restart would not use. Run here as well because the question below is
+# asked of the assembled file.
+/usr/local/sbin/simple-balance-env
 # After the reload, so systemd enables the unit cloud-init has just written
 # rather than one it has not read yet. Enabled and not started: it has already
 # run above, and `Before=simple-balance.service` is about the boots after this
@@ -175,15 +177,12 @@ systemctl enable simple-balance-growfs.service
 # this profile cannot know, because it is the address of something somebody else
 # runs.
 #
-# It stays out of Pulumi's settings for that case. A connection string to a
-# database this stack did not build carries a password this stack has no other
-# reason to hold, and anything a Pulumi program puts on the machine arrives as
-# cloud-init user data — readable by anyone who can describe the instance, and
-# on both clouds that is a wider set of people than it sounds. So it goes in
-# env.local, on the data volume, by hand, exactly as an SMTP password or a
-# Stripe key does. The generated URL is different in the one way that matters:
-# the database it names is one this same stack created, so the password was
-# already the program's to know.
+# It is a stack secret like any other: `simple-balance:secrets.DATABASE_URL`.
+# It used to be typed into a file on this machine instead, because anything a
+# Pulumi program put here arrived as cloud-init user data, readable by anyone
+# who can describe the instance. The settings no longer travel that way — the
+# machine fetches them from the cloud's secret store with an identity only it
+# holds — so the reason for the file went with it.
 #
 # Without it the deployment cannot start, and the interesting question is what
 # should happen at that point. Starting anyway gives a failed unit and a
@@ -200,29 +199,32 @@ Simple Balance is installed and not yet running: it has no database to talk to.
 
 This machine was built with `simple-balance:databaseNode: false`, so no database
 machine was built beside it and the database is yours — a managed PostgreSQL, or
-a server you already keep. Point it at one, with the CA certificate that signed
-the database's saved beside it:
+a server you already keep. Save the CA certificate that signed the database's
+on this machine:
 
   sudo install -m 0644 ca-certificate.pem /var/lib/simple-balance/tls/db-ca.pem
-  sudo nano /var/lib/simple-balance/env.local
-      DATABASE_URL='postgresql://user:password@host:5432/simple_balance?sslmode=verify-full&sslrootcert=/var/lib/simple-balance/tls/db-ca.pem'
+
+Then, where you run Pulumi, give the stack the connection string and apply it:
+
+  pulumi config set --secret --path 'simple-balance:secrets.DATABASE_URL' \
+    'postgresql://user:password@host:5432/simple_balance?sslmode=verify-full&sslrootcert=/var/lib/simple-balance/tls/db-ca.pem'
+  pulumi up
+
+And back here, once that has finished:
 
   sudo /usr/local/sbin/simple-balance-firstboot
 
-Single quotes, so nothing in the value is expanded, and any @ : / ? # % & or $
-in the password written as %40 %3A %2F %3F %23 %25 %26 %24. host is the name in
-the database's certificate, not its IP address. A certificate from a public CA
-needs no file: leave out &sslrootcert=... Where to get the certificate is in
-deploy/compose/single/README.md, and which sslmode to use in docs/deployment.md,
-"Reaching the database over a network".
+Any @ : / ? # % & or $ in the password written as %40 %3A %2F %3F %23 %25 %26
+%24. host is the name in the database's certificate, not its IP address. A
+certificate from a public CA needs no file: leave out &sslrootcert=... Where to
+get the certificate is in deploy/compose/single/README.md, and which sslmode to
+use in docs/deployment.md, "Reaching the database over a network".
 
-That second command rebuilds the configuration and starts the deployment and its
-nightly backup. It is the same script that ran at boot and is safe to run again.
-Once the deployment is running, a change to env.local takes effect with
-sudo systemctl restart simple-balance.
-
-env.local is on the data volume, so what you put there survives the machine
-being rebuilt or resized.
+The last command fetches the settings again, rebuilds the configuration and
+starts the deployment and its nightly backup. It is the same script that ran at
+boot and is safe to run again. Once the deployment is running, every setting is
+changed the same way, in the stack, and reaches this machine within five
+minutes of the pulumi up.
 
 MOTD
 	echo "simple-balance: no DATABASE_URL yet; enabled but not started. See /etc/motd." >&2
@@ -236,7 +238,11 @@ fi
 # to a oneshot unit that is already active: run by hand on a live machine to
 # apply a setting, this rebuilt .env and left the containers on the old one. A
 # restart starts a unit that is not running, so a first boot is the same.
+#
+# The settings timer only once the deployment has started: its job is to
+# restart a running deployment when the stack changes, and before this point
+# there is nothing running for it to restart.
 : >/etc/motd
-systemctl enable simple-balance.service simple-balance-backup.timer
+systemctl enable simple-balance.service simple-balance-backup.timer simple-balance-settings.timer
 systemctl restart simple-balance.service
-systemctl start simple-balance-backup.timer
+systemctl start simple-balance-backup.timer simple-balance-settings.timer

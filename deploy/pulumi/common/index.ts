@@ -2,6 +2,7 @@ import * as path from "path";
 
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
+import { type AppSettings, chartConfig, readAppSettings } from "./app-settings";
 
 export const chartPath = path.resolve(__dirname, "..", "..", "helm", "simple-balance");
 
@@ -115,7 +116,36 @@ export interface Settings {
   authSecret: pulumi.Output<string>;
   directDatabaseUrl?: pulumi.Output<string>;
   setupToken?: pulumi.Output<string>;
+  /**
+   * Every other setting the application reads: `simple-balance:env` and
+   * `simple-balance:secrets`, checked by `readAppSettings`. The plain half
+   * reaches the chart's values; the secret half joins the Secret this program
+   * builds, which the cluster's own key encrypts at rest — a KMS key on EKS
+   * and GKE, which those two programs create for exactly that.
+   */
+  app: AppSettings;
 }
+
+/**
+ * The settings these programs decide themselves, each with the reason a stack
+ * cannot also set it in `simple-balance:env` or `:secrets`.
+ */
+const CLUSTER_OWNED = {
+  APP_BASE_URL: "it is https:// and simple-balance:hostname, so set that",
+  ALLOWED_EMAILS: "it is simple-balance:allowedEmails, so set that",
+  DATABASE_POOL_SIZE: "it is simple-balance:databasePoolSize, so set that",
+  AUTH_SECRET: "it is simple-balance:authSecret, so set that",
+  DATABASE_URL:
+    "it is simple-balance:databaseUrl, or the chart's own with simple-balance:database in-cluster",
+  DIRECT_DATABASE_URL: "it is simple-balance:directDatabaseUrl, so set that",
+  SETUP_TOKEN: "it is simple-balance:setupToken, so set that",
+  NODE_ENV:
+    "the chart sets production, and anything else turns off the setup code, sign-in rate limiting and secure cookies",
+  PORT: "the chart's Service and probes are built around the port it sets",
+  RECURRENCE_SCHEDULER: "the chart decides it per workload: off in the API, on in the scheduler",
+  TRUST_PROXY:
+    "the ingress and the frontend are in front of the API, and false there would put every visitor on one sign-in allowance",
+} as const;
 
 /**
  * Both programs read the same `simple-balance:` config namespace, so the
@@ -185,6 +215,17 @@ export function readSettings(): Settings {
     authSecret: cfg.requireSecret("authSecret"),
     directDatabaseUrl: cfg.getSecret("directDatabaseUrl"),
     setupToken: cfg.getSecret("setupToken"),
+    // Read as the runtime hands it over, already decrypted, so the names are
+    // checked here at plan time; the values only ever travel inside the
+    // Secret below, as secrets.
+    app: readAppSettings(
+      cfg.getObject<unknown>("env"),
+      (() => {
+        const raw = pulumi.runtime.getConfig("simple-balance:secrets");
+        return raw === undefined ? undefined : JSON.parse(raw);
+      })(),
+      CLUSTER_OWNED,
+    ),
   };
 
   // Checked here rather than left to the server, which refuses a short one by
@@ -417,9 +458,14 @@ export function simpleBalance(args: AppArgs): App {
   if (settings.setupToken) {
     credentialData.SETUP_TOKEN = settings.setupToken;
   }
+  for (const [name, value] of Object.entries(settings.app.secret)) {
+    credentialData[name] = pulumi.secret(value);
+  }
 
   // The chart hands every key of this Secret to the API and the scheduler as an
-  // environment variable, so it carries the credentials and nothing else. It is
+  // environment variable, so it carries the credentials and nothing else — the
+  // four this program has keys for, and whatever the stack put in
+  // `simple-balance:secrets`. It is
   // built here rather than by the chart because chart values end up in the
   // release's own Secret and in its history; these two never leave the Pulumi
   // config, which holds them encrypted.
@@ -450,6 +496,10 @@ export function simpleBalance(args: AppArgs): App {
       values: {
         global: { imageRegistry: settings.imageRegistry },
         config: {
+          // The stack's plain settings first, so the three this program
+          // decides itself are written last; `readAppSettings` has already
+          // refused a map that named any of them.
+          ...chartConfig(settings.app.plain),
           appBaseUrl: `https://${settings.hostname}`,
           allowedEmails: settings.allowedEmails,
           databasePoolSize: settings.databasePoolSize,

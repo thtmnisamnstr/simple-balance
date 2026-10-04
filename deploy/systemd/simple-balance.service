@@ -95,7 +95,8 @@ EnvironmentFile=/etc/default/simple-balance
 #
 # Nor one assembling .env. The machines the cloud programs build add that in a
 # drop-in beside this unit, simple-balance.service.d/env.conf, which runs
-# simple-balance-env first so a restart folds in what was added to env.local.
+# simple-balance-settings and then simple-balance-env first, so every start
+# fetches the stack's settings from the cloud's secret store and folds them in.
 # Here it would overwrite the .env a hand install writes, which has no parts to
 # assemble it from.
 

@@ -1,0 +1,140 @@
+#!/bin/sh
+# Fetches this deployment's settings from the cloud's secret store and writes
+# them where simple-balance-env folds them into the .env Compose reads.
+#
+# The settings are the stack's: `simple-balance:env` and `simple-balance:secrets`
+# in Pulumi, which the program writes into one secret — an OCI Vault secret, or
+# an AWS Secrets Manager secret — that this machine's own identity may read and
+# nothing else on it may change. So a setting is changed by `pulumi up`, never
+# on the machine, and a rebuilt machine has every setting it had without anybody
+# having kept a copy. The file this replaces, env.local, was edited over SSH and
+# lived only on the data volume.
+#
+# Two ways to run it:
+#
+#   simple-balance-settings          fetch, waiting for the store if it has to
+#   simple-balance-settings refresh  fetch once, and restart the deployment
+#                                    if what came back is different
+#
+# The first runs before every start of the deployment, from the unit's drop-in,
+# and from the first-boot script. The second runs from a timer, which is what
+# makes `pulumi up` enough: a changed setting reaches a running machine within
+# the timer's interval, with nobody logged in.
+#
+# A machine no cloud program built has no SB_SETTINGS_SOURCE, and then this does
+# nothing at all and succeeds.
+set -eu
+
+# The defaults file can be named, so tests/systemd-scripts.test.ts can run this
+# against a directory of its own; on a machine it is always the one cloud-init
+# wrote.
+set -a
+# shellcheck disable=SC1090,SC1091  # written by cloud-init, absent at lint time
+. "${SB_DEFAULTS:-/etc/default/simple-balance}"
+set +a
+
+: "${SB_SETTINGS_SOURCE:=}"
+: "${SB_SETTINGS_RETRY_SECONDS:=10}"
+: "${SB_COMPOSE_DIR:=/opt/simple-balance}"
+target="$SB_COMPOSE_DIR/env.settings"
+mode="${1:-fetch}"
+
+[ -n "$SB_SETTINGS_SOURCE" ] || exit 0
+: "${SB_SETTINGS_ID:?/etc/default/simple-balance names a settings source and no SB_SETTINGS_ID}"
+: "${SB_SETTINGS_REGION:?/etc/default/simple-balance names a settings source and no SB_SETTINGS_REGION}"
+: "${SB_SETTINGS_IMAGE:?/etc/default/simple-balance names a settings source and no SB_SETTINGS_IMAGE}"
+
+# The provider's own CLI in its own published image, rather than a CLI installed
+# on the machine: Docker is already here for the application, an image pin is
+# one line to move, and neither CLI is in Ubuntu's archive. Host networking
+# because both clouds hand the machine its credentials from the link-local
+# metadata address, and AWS's IMDSv2 answers a container behind the default
+# bridge not at all — the hop limit is 1 on these machines, deliberately.
+fetch() {
+	case "$SB_SETTINGS_SOURCE" in
+	oci-vault)
+		docker run --rm --network host "$SB_SETTINGS_IMAGE" \
+			secrets secret-bundle get --secret-id "$SB_SETTINGS_ID" \
+			--auth instance_principal --region "$SB_SETTINGS_REGION" \
+			--query 'data."secret-bundle-content".content' --raw-output | base64 -d
+		;;
+	aws-secretsmanager)
+		docker run --rm --network host "$SB_SETTINGS_IMAGE" \
+			secretsmanager get-secret-value --secret-id "$SB_SETTINGS_ID" \
+			--region "$SB_SETTINGS_REGION" --query SecretString --output text
+		;;
+	*)
+		echo "simple-balance-settings: unknown SB_SETTINGS_SOURCE \"$SB_SETTINGS_SOURCE\"" >&2
+		return 1
+		;;
+	esac
+}
+
+# Written beside the target, checked, and only then moved over it. What the
+# program writes is a comment line and NAME='value' lines and nothing else, so
+# anything else — an error message on stdout, half a response — is refused here
+# rather than handed to Compose as settings.
+#
+# The exit status alone is not enough: sh has no pipefail, so on OCI a CLI that
+# fails hands `base64 -d` nothing and the pipeline succeeds. An empty answer is
+# a failure for that reason, and either way what the CLI said is printed.
+fetch_checked() {
+	partial="$target.partial"
+	umask 077
+	if fetch >"$partial" 2>"$partial.err" && [ -s "$partial" ] &&
+		! grep -qvE "^(#.*|[A-Z][A-Z0-9_]*='[^']*')?$" "$partial"; then
+		rm -f "$partial.err"
+		chmod 0600 "$partial"
+		return 0
+	fi
+	echo "simple-balance-settings: no settings from $SB_SETTINGS_SOURCE" >&2
+	sed 's/^/  /' "$partial.err" >&2
+	rm -f "$partial" "$partial.err"
+	return 1
+}
+
+case "$mode" in
+fetch)
+	# Waits when there is no copy yet. On a first boot the permission that lets
+	# this machine read the secret is granted after the machine exists, because
+	# it names the machine, and both clouds take a minute or two to honour a new
+	# grant. With a copy from an earlier start, a store that does not answer is
+	# not a reason to stay down: the copy is what the deployment was running on
+	# a moment ago, and the timer picks up any change once the store is back.
+	if [ -f "$target" ]; then attempts=3; else attempts=60; fi
+	i=1
+	while ! fetch_checked; do
+		if [ "$i" -ge "$attempts" ]; then
+			if [ -f "$target" ]; then
+				echo "simple-balance-settings: the store did not answer; starting on the settings fetched last time" >&2
+				exit 0
+			fi
+			echo "simple-balance-settings: could not read $SB_SETTINGS_ID from $SB_SETTINGS_SOURCE" >&2
+			exit 1
+		fi
+		i=$((i + 1))
+		sleep "$SB_SETTINGS_RETRY_SECONDS"
+	done
+	mv "$target.partial" "$target"
+	;;
+refresh)
+	# Before the first start there is nothing to refresh, and restarting a
+	# deployment the first-boot script has not started would start it early.
+	[ -f "$target" ] || exit 0
+	fetch_checked
+	if cmp -s "$target.partial" "$target"; then
+		rm -f "$target.partial"
+		exit 0
+	fi
+	mv "$target.partial" "$target"
+	echo "simple-balance-settings: settings changed; restarting the deployment" >&2
+	# try-restart: a deployment that is stopped on purpose stays stopped. The
+	# restart folds .env again through the drop-in, which fetches once more —
+	# the same answer, a moment later.
+	systemctl try-restart simple-balance.service
+	;;
+*)
+	echo "usage: simple-balance-settings [fetch|refresh]" >&2
+	exit 2
+	;;
+esac

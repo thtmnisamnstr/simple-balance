@@ -4,6 +4,7 @@ import type {
   DatabaseCloudInitArgs,
   MachineSettings,
   NodeSize,
+  SettingsSource,
 } from "../single-common/cloud-init";
 
 /**
@@ -161,7 +162,7 @@ export function requireDataVolumeDomain(
     `simple-balance:availabilityDomain chooses ${chosen}, but this stack's data volume ` +
       `(${elsewhere.map((volume) => volume.id).join(", ")}) is in ${kept}, and a block volume ` +
       "cannot be attached across domains. Moving would replace it, and the generated secret, " +
-      "env.local and every backup on it would go with the old one, so neither the machine nor " +
+      "the backups on it would go with the old one, so neither the machine nor " +
       "the volume has been touched. To stay: pulumi config set simple-balance:availabilityDomain " +
       `"${kept}". To move and start again on an empty volume, copy off what is on it first, then ` +
       "set simple-balance:protectDataVolume to false. A volume of that name that belongs to no " +
@@ -222,11 +223,24 @@ export function requireSshPublicKey(sshPublicKey: string): void {
   }
 }
 
+/**
+ * The OCI CLI the application node reads its settings with, in Oracle's own
+ * published image.
+ *
+ * Pinned to a dated tag, the form Oracle publishes, rather than `latest`: the
+ * machine pulls it on its first fetch and keeps it, so a floating tag would be
+ * whatever happened to be newest the day the machine was built. It publishes
+ * linux/arm64, which the A1 shape needs. Moving it is one line here and reaches
+ * only machines built afterwards.
+ */
+export const OCI_CLI_IMAGE = "ghcr.io/oracle/oci-cli:20260930";
+
 /** The instance's metadata, compressed and checked against OCI's ceiling. */
 export function instanceMetadata(
   settings: MachineSettings,
   sshPublicKey: string,
   database?: ApplicationDatabase,
+  settingsSource?: SettingsSource,
 ): Record<string, string> {
   return ociMetadata(
     cloudInit({
@@ -234,6 +248,7 @@ export function instanceMetadata(
       dataDevice: DATA_DEVICE,
       platformCommands: PLATFORM_COMMANDS,
       database,
+      settingsSource,
     }),
     sshPublicKey,
   );

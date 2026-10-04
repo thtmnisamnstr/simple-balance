@@ -3,6 +3,7 @@ import type {
   ApplicationDatabase,
   DatabaseCloudInitArgs,
   MachineSettings,
+  SettingsSource,
 } from "../single-common/cloud-init";
 
 /**
@@ -33,13 +34,23 @@ function dataDevice(volumeId: string): string {
  */
 export const PLACEHOLDER_VOLUME_ID = "vol-0123456789abcdef0";
 
+/**
+ * The AWS CLI the application node reads its settings with, in Amazon's own
+ * published image. Pinned for the reason `../oci-single/platform.ts` gives for
+ * its own; it publishes linux/arm64, which the Graviton types need.
+ */
+export const AWS_CLI_IMAGE = "public.ecr.aws/aws-cli/aws-cli:2.37.9";
+
 /** The instance's `userDataBase64`: the cloud-init, gzipped, checked against EC2's cap. */
 export function userDataBase64(
   settings: MachineSettings,
   volumeId: string,
   database?: ApplicationDatabase,
+  settingsSource?: SettingsSource,
 ): string {
-  return awsUserDataBase64(cloudInit({ settings, dataDevice: dataDevice(volumeId), database }));
+  return awsUserDataBase64(
+    cloudInit({ settings, dataDevice: dataDevice(volumeId), database, settingsSource }),
+  );
 }
 
 /** The database instance's `userDataBase64`, measured against the same cap. */
@@ -81,7 +92,7 @@ export function databaseHost(privateIp: string, region: string): string {
  * the shell running `pulumi up` happened to point, and version 7 of the
  * provider records a region on every resource, so an existing stack run from a
  * shell pointed elsewhere plans to replace every one of them in the other
- * region — the data volume included, with the secret, env.local and the backups
+ * region — the data volume included, with the secret and the backups
  * on it. Where a machine holding somebody's data runs is a decision, and it
  * belongs with the stack's other decisions rather than in one laptop's
  * environment. Set in the stack, it also wins over both variables.
@@ -227,7 +238,7 @@ export function requireNewStackForKmsKey(keyArn: string, isNewStack: boolean): v
   throw new Error(
     "simple-balance:kmsKeyArn is set. A volume's key is fixed when the volume is created, so " +
       "naming one on a stack whose volumes already exist asks AWS to replace them — an empty " +
-      "volume where the ledger was, taking the generated secret, env.local and every backup with " +
+      "volume where the ledger was, taking the generated secret and every backup with " +
       "it. Pulumi's protection usually refuses that, but it is a flag in the state snapshot " +
       "rather than in this config: `pulumi state unprotect` clears it for one destroy, and " +
       "simple-balance:protectDataVolume false clears it outright. Neither is visible from here, " +

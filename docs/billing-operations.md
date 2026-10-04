@@ -505,10 +505,10 @@ holds whatever Stripe says later.
 ## Stopping selling
 
 Set `SB_BILLING_ENABLED=false` and restart. Do not remove the Stripe settings.
-On the single machines the Pulumi programs build, that is an edit to
-`/var/lib/simple-balance/env.local` followed by
-`sudo systemctl restart simple-balance`; a `single` profile installed by hand
-keeps its settings in `/opt/simple-balance/.env`.
+On the machines and clusters the Pulumi programs build, that is
+`pulumi config set --path 'simple-balance:env.SB_BILLING_ENABLED' false`, then
+`pulumi up`; a `single` profile installed by hand keeps its settings in
+`/opt/simple-balance/.env`.
 
 | What                                                                | After the flag goes off                                                          |
 | ------------------------------------------------------------------- | -------------------------------------------------------------------------------- |

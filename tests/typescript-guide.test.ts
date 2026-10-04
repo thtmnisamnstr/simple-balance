@@ -58,6 +58,7 @@ const WORDS: Record<string, number> = {
   eight: 8,
   fifteen: 15,
   sixteen: 16,
+  eighteen: 18,
 };
 
 /**
@@ -256,12 +257,13 @@ describe("1.3 and 1.4, the two declined flags with a measurement in them", () =>
   /**
    * What `-p tsconfig.json` covers is the include list plus whatever it reaches:
    * the compiler follows an import past it. The suite imports three
-   * infrastructure modules to render cloud-init, and five `.d.mts` siblings of
-   * the `scripts/` modules it exercises, so all eight are inside every number
-   * 1.4 quotes — two of its `exactOptionalPropertyTypes` errors are in the
-   * first three.
+   * infrastructure modules to render cloud-init, a fourth that holds the
+   * stack-settings rules and the `.d.mts` beside the script that fills them,
+   * and five `.d.mts` siblings of the `scripts/` modules it exercises, so all
+   * ten are inside every number 1.4 quotes — two of its
+   * `exactOptionalPropertyTypes` errors are in the first three.
    */
-  it("reads exactly the eight first-party files outside src and tests that 1.4 names", () => {
+  it("reads exactly the ten first-party files outside src and tests that 1.4 names", () => {
     const declared = ((json(ROOT_TSCONFIG).include ?? []) as string[]).filter((one) =>
       /\.tsx?$/.test(one),
     );
@@ -286,7 +288,9 @@ describe("1.3 and 1.4, the two declined flags with a measurement in them", () =>
     }
     expect([...outside].sort()).toEqual([
       "deploy/pulumi/aws-single/platform.ts",
+      "deploy/pulumi/common/app-settings.ts",
       "deploy/pulumi/oci-single/platform.ts",
+      "deploy/pulumi/settings-from-env.d.mts",
       "deploy/pulumi/single-common/cloud-init.ts",
       "scripts/capacity/cohorts.d.mts",
       "scripts/capacity/measure.d.mts",

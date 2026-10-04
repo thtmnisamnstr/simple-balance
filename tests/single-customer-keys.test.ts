@@ -194,7 +194,7 @@ describe("the Oracle Cloud key, which needs its vault to be checked at all", () 
 });
 
 describe("what each program does with the key, and what it does without one", () => {
-  it("accepts a key and never creates one, on either cloud", () => {
+  it("accepts a key for the disks and never creates one, on either cloud", () => {
     // A key this program made would have the stack's lifetime, and that is the
     // wrong lifetime for the thing that decrypts a ledger: `pulumi destroy
     // --exclude-protected` keeps both data volumes on purpose and would leave
@@ -202,10 +202,27 @@ describe("what each program does with the key, and what it does without one", ()
     // because a key needs a vault and deleting a vault schedules every key in
     // it.
     expect(aws, "no aws.kms resource").not.toMatch(/new aws\.kms\./);
-    expect(oci, "no oci.kms resource").not.toMatch(/new oci\.kms\./);
     // Only the lookups, which read and create nothing.
     expect(aws).toContain("aws.kms.getKeyOutput({ keyId: kmsKeyArn })");
     expect(oci).toContain("oci.kms.getVaultOutput({ vaultId: kmsSelection.vaultId })");
+
+    // OCI does create one vault and one key, and only for the stack's settings,
+    // because OCI Vault keeps no secret outside a vault. That is outside the
+    // argument above as long as nothing on disk depends on them, so the check
+    // is that the two are the settings' and that no disk is given that key.
+    const created = [...oci.matchAll(/new oci\.kms\.(\w+)\(`\$\{name\}-([\w-]+)`/g)].map(
+      (match) => `${match[1]}:${match[2]}`,
+    );
+    expect(created.sort(), "the only oci.kms resources are the settings vault and key").toEqual([
+      "Key:settings",
+      "Vault:settings",
+    ]);
+    expect((oci.match(/new oci\.kms\./g) ?? []).length, "and nothing else").toBe(2);
+    for (const kind of ["oci.core.Volume", "oci.core.Instance"]) {
+      for (const call of resourceCallsCode(readProgram(OCI_SINGLE), kind)) {
+        expect(call, `${kind} given the settings key`).not.toContain("settingsKey");
+      }
+    }
   });
 
   it("gives the key to every encrypted disk on AWS, and to none of them when unset", () => {

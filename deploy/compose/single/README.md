@@ -14,9 +14,9 @@ profile is `ha`, which is the Helm chart, and
 choice between them is argued.
 
 You can still bring your own database. Set `simple-balance:databaseNode: false`
-and the second machine is never built; write `DATABASE_URL` into
-`/var/lib/simple-balance/env.local` and the application machine behaves exactly
-as it did before this directory had a `compose.postgres.yml` in it.
+and the second machine is never built; set `simple-balance:secrets.DATABASE_URL`
+in the stack and the application machine behaves exactly as it did before this
+directory had a `compose.postgres.yml` in it.
 
 The application machine:
 
@@ -194,7 +194,7 @@ whatever the URL says, so it is there only for a deployment that asked for it.
 
 On a machine one of the Pulumi programs built, the directory is on the data
 volume and already exists, `COMPOSE_FILE` already names the overlay, and
-`DATABASE_URL` goes in `/var/lib/simple-balance/env.local`. A machine built by
+`DATABASE_URL` goes in the stack's `simple-balance:secrets`. A machine built by
 an earlier release has neither: copy the overlay to `/opt/simple-balance`, add
 it to that `COMPOSE_FILE` line, and make the directory, before naming a file.
 
@@ -347,9 +347,9 @@ runs from `/opt/simple-balance`, and `deploy/compose/single/.env` is read only
 by a `docker compose` run in this directory, never by the unit. A machine one of
 the single-machine Pulumi programs built has a drop-in beside the unit,
 `simple-balance.service.d/env.conf`, that reassembles `/opt/simple-balance/.env`
-from its parts before every start, so there the edit goes in
-`/var/lib/simple-balance/env.local`, and an edit to `.env` is overwritten at the
-next start. That drop-in exists only on those machines;
+from its parts before every start, so there a setting is the stack's —
+`simple-balance:env` or `simple-balance:secrets`, then `pulumi up` — and an edit
+to `.env` is overwritten at the next start. That drop-in exists only on those machines;
 `deploy/pulumi/README.md` describes them.
 
 ## Backups

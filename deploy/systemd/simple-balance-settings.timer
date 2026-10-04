@@ -1,0 +1,14 @@
+# How long a setting changed by `pulumi up` takes to reach the machine: at
+# most five minutes, and one restart of the deployment when it does. Each check
+# is one read of one secret, which both clouds bill at fractions of a cent a
+# month at this rate.
+[Unit]
+Description=Check the stack's settings every five minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30s
+
+[Install]
+WantedBy=timers.target

@@ -193,7 +193,7 @@ back before it is kept, and a restore that refuses a dump it cannot parse before
 it touches the database. The backups stay on the *application* node and are
 taken over the network, because a copy on the same disk as the original is not a
 backup. Each machine has a data disk that outlives it: the nightly backups, the
-generated secret and `env.local` on one, `PGDATA` on the other, so replacing
+generated secret on one, `PGDATA` on the other, so replacing
 either destroys its root volume and keeps what matters; a resize is made in
 place. Three new documents say which profile to pick, how big the machines have
 to be, and what they cost.
@@ -201,12 +201,12 @@ to be, and what they cost.
 **Bringing your own database is still supported, as a setting rather than a
 profile.** `simple-balance:databaseNode: false` builds no database node, no
 private subnet and no NAT gateway, and the application node waits for a
-`DATABASE_URL` in `/var/lib/simple-balance/env.local` exactly as it did before —
-the floor there is still PostgreSQL 15, because it connects to whatever you
-already have. The generated string lives in `/opt/simple-balance/env.db` at
-`0600`, and `simple-balance-env` folds `env.base`, `env.db`, `secrets.env` and
-`env.local` in that order, so a hand-written `DATABASE_URL` still wins on a
-machine whose program generated one, with nothing to turn off first.
+`DATABASE_URL` in the stack's `simple-balance:secrets` — the floor there is
+still PostgreSQL 15, because it connects to whatever you already have. The
+generated string lives in `/opt/simple-balance/env.db` at `0600`, and
+`simple-balance-env` folds `env.base`, `env.db`, `secrets.env` and the stack's
+settings in that order, so a `DATABASE_URL` of your own still wins on a machine
+whose program generated one, with nothing to turn off first.
 `simple-balance:databaseSubnet`, which the branch's Oracle program took for a
 managed database's private subnet, is superseded by `databaseNode` and accepted
 rather than refused.
@@ -354,14 +354,26 @@ private key reaches neither machine and exists only in Pulumi's state. The one
 password the stack does hold is the unprivileged application role's, which has
 to reach the machine that puts it in a connection string.
 
-On both machines a setting is an edit to `env.local` and then
-`sudo systemctl restart simple-balance`, which is what every instruction they
-print says: a drop-in the machines are built with runs
-`/usr/local/sbin/simple-balance-env` before each start and folds the file into
-the `.env` Compose reads. The shared unit in `deploy/systemd/` carries no such
-step, so a machine installed by hand edits `/opt/simple-balance/.env` and
-restarts, as before. Running `simple-balance-firstboot` again on a live machine
-applies its settings too, because it ends with a restart. The Oracle program
+**Every setting is the stack's, kept in the cloud's own secret store.** SMTP,
+Google sign-in, Stripe, AdSense, the legal pages and every other setting the
+application reads are `simple-balance:env` and `simple-balance:secrets` in the
+Pulumi stack, the secret ones encrypted there, in all five programs. On a single
+machine the program writes them into one OCI Vault or AWS Secrets Manager secret
+and grants the application machine's own identity read on that secret and
+nothing else; the machine fetches it every time the deployment starts and checks
+every five minutes, so `pulumi up` changes a setting with nobody logged in, and a
+rebuilt machine has every setting it had without anybody having kept a copy.
+Nothing the stack sets travels in user data, which anyone who can describe the
+instance can read. On a cluster the plain half reaches the chart's values and
+the secret half the Kubernetes Secret the program builds, which EKS and GKE
+encrypt with a key of their own — and billing, ads, mail and Google sign-in,
+which those programs could not turn on at all, are settings like any other.
+`pulumi preview` refuses a name the application does not read, a secret in the
+plain map, and a name a program decides itself. A `.env` file fills a stack in
+one command with `deploy/pulumi/settings-from-env.mjs`, which reads the file
+literally and leaves out what describes where a development copy runs. The
+shared unit in `deploy/systemd/` carries no such step, so a machine installed by
+hand edits `/opt/simple-balance/.env` and restarts, as before. The Oracle program
 takes `simple-balance:availabilityDomain` — a full name, or a number from 1 —
 for the launch that fails with `Out of host capacity`. It requires
 `simple-balance:sshPublicKey`, and reaches the application node through OCI's
@@ -436,7 +448,7 @@ profile ran `pulumi up`, so where a machine holding somebody's data lived
 depended on the shell, and a stack run from another one looked for its
 resources somewhere they were not. Any region is accepted, and for Always Free
 it is the tenancy's home region, the only one with free Ampere capacity. The
-data volume — the generated secret, `env.local` and every nightly dump — is
+data volume — the generated secret and every nightly dump — is
 marked with Pulumi's `protect` unless `simple-balance:protectDataVolume` is
 false, so `pulumi destroy` fails at its preview and deletes nothing. A new
 `simple-balance:availabilityDomain`, which would replace the volume, is refused

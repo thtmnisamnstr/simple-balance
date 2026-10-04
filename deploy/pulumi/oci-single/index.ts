@@ -12,6 +12,7 @@ import {
 import { databaseCertificates } from "../single-common/tls";
 
 import {
+  OCI_CLI_IMAGE,
   chooseAvailabilityDomain,
   dataVolumeGb,
   databaseHost,
@@ -62,8 +63,8 @@ requireSshPublicKey(settings.sshPublicKey);
  *
  * False builds no second machine, no private subnet and no NAT gateway, and the
  * application node is then exactly what it was before this profile grew a
- * second one: the operator writes a DATABASE_URL of their own into env.local
- * and firstboot waits for it. That is the escape hatch for somebody who already
+ * second one: the operator sets a DATABASE_URL of their own in
+ * `simple-balance:secrets` and firstboot waits for it. That is the escape hatch for somebody who already
  * keeps a PostgreSQL — an OCI Database with PostgreSQL, say, which is billed
  * and sits outside the allowance above.
  */
@@ -160,7 +161,7 @@ const kmsKeyId = kmsSelection
  * The first, unless `simple-balance:availabilityDomain` names another, by name
  * or by number. Set it before the first successful `pulumi up` and leave it: the
  * data volumes live in the domain, so changing it afterward would replace them,
- * and the ledger, the secret, env.local and the backups on them would go with
+ * and the ledger, the secret and the backups on them would go with
  * the old ones. While they are protected, below, that change is refused here, by
  * `requireDataVolumeDomain` finding a volume in its old domain, and nothing is
  * touched, with or without a preview.
@@ -568,6 +569,72 @@ const certificates = database
     })
   : undefined;
 
+// --------------------------------------------------------------- settings ---
+
+/**
+ * The stack's own settings, in OCI Vault — every SMTP password, Stripe key and
+ * AdSense id given to `simple-balance:env` and `simple-balance:secrets`.
+ *
+ * One secret holding the whole file rather than one per setting, because the
+ * machine wants all of them at once and a single read is a single grant: the
+ * policy below names this secret and nothing else. Its content changes with the
+ * stack, in place, as a new secret version, and the machine's timer picks the
+ * new version up within five minutes.
+ *
+ * The vault is the stack's own unless `simple-balance:kmsVaultOcid` and
+ * `kmsKeyOcid` already name one, in which case the secret lives there under
+ * the same key the volumes use. Creating a vault here runs against what the
+ * volume-key comment above argues, and the difference is what the vault holds.
+ * That argument is about a key the *ledger's volumes* depend on, which a
+ * `pulumi destroy` would leave counting down to deletion beside the data it
+ * encrypts. Nothing on disk depends on this one: a destroyed stack's settings
+ * vault goes into its seven-to-thirty-day pending deletion with only the
+ * settings in it, and the next stack makes a new one. A DEFAULT vault and a
+ * software-protected key are both free, inside Always Free.
+ */
+const settingsVault = kmsSelection
+  ? undefined
+  : new oci.kms.Vault(`${name}-settings`, {
+      compartmentId,
+      displayName: `${name}-settings`,
+      vaultType: "DEFAULT",
+      freeformTags: tags,
+    });
+
+const settingsKey = settingsVault
+  ? new oci.kms.Key(`${name}-settings`, {
+      compartmentId,
+      displayName: `${name}-settings`,
+      keyShape: { algorithm: "AES", length: 32 },
+      protectionMode: "SOFTWARE",
+      managementEndpoint: settingsVault.managementEndpoint,
+      freeformTags: tags,
+    })
+  : undefined;
+
+// A secret's name is unique within its vault for as long as the secret is
+// pending deletion as well, so a destroy and a fresh `up` against the same
+// customer vault would collide on a fixed name. The suffix is decided once and
+// kept in state.
+const settingsSuffix = new random.RandomId(`${name}-settings`, { byteLength: 3 });
+
+const settingsSecret = new oci.vault.Secret(`${name}-settings`, {
+  compartmentId,
+  vaultId: settingsVault ? settingsVault.id : kmsSelection!.vaultId,
+  keyId: settingsKey ? settingsKey.id : kmsKeyId!,
+  secretName: pulumi.interpolate`${name}-settings-${settingsSuffix.hex}`,
+  description:
+    "Simple Balance: the stack's settings, fetched by the application node at every start",
+  // Vault stores content as base64 of the bytes. Secret because the settings
+  // file is, so the value is encrypted in Pulumi's state like the config it
+  // came from.
+  secretContent: {
+    contentType: "BASE64",
+    content: settings.appSettingsFile.apply((text) => Buffer.from(text, "utf8").toString("base64")),
+  },
+  freeformTags: tags,
+});
+
 // --------------------------------------------------------------- machines ---
 
 /**
@@ -651,12 +718,14 @@ const instance = new oci.core.Instance(
       .all([
         databasePassword ?? pulumi.output(""),
         certificates?.caCertificate ?? pulumi.output(""),
+        settingsSecret.id,
       ])
-      .apply(([password, caCertificate]) =>
+      .apply(([password, caCertificate, settingsSecretId]) =>
         instanceMetadata(
           settings,
           settings.sshPublicKey,
           database ? { url: databaseUrl(databaseDnsName, password), caCertificate } : undefined,
+          { kind: "oci-vault", id: settingsSecretId, region: ociRegion, image: OCI_CLI_IMAGE },
         ),
       ),
     freeformTags: tags,
@@ -698,10 +767,69 @@ const instance = new oci.core.Instance(
 );
 
 /**
+ * The tenancy this compartment is in, found by walking up from it.
+ *
+ * A dynamic group lives in the tenancy's root compartment and nowhere else, and
+ * asking the stack for the tenancy's OCID as well as the compartment's would
+ * be a second setting that could disagree with the first. Compartments nest at
+ * most six deep, so the walk is short, and the root is the one whose OCID says
+ * `tenancy`.
+ */
+async function tenancyOf(compartment: string): Promise<string> {
+  let id = compartment;
+  for (let depth = 0; depth < 8 && !id.startsWith("ocid1.tenancy."); depth += 1) {
+    id = (await oci.identity.getCompartment({ id })).compartmentId;
+  }
+  if (!id.startsWith("ocid1.tenancy.")) {
+    throw new Error(
+      `Could not find the tenancy above simple-balance:compartmentOcid ${compartment}.`,
+    );
+  }
+  return id;
+}
+
+/**
+ * The application node, and only it, may read the settings secret.
+ *
+ * An instance principal — the machine's own identity, which OCI rotates and
+ * nobody holds — rather than an API key on the machine, which would be a
+ * credential to the whole tenancy sitting on a disk. The dynamic group matches
+ * this one instance by OCID; the policy lets that group read the bundles of
+ * this one secret and do nothing else. A replaced machine has a new OCID, and
+ * the next `pulumi up` moves the rule to it.
+ *
+ * The grant names the instance, so it can only exist after the instance does,
+ * and OCI takes a minute or two to honour a new one. The machine's fetch waits
+ * up to ten minutes on a first boot for that reason.
+ *
+ * Creating a dynamic group needs permission in the tenancy's root compartment,
+ * which the API key running `pulumi up` usually has and a tightly scoped one may
+ * not. On a tenancy with identity domains this is the Default domain's group,
+ * which the policy names without a domain prefix.
+ */
+const settingsReaders = new oci.identity.DynamicGroup(`${name}-settings`, {
+  compartmentId: pulumi.output(tenancyOf(compartmentId)),
+  name: `${name}-settings`,
+  description: "Simple Balance: the application node that reads this stack's settings",
+  matchingRule: pulumi.interpolate`ALL {instance.id = '${instance.id}'}`,
+  freeformTags: tags,
+});
+
+new oci.identity.Policy(`${name}-settings`, {
+  compartmentId,
+  name: `${name}-settings`,
+  description: "Simple Balance: the application node reads this stack's settings secret",
+  statements: [
+    pulumi.interpolate`Allow dynamic-group ${settingsReaders.name} to read secret-bundles in compartment id ${compartmentId} where target.secret.id = '${settingsSecret.id}'`,
+  ],
+  freeformTags: tags,
+});
+
+/**
  * The application node's data disk, separate from the boot volume and
  * outliving it.
  *
- * It holds the generated secret, env.local, the database's CA certificate and
+ * It holds the generated secret, the database's CA certificate and
  * the nightly dumps — not the ledger, which is on the database node's volume.
  * Replacing the instance destroys the boot volume and leaves this one, and the
  * first-boot script formats it only when it is not already a filesystem, so a
@@ -714,8 +842,8 @@ const databaseDataGb = database ? dataVolumeGb(database.size.database) : 0;
 /**
  * Protected unless the stack says otherwise, because the two data volumes are
  * the resources here that the next `pulumi up` cannot rebuild. A destroyed
- * network or machine comes back from configuration; the ledger, the secret,
- * env.local and the dumps exist nowhere else unless somebody copied them.
+ * network or machine comes back from configuration; the ledger, the secret
+ * and the dumps exist nowhere else unless somebody copied them.
  *
  * `protect` makes Pulumi refuse any deployment that would delete a volume:
  * `pulumi destroy`, which fails at its preview and deletes nothing, and a
@@ -988,6 +1116,7 @@ export const publicIp = publicIpAddress;
 export const privateIp = privateIpAddress;
 export const instanceId = instance.id;
 export const dataVolumeId = dataVolume.id;
+export const settingsSecretId = settingsSecret.id;
 export const subnetId = subnet.id;
 export const databaseSubnetId = databaseSubnet?.id;
 export const databaseInstanceId = databaseInstance?.id;
@@ -1036,19 +1165,20 @@ const databaseStep = database
    --target-private-ip ${databasePrivateIp}; on it,
      sudo docker compose -f /opt/simple-balance/compose.postgres.yml exec postgres \\
        psql -U postgres simple_balance
-   To point this machine at a database of your own instead, put your own DATABASE_URL
-   in /var/lib/simple-balance/env.local: it is folded last and wins over the generated
-   one, with nothing to turn off first.`
-  : `3. Give it a database. None was created, because simple-balance:databaseNode is false:
-   install the certificate of the CA that signed the database's, then put the
-   connection string in env.local,
+   To point this machine at a database of your own instead, set your own DATABASE_URL
+   in simple-balance:secrets: the stack's settings win over the generated one, with
+   nothing to turn off first.`
+  : `3. Give it a database. None was created, because simple-balance:databaseNode is false.
+   On the machine, install the certificate of the CA that signed the database's:
      sudo install -m 0644 ca.pem /var/lib/simple-balance/tls/db-ca.pem
          (the DB system's CA certificate: its Connection details, or oci psql connection-details get)
-     sudo nano /var/lib/simple-balance/env.local
-         DATABASE_URL='postgresql://user:password@<FQDN>:5432/simple_balance?sslmode=verify-full&sslrootcert=/var/lib/simple-balance/tls/db-ca.pem'
-   and, if that URL goes through a transaction pooler, DIRECT_DATABASE_URL beside it,
-   the same database past the pooler, for the migrations and the first-account claim.
-   Then run
+   Where you run Pulumi, give the stack the connection string and apply it:
+     pulumi config set --secret --path 'simple-balance:secrets.DATABASE_URL' \\
+       'postgresql://user:password@<FQDN>:5432/simple_balance?sslmode=verify-full&sslrootcert=/var/lib/simple-balance/tls/db-ca.pem'
+     pulumi up
+   and, if that URL goes through a transaction pooler, secrets.DIRECT_DATABASE_URL beside
+   it, the same database past the pooler, for the migrations and the first-account claim.
+   Then, on the machine, run
      sudo /usr/local/sbin/simple-balance-firstboot
    which starts the deployment and its nightly backup. Until then it is installed and
    stopped, and /etc/motd says so.`;
@@ -1063,10 +1193,10 @@ ${reach}
 ${databaseStep}
 4. Find the setup code:   sudo docker compose -f /opt/simple-balance/compose.yml logs app | grep -i setup
 5. Optional settings — SMTP, Stripe, AdSense and the PRIVACY_POLICY_URL it requires,
-   TERMS_OF_USE_URL — go in /var/lib/simple-balance/env.local, which is on the data
-   volume and survives a rebuild. Once the deployment has started,
-   a setting is an edit to it, then
-   sudo systemctl restart simple-balance.
+   TERMS_OF_USE_URL — are the stack's: simple-balance:env, and simple-balance:secrets
+   with --secret for the secret ones, then 'pulumi up'. They are kept in OCI Vault
+   (secret ${settingsSecret.id}), and the machine applies a change within five minutes.
+   deploy/pulumi/README.md, "The application's settings", has both ways to set them.
 6. A later 'pulumi up' does not re-run either machine's setup. How to apply a change
    is at the top of what it ran:   sudo cloud-init query userdata | head -16
 `;

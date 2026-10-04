@@ -105,7 +105,7 @@ judge the decision, only keep the evidence for it true.
 
 ### 1.4 `noUncheckedIndexedAccess` is declined, for now
 
-**Contested.** 567 errors, **59 of them in `src`** and the rest in `tests`. It
+**Contested.** 575 errors, **59 of them in `src`** and the rest in `tests`. It
 is the setting on this list most worth having, because indexing into an array or
 a record is exactly where an `undefined` arrives unannounced.
 
@@ -116,40 +116,41 @@ expression group, all of which hand back `undefined` with the flag off. So it is
 the flag that would add to that count rather than the flag that explains it,
 which is what 2.2 says from the other end.
 
-It is declined because 567 sites cannot be reviewed carefully in one change, and
+It is declined because 575 sites cannot be reviewed carefully in one change, and
 mechanically silencing them with `!` would convert a real check into a
 formality — the same defect the flag exists to catch, now written down. If it is
 ever adopted it should be one directory at a time, and the split above says
-which one first: `src` is 59 of the 567 and all of the benefit, since a test
+which one first: `src` is 59 of the 575 and all of the benefit, since a test
 that indexes a fixture it wrote three lines earlier learns nothing from being
 told the row might be missing.
 
 The two halves move for different reasons, which is why only one of them is
 checked. `src` has sat at 59 across a release that added billing, two cloud
-profiles and a plan page; the total went from 441 to 567 because the branch
+profiles and a plan page; the total went from 441 to 575 because the branch
 added tests, and a number that every new test file moves is one a check would
-teach people to bump without reading. So **59 is held by a test and 567 is a
+teach people to bump without reading. So **59 is held by a test and 575 is a
 reading**, which is the same division `testing.md` makes about its own two
 tables and for the same reason.
 
-`exactOptionalPropertyTypes` (106) and `noPropertyAccessFromIndexSignature`
-(927) are declined outright. Both readings, both taken the same day as the 567.
+`exactOptionalPropertyTypes` (110) and `noPropertyAccessFromIndexSignature`
+(966) are declined outright. Both readings, both taken the same day as the 575.
 
 Each is the error count from `npx tsc -p tsconfig.json --noEmit --<flag>`, taken
 against the whole of `tsconfig.json`. What that is had been stated wrongly here:
 not `src`, `tests` and the five root config files, but those **plus whatever
 they import**. The compiler follows an import past the include list, and the
-suite imports three infrastructure modules out of `deploy/pulumi` and five
-`.d.mts` declaration files out of `scripts/`, so all eight are inside every
+suite imports five files out of `deploy/pulumi` — four modules and the
+`.d.mts` beside the settings script — and five `.d.mts` declaration files out of
+`scripts/`, so all ten are inside every
 number in this section and inside every flag in 1.1 — and nothing said so. It is
-not academic: two of the 106 above are in `deploy/pulumi/aws-single/platform.ts`
+not academic: two of the 110 above are in `deploy/pulumi/aws-single/platform.ts`
 and `deploy/pulumi/oci-single/platform.ts`, files §3.5 describes as belonging to
 the other program and which this one typechecks as well.
 
 *Checked by:* `tests/typescript-guide.test.ts` for the `src` half of the first
 flag, which runs the compiler and compares what it reports with the number this
-section states, and which also holds the eight-file list in the paragraph above
-so a ninth cannot arrive unnoticed. `human` for the three whole-program totals:
+section states, and which also holds the ten-file list in the paragraph above
+so an eleventh cannot arrive unnoticed. `human` for the three whole-program totals:
 a reading goes stale quietly, so read one as the last reading rather than as
 today's and take it again before arguing from it.
 
@@ -416,16 +417,16 @@ in a `.ts` file is correct, and dropping the extension breaks the server build
 and nothing else, which is the worst kind of break: the client bundler forgives
 it, so it passes locally.
 
-**The infrastructure programs invert it, and are correct.** All sixteen relative
+**The infrastructure programs invert it, and are correct.** All eighteen relative
 imports under `deploy/pulumi` drop the extension —
 `import * as sb from "../common"` at `deploy/pulumi/aws/index.ts:6` is the
 shape — because that project sets `"moduleResolution": "node"`
 (`deploy/pulumi/tsconfig.json:5`) and emits CommonJS, where an extension-less
 specifier is what resolves. The rationale above reaches NodeNext and Bundler and
-stops there, so a mechanical sweep that "fixed" those sixteen would break five
+stops there, so a mechanical sweep that "fixed" those eighteen would break five
 programs that compile today. §3.5 is why there are two answers at all.
 
-Four of the sixteen are inside files the application's own compiler reads
+Four of the eighteen are inside files the application's own compiler reads
 (1.4), so one program typechecks both conventions at once. That is not a
 problem — Bundler resolution accepts an extension-less relative specifier — but
 it is why this rule was stated repository-wide for a release without failing
@@ -521,7 +522,7 @@ own carve-out.
 
 ### 3.5 The Pulumi programs are a second TypeScript program
 
-**House**, and mechanized. `deploy/pulumi` is 7,297 lines of first-party
+**House**, and mechanized. `deploy/pulumi` is 8,018 lines of first-party
 TypeScript that this guide did not know existed. It is not a corner: 0.2.0 took
 it from two stacks to five — `aws`, `gcp`, `oci`, `aws-single`, `oci-single` —
 and
@@ -584,7 +585,7 @@ infrastructure projects pin their own compiler and keep `moduleResolution: node`
 `deploy/pulumi`'s typecheck script names every directory holding a
 `Pulumi.yaml`, so a fifth stack that nothing typechecks fails here; and the
 register of first-party files the root program reads from outside `src` and
-`tests` is held at the eight 1.4 names. The flag rows, the project count, the
+`tests` is held at the ten 1.4 names. The flag rows, the project count, the
 SDK count and the size are read out of the configuration files and the tree, so
 a divergence that closes stops being described as open.
 
@@ -638,7 +639,7 @@ reads.
 
 | Rule | Why it is only a sentence |
 | --- | --- |
-| 1.4 The three whole-program totals | 567, 106 and 927 move with every test anyone adds, and a check somebody has to bump to go green teaches them to bump it without reading it. The `src` half is checked. |
+| 1.4 The three whole-program totals | 575, 110 and 966 move with every test anyone adds, and a check somebody has to bump to go green teaches them to bump it without reading it. The `src` half is checked. |
 | 2.2 Assertions carry a reason | Not mechanizable. The count of them is not checked either, for the reason in the row above. |
 | 2.4 `satisfies` earns the keyword | `tsc` checks what each one asserts; whether a value has one shape or two, which is where the keyword stops being the right tool, is a judgement. The three are named rather than counted, so there is no total to go stale. |
 | 2.6 The comment beside a boundary cast | The test sees that a cast is confined to one property. Whether the sentence above it says what the vendor does is a reviewer's. |

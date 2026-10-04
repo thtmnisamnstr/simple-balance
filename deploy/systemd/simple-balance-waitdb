@@ -29,10 +29,11 @@
 # that was working before this script existed.
 set -eu
 
-: "${SB_STATE_DIR:=/var/lib/simple-balance}"
-
+# The stack's settings first, because a DATABASE_URL there is the one the fold
+# lets win; then the one cloud-init generated; then whatever .env was assembled
+# last time, for a machine that has neither.
 url=""
-for f in "$SB_STATE_DIR/env.local" "$SB_STATE_DIR/env.db" /opt/simple-balance/.env; do
+for f in /opt/simple-balance/env.settings /opt/simple-balance/env.db /opt/simple-balance/.env; do
 	[ -r "$f" ] || continue
 	line=$(grep -m1 '^DATABASE_URL=' "$f" 2>/dev/null || true)
 	[ -n "$line" ] || continue

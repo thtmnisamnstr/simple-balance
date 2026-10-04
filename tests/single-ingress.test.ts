@@ -134,7 +134,7 @@ describe("what may reach the AWS database node", () => {
     // alone.
     expect(programCode(aws)).toContain("AmazonSSMManagedInstanceCore");
     expect(programCode(aws)).toContain(
-      "const databaseInstanceProfile = database ? shellRole(`${name}-db`) : undefined;",
+      "const databaseInstanceProfile = database ? shellRole(`${name}-db`).profile : undefined;",
     );
     // Under `databaseEgress: ipv6` there is no IPv4 route out of this subnet,
     // the agent's endpoint is A-only, and the replacement is ssh from the

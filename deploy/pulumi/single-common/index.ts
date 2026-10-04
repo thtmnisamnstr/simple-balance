@@ -1,5 +1,6 @@
 import * as pulumi from "@pulumi/pulumi";
 
+import { readAppSettings, settingsEnvFile } from "../common/app-settings";
 import type { DatabaseSettings, MachineSettings, Size } from "./cloud-init";
 
 /**
@@ -128,15 +129,43 @@ export interface SingleSettings extends MachineSettings {
   /**
    * Undefined when `simple-balance:databaseNode` is false, which builds no
    * database node, no private subnet and no NAT gateway: the machine is what
-   * it is without them, and the operator writes a DATABASE_URL of their own
-   * into env.local, which firstboot waits for. That is the escape hatch for
+   * it is without them, and the operator sets a DATABASE_URL of their own in
+   * `simple-balance:secrets`, which firstboot waits for. That is the escape hatch for
    * somebody who already keeps a PostgreSQL. It is no longer the only way to
    * avoid AWS's NAT gateway charge — `simple-balance:databaseEgress: ipv6`
    * keeps the database node and drops the gateway — so it is the answer to
    * "I have a database", not to "this is expensive".
    */
   database?: DatabaseSettings;
+  /**
+   * The stack's own settings — `simple-balance:env` and `simple-balance:secrets`
+   * — as the lines the machine's Compose `.env` takes, and a Pulumi secret,
+   * because it holds the secrets. Each program writes it into its cloud's
+   * secret store and the machine fetches it from there; it never travels in
+   * user data.
+   */
+  appSettingsFile: pulumi.Output<string>;
 }
+
+/**
+ * The application settings these programs decide themselves, so a stack
+ * cannot also set them in `simple-balance:env` or `:secrets`. Each is a reason
+ * that finishes "cannot be set here: ...".
+ *
+ * DATABASE_URL and AUTH_SECRET are deliberately not in it. Both are generated,
+ * and both are worth overriding on purpose: a DATABASE_URL of the operator's
+ * own is how `simple-balance:databaseNode: false` is used at all, and the fold
+ * on the machine lets the stack's settings win for exactly that reason.
+ */
+const SINGLE_OWNED = {
+  APP_BASE_URL: "it is https:// and simple-balance:hostname, so set that",
+  ALLOWED_EMAILS: "it is simple-balance:allowedEmails, so set that",
+  NODE_ENV:
+    "the image sets production, and anything else turns off the setup code, sign-in rate limiting and secure cookies",
+  PORT: "Caddy proxies to the port the compose file names, and a different one is a site that answers nothing",
+  TRUST_PROXY:
+    "compose.caddy.yml sets it true, because Caddy is in front and writes X-Forwarded-For itself",
+} as const;
 
 /**
  * What a password may contain, and it is deliberately narrower than what
@@ -274,6 +303,18 @@ export function readSingleSettings(): SingleSettings {
     );
   }
 
+  // Checked here, at plan time and before anything is declared, for the reason
+  // every refusal in this function is: under `--skip-preview` a throw after the
+  // first resource leaves that resource built. The secret map is read as the
+  // runtime hands it over, already decrypted, so its names can be checked
+  // without a value ever being printed.
+  const rawSecrets = pulumi.runtime.getConfig("simple-balance:secrets");
+  const app = readAppSettings(
+    cfg.getObject<unknown>("env"),
+    rawSecrets === undefined ? undefined : JSON.parse(rawSecrets),
+    SINGLE_OWNED,
+  );
+
   return {
     size,
     sizeName,
@@ -296,5 +337,6 @@ export function readSingleSettings(): SingleSettings {
           password: databasePassword,
         }
       : undefined,
+    appSettingsFile: pulumi.secret(settingsEnvFile(app)),
   };
 }

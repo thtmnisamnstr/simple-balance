@@ -313,19 +313,32 @@ describe("the single-machine programs, as the Pulumi README describes them", () 
       "private endpoint",
       "URL-encoded",
       "sslmode=no-verify",
-      "DATABASE_URL='postgresql://",
+      // The URL is a stack secret now, given on its own line after the key.
+      "--secret --path 'simple-balance:secrets.DATABASE_URL'",
+      "'postgresql://",
     ]) {
       expect(oracle, needed).toContain(needed);
     }
   });
 
-  it("says a setting is an edit to env.local and a restart", () => {
-    expect(readme).toMatch(
-      /# A setting\.\nsudo nano \/var\/lib\/simple-balance\/env\.local\nsudo systemctl restart simple-balance\n/,
-    );
+  it("says a setting is the stack's, applied by pulumi up, both with and without a .env", () => {
+    // A `##` section with `###` sections inside it, so read to the next `##`.
+    const from = readme.indexOf("\n## The application's settings\n");
+    expect(from, "README has its settings section").toBeGreaterThan(-1);
+    const settings = readme.slice(from, readme.indexOf("\n## ", from + 1));
+    expect(settings).toContain("pulumi config set --path 'simple-balance:env.");
+    expect(settings).toContain("pulumi config set --secret --path 'simple-balance:secrets.");
+    expect(settings).toContain("node deploy/pulumi/settings-from-env.mjs");
+    expect(settings).toContain("### Setting them without a `.env` file");
+    expect(settings).toContain("### Setting them from a `.env` file");
+    // The file settings used to be typed into is not offered anywhere.
+    expect(readme).not.toMatch(/nano \/var\/lib\/simple-balance\/env\.local/);
+    // And a key a .env cannot hold on one line has a recipe that round-trips.
+    expect(settings).toContain("OCI_PRIVATE_KEY_B64");
+    expect(settings).toContain("base64 --decode");
     // EDITOR is unset on a fresh Ubuntu, where `sudo $EDITOR file` runs the file.
     expect(readme).not.toContain("$EDITOR");
-    expect(section("`DATABASE_URL` goes on the machine")).toContain(
+    expect(section("Bringing your own database")).toContain(
       "sudo /usr/local/sbin/simple-balance-firstboot",
     );
   });

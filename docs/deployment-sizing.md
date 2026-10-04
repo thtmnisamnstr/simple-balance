@@ -290,8 +290,8 @@ disk = (ledger × 1.20 + ledger × 0.15 + 2 × max_wal_size) ÷ 0.95 ÷ 0.80
 - **÷ 0.95** for ext4's reserved blocks, and **÷ 0.80** because a `PGDATA`
   volume should not be run fuller than that.
 
-**The application node**, which holds the dumps, `env.local`, the generated
-secret and the database's CA certificate:
+**The application node**, which holds the dumps, the generated secret and the
+database's CA certificate:
 
 ```
 disk = ((backupKeep + 1) × 0.145 × ledger + 1 GiB) ÷ 0.95 ÷ 0.80
@@ -308,8 +308,8 @@ disk = ((backupKeep + 1) × 0.145 × ledger + 1 GiB) ÷ 0.95 ÷ 0.80
   backup. It still protects against a mistake rather than against losing both
   machines: copy them off, keep fewer here, and the arithmetic changes by the
   factor in the table at the top.
-- **1 GiB** covers `env.local`, `AUTH_SECRET`, the CA certificate and room to
-  restore into.
+- **1 GiB** covers `AUTH_SECRET`, the CA certificate and room to restore
+  into.
 
 Worked at each row's target, which is where the table at the top comes from:
 

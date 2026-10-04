@@ -160,8 +160,8 @@ describe("the sizing table, in the document and in the program", () => {
       const ledgerCell = row("Ledger the database disk holds")[index + 1]!;
       expect(ledgerCell.replace(" transactions", ""), `${name} ledger`).toBe(millions(ledgerBytes));
 
-      // The application node: its whole disk, less a gigabyte for env.local,
-      // the secret and the CA, carries `backupKeep` + 1 dumps — fifteen at the
+      // The application node: its whole disk, less a gigabyte for the secret
+      // and the CA, carries `backupKeep` + 1 dumps — fifteen at the
       // default, because the newest is verified before the oldest is pruned.
       const applicationGib = Number(node(name, "application", "diskGib"));
       const dumpableBytes = (applicationGib * usableFraction - slackGib) * 1024 ** 3;

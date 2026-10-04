@@ -12,8 +12,8 @@ import {
 
 /**
  * The two things an Oracle Cloud stack cannot get back once they are wrong:
- * the region it was built in, and the data volume holding the secret,
- * env.local and every nightly dump.
+ * the region it was built in, and the data volume holding the secret and
+ * every nightly dump.
  *
  * The region rule, and which availability domain the volume allows, are
  * functions in `platform.ts` and are run here. The rest of the volume rule is

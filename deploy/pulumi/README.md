@@ -94,27 +94,13 @@ Except where a line says otherwise, this applies to all four.
   trusted-proxy setting; `simple-balance:imageTag` selects another published
   release.
 
-- **No mail and no Google sign-in, in the `ha` programs.** Both are chart
-  settings and neither is turned on here, so a deployment from these programs
-  has local sign-in, no password reset, and asks nobody to confirm an address.
-  Add `config.mail.*` and `config.google.clientId` to the chart values in
-  `common/index.ts` if you want them, with the matching keys in the Secret. The
-  `single` programs take mail and Google through `env.local` instead.
-- **No billing and no ads, in the `ha` programs.** Neither is turned on here,
-  and there is no stack setting for either. To sell the plan, edit
-  `common/index.ts` in three places: add `STRIPE_SECRET_KEY` and
-  `STRIPE_WEBHOOK_SECRET` to `credentialData`, read with `cfg.requireSecret`;
-  put `SB_BILLING_ENABLED`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_PRICE_MONTHLY_ID`
-  and `STRIPE_PRICE_YEARLY_ID` in the chart's `config.extraEnv`; and set
-  `frontend.billingConfigured: true`, which the frontend's content security
-  policy for the plan page keys on. Ads are the same shape: `ADSENSE_CLIENT_ID`,
-  `ADSENSE_BANNER_SLOT_ID`, `ADSENSE_FOOTER_SLOT_ID`, `ADSENSE_CONSENT_MANAGED`
-  and `PRIVACY_POLICY_URL` — which the server refuses to start without once
-  AdSense is set — in `config.extraEnv`, and `frontend.adsConfigured: true`.
-  `TERMS_OF_USE_URL` goes in `config.extraEnv` too, and so does
-  `PRIVACY_POLICY_URL` on a deployment with no ads: both are optional there, and
-  linked from the sign-in screen and every page once set. The `single` programs
-  take all of it through `env.local`.
+- **Nothing optional is turned on for you.** Mail, Google sign-in, billing,
+  ads, the legal pages and every other setting the application reads are off
+  until the stack says otherwise, in `simple-balance:env` and
+  `simple-balance:secrets` — the same two maps in every program, described in
+  [The application's settings](#the-applications-settings). A deployment that
+  sets nothing has local sign-in, no password reset, sells nothing and shows no
+  ads.
 - **No monitoring, alerting, or log retention policy** beyond what EKS and GKE
   switch on themselves. EKS control plane logs go to CloudWatch and stay there
   until you say otherwise.
@@ -199,24 +185,27 @@ Except where a line says otherwise, this applies to all four.
   wherever the `AWS_REGION` of whoever runs `pulumi up` points.
 - For `oci-single/`: an Oracle Cloud tenancy, a compartment other than the root
   one (its OCID is `simple-balance:compartmentOcid`), and an API signing key for
-  the provider. `oci setup config`, or Console → your profile → API keys → Add
-  API key, writes the `[DEFAULT]` profile of `~/.oci/config` — `user`,
-  `fingerprint`, `tenancy`, `region` and `key_file` — which the provider reads
-  for everything but the region: the program requires `oci:region` in the
-  stack and refuses to run without it, so the machine is built where the stack
-  says rather than wherever the profile of whoever runs `pulumi up` points.
-  Or give it the same values as `oci:tenancyOcid`, `oci:userOcid`,
-  `oci:fingerprint` and `oci:privateKeyPath` (or `oci:privateKey`), and
-  `oci:configFileProfile` picks a profile other than `DEFAULT`. `pulumi up`
-  needs no `oci` CLI; the Bastion commands `nextSteps` prints do, and the
-  console does the same by hand. An administrator needs nothing more. Anybody
-  else needs a group with these policies:
+  the provider, given to it one of the three ways in
+  [Oracle Cloud credentials](#oracle-cloud-credentials) — a `~/.oci/config`
+  profile, environment variables, or stack config. Whichever it is, the program
+  requires `oci:region` in the stack and refuses to run without it, so the
+  machine is built where the stack says rather than wherever the credentials of
+  whoever runs `pulumi up` point. `pulumi up` needs no `oci` CLI; the Bastion
+  commands `nextSteps` prints do, and the console does the same by hand. An
+  administrator needs nothing more. Anybody else needs a group with these
+  policies — the last three because the program keeps the stack's settings in
+  a Vault of its own and grants the application machine, alone, read on them:
 
   ```
   Allow group <group> to manage virtual-network-family in compartment <compartment>
   Allow group <group> to manage instance-family in compartment <compartment>
   Allow group <group> to manage volume-family in compartment <compartment>
   Allow group <group> to manage bastion-family in compartment <compartment>
+  Allow group <group> to manage vaults in compartment <compartment>
+  Allow group <group> to manage keys in compartment <compartment>
+  Allow group <group> to manage secret-family in compartment <compartment>
+  Allow group <group> to manage policies in compartment <compartment>
+  Allow group <group> to manage dynamic-groups in tenancy
   ```
 
   and whatever the PostgreSQL service's own documentation asks for, if the
@@ -326,9 +315,158 @@ tables below say which.
 | `simple-balance:maxConnections` | no | `100`, or `200` with `database: in-cluster` | What the database allows. Unset, it stands for a stock PostgreSQL; with an in-cluster database it is read from the chart's own `max_connections` instead, because 100 there would refuse replica ceilings the cluster could serve. See below. |
 | `simple-balance:kubernetesVersion` | no | the cloud's default | EKS only. GKE takes its version from the regular release channel. |
 | `simple-balance:trustedProxyCidr` | no | the program's own: on AWS the VPC's `10.0.0.0/16`, recursion off; on GCP `130.211.0.0/22`, `35.191.0.0/16` and the Ingress's reserved address, recursion on | What the frontend's nginx believes `X-Forwarded-For` from: one address or CIDR, or several separated by commas or spaces, each a proxy's own and nothing wider. Passed as the chart's `frontend.trustedProxyCidr`. Set, it replaces the program's list whole, with recursion off unless `simple-balance:realIpRecursive` says otherwise. Leave it unset unless you have changed what sits in front: the program's list is worked out for the network it built, and [things that will surprise you](#things-that-will-surprise-you) says why each cloud's is what it is. |
+| `simple-balance:env` | no | | Every plain application setting, as a map: `pulumi config set --path 'simple-balance:env.SB_BILLING_ENABLED' true`. Every program, both profiles. See [The application's settings](#the-applications-settings). |
+| `simple-balance:secrets` | no, secret | | Every secret application setting, as a map, each set with `--secret`: `pulumi config set --secret --path 'simple-balance:secrets.STRIPE_SECRET_KEY' 'rk_live_...'`. Every program, both profiles. |
 | `simple-balance:realIpRecursive` | no | the program's (AWS off, GCP on); off beside your own `trustedProxyCidr` | Passed as the chart's `frontend.realIpRecursive`. On, nginx walks `X-Forwarded-For` from the right past every trusted address to the first that is not, which a chain of proxies that each append needs; off, it takes the last entry, which is right behind one that replaces the header. Set, it wins over the program's choice either way. |
 | `aws:region` | yes, AWS | | |
 | `gcp:project`, `gcp:region` | yes, GCP | | |
+
+## The application's settings
+
+Everything the application reads that the stack has no key of its own for —
+SMTP, Google sign-in, Stripe, AdSense, the legal pages, the limits — is set in
+the stack, in two maps:
+
+| Map | Holds | Stored |
+| --- | --- | --- |
+| `simple-balance:env` | Plain settings: `SB_BILLING_ENABLED`, `STRIPE_PUBLISHABLE_KEY`, the price ids, `ADSENSE_*`, `PRIVACY_POLICY_URL`, `SMTP_HOST`, `MAIL_FROM` | In `Pulumi.<stack>.yaml`, in the clear |
+| `simple-balance:secrets` | The nine the server treats as secrets — `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SMTP_PASSWORD`, `GOOGLE_CLIENT_SECRET`, `METRICS_TOKEN`, and on a single machine `DATABASE_URL`, `DIRECT_DATABASE_URL`, `AUTH_SECRET` and `SETUP_TOKEN` | In `Pulumi.<stack>.yaml`, encrypted with the stack's passphrase or secrets provider |
+
+The names are the ones in [docs/deployment.md](../../docs/deployment.md) and the
+repository's `.env.example`. `pulumi preview` refuses, before anything is
+built: a name the application does not read (a typo would otherwise reach the
+machine and be ignored there); a secret in `env`, which would sit in plain
+text in a committed file; the same name in both; and a name the program decides
+from a key of its own — `APP_BASE_URL` from `hostname`, `ALLOWED_EMAILS` from
+`allowedEmails`, `TRUST_PROXY` from what sits in front of the application, and
+on a cluster the four credentials above, which have their own keys.
+
+**Where they go from there** is each cloud's own store, read by the workload's
+own identity:
+
+- **`oci-single`**: one secret in OCI Vault, in a vault and key the program
+  creates — or in the vault `simple-balance:kmsVaultOcid` names. A dynamic group
+  matching the application machine by OCID, and a policy letting it read that
+  one secret, are the whole of the grant. The vault is a DEFAULT vault with a
+  software key, both inside Always Free.
+- **`aws-single`**: one secret in AWS Secrets Manager, encrypted with
+  `simple-balance:kmsKeyArn` when the stack names one; the application
+  machine's instance role may read that one secret. $0.40 a month.
+- **`aws`, `gcp` and `oci`**: the plain half in the chart's values, the secret
+  half in the Kubernetes Secret the program builds, which on EKS and GKE the
+  cloud's key service encrypts at rest with a key the program creates for it.
+
+On a single machine nothing is typed into a file over SSH any more, and nothing
+the stack sets travels in user data, which anyone who can describe the instance
+can read. The machine fetches its settings at every start and checks every five
+minutes, so **`pulumi up` is how a setting changes**: within five minutes of it
+the machine has the new value and has restarted the deployment once. On a
+cluster, `pulumi up` changes the Secret or the values and the chart rolls the
+pods.
+
+### Setting them without a `.env` file
+
+One command per setting, from the directory holding the stack's
+`Pulumi.yaml` — or with `-C deploy/pulumi/<program>` from anywhere:
+
+```sh
+pulumi config set --path 'simple-balance:env.SB_BILLING_ENABLED' true
+pulumi config set --path 'simple-balance:env.STRIPE_PUBLISHABLE_KEY' pk_live_...
+pulumi config set --path 'simple-balance:env.STRIPE_PRICE_MONTHLY_ID' price_...
+pulumi config set --path 'simple-balance:env.STRIPE_PRICE_YEARLY_ID' price_...
+pulumi config set --path 'simple-balance:env.ADSENSE_CLIENT_ID' ca-pub-...
+pulumi config set --path 'simple-balance:env.ADSENSE_BANNER_SLOT_ID' 1234567890
+pulumi config set --path 'simple-balance:env.PRIVACY_POLICY_URL' https://example.com/privacy/
+
+# Secrets: --secret, and no value on the command line, so Pulumi asks for it
+# without echoing it and it lands in no shell history and no process list.
+pulumi config set --secret --path 'simple-balance:secrets.STRIPE_SECRET_KEY'
+pulumi config set --secret --path 'simple-balance:secrets.STRIPE_WEBHOOK_SECRET'
+
+pulumi up
+```
+
+With no value on the command line, `pulumi config set` prompts for one, or
+reads it from standard input when that is a pipe:
+`op read op://Deploy/stripe/secret | pulumi config set --secret --path ...`
+works the same way from a password manager's CLI. `pulumi config get --path
+'simple-balance:secrets.STRIPE_SECRET_KEY'` shows one back, and `pulumi config
+rm --path 'simple-balance:env.ADSENSE_CLIENT_ID'` removes one; either is a
+`pulumi up` away from the machine.
+
+### Setting them from a `.env` file
+
+`settings-from-env.mjs`, beside this README, reads a `.env` file and makes
+the same calls, each secret with `--secret` and its value on standard input:
+
+```sh
+node deploy/pulumi/settings-from-env.mjs deploy/pulumi/oci-single production.env --dry-run
+node deploy/pulumi/settings-from-env.mjs deploy/pulumi/oci-single production.env
+pulumi -C deploy/pulumi/oci-single up
+```
+
+`--dry-run` lists what it would set, by name, and what it would leave out and
+why; `--stack <name>` picks a stack other than the selected one. The file is
+read literally — `MAIL_FROM=Simple Balance <balance@example.com>` is a
+perfectly good line, and a syntax error to a shell, so never `source` it — and
+one pair of matching quotes around a value is removed, the way Compose reads
+it.
+
+It leaves out names the application does not read, such as the `OCI_*` and
+`AWS_*` credentials a `.env` might also hold, and the names that say where a
+deployment is rather than how it behaves: `DATABASE_URL`, `DIRECT_DATABASE_URL`,
+`AUTH_SECRET`, `SETUP_TOKEN`, `APP_BASE_URL`, `PORT`, `TRUST_PROXY`. A
+development `.env` has all of those pointing at a laptop. Set one deliberately,
+by hand, when you mean it. Use a `.env` of production values: the script copies
+what it is given, so a development file's test Stripe keys become the
+deployment's.
+
+### Oracle Cloud credentials
+
+The provider takes an API signing key and four identifiers, from any one of:
+
+- **A `~/.oci/config` profile.** `oci setup config`, or Console → your profile
+  → API keys → Add API key, writes the `[DEFAULT]` profile — `user`,
+  `fingerprint`, `tenancy`, `region` and `key_file` — and the provider reads it
+  with nothing more said. `oci:configFileProfile` picks another profile.
+- **Environment variables**, in the shell that runs `pulumi`:
+
+  ```sh
+  export OCI_TENANCY_OCID=ocid1.tenancy.oc1..
+  export OCI_USER_OCID=ocid1.user.oc1..
+  export OCI_FINGERPRINT=12:34:56:...
+  export OCI_REGION=us-sanjose-1
+  export OCI_PRIVATE_KEY="$(cat ~/.oci/oci_api_key.pem)"   # the key itself, or
+  export OCI_PRIVATE_KEY_PATH=~/.oci/oci_api_key.pem       # where it is
+  ```
+
+- **Stack config:** `oci:tenancyOcid`, `oci:userOcid`, `oci:fingerprint`, and
+  `oci:privateKeyPath` or `oci:privateKey` (with `--secret`).
+
+**A key in a `.env` file** has to be one line, and a PEM file is many. Encode
+it as base64 on a single line, keep that as `OCI_PRIVATE_KEY_B64`, and decode
+it into `OCI_PRIVATE_KEY` before running Pulumi:
+
+```sh
+# macOS
+base64 -i oci_api_key.pem | tr -d '\n'
+# Linux
+base64 -w0 oci_api_key.pem
+# either, then in the .env:
+#   OCI_PRIVATE_KEY_B64=LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0t...
+
+export OCI_PRIVATE_KEY="$(printf %s "$OCI_PRIVATE_KEY_B64" | base64 --decode)"
+```
+
+To check the key you have is the one OCI knows, compare its fingerprint with
+the one the console shows under API keys:
+
+```sh
+openssl pkey -in oci_api_key.pem -pubout -outform DER | openssl md5 -c
+```
+
+The region the provider reads from any of these is *not* where the stack
+builds: that is `oci:region`, which the program requires in the stack.
 
 ## AWS
 
@@ -496,7 +634,7 @@ private subnet nor the NAT gateway, and the application node then waits for a
 | --- | --- | --- | --- |
 | `hostname` | yes | | The public DNS name. A name and nothing else: no scheme, no port, no path. Caddy obtains a certificate for it, so it has to resolve to the machine before HTTPS works |
 | `size` | | `small` | The **application half** of the row `small`, `medium` or `large`: the application node's machine and its data disk, which holds the nightly dumps and grows with `backupKeep` rather than with the machine. `docs/deployment-sizing.md` is the table, and it is the same table `single-common/index.ts` implements |
-| `databaseNode` | | `true` | Whether to build the database node, its private subnet, its NAT gateway, its volume and its certificate. `false` builds none of it and leaves the machine exactly as it was before this profile had a database: write your own `DATABASE_URL` into `env.local`, and firstboot's gate holds the deployment stopped until you do. It is the answer for somebody who already keeps a PostgreSQL, and on AWS it is one way to avoid the NAT gateway's $36.50 a month — no longer the only one, since `databaseEgress: ipv6` keeps the node and drops the gateway |
+| `databaseNode` | | `true` | Whether to build the database node, its private subnet, its NAT gateway, its volume and its certificate. `false` builds none of it and leaves the machine exactly as it was before this profile had a database: set your own `DATABASE_URL` in `simple-balance:secrets`, and firstboot's gate holds the deployment stopped until you do. It is the answer for somebody who already keeps a PostgreSQL, and on AWS it is one way to avoid the NAT gateway's $36.50 a month — no longer the only one, since `databaseEgress: ipv6` keeps the node and drops the gateway |
 | `databaseSize` | | whatever `size` is | The **database half** of the same row: the database node's machine, its `PGDATA` disk, and the five PostgreSQL settings the compose file applies as `-c` flags. Separate from `size` because the two machines want opposite things — the application is a mostly idle Node process and PostgreSQL turns every spare byte into cache. Raising this alone gives you a database the backup disk cannot hold dumps of, so raise `size` with it or lower `backupKeep` |
 | `databaseMaxConnections` | | `50` | `max_connections` on the database node, floor 10. Eleven for the application, one for `psql`, one for the nightly `pg_dump`, and the rest is slack; PostgreSQL's own default of 100 costs memory `shared_buffers` would rather have |
 | `databasePassword` | secret | generated | The application role's password. Unset, a 32-character alphanumeric one is generated. Set, yours wins. Letters and digits only, at least 16 of them, and that is narrower than PostgreSQL would accept on purpose: the value travels through a URL, a Compose `.env` and a shell script, each with its own escaping, and an encoding applied in one of the three and not the others is a password that works until the nightly backup runs. The **superuser's** password is not this and is not a setting — it is generated on the database node at first boot and exists in no state file and no user data |
@@ -515,9 +653,9 @@ private subnet nor the NAT gateway, and the application node then waits for a
 | `aws:region` | on AWS | | The region to build in, such as `us-west-2`, exported as `region`. Required in the stack, and `preview` stops before anything is declared without it: otherwise the provider takes `AWS_REGION` or `AWS_DEFAULT_REGION` from the shell, so where the machine and its data volume live would depend on who runs `pulumi up`. Version 7 of the provider records a region on every resource, so a stack run from a shell pointed at another region plans to replace every one of them there, the data volume included. Set it once and never change it: see [tearing down on AWS](#tearing-down-on-aws) for what a new one does. Any region is accepted |
 | `oci:region` | on OCI | | The region to build in, such as `us-ashburn-1`, exported as `region`. Required in the stack even when `~/.oci/config` names one, and `preview` stops before anything is declared without it: otherwise the provider takes `TF_VAR_region`, `OCI_REGION` or the profile's region, so where the machine and its data volume live would depend on who runs `pulumi up`, and a stack run from another shell would look for its resources somewhere they are not. For Always Free it is the tenancy's home region, because Ampere A1 capacity is free there and nowhere else; the home region is chosen at sign-up and cannot be changed afterward, and Profile → Tenancy in the console shows it. A paid tenancy may name any region it subscribes to. The hosted Simple Balance deployment builds in a US home region because its privacy policy says its data is stored in the United States — a promise that deployment makes, not one this program enforces, so any region is accepted |
 | `compartmentOcid` | OCI only | | Which compartment to build in. OCI has no default and the root compartment is a poor choice, since policies cannot be scoped to it |
-| `availabilityDomain` | | the first | OCI only. Which availability domain to build both machines and both data volumes in, by full name or by number from 1. Try another when a launch fails with `Out of host capacity` — another domain rather than another region, because Always Free covers the tenancy's home region only. Set it before the first successful `up` and leave it: changing it afterward would replace the data volumes, and the secret, `env.local`, the backups and the ledger would go with the old ones, so while `protectDataVolume` is `true` the program refuses that `up` before it touches a machine or a volume, and names the domain to set back. Until a launch succeeds it is free to change: the volumes are built after the machines, so a launch refused for capacity leaves nothing in the domain |
+| `availabilityDomain` | | the first | OCI only. Which availability domain to build both machines and both data volumes in, by full name or by number from 1. Try another when a launch fails with `Out of host capacity` — another domain rather than another region, because Always Free covers the tenancy's home region only. Set it before the first successful `up` and leave it: changing it afterward would replace the data volumes, and the secret, the backups and the ledger would go with the old ones, so while `protectDataVolume` is `true` the program refuses that `up` before it touches a machine or a volume, and names the domain to set back. Until a launch succeeds it is free to change: the volumes are built after the machines, so a launch refused for capacity leaves nothing in the domain |
 | `databaseSubnet` | | `false` | OCI only, and **deprecated in favour of `databaseNode`**. It asks for the private subnet with nothing in it, for an OCI managed database you build by hand — see [a database for Oracle Cloud](#a-database-for-oracle-cloud). It is still honoured, and a stack that sets it logs a deprecation line and carries on, because nothing that was accepted is refused. The subnet, its route to the NAT gateway and its security list are built when either this or `databaseNode` asks for them, and its OCID is exported as `databaseSubnetId` either way; only the PostgreSQL machine inside it belongs to `databaseNode` |
-| `protectDataVolume` | | `true` | Marks **both** data volumes with Pulumi's `protect`, so `pulumi destroy` fails at its preview and deletes nothing, and so does an `up` that would replace either. On Oracle Cloud a new `availabilityDomain` is refused before a machine or a volume is touched, `--skip-preview` included; on AWS two settings would replace them — a new `aws:region`, which the preview refuses at the volume, and a `kmsKeyArn`, which is why the program refuses that setting unless `kmsKeyArnIsNewStack` says the volumes do not exist yet. **This setting is not the guard for that one**, and could not be: `protect` is a flag in the state snapshot, and `pulumi state unprotect` clears it there while this still reads `true`. Either would otherwise take the generated secret, `env.local`, every backup — and, on the database node, the ledger. A resize and a replaced machine still go through. `false` is how to mean it — see [tearing down on AWS](#tearing-down-on-aws) and [on Oracle Cloud](#tearing-down-on-oracle-cloud) |
+| `protectDataVolume` | | `true` | Marks **both** data volumes with Pulumi's `protect`, so `pulumi destroy` fails at its preview and deletes nothing, and so does an `up` that would replace either. On Oracle Cloud a new `availabilityDomain` is refused before a machine or a volume is touched, `--skip-preview` included; on AWS two settings would replace them — a new `aws:region`, which the preview refuses at the volume, and a `kmsKeyArn`, which is why the program refuses that setting unless `kmsKeyArnIsNewStack` says the volumes do not exist yet. **This setting is not the guard for that one**, and could not be: `protect` is a flag in the state snapshot, and `pulumi state unprotect` clears it there while this still reads `true`. Either would otherwise take the generated secret, every backup — and, on the database node, the ledger. A resize and a replaced machine still go through. `false` is how to mean it — see [tearing down on AWS](#tearing-down-on-aws) and [on Oracle Cloud](#tearing-down-on-oracle-cloud) |
 
 **The only secret key here is `databasePassword`, and it is optional.**
 `AUTH_SECRET` is generated on the application node at first boot and kept on its
@@ -553,7 +691,7 @@ pulumi -C oci-single up
 
 Both print a `nextSteps` output saying what is left, in order: the A record,
 reaching the application node, the database — which with a database node is
-"nothing to do", and without one is putting a `DATABASE_URL` in `env.local` and
+"nothing to do", and without one is setting a `DATABASE_URL` in the stack and
 running firstboot — and then finding the one-time setup code in the
 application's log. The certificate arrives on its own once the name resolves;
 Caddy keeps retrying until it does.
@@ -593,8 +731,9 @@ restored, because a new machine brings back the image the stack names and leaves
 the database as the upgrade's migrations left it. Each data volume is a separate
 resource and is formatted only when it is not already a filesystem, so either
 replacement destroys that machine's root disk and leaves its volume alone — the
-backups, the generated `AUTH_SECRET` and `env.local` on one, the ledger and the
-superuser password on the other. The server certificate and its key are on the
+backups, the generated `AUTH_SECRET` on one, the ledger and the
+superuser password on the other. The stack's settings are on neither: the
+replacement fetches them from the cloud's store at its first start. The server certificate and its key are on the
 database node's **root** disk rather than its volume, deliberately: cloud-init
 re-delivers them to a replacement, so there is nothing to keep. Pulumi moves the volume across once the new
 machine is running, and the new machine's first boot waits up to forty
@@ -629,8 +768,11 @@ the user data they send, `oci-single` to the whole of the instance's `metadata`.
 Deliberately — on Oracle Cloud a change there replaces the instance, which is
 minutes of downtime and a new address, and on AWS it stops and starts it, and
 either way the new text would run nowhere. These programs provision a machine;
-they do not keep managing it. So a new release, a setting, or on OCI a new SSH
-key is applied on the machine:
+they do not keep managing it — with one exception, the stack's settings, which
+the machine reads from the cloud's secret store and checks every five minutes,
+so `pulumi up` applies a setting with nobody logged in
+([The application's settings](#the-applications-settings)). A new release, or
+on OCI a new SSH key, is applied on the machine:
 
 ```sh
 # An application upgrade.
@@ -638,9 +780,8 @@ sudo nano /opt/simple-balance/compose.yml       # the pinned image tag
 sudo docker compose -f /opt/simple-balance/compose.yml pull
 sudo systemctl restart simple-balance
 
-# A setting.
-sudo nano /var/lib/simple-balance/env.local
-sudo systemctl restart simple-balance
+# A setting applied now rather than within five minutes, after pulumi up.
+sudo systemctl start simple-balance-settings
 
 # Another SSH key, on OCI.
 nano ~/.ssh/authorized_keys
@@ -674,9 +815,10 @@ postgresql://simple_balance:<password>@<internal DNS name>:5432/simple_balance?s
 ```
 
 `simple-balance-env` folds `env.base`, then `env.db`, then `secrets.env`, then
-`env.local`, and Compose reads the last assignment — so writing a `DATABASE_URL`
-of your own into `env.local` still wins, on a machine whose program generated
-one, with nothing to turn off first.
+the stack's settings as the machine last fetched them, and Compose reads the
+last assignment — so a `DATABASE_URL` of your own in `simple-balance:secrets`
+wins, on a machine whose program generated one, with nothing to turn off
+first.
 
 **The certificate.** `@pulumi/tls` issues a private CA and a server certificate
 at plan time, before either machine exists. The CA's key stays in Pulumi's
@@ -742,49 +884,46 @@ old and the new issuer removes even that window. `docs/upgrades.md` has the
 precedent, which is the same shape as installing `compose.db-tls.yml` on a
 machine built before it existed.
 
-### `DATABASE_URL` goes on the machine
+### Bringing your own database
 
 This is the `simple-balance:databaseNode: false` path, and it is what these
-programs did before they built a database. There is no stack setting for the
-URL, and that is the one worth expecting: the connection string carries a
-password, and anything these programs put on the machine arrives as user data,
-which is readable by anyone who can describe the instance. The first boot
-therefore leaves the deployment enabled and stopped, with the instructions in
-`/etc/motd`:
+programs did before they built a database. The connection string is a stack
+secret like any other — it used to be typed into a file on the machine,
+because anything a program put there arrived as user data that anyone who can
+describe the instance can read, and the settings no longer travel that way. The
+first boot leaves the deployment enabled and stopped until the stack has one,
+with the instructions in `/etc/motd`:
 
 ```sh
-sudo install -m 0644 ca.pem /var/lib/simple-balance/tls/db-ca.pem   # the database's CA, below
-sudo nano /var/lib/simple-balance/env.local
-#   DATABASE_URL='postgresql://user:password@host:5432/simple_balance?sslmode=verify-full&sslrootcert=/var/lib/simple-balance/tls/db-ca.pem'
+# On the machine: the database's CA, below.
+sudo install -m 0644 ca.pem /var/lib/simple-balance/tls/db-ca.pem
+
+# Where you run Pulumi.
+pulumi config set --secret --path 'simple-balance:secrets.DATABASE_URL' \
+  'postgresql://user:password@host:5432/simple_balance?sslmode=verify-full&sslrootcert=/var/lib/simple-balance/tls/db-ca.pem'
+pulumi up
+
+# On the machine again, once that has finished.
 sudo /usr/local/sbin/simple-balance-firstboot
 ```
 
-Single quotes, so nothing in the value is expanded, and a password with any of
+A password with any of
 `@ : / ? # [ ] % & $` or a space in it written URL-encoded:
 `python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' 'the password'`
-prints it. If that URL goes through a transaction pooler, which managed services
-often hand out, put `DIRECT_DATABASE_URL` beside it, written the same way and
-reaching the same database past the pooler: migrations and the first-account
-claim hold a session-level advisory lock that a pooler cannot carry.
+prints it, and a single quote is the one character the machine's Compose file
+cannot carry at all, so `pulumi preview` refuses it. If that URL goes through a
+transaction pooler, which managed services often hand out, set
+`simple-balance:secrets.DIRECT_DATABASE_URL` beside it, reaching the same
+database past the pooler: migrations and the first-account claim hold a
+session-level advisory lock that a pooler cannot carry.
 
-The first-boot script rebuilds the configuration and starts the deployment and
-its nightly backup timer; it is written to be safe to re-run, which is what
-makes that a real instruction rather than a suggestion. Run it, rather than a
-restart, the first time: a restart would start the deployment but not the timer,
-which would wait for the next reboot, and would leave `/etc/motd` saying nothing
-is running. Once the deployment is running, a plain
-`sudo systemctl restart simple-balance` applies a change to the URL like any
-other setting.
-
-Settings that genuinely come from outside — an SMTP password, a Stripe key, the
-AdSense ids and the `PRIVACY_POLICY_URL` the server refuses to start without
-once they are set, the optional `TERMS_OF_USE_URL` — go in
-`/var/lib/simple-balance/env.local` too. It is on the data volume rather than
-the boot disk, and it is folded into the `.env` Compose reads every time the
-deployment starts: cloud-init installs a drop-in beside the unit that runs
-`/usr/local/sbin/simple-balance-env` first. So a setting is an edit and a
-restart. `/opt` is destroyed when the instance is rebuilt; the data volume is
-not.
+The first-boot script fetches the settings again, rebuilds the configuration
+and starts the deployment, its nightly backup timer and its settings timer; it
+is written to be safe to re-run, which is what makes that a real instruction
+rather than a suggestion. Run it, rather than a restart, the first time: a
+restart would start the deployment but neither timer, and would leave
+`/etc/motd` saying nothing is running. Once the deployment is running, a change
+to the URL is a `pulumi up` like any other setting.
 
 Use `sslmode=verify-full`, and name the certificate of the CA that signed the
 database's with `sslrootcert=/var/lib/simple-balance/tls/db-ca.pem`. Most
@@ -889,12 +1028,18 @@ in the console under Databases → PostgreSQL → DB systems, create one:
    `oci psql connection-details get --db-system-id <DB system OCID> --query 'data."ca-certificate"' --raw-output > ca.pem`.
    Copy it to the machine the way you reach it.
 
-Then, on the machine:
+Then:
 
 ```sh
+# On the machine.
 sudo install -m 0644 ca.pem /var/lib/simple-balance/tls/db-ca.pem
-sudo nano /var/lib/simple-balance/env.local
-#   DATABASE_URL='postgresql://admin:<password, URL-encoded>@<private endpoint FQDN>:5432/simple_balance?sslmode=verify-full&sslrootcert=/var/lib/simple-balance/tls/db-ca.pem'
+
+# Where you run Pulumi.
+pulumi config set --secret --path 'simple-balance:secrets.DATABASE_URL' \
+  'postgresql://admin:<password, URL-encoded>@<private endpoint FQDN>:5432/simple_balance?sslmode=verify-full&sslrootcert=/var/lib/simple-balance/tls/db-ca.pem'
+pulumi up
+
+# On the machine, once that has finished.
 sudo /usr/local/sbin/simple-balance-firstboot
 ```
 
@@ -929,8 +1074,9 @@ address `publicIp` reports. The same URL shape applies: `verify-full`, with
 
 The two data volumes are the things in `oci-single`'s stack the next
 `pulumi up` cannot rebuild. The application node's holds the generated
-`AUTH_SECRET`, `env.local` and every nightly dump; a new one means a new secret,
-which signs everybody out, every setting typed in again, and no backups at all.
+`AUTH_SECRET` and every nightly dump; a new one means a new secret, which signs
+everybody out, and no backups at all. The settings are not on it — they are the
+stack's, and come back from Vault.
 **The database node's holds the ledger**, and losing it is losing the books. So
 the program marks both with Pulumi's
 [`protect`](https://www.pulumi.com/docs/iac/concepts/options/protect/) option
@@ -992,6 +1138,14 @@ pulumi -C oci-single state unprotect \
 pulumi -C oci-single destroy
 ```
 
+The settings vault cannot be deleted on the spot: OCI puts a vault, its key
+and its secret into pending deletion for seven to thirty days, and `destroy`
+schedules that and finishes. Nothing on disk depends on it, so the volumes you
+kept are unaffected; it does hold the stack's settings until the deletion
+happens, and it counts against the tenancy's vault limit until then. A vault
+named by `simple-balance:kmsVaultOcid` is the operator's and is left alone;
+only the secret in it is scheduled for deletion.
+
 A stack left at `false` builds its next volume unprotected, so run
 `pulumi -C oci-single config rm simple-balance:protectDataVolume` before
 building it again.
@@ -1000,9 +1154,8 @@ building it again.
 
 The two data volumes are the things in `aws-single`'s stack the next
 `pulumi up` cannot rebuild, for the same reasons as on Oracle Cloud above: one
-holds the generated `AUTH_SECRET`, `env.local` and every nightly dump, and a new
-one means everybody signed out, every setting typed in again and no backups; the
-other holds the ledger. So the program marks both with Pulumi's
+holds the generated `AUTH_SECRET` and every nightly dump, and a new one means
+everybody signed out and no backups; the other holds the ledger. So the program marks both with Pulumi's
 [`protect`](https://www.pulumi.com/docs/iac/concepts/options/protect/) option
 unless `simple-balance:protectDataVolume` is `false`, and while it is marked:
 

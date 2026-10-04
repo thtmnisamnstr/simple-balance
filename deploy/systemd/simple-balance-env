@@ -3,20 +3,20 @@
 # parts: env.base, which cloud-init wrote and which holds nothing secret; env.db,
 # which cloud-init also wrote and which holds the one credential the program had
 # to decide; the secret the first-boot script generated onto the data volume;
-# and env.local, the settings somebody added by hand, on the same volume.
+# and env.settings, the stack's own settings, which simple-balance-settings
+# fetched from the cloud's secret store a moment before this runs.
 #
-# The order is the whole upgrade-safety story for these machines, and it is the
-# order below: a name set in env.local wins over every generated one, because a
-# duplicate later in the file is what Compose reads. An operator who writes
-# their own DATABASE_URL — pointing at a database they already keep, or at a
-# replica during a move — still gets it, on a machine whose program generated
-# one, with nothing to turn off first.
+# The order is the precedence, and it is the order below: a name in
+# env.settings wins over every generated one, because a duplicate later in the
+# file is what Compose reads. An operator who sets their own DATABASE_URL in
+# `simple-balance:secrets` — pointing at a database they already keep, or at a
+# replica during a move — gets it, on a machine whose program generated one,
+# with nothing to turn off first.
 #
 # Run by both first-boot scripts, and before every start of the deployment by
-# the drop-in the cloud programs install beside the unit, which is what makes
-# "edit env.local, then sudo systemctl restart simple-balance" true. Not by the
-# unit itself: simple-balance.service also serves a hand install, whose .env is
-# somebody's own and has no parts to be assembled from.
+# the drop-in the cloud programs install beside the unit, right after the fetch.
+# Not by the unit itself: simple-balance.service also serves a hand install,
+# whose .env is somebody's own and has no parts to be assembled from.
 set -eu
 
 : "${SB_COMPOSE_DIR:=/opt/simple-balance}"
@@ -36,7 +36,10 @@ base="$SB_COMPOSE_DIR/env.base"
 # and so does every machine built before this file existed.
 db="$SB_COMPOSE_DIR/env.db"
 secrets="$SB_STATE_DIR/secrets.env"
-local_env="$SB_STATE_DIR/env.local"
+# On the boot disk, 0600, and rewritten by every fetch: the store is where the
+# settings live, so a copy that outlived the machine would only ever be a stale
+# one.
+settings="$SB_COMPOSE_DIR/env.settings"
 target="$SB_COMPOSE_DIR/.env"
 
 # No env.base means no cloud program built this machine, so its .env is written
@@ -69,16 +72,24 @@ partial="$target.partial"
 		cat "$db"
 	fi
 	cat "$secrets"
-	if [ -s "$local_env" ]; then
-		echo "# --- added by hand, on the volume that survives a rebuild ---"
-		cat "$local_env"
+	if [ -s "$settings" ]; then
+		echo "# --- the stack's settings, from the cloud's secret store ---"
+		cat "$settings"
 	fi
 } >"$partial"
 chmod 0600 "$partial"
 mv "$partial" "$target"
 
+# A machine built before the settings moved into the stack may still hold the
+# file they used to be typed into. It is not read, and saying so at every start
+# is what stops somebody editing it and wondering why nothing changed.
+if [ -s "$SB_STATE_DIR/env.local" ]; then
+	echo "simple-balance-env: $SB_STATE_DIR/env.local is no longer read. Move what is in it into the stack's" >&2
+	echo "  simple-balance:env and simple-balance:secrets (deploy/pulumi/README.md), run pulumi up, then delete it." >&2
+fi
+
 # Said, never enforced, and the distinction is the release rule rather than
-# timidity: a `sslmode=disable` somebody wrote into env.local was accepted by
+# timidity: a `sslmode=disable` somebody set in the stack was accepted by
 # the release before this one, and a setting that was accepted stays accepted.
 # Refusing here would stop a deployment that worked yesterday, on a machine
 # whose operator is not watching, for a reason they would have to find in the
