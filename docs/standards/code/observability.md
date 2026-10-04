@@ -485,8 +485,8 @@ mistake (`src/server/config-limits.ts:74`, and `warnOnce` at
 **Binding.** Everything this product degrades rather than fails on says so: a
 relay that refuses its credentials at startup, a reminder sweep that throws, a
 tick that throws, an OAuth client sweep that fails, the two Stripe checks both
-entrypoints make at boot — the prices (`src/server/stripe.ts:1527`) and what
-the key may read (`:1605-1620`) — and the reconciliation sweep carrying on
+entrypoints make at boot — the prices (`src/server/stripe.ts:1528`) and what
+the key may read (`:1608-1623`) — and the reconciliation sweep carrying on
 past a subscription Stripe cannot answer about
 (`src/server/services/billing.ts:2034`). Each logs and continues,
 because the alternative — a `catch` with an empty body — produces a deployment

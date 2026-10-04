@@ -51,7 +51,7 @@ mode when you go live, because nothing made in one mode exists in the other.
    | SetupIntents | Write | Created when somebody replaces a card, and read when it is confirmed |
    | Invoices | Write | Read to find a subscription's open invoice and the secret that confirms it, and paid with a replaced card |
    | PaymentIntents | Write | Read with every subscription created and every payment resumed, because the invoice's confirmation secret is its PaymentIntent's; read on the plan tab to say why a payment failed; updated before **Pay now** or **Pay what is owed** so the card that pays a renewal is kept as the one billed; and confirmed when a replaced card pays what is owed |
-   | PaymentMethods | Read | Read, never written, to tell which card Stripe is billing |
+   | PaymentMethods | Write | Read to tell which card Stripe is billing, and named as the default when somebody replaces a card — on the subscription and on the customer — which Stripe allows only a key holding Write on Payment Methods to do |
    | Prices | Read | The two prices, read for the plan tab and checked as above |
 
    **A key tagged for an agent is tagged when you create it.** Stripe asks a
@@ -104,10 +104,16 @@ mode when you go live, because nothing made in one mode exists in the other.
    Stripe does not always say which permission a key lacked. Sometimes it
    does — "Having payment_intent_read would allow this request to continue"
    — and sometimes it does not: `subscriptions.create` from a key without
-   PaymentIntents answered only "An unknown error occurred". So the server
+   PaymentIntents answered only "An unknown error occurred". And some calls are
+   never made in a sandbox at all: Payment Methods: Write is needed only when a
+   replaced card is made the default, which a test account whose customers
+   never saved and swapped a card does not reach. So the server
    asks for itself. At startup, beside the price check, a restricted key is
-   asked for one item of each resource above bar PaymentMethods, which writes
-   nothing; the log names in one error line every one it cannot read, and the
+   asked for one item of each resource above bar PaymentMethods, and that
+   is the one it cannot ask about: this product reads a card only expanded
+   inside another object and writes one only by naming it as a default, so a
+   read of its own would prove neither. The probe writes nothing; the log
+   names in one error line every resource it cannot read, and the
    process starts either way. A standard `sk_…` key holds every permission and
    is not asked. That proves reads only: a key with Read where the table says
    Write passes it, and so does an agent-tagged key, because the call an

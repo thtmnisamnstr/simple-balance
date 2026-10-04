@@ -5,7 +5,7 @@ keeping.
 
 | Tier | Files | Runs with | Needs |
 | --- | --- | --- | --- |
-| Unit (node) | 194 | `npm test` | nothing |
+| Unit (node) | 195 | `npm test` | nothing |
 | Unit (jsdom) | 59 | `npm test` | nothing |
 | Integration | 75 | `npm test` **or** `npm run test:integration` | PostgreSQL |
 | Browser | 6 | `npm run test:browser` | PostgreSQL, Chromium |
@@ -23,14 +23,14 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 254 pass, 74 skip | **2,765 pass, 863 skip** |
-| `npm test`, database set | 328 pass | **3,628 pass** |
+| `npm test`, no database | 255 pass, 74 skip | **2,769 pass, 863 skip** |
+| `npm test`, database set | 329 pass | **3,632 pass** |
 | `npm run test:integration` | 75 pass | 864 pass |
 
 The integration tier reports 864 tests on its own and 863 skips inside a
 database-less `npm test`, and the one-test difference is not an error: one case
 in that tier needs no database and so runs either way. It is counted among the
-2,765 rather than among the skips, which is why the two rows add up to 3,628
+2,769 rather than among the skips, which is why the two rows add up to 3,632
 both times.
 
 The third row is one test larger than the first row's skip count, and the odd
@@ -38,7 +38,7 @@ one out is worth knowing: `bulk-transactions-mcp.integration.test.ts` has one
 `describe` outside the database guard, because discovering which tools a scope
 exposes needs no ledger. It runs on every `npm test`, database or not.
 
-The first row is what CI and `npm run verify` see, and 2,765 is the number that
+The first row is what CI and `npm run verify` see, and 2,769 is the number that
 actually gates a change by default. The second is what a developer with a local
 PostgreSQL sees, and it is strictly better. Reporting the second as though it
 were the first overstates what the gate covers, which is a mistake worth naming

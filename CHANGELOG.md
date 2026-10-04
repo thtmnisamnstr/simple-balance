@@ -755,8 +755,9 @@ rules are on the Approvals page, where any can be deleted. Do it again in live
 mode either way — a key belongs to one mode, though whether a rule does is
 something Stripe does not say, so that page is worth a look there too. That
 table also
-gains **PaymentIntents: Write**, which is not optional: it is what lets a paid
-renewal keep the card that paid it.
+gains **PaymentIntents: Write** and **PaymentMethods: Write**, neither optional:
+the first is what lets a paid renewal keep the card that paid it, and the second
+is what lets a replaced card become the one Stripe bills.
 
 **The plan tab states its renewal terms beside every request to pay.** Beside
 the Annual and Monthly buttons, beside the payment form's confirm button for the

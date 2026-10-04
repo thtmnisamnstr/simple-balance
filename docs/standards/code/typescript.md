@@ -359,7 +359,7 @@ fact the published types are missing:
 
 | Where | The one property | The fact the types are missing |
 | --- | --- | --- |
-| `src/server/stripe.ts:351` | `current_period_end` | Stripe moved the period boundary onto the subscription's items; an account on an older API version still sends it on the subscription. |
+| `src/server/stripe.ts:352` | `current_period_end` | Stripe moved the period boundary onto the subscription's items; an account on an older API version still sends it on the subscription. |
 | `src/client/ads.tsx:115` | `requestNonPersonalizedAds` | Google's tag takes the flag on the queue array itself, which is typed as an array. |
 | `src/shared/domain.ts:24` | `pattern` | Zod's registry types the value as a string, and `undefined` is what *removes* the key from the emitted JSON Schema. |
 

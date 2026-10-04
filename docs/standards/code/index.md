@@ -291,7 +291,7 @@ in the same breath, which reads as one toolchain over one tree.
 format check today: `scripts/capacity/load.mjs`, `scripts/capacity/schedule.mjs`,
 `scripts/ralph/git-guard.mjs`, `scripts/ralph/runner.mjs`, and
 `scripts/set-version.mjs` — the tool the release procedure runs first
-(`docs/upgrades.md:1256`). The infrastructure half is the reason nothing has
+(`docs/upgrades.md:1260`). The infrastructure half is the reason nothing has
 broken: all thirteen Pulumi modules happen to be clean, so the gap has stayed
 invisible while `npm run verify` went on passing. `typescript.md` §3.5 records
 the same gap from the other end, in the row of its comparison table that reads

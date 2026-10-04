@@ -740,9 +740,9 @@ misconfigured.
 
 **The named exceptions are the checks that ask another service**, and there are
 three. `checkMailTransport` logs a long, specific error and continues.
-`checkStripePrices` (`src/server/stripe.ts:1527`) does the same for the two
+`checkStripePrices` (`src/server/stripe.ts:1528`) does the same for the two
 price ids, and a definite mismatch stops sales at the point of sale rather than
-the process. `checkStripeAccess` (`:1589`) asks, for a restricted key only,
+the process. `checkStripeAccess` (`:1592`) asks, for a restricted key only,
 whether it can read each resource this product uses, names in one error line
 every one it cannot, and writes nothing. Each asks something only the other end
 can answer, and can fail for reasons no configuration here controls — a relay
@@ -905,7 +905,7 @@ name in the message.
 
 The root file is the model for all five. `AUTH_SECRET=` is empty with
 `openssl rand -base64 32` above it (`.env.example:33-38`),
-`RECURRENCE_SCHEDULER` carries its own silence warning (`.env.example:251-261`),
+`RECURRENCE_SCHEDULER` carries its own silence warning (`.env.example:253-263`),
 and the mail block is commented out as a group (`.env.example:83-106`).
 
 It also does one thing beyond the rule, worth generalizing: it warns about
@@ -1089,7 +1089,7 @@ shutdown, is the slow half.** Migrations run at startup under advisory lock
 (`src/server/index.ts:28,78`; `src/server/scheduler.ts:73,101`), so readiness
 cannot open before they finish. The 0.1.5 notes record that the payee index
 "takes a moment to build while the container starts, before it opens readiness"
-(`docs/upgrades.md:1073-1075`). So the generous number is `--start-period`,
+(`docs/upgrades.md:1077-1079`). So the generous number is `--start-period`,
 currently 20s (`Dockerfile:58`), plus a Kubernetes startup probe. Not the
 shutdown deadline.
 

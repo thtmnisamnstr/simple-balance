@@ -829,11 +829,15 @@ order to shut billing down in.
 
 **Two things about the key itself, because Stripe will not always tell you.**
 §Setting up Stripe step 2 builds a restricted key, `rk_…`, and its table of
-permissions now includes **PaymentIntents: Write**. That one is not optional
-and was not in an earlier draft of the table: paying a failed renewal from the
-plan tab marks the invoice's PaymentIntent so the card that pays it becomes the
-card the subscription bills, and without the grant the next renewal goes back
-to the card that had already failed. And **a key is tagged for an agent when
+permissions now includes **PaymentIntents: Write** and **PaymentMethods:
+Write**. Neither is optional and neither was in an earlier draft of the table:
+paying a failed renewal from the plan tab marks the invoice's PaymentIntent so
+the card that pays it becomes the card the subscription bills, and without the
+grant the next renewal goes back to the card that had already failed; and
+replacing a card makes the new one the default on the subscription and the
+customer, which Stripe allows only with Write on Payment Methods. A key that
+worked in a sandbox can still lack the second, because a sandbox whose
+customers never replaced a card never made the call. And **a key is tagged for an agent when
 you create it**, by answering Stripe's question about the key's intended use
 with *Authorizing agent access to your account*, so a replacement key made the
 same way is tagged the same way. The tag brings Stripe's default approval

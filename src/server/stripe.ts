@@ -148,7 +148,8 @@ function reportKeyRefusal(operation: string, error: unknown) {
   log.error(
     `Stripe refused ${operation} because STRIPE_SECRET_KEY lacks a permission ` +
       `(${typeof code === "string" ? code : "permission_error"}). Give the key every ` +
-      "permission in docs/billing-operations.md step 2, PaymentIntents included; Stripe does " +
+      "permission in docs/billing-operations.md step 2, PaymentIntents and PaymentMethods " +
+      "included; Stripe does " +
       "not always name the one it wanted." +
       said,
   );
@@ -1545,9 +1546,11 @@ export async function checkStripePrices(): Promise<boolean> {
  * the key may read it: one item of a list, which writes nothing anywhere.
  *
  * The names are the dashboard's, because the reader acts on them there, and
- * the list is `docs/billing-operations.md` step 2's table less PaymentMethods,
- * which this product only ever reads expanded inside another resource; a key
- * without it is named by `reportKeyRefusal` at the first such read.
+ * the list is `docs/billing-operations.md` step 2's table less PaymentMethods.
+ * This product reads a card only expanded inside another resource and writes
+ * one only by naming it as a default, so a read of its own would prove
+ * neither half; a key without it is named by `reportKeyRefusal` at the first
+ * such call.
  */
 const accessProbes: readonly (readonly [string, string, (stripe: Stripe) => Promise<unknown>])[] = [
   ["Customers", "customer.list", (stripe) => stripe.customers.list({ limit: 1 })],
