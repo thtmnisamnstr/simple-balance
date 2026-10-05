@@ -90,11 +90,10 @@ add-category form called a kind "Both" that the rest of the app calls "Income
 or expense", while the question about what kind a new category is had no
 visible wording at all.
 
-**Addresses that lead nowhere say so.** An unknown address silently showed the
-overview, a report name nobody knows showed net worth under the wrong address,
-and a failed sign-in or MCP authorization link landed on the overview with no
-word of what had gone wrong. Each now gets a page, or a redirect, that says what
-happened.
+**A link that fails says so.** A failed sign-in or MCP authorization link
+landed on the overview with no word of what had gone wrong, and a report name
+nobody knows showed net worth under the wrong address. The first now gets a page
+that says what happened, and the second goes to Reports.
 
 **The account-deletion summary counts what is actually in the queue.** It
 counted every staged row ever kept, so somebody with an empty queue was told

@@ -8,7 +8,6 @@ import {
   LayoutDashboard,
   LayoutTemplate,
   LogOut,
-  MapPinOff,
   Moon,
   Menu,
   ReceiptText,
@@ -27,7 +26,7 @@ import {
   addressCarriesLedgerText,
   isPlanSurfacePath,
   withoutLedgerText,
-  Link,
+  Navigate,
   NavLink,
   Route,
   Routes,
@@ -36,7 +35,7 @@ import {
 } from "./router.js";
 import { api, ApiClientError, json, type AuthPublicOptions, type Session } from "./api.js";
 import { authClient } from "./auth-client.js";
-import { Alert, Button, EmptyState, Field, Input, Note, PageHeader } from "./components.js";
+import { Alert, Button, Field, Input, Note } from "./components.js";
 import AccountsPage from "./pages/AccountsPage.js";
 import AccountDetailPage from "./pages/AccountDetailPage.js";
 import ActivityPage from "./pages/ActivityPage.js";
@@ -1067,7 +1066,7 @@ function Shell({ session }: { session: Session }) {
                   <PlanPage session={session} termsOfUseUrl={deployment.data?.termsOfUseUrl} />
                 }
               />
-              <Route path="*" element={<NotFoundPage />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </TimezoneProvider>
         </main>
@@ -1194,27 +1193,6 @@ function ResetPassword() {
         )}
       </section>
     </main>
-  );
-}
-
-/**
- * An address that names no page, said as such.
- *
- * It used to redirect to the Overview without a word, so a mistyped or stale
- * bookmark looked like the app ignoring the link rather than the link being
- * wrong — and nothing about the address left on screen said which.
- */
-function NotFoundPage() {
-  return (
-    <div className="page-stack">
-      <PageHeader eyebrow="Not found" title="There is no page here." />
-      <EmptyState
-        icon={MapPinOff}
-        title="Nothing lives at this address."
-        body="The link may be mistyped, or it may point at something that has since been deleted."
-        action={<Link to="/">Go to the Overview</Link>}
-      />
-    </div>
   );
 }
 

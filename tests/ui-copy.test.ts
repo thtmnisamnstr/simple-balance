@@ -406,9 +406,6 @@ describe("a filtered list with nothing in it", () => {
    * defend it.
    */
   const ONE_SITUATION: Record<string, string> = {
-    // Not a list at all: an address that names no page, which nothing on
-    // screen could narrow or widen.
-    "src/client/App.tsx#Nothing lives at this address.": "an unknown address is not a list",
     // A log. Nothing on the page narrows it, so empty means empty.
     "src/client/pages/ActivityPage.tsx#No activity yet": "nothing on the page narrows the log",
     // The queue is the whole population: a reviewed pair leaves it.

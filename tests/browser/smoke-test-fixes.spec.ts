@@ -130,10 +130,10 @@ test("a button keeps focus while it works and after", async () => {
   await expect(add).toBeFocused();
 });
 
-test("an address with nothing at it says so", async () => {
+test("an address with nothing at it goes to the Overview", async () => {
   await page.goto("/no-such-page");
-  await expect(page.getByRole("heading", { name: "There is no page here." })).toBeVisible();
-  await expect(page).toHaveURL(/\/no-such-page$/);
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
 });
 
 test("a report name nobody knows goes to Reports", async () => {
@@ -182,7 +182,21 @@ test("a very long balance wraps rather than pushing the page sideways", async ()
       `${path} scrolls sideways by ${overflow}px: ${offenders.join("; ")}`,
     ).toBeLessThanOrEqual(0);
   }
+  // A page that does not scroll can still have a card whose balance runs out
+  // past its own edge, which is what the sandbox showed at desktop width: the
+  // grid cell is narrower than the number and nothing above it scrolls.
   await page.setViewportSize({ width: 1280, height: 860 });
+  await page.goto("/accounts");
+  const card = page.locator(".account-card-link", { hasText: "Focus Enormous" });
+  const spill = await card.evaluate((element) => {
+    const edge = element.getBoundingClientRect().right;
+    return Math.max(
+      ...[...element.querySelectorAll("*")].map(
+        (child) => child.getBoundingClientRect().right - edge,
+      ),
+    );
+  });
+  expect(spill, `the balance runs ${spill}px past its card`).toBeLessThanOrEqual(0);
 });
 
 test("a refused delete says so where focus is, naming what was refused", async () => {

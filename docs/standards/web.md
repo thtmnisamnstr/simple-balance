@@ -2456,7 +2456,7 @@ whole time, and Payees was telling somebody who had mistyped a search to go and
 commit a transaction they had already committed.
 
 The title states the situation in the plural, the body carries the explanation,
-and the button carries the imperative. **`EmptyState` is used at 24 sites**, and
+and the button carries the imperative. **`EmptyState` is used at 23 sites**, and
 that is the one count this section keeps: it said sixteen in one paragraph and
 eighteen thirteen lines later, which is the two-numbers-for-one-measurement
 failure section 3's census test was built to stop, inside a single section.
