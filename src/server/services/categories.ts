@@ -17,6 +17,7 @@ import {
   transactions,
   type CategoryRow,
 } from "../db/schema.js";
+import { accountFreeze, assertAccountsWritable } from "./accounts.js";
 import { conflict, duplicate, notFound, staleVersion, validationError } from "./errors.js";
 import {
   getIdempotent,
@@ -654,7 +655,7 @@ export async function setCategoryArchived(
 /**
  * Everything that would still point at a category if it went.
  *
- * Shared so that deleting on request and tidying up after an edit cannot come
+ * Shared so that deleting on request and cleaning up after an edit cannot come
  * to different answers about what "unused" means. A recurrence and a template
  * both count: neither holds a foreign key, so nothing in the database would
  * stop the delete, and what is left is a standing instruction or a saved form
@@ -870,7 +871,7 @@ export async function pruneOrphanedCategories(
       // to delete a category is a decision, and the story says plainly that a
       // budget is never a reason to refuse one: the cascade takes it and that
       // is the answer. Moving the last transaction off a category is not that
-      // decision, and tidying the category away underneath a budget somebody
+      // decision, and clearing the category away underneath a budget somebody
       // set is a figure disappearing from a page nobody was looking at.
       uses.budgetCount
     ) {
@@ -1024,6 +1025,17 @@ export async function mergeCategories(
       )
       .orderBy(transactions.id)
       .for("update");
+    // Both sets, because a merge rewrites the column on one and the legs on the
+    // other, and both bump the parent transaction's version. A row on a frozen
+    // account may not change, and the merge is refused whole rather than
+    // applied to the rest: half a merge leaves two categories where it reports
+    // one.
+    assertAccountsWritable(
+      await accountFreeze(tx, actor),
+      [...transactionRowsBefore, ...legTransactionRowsBefore].flatMap((row) =>
+        [row.sourceAccountId, row.destinationAccountId].filter((id): id is string => Boolean(id)),
+      ),
+    );
     const stagedRowsBefore = await tx
       .select()
       .from(stagedTransactions)
@@ -1094,7 +1106,7 @@ export async function mergeCategories(
           ),
         );
       // The version has to move with the label. A mass edit describes the set
-      // it is about to change by id and version, so a leg relabelled underneath
+      // it is about to change by id and version, so a leg relabeled underneath
       // one would leave that description agreeing about a row that changed.
       updatedLegTransactions = await tx
         .update(transactions)

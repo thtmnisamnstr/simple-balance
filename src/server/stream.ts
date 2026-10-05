@@ -40,7 +40,7 @@ export type ProgressReporter = (event: ProgressEvent) => void;
  * the latest snapshot is.
  *
  * The status line is spent on the first frame, so a refusal cannot be a status
- * code any more. It becomes a terminal `error` frame carrying the envelope the
+ * code anymore. It becomes a terminal `error` frame carrying the envelope the
  * ordinary handler would have rendered — from the same function, so the two
  * cannot drift.
  *

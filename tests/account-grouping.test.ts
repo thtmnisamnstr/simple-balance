@@ -65,7 +65,7 @@ describe("grouping accounts by type", () => {
    * does not know about has to land somewhere visible rather than be dropped
    * from a page of balances.
    */
-  it("shows a type it does not recognise, at the end", () => {
+  it("shows a type it does not recognize, at the end", () => {
     const groups = groupAccountsByType([
       account("odd", "something_new"),
       account("normal", "cash"),

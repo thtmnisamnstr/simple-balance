@@ -54,7 +54,7 @@ integration("a category nothing points at any more", () => {
     await database.drop();
   });
 
-  it("goes when the only transaction using it is recategorised", async () => {
+  it("goes when the only transaction using it is recategorized", async () => {
     const from = await category("Misfiled");
     const to = await category("Groceries");
     const created = await createTransaction(
@@ -276,7 +276,7 @@ integration("a category nothing points at any more", () => {
     }
   });
 
-  it("goes when a staged row is recategorised too", async () => {
+  it("goes when a staged row is recategorized too", async () => {
     const from = await category("Staged misfile");
     const to = await category("Staged kept");
     const row = await createStage(actor, {
@@ -342,7 +342,7 @@ integration("a category nothing points at any more", () => {
     expect(await names()).toContain("Stage scoped");
   });
 
-  it("releases only the leg's category when a split is relabelled", async () => {
+  it("releases only the leg's category when a split is relabeled", async () => {
     const legOne = await category("Leg one");
     const legTwo = await category("Leg two");
     const replacement = await category("Leg one replaced");
@@ -486,7 +486,7 @@ integration("a category nothing points at any more", () => {
   });
 
   /**
-   * Recategorising a hundred rows one at a time cleared the category behind
+   * Recategorizing a hundred rows one at a time cleared the category behind
    * them; doing it in one request left it standing. Two paths, one rule.
    */
   it("clears a category a mass edit emptied", async () => {

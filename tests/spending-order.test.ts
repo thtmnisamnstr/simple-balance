@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { largestMoney, moneyRatioPercent } from "../src/client/money.js";
 
 /**
- * Uncategorised spending is pinned to the bottom of the list, so the first row
+ * Uncategorized spending is pinned to the bottom of the list, so the first row
  * is no longer necessarily the largest, and the bar widths are scaled against
  * whichever row on show actually is. `moneyRatioPercent` clamps a ratio above
  * one to a full bar, so getting this wrong draws two different amounts the same
@@ -48,7 +48,7 @@ describe("the widest amount on show", () => {
 /**
  * The ordering itself is the server's, so that the page and an agent reading
  * get_financial_summary see the same list. This pins the shape the page relies
- * on: uncategorised last, and everything else by amount.
+ * on: uncategorized last, and everything else by amount.
  */
 describe("how the page arranges what the server sent", () => {
   type Row = { categoryId: string | null; category: string; amount: string };
@@ -65,7 +65,7 @@ describe("how the page arranges what the server sent", () => {
     amount,
   });
 
-  it("keeps uncategorised last even when it is the biggest", () => {
+  it("keeps uncategorized last even when it is the biggest", () => {
     const arranged = arrange([
       row("a", "Rent", "900.00"),
       row("b", "Food", "300.00"),
@@ -76,7 +76,7 @@ describe("how the page arranges what the server sent", () => {
 
   // Cutting the list at seven would drop it at rank eight, which is the one row
   // that says there is filing left to do.
-  it("keeps uncategorised even past the seven it shows", () => {
+  it("keeps uncategorized even past the seven it shows", () => {
     const many = Array.from({ length: 12 }, (_, index) =>
       row(`c${index}`, `Category ${index}`, `${100 - index}.00`),
     );
@@ -85,7 +85,7 @@ describe("how the page arranges what the server sent", () => {
     expect(arranged[7]?.category).toBe("Uncategorized");
   });
 
-  it("changes nothing when there is no uncategorised spending", () => {
+  it("changes nothing when there is no uncategorized spending", () => {
     const rows = [row("a", "Rent", "900.00"), row("b", "Food", "300.00")];
     expect(arrange(rows)).toEqual(rows);
   });

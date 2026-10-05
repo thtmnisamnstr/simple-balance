@@ -1,0 +1,84 @@
+#!/bin/sh
+# Wait for the database to accept connections before Compose is asked to bring
+# the project up.
+#
+# Why this exists, measured rather than reasoned about. On a two-machine
+# `single` deployment both machines boot at once and the database machine takes
+# about four minutes longer: it formats and mounts a volume, generates a
+# certificate, initialises a cluster and runs its own first-run SQL. The
+# application machine is ready in ninety seconds, runs `docker compose up -d
+# --wait`, and the application container fails its health check because nothing
+# is listening on 5432 yet.
+#
+# The damage is not the failed health check, which Docker's `restart:
+# unless-stopped` recovers from on its own — the application really does come
+# up once the database appears. It is what `--wait` does on the way out: it
+# aborts the rest of the project. Caddy is *created and never started*, so the
+# machine ends up with a healthy application on 127.0.0.1:3000, nothing
+# listening on 80 or 443, and a unit in `failed`. Nothing retries, because
+# ExecStart has already run. `systemctl restart` fixes it instantly, which is
+# the tell that this is ordering rather than crash recovery — and ordering is
+# systemd's half of the split this unit's comment describes, so it belongs here
+# rather than in a `Restart=` that would give two managers an opinion about the
+# same crash.
+#
+# Exits 0 and waits for nothing when there is no remote database to wait for:
+# a hand install whose DATABASE_URL points somewhere already running, the
+# database machine itself, or any deployment that has not been configured yet.
+# Being wrong in that direction costs one boot; refusing would strand a machine
+# that was working before this script existed.
+set -eu
+
+# The stack's settings first, because a DATABASE_URL there is the one the fold
+# lets win; then the one cloud-init generated; then whatever .env was assembled
+# last time, for a machine that has neither.
+url=""
+for f in /opt/simple-balance/env.settings /opt/simple-balance/env.db /opt/simple-balance/.env; do
+	[ -r "$f" ] || continue
+	line=$(grep -m1 '^DATABASE_URL=' "$f" 2>/dev/null || true)
+	[ -n "$line" ] || continue
+	url=${line#DATABASE_URL=}
+	url=$(printf '%s' "$url" | sed "s/^['\"]//; s/['\"]$//")
+	break
+done
+
+[ -n "$url" ] || exit 0
+
+# Strip the scheme and any credentials, then take the host and port. The
+# password can contain @ and :, so cut from the LAST @ rather than the first.
+hostport=${url#*://}
+hostport=${hostport##*@}
+hostport=${hostport%%/*}
+hostport=${hostport%%\?*}
+host=${hostport%%:*}
+port=${hostport##*:}
+[ "$port" = "$host" ] && port=5432
+
+case "$host" in
+	'' | localhost | 127.0.0.1 | ::1 | postgres) exit 0 ;;
+esac
+
+# Bounded well inside the unit's TimeoutStartSec=600, so a database that is
+# never coming still fails the unit with this script's message rather than
+# systemd's timeout, which says nothing about why.
+i=0
+while [ "$i" -lt 150 ]; do
+	# `nc` first because it is in the image and needs no subshell. The bash
+	# fallback is spelled as an explicit `bash -c` rather than a redirect in
+	# this script: /dev/tcp is a bash feature and this is /bin/sh, like every
+	# other script here.
+	if command -v nc >/dev/null 2>&1; then
+		nc -z -w 2 "$host" "$port" 2>/dev/null && exit 0
+	elif command -v bash >/dev/null 2>&1; then
+		bash -c "exec 3<>/dev/tcp/$host/$port" 2>/dev/null && exit 0
+	else
+		echo "simple-balance: neither nc nor bash is available to test $host:$port" >&2
+		exit 0
+	fi
+	i=$((i + 1))
+	[ "$((i % 15))" -eq 0 ] && echo "simple-balance: still waiting for $host:$port ($((i * 2))s)" >&2
+	sleep 2
+done
+
+echo "simple-balance: $host:$port did not accept a connection within 300s" >&2
+exit 1

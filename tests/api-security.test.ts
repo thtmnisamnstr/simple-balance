@@ -174,7 +174,7 @@ describe("API transport security wiring", () => {
  * runs the tests before the build, so there is no bundle to serve when this
  * runs. What can be checked always is the wiring: a handler for the bundle root
  * has to come before the catch-all, or the catch-all answers first. The
- * behaviour itself is verified against the built container.
+ * behavior itself is verified against the built container.
  */
 describe("static files at the root of the client bundle", () => {
   const source = readFileSync(path.join(import.meta.dirname, "..", "src/server/api.ts"), "utf8");
@@ -206,7 +206,7 @@ describe("static files at the root of the client bundle", () => {
   // Whether the phone's browser chrome matches the page is now
   // tests/theme-tokens.test.ts, which checks it per theme. There are two grounds
   // and two metas, and the check here was `expect(css).toContain(...)` over the
-  // whole file — with two palettes that passes when the colour turns up in the
+  // whole file — with two palettes that passes when the color turns up in the
   // wrong block, so doubling it would have kept the words and lost the meaning.
 
   it("keeps the icon the document asks for in the bundle", () => {

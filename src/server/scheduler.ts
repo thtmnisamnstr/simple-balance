@@ -10,6 +10,7 @@ import { serveMetrics } from "./metrics-route.js";
 import { createRecurrenceScheduler } from "./recurrence-scheduler.js";
 import { createGracefulShutdown } from "./server-lifecycle.js";
 import { log } from "./log.js";
+import { checkStripeAccess, checkStripePrices } from "./stripe.js";
 import { APP_VERSION } from "../shared/version.js";
 
 /**
@@ -92,6 +93,11 @@ async function main() {
         "MAIL_FROM are set on this container as well as on the API.",
     );
   }
+  // The boot checks the API makes, made here too. The first billing sweep
+  // would check the prices anyway, but not until the first tick fires, and on
+  // a split deployment this is the container whose log the sweep writes to —
+  // and whose sweep a key that cannot read subscriptions fails on every row.
+  await Promise.all([checkStripePrices(), checkStripeAccess()]);
   const server = serve({
     fetch: health.fetch,
     port: config.port,

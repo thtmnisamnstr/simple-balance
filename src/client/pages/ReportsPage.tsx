@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { BarChart3 } from "lucide-react";
+import { BarChart3, SlidersHorizontal } from "lucide-react";
 import { useRef, useState } from "react";
 import { BarChart, ChartLegend, LineChart } from "../charts.js";
 import { api, queryString, type Report } from "../api.js";
@@ -17,6 +17,35 @@ import { formatDate, formatMoney, isNegativeMoney, sumMoney } from "../money.js"
 import { useDateRange } from "../date-range.js";
 import { Link, useLocation, useParams, useSearchParams } from "../router.js";
 import { reportBuckets, reportNames, type ReportName } from "../../shared/domain.js";
+import { emptyScreen, waysOut } from "../list-filters.js";
+
+/**
+ * Where a report row's subject lives, or null where it has none.
+ *
+ * 11.10: a summary that names something the app has a page for links to it,
+ * carrying `location.search` so the range travels. Every row on this page was a
+ * plain heading, which is the same omission the overview's spending panel had
+ * for a release — and the worse one here, because this is the page that
+ * provokes "why is Groceries $182?" most often.
+ *
+ * Read off the payload rather than off a second copy of the server's preset
+ * table. `accumulation` is how `getReport` itself chooses the cell builder, so
+ * the two cannot drift: historical accumulation is `balanceCells`, whose `key`
+ * is the account id, and the categories report is `flowCells` with
+ * `byCategory`, whose key is `"<kind>:<categoryId>"`.
+ *
+ * Three kinds of row link nowhere, and each is an absence rather than an
+ * oversight. Income and expenses buckets by kind alone, so its key is the word
+ * "income"; cash flow's keys are segments of an arithmetic; and an
+ * uncategorized row is the absence of a category, so `/categories/uncategorized`
+ * would be a 404 — the condition 11.10 names.
+ */
+function rowSubject(report: Report, key: string): string | null {
+  if (report.accumulation === "historical") return `/accounts/${key}`;
+  if (report.report !== "categories") return null;
+  const categoryId = key.slice(key.indexOf(":") + 1);
+  return categoryId === "uncategorized" ? null : `/categories/${categoryId}`;
+}
 
 const TITLES: Record<ReportName, string> = {
   "net-worth": "Net worth",
@@ -37,7 +66,7 @@ const TITLES: Record<ReportName, string> = {
  *
  * Six entries rather than a categories/else pair: `income-expense` rows are the
  * literals "Income" and "Expenses" and `cash-flow` rows are activity segments,
- * so neither holds an account and both would be mislabelled by the obvious
+ * so neither holds an account and both would be mislabeled by the obvious
  * two-way answer.
  */
 const ROW_HEADINGS: Record<ReportName, string> = {
@@ -79,6 +108,18 @@ export default function ReportsPage() {
   const [params, setParams] = useSearchParams();
   const bucket = params.get("bucket") ?? "";
   const includeArchived = params.get("archived") === "1";
+  // The one control on this page that keeps rows out of the report, and the
+  // empty state never mentioned it: a ledger whose accounts are all archived
+  // was told to go and add a transaction. Grouping is not a filter — it moves
+  // the columns, never the rows — and the exclusion pills apply below the
+  // query, which is what this slot is testing.
+  const { ways } = emptyScreen([
+    {
+      set: !includeArchived,
+      clear: "turn on Include archived accounts to count the ones you have put away",
+      fromTheStart: true,
+    },
+  ]);
   /**
    * Categories left out of THIS VIEW, keyed by row. A view choice, not a
    * change to anything stored: the server's report is untouched, an agent
@@ -170,6 +211,15 @@ export default function ReportsPage() {
       <DateRangeBar />
 
       <div className="date-bar" role="group" aria-label="Report options">
+        {/* The only `.date-bar` in the app without one, so an unlabelled
+            dropdown sat directly under a bar that announces itself with a
+            glyph and the word "Viewing". The group's own name is different
+            from the visible word, as it is on the other two: `aria-label`
+            replaces content, so a title repeating it would be read twice. */}
+        <div className="date-bar-title">
+          <SlidersHorizontal size={17} />
+          <span>Options</span>
+        </div>
         <Select
           aria-label="Group by"
           value={bucket}
@@ -188,7 +238,7 @@ export default function ReportsPage() {
             checked={includeArchived}
             onChange={(event) => setIncludeArchived(event.target.checked)}
           />
-          Include closed accounts
+          Include archived accounts
         </label>
       </div>
 
@@ -201,11 +251,11 @@ export default function ReportsPage() {
         <Note>
           {data.accumulation === "historical"
             ? includeArchived
-              ? "Closed accounts are listed. What they held before they closed is in these figures either way."
-              : "Closed accounts are left out of the list. What they held before they closed is still in these figures."
+              ? "Archived accounts are listed. What they held before they were archived is in these figures either way."
+              : "Archived accounts are left out of the list. What they held before they were archived is still in these figures."
             : includeArchived
-              ? "What was earned and spent through closed accounts is counted here."
-              : "What was earned and spent through closed accounts is left out."}
+              ? "What was earned and spent through archived accounts is counted here."
+              : "What was earned and spent through archived accounts is left out."}
         </Note>
       ) : null}
 
@@ -264,9 +314,11 @@ export default function ReportsPage() {
         </div>
       ) : query.error ? null : !data?.currencies.length ? (
         <EmptyState
-          icon={<BarChart3 size={22} />}
-          title="Nothing to report yet"
-          body="Once there are transactions in this date range, this report will fill in."
+          icon={BarChart3}
+          title={ways.length ? "Nothing in this view to report" : "Nothing to report yet"}
+          body={`Once there are transactions in this date range, this report will fill in.${
+            ways.length ? ` ${waysOut(ways)}` : ""
+          }`}
           action={
             <Link className="button button-primary" to="/transactions">
               Add a transaction
@@ -292,7 +344,7 @@ export default function ReportsPage() {
               key: entry.key,
               label: entry.label,
               values: entry.values,
-              // The colour it had before anything was excluded, so a line
+              // The color it had before anything was excluded, so a line
               // does not change clothes at exactly the moment somebody is
               // comparing the view with and without a category.
               paint: currency.rows.indexOf(entry),
@@ -351,62 +403,76 @@ export default function ReportsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {rows.map((entry) => (
-                        <tr key={entry.key}>
-                          {/* Named as the label alone: content naming would
+                      {rows.map((entry) => {
+                        const subject = rowSubject(data, entry.key);
+                        /* The name, linked where it has somewhere to go. Kept
+                           as one expression because both branches of the
+                           `excludable` split below render it and a second copy
+                           is how the two stop agreeing. */
+                        const name = (
+                          <>
+                            {subject ? (
+                              <Link
+                                className="report-row-link"
+                                to={{ pathname: subject, search: location.search }}
+                              >
+                                {entry.label}
+                              </Link>
+                            ) : (
+                              entry.label
+                            )}
+                            {entry.archived ? <span className="row-note"> (archived)</span> : null}
+                          </>
+                        );
+                        return (
+                          <tr key={entry.key}>
+                            {/* Named as the label alone: content naming would
                               read every rowheader as "Rent Actions for Rent",
                               the menu's own label included. The menu button
                               keeps its name for when it is reached. */}
-                          <th scope="row" aria-label={excludable ? entry.label : undefined}>
-                            {excludable ? (
-                              <span className="report-row-heading">
-                                <span>
-                                  {entry.label}
-                                  {entry.archived ? (
-                                    <span className="row-note"> (closed)</span>
-                                  ) : null}
+                            <th scope="row" aria-label={excludable ? entry.label : undefined}>
+                              {excludable ? (
+                                <span className="report-row-heading">
+                                  <span>{name}</span>
+                                  <RowMenu label={`Actions for ${entry.label}`}>
+                                    <button
+                                      onClick={() => {
+                                        setExcluded(new Map(excluded).set(entry.key, entry.label));
+                                        // The row this control lived on is
+                                        // leaving; the pills that undo it are
+                                        // where a keyboard user lands.
+                                        requestAnimationFrame(() =>
+                                          exclusionsNote.current?.focus(),
+                                        );
+                                      }}
+                                    >
+                                      Exclude from this view
+                                    </button>
+                                  </RowMenu>
                                 </span>
-                                <RowMenu label={`Actions for ${entry.label}`}>
-                                  <button
-                                    onClick={() => {
-                                      setExcluded(new Map(excluded).set(entry.key, entry.label));
-                                      // The row this control lived on is
-                                      // leaving; the pills that undo it are
-                                      // where a keyboard user lands.
-                                      requestAnimationFrame(() => exclusionsNote.current?.focus());
-                                    }}
-                                  >
-                                    Exclude from this view
-                                  </button>
-                                </RowMenu>
-                              </span>
-                            ) : (
-                              <>
-                                {entry.label}
-                                {/* A balance report keeps a closed account's
-                                    history, so without saying so its past reads
-                                    as money still held. */}
-                                {entry.archived ? (
-                                  <span className="row-note"> (closed)</span>
-                                ) : null}
-                              </>
-                            )}
-                          </th>
-                          {entry.values.map((value, position) => (
+                              ) : (
+                                /* A balance report keeps a closed account's
+                                 history, so without saying so its past reads as
+                                 money still held. `name` carries that. */
+                                name
+                              )}
+                            </th>
+                            {entry.values.map((value, position) => (
+                              <td
+                                className={`align-right${isNegativeMoney(value) ? " money-negative" : ""}`}
+                                key={data.buckets[position]?.start ?? position}
+                              >
+                                {formatMoney(value, currency.currency)}
+                              </td>
+                            ))}
                             <td
-                              className={`align-right${isNegativeMoney(value) ? " money-negative" : ""}`}
-                              key={data.buckets[position]?.start ?? position}
+                              className={`align-right${isNegativeMoney(entry.total) ? " money-negative" : ""}`}
                             >
-                              {formatMoney(value, currency.currency)}
+                              <strong>{formatMoney(entry.total, currency.currency)}</strong>
                             </td>
-                          ))}
-                          <td
-                            className={`align-right${isNegativeMoney(entry.total) ? " money-negative" : ""}`}
-                          >
-                            <strong>{formatMoney(entry.total, currency.currency)}</strong>
-                          </td>
-                        </tr>
-                      ))}
+                          </tr>
+                        );
+                      })}
                     </tbody>
                     <tfoot>
                       <tr>

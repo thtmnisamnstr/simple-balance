@@ -2,7 +2,7 @@ import { Link } from "../router.js";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, FileSpreadsheet, FlaskConical, Upload } from "lucide-react";
 import { type ChangeEvent, useMemo, useRef, useState } from "react";
-import { isAppExportCsv, type CsvMapping } from "../../shared/csv.js";
+import { csvCell, isAppExportCsv, type CsvMapping } from "../../shared/csv.js";
 import {
   PROGRESS_STREAM_MIN_ROWS,
   type CategoryKind,
@@ -146,6 +146,13 @@ export default function ImportPage() {
     queryKey: ["accounts"],
     queryFn: () => api<Account[]>("/api/v1/accounts"),
   });
+  // The accounts an import may post against. Every row lands on the one chosen
+  // here, so a frozen one stages the whole file with the same issue on every
+  // row — and the list arrives in name order, so a default read off its front
+  // chose a frozen account for anybody whose first one was.
+  const writableAccounts = (accounts.data ?? []).filter(
+    (account) => !account.archivedAt && !account.frozen,
+  );
 
   const appExport = preview ? isAppExportCsv(preview.headers) : false;
 
@@ -187,7 +194,7 @@ export default function ImportPage() {
       setFileName(name);
       setPreview(parsed);
       setMapping(inferMapping(parsed.headers));
-      setDefaultAccountId((current) => current || accounts.data?.[0]?.id || "");
+      setDefaultAccountId((current) => current || writableAccounts[0]?.id || "");
       setResult(null);
       setResultReading("");
       stageIdempotencyKey.current = newIdempotencyKey();
@@ -300,9 +307,20 @@ export default function ImportPage() {
         <Skeleton height={64} label="Loading accounts…" />
       ) : accounts.error ? null : !accounts.data?.length ? (
         <EmptyState
-          icon={<FileSpreadsheet size={25} />}
+          icon={FileSpreadsheet}
           title="Create an account first"
           body="A CSV needs an account for its rows to be posted against."
+        />
+      ) : !writableAccounts.length ? (
+        <EmptyState
+          icon={FileSpreadsheet}
+          title="Every account is frozen"
+          body="A CSV needs an account its rows can be posted against, and a frozen account accepts no rows until you make it one of the active ones or upgrade."
+          action={
+            <Link className="button button-primary" to="/accounts">
+              Go to Accounts
+            </Link>
+          }
         />
       ) : (
         <div className="import-layout">
@@ -365,7 +383,7 @@ export default function ImportPage() {
                         value={defaultAccountId}
                         onChange={(event) => setDefaultAccountId(event.target.value)}
                       >
-                        {accounts.data?.map((account) => (
+                        {writableAccounts.map((account) => (
                           <option key={account.id} value={account.id}>
                             {account.name} ({account.currency})
                           </option>
@@ -600,7 +618,7 @@ export default function ImportPage() {
 
           <aside className="panel import-preview">
             <header className="panel-header">
-              <h3>{interpreted ? "As it will be read" : "File preview"}</h3>
+              <h2>{interpreted ? "As it will be read" : "File preview"}</h2>
               {interpreted ? (
                 // Says what is on screen rather than what came back: twelve rows
                 // are rendered out of a sample of twenty-five out of the file.
@@ -633,7 +651,9 @@ export default function ImportPage() {
                       <th scope="col">Payee</th>
                       <th scope="col">Account</th>
                       <th scope="col">Category</th>
-                      <th scope="col">Amount</th>
+                      <th scope="col" className="align-right">
+                        Amount
+                      </th>
                       <th scope="col">Status</th>
                     </tr>
                   </thead>
@@ -653,7 +673,15 @@ export default function ImportPage() {
                       return (
                         <tr key={index}>
                           <td>{date ? formatDate(date) : "—"}</td>
-                          <td>{stagedString(draft.payee).trim() || "Incomplete row"}</td>
+                          {/* The payee heads the row, as it does in the queue
+                              these same rows land in two clicks later. The
+                              interpreted preview's columns are fixed, so one
+                              of them is knowably the subject — the raw CSV
+                              preview beside it is the named exception, because
+                              its columns are whatever the file had. */}
+                          <th scope="row">
+                            {stagedString(draft.payee).trim() || "Incomplete row"}
+                          </th>
                           <td>{summary.account}</td>
                           <td>
                             {legs.length ? (
@@ -716,8 +744,20 @@ export default function ImportPage() {
                     <tbody>
                       {preview.rows.slice(0, PREVIEW_ROWS).map((row, index) => (
                         <tr key={index}>
+                          {/* `csvCell`, not `row[header]`, and this is the one
+                              place in the client that indexes a parsed row by a
+                              name the uploaded file chose. A header line
+                              containing `__proto__` leaves no own property of
+                              that name — assigning a string to it on an object
+                              literal sets the prototype and is dropped — so
+                              indexing answers `Object.prototype`, React throws
+                              rather than render an object as a child, and the
+                              root boundary replaces the whole app the moment
+                              the file is picked, before any mapping or
+                              staging. The file is RFC 4180-conformant; the
+                              server reader has used `csvCell` all along. */}
                           {sampleHeaders.map((header) => (
-                            <td key={header}>{row[header]}</td>
+                            <td key={header}>{csvCell(row, header)}</td>
                           ))}
                         </tr>
                       ))}
@@ -728,10 +768,11 @@ export default function ImportPage() {
               </>
             ) : (
               <EmptyState
-                // The subject, like every other empty state here. A tick meant
-                // "done" on a panel that has not started: nothing had been
-                // imported, and the screen congratulated the reader for it.
-                icon={<FileSpreadsheet size={23} />}
+                // The subject, like every other empty state here. A checkmark
+                // meant "done" on a panel that has not started: nothing had
+                // been imported, and the screen congratulated the reader for
+                // it.
+                icon={FileSpreadsheet}
                 title="No file yet"
                 body="A sample of the file appears here before anything is staged."
               />

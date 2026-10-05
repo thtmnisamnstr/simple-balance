@@ -78,7 +78,7 @@ integration("the scheduler sweep", () => {
     (await listStages(actor, { limit: 100, recurrenceId })).items;
 
   /**
-   * getPreferences synthesises UTC for somebody with no stored row, so an inner
+   * getPreferences synthesizes UTC for somebody with no stored row, so an inner
    * join here would skip every account that has never opened settings while
    * looking exactly like a scheduler that works.
    */

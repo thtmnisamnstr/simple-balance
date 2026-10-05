@@ -3,7 +3,7 @@ name: guides-comply
 description: Sweep the whole product against the standards guides and close the gaps the guides record about themselves. Audits every page section, API route, MCP tool and service against the rules, fixes what violates them, then builds mechanisms for rules nothing checks. Use when asked to make the app or its services comply with the guides, to verify every part of every surface against the standards, or to close the gaps in the guides.
 ---
 
-# Make every surface comply, and mechanise what nothing checks
+# Make every surface comply, and mechanize what nothing checks
 
 Two directions, run as one pass:
 
@@ -13,7 +13,7 @@ Two directions, run as one pass:
   the missing checks.
 
 They run together and in this order because the sweep is what *ranks* the
-mechanising: a rule that nothing checks and nothing breaks is a worse investment
+mechanizing: a rule that nothing checks and nothing breaks is a worse investment
 than one the sweep just caught being broken three times.
 
 **Never fix a violation by weakening the rule**, and never fix it by breaking
@@ -101,6 +101,17 @@ fixed by *narrowing the rule*, never by changing the code:
 A script that reports zero hits has usually broken, not passed. Prove it can
 report something before believing a clean run.
 
+**The mirror failure is a check that cannot see half its surface, and it looks
+exactly like a clean sweep.** A scan over JSX that walks string literals sees
+`"Archived accounts are listed"` and does not see
+`<span className="row-note"> (closed)</span>`, because the second is text
+between a `>` and a `<` and not a literal anywhere. One of this repository's
+vocabulary checks shipped in that state and passed with the defect it was
+written for still in the file; mutation-proving it is what found that, which is
+why 5 says to do it to every new check rather than to the interesting ones.
+`jsxText` in `tests/ui-copy.test.ts` is the other half, and any new copy check
+wants both.
+
 The checks that repeatedly find real defects:
 
 - **Four states per list** (`web.md` 12.1). Empty must distinguish "nothing yet"
@@ -121,10 +132,20 @@ The checks that repeatedly find real defects:
   it.
 - **Nothing outside the configuration layer naming `console`**, including as a
   default parameter.
+- **A row of controls in every state its controls can take** (`web.md` 15, 12.3):
+  a disabled button's reason, a busy button, the longest label or count, the
+  extra button a wider selection adds. A sweep that reads the markup or visits
+  a page at rest sees none of them. Grep for `disabledReason`, `loading=` and
+  conditionally rendered buttons inside a toolbar, and every row that has them
+  needs a photograph or a measurement in each state — `selection-bar.spec.ts`
+  is the shape. Two things from the same defect: a busy button's width must not
+  change (the spinner takes the icon's place), and where one mutation serves
+  several buttons, each asks which action is running rather than whether
+  anything is.
 
 ## 5. Fix, with a test each
 
-Every fix that changes behaviour gets a focused test, and every new check gets
+Every fix that changes behavior gets a focused test, and every new check gets
 **mutation-proved**: break the guarded thing, watch the check fail by name,
 restore, watch it pass. Non-negotiable. Three checks in this repository could
 not fail at all, and each was found this way; one had lost a `.push()` during an
@@ -133,9 +154,9 @@ edit and silently passed forever.
 ## 6. Triage what nothing checks
 
 Now that the sweep has shown which rules actually get broken, sort every
-unmechanised rule into four:
+unmechanized rule into four:
 
-- **Mechanisable.** A test can decide it. Build it — see 7.
+- **Mechanizable.** A test can decide it. Build it — see 7.
 - **Judgment.** No test can decide it: whether a figure has a subject worth
   linking, whether phrasing is right, whether an omission was argued. Leave
   `*Checked by:* human` and make sure the guide says *why* it cannot be checked.
@@ -162,12 +183,12 @@ stable key where one exists.
 
 Two habits the guides call out that look like mistakes and are not: comments are
 dense on purpose (about 20% of non-blank lines in `src`), and some loops must
-not be parallelised — legs resolve one at a time so two naming the same new
+not be parallelized — legs resolve one at a time so two naming the same new
 category land on one category.
 
 ## 8. Update the guides
 
-Every rule newly mechanised moves out of "not checked" and into the guide's
+Every rule newly mechanized moves out of "not checked" and into the guide's
 `## What is checked` section, naming the test. Every rule found wrong goes to
 `guides-update`. Every deliberate non-enforcement gets its reasoning written
 down where the rule is.
@@ -189,7 +210,7 @@ BROWSER_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/simple_balanc
 ## 10. Report
 
 Surfaces swept and how many items each held. Violations found and fixed, with
-`file:line`. Rules newly mechanised, and that each was mutation-proved. Rules
-deliberately left unmechanised, in which of the four categories, and why. And
+`file:line`. Rules newly mechanized, and that each was mutation-proved. Rules
+deliberately left unmechanized, in which of the four categories, and why. And
 say plainly where the sweep found nothing — a clean surface is a result, and
 manufacturing findings to look thorough is worse than reporting it clean.

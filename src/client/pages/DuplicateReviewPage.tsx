@@ -18,6 +18,7 @@ import {
   Button,
   ConfirmDialog,
   EmptyState,
+  Note,
   PageHeader,
   Skeleton,
   useConfirm,
@@ -32,7 +33,7 @@ import { Link, Navigate, useParams } from "../router.js";
  *
  * Not a diff. Nothing here highlights what differs, because the fields that
  * differ are the ones that always differ — the payee the bank chose and the
- * category somebody picked — and colouring them says nothing a person reading
+ * category somebody picked — and coloring them says nothing a person reading
  * two transactions does not already see. What matters is being able to correct
  * either one and drop the copy that should not have existed.
  */
@@ -109,7 +110,7 @@ export default function DuplicateReviewPage() {
     onSuccess: async (deletedId) => {
       const wasSubject = review.data?.first.staged?.id === deletedId;
       // Read before the refetch, because the row is about to leave the queue and
-      // its neighbours are what say where to go next.
+      // its neighbors are what say where to go next.
       if (wasSubject && id) {
         setHandled({
           from: id,
@@ -138,7 +139,7 @@ export default function DuplicateReviewPage() {
 
   const caughtUp = (
     <EmptyState
-      icon={<CheckCheck size={22} />}
+      icon={CheckCheck}
       // The answer to the whole screen rather than a section of it: this
       // replaces the review, so its heading is the page's own.
       level={2}
@@ -162,6 +163,17 @@ export default function DuplicateReviewPage() {
           title="Possible duplicates"
           description="Two records of what might be one payment, checked one pair at a time."
         />
+        {/* 13.3's shape, on the branch that ends every run: the Drop button is
+            inside the panel this replaces, so confirming unmounts the element
+            the dialog's `close()` would have returned focus to and it falls to
+            `<body>`. The neighbour case needs nothing — `<Navigate>` changes
+            the pathname and the shell moves focus to `<main>` — so only the
+            queue of one was bare, which is the common ending rather than an
+            edge. `EmptyState` cannot take focus and `Note` is a plain `<p>`,
+            so this is also the only thing here a screen reader announces. */}
+        <Alert kind="success" takeFocus>
+          The row was dropped. Nothing left in the queue looks like a copy of anything else.
+        </Alert>
         {caughtUp}
       </>
     ) : (
@@ -172,15 +184,27 @@ export default function DuplicateReviewPage() {
   // Reached without naming a row, which is how the queue is entered from the
   // list: start at the first one that needs looking at.
   if (!id) {
-    if (duplicates.isPending) return <Skeleton height={320} label="Loading duplicates…" />;
+    // The header first, then the state — its own loading branch was the one
+    // of the three that dropped it, so the page lost its title for exactly
+    // as long as the queue took to arrive.
+    const entryHeader = (
+      <PageHeader
+        eyebrow="Review queue"
+        title="Possible duplicates"
+        description="Two records of what might be one payment, checked one pair at a time."
+      />
+    );
+    if (duplicates.isPending)
+      return (
+        <>
+          {entryHeader}
+          <Skeleton height={320} label="Loading duplicates…" />
+        </>
+      );
     if (!queue[0]) {
       return (
         <>
-          <PageHeader
-            eyebrow="Review queue"
-            title="Possible duplicates"
-            description="Two records of what might be one payment, checked one pair at a time."
-          />
+          {entryHeader}
           {/* One or the other, never both. An errored query is not pending and
               leaves the queue empty, so "No duplicates left to review" was
               printed over the alert saying the queue could not be read — the
@@ -202,7 +226,15 @@ export default function DuplicateReviewPage() {
         title="Two records of one payment"
         description="Correct either side and save it, or drop the copy that should not be there. Only a staged row can be dropped: a committed transaction is already in the books."
         actions={
-          <div className="duplicate-queue-nav">
+          /* A fragment and not a wrapper element, which is what this was. The
+             responsive rule that gives a phone full-width header buttons is
+             `.page-heading > .page-actions { width: 100% }` with
+             `.page-heading > .page-actions .button { flex: 1 }`, and the child
+             combinator means a `<div>` in between absorbs the full width and
+             hands the buttons a content-sized box to divide instead — so this
+             was the one page whose three header controls huddled at the left
+             while Staged's and Templates' stretched edge to edge (web.md 7.5). */
+          <>
             {/* Rendered as links rather than buttons so the browser's own back
                 button walks the queue too, and so one can be opened in a new
                 tab. Disabled at the ends by rendering a dead button instead,
@@ -228,7 +260,7 @@ export default function DuplicateReviewPage() {
             <Link className="button button-ghost" to="/staged">
               Back to the queue
             </Link>
-          </div>
+          </>
         }
       />
 
@@ -242,8 +274,8 @@ export default function DuplicateReviewPage() {
         </div>
       ) : !review.data ? null : !review.data.second ? (
         <EmptyState
-          icon={<CheckCheck size={22} />}
-          title="Nothing repeats this any more"
+          icon={CheckCheck}
+          title="Nothing repeats this anymore"
           body="Whatever it looked like a copy of has been changed, committed or dropped. This row is on its own now."
           action={
             // On to the next one where there is one: this row needs nothing
@@ -321,10 +353,10 @@ export default function DuplicateReviewPage() {
                       Drop this staged row
                     </Button>
                   ) : (
-                    <p className="panel-empty">
+                    <Note>
                       Committed transactions are not dropped from here. If this is the copy to
                       remove, delete it from the transactions list.
-                    </p>
+                    </Note>
                   )}
                 </div>
               </section>

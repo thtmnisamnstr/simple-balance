@@ -8,7 +8,7 @@ export async function listAuditEvents(actor: Actor, input: unknown = {}) {
   // Parsed here rather than at each transport, which is where the bound used to
   // live twice: HTTP handed this a hand-read `Number(...)` that could be NaN and
   // the tool declared its own inline shape, so the clamp below was a second
-  // defence for a value the other caller had already bounded.
+  // defense for a value the other caller had already bounded.
   const options = auditListQuerySchema.parse(input);
   const limit = options.limit;
   // No filter fingerprint: the audit log takes `cursor` and `limit` and nothing

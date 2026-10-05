@@ -155,7 +155,7 @@ describe("committing a batch big enough to watch", () => {
     stream.push({ type: "progress", event: { phase: "posting", done: 10, total: count } });
 
     // By role and by name in one query: the accessible name is the sentence
-    // beside the bar, which is the whole reason it is labelled rather than
+    // beside the bar, which is the whole reason it is labeled rather than
     // captioned.
     const bar = await screen.findByRole("progressbar", { name: `10 of ${count} committed` });
     // The bar is weighted across phases, so the figure is not 10/50. What is
@@ -227,7 +227,7 @@ describe("committing a batch big enough to watch", () => {
 
     stream.push({ type: "progress", event: { phase: "posting", done: 40, total: count } });
     await screen.findByRole("progressbar", { name: `40 of ${count} committed` });
-    // No terminal frame. The transaction is never cancelled because a browser
+    // No terminal frame. The transaction is never canceled because a browser
     // went away, so those forty rows — and the rest — may well be in the books.
     stream.close();
 

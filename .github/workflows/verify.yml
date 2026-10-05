@@ -26,12 +26,16 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      # The README promises PostgreSQL 15 and up and Node 22.22.2 and up, so
-      # the oldest of each is tested rather than assumed. The image ships Node
-      # 24; 22 is here because `npm start` on a host is a supported way to run
-      # this and the manifest says it works.
+      # The two ends rather than the middle. The README promises PostgreSQL 15
+      # and up, so the floor is tested rather than assumed; 18 is what every
+      # profile that owns its database now deploys, so it is tested for the same
+      # reason. 16 and 17 sit between them and tell us nothing neither end would.
+      #
+      # Node 22.22.2 and up is the other promise. The image ships Node 24; 22 is
+      # here because `npm start` on a host is a supported way to run this and
+      # the manifest says it works.
       matrix:
-        postgres: ["15-alpine", "16-alpine"]
+        postgres: ["15-alpine", "18-alpine"]
         node: ["22", "24"]
     services:
       postgres:
@@ -43,7 +47,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d simple_balance_test"
+          --health-cmd "pg_isready -h 127.0.0.1 -U postgres -d simple_balance_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -86,7 +90,11 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16-alpine
+        # The version the deployment profiles ship. This had been left on 16
+        # after the matrix moved, so the one tier that drives the whole stack
+        # was proving it against a version nothing deploys and nothing else
+        # tests.
+        image: postgres:18-alpine
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -94,7 +102,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d simple_balance_browser"
+          --health-cmd "pg_isready -h 127.0.0.1 -U postgres -d simple_balance_browser"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -152,6 +160,14 @@ jobs:
             --set ingress.host=books.example.org > /tmp/rendered.yaml
           test -s /tmp/rendered.yaml
           echo "rendered $(grep -c '^kind:' /tmp/rendered.yaml) objects"
+          # No hook of any kind at default values. The Patroni cleanup is the
+          # only hook this chart has and it is gated on `database.enabled`,
+          # which is false here, so a stray one would be a hook nobody asked for
+          # running against somebody's existing release.
+          if grep -q 'helm.sh/hook' /tmp/rendered.yaml; then
+            echo "::error::the default render carries a helm hook"
+            exit 1
+          fi
           # Off at default values, so the render above never reached this
           # template and a break in it would have shipped. Rendered separately
           # and checked by kind, because a template that produces nothing also
@@ -163,6 +179,165 @@ jobs:
             --set networkPolicy.enabled=true > /tmp/rendered-netpol.yaml
           grep -q 'kind: NetworkPolicy' /tmp/rendered-netpol.yaml
           echo "rendered the NetworkPolicy"
+          # The `ha` database, off at default values for the same reason and
+          # checked the same way. What is asserted here is the set of things that
+          # were each wrong once and each produced a cluster that looked healthy:
+          # one StatefulSet per Citus group, the `cluster-name` label Patroni
+          # selects on, a derived DATABASE_URL, and no Endpoints object — Patroni
+          # owns those, and shipping one makes every later `helm upgrade` fail a
+          # server-side-apply conflict over `.subsets`.
+          helm template release /charts/simple-balance \
+            --set secret.authSecret=0123456789012345678901234567890123456789 \
+            --set config.appBaseUrl=https://books.example.org \
+            --set database.enabled=true \
+            --set database.workers=2 > /tmp/rendered-ha.yaml
+          test "$(grep -c 'kind: StatefulSet' /tmp/rendered-ha.yaml)" = 3
+          grep -q 'cluster-name: release-simple-balance-db' /tmp/rendered-ha.yaml
+          grep -q 'DATABASE_URL: "postgresql://simple_balance:' /tmp/rendered-ha.yaml
+          if grep -q 'kind: Endpoints' /tmp/rendered-ha.yaml; then
+            echo "::error::the chart ships an Endpoints object; Patroni owns those"
+            exit 1
+          fi
+          # The leader Service is the one with no selector, and its port must
+          # carry no name: Kubernetes matches a Service port to an Endpoints port
+          # by name, and Patroni writes its port without one. Name it and the
+          # Service has the right address in it and refuses every connection.
+          if grep -B 4 'port: 5432' /tmp/rendered-ha.yaml | grep -q 'name: postgresql'; then
+            named=$(awk '/^kind: Service/,/^---/' /tmp/rendered-ha.yaml | grep -c 'name: postgresql' || true)
+            headless=$(grep -c 'clusterIP: None' /tmp/rendered-ha.yaml || true)
+            if [ "$named" -gt "$headless" ]; then
+              echo "::error::a leader Service names its port; Patroni's endpoint port has no name"
+              exit 1
+            fi
+          fi
+          # The Patroni cleanup hook, which the unit test can only read as text.
+          # Four objects carry the event and every one of them is post-delete:
+          # `pre-delete` is handed its deletions straight back by a live leader
+          # and refuses the whole uninstall when it fails, and anything fired on
+          # install, upgrade or rollback would delete the state of a cluster
+          # that is still serving.
+          hooks=$(grep -c '"helm.sh/hook": post-delete' /tmp/rendered-ha.yaml || true)
+          test "$hooks" = 4
+          others=$(grep '"helm.sh/hook":' /tmp/rendered-ha.yaml | grep -cv 'post-delete' || true)
+          if [ "$others" != 0 ]; then
+            echo "::error::the chart fires a hook on an event other than post-delete"
+            exit 1
+          fi
+          echo "rendered $(grep -c '^kind:' /tmp/rendered-ha.yaml) objects for the ha database"
+          # What the frontend is told about Stripe and AdSense, read back from
+          # its Deployment because that is the only place nginx learns either.
+          # Each is on when config.extraEnv carries the key, as the compose
+          # recipes derive it, or when its switch is on, which is how a key
+          # reaching the pods by a route the render cannot read, such as an
+          # existingSecret or a post-renderer, gets through. One key at a time, so a helper that
+          # read the other key would be caught, and a blank key stays off
+          # because the server reads it as unset.
+          switches() {
+            local billing="$1"; local ads="$2"; local what="$3"; shift 3
+            helm template release /charts/simple-balance \
+              --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+              --set secret.authSecret=0123456789012345678901234567890123456789 \
+              --set config.appBaseUrl=https://books.example.org \
+              "$@" > /tmp/rendered-switches.yaml
+            if ! grep -A1 'name: SB_BILLING_CONFIGURED' /tmp/rendered-switches.yaml | grep -qF "value: \"$billing\"" \
+              || ! grep -A1 'name: SB_ADS_CONFIGURED' /tmp/rendered-switches.yaml | grep -qF "value: \"$ads\""; then
+              echo "::error::$what should tell the frontend billing=$billing and ads=$ads"
+              grep -A1 -E 'name: SB_(BILLING|ADS)_CONFIGURED' /tmp/rendered-switches.yaml
+              exit 1
+            fi
+            echo "billing=$billing ads=$ads: $what"
+          }
+          switches false false "neither key nor switch"
+          switches true false "a Stripe key alone" \
+            --set config.extraEnv.STRIPE_PUBLISHABLE_KEY=pk_test_x
+          switches false true "an AdSense id alone" \
+            --set config.extraEnv.ADSENSE_CLIENT_ID=ca-pub-0000000000000000
+          switches true false "the billing switch alone" \
+            --set frontend.billingConfigured=true
+          switches false true "the ads switch alone" \
+            --set frontend.adsConfigured=true
+          switches false false "a blank Stripe key" \
+            --set "config.extraEnv.STRIPE_PUBLISHABLE_KEY=  "
+          # A values file whose extraEnv holds only commented lines leaves it
+          # null, and so does this. 0.1.6 rendered both, so this release has to
+          # render them too, and identically to the defaults, because nothing
+          # was asked for.
+          helm template release /charts/simple-balance \
+            --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+            --set secret.authSecret=0123456789012345678901234567890123456789 \
+            --set config.appBaseUrl=https://books.example.org > /tmp/rendered-defaults.yaml
+          helm template release /charts/simple-balance \
+            --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+            --set secret.authSecret=0123456789012345678901234567890123456789 \
+            --set config.appBaseUrl=https://books.example.org \
+            --set config.extraEnv=null > /tmp/rendered-null-extra-env.yaml
+          if ! cmp -s /tmp/rendered-defaults.yaml /tmp/rendered-null-extra-env.yaml; then
+            echo "::error::a null config.extraEnv renders differently from the defaults"
+            diff /tmp/rendered-defaults.yaml /tmp/rendered-null-extra-env.yaml || true
+            exit 1
+          fi
+          echo "rendered a null config.extraEnv as the defaults"
+          # Whose word the frontend's nginx takes for a visitor's address, read
+          # back from its Deployment for the same reason as the switches above.
+          # The helper is the part no schema can see: a YAML list has to arrive
+          # as the one string the image splits, a key removed with null as the
+          # image's off position rather than an empty value it refuses, and
+          # recursion in nginx's spelling. A range holding every address still
+          # renders with recursion off, because it rendered before recursion
+          # existed.
+          trust() {
+            local cidr="$1"; local recursive="$2"; local what="$3"; shift 3
+            helm template release /charts/simple-balance \
+              --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+              --set secret.authSecret=0123456789012345678901234567890123456789 \
+              --set config.appBaseUrl=https://books.example.org \
+              "$@" > /tmp/rendered-trust.yaml
+            if ! grep -A1 'name: SB_TRUSTED_PROXY_CIDR' /tmp/rendered-trust.yaml | grep -qF "value: \"$cidr\"" \
+              || ! grep -A1 'name: SB_REAL_IP_RECURSIVE' /tmp/rendered-trust.yaml | grep -qF "value: \"$recursive\""; then
+              echo "::error::$what should tell the frontend SB_TRUSTED_PROXY_CIDR=\"$cidr\" and SB_REAL_IP_RECURSIVE=\"$recursive\""
+              grep -A1 -E 'name: SB_(TRUSTED_PROXY_CIDR|REAL_IP_RECURSIVE)' /tmp/rendered-trust.yaml
+              exit 1
+            fi
+            echo "trusted=\"$cidr\" recursive=$recursive: $what"
+          }
+          trust "127.0.0.1" off "the defaults"
+          trust "127.0.0.1" off "a trustedProxyCidr removed with null" \
+            --set frontend.trustedProxyCidr=null
+          trust "10.4.0.0/14" off "one CIDR" \
+            --set frontend.trustedProxyCidr=10.4.0.0/14
+          trust "10.0.0.0/16, 10.1.0.0/16" on "a YAML list with recursion" \
+            --set 'frontend.trustedProxyCidr={10.0.0.0/16,10.1.0.0/16}' \
+            --set frontend.realIpRecursive=true
+          trust "0.0.0.0/0" off "every address, with recursion off" \
+            --set frontend.trustedProxyCidr=0.0.0.0/0
+          # NOTES.txt is not part of a template render, so the warning that
+          # nothing is trusted is read from a client-side dry run. It has to
+          # show for a list holding only loopback, which is still the off
+          # position, and not once a range is named. Written to a file first so
+          # a dry run that fails stops the step rather than reading as "no
+          # warning".
+          notes() {
+            helm install release /charts/simple-balance --dry-run=client \
+              --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+              --set secret.authSecret=0123456789012345678901234567890123456789 \
+              --set config.appBaseUrl=https://books.example.org \
+              --set ingress.enabled=true \
+              --set ingress.host=books.example.org \
+              "$@" > /tmp/rendered-notes.txt
+          }
+          warning='every sign-in attempt in this cluster counts against one allowance'
+          notes
+          grep -qF "$warning" /tmp/rendered-notes.txt \
+            || { echo "::error::the defaults install without the off-position warning"; exit 1; }
+          notes --set 'frontend.trustedProxyCidr={127.0.0.1}'
+          grep -qF "$warning" /tmp/rendered-notes.txt \
+            || { echo "::error::a list holding only loopback installs without the off-position warning"; exit 1; }
+          notes --set 'frontend.trustedProxyCidr={10.4.0.0/14}'
+          if grep -qF "$warning" /tmp/rendered-notes.txt; then
+            echo "::error::a named range still prints the off-position warning"
+            exit 1
+          fi
+          echo "the off-position warning shows for loopback alone and not for a named range"
 
       # The guards are the reason a misconfigured install fails at render rather
       # than as a crashlooping pod, so a release must not be able to lose them
@@ -201,6 +376,16 @@ jobs:
             --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
             --set secret.authSecret=short \
             --set config.appBaseUrl=https://books.example.org
+          refuses "a database it runs and a database it is given" "pick the one you meant" \
+            --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+            --set secret.authSecret=0123456789012345678901234567890123456789 \
+            --set config.appBaseUrl=https://books.example.org \
+            --set database.enabled=true
+          refuses "an ha database with an existingSecret" "database.enabled needs secret.create" \
+            --set secret.create=false \
+            --set secret.existingSecret=mine \
+            --set config.appBaseUrl=https://books.example.org \
+            --set database.enabled=true
           refuses "the placeholder secret it ships" "published placeholders" \
             --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
             --set secret.authSecret=replace-with-at-least-32-random-characters \
@@ -212,7 +397,40 @@ jobs:
             --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
             --set secret.authSecret=0123456789012345678901234567890123456789 \
             --set config.appBaseUrl=http://books.example.org
+          # Whose word the frontend takes for an address. nginx resolves a host
+          # name or a short-form address here at startup and trusts whatever
+          # comes back, so the schema refuses both, in either form. A range
+          # holding every address with recursion on spans two values, so it is
+          # the helper's to refuse.
+          refuses "a host name as the trusted proxy" "/frontend/trustedProxyCidr" \
+            --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+            --set secret.authSecret=0123456789012345678901234567890123456789 \
+            --set config.appBaseUrl=https://books.example.org \
+            --set frontend.trustedProxyCidr=localhost
+          refuses "a host name in a list of trusted proxies" "/frontend/trustedProxyCidr" \
+            --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+            --set secret.authSecret=0123456789012345678901234567890123456789 \
+            --set config.appBaseUrl=https://books.example.org \
+            --set 'frontend.trustedProxyCidr={10.0.0.0/16,ingress-nginx.svc}'
+          refuses "a short-form address the resolver would pad out" "/frontend/trustedProxyCidr" \
+            --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+            --set secret.authSecret=0123456789012345678901234567890123456789 \
+            --set config.appBaseUrl=https://books.example.org \
+            --set frontend.trustedProxyCidr=10.0.0
+          refuses "every address with recursion on" "believes whatever address a caller writes first" \
+            --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+            --set secret.authSecret=0123456789012345678901234567890123456789 \
+            --set config.appBaseUrl=https://books.example.org \
+            --set 'frontend.trustedProxyCidr={10.0.0.0/8,0.0.0.0/0}' \
+            --set frontend.realIpRecursive=true
 
+      # The `single` profile's material, which no unit test can run: a compose
+      # file is only known to interpolate once Compose has interpolated it, a
+      # systemd unit is only known to parse once systemd has parsed it, and a
+      # shell script that is written into cloud-init is only known to be a shell
+      # script once a shell has read it. All three are cheap here and silent
+      # everywhere else — the frontend image's nginx template shipped a fatal
+      # error for exactly this reason, because every check read it as text.
       # Same reasoning as the verify job above.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -225,6 +443,9 @@ jobs:
         run: |
           npm ci
           npm run typecheck
+
+
+
 
   # A Dockerfile that has stopped building should fail the pull request that
   # broke it rather than the release that needed it. Its own job rather than
@@ -310,3 +531,90 @@ jobs:
               || { echo "::error::a hashed asset is missing $header"; exit 1; }
           done
           echo "the shell and a hashed asset both carry all twelve headers"
+
+          # And the one page whose policy differs. Rendering it is the part a
+          # test cannot do: nginx takes a static response's Content-Type from
+          # the request path, and `/settings/plan` has no extension, so the
+          # wrong directive serves the application as a file download that no
+          # browser executes. Both spellings, because the client router renders
+          # the tab for either and a location catching one would serve the other
+          # under the strict policy.
+          for path in /settings/plan /settings/plan/; do
+            plan=$(curl -fsS -D - -o /dev/null "http://127.0.0.1:8099$path")
+            printf '%s' "$plan" | grep -qi "^content-type: text/html" \
+              || { echo "::error::$path is not served as text/html"; exit 1; }
+            # Stripe is not configured on this container, so that page must come
+            # back under exactly the policy every other page gets.
+            printf '%s' "$plan" | grep -qi "js.stripe.com" \
+              && { echo "::error::$path carries the Stripe policy with no Stripe configured"; exit 1; }
+          done
+          echo "the plan page renders under the strict policy in both spellings"
+
+          docker rm -f frontend-probe
+          # Again with Stripe configured, which is the case the wider policy
+          # exists for and the only one in which the payment form can load.
+          docker run -d --name frontend-probe \
+            -e SB_API_ORIGIN=http://127.0.0.1:3000 \
+            -e SB_BILLING_CONFIGURED=true \
+            -p 127.0.0.1:8099:8080 simple-balance-frontend:test
+          for _ in $(seq 1 30); do
+            if curl -fsS -o /dev/null http://127.0.0.1:8099/; then break; fi
+            sleep 1
+          done
+          for path in /settings/plan /settings/plan/; do
+            plan=$(curl -fsS -D - -o /dev/null "http://127.0.0.1:8099$path")
+            printf '%s' "$plan" | grep -qi "^content-security-policy:.*js.stripe.com" \
+              || { echo "::error::$path does not carry the Stripe policy"; exit 1; }
+          done
+          # And every other page keeps the strict one, which is the promise the
+          # whole surface split rests on.
+          curl -fsS -D - -o /dev/null http://127.0.0.1:8099/accounts | grep -qi "js.stripe.com" \
+            && { echo "::error::the Stripe policy leaked onto an ordinary page"; exit 1; }
+          echo "the plan page carries the Stripe policy and no other page does"
+          docker rm -f frontend-probe
+          # A list of trusted proxies with recursion on. Only the entrypoint
+          # script turns that into what nginx reads, so only a started container
+          # shows the script is installed where the entrypoint sources it and
+          # that nginx takes what it writes: a script the entrypoint skipped
+          # hands nginx the list as one directive, which it refuses.
+          docker run -d --name frontend-probe \
+            -e SB_API_ORIGIN=http://127.0.0.1:3000 \
+            -e 'SB_TRUSTED_PROXY_CIDR=10.0.0.0/8, 172.16.0.0/12' \
+            -e SB_REAL_IP_RECURSIVE=true \
+            -p 127.0.0.1:8099:8080 simple-balance-frontend:test
+          for _ in $(seq 1 30); do
+            if curl -fsS -o /dev/null http://127.0.0.1:8099/; then break; fi
+            sleep 1
+          done
+          if [ "$(docker inspect -f '{{.State.Running}}' frontend-probe)" != true ]; then
+            echo "::error::the frontend did not start with a list of trusted proxies and recursion on"
+            exit 1
+          fi
+          config=$(docker exec frontend-probe nginx -T 2>/dev/null)
+          test "$(printf '%s\n' "$config" | grep -cxE 'set_real_ip_from (10\.0\.0\.0/8|172\.16\.0\.0/12);')" = 2 \
+            || { echo "::error::a list of trusted proxies did not become one set_real_ip_from each"; exit 1; }
+          printf '%s\n' "$config" | grep -qx 'real_ip_recursive on;' \
+            || { echo "::error::SB_REAL_IP_RECURSIVE=true did not become real_ip_recursive on"; exit 1; }
+          docker rm -f frontend-probe
+          # And a host name, which nginx would resolve at startup and trust, has
+          # to stop the container before nginx serves anything. Detached and
+          # waited on for a bounded time, because the failure being looked for
+          # is a container that starts, and a foreground one that started would
+          # hold this step until the job timed out.
+          docker run -d --name frontend-probe \
+            -e SB_API_ORIGIN=http://127.0.0.1:3000 \
+            -e SB_TRUSTED_PROXY_CIDR=localhost \
+            simple-balance-frontend:test
+          for _ in $(seq 1 30); do
+            if [ "$(docker inspect -f '{{.State.Status}}' frontend-probe)" = exited ]; then break; fi
+            sleep 1
+          done
+          if [ "$(docker inspect -f '{{.State.Status}}' frontend-probe)" != exited ] \
+            || [ "$(docker inspect -f '{{.State.ExitCode}}' frontend-probe)" -eq 0 ]; then
+            echo "::error::the frontend started with a host name as its trusted proxy"
+            exit 1
+          fi
+          docker logs frontend-probe > /tmp/frontend-refusal.log 2>&1
+          grep -qF 'is not an IPv4 or IPv6 address' /tmp/frontend-refusal.log \
+            || { echo "::error::the frontend refused a host name, but not for the stated reason"; exit 1; }
+          echo "the frontend trusts a list with recursion on and refuses a host name"

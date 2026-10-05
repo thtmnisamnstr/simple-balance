@@ -121,7 +121,7 @@ describe("a field and its control", () => {
  * the same rows did, which is what made it look deliberate.
  */
 describe("a field around a composite", () => {
-  it("is a labelled group rather than a label", () => {
+  it("is a labeled group rather than a label", () => {
     render(
       <Field label="Category" as="group">
         <Input aria-label="Category for split 1" defaultValue="" />
@@ -172,9 +172,14 @@ describe("a field around a composite", () => {
  * control as far as anybody using it is concerned. A `Field` around it would add
  * a second label above a box that already says what it is.
  *
- * Named, so a second file input has to come here and make its own case.
+ * Named, so a second file input has to come here and make its own case — and
+ * named by its own text rather than its line number, which moved every time
+ * something was added above it and failed a test about a control nobody had
+ * touched.
  */
-const NOT_A_FIELD = new Set(["src/client/pages/ImportPage.tsx:322"]);
+const NOT_A_FIELD = new Set([
+  'src/client/pages/ImportPage.tsx:<input type="file" accept=".csv,text/csv" onChange={chooseFile} />',
+]);
 
 describe("every control in the client", () => {
   it("goes through the three shared components", () => {
@@ -185,14 +190,14 @@ describe("every control in the client", () => {
       const lines = readFileSync(path, "utf8").split("\n");
       lines.forEach((line, index) => {
         if (!/<(?:input|select|textarea)\b/.test(line)) return;
-        // A checkbox or a radio is labelled by the `<label>` it sits in or by
+        // A checkbox or a radio is labeled by the `<label>` it sits in or by
         // the `radiogroup` around it, and neither takes a `Field`. The `type`
         // is usually on the next line, so the tag's own attributes are read
         // rather than the line it opens on: a window to the closing `>`,
         // bounded so a malformed file cannot run to the end.
         const tag = lines.slice(index, index + 12).join(" ");
         if (/type="(?:checkbox|radio)"/.test(tag.slice(0, tag.indexOf(">") + 1))) return;
-        if (NOT_A_FIELD.has(`${path}:${index + 1}`)) return;
+        if (NOT_A_FIELD.has(`${path}:${line.trim()}`)) return;
         raw.push(`${path}:${index + 1}`);
       });
     }
@@ -206,7 +211,7 @@ describe("every control in the client", () => {
  * `web.md` 12.3 says so and six controls disabled on a computed predicate had
  * one sentence between them. It is the one control that can go completely
  * silent: nothing was typed wrongly, so there is no field error, and nothing was
- * submitted, so there is no summary — the button is simply grey and the person
+ * submitted, so there is no summary — the button is simply gray and the person
  * has to guess which of the form's conditions is unmet.
  *
  * The guide called this "structural and has nothing to key on today". `Button`
@@ -270,7 +275,7 @@ describe("a disabled button", () => {
    * `onClick={() => …}`, so an arrow-function-first button was invisible even
    * in the files it did read. A census that walks braces finds 22 such buttons
    * where the old one saw 8 — every one of the fourteen it missed was a
-   * control that goes grey and says nothing.
+   * control that goes gray and says nothing.
    *
    * Brace depth rather than a regex, because the thing being matched is
    * nested and a regular expression is the wrong tool for it.
@@ -306,9 +311,17 @@ describe("a disabled button", () => {
    * The rule's own words: "a button that is working already says so, and a
    * reason for that state would be a second answer to a question already
    * answered". These four are the other half of a pair — the one not pressed,
-   * greyed while its sibling works — so the answer is the sibling's spinner.
+   * grayed while its sibling works — so the answer is the sibling's spinner.
    * Named rather than pattern-matched, because "is this predicate a busy
    * flag" is a judgement.
+   *
+   * The plan tab is the fourth, and it is a row rather than a pair: up to four
+   * of its buttons are on screen at once and `anyPending` grays the three that
+   * were not pressed. It used to hand that same boolean to every one of them
+   * as `loading`, which is how it came to be here — a spinner, `aria-busy` and
+   * an sr-only "Working…" inside three names nobody had touched. Only the
+   * pressed button carries `loading` now, so the sibling's spinner this
+   * exemption rests on is the one that exists.
    *
    * The file is only half of it: the predicate has to be a busy flag AND
    * NOTHING ELSE, which is why the pattern refuses `|` and `&` between the
@@ -321,7 +334,50 @@ describe("a disabled button", () => {
     "src/client/App.tsx",
     "src/client/TransactionBrowser.tsx",
     "src/client/pages/StagingPage.tsx",
+    "src/client/pages/PlanPage.tsx",
   ]);
+
+  /**
+   * The half of 12.3 the census above cannot see, and it shipped a false
+   * sentence before this existed.
+   *
+   * That check drops any tag carrying a `disabledReason` on the first line of
+   * its filter -- the question it asks is whether a reason is *present*. So the
+   * two buttons that have one are the two it never looks at again, and
+   * `WORKING_NOT_BLOCKED` never reaches them either. The plan tab's buttons are
+   * both: each is `disabled={its own refusal || anyPending}` and each handed
+   * over a reason computed only for the first half. Pressing Monthly with no
+   * subscription at all therefore disabled Annual and described it, through
+   * `aria-describedby`, as "You are on the annual plan already."
+   *
+   * So where a button is disabled by its own refusal *or* by something being in
+   * flight, the reason has to be withheld in the second case -- a conditional,
+   * not a bare expression. `web.md` 12.3 is the rule: the sibling's spinner is
+   * the answer, and a reason beside it answers a question nobody asked.
+   */
+  it("withholds the reason where a busy flag is what disabled the button", () => {
+    const BUSY = /\b(anyPending|isPending|isLoading|pending)\b/;
+    const unconditional = computedDisabledButtons().filter(({ tag }) => {
+      const at = tag.indexOf("disabledReason={");
+      if (at === -1) return false;
+      const predicate = /\sdisabled=\{([^}]*)\}/.exec(tag)?.[1] ?? "";
+      // Only a compound predicate can disable for two different reasons.
+      if (!predicate.includes("||") || !BUSY.test(predicate)) return false;
+      // The reason expression, by brace depth: it may itself contain braces.
+      let depth = 0;
+      let end = at + "disabledReason=".length;
+      for (; end < tag.length; end += 1) {
+        if (tag[end] === "{") depth += 1;
+        else if (tag[end] === "}") {
+          depth -= 1;
+          if (depth === 0) break;
+        }
+      }
+      const reason = tag.slice(at + "disabledReason={".length, end);
+      return !reason.includes("?") && !reason.includes("undefined");
+    });
+    expect(unconditional.map((b) => b.where)).toEqual([]);
+  });
 
   it("says why at every submit disabled on a computed predicate", () => {
     const silent = computedDisabledButtons().filter(({ where, tag }) => {
@@ -344,5 +400,120 @@ describe("a disabled button", () => {
     // And the census is really finding them, so a broken matcher reads as a
     // pass rather than as nothing to check.
     expect(computedDisabledButtons().length).toBeGreaterThan(15);
+  });
+});
+
+/**
+ * The same rule where `Button` cannot reach it: a plain `<button>`.
+ *
+ * `RowMenu` holds bare buttons rather than `Button`s, because the popover lays
+ * its own items out and a `Button` inside one would bring a variant, its
+ * padding and a reason block the menu has nowhere to put. So the census above
+ * cannot see them, and the three accounts items that gray out on a frozen
+ * account were gray and silent for a release. 12.3 is about the control, not
+ * about which component rendered it.
+ *
+ * Two places a plain button goes gray, and both are in scope: inside a
+ * `<RowMenu>`, and behind a spread anywhere. `TransactionBrowser` builds one
+ * `rowBlock` per row and spreads it into Edit, Delete and Restore, which is the
+ * construct a text census cannot see through — and a spread is the only way an
+ * attribute reaches a tag without being written on it, so it is the one thing
+ * worth widening to. It is resolved rather than excused by name: the object the
+ * spread names is read out of the file and answers for the button only where it
+ * really sets the key. Naming the file would have excused whatever it adds
+ * next, and the pairing is what makes the spread trustworthy in the first
+ * place — `disabled` and `aria-describedby` are set in one literal, so they
+ * cannot come apart the way two attributes typed separately can.
+ */
+describe("a disabled button that is not a `Button`", () => {
+  type PlainButton = { where: string; tag: string; source: string };
+
+  /**
+   * Every `<button>` a row menu holds, and every one fed by a spread.
+   *
+   * Brace depth to find where the tag itself ends, for the reason the census
+   * above gives: `onClick={() => …}` carries a `>` a regex would stop at.
+   */
+  const plainButtons = (): PlainButton[] => {
+    const found: PlainButton[] = [];
+    for (const path of globSync("src/client/**/*.tsx")) {
+      const source = readFileSync(path, "utf8");
+      // Row menus do not nest, so each one runs to the next closing tag.
+      const menus = [...source.matchAll(/<RowMenu\b/g)].map((match) => {
+        const close = source.indexOf("</RowMenu>", match.index);
+        return { open: match.index, close: close === -1 ? source.length : close };
+      });
+      for (let at = source.indexOf("<button"); at !== -1; at = source.indexOf("<button", at + 1)) {
+        let depth = 0;
+        let close = -1;
+        for (let scan = at; scan < source.length; scan += 1) {
+          const character = source[scan];
+          if (character === "{") depth += 1;
+          else if (character === "}") depth -= 1;
+          else if (character === ">" && depth === 0) {
+            close = scan;
+            break;
+          }
+        }
+        if (close === -1) continue;
+        const tag = source.slice(at, close + 1);
+        const inMenu = menus.some((menu) => at > menu.open && at < menu.close);
+        if (!inMenu && !tag.includes("{...")) continue;
+        found.push({ where: `${path}:${source.slice(0, at).split("\n").length}`, tag, source });
+      }
+    }
+    return found;
+  };
+
+  /**
+   * Whether the object a `{...name}` spread names sets `key`.
+   *
+   * Read brace-balanced from its `const`, so an object nested inside it cannot
+   * end the search early and let the rest of the literal go unread.
+   */
+  const spreadSets = (source: string, tag: string, key: string) =>
+    [...tag.matchAll(/\{\.\.\.([A-Za-z_$][\w$]*)\}/g)].some(([, name]) => {
+      const declared = source.indexOf(`const ${name} = {`);
+      if (declared === -1) return false;
+      let depth = 0;
+      for (let scan = source.indexOf("{", declared); scan < source.length; scan += 1) {
+        if (source[scan] === "{") depth += 1;
+        else if (source[scan] === "}") {
+          depth -= 1;
+          if (depth === 0) {
+            return new RegExp(`[\\s{,]"?${key}"?\\s*:`).test(source.slice(declared, scan + 1));
+          }
+        }
+      }
+      return false;
+    });
+
+  /**
+   * Whether this button ends up carrying `key`, in all three spellings: the
+   * attribute on the tag, a key in an object spread inline on it, and a key in
+   * the object a named spread points at.
+   */
+  const carries = (button: PlainButton, key: string) =>
+    new RegExp(`\\s${key}=[{"]`).test(button.tag) ||
+    new RegExp(`[\\s{,]"?${key}"?\\s*:`).test(button.tag) ||
+    spreadSets(button.source, button.tag, key);
+
+  const goesGray = (button: PlainButton) => carries(button, "disabled");
+
+  it("points at the reason it is gray", () => {
+    const silent = plainButtons().filter(
+      (button) => goesGray(button) && !carries(button, "aria-describedby"),
+    );
+    expect(
+      silent.map((button) => button.where),
+      "a disabled button says why, whatever element it is",
+    ).toEqual([]);
+    // Four of the buttons in scope are disabled on the tag itself and three
+    // more only through `rowBlock`, so a floor above four is the spread
+    // resolver's own proof: break it and this counts 4 where it should count 7.
+    expect(
+      plainButtons().filter(goesGray).length,
+      "the census is really finding them, spreads included",
+    ).toBeGreaterThan(4);
   });
 });

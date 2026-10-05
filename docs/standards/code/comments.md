@@ -3,7 +3,7 @@
 The one convention in this repository that is genuinely unusual, and the reason
 it pays.
 
-**20.1% of the non-blank lines in `src` are comments** — 9,664 of 48,058. That
+**26.2% of the non-blank lines in `src` are comments** — 15,847 of 60,520. That
 is far above what most codebases carry and far above what most style guides
 recommend. It is deliberate, and this guide exists so that nobody "tidies" it
 away and so that the density is spent on the right things.
@@ -22,7 +22,7 @@ percentage anyway.
 
 *Checked by:* `tests/comment-density.test.ts`, which recounts `src`, fails under
 the floor, refuses two documents that quote different numbers, and compares
-`9,664 of 48,058` against the recount exactly.
+the pair beside the percentage against the recount exactly.
 
 ## 1. What a comment is for here
 
@@ -69,7 +69,7 @@ where the code is counter-intuitive and thin out where it is ordinary:
 | Where | Why |
 | --- | --- |
 | Anywhere money changes form | Because the wrong thing looks right. |
-| Any deliberate sequence | A loop that must not be parallelised says so beside the loop, because the linter would otherwise be right. |
+| Any deliberate sequence | A loop that must not be parallelized says so beside the loop, because the linter would otherwise be right. |
 | Any place a rule reverses | The refund rule inverts what a deposit normally does. Every site that participates says so. |
 | Any workaround for a tool | `unstubGlobals` in `vitest.config.ts` carries a paragraph on why `restoreAllMocks` is not enough. |
 | Any exception to a lint rule | See 5. |
@@ -106,12 +106,12 @@ a paragraph arguing why the rule is wrong about that line:
 // oxlint-disable-next-line jsx-a11y/no-static-element-interactions
 ```
 
-That one is `src/client/forms.tsx:535`. `src/client/components.tsx:678`
+That one is `src/client/forms.tsx:549`. `src/client/components.tsx:786`
 silences two rules in a single comment and does not borrow this argument: it
 makes its own, that a keyboard user's activation of the buttons inside bubbles
 to the same handler, so the element is a catcher for its children's events
 rather than a mouse-only control. Thirteen of the fourteen paragraphs sit
-directly above the disable. The exception is `src/client/forms.tsx:1653`, where
+directly above the disable. The exception is `src/client/forms.tsx:1676`, where
 the reason is about the whole effect and sits above it, and the disable reaches
 only the first of the two lines inside that assign. The second lints clean
 anyway — the rule reports once per effect, on the first setter it sees — which
@@ -157,21 +157,93 @@ comment when the code around it moves and does nothing else. Had it reflowed the
 formatter that rewrites the reasoning is not worth consistent brace placement.
 
 If the formatter is ever changed, re-run that measurement first. The check is:
-strip every comment line, normalise whitespace, compare before and after.
+strip every comment line, normalize whitespace, compare before and after.
 
 ## 7. Prose style
 
 **House**, inherited from [`docs/standards/writing.md`](../writing.md), with two
 additions for comments specifically:
 
-- **Full sentences, and British spelling**, matching the product's copy.
+- **Full sentences, and American spelling**, matching the product's copy.
+  `docs/standards/common.md` §Naming owns that rule; this is where it lands.
 - **Say what happened, not what might.** "This used to credit income and the
   budget never moved" beats "this could cause issues". The first is a fact
   somebody can check; the second is a feeling.
 
-## 8. What is not enforced
+*Checked by:* `tests/american-wording.test.ts`, for the spelling half — the half
+a machine can have. It reads each file as written rather than as code, so a
+comment is in scope beside the string under it, and it refuses the British
+idioms a word map cannot see. `tests/mcp-measurements.test.ts` holds the same
+spelling on the agent surface. The second bullet has nothing behind it and
+cannot: "this could cause issues" is a well-formed American sentence, and what
+is wrong with it is that it says nothing. Where that scan stops, and what is
+outside it, is `docs/standards/common.md` §Naming's own business and is recorded
+there — section 8 below is the same boundary seen from this side.
 
-Every rule in this guide, and no longer the number at the top of it.
+## 8. The convention covers the deployment code, and the floor does not
+
+**House.** Every mechanism named above stops at `src`, and `src` stopped being
+all the first-party TypeScript in this tree.
+
+The deployment profiles are Pulumi programs. This release added seven files of
+them — `deploy/pulumi/aws-single/`, `deploy/pulumi/oci-single/`, and the
+`deploy/pulumi/single-common/` the two share — and nearly five thousand
+non-blank lines. They are written to this convention and then some. Counted at
+`cb67604`, the ten first-party programs under `deploy/pulumi` carry 3,061
+comment lines across 6,407 non-blank ones, **47.8%**, which is nearly twice the
+figure at the top of this page; `deploy/pulumi/aws-single/platform.ts` alone
+reads 68.2%. Those are a measurement rather than a floor, counted the way
+`docs/standards/common.md` §Naming counts its own backlog, and nothing holds
+them.
+
+Nothing above reaches them either. The density measurement walks one directory
+(`tests/comment-density.test.ts:30`), the silenced-rule check globs one
+(`tests/lint-config-documented.test.ts:72`), the formatter is handed three paths
+(`package.json:28`), and the root compiler's include list names neither
+(`tsconfig.json:27-35`) — `deploy/pulumi` is typechecked by a configuration of
+its own, in CI.
+
+**The practical hole is in rule 5, which is Binding.** `npm run lint` is a bare
+`oxlint` (`package.json:26`), so it walks the whole tree and a rule silenced
+under `deploy/` is a rule really silenced. The check that demands the paragraph
+reads `src/**` alone, so a bare `oxlint-disable-next-line` there is a claim that
+the rule is wrong, made without argument, and nothing anywhere would say so.
+There are none today, which is the whole reason to close it now rather than
+later: a check that arrives at zero stays at zero. One that arrives after the
+population does not — which is what became of the spelling half of rule 7, whose
+scan stops at `src` for the same reason, and where
+`docs/standards/common.md` §Naming now records a backlog instead of a rule.
+
+**Widening the floor to the whole repository is the obvious alternative, and it
+is wrong.** The three populations do not measure alike — at `cb67604`, `deploy`
+reads 47.8% and `tests` reads 20.1%, on either side of the application's — and a
+floor is one number over whatever it is handed. Keep 14% and it stops defending
+the application outright: `tests` is larger than `src`, so `src` could lose
+*every comment in it* and the union would still clear the floor. Raise it until
+it would mean something for `src` — anywhere near the figure at the top of this
+page — and the union fails on the day it is written, because it reads 23.4% and
+what holds it there is `tests`, where a table of cases is its own explanation
+and a comment on every row is the restatement section 2 bans. Scope and floor
+are different questions. This rule answers the first:
+the convention, and rule 5's paragraph in particular, applies wherever this
+repository's own TypeScript is. The floor stays on `src`, which is the code the
+rule about tidying was written against.
+
+*Checked by:* `tests/comments-guide.test.ts`, which discovers the deployment
+TypeScript with `repoFiles` rather than listing it — a list is a claim about
+what exists, made once — and requires every `oxlint-disable` under `deploy/` to
+carry an argument above it, on the terms rule 5's own check applies to `src`. It
+holds the premise too, because the rule rests on it: that `npm run lint` is
+given no paths and the lint config excludes no part of `deploy`, so the disable
+it is looking for would be silencing something real. The population is zero, so
+it also runs the predicate over a bare disable and an argued one — a walk that
+found nothing would otherwise pass in silence. It recomputes the counterfactual
+in the paragraph above and holds no density figure of its own, because this rule
+is that the floor does not go there.
+
+## 9. What is not enforced
+
+Five of the eight rules here, and no longer the number at the top of the page.
 `tests/comment-density.test.ts` recounts `src` on every run, fails under a floor
 of 14%, and holds the counts this page quotes to that recount exactly. That is a
 check against the comments being tidied away, which is a different thing from a
@@ -180,9 +252,10 @@ should not be one — quality measured as density is gamed by exactly the
 restatement comments section 2 bans, and the floor is set low enough that nobody
 is ever tempted to pad towards it.
 
-The other mechanical check is section 6's: the formatter must not change comment
-prose, and that is verified by measurement when the formatter changes rather
-than on every run.
+Three rules name a mechanism of their own, and each names it at the rule rather
+than here: 5, the spelling half of 7, and 8. Section 6's is mechanical and still
+in the table below, because it is verified by measurement when the formatter
+changes rather than on every run.
 
 | Rule | Why it is only a sentence |
 | --- | --- |
@@ -191,8 +264,20 @@ than on every run.
 | 3 Where the density goes | The floor holds the total. Where it lands is distribution, and nothing reads that. |
 | 4 Docstrings say what a thing is for | Editorial. |
 | 6 Comments and the formatter | The measurement is run when the formatter changes rather than on every run, because it compares the tree against itself before and after a tool this repository is not currently changing. |
-| 7 Prose style | Editorial. |
 
-**Six `human` rules, and that is every rule here that is not about a tool.**
-This is the guide that argues rather than enforces, which is appropriate for the
-one convention here that a newcomer is most likely to think is a mistake.
+**Five `human` rules**, which is this guide's whole share of the set
+[`index.md`](index.md) counts. The count came down because rule 7 turned out to
+have a mechanism, not because a rule was dropped — and it had had one since
+`ca11350`, on this branch, which is the shape worth recognizing: a rule's text
+and its new test went in together and the row in this table was left saying
+"Editorial". A half-done edit does not look like a defect from either end. It
+looks like two guides one link apart giving opposite answers about the same
+rule, which is what anybody reading them found.
+
+The sentence that stood here called these every rule not about a tool. That was
+never true, and the table it sat under already said so: rule 6 is about a tool
+by its own heading and is in the table, while rule 5 is about a tool and is not.
+What decides is whether the failure leaves something a program can find. A bare
+disable does. A restatement does not, and nothing about tools changes that. This
+is still the guide that argues rather than enforces, which is appropriate for
+the one convention here that a newcomer is most likely to think is a mistake.

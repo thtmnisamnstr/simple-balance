@@ -1,0 +1,24 @@
+# Daily dumps. `systemctl list-timers simple-balance-backup.timer` says when the
+# next one is due and when the last one ran.
+[Unit]
+Description=Daily Simple Balance backup
+Documentation=https://github.com/thtmnisamnstr/simple-balance/blob/main/docs/deployment-profiles.md
+
+[Timer]
+# 03:15 local time, which on a personal ledger is the quietest hour and is
+# early enough that a failure is visible the same morning.
+OnCalendar=*-*-* 03:15:00
+
+# The whole reason a timer beats a cron line on a machine that is not always on.
+# Persistent remembers the last run across a reboot and fires immediately if the
+# machine was asleep when the time passed, so a laptop or a VM that is stopped
+# overnight still gets its dump.
+Persistent=true
+
+# Up to half an hour of jitter. On one machine this is pointless; on a fleet
+# restored from one image it is what stops every host dumping to the same
+# network share at 03:15:00.
+RandomizedDelaySec=30m
+
+[Install]
+WantedBy=timers.target

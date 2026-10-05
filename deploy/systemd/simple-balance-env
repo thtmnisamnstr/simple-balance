@@ -1,0 +1,123 @@
+#!/bin/sh
+# Assembles the file Compose reads, /opt/simple-balance/.env, from its four
+# parts: env.base, which cloud-init wrote and which holds nothing secret; env.db,
+# which cloud-init also wrote and which holds the one credential the program had
+# to decide; the secret the first-boot script generated onto the data volume;
+# and env.settings, the stack's own settings, which simple-balance-settings
+# fetched from the cloud's secret store a moment before this runs.
+#
+# The order is the precedence, and it is the order below: a name in
+# env.settings wins over every generated one, because a duplicate later in the
+# file is what Compose reads. An operator who sets their own DATABASE_URL in
+# `simple-balance:secrets` — pointing at a database they already keep, or at a
+# replica during a move — gets it, on a machine whose program generated one,
+# with nothing to turn off first.
+#
+# Run by both first-boot scripts, and before every start of the deployment by
+# the drop-in the cloud programs install beside the unit, right after the fetch.
+# Not by the unit itself: simple-balance.service also serves a hand install,
+# whose .env is somebody's own and has no parts to be assembled from.
+set -eu
+
+: "${SB_COMPOSE_DIR:=/opt/simple-balance}"
+: "${SB_STATE_DIR:=/var/lib/simple-balance}"
+
+base="$SB_COMPOSE_DIR/env.base"
+# The generated database credential, and which one it is depends on which
+# machine this is: DATABASE_URL on the application node, POSTGRES_APP_PASSWORD
+# on the database node. One file and one name for both, because the two are the
+# same fact — the account the application signs in as — written from each end.
+#
+# 0600 and on the boot disk rather than the volume, because cloud-init rewrites
+# it on every rebuild and a stale copy that outlived its password would be read
+# in preference to nothing.
+#
+# Optional. A machine whose program was told to build no database node has none,
+# and so does every machine built before this file existed.
+db="$SB_COMPOSE_DIR/env.db"
+secrets="$SB_STATE_DIR/secrets.env"
+# On the boot disk, 0600, and rewritten by every fetch: the store is where the
+# settings live, so a copy that outlived the machine would only ever be a stale
+# one.
+settings="$SB_COMPOSE_DIR/env.settings"
+target="$SB_COMPOSE_DIR/.env"
+
+# No env.base means no cloud program built this machine, so its .env is written
+# by hand and overwriting it would lose whatever is in it. Leaving it alone and
+# succeeding is what keeps the deployment starting.
+if [ ! -f "$base" ]; then
+	echo "simple-balance-env: no $base, so $target is left as it is." >&2
+	exit 0
+fi
+
+# Without the secret the deployment has no AUTH_SECRET — or, on the database
+# machine, no superuser password — and starting it on the .env from last time
+# would run on settings that are no longer the ones on the volume. That is the
+# data volume missing or not mounted, and a failed start says so where a quiet
+# one would not.
+if [ ! -f "$secrets" ]; then
+	echo "simple-balance-env: $secrets is missing; is the data volume mounted at $SB_STATE_DIR?" >&2
+	exit 1
+fi
+
+# Written beside the target and moved over it, so a fold that fails partway
+# leaves the last good .env in place rather than half of a new one. Moved within
+# one directory, which is one filesystem, so the rename is atomic.
+umask 077
+partial="$target.partial"
+{
+	cat "$base"
+	if [ -s "$db" ]; then
+		echo "# --- the database credential this machine's program generated ---"
+		cat "$db"
+	fi
+	cat "$secrets"
+	if [ -s "$settings" ]; then
+		echo "# --- the stack's settings, from the cloud's secret store ---"
+		cat "$settings"
+	fi
+} >"$partial"
+chmod 0600 "$partial"
+mv "$partial" "$target"
+
+# A machine built before the settings moved into the stack may still hold the
+# file they used to be typed into. It is not read, and saying so at every start
+# is what stops somebody editing it and wondering why nothing changed.
+if [ -s "$SB_STATE_DIR/env.local" ]; then
+	echo "simple-balance-env: $SB_STATE_DIR/env.local is no longer read. Move what is in it into the stack's" >&2
+	echo "  simple-balance:env and simple-balance:secrets (deploy/pulumi/README.md), run pulumi up, then delete it." >&2
+fi
+
+# Said, never enforced, and the distinction is the release rule rather than
+# timidity: a `sslmode=disable` somebody set in the stack was accepted by
+# the release before this one, and a setting that was accepted stays accepted.
+# Refusing here would stop a deployment that worked yesterday, on a machine
+# whose operator is not watching, for a reason they would have to find in the
+# journal anyway.
+#
+# The same check simple-balance-backup makes before it dumps, from the same end:
+# that script refuses a *verify* mode it cannot honour, and this one warns about
+# the modes that verify nothing. Between them every DATABASE_URL on the machine
+# is looked at once.
+#
+# It never fires on a URL the cloud programs generated — those carry
+# sslmode=verify-full and the CA that signs the database node's certificate —
+# and it says nothing at all on the database machine, which has no DATABASE_URL
+# to have an opinion about.
+#
+# The last assignment, because that is the one Compose reads, with its quotes
+# removed so an operator who quoted the value gets the same answer.
+folded_url=$(sed -n 's/^DATABASE_URL=//p' "$target" | tail -1 | sed 's/^"\(.*\)"$/\1/; s/^'"'"'\(.*\)'"'"'$/\1/')
+if [ -n "$folded_url" ]; then
+	case "$folded_url" in
+	*[?\&]sslmode=disable | *[?\&]sslmode=disable\&*)
+		echo "simple-balance-env: DATABASE_URL says sslmode=disable, so the ledger crosses the network in the clear." >&2
+		echo "  Use sslmode=verify-full with the database's CA certificate at /var/lib/simple-balance/tls/db-ca.pem." >&2
+		;;
+	*[?\&]sslmode=*) ;;
+	*)
+		echo "simple-balance-env: DATABASE_URL names no sslmode, so whether the ledger is encrypted in transit is the database's choice, not this machine's." >&2
+		echo "  Use sslmode=verify-full with the database's CA certificate at /var/lib/simple-balance/tls/db-ca.pem." >&2
+		;;
+	esac
+fi

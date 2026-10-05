@@ -169,7 +169,7 @@ describe("staged rows on category and payee detail", () => {
     expect(stagedQueries[0]!.searchParams.get("categoryId")).toBe(CATEGORY_ID);
     expect(stagedQueries[0]!.searchParams.get("start")).toBe("2026-01-01");
 
-    fireEvent.change(screen.getByLabelText("Transaction type"), {
+    fireEvent.change(screen.getByLabelText("Filter by type"), {
       target: { value: "deposit" },
     });
 

@@ -413,7 +413,7 @@ describe("refunds and returned income", () => {
     ).toThrow(/either income or a refund/i);
   });
 
-  it("still balances an uncategorised deposit against income", () => {
+  it("still balances an uncategorized deposit against income", () => {
     const prepared = prepareWith({
       type: "deposit",
       toAccountId: checking,

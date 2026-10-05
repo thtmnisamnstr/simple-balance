@@ -15,7 +15,18 @@
 ## Non-negotiable ledger invariants
 
 - Never represent money with JavaScript/JSON floating-point numbers. Use validated
-  decimal strings and PostgreSQL `numeric(44,18)`.
+  decimal strings and PostgreSQL `numeric(44,18)`. That governs every value
+  reaching a posting, a balance, a report or a stored column. A vendor's price
+  is outside it and may never reach one: it arrives from Stripe as an integer
+  count of the currency's minor units, is rendered once and never stored, summed
+  or posted, and the plan tab divides it by the scale `Intl` already knows in
+  order to show it. The boundary belongs here rather than in a guide alone,
+  because this is the books rule and an invariant that shipped code contradicts
+  stops being believed: without it a reviewer quoting the first sentence either
+  files working code as a violation or copies the division into something that
+  really is a ledger amount. `docs/standards/common.md` §Money that is not a
+  ledger amount owns the four-clause membership test, and `web.md` and
+  `code/client.md` cite it rather than keeping a second copy.
 - Never accept a public `userId`. Derive it from the authenticated `Actor`, and
   scope every finance read/write by that ID.
 - Keep `AUTH_MODE=local` as the default. Google credentials are required only for
@@ -50,7 +61,7 @@
 - A posting carries its own date and stands on its own. Balances, cash flow, and
   spending by category all read the posting table; only a label such as a
   category is looked up elsewhere. A posting names the leg it belongs to, and
-  the leg holds the label, so recategorising is one update and writes no
+  the leg holds the label, so recategorizing is one update and writes no
   postings at all. The exception says what it is: a category whose kind runs
   against the entry's direction makes it a refund, which moves the other half
   between the income and expense counter-accounts, so that one appends a delta
@@ -74,7 +85,7 @@
   zeroed, never deleted, because the postings that name it are append-only.
 - Any write that changes a leg must bump the parent transaction's `version` in
   the same transaction. A mass edit describes the set it is about to change by
-  `id:version`, so a leg relabelled underneath one would leave that description
+  `id:version`, so a leg relabeled underneath one would leave that description
   agreeing about a row that changed.
 - Postings are append-only. To correct one, work out the difference per account,
   currency, and date, and append only that. Never update or delete a posting.
@@ -93,7 +104,12 @@
   `on delete cascade`, because deleting an account is one delete of that row and
   nothing enumerates tables. Add the cascade with the table; without it the
   deletion fails rather than silently leaving data, which is the right failure
-  but still a bug.
+  but still a bug. `billing_webhook_event` is the one table that carries no
+  `user_id` and cascades from nobody, and it is not an exception to this rule
+  but a case outside it: it records which deliveries Stripe has already been
+  answered for, which is the deployment's fact rather than any person's. Letting
+  it cascade would drop that record with the account and let Stripe's next retry
+  — it retries for up to 72 hours — be handled a second time as new.
 - The MCP surface has feature parity with the web app, and `tests/mcp-parity.test.ts`
   compares them route by route. A new `/api/v1` route needs a tool in the same
   change, or a named exception carrying its reason. It runs the other way too:
@@ -104,9 +120,16 @@
   defect one level down, and it is invisible to a comparison of route lists.
   `categoryKind` was exactly that for a while — documented for the MCP, absent
   from the form, so the browser silently filed refunds as income.
-- Two exceptions, both account management rather than bookkeeping: deleting an
-  account and setting a sign-in password are reachable from a session and never
-  from an MCP token.
+- Three exceptions, all account management rather than bookkeeping: deleting an
+  account, setting a sign-in password, and the billing routes are reachable from
+  a session and never from an MCP token. Billing is the one that has to be
+  argued rather than asserted, because a plan does bear on what an agent can do.
+  Starting, switching or stopping a paid subscription spends somebody's money,
+  and an MCP token is a credential handed to a program — a different class of
+  authority from writing a transaction, and one no amount of scope makes
+  equivalent. What an agent needs in order to explain a refusal it meets is the
+  plan, its ceiling and how much of it is used, and `whoami` carries all three.
+  That is parity on the thing the agent is affected by; the purchase is not.
 - A tool whose result does not satisfy its declared output schema fails the
   call with an `Output validation error` naming the offending path, so a wrong
   schema breaks the tool rather than trimming its reply. Exercise new tools over
@@ -125,7 +148,16 @@
 - Updates/deletes require an expected version. Commits, and creates that write
   postings, require idempotency; a record somebody names is protected by its own
   name being unique, so a second submit fails rather than duplicating. Bulk
-  commits are explicit-ID, validate-first, and atomic.
+  commits are explicit-ID, validate-first, and atomic. The active-account choice
+  is the one update that carries neither, and the reason is in its shape: it
+  states the whole set that stays active, so sending it a second time leaves
+  exactly the state the first call left, and what serializes it is
+  `lockAccountNamespace` rather than a version — an expected version would not
+  stop two requests both taking the last free place, and the lock does. It bumps
+  no version either, because `active` is not reachable through the account edit
+  schema, so a bump would invalidate the expected version in every form somebody
+  had open over a column they were not editing. That is the trade the
+  category-group rule below already makes.
 - Ten thousand rows is the cap, and it is the same number everywhere: a mass
   edit, a mass delete, a commit, and a CSV import. An import that stages more
   than one action can clear is a cap doing damage. A filtered selection is
@@ -135,7 +167,7 @@
   the ledger's own records and need `ledger:write`, wherever they are reached
   from, including a CSV import.
 - An audit entry records what changed, and for a split that includes the legs:
-  relabelling one writes no posting and touches no column on the transaction.
+  relabeling one writes no posting and touches no column on the transaction.
 - Budgeting sits over the ledger and never inside it. An assignment is not a
   posting: nothing in a budget writes one, so deleting a budget leaves the books
   exactly as they were, and every budget figure comes from plans, entries and
@@ -146,6 +178,18 @@
   the sum of its categories may not hold a budget of its own. No method is ever
   chosen: the parameter is the choice, and `amount_rule` is derived from the row
   rather than asked for.
+- Deleting a category group clears its categories' `group_id` in the service,
+  not in the foreign key. On one PostgreSQL the key is `on delete set null` and
+  would do it; on a Citus cluster it cannot be, because Citus refuses `SET NULL`
+  whenever the distribution column is part of the constraint — in every spelling,
+  including PostgreSQL 15's column list — so `0023` installs it as `NO ACTION`,
+  under which the delete fails outright rather than orphaning anything. Doing it
+  in the service is what makes the two schemas behave the same way, and it
+  deliberately does not bump the category's `version`, because the foreign key
+  never did and a cluster that refused an edit a single node accepted would be
+  the same divergence one step along. This is the shape every such difference
+  must take: where a profile cannot enforce something in the schema, the service
+  enforces it everywhere rather than the behavior depending on where it runs.
 - A forecast is a projection and never a balance. Money dated in the future has
   not moved, so no figure `src/server/services/forecast.ts` produces may reach a
   balance, a report total, or the trial balance, nothing but the two transports
@@ -191,6 +235,75 @@
   sixteen hours for anyone whose stored timezone is an offset. Ask
   `calendarDayIn`, `clockTimeIn` or `todayIn` from `src/shared/recurrence-dates.ts`;
   never ask the database.
+- A plan that limits how many accounts may be *active* freezes the rest, and
+  freezing is worked out rather than stored. `ledger_account.active` is the
+  person's choice and `frozenAccountIds` in `src/shared/domain.ts` combines it
+  with the entitlement, because entitlements change with nobody present: an
+  override expires at a moment no code observes, and a deployment that stops
+  selling answers `{billing: false}` while Stripe goes on charging its
+  subscribers. A column written on the way down would go on saying what it said
+  then, and that last case would lock paying customers out of their own books.
+  So the predicate is the one `getAdPlacement` uses — a limited plan is in
+  force — and never "not on the paid plan". A frozen account is fully readable
+  and counts toward every balance, summary and report: no `frozen` clause may
+  enter a read, or the archive rule's warning applies, that never make a figure
+  correct by filtering alone while the figures beside it do not. What it refuses
+  is every write, including the ones that name no account — an entry deleted by
+  id, an edit moving money off it, and a payee or category merge that walks the
+  whole ledger. Those refuse whole rather than skipping rows. Archived accounts
+  are outside all of it: they already refuse every write, so they are never
+  frozen and use up none of the places. **The choice is made once.** An account
+  in use stays in use until it is archived or deleted, and only then may a
+  frozen one take its place — `activeAccountChange` is that rule, and
+  `activeChoicePending` says when the question is still open: more live
+  accounts marked active than the plan keeps. A downgrade leaves that behind,
+  and so does a spell on the paid plan, because an account opened while the
+  limit was lifted is active beside a choice made about a smaller ledger and
+  nobody has been asked about it. Below the limit is a free place rather than
+  a fresh choice. The cap counts the accounts in use rather than every
+  account opened, which reverses the old reason for counting archived ones: the
+  quota cannot be cycled because coming back out of the archive needs a free
+  place too, and the restored account takes it. **There is no choice at all
+  while nothing is frozen** — no limit in force, or every live account fitting
+  within it — so `activeAccountChange` refuses a set then, letting through only
+  one that names exactly the accounts already active; a choice written on the
+  paid plan would otherwise bind silently at the next downgrade. `active` has a
+  second writer that keeps it true to what is in use:
+  `markFittingAccountsActive` in the accounts service, deciding with
+  `accountsToMarkActive`, marks every live account active whenever they number
+  no more than `MAX_FREE_ACCOUNTS`, whatever plan is in force, because a column
+  left false there goes stale and freezes the accounts somebody has been using
+  the next time a limit returns. Every path that changes the live set — create,
+  archive, restore, delete and the choice itself — holds `lockAccountNamespace`,
+  or two of them racing could both take the last place.
+- **`docs/product/` is this repository's public description of itself**, and
+  the marketing site at smpl.money is its only consumer. `facts.json` is the
+  machine contract, `features.json` is what the product does tiered by how
+  much a general reader would care, and `screenshots/` is every screen in
+  both themes. That site is a separate repository that **cannot run this
+  application**, so a kit not rebuilt here is not rebuilt anywhere. The
+  `product-kit` skill owns it and `release-prep` phase 4a runs it. The site
+  reads it from `main` once `main` carries it, and until then from the branch
+  of the open release pull request, and it works out which itself — so a kit
+  rebuilt on any other branch reaches nobody until it lands on one of those.
+- The product's user-facing contract is published, not remembered.
+  `docs/product/facts.json` names the plans, their labels, the free account
+  limit, which plan sees advertising, the prices and the capability list, and
+  the marketing site at smpl.money consumes it. Its `derived` half is read out
+  of `src/shared/domain.ts` and `src/shared/version.ts`, and
+  `tests/product-facts.test.ts` fails when the committed file disagrees with
+  them — it compares rather than regenerating, because a check that rewrites
+  what it is checking is not a check. Its `declared` half is what the source
+  cannot know: the prices are at Stripe and only the ids are here, and the
+  capability list is a description of the product rather than a property of a
+  module. **A change to a plan, a limit, a label or a price is a change to
+  that file in the same commit**, and the site is a separate repository that
+  will otherwise go on saying the old thing.
+- `PLAN_LABELS` is the one place a plan's name is written. `plus` is the wire
+  value and **Premium** is the word a person reads; renaming the wire value
+  would break every client that has seen it and renaming the label would not.
+  The two surfaces using different words at a customer was one string away
+  from shipping.
 - Preserve audit history, transaction provenance, and cross-currency CSV round
   trips.
 - Every migration that has shipped is frozen: `0000_initial.sql`,
@@ -206,8 +319,36 @@
   `0016_category_groups.sql`, `0017_budget_perimeter.sql`,
   `0018_incremental_taper.sql`, `0019_budget_target_pair.sql`,
   `0020_reference_indexes.sql` and `0021_idempotency_retention.sql` in 0.1.6.
-  Nothing is unreleased: every migration on disk has shipped, so every one of
-  them is frozen and the next schema change starts at `0022`. `0016` is the
+  `0022_plans_and_billing.sql`, `0023_citus_distribution.sql`,
+  `0024_active_accounts.sql` and `0025_subscription_cancel_at.sql` are on disk
+  and **unreleased**, so they are the four migrations here that may still be
+  regenerated: no deployment has run any of them. They freeze when 0.2.0 ships,
+  and until then the rule to keep is that everything through `0021` is somebody
+  else's history and `0022` through `0025` are still ours. The next schema
+  change after them starts at `0026`. Permitted is not the same as free, and it
+  is this branch's own databases that pay: drizzle's migrator runs a file only
+  where the recorded timestamp is older than the folder's and never compares the
+  hash, so a database that has already run one records the regenerated one as
+  done, migrates clean, and then fails at the first read of whatever was added,
+  with no signal at startup. `0025` is a column on `billing_subscription` that
+  was briefly folded into `0022` for that reason and then unfolded, after the
+  fold left the browser tier's database a migration behind its own schema. So:
+  regenerate one only while no database anywhere has run it, and add a file
+  wherever one has.
+  `0024` adds one column with a constant default, which rewrites no rows on any
+  PostgreSQL and which Citus propagates to the shards without a gate; `0025`
+  adds a nullable one with no default, which is metadata-only for the same
+  reason. `0023` is
+  the one migration that does nothing on most
+  deployments and says so at the top: it distributes the ledger and is gated on
+  the Citus extension being installed, so the `single` profile — whose database
+  machine runs a plain PostgreSQL 18 — records it as run and keeps the schema it
+  had, and so does any deployment pointed at a database of its own. That gate is
+  what let the profile grow a database of its own with no migration at all. It
+  is also the only place the cluster's
+  schema is written down, which is why `deploy/citus/` no longer holds a second
+  copy — `docs/citus-runbook.md` points an operator at the migration itself for
+  the by-hand path. `0016` is the
   one exception to the composite-key habit and says why in the schema: a
   category's group is a single-column reference, because `on delete set null`
   nulls every column of the constraint it is on and the tenant is not nullable.
@@ -228,6 +369,23 @@
   in the field. `docs/standards/writing.md` has the reasoning.
 - Startup must remain the only production migration path. Keep migrations safe
   under the advisory lock and fail readiness on migration failure.
+- Where a deployment provisions the database, nothing on the internet may reach
+  it and the **server** is what insists on TLS. `hostssl` in a `pg_hba.conf` the
+  deployment mounts, never the image's generated `host` lines, and never a
+  client remembering to ask: an `sslmode` is in a URL an operator may edit, so a
+  client-side rule is one that can be dropped in a hurry and never noticed. The
+  application connects as a role that is not the superuser and owns only its own
+  database, so one leaked connection string cannot drop every database on the
+  machine. A generated connection string names the host and never its address,
+  because node-postgres sends no server name for an IP literal and checks the
+  certificate against `localhost` instead — so `verify-full` against an address
+  fails however many IP SANs the certificate carries. Every volume that holds
+  data says it is encrypted even where the provider encrypts by default, because
+  a default is that provider's current behavior in one region rather than a
+  promise to this deployment, it is invisible in a plan while a property is not,
+  and a property can be tested. None of this is enforced in `src/`: a URL that
+  was accepted stays accepted, warned about rather than refused, per the rule
+  above.
 - No metric label carries somebody's identity: not a user id, an email, an
   account name or an amount. A metric is read by whoever can reach the scrape
   endpoint, which is not the person whose ledger it counts, and the same rule
@@ -255,10 +413,10 @@ disagreement rather than quietly losing it.
 Two habits from those guides are worth knowing before the first edit, because
 both look like mistakes:
 
-- **Comments are dense on purpose** — 20.1% of non-blank lines in `src`. They
+- **Comments are dense on purpose** — 26.2% of non-blank lines in `src`. They
   carry why the obvious alternative is wrong. Do not tidy them away.
   (`docs/standards/code/comments.md`.)
-- **Some loops must not be parallelised.** Legs resolve one at a time so two
+- **Some loops must not be parallelized.** Legs resolve one at a time so two
   naming the same new category land on one category. `no-await-in-loop` is off
   for this reason. (`docs/standards/code/services.md`.)
 - **Nothing outside the configuration layer names `console`.** Every line goes
@@ -295,19 +453,21 @@ run in CI.
 
 ## Recurring tasks
 
-Five skills in `.claude/skills/` hold the procedures for work that repeats, so
+Six skills in `.claude/skills/` hold the procedures for work that repeats, so
 the order and the traps do not have to be rediscovered:
 
 - `guides-update` — bring the guides, `AGENTS.md`, `CHANGELOG.md` and
   `docs/upgrades.md` back to true after work lands.
 - `guides-comply` — sweep every page section, route, tool and service against
-  the guides, and mechanise rules nothing checks.
+  the guides, and mechanize rules nothing checks.
 - `design-review` — review the browser app against `docs/standards/web.md`,
   comparing each section across pages rather than reading a page at a time.
 - `release-prep` — upgrade-safety audit, adversarial audit, dead code, recount,
   three test tiers, commit and push. Cuts nothing.
 - `cut-release` — the procedure in `docs/upgrades.md`, and only on an explicit
   go-ahead.
+- `product-kit` — rebuild `docs/product/`: the tiered feature list, and a
+  screenshot of every screen against a committed seed.
 
 Each points at the guides rather than restating them, because a copied rule
 drifts.

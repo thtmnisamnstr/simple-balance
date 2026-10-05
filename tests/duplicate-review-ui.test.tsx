@@ -283,15 +283,15 @@ describe("reviewing two records of one payment", () => {
     stub({ first: stagedSide, second: null } as StagedDuplicateReview, ["staged-1", "staged-2"]);
     renderReview();
 
-    await screen.findByText(/nothing repeats this any more/i);
+    await screen.findByText(/nothing repeats this anymore/i);
     fireEvent.click(screen.getByRole("link", { name: /next duplicate/i }));
     await vi.waitFor(() => expect(window.location.pathname).toBe("/staged/duplicates/staged-2"));
   });
 
-  it("says so when nothing repeats the row any more", async () => {
+  it("says so when nothing repeats the row anymore", async () => {
     stub({ first: stagedSide, second: null } as StagedDuplicateReview);
     renderReview();
-    await screen.findByText(/nothing repeats this any more/i);
+    await screen.findByText(/nothing repeats this anymore/i);
     expect(screen.queryByRole("button", { name: /save changes/i })).toBeNull();
   });
 

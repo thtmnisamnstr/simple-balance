@@ -1,0 +1,93 @@
+# The `ha` profile at its smallest: one node per service.
+#
+#   helm upgrade --install simple-balance deploy/helm/simple-balance \
+#     --namespace simple-balance --create-namespace \
+#     -f deploy/helm/simple-balance/values-node-per-service.yaml \
+#     --set config.appBaseUrl=https://books.example.com \
+#     --set secret.authSecret="$(openssl rand -base64 32)"
+#
+# Five pods: the frontend, the API, the scheduler, a Citus coordinator and one
+# Citus worker. That is one of everything and no redundancy anywhere — a node
+# lost is that group's shards gone until it comes back, and the deployment is
+# down while it is.
+#
+# It is the same profile as values-ha.yaml and not a smaller one. The same
+# chart, the same Citus schema, the same `0023`, the same backups: what differs
+# is three numbers. Growing into the redundant shape is therefore `-f
+# values-ha.yaml` and a rollout, rather than a migration from one arrangement of
+# the data to another — which is the whole reason this shape is the chart at one
+# replica rather than a separate profile with a database of its own. The
+# Kubernetes overhead of running five pods this way is the price of never having
+# to do that migration, and it is deliberate.
+#
+# What is still here that a single machine would not have: the ledger is already
+# distributed, every connection between components is already TLS, and adding a
+# worker is a number.
+
+database:
+  enabled: true
+
+  # One coordinator, one worker. Zero workers would also run — Citus tolerates a
+  # coordinator alone — but then the first day a worker is added is the first
+  # day a shard has ever moved, and the shape would have been a single
+  # PostgreSQL wearing a Citus extension. One worker means the ledger is really
+  # spread across nodes from the start, on the path the bigger shape uses.
+  workers: 1
+
+  # No standby. This is what "no redundancy" means concretely: every group is
+  # one pod, and that pod's node is a single point of failure for the shards it
+  # holds.
+  replicasPerGroup: 1
+
+  # Off, and it has to be said rather than left: a commit cannot wait for a
+  # standby that does not exist, and the chart refuses the two together rather
+  # than let the setting claim a durability nothing gives. The guarantee this
+  # shape has is what PostgreSQL's own WAL gives on one disk, which is that a
+  # committed transaction survives a crash of the process — not the loss of the
+  # node.
+  synchronousReplication: false
+
+  # A budget of "at most one unavailable" over a group of one blocks every node
+  # drain forever, which is how a cluster ends up with nodes nobody can patch.
+  # The chart already skips the object at one replica; this says so out loud so
+  # that raising replicasPerGroup here without thinking does not silently take
+  # the budget with it.
+  podDisruptionBudget:
+    enabled: false
+
+# One of each, and no autoscaling: an HPA whose minReplicas and maxReplicas are
+# both 1 is an object that exists to do nothing, and the metrics-server it reads
+# is one more thing that has to be installed for it.
+#
+# The budgets go off for the same reason the database's does. `maxUnavailable: 1`
+# over a Deployment of one is a rule that is already at its limit, so `kubectl
+# drain` waits on it forever and the node it is draining never empties. The
+# scheduler has no budget to turn off — it never had one, because a tick that is
+# missed while its pod moves simply happens on the next one.
+server:
+  replicaCount: 1
+  autoscaling:
+    enabled: false
+  podDisruptionBudget:
+    enabled: false
+
+frontend:
+  replicaCount: 1
+  autoscaling:
+    enabled: false
+  podDisruptionBudget:
+    enabled: false
+
+scheduler:
+  replicaCount: 1
+  autoscaling:
+    enabled: false
+
+# On, because the database is in this cluster now. Without it any pod in the
+# namespace can open 5432 on the coordinator, and any pod anywhere in the
+# cluster can POST /failover at Patroni. It is only as real as the CNI under it:
+# the `aws` program turns on the VPC CNI's network policy agent and the `gcp`
+# program asks for Dataplane V2, and a cluster with neither renders these
+# objects and enforces nothing.
+networkPolicy:
+  enabled: true

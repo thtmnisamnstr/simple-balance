@@ -1,0 +1,133 @@
+# The `single` profile, held to one size, with its metrics on.
+#
+#   # seed against an unconstrained database, which is not the measurement
+#   docker compose -f deploy/compose/single/compose.yml up -d --wait
+#   node scripts/capacity/seed.mjs
+#
+#   # then measure the machine the profile actually describes
+#   docker compose -f deploy/compose/single/compose.yml \
+#                  -f scripts/capacity/compose.capacity.yml \
+#                  -f scripts/capacity/compose.limits.yml up -d --wait
+#   node scripts/capacity/load.mjs
+#
+# Seeding unconstrained is deliberate and is not a thumb on the scale: building
+# the dataset is setup, and in reality it arrives as a restored backup rather
+# than as an hour of writes. What is measured is the machine serving it, and
+# that runs inside the limits below.
+services:
+  # The database the harness measures against.
+  #
+  # It lives here rather than in the profile, because the `single` profile does
+  # not run one — it points at a database somebody else keeps. The harness needs
+  # one it can seed, tune and constrain, so it supplies its own and puts it on
+  # the same machine. `docs/capacity.md` says so where it reports the numbers:
+  # what was measured is a co-located database, which is the harder case for the
+  # application and the easier one to reproduce.
+  postgres:
+    image: ${CAPACITY_POSTGRES_IMAGE:-postgres:18}
+    restart: unless-stopped
+    command:
+      - postgres
+      # The `small` row of docs/deployment-sizing.md.
+      - -c
+      - shared_buffers=${POSTGRES_SHARED_BUFFERS:-512MB}
+      - -c
+      - effective_cache_size=${POSTGRES_EFFECTIVE_CACHE_SIZE:-1536MB}
+      - -c
+      - work_mem=${POSTGRES_WORK_MEM:-8MB}
+      - -c
+      - maintenance_work_mem=${POSTGRES_MAINTENANCE_WORK_MEM:-256MB}
+      - -c
+      - max_connections=${POSTGRES_MAX_CONNECTIONS:-100}
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - effective_io_concurrency=200
+      - -c
+      - max_wal_size=${POSTGRES_MAX_WAL_SIZE:-4GB}
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - wal_compression=on
+      - -c
+      - log_min_duration_statement=${POSTGRES_LOG_MIN_DURATION_MS:-1000}
+    environment:
+      POSTGRES_DB: simple_balance
+      POSTGRES_USER: simple_balance
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/compose/single/.env}
+      # Said out loud so an operator changing the image does not silently change
+      # how every name-sorted list comes back. On a Debian base this means what
+      # it says; on Alpine it does not, which is why the image above is Debian.
+      POSTGRES_INITDB_ARGS: --locale=en_US.UTF-8 --encoding=UTF8
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      # The parent, not `.../data`: PostgreSQL 18 moved PGDATA and refuses to
+      # start against a volume mounted at the old path.
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      # -h 127.0.0.1 so this answers for the server the application connects to.
+      # Over the unix socket it would answer for the temporary server initdb
+      # runs with listen_addresses='', which accepts no TCP at all.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U simple_balance -d simple_balance"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+    stop_grace_period: 1m
+    ports:
+      # Published only for the seed and for reading pg_stat_* during a run.
+      # Nothing in the profile itself publishes it.
+      - "127.0.0.1:${CAPACITY_POSTGRES_PORT:-5442}:5432"
+
+  app:
+    # The image built from this checkout, not the released tag the profile
+    # pins. A capacity proof of the previous release would be a capacity proof
+    # of the previous release.
+    image: ${CAPACITY_IMAGE:-simple-balance:capacity}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # The harness's own database, overriding whatever the profile's .env
+      # points at.
+      DATABASE_URL: postgresql://simple_balance:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/compose/single/.env}@postgres:5432/simple_balance
+      # The driver reads percentiles from the application's own histogram as
+      # well as measuring its own, and the two answer different questions: the
+      # server's excludes the client and the loopback, so a gap between them is
+      # the harness rather than the product.
+      METRICS_ENABLED: "true"
+      # Every sign-in in a run arrives from one machine, and attempts are
+      # counted per client address. Off, the whole run shares one allowance and
+      # the fifth sign-in is refused; on, the driver gives each user its own
+      # address and the limiter counts what it is meant to.
+      TRUST_PROXY: "true"
+      ALLOWED_EMAILS: "*"
+    # Hardened the same way every other Simple Balance service is. It changes
+    # nothing about what is measured — a Node server binding a port as a non-root
+    # user needs no capability — and the point is that a measurement taken
+    # against a container configured unlike the deployment is a measurement of
+    # something else.
+    #
+    # It was the one service in the repository running this image without these
+    # lines, which nothing noticed because the check that holds them read a
+    # single compose file by name.
+    read_only: true
+    # The same spelling the deployment recipes use, options included: an unsized
+    # tmpfs defaults to half of RAM and carries neither `noexec` nor `nosuid`, so
+    # "hardened like the deployment" would have been weaker than the deployment
+    # in the two ways that matter.
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+volumes:
+  # Where the thirty-five gigabytes go. A bind mount wearing a named volume's
+  # clothes, so the dataset lands on a disk chosen rather than wherever Docker
+  # keeps its volumes.
+  postgres-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${POSTGRES_DATA_DIR:-/var/lib/simple-balance/capacity}

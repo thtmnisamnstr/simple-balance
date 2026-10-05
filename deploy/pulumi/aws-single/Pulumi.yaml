@@ -1,0 +1,19 @@
+name: simple-balance-aws-single
+runtime:
+  name: nodejs
+  options:
+    typescript: true
+description: >-
+  Simple Balance's `single` profile on two EC2 instances, in the region
+  aws:region names, which the stack has to set: a VPC with one public subnet
+  for the application node and one private subnet, behind a NAT gateway, for a
+  database node that has no public address at all. The application node opens
+  80 and 443 and nothing else; the database node admits 5432 from the
+  application node's security group and nothing else, and runs PostgreSQL 18 in
+  a container with a certificate this stack issues, which the application
+  verifies under sslmode=verify-full. Each machine has an encrypted gp3 data
+  volume that `pulumi destroy` refuses to delete unless
+  simple-balance:protectDataVolume is false, and an instance role that grants a
+  shell through Session Manager instead of SSH; the application node also has
+  an Elastic IP. Set simple-balance:databaseNode to false to build none of the
+  second half and supply a DATABASE_URL of your own instead.

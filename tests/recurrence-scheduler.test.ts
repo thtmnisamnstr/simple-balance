@@ -7,6 +7,7 @@ import {
   type RecurrenceSchedulerOptions,
 } from "../src/server/recurrence-scheduler.js";
 import type { TickSummary } from "../src/server/services/recurrences.js";
+import type { BillingSweepSummary } from "../src/server/services/billing.js";
 
 const nothing: TickSummary = {
   examined: 0,
@@ -34,12 +35,22 @@ function schedulerHarness(options: Partial<RecurrenceSchedulerOptions> = {}) {
   // real database, the loop's own guard would swallow the failure, and these
   // tests would pass while proving nothing about the third thing on the tick.
   const runIdempotencySweep = vi.fn(async () => ({ swept: 0, capped: false }));
+  // Stubbed for a fourth reason on top of the other two: the real sweep talks
+  // to Stripe. A test that reached it would be a test that needs an account.
+  const runBillingSweep = vi.fn(async () => ({
+    examined: 0,
+    written: 0,
+    failed: 0,
+    capped: false,
+    skipped: true,
+  }));
   const scheduler = createRecurrenceScheduler({
     enabled: true,
     tickSeconds: 60,
     runTick,
     runReminders,
     runIdempotencySweep,
+    runBillingSweep,
     schedule,
     jitter: () => 0,
     logger,
@@ -56,6 +67,7 @@ function schedulerHarness(options: Partial<RecurrenceSchedulerOptions> = {}) {
     runTick,
     runReminders,
     runIdempotencySweep,
+    runBillingSweep,
     schedule,
     scheduler,
   };
@@ -227,15 +239,20 @@ describe("the recurrence scheduler loop", () => {
         order.push("prune");
         return { swept: 0, capped: false };
       }),
+      runBillingSweep: vi.fn(async () => {
+        order.push("reconcile");
+        return { examined: 0, written: 0, failed: 0, capped: false, skipped: true };
+      }),
     });
 
     await harness.fireLast();
 
-    // Proposals, then reminders, then the prune. The order is the order
-    // somebody is waiting on: a recurrence that proposes and a template that
-    // reminds on one day arrive in that order, and nobody is waiting on the
-    // retention sweep at all — which is also why it goes last.
-    expect(order).toEqual(["propose", "remind", "prune"]);
+    // Proposals, then reminders, then the prune, then the billing sweep. The
+    // order is the order somebody is waiting on: a recurrence that proposes and
+    // a template that reminds on one day arrive in that order, nobody is
+    // waiting on the retention sweep, and the billing sweep goes last because
+    // it is the only one that depends on somebody else's server being up.
+    expect(order).toEqual(["propose", "remind", "prune", "reconcile"]);
   });
 
   /**
@@ -279,6 +296,94 @@ describe("the recurrence scheduler loop", () => {
     // an operator who turned retention on should see it working without
     // enabling metrics.
     expect(String(busy.logger.info.mock.calls.at(-1))).toContain("pruned 12 idempotency records");
+  });
+
+  /**
+   * And the fourth cannot stop the other three.
+   *
+   * This one is the likeliest of the four to fail, because it is the only one
+   * that depends on a server nobody here operates. A Stripe outage must cost
+   * the proposals, the reminders and the prune nothing at all.
+   */
+  it("keeps ticking when the billing sweep throws", async () => {
+    const harness = schedulerHarness({
+      runTick: vi.fn(async () => ({ ...nothing, capped: true })),
+      runBillingSweep: vi.fn(async () => {
+        throw new Error("Stripe is unreachable");
+      }),
+    });
+
+    await harness.fireLast();
+
+    expect(harness.logger.failure).toHaveBeenCalledWith(
+      "Billing reconciliation sweep failed",
+      expect.any(Error),
+    );
+    expect(harness.armed.at(-1)!.delay).toBe(0);
+  });
+
+  it("says how many subscriptions it re-read, and says nothing when it re-read none", async () => {
+    const quiet = schedulerHarness();
+    await quiet.fireLast();
+    expect(String(quiet.logger.debug.mock.calls.at(-1))).not.toContain("subscriptions");
+
+    const busy = schedulerHarness({
+      runBillingSweep: vi.fn(async () => ({
+        examined: 4,
+        written: 3,
+        failed: 1,
+        capped: false,
+        skipped: false,
+      })),
+    });
+    await busy.fireLast();
+    // Written plus failed, not examined: a sweep that read four rows and found
+    // all four already correct did nothing worth an operator's log line, and
+    // counting examined would make every tick on a selling deployment `info`.
+    expect(String(busy.logger.info.mock.calls.at(-1))).toContain("re-read 4 subscriptions");
+  });
+
+  /**
+   * And the predicate the fourth job is handed is the live one, not `() => false`.
+   *
+   * `stopped` is passed separately to three of the four jobs on a tick, and
+   * only the recurrence tick's copy was ever asserted — the billing one could
+   * be replaced with a literal `false` and the whole file stayed green. It is
+   * the job that most needs it: `stop()` gives up after STOP_GRACE_MS and
+   * `closeDb()` then closes the pool, while the sweep is fifty sequential
+   * Stripe round trips that cannot finish in five seconds. A sweep that never
+   * hears about the stop runs on into a closed pool, and every row it has not
+   * reached is counted failed and stamped as read, which puts it to the back of
+   * a twelve-hour line for no reason but a restart.
+   */
+  it("tells a running billing sweep to stop, and not only the recurrence tick", async () => {
+    let observed: boolean | undefined;
+    let release: (summary: BillingSweepSummary) => void = () => {};
+    const sweeping = vi.fn(
+      (stopped: () => boolean) =>
+        new Promise<BillingSweepSummary>((resolve) => {
+          release = (summary) => {
+            observed = stopped();
+            resolve(summary);
+          };
+        }),
+    );
+    const harness = schedulerHarness({ runBillingSweep: sweeping });
+
+    harness.armed[0]!.fire();
+    // Fourth on the tick, so the three jobs in front of it have to resolve
+    // before the sweep is the thing `stop()` is interrupting. Waiting on the
+    // call rather than on a microtask or two, because how many of those the
+    // three ahead of it take is not this test's business.
+    await vi.waitFor(() => expect(sweeping).toHaveBeenCalled());
+    const stopping = harness.scheduler.stop();
+
+    release({ examined: 0, written: 0, failed: 0, capped: false, skipped: false });
+    await stopping;
+    // Read inside the sweep, after the stop: the predicate is live rather than
+    // a boolean sampled when the tick began, which is the other way to get this
+    // wrong and reads identically at the call site.
+    expect(observed).toBe(true);
   });
 
   /**

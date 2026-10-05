@@ -75,7 +75,7 @@ its own container, sticky regions.
 **§10 Money and dates.** The sign carries the meaning; trailing zeros stay; a
 standalone figure carries its whole sentence.
 
-**§11 Charts.** Never colour alone; every chart ships its table; §11.9 a field
+**§11 Charts.** Never color alone; every chart ships its table; §11.9 a field
 the API sends is rendered or its absence is argued; §11.10 a named figure links
 to the thing it is about, carrying `location.search`.
 
@@ -83,7 +83,7 @@ to the thing it is about, carrying `location.search`.
 something unmounts — a bulk action's button lives in a bar that its own success
 destroys.
 
-**§15 Responsive** and **§2 Colour and contrast**.
+**§15 Responsive** and **§2 Color and contrast**.
 
 ## What code can answer and what needs eyes
 
@@ -97,10 +97,57 @@ space, whether a section is in a sensible position, and whether a layout holds
 at each breakpoint. jsdom has no layout, so unit tests cannot see any of it.
 
 If screenshots were provided, work from them — they are evidence and usually
-contain more findings than were reported. If a visual question cannot be settled
-from them, say so and ask, rather than guessing. The browser tier
+contain more findings than were reported. If they arrive blank or unreadable,
+say so and reproduce the state yourself (below) rather than reasoning from the
+description: a description says where something looked wrong, not why. The browser tier
 (`BROWSER_DATABASE_URL=... npm run test:browser`) exercises real rendering and is
 where a keyboard or responsive assertion belongs.
+
+**If none were provided, take them.** Do not ask, and do not review the layout
+from source — the whole point of the previous paragraph is that source cannot
+answer. A throwaway spec under `tests/browser/` that signs up, seeds a ledger
+through the forms and photographs every route is about forty lines and runs in
+under a minute; `budgets.spec.ts` has the sign-up and the seeding to copy, and
+`playwright.config.ts` starts PostgreSQL, the API and Vite on its own. Point
+`BROWSER_DATABASE_URL` at a throwaway database, write the files somewhere
+outside the repository, **and delete the spec when the review is over** —
+`tests/testing-guide-counts.test.ts` counts the files in that directory and
+will tell you if you forget.
+
+**Measure what eyes judge badly.** Horizontal overflow is the one to automate
+while you are in there: `document.documentElement.scrollWidth > clientWidth` is
+a yes-or-no answer per route per width, and it found four pages this way that
+three rounds of looking at screenshots had not. A `.table-wrap` scrolling
+sideways is allowed; the *document* scrolling is the defect, so measure the
+document.
+
+**Photograph the states, not just the routes.** A route visited at rest shows
+each bar empty or in its default state, and the defect usually lives in a state
+somebody has to reach: a selection across pages (the extra "Select all N
+matching" button, the longest count), a button disabled with its reason
+showing, a button busy mid-request, a row with an error under it. The staged
+queue's selection bar overflowed at 1440px once a duplicate disabled Commit —
+and `reflow.spec.ts`, which walks every route at every width, never saw it,
+because at rest there is no selection bar. So for each section that changes
+with its contents, list its states, seed the data that reaches each one through
+the real API, and photograph each at the widths below. A transient state is
+made to last with `page.route`: hold the request, measure, then abort it, so a
+fast machine cannot outrun the screenshot and the seeded data survives.
+`tests/browser/selection-bar.spec.ts` has the seeding and the hold to copy.
+
+**A layout fix is measured, never argued.** That same bar had been fixed once
+already, in a long and accurate-sounding stylesheet comment that `web.md` cited
+as the answer — right about the cause, wrong about the cure, and never opened in
+a browser. Before calling a layout defect fixed, photograph the state that
+showed it at the widths that matter, and turn the measurement into a browser
+spec so the next rule on that row cannot bring it back with the suite green.
+
+**And measure the band above the largest breakpoint, not just a phone.** The
+sidebar is 248px and it is present above 780px, so the narrowest the content
+ever gets relative to the window is around 820px — not 390px, where the sidebar
+is gone. Every responsive defect found in the source session lived between
+780px and 1050px, and a check at a phone width and a desktop width saw none of
+them.
 
 ## Read the whole report before fixing
 
@@ -111,7 +158,7 @@ them and usually removes code.
 
 Watch for the finding that is not cosmetic. "Expected in and Expected Out always
 show zero" was reported alongside spacing complaints and was a projection bug in
-the service, not a design problem. Sort each report into *layout*, *behaviour* or
+the service, not a design problem. Sort each report into *layout*, *behavior* or
 *data* before starting, and send the last two to the service that owns them.
 
 ## Fix at the right level
@@ -135,6 +182,15 @@ BROWSER_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/simple_balanc
 Then check the keyboard by hand on anything that changed: tab order, focus
 visibility, Escape, and that focus does not fall to `<body>` when something
 unmounts. Check each breakpoint. `web.md` §14 is the pass to follow.
+
+**The browser tier wants ports 3000 and 5173, and a person testing has them.**
+`playwright.config.ts` refuses to reuse a running server, so with `npm run dev`
+up it stops at "already used". Do not stop somebody's dev server to get the
+ports back. Start a second pair instead: a scratch Vite config proxying to
+another API port, and a scratch Playwright config pointing both `webServer`
+entries and `baseURL` at them. Check a port is free before taking it — an old
+orphaned server can be holding the obvious next one — and delete both scratch
+configs afterwards.
 
 ## Report
 

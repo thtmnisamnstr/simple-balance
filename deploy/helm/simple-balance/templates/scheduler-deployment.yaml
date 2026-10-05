@@ -23,6 +23,15 @@ spec:
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
         checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- if .Values.database.enabled }}
+        {{- /*
+        The CA this pod verifies the database against lives in the cluster's own
+        Secret, so a rotated certificate has to roll this tier too. Rendered only
+        with database.enabled, so a release that brings its own database has the
+        pod template it always had and no rollout it did not ask for.
+        */}}
+        checksum/database-tls: {{ include (print $.Template.BasePath "/database-secret.yaml") . | sha256sum }}
+        {{- end }}
         {{- with .Values.commonAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -46,6 +55,7 @@ spec:
       terminationGracePeriodSeconds: {{ .Values.scheduler.terminationGracePeriodSeconds }}
       securityContext:
         {{- toYaml .Values.scheduler.podSecurityContext | nindent 8 }}
+      {{- include "simple-balance.waitForDatabase" (dict "root" $ "component" .Values.scheduler) | nindent 6 }}
       containers:
         - name: scheduler
           image: {{ include "simple-balance.image" (dict "root" $ "image" .Values.scheduler.image) | quote }}
@@ -60,8 +70,17 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "simple-balance.configMapName" . }}
+            {{- /*
+            A list rather than one entry, because with database.enabled the
+            connection string comes from the Secret this chart builds while the
+            rest of the credentials come from the operator's. One source renders
+            exactly the line it always did; see simple-balance.secretRefs for why
+            the order is the contract.
+            */}}
+            {{- range fromJsonArray (include "simple-balance.secretRefs" .) }}
             - secretRef:
-                name: {{ include "simple-balance.secretName" . }}
+                name: {{ . }}
+            {{- end }}
           ports:
             # Health checks and nothing else are mounted on this port, so a
             # Service pointed here by mistake cannot answer an API request.
@@ -98,6 +117,34 @@ spec:
           {{- end }}
           resources:
             {{- toYaml .Values.scheduler.resources | nindent 12 }}
+          {{- if .Values.database.enabled }}
+          {{- /*
+          The one file this container reads off disk. pg-connection-string opens
+          the path in DATABASE_URL's sslrootcert while it parses the string, so a
+          pod without this mount fails at startup rather than connecting to
+          something it cannot verify.
+          */}}
+          volumeMounts:
+            - name: database-ca
+              mountPath: {{ dir (include "simple-balance.databaseCaPath" .) }}
+              readOnly: true
+          {{- end }}
+      {{- if .Values.database.enabled }}
+      volumes:
+        {{- /*
+        Projected by key. The Secret this comes from also holds the superuser,
+        replication and Patroni passwords, and naming the one item is what keeps
+        them out of a container that has no use for them — the pod never reads
+        the Secret itself, the kubelet does, and only what is listed here lands
+        on the filesystem.
+        */}}
+        - name: database-ca
+          secret:
+            secretName: {{ include "simple-balance.databaseSecretName" . }}
+            items:
+              - key: ca.crt
+                path: {{ base (include "simple-balance.databaseCaPath" .) }}
+      {{- end }}
       {{- with .Values.scheduler.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

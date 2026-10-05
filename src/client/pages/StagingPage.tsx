@@ -10,7 +10,6 @@ import {
   Pencil,
   Plus,
   Repeat,
-  Search,
   Trash2,
 } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
@@ -45,11 +44,14 @@ import {
   Modal,
   PageHeader,
   Pagination,
-  progressLabel,
   ProgressBar,
+  progressLabel,
   RowMenu,
+  SearchBox,
   Select,
+  SelectionBar,
   SelectionCheckbox,
+  selectionCount,
   Skeleton,
   SortableHeader,
   type SortState,
@@ -92,6 +94,7 @@ import {
   type BulkEditValues,
 } from "../bulk-edit.js";
 import { useDebounced } from "../debounce.js";
+import { emptyScreen, waysOut } from "../list-filters.js";
 
 function stageSummary(stage: StagedTransaction, accounts: Account[]) {
   return summarizeStagedDraft(stage.draft, accounts);
@@ -137,6 +140,11 @@ export default function StagingPage() {
   const recurrenceSeed = savingRecurrence ? draftForTransactionForm(savingRecurrence.draft) : null;
   const [search, setSearch] = useState("");
   const settledSearch = useDebounced(search);
+  // `typeFilter` rather than `type`, which is what Templates and Recurring call
+  // theirs: the row map below binds `const type` for the draft's own type, so a
+  // state named `type` would be shadowed exactly where the two are easiest to
+  // confuse.
+  const [typeFilter, setTypeFilter] = useState("");
   const [validity, setValidity] = useState("");
   const [accountId, setAccountId] = useState("");
   // Seeded from the link the import hands over, so arriving from an import
@@ -155,10 +163,29 @@ export default function StagingPage() {
     setBulkValues((current) => ({ ...current, ...patch }));
   const [bulkEditKey, setBulkEditKey] = useState<string | null>(null);
   const [bulkEditNotice, setBulkEditNotice] = useState<string | null>(null);
+  // What a finished bulk commit or delete says. `bulkEditNotice` is only ever
+  // set by the bulk EDIT modal, so these two reported nothing: the button is
+  // inside the selection bar, success empties the selection, and the bar and
+  // the button went with it (`web.md` 13.3).
+  const [bulkOutcome, setBulkOutcome] = useState<string | null>(null);
+  /** What a single row's commit or delete did, said where focus can reach it. */
+  const [rowOutcome, setRowOutcome] = useState<string | null>(null);
   // Whether anything but the date range is narrowing this queue. The range is
   // left out because every view carries one, so counting it would report an
   // empty queue as a filtered one.
-  const narrowed = Boolean(settledSearch || validity || accountId || importBatchId || recurrenceId);
+  // Six controls, all of them on the bar above the list, and the last two
+  // seeded from the link an import or a recurrence hands over — so arriving
+  // here with nothing matching is the common case rather than an edge. In the
+  // order they sit on the bar, because that is the order the way out is read
+  // in.
+  const { narrowed, ways } = emptyScreen([
+    { set: Boolean(settledSearch), clear: "clear the search" },
+    { set: Boolean(typeFilter), clear: "clear the type filter" },
+    { set: Boolean(validity), clear: "clear the status filter" },
+    { set: Boolean(accountId), clear: "clear the account filter" },
+    { set: Boolean(importBatchId), clear: "clear the import batch filter" },
+    { set: Boolean(recurrenceId), clear: "show everything rather than one recurrence" },
+  ]);
   const payeeListId = useId();
   const { start, end } = useDateRange();
   const queryClient = useQueryClient();
@@ -188,6 +215,7 @@ export default function StagingPage() {
   };
   const stageQuery = {
     search: settledSearch || undefined,
+    type: typeFilter || undefined,
     validity: validity || undefined,
     accountId: accountId || undefined,
     importBatchId: importBatchId || undefined,
@@ -278,7 +306,7 @@ export default function StagingPage() {
     setBulkEditKey(null);
     setBulkEditNotice(null);
     setPage(1);
-  }, [settledSearch, validity, accountId, importBatchId, recurrenceId, start, end]);
+  }, [settledSearch, typeFilter, validity, accountId, importBatchId, recurrenceId, start, end]);
 
   // Beside the mutation rather than inside it: a mutation reports pending or
   // settled and has no channel for anything in between, and this arrives four
@@ -319,9 +347,18 @@ export default function StagingPage() {
     // Cleared here as well as in onSettled, because onSettled runs after
     // onSuccess has awaited six refetches — long enough for the finished bar
     // and the result to sit on screen together.
-    onSuccess: async () => {
+    onMutate: () => setBulkOutcome(null),
+    onSuccess: async (_result, action) => {
       setCommitProgress(null);
       bulkCommitKeys.current.clear();
+      // Counted before the selection is emptied, and said out loud, because
+      // the bar that held the button has gone by the time this renders.
+      const rows = selectedRows.length;
+      setBulkOutcome(
+        `${rows.toLocaleString()} staged ${rows === 1 ? "row" : "rows"} ${
+          action === "commit" ? "committed" : "deleted"
+        }.`,
+      );
       setSelected(new Map());
       setAllowDuplicates(false);
       await Promise.all([
@@ -569,8 +606,8 @@ export default function StagingPage() {
   const inlineInFlight = useRef(false);
   // Escape's other half: removing a focused editor fires a browser blur, and
   // the blur handler's closure still holds the pre-Escape state — so without
-  // this, cancelling could commit. Set before the state change, read first.
-  const inlineCancelled = useRef(false);
+  // this, canceling could commit. Set before the state change, read first.
+  const inlineCanceled = useRef(false);
   // Where focus goes when an editor closes. Commit, refusal and Escape all
   // removed the focused element and stranded keyboard users on <body>; the
   // trigger the editor replaced is the honest place to land.
@@ -632,7 +669,7 @@ export default function StagingPage() {
     stage: StagedTransaction,
     override?: { value?: string; categoryName?: string },
   ) => {
-    if (!inline || inlineInFlight.current || inlineCancelled.current) return;
+    if (!inline || inlineInFlight.current || inlineCanceled.current) return;
     const value = override?.value ?? inline.value;
     const categoryName = override?.categoryName ?? inline.categoryName;
     const source = stage.draft as Record<string, unknown>;
@@ -689,11 +726,11 @@ export default function StagingPage() {
     categoryName = "",
   ) => {
     setInlineError("");
-    inlineCancelled.current = false;
+    inlineCanceled.current = false;
     setInline({ id: stage.id, field, value, categoryName });
   };
   const cancelInline = () => {
-    inlineCancelled.current = true;
+    inlineCanceled.current = true;
     if (inline) focusAfterInline.current = { id: inline.id, field: inline.field };
     setInline(null);
   };
@@ -723,7 +760,21 @@ export default function StagingPage() {
         }),
       });
     },
-    onSuccess: async () => {
+    onSuccess: async (_result, { stage, action }) => {
+      /*
+       * 13.3, and the shape `web.md` 9.8 names: committing a row runs straight
+       * from the row with no dialog unless it is a possible repeat, and the
+       * committed row leaves this queue — so the button went with it and focus
+       * fell to `<body>`. The delete beside it always asks first and its dialog
+       * returns focus itself, but it is said here too, because the row is gone
+       * either way and the dialog returns focus to a button that no longer
+       * exists.
+       */
+      setRowOutcome(
+        action === "commit"
+          ? `${stage.draft.payee || "The staged row"} committed.`
+          : `${stage.draft.payee || "The staged row"} deleted.`,
+      );
       rowCommitKeys.current.clear();
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["staged"] }),
@@ -776,15 +827,34 @@ export default function StagingPage() {
       />
       <DateRangeBar />
       <div className="filter-bar">
-        <label className="search-box">
-          <Search size={16} />
-          <Input
-            aria-label="Search staged transactions"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search staged transactions"
-          />
-        </label>
+        <SearchBox
+          label="Search staged transactions"
+          placeholder="Search payee, description, or notes"
+          value={search}
+          onChange={setSearch}
+        />
+        {/* Directly after the search box, where every other list of
+            transactions puts its type filter: the register on Transactions and
+            the four detail pages, Templates and Recurring. The plural labels
+            are the register's rather than Templates' singular ones, because on
+            those detail pages the staged rows and the committed ones are read
+            as one list and the two bars sit one above the other.
+
+            `stageFilterConditions` has applied `type` on this route since
+            0.1.0, so until this control existed it was a filter only an agent
+            could send
+            — the defect AGENTS.md names one level below the route-by-route
+            parity check, and the second instance of it after `categoryKind`. */}
+        <Select
+          aria-label="Filter by type"
+          value={typeFilter}
+          onChange={(event) => setTypeFilter(event.target.value)}
+        >
+          <option value="">All types</option>
+          <option value="deposit">Deposits</option>
+          <option value="withdrawal">Withdrawals</option>
+          <option value="transfer">Transfers</option>
+        </Select>
         <Select
           aria-label="Filter by status"
           value={validity}
@@ -833,15 +903,23 @@ export default function StagingPage() {
             Load older batches
           </Button>
         ) : null}
-        {selectedRows.length ? (
-          <div className="bulk-actions">
-            <span>
-              {allMatchingSelected && totalMatching > stages.length
-                ? selectedRows.length < totalMatching
-                  ? `${selectedRows.length.toLocaleString()} of ${totalMatching.toLocaleString()} matching selected`
-                  : `All ${selectedRows.length} matching staged transactions selected`
-                : `${selectedRows.length} selected`}
-            </span>
+      </div>
+      {/* Its own bar, a sibling of the filter row rather than a child of it.
+          Nested, ticking a row grew the filter row into a second and third
+          line and pushed the filters that made the selection down the page —
+          and it was the one selection bar with no live region, on the one
+          queue where selecting everything stops at the ten-thousand cap. */}
+      {selectedRows.length ? (
+        <SelectionBar
+          summary={
+            allMatchingSelected && totalMatching > stages.length
+              ? selectedRows.length < totalMatching
+                ? `${selectionCount(selectedRows.length)} of ${selectionCount(totalMatching)} matching selected`
+                : `All ${selectionCount(selectedRows.length)} matching staged transactions selected`
+              : `${selectionCount(selectedRows.length)} selected`
+          }
+        >
+          <>
             {canSelectAllMatching ? (
               <Button
                 type="button"
@@ -849,18 +927,28 @@ export default function StagingPage() {
                 loading={selectingAll}
                 onClick={() => void selectAllMatching()}
               >
-                {`Select all ${selectableTotal} matching`}
+                {`Select all ${selectionCount(selectableTotal)} matching`}
               </Button>
             ) : null}
+            {/* One mutation runs both actions, so each button asks which one is
+                running. Both spun on either, and Delete selected showed a
+                spinner for the whole of a commit — work that was not
+                happening, on the button that destroys rows. The other is
+                still disabled while one runs, and withholds its reason then,
+                because the busy flag is what disabled it (12.3). */}
             <Button
               variant="secondary"
-              disabled={invalidSelected || (duplicateSelected && !allowDuplicates)}
-              disabledReason={
-                invalidSelected
-                  ? "Some selected rows have issues to fix first."
-                  : "Some selected rows look like duplicates. Tick the box to commit them anyway."
+              disabled={
+                invalidSelected || (duplicateSelected && !allowDuplicates) || bulkMutation.isPending
               }
-              loading={bulkMutation.isPending}
+              disabledReason={
+                bulkMutation.isPending
+                  ? undefined
+                  : invalidSelected
+                    ? "Some selected rows have issues to fix first."
+                    : "Some selected rows look like duplicates. Check the box to commit them anyway."
+              }
+              loading={bulkMutation.isPending && bulkMutation.variables === "commit"}
               onClick={() => bulkMutation.mutate("commit")}
             >
               <CheckCheck size={16} /> Commit selected
@@ -870,7 +958,8 @@ export default function StagingPage() {
             </Button>
             <Button
               variant="danger"
-              loading={bulkMutation.isPending}
+              disabled={bulkMutation.isPending}
+              loading={bulkMutation.isPending && bulkMutation.variables === "delete"}
               onClick={() => {
                 bulkRemoval.ask(selectedRows.length, () => bulkMutation.mutate("delete"));
               }}
@@ -890,9 +979,9 @@ export default function StagingPage() {
                 Commit possible duplicates
               </label>
             ) : null}
-          </div>
-        ) : null}
-      </div>
+          </>
+        </SelectionBar>
+      ) : null}
       {/* Mounted on the first frame, never before: until one arrives there is no
           count behind a bar, and the button's own busy state is the honest
           indicator. Removed the moment the work settles, so the Alert that
@@ -921,6 +1010,16 @@ export default function StagingPage() {
       {bulkEditNotice ? (
         <Alert kind="info" takeFocus>
           {bulkEditNotice}
+        </Alert>
+      ) : null}
+      {bulkOutcome ? (
+        <Alert kind="success" takeFocus>
+          {bulkOutcome}
+        </Alert>
+      ) : null}
+      {rowOutcome ? (
+        <Alert kind="success" takeFocus>
+          {rowOutcome}
         </Alert>
       ) : null}
       {inlineError ? <Alert>{inlineError}</Alert> : null}
@@ -996,6 +1095,14 @@ export default function StagingPage() {
                 const summary = stageSummary(stage, accounts.data ?? []);
                 const date = stagedString(draft.date);
                 const payee = stagedString(draft.payee).trim() || "Incomplete row";
+                // 8.10 rule 6: a trigger's accessible name leads with its
+                // visible text, and this cell's visible text is the payee. The
+                // three sibling triggers build the same shape from an
+                // expression that wraps; this one is a plain string, so it is
+                // named here instead — which is also what keeps the dash off an
+                // `aria-label=` line, where `common.md` reads one as a label
+                // nobody finished deciding.
+                const payeeTriggerName = `${payee} — edit the payee of ${payee}`;
                 const description = stagedString(draft.description).trim();
                 const type = stagedString(draft.type).trim() || "Unknown type";
                 return (
@@ -1064,7 +1171,7 @@ export default function StagingPage() {
                         <button
                           type="button"
                           className="inline-edit"
-                          aria-label={`Edit the payee of ${payee}`}
+                          aria-label={payeeTriggerName}
                           data-inline-trigger={`payee:${stage.id}`}
                           onClick={() => openInline(stage, "payee", stagedString(draft.payee))}
                         >
@@ -1095,7 +1202,7 @@ export default function StagingPage() {
                           {/* `.subtle` here and nowhere else on this row: the
                               two inline-edit cells below render the same word as
                               a button's own label, where it takes the button's
-                              colour. This one is plain text and matches the
+                              color. This one is plain text and matches the
                               transactions list, which is the page a person
                               compares it against. */}
                           {categoryNames.get(
@@ -1318,17 +1425,17 @@ export default function StagingPage() {
         <Skeleton height={160} label="Loading staged transactions…" />
       ) : (
         <EmptyState
-          icon={<ClipboardList size={24} />}
-          // Two screens. This queue has five filters — a search, a validity, an
-          // account, an import batch and a recurrence — and the last two are
-          // seeded from the link an import hands over, so arriving here with
-          // nothing matching is the *common* case rather than an edge. It said
-          // "Nothing staged" either way, which tells somebody who has just
-          // imported four hundred rows that their import did nothing.
+          icon={ClipboardList}
+          // Two screens. This queue has six filters — a search, a type, a
+          // validity, an account, an import batch and a recurrence — and the
+          // last two are seeded from the link an import hands over, so arriving
+          // here with nothing matching is the *common* case rather than an
+          // edge. It said "Nothing staged" either way, which tells somebody who
+          // has just imported four hundred rows that their import did nothing.
           title={narrowed ? "Nothing here matches those filters" : "Nothing staged"}
           body={
             narrowed
-              ? "Clear the search and the filters above to see the whole queue."
+              ? waysOut([...ways, "widen the date range"])
               : "Imported rows, drafts you save for later, and anything an agent prepares land here."
           }
         />
@@ -1509,8 +1616,12 @@ export default function StagingPage() {
                 }
               >
                 <option value="">Choose an account</option>
+                {/* Frozen accounts are left out as well as archived ones, the
+                    rule the transaction browser's picker keeps: the server files
+                    a move onto one as an issue on every row, so offering it
+                    offers an edit that fixes nothing. */}
                 {(accounts.data ?? [])
-                  .filter((account) => !account.archivedAt)
+                  .filter((account) => !account.archivedAt && !account.frozen)
                   .map((account) => (
                     <option key={account.id} value={account.id}>
                       {account.name} ({account.currency})

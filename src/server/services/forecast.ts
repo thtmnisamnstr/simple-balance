@@ -460,8 +460,27 @@ export async function getForecast(actor: Actor, input: unknown): Promise<Forecas
     })
     .from(budgetPlans)
     .where(and(eq(budgetPlans.userId, actor.userId), eq(budgetPlans.periodUnit, parsed.periodUnit)))
-    .leftJoin(categories, eq(categories.id, budgetPlans.categoryId))
-    .leftJoin(categoryGroups, eq(categoryGroups.id, budgetPlans.groupId));
+    // Both joins carry the owner, the way every equivalent query in
+    // `budgets.ts` does. Matching a category by its id alone is the one shape
+    // the composite foreign keys exist to make impossible, and it was the only
+    // place in the service that did it.
+    //
+    // It is also the only query that fails on a Citus cluster, with `complex
+    // joins are only supported when all distributed tables are co-located and
+    // joined on their distribution columns`. That is the same defect seen from
+    // the other side: the distribution column *is* the owner, so a join that
+    // omits it is a join across every tenant's shard.
+    .leftJoin(
+      categories,
+      and(eq(categories.userId, budgetPlans.userId), eq(categories.id, budgetPlans.categoryId)),
+    )
+    .leftJoin(
+      categoryGroups,
+      and(
+        eq(categoryGroups.userId, budgetPlans.userId),
+        eq(categoryGroups.id, budgetPlans.groupId),
+      ),
+    );
 
   for (const plan of plans) {
     if (plan.amountRule === "fixed" || plan.amountRule === "incremental") continue;

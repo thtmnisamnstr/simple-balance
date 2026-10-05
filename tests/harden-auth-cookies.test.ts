@@ -58,7 +58,7 @@ describe("cookies leaving the auth routes", () => {
     expect(cookie).not.toContain("Secure");
   });
 
-  it("recognises the flags whatever case they arrive in", async () => {
+  it("recognizes the flags whatever case they arrive in", async () => {
     const shouting = "a=b; Path=/; HTTPONLY; SECURE";
     const response = await appServing([shouting], HTTPS).request(`${HTTPS}/api/auth/thing`);
     expect(response.headers.getSetCookie()).toEqual([shouting]);

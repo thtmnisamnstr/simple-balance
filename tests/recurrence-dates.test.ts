@@ -55,7 +55,7 @@ describe("calendar helpers", () => {
 
   /**
    * The stored timezone is free text checked only when it was written, and this
-   * runs inside a loop serving everybody, so one unrecognisable row must not be
+   * runs inside a loop serving everybody, so one unrecognizable row must not be
    * able to stop the scheduler.
    */
   it("falls back to UTC rather than throwing on a timezone it cannot read", () => {

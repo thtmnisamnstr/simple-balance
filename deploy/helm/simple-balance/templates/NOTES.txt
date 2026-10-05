@@ -9,6 +9,19 @@
 {{- if .Values.scheduler.autoscaling.enabled }}{{ $schedulerPeak = int .Values.scheduler.autoscaling.maxReplicas }}{{ end -}}
 {{- $appHost := regexReplaceAll "^https?://" (trimSuffix "/" .Values.config.appBaseUrl) "" -}}
 {{- $peakConnections := mul (add $serverPeak $schedulerPeak) (add $pool 1) -}}
+{{- /*
+What max_connections actually is, rather than what PostgreSQL defaults to. With
+database.enabled this chart owns the server and sets 200 — Citus opens
+connections between nodes for every distributed query, so the per-node ceiling
+is reached sooner than on a single server — and a warning measured against 100
+would be telling an operator to fix a ceiling they are nowhere near. Read out of
+database.parameters when it overrides it, so the number quoted here is the
+number the server will run with.
+*/ -}}
+{{- $maxConnections := 100 -}}
+{{- if .Values.database.enabled -}}
+{{- $maxConnections = int (default 200 (get (.Values.database.parameters | default dict) "max_connections")) -}}
+{{- end -}}
 
 Simple Balance {{ .Chart.AppVersion }} is installed as {{ .Release.Name }} in namespace {{ .Release.Namespace }}.
 
@@ -74,19 +87,31 @@ compares every write against this origin, so the two have to be the same host.
 Fix config.appBaseUrl unless something else in front is doing the translating.
 {{- end }}
 
-{{- if and .Values.config.trustProxy .Values.ingress.enabled }}
+{{- if and .Values.config.trustProxy .Values.ingress.enabled (eq (include "simple-balance.trustedProxies" .) "127.0.0.1") }}
 
-Per-visitor rate limiting: the frontend's nginx sets X-Forwarded-For to
-$remote_addr, and behind an ingress that terminates TLS $remote_addr is the
-ingress rather than the visitor. With TRUST_PROXY on, every sign-in attempt in
-the cluster then counts against one allowance. Add
+WARNING: every sign-in attempt in this cluster counts against one allowance.
+The frontend's nginx tells the API which address a request came from, and behind
+an ingress that terminates TLS that address is the ingress — the same value for
+every visitor. With config.trustProxy on and frontend.trustedProxyCidr left at
+its off position, four wrong passwords from anywhere lock everyone else out.
 
-  set_real_ip_from <your ingress CIDR>;
-  real_ip_header X-Forwarded-For;
-  real_ip_recursive on;
+Set frontend.trustedProxyCidr to the pod CIDR your ingress controller runs in:
 
-to the proxy location in deploy/docker/nginx.conf.template and rebuild the
-frontend image, so $remote_addr resolves back to the visitor.
+  --set frontend.trustedProxyCidr=<ingress controller pod CIDR>
+
+Name the controller's range and nothing wider. This decides whose word is taken
+for a visitor's address, so a range that includes callers lets a caller choose
+their own. Behind a chain of proxies that each append to X-Forwarded-For, such
+as Google's load balancer where it is the ingress, list every hop's range and
+set frontend.realIpRecursive=true:
+
+  --set 'frontend.trustedProxyCidr={<range>,<range>}' --set frontend.realIpRecursive=true
+
+A cloud load balancer in front of ingress-nginx is not such a chain: ingress-nginx
+replaces the header with the address it saw unless use-forwarded-headers and
+compute-full-forwarded-for are both on, so the frontend sees one entry, the load
+balancer's. Fix that at the ingress, with proxy protocol as the aws Pulumi
+program does, and leave recursion off.
 {{- end }}
 
 Database connections. This release peaks at {{ $serverPeak }} API and {{ $schedulerPeak }} scheduler
@@ -94,12 +119,13 @@ replicas, each holding {{ $pool }} connections and one more while it starts:
 
   ({{ $serverPeak }} + {{ $schedulerPeak }}) x ({{ $pool }} + 1) = {{ $peakConnections }}
 
-against a max_connections that defaults to 100. Lower config.databasePoolSize
-before raising a replica count, or put a pooler in front and set
-secret.directDatabaseUrl so migrations and the first-account claim go past it.
-{{- if gt $peakConnections 100 }}
+against a max_connections of {{ $maxConnections }}{{ if not .Values.database.enabled }}, which is PostgreSQL's default{{ else }}, which this chart sets on the cluster it runs{{ end }}. Lower
+config.databasePoolSize before raising a replica count, or put a pooler in front
+and set secret.directDatabaseUrl so migrations and the first-account claim go
+past it.
+{{- if gt $peakConnections $maxConnections }}
 
-WARNING: {{ $peakConnections }} is past that default. Scaled all the way out, replicas will fail
+WARNING: {{ $peakConnections }} is past that. Scaled all the way out, replicas will fail
 to connect rather than queue. Raise max_connections to suit, or lower
 config.databasePoolSize, or lower the replica ceilings.
 {{- end }}
@@ -107,9 +133,47 @@ config.databasePoolSize, or lower the replica ceilings.
 
 Credentials come from the existing Secret {{ .Values.secret.existingSecret }}. Every key in it
 is handed to the API and the scheduler as an environment variable, so it must
-carry DATABASE_URL and AUTH_SECRET, whichever of DIRECT_DATABASE_URL,
-GOOGLE_CLIENT_SECRET, SMTP_USERNAME, SMTP_PASSWORD and SETUP_TOKEN apply, and
-nothing else.
+carry {{ if not .Values.database.enabled }}DATABASE_URL and {{ end }}AUTH_SECRET, whichever of DIRECT_DATABASE_URL,
+GOOGLE_CLIENT_SECRET, SMTP_USERNAME, SMTP_PASSWORD, SETUP_TOKEN, METRICS_TOKEN,
+STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET apply, and nothing but settings the
+server reads.
+{{- if .Values.database.enabled }}
+
+DATABASE_URL is not one of them. This release runs the database, so the string
+is derived from the password it generated and put in {{ include "simple-balance.ownSecretName" . }},
+which the pods read first; a DATABASE_URL in {{ .Values.secret.existingSecret }} would be read
+second and would win, pointing the application at a database this cluster is not
+the one running.
+{{- end }}
+{{- end }}
+{{- if .Values.database.enabled }}
+
+This release runs its own PostgreSQL: {{ add1 (int .Values.database.workers) }} Citus group(s) of
+{{ .Values.database.replicasPerGroup }} replica(s), with Patroni doing the failovers.
+
+  kubectl -n {{ .Release.Namespace }} get statefulset -l app.kubernetes.io/component=database
+  kubectl -n {{ .Release.Namespace }} exec -ti {{ include "simple-balance.databaseGroupName" (dict "root" . "group" 0) }}-0 -- patronictl list
+
+The application reaches it with sslmode=verify-full against a CA this chart
+generated and keeps in {{ include "simple-balance.databaseSecretName" . }}. That Secret is the
+cluster's identity as well as its passwords: back it up with the data, because a
+restored volume and a regenerated CA do not know each other.
+{{- if not (include "simple-balance.databaseSynchronous" .) }}
+
+NOTE: commits do not wait for a standby, so a failover can lose the last few
+transactions — for a ledger, that is the books disagreeing with what somebody
+was shown. That is the trade the one-node-per-service shape makes. Raise
+database.replicasPerGroup to 2 and set database.synchronousReplication=true to
+take the other one.
+{{- end }}
+{{- if not .Values.networkPolicy.enabled }}
+
+WARNING: networkPolicy.enabled is off while this cluster runs its own database.
+Any pod in the namespace can open 5432 on the coordinator, and any pod that can
+reach port {{ .Values.database.restApiPort }} can POST /failover at Patroni. Turn it on — and check
+that the CNI enforces it, because a cluster that ignores NetworkPolicy renders
+the objects and stops nothing.
+{{- end }}
 {{- end }}
 
 Back up before upgrading. Everything is in PostgreSQL, so pg_dump backs up the

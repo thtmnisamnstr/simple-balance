@@ -132,6 +132,8 @@ integration("embedded local authentication", () => {
       // same reason: this deployment has no mail server.
       notificationsAvailable: false,
       minimumPasswordLength: 12,
+      billingAvailable: false,
+      adsAvailable: false,
     });
   });
 

@@ -3,7 +3,8 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { readdir, readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { createMcpServer } from "../src/server/mcp.js";
-import { sourceFiles, topLevelDeclarations } from "./support/source.js";
+import { listQuerySchema, stageListQuerySchema } from "../src/shared/domain.js";
+import { sourceFiles, topLevelDeclarations, type SourceFile } from "./support/source.js";
 import { mutationNames } from "./support/mutations.js";
 
 /**
@@ -22,7 +23,17 @@ const BROWSER_ONLY: Record<string, string> = {
   "POST /api/v1/auth/local-password":
     "Setting a sign-in credential is account management rather than bookkeeping, and an agent cannot undo it from its side.",
   "GET /api/v1/session":
-    "Split rather than missing: whoami reports the identity and get_preferences the regional settings. The rest of it is which sign-in methods the deployment offers, which is no business of an agent's.",
+    "Split rather than missing: whoami reports the identity, the plan's ceiling and how much of it is used, and get_preferences the regional settings. What is left is which sign-in methods the deployment offers, which is no business of an agent's.",
+  "GET /api/v1/billing":
+    "Paying for the deployment is account management rather than bookkeeping. Reported to an agent as far as it needs it: whoami carries the plan, its ceiling and how much of it is used, which is what an agent has to know to explain a refusal.",
+  "PUT /api/v1/billing/subscription":
+    "Starting or changing a paid subscription spends somebody's money, and an MCP token is a credential handed to a program. It stays something a person does while signed in, alongside deleting the account and setting a password.",
+  "PUT /api/v1/billing/subscription/cancellation":
+    "The other half of the same decision. An agent that could not subscribe but could cancel would be a worse split, not a safer one.",
+  "POST /api/v1/billing/payment-setups":
+    "Returns a secret that only Stripe's browser SDK can use. There is nothing an agent could do with it.",
+  "POST /api/v1/billing/payment-setups/confirmations":
+    "The other half of that one: it names a SetupIntent only Stripe's browser SDK can have confirmed. An agent has no way to reach the state this reports.",
   "GET /api/v1/csv/export":
     "Reachable as export_transactions_csv. The route differs only in returning a file download with a dated filename.",
 };
@@ -36,6 +47,7 @@ const COVERED_BY: Record<string, string> = {
   "POST /api/v1/accounts": "create_account",
   "PUT /api/v1/accounts/:id": "update_account",
   "POST /api/v1/accounts/:id/archived": "archive_account",
+  "PUT /api/v1/accounts/active": "set_active_accounts",
   "DELETE /api/v1/accounts/:id": "delete_account",
   "GET /api/v1/category-groups": "list_category_groups",
   "POST /api/v1/category-groups": "create_category_group",
@@ -188,7 +200,7 @@ async function servicesByTool() {
 }
 
 /**
- * The one pair that deliberately differs, and in the agent's favour: the page
+ * The one pair that deliberately differs, and in the agent's favor: the page
  * lists categories and asks for the usage counts separately, while the tool
  * always returns them, so an agent can tell an existing category from a second
  * spelling of one without a second call.
@@ -474,7 +486,7 @@ describe("what an agent can reach compared with the browser", () => {
    * is read only by an agent that already holds ledger:write and never by the
    * one that does not. Written on all 36 gated tools it would be about 3,600
    * characters of one convention repeated per tool, for a reader who cannot
-   * benefit. What a description owes is the behaviour that differs by scope,
+   * benefit. What a description owes is the behavior that differs by scope,
    * which is these four and nothing else — so this is set equality rather than
    * a floor, and it fails both when one of them loses its sentence and when
    * somebody starts pasting the scope onto the rest.
@@ -564,7 +576,7 @@ describe("what the browser can reach compared with an agent", () => {
       // The whole path, with each parameter standing in for a template hole.
       // This asked whether the prefix before the first parameter appeared
       // anywhere in the client, which is true of `/api/v1/accounts` the moment
-      // anything fetches an account — so every parameterised sub-route was
+      // anything fetches an account — so every parameterized sub-route was
       // unchecked, and a page could stop calling one without this noticing.
       const pattern = new RegExp(
         path
@@ -586,6 +598,381 @@ describe("what the browser can reach compared with an agent", () => {
   it("gives every agent-only route a reason", () => {
     for (const [route, reason] of Object.entries(AGENT_ONLY)) {
       expect(reason.length, route).toBeGreaterThan(40);
+    }
+  });
+
+  /**
+   * One level below the route list, which is the level the two checks above
+   * cannot see.
+   *
+   * `AGENTS.md` says so in as many words: route by route "is where the test can
+   * check, not where the rule stops — a request field only an agent ever sets is
+   * the same defect one level down, and it is invisible to a comparison of route
+   * lists". It names `categoryKind` as the one it caught by hand: documented for
+   * the MCP, missing from the form, so the browser filed refunds as income.
+   * `type` on the staged queue was the second, caught the same way.
+   * `stageListQuerySchema` inherits it, `stageFilterConditions` really applies
+   * it, and the page held no state that could send it — so `?type=transfer`
+   * worked for an agent while nothing in the browser could ask the one list of
+   * transactions in the product for its transfers.
+   *
+   * So this compares what a listing route PARSES against what the page that owns
+   * that list SENDS. Each page builds its request as one named object: `params`
+   * on the register, behind both the table and the CSV export link, and
+   * `stageQuery` on the staged queue, behind both the table and the walk that
+   * selects every matching row. Reading that object reads what the person in
+   * front of it can reach.
+   */
+  type FilteredList = {
+    /** What the reader calls this list. */
+    readonly view: string;
+    /** The file that owns it, repository-relative. */
+    readonly file: string;
+    /** The named object it spreads into every read of that route. */
+    readonly request: string;
+    readonly route: string;
+    /** Every key the route's schema parses, paging and ordering included. */
+    readonly parses: readonly string[];
+    /**
+     * Filters the page deliberately does not offer, each with the sentence it
+     * has to be arguable in. A bare key is refused by the test below, exactly
+     * as `AGENT_ONLY` refuses a route added to the exception list without one.
+     */
+    readonly unoffered: Readonly<Record<string, string>>;
+  };
+
+  const FILTERED_LISTS: readonly FilteredList[] = [
+    {
+      view: "the register",
+      file: "src/client/TransactionBrowser.tsx",
+      request: "params",
+      route: "GET /api/v1/transactions",
+      parses: Object.keys(listQuerySchema.shape),
+      unoffered: {
+        currency:
+          "The one filter in this comparison that no page offers. An account holds exactly one currency, so the account select asks this question one account at a time, and a conversion deliberately matches under both of the currencies it touches rather than either alone. Adding a currency select would have to put `currency` into `bulkFilter` in the same change — otherwise a selection made from the view names rows the view never showed — which makes it a product decision rather than an oversight. Named here so it is visible rather than simply absent.",
+      },
+    },
+    {
+      view: "the staged queue",
+      file: "src/client/pages/StagingPage.tsx",
+      request: "stageQuery",
+      route: "GET /api/v1/staged-transactions",
+      parses: Object.keys(stageListQuerySchema.shape),
+      unoffered: {
+        categoryId:
+          "A page's subject rather than a filter anybody chooses, which is the distinction `src/client/list-filters.ts` argues at length; this queue is about nothing in particular, so it has no subject to fix. The register sends it on this same route from `stagedParams` whenever a category page fixes one, so it is reachable — never as a control on this bar.",
+        templateId:
+          "The same case: a template page is about its template, and the register sends this on this same route from `stagedParams` to show that template's staged rows above its committed ones. The queue itself is about nothing in particular and has no subject to fix.",
+        payee:
+          "The same case again, and the one with the clearest reason to stay off the bar: a payee is free text rather than a list to pick from, so the search box is how this queue is narrowed to one. A payee page fixes it through `stagedParams` on this same route.",
+      },
+    },
+  ];
+
+  /** What describes a view rather than scopes it, as `bulkStageFilterSchema` omits it. */
+  const PRESENTATION = new Set(["cursor", "page", "limit", "sort", "direction"]);
+
+  /**
+   * The keys of a named literal in a file, following `...spread` of another
+   * named object in the same file.
+   *
+   * Read off `code` rather than `text`, so a brace or a comma inside a comment
+   * cannot end the object early. In these two files that is not a hypothetical:
+   * the comment above `stagedParams` runs four lines and names `includeDeleted`.
+   *
+   * Three shapes, because the browser writes its requests in three:
+   *
+   * - A plain object, which is how a filtered list builds the query it reads.
+   * - An array of names, or of `{ key }` rows, which is how a mass-edit panel
+   *   declares the fields it offers.
+   * - A mutation, where the request travels through `json(…)`. The fields are
+   *   that call's argument rather than the mutation's options object, so a
+   *   declaration containing one is re-anchored to it; a filter object has no
+   *   such call and is read where it stands.
+   */
+  function requestFields(file: SourceFile, name: string, seen = new Set<string>()): Set<string> {
+    if (seen.has(name)) return new Set();
+    seen.add(name);
+    const opener = new RegExp(`\\bconst ${name}\\b[^=\\n]*=[^={[\\n]*([{[])`).exec(file.code);
+    if (!opener) throw new Error(`${file.path} has no literal named ${name}`);
+
+    /** The balanced region that opens at `from`, which is a `{` or a `[`. */
+    const balanced = (from: number) => {
+      let depth = 1;
+      let end = from + 1;
+      while (end < file.code.length && depth > 0) {
+        const character = file.code[end]!;
+        if ("{[(".includes(character)) depth += 1;
+        else if ("}])".includes(character)) depth -= 1;
+        end += 1;
+      }
+      return file.code.slice(from + 1, end - 1);
+    };
+
+    const start = opener.index + opener[0].length - 1;
+    let open = opener[1]!;
+    let body = balanced(start);
+    const request = body.indexOf("json(");
+    if (request !== -1) {
+      const argument = body.indexOf("{", request);
+      if (argument === -1) throw new Error(`${file.path}: ${name} calls json() on no object`);
+      // `balanced` indexes the whole file, so the offset has to be the one the
+      // body was cut from rather than the one inside it.
+      body = balanced(start + 1 + argument);
+      open = "{";
+    }
+
+    const fields = new Set<string>();
+    const take = (chunk: string) => {
+      const trimmed = chunk.trim();
+      if (open === "[") {
+        // A field list is either names or `{ key: "name" }` rows; both say the
+        // same thing, and a panel that switched between them should not change
+        // what this reads.
+        const row = /\bkey:\s*"([^"]+)"/.exec(trimmed) ?? /^"([^"]+)"/.exec(trimmed);
+        if (row) fields.add(row[1]!);
+        return;
+      }
+      const spread = /^\.\.\.([A-Za-z_$][\w$]*)\s*$/.exec(trimmed);
+      if (spread) {
+        for (const field of requestFields(file, spread[1]!, seen)) fields.add(field);
+        return;
+      }
+      // `...(condition ? { expectedVersion } : {})` is a field the form really
+      // sends, and reading only the head of the chunk saw a dot and took
+      // nothing — so a conditional spread is read for every key inside it.
+      if (trimmed.startsWith("...")) {
+        for (const key of trimmed.matchAll(/\b([A-Za-z_$][\w$]*)\s*:/g)) fields.add(key[1]!);
+        return;
+      }
+      const key = /^([A-Za-z_$][\w$]*)/.exec(trimmed);
+      if (key) fields.add(key[1]!);
+    };
+    let nesting = 0;
+    let from = 0;
+    for (let index = 0; index < body.length; index += 1) {
+      const character = body[index]!;
+      if ("{[(".includes(character)) nesting += 1;
+      else if ("}])".includes(character)) nesting -= 1;
+      else if (character === "," && nesting === 0) {
+        take(body.slice(from, index));
+        from = index + 1;
+      }
+    }
+    take(body.slice(from));
+    return fields;
+  }
+
+  it("sends every filter the route it reads parses", () => {
+    const files = new Map(sourceFiles("src/client").map((file) => [file.path, file]));
+
+    const unreachable: string[] = [];
+    let compared = 0;
+    for (const list of FILTERED_LISTS) {
+      const file = files.get(list.file);
+      if (!file) throw new Error(`${list.file} has moved; ${list.view} needs a new entry here`);
+      const sent = requestFields(file, list.request);
+      const parses = list.parses.filter((field) => !PRESENTATION.has(field));
+      // A schema this could no longer read would make the whole check vacuous
+      // by comparing against nothing, which is how the route comparison above
+      // once passed.
+      expect(parses.length, `${list.route} parses nothing`).toBeGreaterThan(5);
+      for (const field of parses) {
+        compared += 1;
+        if (sent.has(field) || field in list.unoffered) continue;
+        unreachable.push(
+          `${list.route} parses ${field}, and ${list.view} never sends it: give it a control, or name it in unoffered with the reason`,
+        );
+      }
+    }
+
+    expect(unreachable).toEqual([]);
+    // The same guard the service comparison carries: a reader that stopped
+    // matching would otherwise report nothing wrong because it looked at
+    // nothing at all.
+    expect(compared).toBeGreaterThanOrEqual(20);
+  });
+
+  it("gives every filter a page does not offer a reason", () => {
+    for (const list of FILTERED_LISTS) {
+      for (const [field, reason] of Object.entries(list.unoffered)) {
+        expect(reason.length, `${list.route} ${field}`).toBeGreaterThan(40);
+      }
+    }
+  });
+
+  /**
+   * The same comparison on the write side, which is the half nothing checked.
+   *
+   * `mcp.md` §The agent surface never runs ahead of the browser says it in as
+   * many words: "nothing compares the fields a tool writes against the fields a
+   * page writes". The reading comparison above was built after a filter an
+   * agent could send and a person could not; this is the identical defect on a
+   * form, and it is the one with the named precedent. `categoryKind` was
+   * documented for the MCP and absent from the form, so the browser filed
+   * refunds as income — a route-by-route comparison saw a tool and a page on
+   * the same route and reported parity.
+   *
+   * The direction is the one the rule cares about: every field a TOOL writes
+   * has to be reachable from the form that writes the same record. The other
+   * way round is not a defect — a page may send a field no tool declares only
+   * by sending a field the route refuses, which fails at the server.
+   */
+  type WrittenForm = {
+    /** What the reader calls this form. */
+    readonly what: string;
+    readonly tool: string;
+    /**
+     * Where in the published schema the fields are. Empty is the top level; a
+     * mass edit keeps them under `patch`, and reading the top level there would
+     * compare `selection` and `dryRun` and call it a match.
+     */
+    readonly at: readonly string[];
+    /** The file that owns the form, repository-relative. */
+    readonly file: string;
+    /** The named request object, or field list, the form writes through. */
+    readonly writes: string;
+    /**
+     * Fields the form deliberately does not offer, each with the sentence it
+     * has to be arguable in, exactly as `unoffered` works for a filter above.
+     */
+    readonly unoffered: Readonly<Record<string, string>>;
+  };
+
+  /**
+   * How a call is addressed and made safe to retry, rather than anything it
+   * writes. The browser puts a record's id in the path, and mints a key only
+   * where one is required — an update carries an expected version instead.
+   */
+  const ADDRESSING = new Set(["id", "idempotencyKey"]);
+
+  const WRITTEN_FORMS: readonly WrittenForm[] = [
+    {
+      what: "the register's mass edit",
+      tool: "bulk_edit_transactions",
+      at: ["patch"],
+      file: "src/client/bulk-edit.tsx",
+      writes: "bulkEditFields",
+      unoffered: {},
+    },
+    {
+      what: "the staged queue's mass edit",
+      tool: "bulk_edit_staged_transactions",
+      at: ["patch"],
+      file: "src/client/bulk-edit.tsx",
+      writes: "bulkEditFields",
+      unoffered: {},
+    },
+    {
+      what: "the import",
+      tool: "stage_csv",
+      at: [],
+      file: "src/client/pages/ImportPage.tsx",
+      writes: "request",
+      unoffered: {},
+    },
+    {
+      what: "the template mass edit",
+      tool: "bulk_edit_transaction_templates",
+      at: ["patch"],
+      file: "src/client/pages/TemplatesPage.tsx",
+      writes: "BULK_FIELDS",
+      unoffered: {
+        date: "A template's date is a prefill stored as typed and never moved on, which the tool's own description warns quietly backdates every entry made from it months later. One date across a selection is that mistake multiplied by the size of the selection, so it stays a decision made one template at a time.",
+        destinationAmount:
+          "Read only on a cross-currency transfer, where it is the figure arriving in the other currency. A selection can hold several destination currencies, so one value would be right for at most one row, and the panel cannot tell which rows are cross-currency without reading both accounts of each.",
+        legs: "A split. Setting one division of money across many templates is the mirror of flattening a split into one category in bulk, which AGENTS.md forbids on transactions for the same reason: the division is per row, and no single value stands for all of them.",
+        categoryName:
+          "Naming a category that may not exist creates one, which is a change to the ledger's own records and needs ledger:write wherever it is reached from. This panel picks from the categories it has already loaded; a new one is made where the form can ask which kind it is.",
+        description:
+          "Declared rather than argued. The register's and the staged queue's mass edits both offer this through `bulkEditFields` and this panel does not, so the only thing separating them is that nobody added it. Named here so the gap is visible to whoever reads this next, instead of being rediscovered by hand a third time.",
+        notes:
+          "The other half of the same gap, and the same declaration: `bulkEditFields` offers notes on both of the other mass-edit panels. Neither this nor `description` has an argument behind it — they are recorded so closing them is a decision somebody takes rather than a discovery somebody repeats.",
+      },
+    },
+    {
+      what: "a period's budget override",
+      tool: "set_budget_entry",
+      at: [],
+      file: "src/client/pages/BudgetsPage.tsx",
+      writes: "setEntry",
+      unoffered: {
+        groupId:
+          "The override opens from a category row and carries that row's `categoryId`; a group row renders no button at all, because the page reports a group as a subtotal of the categories beside it and says so where `priority` is left off a group. Overriding a group is overriding the categories under it.",
+      },
+    },
+    {
+      what: "editing a standing budget",
+      tool: "update_budget_plan",
+      at: [],
+      file: "src/client/pages/BudgetsPage.tsx",
+      writes: "editPlan",
+      unoffered: {
+        activeFrom:
+          "A carry is folded at read time rather than stored, so moving a plan's start date re-folds every period it has ever reported. The dialog adjusts a budget that is running; a budget that starts somewhere else is a different budget, made new.",
+        targetAmount:
+          "`amount_rule` is derived from the row rather than asked for, so this field IS the choice of a sinking fund. Setting it here would change what kind of budget the plan is from a dialog whose other controls assume it has not changed — the dialog instead says what the rule works out and offers no amount.",
+        targetDate:
+          "The other half of the sinking fund, and the same argument: the pair is what makes the plan one, so editing either through this dialog would change the plan's kind rather than its figures.",
+        lookbackPeriods:
+          "The parameter is the choice for a trailing average, so this is the plan's kind again rather than a figure on it. The dialog reports what such a plan works out instead of offering a number to type.",
+        percentOfPrevious:
+          "The same for an incremental plan: the percentage is what makes it incremental, so changing it here would change the kind of budget rather than its amount.",
+        percentOfIncome:
+          "And the same for a percent-of-income plan, whose sentence in the dialog says there is nothing here to type precisely because the parameter is the method.",
+        priority:
+          "Declared rather than argued. The funding order is set when the budget is created and shown afterward as a badge, so changing it today means deleting the plan and making it again. Named here because it is the one field in this group that is not a choice of method, and nothing but the absence of a control keeps it out.",
+      },
+    },
+  ];
+
+  it("offers somewhere in the browser every field a tool writes", async () => {
+    const tools = await toolsWithAnnotations(everyScope);
+    const files = new Map(sourceFiles("src/client").map((file) => [file.path, file]));
+
+    const unreachable: string[] = [];
+    let compared = 0;
+    for (const form of WRITTEN_FORMS) {
+      const tool = tools.find((entry) => entry.name === form.tool);
+      if (!tool) throw new Error(`${form.tool} is not registered; ${form.what} needs a new entry`);
+      let node = tool.inputSchema as Record<string, unknown> | undefined;
+      for (const step of form.at) {
+        const properties = node?.["properties"] as Record<string, unknown> | undefined;
+        node = properties?.[step] as Record<string, unknown> | undefined;
+      }
+      const declares = Object.keys((node?.["properties"] ?? {}) as Record<string, unknown>).filter(
+        (field) => !ADDRESSING.has(field),
+      );
+      // A path that stopped resolving would compare against an empty object and
+      // report every form compliant, which is the way this whole family of
+      // checks fails.
+      expect(
+        declares.length,
+        `${form.tool} declares nothing at ${form.at.join(".") || "the top"}`,
+      ).toBeGreaterThan(3);
+
+      const file = files.get(form.file);
+      if (!file) throw new Error(`${form.file} has moved; ${form.what} needs a new entry here`);
+      const offered = requestFields(file, form.writes);
+      for (const field of declares) {
+        compared += 1;
+        if (offered.has(field) || field in form.unoffered) continue;
+        unreachable.push(
+          `${form.tool} writes ${field}, and ${form.what} never sends it: give it a control, or name it in unoffered with the reason`,
+        );
+      }
+    }
+
+    expect(unreachable).toEqual([]);
+    expect(compared).toBeGreaterThanOrEqual(20);
+  });
+
+  it("gives every field a form does not offer a reason", () => {
+    for (const form of WRITTEN_FORMS) {
+      for (const [field, reason] of Object.entries(form.unoffered)) {
+        expect(reason.length, `${form.tool} ${field}`).toBeGreaterThan(40);
+      }
     }
   });
 });

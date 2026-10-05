@@ -16,6 +16,7 @@ import {
   transactionTemplates,
   transactions,
 } from "../db/schema.js";
+import { accountFreeze, assertAccountsWritable } from "./accounts.js";
 import { notFound, validationError } from "./errors.js";
 import { stagedDuplicateKey } from "./transactions.js";
 import {
@@ -61,7 +62,7 @@ function count(value: unknown) {
 
 /**
  * List exact stored spellings. Logical duplicate grouping is deliberately done
- * in JavaScript so Unicode NFKC normalisation is identical to browser/import
+ * in JavaScript so Unicode NFKC normalization is identical to browser/import
  * canonicalization rather than dependent on database collation behavior.
  */
 export async function payeeSummaries(executor: Executor, actor: Actor) {
@@ -71,7 +72,7 @@ export async function payeeSummaries(executor: Executor, actor: Actor) {
 /**
  * The one logical payee a name belongs to, rather than all of them.
  *
- * The normalisation is spelled out in SQL here and in JavaScript everywhere
+ * The normalization is spelled out in SQL here and in JavaScript everywhere
  * else. It has to be the same rule, and it is the same rule findDuplicate
  * already uses on the same column, so the two spellings are checked against
  * each other in tests rather than trusted.
@@ -349,6 +350,17 @@ export async function mergePayees(actor: Actor, input: unknown, transaction?: Db
     }
 
     const transactionRowsBefore = transactionRows.filter((row) => sourcePayees.includes(row.payee));
+    // A merge renames a payee on rows all over the ledger and bumps each one's
+    // version, and a row on a frozen account is a row that may not change.
+    // Refused whole rather than applied to the rest: a merge that left some
+    // rows behind would leave two spellings of one payee and report that it
+    // had joined them.
+    assertAccountsWritable(
+      await accountFreeze(tx, actor),
+      transactionRowsBefore.flatMap((row) =>
+        [row.sourceAccountId, row.destinationAccountId].filter((id): id is string => Boolean(id)),
+      ),
+    );
     const stagedRowsBefore = stagedRows.filter((row) =>
       sourcePayees.includes(String((row.draft as Record<string, unknown>).payee)),
     );

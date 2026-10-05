@@ -1,0 +1,262 @@
+# The database machine of the `single` profile.
+#
+#   sudo docker compose -f compose.postgres.yml up -d --wait
+#
+# One machine, one service, and the only machine in this profile holding
+# anything anybody would miss. It publishes PostgreSQL on this machine's private
+# address and nowhere else; the application machine reaches it across the
+# provider's private network, over TLS, and nothing on the internet can reach it
+# at all.
+#
+# This file came from the deleted `vps` profile, where it was the fourth of four
+# machines. It is the same shape for the same reasons, with the three things a
+# machine somebody's ledger lives on has to do that that one left to the
+# operator: it serves TLS, it enforces TLS in pg_hba, and the account the
+# application signs in as is not the superuser.
+#
+# deploy/compose/single/README.md has both machines, the firewall table and the
+# order to bring them up in. deploy/pulumi/ builds the pair; this file is what
+# the database node it builds actually runs, rather than something a program
+# wrote inline.
+name: simple-balance-db
+
+services:
+  postgres:
+    # PostgreSQL 18, and Debian rather than Alpine, for the reasons
+    # docs/deployment-profiles.md sets out: 18 is the newest version every
+    # profile that owns its database can share, and musl compares text byte by
+    # byte whatever collation is declared — which this application's category and
+    # payee uniqueness rests on.
+    #
+    # Pinned to the major version and never floating. A `docker compose pull` on
+    # a tag that moved to 19 would restart against a data directory 19 refuses to
+    # read, and the deployment would be down until somebody worked out why.
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: simple_balance
+      # The superuser, and it is *not* the account the application uses. The
+      # `vps` file had the application connecting as the owner of the cluster,
+      # which meant one leaked connection string could drop every database on
+      # the machine. Here the superuser exists to run initdb and to be reached
+      # over this container's own socket, and 10-application-role.sh below
+      # creates the unprivileged role the application actually signs in as.
+      POSTGRES_USER: postgres
+      # Generated on this machine, at first boot, by simple-balance-db-firstboot,
+      # and kept on the data volume. It is deliberately not a Pulumi setting and
+      # deliberately not in cloud-init user data: a superuser password that no
+      # program off this machine has ever held is one that no state file, no
+      # instance metadata service and no `pulumi stack export` can hand over.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in this machine's .env}
+      # The unprivileged role's, which *is* known off this machine, because the
+      # application machine has to put it in a connection string. Read only by
+      # the initdb script below, and only on the boot that creates the cluster.
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?set POSTGRES_APP_PASSWORD in this machine's .env}
+    command:
+      - postgres
+      # TLS, and the whole reason pg_hba is mounted rather than generated. The
+      # official entrypoint writes `host ... scram-sha-256` lines, which accept
+      # an unencrypted connection that authenticates — so a database left to the
+      # image's own pg_hba advertises TLS and requires none of it, and an
+      # application whose URL said `sslmode=require` would still have been the
+      # only thing insisting. The file below says `hostssl`, so the server
+      # refuses rather than the client remembering to ask.
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/etc/postgresql/tls/server.crt
+      - -c
+      - ssl_key_file=/etc/postgresql/tls/server.key
+      # Outside PGDATA on purpose. initdb writes a pg_hba.conf of its own into
+      # the data directory and this setting makes the server ignore it, so the
+      # rules are a file in this repository that a rebuild re-delivers, rather
+      # than a file on a volume that whoever last edited it decides.
+      - -c
+      - hba_file=/etc/postgresql/pg_hba.conf
+      # Tuned rather than defaulted, and tuned for the memory of *this* machine
+      # — the one that runs PostgreSQL and nothing else. That is the distinction
+      # to hold on to, because the table these numbers come from was written
+      # before there was a second machine: the row is picked by
+      # `simple-balance:databaseSize` and never by `simple-balance:size`, and a
+      # hand install picks its column by how much memory this machine has rather
+      # than by how big the machine in front of it is.
+      #
+      # They are `-c` flags and not an `environment:` block, because the postgres
+      # image reads none of these names — the `vps` file set both, and the copy
+      # in the environment was five settings that looked applied and did nothing.
+      #
+      # The values below are `SIZES.small` in deploy/pulumi/single-common,
+      # to the byte, and tests/deployment-sizing.test.ts compares them rather
+      # than taking this paragraph's word for it. Two of the five did not match
+      # and nothing noticed, because the test checked only that each flag read
+      # the variable the render writes: a hand install told to leave these
+      # commented out got a planner believing the kernel cached 3 GB on a
+      # machine with 4 GiB, and half the checkpoint budget its disk was sized
+      # for. A Pulumi-built machine was unaffected, which is what made it quiet.
+      #
+      # What that row is still short of is the table's to fix and not this
+      # file's, but it is worth knowing which way it is wrong. `medium` and
+      # `large` take a quarter of their node's memory as `shared_buffers` (4GB
+      # of 16 GiB, 8GB of 32 GiB) and eleven sixteenths as
+      # `effective_cache_size`; `small` takes an eighth and three eighths,
+      # because it was written when the application shared the 4 GiB, and
+      # docs/deployment-sizing.md still says so in as many words — "less the
+      # room the application needed when the two shared a machine". On this
+      # machine that room is not needed, and the same document's own memory
+      # table now puts a 4 GiB database node's cache at 3.3 GiB while this line
+      # tells the planner to expect 1.5 GiB. 1536MB is also *below* PostgreSQL
+      # 18's own default of 4GB — read back out of a running 18.6 rather than
+      # looked up — so on a `small` node it makes the planner more pessimistic
+      # about the page cache than an untuned server would be, which is the one
+      # direction `effective_cache_size` is expensive to be wrong in: too low
+      # costs the index scans it should have chosen. Raising it means raising
+      # `SIZES.small`, because this file agreeing with that row to the byte is
+      # the property the test above holds.
+      - -c
+      - shared_buffers=${POSTGRES_SHARED_BUFFERS:-512MB}
+      - -c
+      - effective_cache_size=${POSTGRES_EFFECTIVE_CACHE_SIZE:-1536MB}
+      - -c
+      - work_mem=${POSTGRES_WORK_MEM:-8MB}
+      - -c
+      - maintenance_work_mem=${POSTGRES_MAINTENANCE_WORK_MEM:-256MB}
+      - -c
+      - max_wal_size=${POSTGRES_MAX_WAL_SIZE:-4GB}
+      # One application process at DATABASE_POOL_SIZE 10, plus one while it
+      # starts, plus a person with psql and the nightly backup, is eleven. The
+      # default of 100 is more than this profile needs and each connection costs
+      # memory that shared_buffers would rather have.
+      - -c
+      - max_connections=${POSTGRES_MAX_CONNECTIONS:-50}
+      # Three more that do not move with the machine, because they describe the
+      # disk rather than the memory. Literals rather than `${VAR:-...}` for that
+      # reason: there is no row for the render to write them from, and a name
+      # nothing ever sets is a setting that looks configurable and is decided
+      # here anyway — which is the shape of the `environment:` block above this
+      # file exists not to repeat. A deployment that needs different ones has
+      # `ALTER SYSTEM`, which writes inside PGDATA and so survives a restart and
+      # a rebuilt machine alike; docs/deployment-sizing.md has the recipe.
+      #
+      # `random_page_cost` defaults to 4.0, which tells the planner a random
+      # read costs four sequential ones — a spinning disk, and the reason an
+      # untuned PostgreSQL prefers a sequential scan over the index that would
+      # have answered. Every volume this profile is built on is SSD.
+      # `effective_io_concurrency` defaults to 16 on 18, raised from 1 in that
+      # release, and a cloud SSD will take far more than 16 reads in flight.
+      # `wal_compression` trades a little CPU for less write-ahead log, which is
+      # the right way round on a node whose one volume carries the tables and
+      # pg_wal alike — `max_wal_size` above is reserved out of that same disk.
+      #
+      # These three were the gap between what was measured and what is
+      # deployed. scripts/capacity/compose.capacity.yml has passed all three
+      # since the run docs/capacity.md reports, and this file passed none of
+      # them: the p95 that sizes these machines was measured on a server told
+      # its disk was an SSD, and the deployment it sizes was not.
+      # `checkpoint_completion_target=0.9` is the fourth flag that file passes
+      # and it is deliberately not here, because 14 made 0.9 the default and 18
+      # still has it — read back off a running 18.6, not assumed. A flag that
+      # restates a default is one more line to keep true for no effect.
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - effective_io_concurrency=200
+      - -c
+      - wal_compression=on
+    ports:
+      # Bound to this machine's private address and nothing else. `0.0.0.0` here
+      # would publish the ledger to whatever the provider's firewall has not
+      # closed, and a Docker published port bypasses the host firewall on Linux
+      # because Docker writes its rules ahead of them. The address is the
+      # boundary; the provider's firewall is the second line, and pg_hba's
+      # `hostssl` plus scram is the third.
+      - "${SB_BIND_ADDRESS:?set SB_BIND_ADDRESS to this machine's private IP}:5432:5432"
+    volumes:
+      # The ledger, on the block volume this machine was given, and never a
+      # named volume. A named volume lives under /var/lib/docker, which on the
+      # machines deploy/pulumi builds is the *boot disk* — so the one thing the
+      # separate volume exists for, surviving a rebuild, is the one thing a
+      # named volume would not do. The application machine's firstboot goes to
+      # some length to keep a secret off the boot disk; putting the database
+      # there would make that care pointless.
+      #
+      # The parent directory, not `.../data`: PostgreSQL 18 moved PGDATA into a
+      # versioned subdirectory and its entrypoint refuses to start against a
+      # volume mounted at the old path. Mounting the parent is also what lets
+      # `pg_upgrade --link` work later without crossing a mount boundary.
+      #
+      # create_host_path off, here and below, so a missing source is a refusal
+      # at `up` that names the path. With it on, Docker would create the
+      # directory — on the boot disk, empty — and PostgreSQL would initialise a
+      # brand new empty cluster into it and start up healthy. A deployment that
+      # comes up reporting success with an empty ledger is the worst failure
+      # this file can have, and one line prevents it.
+      - type: bind
+        source: ${SB_PGDATA_DIR:-/var/lib/simple-balance/postgresql}
+        target: /var/lib/postgresql
+        bind:
+          create_host_path: false
+      # The server's certificate and key, on the boot disk rather than the data
+      # volume, because they are re-delivered by cloud-init on every rebuild and
+      # nothing about them is worth keeping across one. Read-only: the server
+      # has no reason to write here, and a key a process can rewrite is a key a
+      # compromise of that process can replace.
+      #
+      # PostgreSQL refuses a key it can read but that anybody else can:
+      # `private key file "..." has group or world access`. The mode and the
+      # owner are the host's, not this file's — simple-balance-db-firstboot sets
+      # them, and its comment carries the numbers.
+      - type: bind
+        source: ./db-tls
+        target: /etc/postgresql/tls
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./pg_hba.conf
+        target: /etc/postgresql/pg_hba.conf
+        read_only: true
+        bind:
+          create_host_path: false
+      # Run by the entrypoint once, on the boot that creates the cluster, after
+      # POSTGRES_DB exists and before the server is published. That ordering is
+      # what lets this script own the database rather than grant on it, and it
+      # is the one thing this profile can do that the Helm chart cannot: Patroni
+      # runs its post-init hook before its Citus handler creates the database.
+      - type: bind
+        source: ./db-init.sh
+        target: /docker-entrypoint-initdb.d/10-application-role.sh
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      # `-h 127.0.0.1` rather than the socket: the entrypoint runs a temporary
+      # server while it executes initdb scripts, and that one sets
+      # `listen_addresses=''`. A socket check therefore reports healthy against a
+      # server about to be replaced — and on this machine it would report healthy
+      # while 10-application-role.sh was still deciding whether the application
+      # has an account at all.
+      #
+      # 127.0.0.1 is inside this container's own network namespace. The
+      # published port above reaches the container on its bridge address, so
+      # nothing outside can arrive here; pg_hba's loopback line says the same
+      # thing from the server's side.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d simple_balance"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    # No cap_drop, and this is the exception rather than an oversight: the
+    # entrypoint starts as root, chowns the data directory and drops to the
+    # postgres user, which needs CAP_CHOWN, CAP_FOWNER, CAP_DAC_OVERRIDE and
+    # CAP_SETUID/SETGID. docs/standards/operations.md records it as the
+    # exception two services take — this one and compose.distributed.yml's
+    # bundled postgres — and records that it is about this image's entrypoint
+    # rather than about PostgreSQL: the Helm chart runs the same database under
+    # Patroni with all capabilities dropped, because it never runs that script.
+    security_opt: ["no-new-privileges:true"]
+    stop_grace_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

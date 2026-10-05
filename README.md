@@ -1,28 +1,39 @@
 # Simple Balance
 
-Know where your money is, and where it went. Every account in one place, bank
-statements that import and file themselves, the bills and paychecks you only set
-up once, and reports that go back as far as your books do — on a server you run
-yourself.
+Personal finance that's simple. Every account on one page, and any figure you
+doubt opens into the entries that produced it.
 
+- **Numbers you can follow back.** Every account has a register: each posting
+  with the balance before and after it, so a total that looks wrong has a row
+  you can point at. Corrections are appended rather than written over the top,
+  so what a figure used to say survives the fix.
 - **Every account, one page.** Checking, savings, credit cards, cash, loans,
   investments and crypto wallets, each in its own currency, with balances as of
   any date you ask for.
-- **Statements that file themselves.** Point it at a bank CSV and it works out
+- **Statements, without retyping them.** Point it at a bank CSV and it works out
   the format, maps the columns, and sorts the categories and payees. It flags
   anything that looks like a transaction you already have, and nothing counts
-  until you say so.
+  until you say so. Nothing arrives from your bank on its own — there is no
+  connection to one, and the import is a file you downloaded.
 - **Nothing to remember.** Rent, a salary, a subscription: set it up once and it
-  proposes itself on the day, with an email if you want one.
+  proposes itself when it is due, with an email if you want one.
 - **Reports that add up.** Net worth, income against expense, spending by
   category, cash flow, a balance sheet and a trial balance — over any range, and
   never added across currencies, because there are no exchange rates here to add
   them with.
 
 Underneath it is real double-entry bookkeeping, which is what lets every figure
-on every page trace back to the entries that made it. And it ships a full MCP
-server, so an AI agent can do the filing and the tidying for you without being
-able to do anything dangerous, or get around the step where you check its work.
+on every page trace back to the entries that made it. It also ships a full MCP
+server, so an AI agent can do the filing and the cleanup as far as you allowed
+it to; one allowed only to propose leaves every entry for you to check. That is
+a capability rather than a reason to choose this — the market caught up during
+0.2.0, and [the roadmap](docs/roadmap.md) says so in the same words it used
+before it was true.
+
+Run it yourself and there is no plan, no limit and no advertising, because there
+is nobody to bill you. Where an operator configures billing, a free plan keeps
+three accounts in use and carries ads, and the paid plan lifts both;
+[monetization](docs/monetization.md) is the whole of it.
 
 ![The Simple Balance overview: balance, deposits, withdrawals and net cash flow for a month, then accounts and spending by category, reported separately for each currency the ledger holds](docs/images/dashboard.png)
 
@@ -35,7 +46,7 @@ able to do anything dangerous, or get around the step where you check its work.
   and drop the spare
 - Templates for the transactions you enter over and over, with a reminder on any
   of them
-- Change or delete up to 10,000 rows in one go, from any view, after seeing what
+- Change or delete up to 10,000 rows at once, from any view, after seeing what
   it will touch
 - A register for any account: every posting with the balance before and after it,
   for when a figure is wrong and you need the row it went wrong on
@@ -113,7 +124,7 @@ cp .env.example .env
 
 `DATABASE_URL` and `AUTH_SECRET` are required, and `APP_BASE_URL` must be your
 public HTTPS origin in production. Point `DATABASE_URL` at a PostgreSQL 15 or
-newer server and Simple Balance sorts the rest out on startup: it creates the
+newer server and Simple Balance handles the rest on startup: it creates the
 database if the server does not have it, builds the schema if the database is
 empty, and does nothing if it is already current. Generate the secret with
 `openssl rand -base64 32` and keep it — changing it signs everyone out.
@@ -185,17 +196,24 @@ With Google enabled, register the callback as
 ## Connect an agent
 
 The MCP endpoint is `/mcp`, protected by OAuth. Point a client at your origin and
-it discovers the rest. Grant `ledger:read` to let an agent look, add
-`ledger:stage` to let it queue work for your review, and add `ledger:write` only
-if you want it to commit. Settings lists what you have approved, and revoking an
-agent there cuts it off on its next call rather than whenever its token happens to
-expire.
+it discovers the rest. The client asks for its scopes and the consent screen
+lists them before you allow it: `ledger:read` lets an agent look, `ledger:stage`
+lets it queue work for your review, and `ledger:write` lets it commit. Allow
+`ledger:write` only if you want it to commit, and deny a client that asks for
+more than you want it to have. Settings lists what you have approved, and
+revoking an agent there cuts it off on its next call rather than whenever its
+token happens to expire.
 
 An agent can do everything you can: the whole ledger, imports, templates,
-recurrences, mass edits, and your own settings. Two things stay yours alone,
-deleting the account and setting a password, because they are account management
-rather than bookkeeping. An agent cannot get around your sign-in, the scopes you
-granted it, the duplicate checks, or the commit step. See [MCP](docs/mcp.md).
+recurrences, mass edits, and your own settings. Three things stay yours alone:
+deleting the account, setting a password, and, where the deployment sells
+plans, starting, changing or canceling one. The first two are account management
+rather than bookkeeping. The third spends your money, which is a different kind
+of authority from writing a transaction and one no scope on a token handed to a
+program stands in for. An agent gets the plan, its limit and how much of it is
+used from `whoami`, and nothing that buys. It cannot get around your sign-in,
+the scopes you allowed, or the duplicate checks, and an agent without
+`ledger:write` cannot commit anything. See [MCP](docs/mcp.md).
 
 ## Security
 
@@ -220,14 +238,15 @@ how the source is written; read the one for the surface you are touching. Every
 rule in both says how it is checked, so a rule you have not broken is one you
 can prove you have not.
 
-Five procedures that repeat are written down in [`.claude/skills/`](.claude/skills):
+Six procedures that repeat are written down in [`.claude/skills/`](.claude/skills):
 bringing the documents back to true after work lands, sweeping the product
-against the guides, reviewing the browser app, preparing a release, and cutting
+against the guides, reviewing the browser app, rebuilding the product kit in
+`docs/product/` that the marketing site reads, preparing a release, and cutting
 one. They hold the order the steps go in and the traps in them, and they cite
 the guides rather than restating them, so the rules still live in one place.
 
 `npm run verify` is typecheck, lint, format, tests and build, and it has to pass.
-Add a test for the behaviour you changed: this repository tests heavily and a
+Add a test for the behavior you changed: this repository tests heavily and a
 change with no test is a change nobody can keep. If you touched anything with a
 database behind it, run `npm run test:integration` against a throwaway
 PostgreSQL, and if you touched the browser app, `npm run test:browser`.

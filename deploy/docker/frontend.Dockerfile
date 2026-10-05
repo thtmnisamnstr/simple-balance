@@ -12,7 +12,7 @@
 # reproduce, and the digest is what the `base.digest` label below claims of the
 # runtime stage. `.github/dependabot.yml` watches Docker so neither pin freezes,
 # and the `apk upgrade` below still takes whatever Alpine has published since.
-FROM node:24-alpine@sha256:50c8e8ca1d27439048670df5883f32d57cf81cff6233222c893fd0d9884cbd81 AS build
+FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -21,7 +21,7 @@ COPY public ./public
 COPY src ./src
 RUN npm run build:client
 
-FROM nginxinc/nginx-unprivileged:1.29-alpine@sha256:0c79d56aee561a1d81c63f00eee5fb5fe29279560cdc55e91425133104c7fbe6 AS runtime
+FROM nginxinc/nginx-unprivileged:1.30-alpine@sha256:ed04ec1ff34502c339ee5c3ae3f855442398edc1d05591e2b98981dcbbd20b1e AS runtime
 ARG APP_VERSION=0.1.6
 # `created` and `revision` are deliberately absent. A Dockerfile cannot emit a
 # label conditionally, so a defaulted ARG would give every hand-built image
@@ -35,8 +35,8 @@ LABEL org.opencontainers.image.title="Simple Balance frontend" \
   org.opencontainers.image.source="https://github.com/thtmnisamnstr/simple-balance" \
   org.opencontainers.image.url="https://github.com/thtmnisamnstr/simple-balance" \
   org.opencontainers.image.documentation="https://github.com/thtmnisamnstr/simple-balance#readme" \
-  org.opencontainers.image.base.name="nginxinc/nginx-unprivileged:1.29-alpine" \
-  org.opencontainers.image.base.digest="sha256:0c79d56aee561a1d81c63f00eee5fb5fe29279560cdc55e91425133104c7fbe6"
+  org.opencontainers.image.base.name="nginxinc/nginx-unprivileged:1.30-alpine" \
+  org.opencontainers.image.base.digest="sha256:ed04ec1ff34502c339ee5c3ae3f855442398edc1d05591e2b98981dcbbd20b1e"
 # The three Node images apply this too. Left out here, the one image that
 # actually terminates traffic was the one shipping whatever its base last built
 # with. Root only for the upgrade: the base image runs as uid 101 and everything
@@ -52,6 +52,42 @@ ENV SB_API_ORIGIN=http://simple-balance-server:3000
 # routes at CSV_MAX_BYTES x 6 plus 64 KiB for worst-case escaping. 12m was under
 # that, so nginx refused bodies the server behind it would have taken.
 ENV SB_MAX_UPLOAD_SIZE=61m
+# Whether this deployment has Stripe configured at all. nginx needs to know
+# because the plan tab is the one page it serves under a wider content security
+# policy — Stripe's payment form loads a script and an iframe from Stripe — and
+# a deployment with no Stripe must go on serving that path under the strict
+# policy like every other page.
+#
+# Configured, not selling. An operator winding down sets SB_BILLING_ENABLED=false
+# and keeps the Stripe settings, and their subscribers still need to replace an
+# expired card on that page. Default false, so an operator who never set it gets
+# today's behavior exactly.
+ENV SB_BILLING_CONFIGURED=false
+# Whether the plan tab reports its content security policy instead of enforcing
+# it. A default here is not optional decoration: the template references
+# ${SB_CSP_REPORT_ONLY} in a `map`, and envsubst leaves an unset name as the
+# literal text — which nginx then reads as an unknown variable and refuses to
+# start at all. Every SB_ name the template mentions needs a default in this
+# file for that reason.
+ENV SB_CSP_REPORT_ONLY=false
+# Whether this deployment serves advertising. nginx serves every document in
+# this shape, so it decides the policy they arrive with, and AdSense needs a
+# materially wider one. Default false: a deployment that configured no AdSense
+# ids gets exactly the policy this image has always served.
+ENV SB_ADS_CONFIGURED=false
+# Which addresses may tell this nginx where a request really came from, so that
+# `$remote_addr` is the visitor rather than whatever terminated TLS in front.
+# An address or CIDR, or several separated by commas or spaces, and every one of
+# them a proxy's own: name the visitors' range instead and a caller writes their
+# own X-Forwarded-For. Loopback is the off position — nothing reaches this
+# container from 127.0.0.1 — and it is a value rather than an empty string
+# because an empty one refuses to start.
+ENV SB_TRUSTED_PROXY_CIDR=127.0.0.1
+# Whether nginx walks X-Forwarded-For past the trusted addresses above to the
+# first one that is not, which a chain of appending proxies needs and one
+# terminator does not. Off, nginx's own default and this image's behavior before
+# the setting existed. `on`/`off`, and `true`/`false` like the switches above.
+ENV SB_REAL_IP_RECURSIVE=off
 # Only SB_ names are substituted, so nginx's own $host and $remote_addr are not
 # blanked out by an envsubst pass that does not know the difference.
 ENV NGINX_ENVSUBST_FILTER=^SB_
@@ -59,10 +95,19 @@ ENV NGINX_ENVSUBST_FILTER=^SB_
 # sitting beside it. Two servers listening on one port with server_name _ is a
 # conflict nginx resolves by picking whichever the include glob reached first.
 COPY deploy/docker/nginx.conf.template /etc/nginx/templates/default.conf.template
+# Sourced by the entrypoint before 20-envsubst-on-templates.sh, which is what
+# lets it turn the trusted list into one directive per entry and refuse a value
+# that is not an address. The number is the ordering: `sort -V` runs it after the
+# stock 15 and before the 20 that renders the template. Executable, because the
+# entrypoint skips an `.envsh` that is not, with nothing but a log line — so the
+# mode is set here rather than trusted to a checkout, and it stays root's to
+# write, since the uid nginx runs as has no business editing its own startup.
+COPY --chmod=0755 deploy/docker/nginx-real-ip.envsh /docker-entrypoint.d/18-sb-real-ip.envsh
 # Outside /etc/nginx/templates on purpose: the entrypoint runs envsubst over
 # everything in there, and outside /etc/nginx/conf.d, which the main config
 # includes into http{} where a location-scoped directive is a syntax error.
 COPY deploy/docker/nginx-security-headers.conf /etc/nginx/snippets/security-headers.conf
+COPY deploy/docker/nginx-security-headers-plan.conf /etc/nginx/snippets/security-headers-plan.conf
 COPY --from=build /app/dist/client /usr/share/nginx/html
 COPY LICENSE /usr/share/licenses/simple-balance/
 EXPOSE 8080

@@ -1,0 +1,248 @@
+#!/bin/sh
+# Turns a bare Ubuntu into the application machine of a `single` deployment. Run
+# once per instance by cloud-init, and written to be safe to run again: a
+# rebuilt machine is a new instance and runs all of this a second time against a
+# data volume that already holds its secret and its backups. Its settings are
+# not on the volume: they are the stack's, fetched from the cloud's secret
+# store at every start.
+#
+# The database is not on this machine. It is the second machine the same Pulumi
+# stack builds — simple-balance-db-firstboot is its half of this script — or,
+# where that one was turned off, whatever DATABASE_URL names. Either way this
+# machine keeps the property the profile is for: losing it loses no data.
+#
+# Not a systemd unit, deliberately. It is provisioning rather than lifecycle,
+# and a unit is a thing that can be enabled and then run at a moment nobody
+# chose — which for a script that formats a disk is the wrong shape entirely.
+set -eu
+
+# Every path and number this needs, in the one file the units also read. Safe
+# to source: every value is a path, a device name or a whole number, and none
+# contains a space, a quote or a shell metacharacter.
+set -a
+# shellcheck disable=SC1091  # written by cloud-init, absent at lint time
+. /etc/default/simple-balance
+set +a
+
+: "${SB_DATA_DEVICE:?/etc/default/simple-balance did not set SB_DATA_DEVICE}"
+: "${SB_BACKUP_DIR:=/var/lib/simple-balance/backups}"
+
+# Wait for the volume to be attached. On both clouds the instance can boot
+# before the block device appears, and a mount that races it writes the secret
+# and every backup onto the boot disk — which works, until the machine is
+# rebuilt and both go with the disk.
+#
+# For as long as Pulumi would go on waiting for the device before calling the
+# `up` failed, which is forty minutes, from the providers' own timeouts. On
+# Oracle Cloud the volume is built only once this instance is running, so a
+# first boot waits out its creation and then its attachment, and the OCI
+# provider allows twenty minutes for each. On AWS a replacement waits for the
+# old machine to stop (ten), the volume to detach (five) and attach (five). A
+# wait shorter than Pulumi's can give up on a volume that is still on its way,
+# and leaves a machine with none of the directories the next steps write into.
+# The loop ends the moment the device appears, so the number only matters when
+# it is late, and a person running this by hand is told what it is waiting on.
+i=0
+if [ ! -b "$SB_DATA_DEVICE" ]; then
+	echo "simple-balance: waiting up to forty minutes for the data volume $SB_DATA_DEVICE" >&2
+fi
+while [ ! -b "$SB_DATA_DEVICE" ] && [ "$i" -lt 1200 ]; do
+	i=$((i + 1))
+	sleep 2
+done
+if [ ! -b "$SB_DATA_DEVICE" ]; then
+	echo "simple-balance: the data volume $SB_DATA_DEVICE never appeared" >&2
+	exit 1
+fi
+
+# Format only if it is not already a filesystem. This one line decides whether
+# rebuilding the machine keeps the secret that signs everybody's sessions and
+# the backups, or erases them.
+if ! blkid "$SB_DATA_DEVICE" >/dev/null 2>&1; then
+	mkfs.ext4 -L simple-balance "$SB_DATA_DEVICE"
+fi
+
+mkdir -p /var/lib/simple-balance
+# By label rather than by device name, because the name is the one thing that
+# is not stable: it depends on attachment order on one cloud and on a udev rule
+# on the other. `nofail` so a machine whose volume is missing still boots far
+# enough to be logged into and asked why.
+grep -q " /var/lib/simple-balance " /etc/fstab ||
+	echo "LABEL=simple-balance /var/lib/simple-balance ext4 defaults,noatime,nofail 0 2" >>/etc/fstab
+mountpoint -q /var/lib/simple-balance || mount /var/lib/simple-balance
+
+# Grow the filesystem to whatever the volume is now, and arrange for that to
+# happen at every boot from here on. A bigger block device does not bring a
+# bigger filesystem with it: raising the row in docs/deployment-sizing.md
+# enlarges the volume in place on both clouds and leaves the ext4 on it exactly
+# the size it was formatted at, so the extra space is real, paid for, and
+# unreachable.
+#
+# Run here so the volume is right on this boot, and enabled as a unit further
+# down so it is right on every boot after it. The unit is the half that matters
+# and this script cannot be it: cloud-init runs `runcmd` once per instance, so
+# on a machine that already exists this line never runs again, and a `pulumi up`
+# that grows a volume replaces no machine. simple-balance-growfs holds the
+# reasoning and the command.
+/usr/local/sbin/simple-balance-growfs /var/lib/simple-balance
+
+mkdir -p "$SB_BACKUP_DIR"
+chmod 0700 "$SB_BACKUP_DIR"
+
+# The database's CA certificate goes here, as db-ca.pem, for a DATABASE_URL
+# that verifies the server: compose.db-tls.yml, which COMPOSE_FILE names on
+# these machines, mounts this directory into the application at the same path,
+# and the backup and restore mount the file from it. On the data volume, so it
+# survives a rebuild with the URL that names it. Made here, before anything
+# starts, because that mount refuses a directory that is not there.
+#
+# 0755, set on every run, because the application reads it as the image's
+# unprivileged user and not as root. Unlike the backups, nothing in it is a
+# secret: a CA certificate is what a server hands every client that asks.
+mkdir -p /var/lib/simple-balance/tls
+chmod 0755 /var/lib/simple-balance/tls
+
+# The certificate of the database machine this stack built, delivered by
+# cloud-init and put on the volume here.
+#
+# Two steps rather than one, and the reason is an ordering that cannot be
+# changed: cloud-init's write_files runs before this script, and this script is
+# what mounts the data volume. A certificate written straight to
+# /var/lib/simple-balance/tls/ would be written to the boot disk and then
+# disappear under the mount — present at the moment it was written, gone by the
+# time anything read it. So cloud-init writes it to /opt, which is the boot disk
+# on purpose, and this copies it across once the volume is really there.
+#
+# Only when it is absent, so a certificate an operator installed by hand — a
+# rotated one, or a managed database's — is never overwritten by the one this
+# machine was built with. That is also what makes rotation possible at all:
+# `ignoreChanges` covers user data, so a re-issued certificate never reaches a
+# running machine, and the by-hand path in docs/upgrades.md is the only path.
+if [ -f /opt/simple-balance/db-ca.pem ] && [ ! -f /var/lib/simple-balance/tls/db-ca.pem ]; then
+	install -m 0644 /opt/simple-balance/db-ca.pem /var/lib/simple-balance/tls/db-ca.pem
+fi
+
+# Generated here, kept on the data volume, and sent nowhere. The value is of no
+# use off this machine, so it belongs neither in user data — readable by anyone
+# who can describe the instance — nor in a Pulumi state file. A rebuilt instance
+# reattaching the same volume finds the same one, which is what stops a rebuild
+# signing everybody out.
+secrets=/var/lib/simple-balance/secrets.env
+if [ ! -f "$secrets" ]; then
+	umask 077
+	{
+		# tr deletes the newlines openssl wraps at, and the three base64
+		# characters that would need escaping in a URL or a compose file.
+		#
+		# One value, not two, even though this profile does now own a
+		# database. The database machine generates its own superuser password,
+		# on itself, where it never has to travel; the account the application
+		# signs in as is generated by the Pulumi program, because both machines
+		# have to agree on it and only one of them can decide. Neither belongs
+		# here, and a POSTGRES_PASSWORD generated on this machine would be a
+		# plausible-looking secret no server has ever heard of.
+		echo "AUTH_SECRET=$(openssl rand -base64 48 | tr -d '\n/+=' | cut -c1-48)"
+	} >"$secrets"
+	chmod 0600 "$secrets"
+fi
+
+systemctl daemon-reload
+# Started before the settings are fetched, because the fetch runs the cloud's
+# CLI in a container.
+systemctl enable --now docker
+
+# The stack's settings — every SMTP password, Stripe key and AdSense id the
+# operator gave `simple-balance:env` and `simple-balance:secrets` — from the
+# cloud's secret store, read with this machine's own identity. Waits for the
+# store on a first boot, when the grant naming this machine is still new.
+/usr/local/sbin/simple-balance-settings
+
+# Rebuilt from its parts every time this runs, by the same script the unit's
+# drop-in runs before every start, so there is one fold rather than a copy here
+# that a restart would not use. Run here as well because the question below is
+# asked of the assembled file.
+/usr/local/sbin/simple-balance-env
+# After the reload, so systemd enables the unit cloud-init has just written
+# rather than one it has not read yet. Enabled and not started: it has already
+# run above, and `Before=simple-balance.service` is about the boots after this
+# one.
+systemctl enable simple-balance-growfs.service
+
+# Reached only where this stack built no database machine.
+#
+# With one, cloud-init wrote env.db and the fold above put DATABASE_URL in
+# /opt/simple-balance/.env before this line was read, so the gate never fires.
+# Without one — `simple-balance:databaseNode: false`, for an operator who
+# already keeps a PostgreSQL — the address of that database is the one setting
+# this profile cannot know, because it is the address of something somebody else
+# runs.
+#
+# It is a stack secret like any other: `simple-balance:secrets.DATABASE_URL`.
+# It used to be typed into a file on this machine instead, because anything a
+# Pulumi program put here arrived as cloud-init user data, readable by anyone
+# who can describe the instance. The settings no longer travel that way — the
+# machine fetches them from the cloud's secret store with an identity only it
+# holds — so the reason for the file went with it.
+#
+# Without it the deployment cannot start, and the interesting question is what
+# should happen at that point. Starting anyway gives a failed unit and a
+# cloud-init error, which reads as a broken image rather than a step nobody has
+# taken yet. So the unit is enabled and not started, the reason is written where
+# somebody will find it, and this script says so and exits successfully — it is
+# safe to run again, which is what makes that a real instruction.
+if ! grep -q '^DATABASE_URL=..*' /opt/simple-balance/.env; then
+	systemctl enable simple-balance.service
+	systemctl enable simple-balance-backup.timer
+	cat >/etc/motd <<'MOTD'
+
+Simple Balance is installed and not yet running: it has no database to talk to.
+
+This machine was built with `simple-balance:databaseNode: false`, so no database
+machine was built beside it and the database is yours — a managed PostgreSQL, or
+a server you already keep. Save the CA certificate that signed the database's
+on this machine:
+
+  sudo install -m 0644 ca-certificate.pem /var/lib/simple-balance/tls/db-ca.pem
+
+Then, where you run Pulumi, give the stack the connection string and apply it:
+
+  pulumi config set --secret --path 'simple-balance:secrets.DATABASE_URL' \
+    'postgresql://user:password@host:5432/simple_balance?sslmode=verify-full&sslrootcert=/var/lib/simple-balance/tls/db-ca.pem'
+  pulumi up
+
+And back here, once that has finished:
+
+  sudo /usr/local/sbin/simple-balance-firstboot
+
+Any @ : / ? # % & or $ in the password written as %40 %3A %2F %3F %23 %25 %26
+%24. host is the name in the database's certificate, not its IP address. A
+certificate from a public CA needs no file: leave out &sslrootcert=... Where to
+get the certificate is in deploy/compose/single/README.md, and which sslmode to
+use in docs/deployment.md, "Reaching the database over a network".
+
+The last command fetches the settings again, rebuilds the configuration and
+starts the deployment and its nightly backup. It is the same script that ran at
+boot and is safe to run again. Once the deployment is running, every setting is
+changed the same way, in the stack, and reaches this machine within five
+minutes of the pulumi up.
+
+MOTD
+	echo "simple-balance: no DATABASE_URL yet; enabled but not started. See /etc/motd." >&2
+	exit 0
+fi
+
+# Started only once there is something to start. A machine that got its
+# DATABASE_URL on the second run reaches here on the second run.
+#
+# restart rather than `enable --now`, which is a start, and a start does nothing
+# to a oneshot unit that is already active: run by hand on a live machine to
+# apply a setting, this rebuilt .env and left the containers on the old one. A
+# restart starts a unit that is not running, so a first boot is the same.
+#
+# The settings timer only once the deployment has started: its job is to
+# restart a running deployment when the stack changes, and before this point
+# there is nothing running for it to restart.
+: >/etc/motd
+systemctl enable simple-balance.service simple-balance-backup.timer simple-balance-settings.timer
+systemctl restart simple-balance.service
+systemctl start simple-balance-backup.timer simple-balance-settings.timer

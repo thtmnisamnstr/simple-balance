@@ -1,0 +1,61 @@
+# The `ha` profile at full size.
+#
+#   helm upgrade --install simple-balance deploy/helm/simple-balance \
+#     --namespace simple-balance --create-namespace \
+#     -f deploy/helm/simple-balance/values-ha.yaml \
+#     --set config.appBaseUrl=https://books.example.com \
+#     --set secret.authSecret="$(openssl rand -base64 32)"
+#
+# Three Citus groups — a coordinator and two workers — at two replicas each, and
+# every web tier autoscaling. Losing a node loses a standby or costs one
+# failover; it does not lose shards and it does not stop writes.
+#
+# The same profile as values-node-per-service.yaml. Everything in the two files
+# that is not a replica count is identical, which is the point: moving between
+# them is a rollout, not a migration.
+#
+# Nearly all of this is the chart's own defaults, and it is written down anyway.
+# A file that said only `database.enabled: true` would be a file whose meaning
+# changed every time a default moved, and the two shapes are meant to be read
+# side by side.
+
+database:
+  enabled: true
+
+  # Two worker groups beside the coordinator: the smallest number that shows the
+  # ledger really spread across nodes rather than merely able to be.
+  workers: 2
+
+  # One primary and one standby in every group. This is what the profile's name
+  # is about, and what makes the settings below mean anything.
+  replicasPerGroup: 2
+
+  # Every commit waits for a standby to hold the WAL, so promoting one cannot
+  # lose a transaction the application was told had committed — for a ledger,
+  # that is the books disagreeing with what somebody was shown. It costs one
+  # network round trip inside the cluster per write.
+  synchronousReplication: true
+
+  # One pod of a group at a time may be drained. Per group rather than for the
+  # database as a whole, so a node drain cannot take the primary of every group
+  # at once and leave each one standing on its last replica.
+  podDisruptionBudget:
+    enabled: true
+    maxUnavailable: 1
+
+server:
+  autoscaling:
+    enabled: true
+
+frontend:
+  autoscaling:
+    enabled: true
+
+scheduler:
+  autoscaling:
+    enabled: true
+
+# On, because the database is in this cluster now — see the same block in
+# values-node-per-service.yaml. It is only as real as the CNI under it.
+networkPolicy:
+  enabled: true

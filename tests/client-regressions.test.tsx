@@ -293,7 +293,7 @@ describe("editing a transfer between two accounts in one currency", () => {
   // say it had gone.
   it("keeps a category the form does not render", async () => {
     let body: { draft?: Record<string, unknown> } | undefined;
-    const categorised = {
+    const categorized = {
       ...sameCurrencyTransfer,
       categoryId: groceriesCategory.id,
       category: groceriesCategory,
@@ -304,7 +304,7 @@ describe("editing a transfer between two accounts in one currency", () => {
         const url = new URL(String(input), window.location.origin);
         if (url.pathname.startsWith("/api/v1/transactions/")) {
           body = JSON.parse(String(init?.body));
-          return new Response(JSON.stringify(categorised), {
+          return new Response(JSON.stringify(categorized), {
             status: 200,
             headers: { "Content-Type": "application/json" },
           });
@@ -322,7 +322,7 @@ describe("editing a transfer between two accounts in one currency", () => {
         <TransactionForm
           accounts={[checkingAccount, savingsAccount, eurAccount]}
           categories={[groceriesCategory]}
-          transaction={categorised as never}
+          transaction={categorized as never}
           onDone={() => undefined}
         />
       </QueryClientProvider>,
@@ -757,6 +757,90 @@ function staged(id: string, description: string, importBatchId: string): StagedT
     createdAt: "2026-07-30T12:00:00.000Z",
   };
 }
+
+/**
+ * The queue's Type filter, which the server honored from 0.1.0 and the browser
+ * could not send until now.
+ *
+ * `stageListQuerySchema` inherits `type` from the listing schema and
+ * `stageFilterConditions` applies it, so `?type=transfer` worked for an agent
+ * while the page held no state that produced it: the one list of transactions
+ * in the product with no way to ask for its transfers, beside four detail pages
+ * and two template lists that all had one. `tests/mcp-parity.test.ts` now
+ * compares a route's request schema against the page's request object for the
+ * class; this covers the control itself, which that comparison cannot see.
+ *
+ * Both halves of the wiring, because either alone is a half-connected filter:
+ * the request that goes out, and the empty screen that has to name the control
+ * as a way out of itself.
+ */
+describe("staged queue type filter", () => {
+  it("sends the chosen type and names itself as the way out of an empty queue", async () => {
+    window.history.replaceState(null, "", "/staged?start=2026-07-01&end=2026-07-31");
+    const requestedTypes: (string | null)[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input), window.location.origin);
+        if (url.pathname === "/api/v1/staged-transactions") {
+          requestedTypes.push(url.searchParams.get("type"));
+          const page: PaginatedPage<StagedTransaction> = {
+            items: [],
+            nextCursor: null,
+            page: 1,
+            pageSize: 25,
+            totalCount: 0,
+            cursorAvailable: false,
+            totalPages: 1,
+          };
+          return new Response(JSON.stringify(page), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (url.pathname === "/api/v1/accounts") {
+          return new Response(JSON.stringify([checkingAccount]), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (url.pathname === "/api/v1/import-batches") {
+          const page: Page<ImportBatchSummary> = { items: [], nextCursor: null };
+          return new Response(JSON.stringify(page), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("[]", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
+
+    render(
+      <QueryClientProvider client={queryClient()}>
+        <TimezoneProvider timezone="UTC">
+          <BrowserRouter>
+            <StagingPage />
+          </BrowserRouter>
+        </TimezoneProvider>
+      </QueryClientProvider>,
+    );
+
+    // An empty queue nobody has narrowed says so, rather than blaming a filter.
+    expect(await screen.findByText("Nothing staged")).toBeInTheDocument();
+    expect(requestedTypes.every((type) => type === null)).toBe(true);
+
+    fireEvent.change(screen.getByLabelText("Filter by type"), {
+      target: { value: "transfer" },
+    });
+
+    await waitFor(() => expect(requestedTypes).toContain("transfer"));
+    expect(await screen.findByText("Nothing here matches those filters")).toBeInTheDocument();
+    expect(screen.getByText(/clear the type filter/i)).toBeInTheDocument();
+  });
+});
 
 describe("staged queue pagination", () => {
   it("keeps initial requests and rendering bounded, then loads more on demand", async () => {

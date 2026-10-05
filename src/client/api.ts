@@ -6,10 +6,14 @@ import {
 } from "../shared/progress.js";
 import type {
   ActorSource,
+  BillingInterval,
+  Entitlement,
+  Plan,
   UserAccountType,
   CategoryKind,
   PaginatedPage,
   Page,
+  PlanChangeInvoice,
   RecurrenceFrequencyName,
   RecurrenceSchedule,
   RecurrenceShape,
@@ -70,7 +74,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
  * One refusal envelope, read the same way wherever it arrives.
  *
  * A streamed reply cannot use a status code — its 200 went out with the first
- * frame — so the same object turns up in a terminal `error` frame instead. It
+ * frame — so the same object shows up in a terminal `error` frame instead. It
  * is read here rather than twice, because everything below is hard-won and a
  * second copy would be the copy that stops being updated.
  */
@@ -141,7 +145,7 @@ const STREAM_TRUNCATED = "HTTP_STREAM_TRUNCATED";
  *
  * Only true when the server answered — a refusal has a code and a sentence, and
  * an atomic write that was refused wrote nothing. A connection that died says
- * nothing about the outcome: the transaction is not cancelled when a browser
+ * nothing about the outcome: the transaction is not canceled when a browser
  * goes away, so a commit that vanished on the way back may well be in the
  * books, which is what the retained idempotency key exists for. Telling
  * somebody "nothing was committed" there is a guess, and the wrong one more
@@ -234,6 +238,179 @@ export type Session = {
   user: { id: string; name: string; email: string; image?: string | null };
   preferences: Preferences;
   auth: UserAuthState;
+  /**
+   * Optional because the frontend and the server are separate containers in the
+   * split deployment, and a rolling update briefly serves this bundle against a
+   * server from the release before it. Absent reads as "this deployment sells
+   * nothing", which is what every 0.1.x server means by not sending it.
+   */
+  plan?: PlanSummary;
+  /**
+   * What to render an ad from, and absent whenever nothing should be rendered.
+   *
+   * The server decides. A subscriber's session carries no `ads`, so this page
+   * has nothing to build a slot from rather than a rule it has to apply
+   * correctly — which means the failure mode of every bug in this area is "no
+   * ad shown", not "an ad shown to somebody who paid not to see one".
+   *
+   * Optional for the same reason `plan` is: a rolling update briefly serves
+   * this bundle against a server from the release before it, and absent has to
+   * read as "no ads" there too.
+   */
+  ads?: AdPlacement | null;
+};
+
+/** The publisher and slot ids, as the deployment configured them. */
+export type AdPlacement = {
+  clientId: string;
+  bannerSlotId: string;
+  footerSlotId?: string;
+  consentManaged: boolean;
+};
+
+/**
+ * What this person's plan allows, and how much of it they have used.
+ *
+ * `accountsUsed` is null wherever there is no limit to measure against — a
+ * deployment selling nothing, or somebody on the paid plan — so a screen that
+ * has a number always has a limit to compare it with.
+ */
+export type PlanSummary = {
+  entitlement: Entitlement;
+  accountsUsed: number | null;
+};
+
+/** One of the two prices, as the plan tab shows it. */
+export type PlanPrice = {
+  id: string;
+  unitAmount: number | null;
+  currency: string;
+  /**
+   * How often Stripe bills this price, which is what the button says beside
+   * the amount. Stripe's word rather than the setting's, so a price configured
+   * in the wrong slot cannot be labeled as the one it is not.
+   */
+  interval: "month" | "year" | null;
+};
+
+/**
+ * What the plan tab reads, in one request.
+ *
+ * The amounts come from Stripe rather than from this deployment's settings,
+ * which hold ids and no figures: an amount copied into configuration is a second
+ * place for the price to live and the one that does not get charged. Either may
+ * be null when Stripe could not be reached or has no such price, and the tab
+ * still renders — somebody whose card expired has to reach the payment form
+ * whether or not Stripe can say what a year costs today.
+ *
+ * Everything the route learned to say after this type was first written is
+ * optional: where an owed payment has got to, and how many accounts a plan
+ * freezes. The server sends each of them on every load, so the option is not
+ * about the server withholding one — it is about which bundle is running. A
+ * bundle built from this commit can be served by a container from before the
+ * field existed, and reading a missing value as nothing to say — no retry
+ * date, nothing frozen — is the only reading that does not crash the tab on
+ * the release somebody upgrades through.
+ */
+export type BillingStatus = {
+  /** False where nothing is for sale, and where the prices are known not to fit. */
+  selling: boolean;
+  /**
+   * Whether this deployment serves advertising at all, so the tab can say that
+   * the paid plan takes it away. Optional for the reason the later fields are,
+   * and absent reads as "says nothing about ads" rather than as "no ads": a
+   * bundle running against a container from before the field existed should
+   * leave the claim out rather than make the wrong half of it.
+   */
+  advertises?: boolean;
+  publishableKey: string;
+  prices: {
+    monthly: PlanPrice | null;
+    yearly: PlanPrice | null;
+  };
+  entitlement: Entitlement;
+  accountsUsed: number | null;
+  /** Live accounts frozen now; absent or null where no limit is in force. */
+  accountsFrozen?: number | null;
+  /** Every live account wherever a plan is sold, the paid plan included. */
+  accountsLive?: number | null;
+  /** The one-time choice of which accounts stay usable is still open. */
+  activeChoicePending?: boolean;
+  /**
+   * How many live accounts would be frozen if the paid plan ended now — the
+   * shared `frozenAccountIds` under the entitlement somebody has once it does,
+   * an operator's grant still in force then included — and 0 where nothing
+   * would be. The server's answer rather than live minus the free limit: the
+   * rule keeps the accounts marked in use, so somebody who chose three of five
+   * before upgrading gets the same two frozen again, and one who then archived
+   * one of the three gets two frozen and not one.
+   */
+  accountsFrozenOnFree?: number | null;
+  /** Whether that ending would leave the one-time choice open (`activeChoicePending`). */
+  activeChoicePendingOnFree?: boolean;
+  subscription: {
+    status: string;
+    interval: BillingInterval | null;
+    currentPeriodEnd: string | null;
+    cancelAtPeriodEnd: boolean;
+    pastDueSince: string | null;
+    scheduledInterval: BillingInterval | null;
+    scheduledAt: string | null;
+    /**
+     * Money is owed and the server would take it now, so the tab offers the
+     * button only where pressing it is accepted. The server works it out,
+     * because whether paying is a sale depends on the status as well as on
+     * whether anything is for sale.
+     */
+    payable: boolean;
+    /** Stripe's sentence for the last failed attempt at what is owed. */
+    lastPaymentError?: string | null;
+    /** The bank wants what is owed confirmed with 3-D Secure, which Stripe never retries. */
+    awaitingAuthentication?: boolean;
+    /** When Stripe next tries what is owed by itself; null where it will not. */
+    nextRetryAt?: string | null;
+    /** When an unfinished first payment lapses, with nothing charged. */
+    expiresAt?: string | null;
+    /**
+     * The day the plan stops, where one is set, and null where none is.
+     *
+     * Not the same fact as `cancelAtPeriodEnd`, which means "it stops on the
+     * day `currentPeriodEnd` names" and is false for a cancellation an
+     * operator dated further out — that period really does renew. Read off
+     * the flag alone a further-out one did not exist here at all, so the
+     * interval buttons stayed live on a plan Stripe was about to stop. Ask
+     * `cancellationPending` for whether one is pending; the status line goes
+     * on asking the flag, because its date is the only one printable as an
+     * ending.
+     */
+    cancelAt?: string | null;
+  } | null;
+  /** `plan` is the wire value; `PLAN_LABELS` is the word a person reads. */
+  override: { plan: Plan; expiresAt: string | null } | null;
+};
+
+export type SubscriptionResult = {
+  /**
+   * `subscriptionId` is Stripe's id for the subscription. The browser never
+   * renders it and never sends it back: every later call names the signed-in
+   * person's own subscription from the session, so an id on the page would be
+   * an identifier nobody can use and one more thing to get wrong.
+   */
+  subscriptionId: string;
+  clientSecret: string | null;
+  status: string;
+  /**
+   * What the press raised to pay now, where it changed the interval on the
+   * spot, and null where it changed no interval.
+   *
+   * Optional for the two reasons `CardConfirmation.invoice` is: the container
+   * serving this bundle may be from before the field existed, and a replay of
+   * an idempotency key stored before it hands back what was stored. Absent is
+   * "nothing to say", which is the only reading that does not put "the
+   * difference was charged to your payment method" in front of somebody whose
+   * payment method was never touched.
+   */
+  changeInvoice?: PlanChangeInvoice | null;
 };
 
 export type { AuthMode };
@@ -250,6 +427,22 @@ export type AuthPublicOptions = {
   passwordResetAvailable: boolean;
   /** Whether this deployment can send mail at all, so reminders can arrive. */
   notificationsAvailable: boolean;
+  /** Whether this deployment sells a plan, and whether it serves ads. */
+  billingAvailable: boolean;
+  /**
+   * `adsAvailable` is read by nothing in the browser, deliberately. Whether a
+   * slot renders is decided by whether the session carried an `AdPlacement` at
+   * all, and `ads.tsx` argues at length why a second gate written here would be
+   * the wrong shape: it would have to be the right way round AND wait for an
+   * entitlement that lands after first paint.
+   */
+  adsAvailable: boolean;
+  /**
+   * The deployment's own documents, each absent where the operator has not
+   * configured it. Linked from the sign-in screen, the sidebar and the plan tab.
+   */
+  privacyPolicyUrl?: string;
+  termsOfUseUrl?: string;
   emailVerificationRequired: boolean;
   minimumPasswordLength: number;
 };
@@ -266,6 +459,11 @@ import type { Theme } from "../shared/domain.js";
 export type { Theme } from "../shared/domain.js";
 
 export type Preferences = {
+  /**
+   * Never rendered and never sent. The id is the session's — a write that
+   * accepted one from the browser would be the thing `AGENTS.md` forbids
+   * outright — so `userId` is here only because the preferences row carries it.
+   */
   userId: string;
   timezone: string;
   defaultCurrency: string;
@@ -292,6 +490,25 @@ export type Account = {
   archivedAt?: string | null;
   /** Whether the budget's "left to assign" figure counts this account. */
   inBudget?: boolean;
+  /**
+   * Whether this account refuses every change right now.
+   *
+   * The server's answer, not the stored choice: it combines the choice with
+   * the plan, and a page that re-derived it would be a second copy of the rule
+   * in `frozenAccountIds`. Optional because a rolling update briefly serves a
+   * new bundle against an old server, and absent reads as "nothing is frozen"
+   * — which is what every 0.1.x server means by not sending it.
+   */
+  frozen?: boolean;
+  /**
+   * The person's own choice, as opposed to `frozen`, which is the answer.
+   *
+   * The two differ in exactly one way that matters to a page: while nobody has
+   * chosen yet, every account is still marked active and the ordering rule is
+   * standing in — so the accounts page can offer a free first choice, and
+   * afterward offer only the places that have opened up.
+   */
+  active?: boolean;
   version: number;
   balance: string;
   balancePresentation: { label: string; amount: string };
@@ -358,6 +575,15 @@ export type CategoryMergeResult = {
  * stopped sending.
  */
 export type { PayeeSummary, PayeeDuplicateGroup, PayeeMergeResult } from "../shared/domain.js";
+/**
+ * Two fields of `BulkTransactionEditResult` are read by nothing here, and both
+ * are restraint rather than oversight. `selectionFingerprint` is the
+ * fingerprint the request itself sent, handed back so a caller that did not
+ * keep it can match the answer to the ask — this page kept it. `itemsTruncated`
+ * says the `items` sample was cut short, and the register reports the count and
+ * reloads the list rather than showing a sample, so there is nothing for the
+ * flag to qualify.
+ */
 export type {
   BulkTransactionSelectionSnapshot as TransactionBulkSelectionPreview,
   BulkTransactionEditResult as TransactionBulkEditResult,
@@ -394,8 +620,19 @@ export type Transaction = {
   destinationAmount?: string | null;
   sourceCurrency?: string | null;
   destinationCurrency?: string | null;
+  /**
+   * The implied rate the two native amounts work out to, kept for the audit
+   * trail. `effectiveRate` is not shown back: the form asks for the two amounts
+   * and says the implied rate is saved with the transfer, and printing the
+   * quotient would read as a rate somebody chose rather than one derived.
+   */
   effectiveRate?: string | null;
   deletedAt?: string | null;
+  /**
+   * `legCount` is for a caller that asked for rows without their legs. Every
+   * page here receives `legs` with the row and reads `legs.length`, so a second
+   * count that could disagree with it is left alone.
+   */
   legCount?: number;
   legs: TransactionLeg[];
   version: number;
@@ -506,8 +743,16 @@ export type TemplateNotification = {
   /** `HH:MM` on this person's own clock. */
   time: string;
   repeats: boolean;
+  /**
+   * `lastNotifiedDate` is the sweep's own watermark — what was sent, so a
+   * backlog collapses to one message. The form shows `nextNotificationDate`
+   * instead, which is the one somebody can still act on.
+   */
   lastNotifiedDate: string | null;
-  /** Null when nothing further is owed, which is where a one-off ends up. */
+  /**
+   * Null when nothing further is owed, which is where a one-time reminder ends
+   * up.
+   */
   nextNotificationDate: string | null;
 };
 
@@ -521,6 +766,12 @@ export type TransactionTemplate = {
   notification: TemplateNotification | null;
   version: number;
   createdAt: string;
+  /**
+   * `updatedAt` is carried on both this and `Recurrence` and rendered on
+   * neither. "Has anybody touched this" is the activity log's question, and it
+   * answers with who and what; a bare date on the row invites that question
+   * without being able to answer it.
+   */
   updatedAt: string;
 };
 
@@ -544,6 +795,11 @@ export type Recurrence = {
   positionWeekday: number | null;
   proposesFrom: string;
   lastOccurrenceDate: string | null;
+  /**
+   * The cached column, which `nextOccurrence` above is recomputed in place of.
+   * `nextOccurrenceDate` is not read here for exactly that reason: a stale
+   * cache has to show as an overdue recurrence rather than as a wrong date.
+   */
   nextOccurrenceDate: string;
   /** Whether proposing from this sends an email saying so. */
   notifyOnCreate: boolean;
@@ -571,6 +827,21 @@ export type Summary = {
   range: { start: string | null; end: string | null };
   /** The day the figures are really as of, which is today when the range runs past it. */
   asOf: string;
+  /**
+   * `includesArchived` echoes the request's own toggle, and the dashboard — the
+   * only page that asks for a summary — never sets it, so this is the constant
+   * `false`. Rendering it would be a line saying archived accounts are left out
+   * on a screen with nothing that could put them back in.
+   *
+   * The toggle itself is on the Reports page, over every report, with a note
+   * beneath it saying what the flag means on that kind — which figures it
+   * moves on a movement report, and which rows it only lists on a balance one.
+   * So this is a parameter one screen does not offer rather than a capability
+   * a person cannot reach.
+   * `Report.includesArchived`, below, is the one whose control is on the screen
+   * above it, and printing the answer back there would read as a second,
+   * disagreeing control.
+   */
   includesArchived: boolean;
   currencies: {
     currency: string;
@@ -641,7 +912,7 @@ export type AccountRegister = {
 /**
  * A staged row beside the one thing it looks like a repeat of.
  *
- * `second` is null when nothing matches it any more, which is what a pair
+ * `second` is null when nothing matches it anymore, which is what a pair
  * somebody has already resolved looks like. A committed transaction is always
  * `second`; where both sides are staged, the older one is.
  */
@@ -661,6 +932,11 @@ export type AuditEvent = {
   actorSource: ActorSource;
   clientId?: string | null;
   entityType: string;
+  /**
+   * `entityId` is not shown and is not a link. The log writes a sentence naming
+   * what changed and what happened to it; a link would need a route per entity
+   * type and would land on nothing for a record deleted since.
+   */
   entityId: string;
   operation: string;
   createdAt: string;

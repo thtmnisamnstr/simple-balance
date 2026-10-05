@@ -1,4 +1,5 @@
 import { globSync, readFileSync } from "node:fs";
+import { sourceFiles } from "./support/source.js";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -193,6 +194,114 @@ describe("what the product says", () => {
  * bare on another, which is one word for one state rendered two ways on two
  * screens a person moves between.
  */
+/**
+ * The text between a `>` and a `<` on one line: what JSX renders as words.
+ *
+ * `literals` cannot see any of it, and the defect this was written for was
+ * exactly there — `<span className="row-note"> (closed)</span>` is a sentence a
+ * reader sees and not a string literal anywhere. Mutation-proving the first
+ * version of this check is what found that: putting the defect back left it
+ * green.
+ *
+ * Deliberately per line and deliberately crude. A fragment carrying an
+ * expression (`{entry.label}`) comes back as the surrounding words with a gap,
+ * which is enough for a word check and nothing like enough for a parser. What
+ * it must not do is match attribute values, so a `>` inside a tag is not a
+ * boundary: a line is only considered once its last `<` is behind its last `>`.
+ */
+function jsxText(source: string) {
+  const found: { text: string; line: number }[] = [];
+  source.split("\n").forEach((line, index) => {
+    if (/^\s*(?:\/\/|\*|\/\*)/.test(line)) return;
+    for (const match of line.matchAll(/>([^<>{}"]{2,})</g)) {
+      const text = match[1]!.trim();
+      if (text) found.push({ text, line: index + 1 });
+    }
+  });
+  return found;
+}
+
+/**
+ * Legitimate uses of "close", named one at a time.
+ *
+ * Every one is either a control that dismisses something or the accounting
+ * sense of a balance a window closes on, and neither is what `web.md` 7.6 is
+ * about. A blanket skip for "anything short" or "anything containing balance"
+ * is how a check like this stops meaning anything, so each is here by its
+ * exact text.
+ */
+const CLOSE_IS_NOT_ARCHIVED = new Set([
+  // Dismissal: a className, two labels on the navigation drawer's button, and
+  // the shared modal's own.
+  "mobile-close",
+  "Close navigation",
+  "Close",
+  // The accounting sense. A register and a balance report both state the
+  // figure a window closes on, which is a different word from an account
+  // having been put away.
+  "Closing balance",
+  "Closing",
+  // Wire values, never sentences: a register posting's origin, and the band a
+  // budget's fill lands in.
+  "closing",
+  "close",
+]);
+
+/**
+ * The frozen sense, which is a live account refusing writes rather than an
+ * archived one.
+ *
+ * `common.md`'s table draws exactly this distinction — Frozen is "a live
+ * account a plan's limit leaves closed to every write", against Archived — so
+ * "closed to" is the one phrasing that may carry the word next to the word
+ * "account".
+ */
+const CLOSED_TO = /\bclosed to\b/i;
+
+describe("the word for an account that has been put away", () => {
+  /**
+   * `web.md` 7.6: **`archived`, never `closed`**, for `ledger_account.archived_at`.
+   *
+   * The rule's own argument names the page that was breaking it: somebody who
+   * archives an account on Accounts and then asks Reports whether it is counted
+   * is looking for the word they just used, and Reports said "(closed)" on every
+   * archived row, "the ones you have closed" in its empty state and "before they
+   * closed" in the note above the table. A shared schema description said
+   * "an account you have since closed" to the browser and to every agent at once.
+   *
+   * 7.6 filed this as one of four grep-shaped rules with no grep. This is the
+   * grep. It is narrow on purpose: the word is fine as a control and fine as the
+   * accounting sense, so the register above names those rather than the pattern
+   * trying to tell senses apart.
+   */
+  it("is archived, in every sentence a person or an agent reads", () => {
+    const offenders: string[] = [];
+    for (const path of SOURCES) {
+      if (path.startsWith("src/server/")) continue;
+      const source = readFileSync(path, "utf8");
+      const candidates = [...literals(source), ...jsxText(source)];
+      for (const { text, line } of candidates) {
+        if (!/\bclos(e|ed|es|ing)\b/i.test(text)) continue;
+        if (CLOSE_IS_NOT_ARCHIVED.has(text.trim())) continue;
+        if (CLOSED_TO.test(text)) continue;
+        offenders.push(`${path}:${line} "${text.trim().slice(0, 70)}"`);
+      }
+    }
+    expect(offenders, "an account that has been put away is archived, never closed").toEqual([]);
+  });
+
+  it("has something to check, so a broken pattern cannot pass as a clean sweep", () => {
+    // The register itself is the population: if these stop being found, the
+    // literal walk above has broken rather than the product having improved.
+    const found = SOURCES.filter((path) => !path.startsWith("src/server/")).flatMap((path) =>
+      literals(readFileSync(path, "utf8"))
+        .map(({ text }) => text)
+        .filter((text) => CLOSE_IS_NOT_ARCHIVED.has(text)),
+    );
+    expect(new Set(found).size, "the register names uses that no longer exist").toBeGreaterThan(4);
+  });
+});
+
 describe("a cell with nothing in it", () => {
   it("writes the dash as a fallback and never as cell text", () => {
     const literal: string[] = [];
@@ -208,7 +317,7 @@ describe("a cell with nothing in it", () => {
     expect(literal, "a dash is what a missing value renders as, not what a cell says").toEqual([]);
   });
 
-  it("styles the uncategorised word the same way wherever it stands as text", () => {
+  it("styles the uncategorized word the same way wherever it stands as text", () => {
     const bare: string[] = [];
     let styled = 0;
     for (const path of globSync("src/client/**/*.tsx")) {
@@ -219,7 +328,7 @@ describe("a cell with nothing in it", () => {
       }
     }
     // The two remaining sites are an inline-edit button's own label and its
-    // `aria-label`, where the word takes the button's colour by design and is
+    // `aria-label`, where the word takes the button's color by design and is
     // not a span at all. Only text standing on its own is in scope.
     expect(styled).toBeGreaterThan(2);
     expect(bare, "one state, one rendering").toEqual([]);
@@ -275,45 +384,251 @@ describe("the worked sentences", () => {
  */
 describe("a filtered list with nothing in it", () => {
   /**
-   * The lists that carry a filter and so need two empty screens.
+   * Every page that renders an empty state, and the ones where one message is
+   * right listed with the argument.
    *
-   * Named rather than derived: whether a list is filtered is a fact about the
-   * controls above it, and a derivation that guessed would either miss one or
-   * demand two screens from a list that cannot be narrowed.
+   * **This was a list of four and it missed two real defects.** It named
+   * TransactionBrowser, Staging, Templates and Recurring — the four that were
+   * already correct — so Payees told a mistyped search to go and commit a
+   * transaction, and Accounts told somebody with every account archived that
+   * they had none. A check that enumerates the compliant cases is not a check;
+   * it is a record of what somebody had already looked at.
+   *
+   * The comment that stood here argued that deriving "is this list filtered"
+   * would guess wrong, and it was right: `query` matches the `useQuery` import,
+   * `search` matches the `location.search` every link carries, `filter` matches
+   * `Array.filter`, and `search:` matches an object key. Four attempts, four
+   * false positives, three of them pages with no controls at all.
+   *
+   * So the question is asked of every page and the exceptions are named — the
+   * shape `NOT_A_FIELD` and `NOT_A_TOOL` already use here. An entry is a claim
+   * that the list cannot be filtered into emptiness, and somebody has to
+   * defend it.
    */
-  const FILTERED = [
-    "src/client/TransactionBrowser.tsx",
-    "src/client/pages/StagingPage.tsx",
-    "src/client/pages/TemplatesPage.tsx",
-    "src/client/pages/RecurrencesPage.tsx",
-  ];
+  const ONE_SITUATION: Record<string, string> = {
+    // A log. Nothing on the page narrows it, so empty means empty.
+    "src/client/pages/ActivityPage.tsx#No activity yet": "nothing on the page narrows the log",
+    // The queue is the whole population: a reviewed pair leaves it.
+    "src/client/pages/DuplicateReviewPage.tsx#No duplicates left to review":
+      "no control narrows the queue",
+    // One pair, not a list: it empties when the last spelling is kept or
+    // dropped, which is a change to the set rather than a view of it.
+    "src/client/pages/DuplicateReviewPage.tsx#Nothing repeats this anymore":
+      "the pair under review is not a list",
+    // Not one `useState` on it. Empty means the ledger has no currencies.
+    "src/client/pages/DashboardPage.tsx#Create your first account": "the page has no controls",
+    "src/client/pages/DashboardPage.tsx#No spending in this range":
+      "the only narrowing is the shared date range",
+    "src/client/pages/DashboardPage.tsx#No budget in this range":
+      "the only narrowing is the shared date range",
+    // A register for one account over the date range every view carries. 12.1
+    // excludes that range deliberately: counting it would report every empty
+    // account as a filtered one. The two screens are told apart by the opening
+    // balance instead, which is the honest test on this list.
+    "src/client/pages/AccountDetailPage.tsx#Nothing posted to this account yet":
+      "the only narrowing is the shared date range",
+    // Every plan this ledger holds. The bar above narrows the report below it,
+    // not this table.
+    "src/client/pages/BudgetsPage.tsx#No standing budgets yet": "no control narrows the plan list",
+    // The two checkboxes beside the period select both ship checked and both
+    // only ever ADD rows — archived spending, and categories with no budget —
+    // and `includeUnbudgeted` filters a period's rows rather than the periods.
+    // So neither can be why the range holds no period, and the message names
+    // the one thing that can.
+    "src/client/pages/BudgetsPage.tsx#Nothing budgeted in this range":
+      "the only narrowing is the shared date range",
+    // The one list whose "nothing matches" answer differs per control value
+    // rather than being one sentence: it reads the basis select and says what
+    // that basis counts and why there is none of it.
+    "src/client/pages/BudgetsPage.tsx#Nothing to project yet":
+      "the body already names the control, per basis",
+    // The groups table, which is its own list beside the categories one. The
+    // search box and the archived toggle narrow the categories; nothing on the
+    // page narrows groups.
+    "src/client/pages/CategoriesPage.tsx#No groups yet": "no control narrows the group list",
+    // Three preconditions rather than a list: no account, every account
+    // frozen, and no file chosen yet. None of the three can be reached by
+    // narrowing anything, because there is nothing to narrow until a file is.
+    "src/client/pages/ImportPage.tsx#Create an account first": "a precondition, not a list",
+    "src/client/pages/ImportPage.tsx#Every account is frozen": "a precondition, not a list",
+    "src/client/pages/ImportPage.tsx#No file yet": "a precondition, not a list",
+    // The agents a person has approved. Nothing on the page narrows that set:
+    // revoking removes one, which is a change to the set rather than a view
+    // of it.
+    "src/client/pages/SettingsPage.tsx#Nothing is connected": "no control narrows the agent list",
+  };
 
-  it("distinguishes nothing-yet from nothing-matching", () => {
-    for (const path of FILTERED) {
-      const source = readFileSync(path, "utf8");
-      const at = source.indexOf("<EmptyState");
-      expect(at, `${path} renders no EmptyState`).toBeGreaterThan(-1);
-      const element = source.slice(at, at + 900);
-      // A conditional title is the shape: one element, two sentences. A literal
-      // title is one sentence for two situations, which is the defect.
-      expect(element, `${path}'s empty state says one thing for two states`).toMatch(
-        /title=\{[^}]*\?/s,
-      );
+  /** Everything between a call's parentheses, counted rather than sliced. */
+  const callArguments = (source: string, open: string) => {
+    const start = source.indexOf(open);
+    if (start < 0) return "";
+    let depth = 0;
+    for (let at = start + open.length - 1; at < source.length; at++) {
+      if (source[at] === "(") depth += 1;
+      else if (source[at] === ")") {
+        depth -= 1;
+        if (depth === 0) return source.slice(start + open.length, at);
+      }
     }
+    return "";
+  };
+
+  const withEmptyState = sourceFiles("src/client").filter(
+    (file) => file.path.endsWith(".tsx") && file.code.includes("<EmptyState"),
+  );
+
+  /**
+   * One self-closing JSX element, from its `<` to the `/>` that closes it.
+   *
+   * Counted rather than sliced to the next `/>`, for the reason a sweep over
+   * this file met twice: a prop holding an element or a path ends the slice at
+   * its own slash, and the rest of the element is then read as though it were
+   * not there. So a `/` closes this one only outside every brace and string.
+   */
+  const jsxElement = (code: string, from: number) => {
+    let depth = 0;
+    let index = from;
+    while (index < code.length) {
+      const character = code[index]!;
+      if (character === "{") depth += 1;
+      else if (character === "}") depth -= 1;
+      else if (character === '"' || character === "'" || character === "`") {
+        const quote = character;
+        index += 1;
+        while (index < code.length && code[index] !== quote) {
+          if (code[index] === "\\") index += 1;
+          index += 1;
+        }
+      } else if (character === "/" && code[index + 1] === ">" && depth === 0) {
+        return code.slice(from, index + 2);
+      }
+      index += 1;
+    }
+    return code.slice(from);
+  };
+
+  /**
+   * The words on the empty screen, which is what names it in the register.
+   *
+   * The longest string literal in the `title` prop, because a title is often a
+   * conditional of two and the expression deciding between them carries
+   * literals of its own — the account register's reads `compareMoney(opening,
+   * "0")`, and taking the first literal would have keyed that list as `#0`.
+   * Keyed by what it says rather than by a line, so moving a list inside its
+   * page changes nothing and rewording its headline is a decision somebody
+   * sees.
+   */
+  const titleOf = (element: string) => {
+    const at = element.indexOf("title=");
+    if (at < 0) return "";
+    const start = at + "title=".length;
+    if (element[start] === '"') return element.slice(start + 1, element.indexOf('"', start + 1));
+    if (element[start] !== "{") return "";
+    let depth = 0;
+    let index = start;
+    while (index < element.length) {
+      if (element[index] === "{") depth += 1;
+      else if (element[index] === "}" && (depth -= 1) === 0) break;
+      index += 1;
+    }
+    let longest = "";
+    for (const literal of element.slice(start + 1, index).matchAll(/"([^"]*)"/g)) {
+      if (literal[1]!.length > longest.length) longest = literal[1]!;
+    }
+    return longest;
+  };
+
+  /**
+   * Every empty screen in the product, one entry per LIST rather than one per
+   * file — which is the whole of what this check was missing.
+   *
+   * The test that stood here passed a file on `file.code.includes(
+   * "emptyScreen(")`, so one list asking the question excused every other list
+   * in the same file. `CategoriesPage` renders two: the categories, which ask,
+   * and the groups beside them, which do not. `BudgetsPage` renders three and
+   * was excused by one line of register. That is the same shape as the defect
+   * the register's own entry describes — an opt-out that costs nothing is taken
+   * by accident — one level up from the case it already fixed.
+   *
+   * A list asks the question by using what `emptyScreen` handed back: the names
+   * bound off it are read per file, and the element has to mention one. A page
+   * that calls it for its other list no longer covers this one.
+   */
+  const emptyStates = withEmptyState.flatMap((file) => {
+    const bound = [...file.code.matchAll(/const\s*\{([^}]*)\}\s*=\s*emptyScreen\(/g)]
+      .flatMap((match) => match[1]!.split(",").map((name) => name.trim()))
+      .filter(Boolean);
+    return [...file.code.matchAll(/<EmptyState\b/g)].map((hit) => {
+      const element = jsxElement(file.code, hit.index);
+      return {
+        key: `${file.path}#${titleOf(element)}`,
+        asks: bound.some((name) => new RegExp(`\\b${name}\\b`).test(element)),
+      };
+    });
   });
 
-  it("decides it from the filters and not from the row count", () => {
-    // The row count is zero either way, so a check on it cannot tell the two
-    // apart. The date range is deliberately excluded from what counts as
-    // narrowing: every view carries one, so counting it would report an empty
-    // ledger as a filtered one — the same defect from the other side.
-    for (const path of ["src/client/TransactionBrowser.tsx", "src/client/pages/StagingPage.tsx"]) {
-      const source = readFileSync(path, "utf8");
-      const narrowed = /const narrowed = Boolean\(([\s\S]*?)\);/.exec(source);
-      expect(narrowed, `${path} should decide narrowed from its filters`).not.toBeNull();
-      expect(narrowed![1]).not.toContain("length");
-      expect(narrowed![1]).not.toMatch(/\bstart\b|\bend\b/);
+  it("is asked of every page that renders one", () => {
+    // An empty population passes every claim made over it.
+    expect(withEmptyState.length).toBeGreaterThanOrEqual(10);
+    expect(withEmptyState.map((file) => file.path)).toContain("src/client/pages/PayeesPage.tsx");
+    // And of every list on those pages, which is more lists than pages. A
+    // reader that stopped finding elements would report one per file and pass.
+    expect(emptyStates.length).toBeGreaterThan(withEmptyState.length);
+    expect(emptyStates.filter((state) => state.key.endsWith("#"))).toEqual([]);
+  });
+
+  /**
+   * Every list asks the same function, or says in one sentence why it has no
+   * question to ask.
+   *
+   * The question is whether the list decides its screen through `emptyScreen`,
+   * which is the one place `src/client/list-filters.ts` keeps the rule. A list
+   * that renders an empty state and asks nothing is either a defect or an entry
+   * above with an argument.
+   */
+  it("distinguishes nothing-yet from nothing-matching", () => {
+    const collapsed = emptyStates
+      .filter((state) => !state.asks && !(state.key in ONE_SITUATION))
+      .map((state) => state.key);
+    expect(collapsed, "ask `emptyScreen`, or name the list above with why not").toEqual([]);
+    // An exemption list as long as the population would pass by examining
+    // nothing.
+    expect(emptyStates.length - Object.keys(ONE_SITUATION).length).toBeGreaterThan(6);
+  });
+
+  it("excuses nothing that no longer renders an empty state", () => {
+    // A register outlives the code it excuses unless something says so.
+    const keys = new Set(emptyStates.map((state) => state.key));
+    expect(Object.keys(ONE_SITUATION).filter((key) => !keys.has(key))).toEqual([]);
+    // And nothing that has since started asking, which would leave an argument
+    // standing for a list that no longer needs one.
+    const asking = new Set(emptyStates.filter((state) => state.asks).map((state) => state.key));
+    expect(Object.keys(ONE_SITUATION).filter((key) => asking.has(key))).toEqual([]);
+  });
+
+  it("decides it from the filters the reader can reach, and not from the row count", () => {
+    // Three things may never appear inside an `emptyScreen` call, and each was
+    // a shipped defect. The row count is zero either way, so a check on it
+    // cannot tell the two screens apart. The date range is carried by every
+    // view, so counting it would report an empty ledger as a filtered one. And
+    // a `fixed*` prop is the page's own subject — the register passed four of
+    // them, which is why a category created a minute ago was told to clear
+    // filters that are not on the screen.
+    // What this cannot see, said here rather than left for somebody to assume
+    // otherwise: it reads the call's own text, so a page that puts its subject
+    // behind a named constant passes. The shape it does catch is the one that
+    // shipped — four props spelled `fixed*` listed beside the search box.
+    const asking = withEmptyState.filter((file) => file.code.includes("emptyScreen("));
+    expect(asking.length, "nothing asks, so this examined nothing").toBeGreaterThan(6);
+    const wrong: string[] = [];
+    for (const file of asking) {
+      const args = callArguments(file.code, "emptyScreen(");
+      expect(args, `${file.path}: unbalanced emptyScreen call`).not.toBe("");
+      if (/\.length/.test(args)) wrong.push(`${file.path}: a row count`);
+      if (/\bstart\b|\bend\b/.test(args)) wrong.push(`${file.path}: the date range`);
+      if (/fixed[A-Z]/.test(args)) wrong.push(`${file.path}: the page's own subject`);
     }
+    expect(wrong).toEqual([]);
   });
 });
 
@@ -360,6 +675,13 @@ describe("a list whose query failed", () => {
       // `AccountDetailPage.tsx:157` is `register.error ? <Alert> : …`, and the
       // register's table sits ninety lines below it inside that same ternary.
       /register\.error \?/,
+    ],
+    [
+      "No spending in this range",
+      // Guarded at the head of the same chain, like the register: the panel
+      // sits inside `summary.data.currencies.map(...)`, a hundred lines below
+      // the `summary.error ? null :` that decides whether any of it renders.
+      /summary\.error \? null :/,
     ],
     [
       "No file yet",

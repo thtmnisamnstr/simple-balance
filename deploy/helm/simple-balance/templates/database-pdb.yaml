@@ -1,0 +1,35 @@
+{{- if and .Values.database.enabled .Values.database.podDisruptionBudget.enabled }}
+{{- $root := . }}
+{{- $groups := fromJsonArray (include "simple-balance.databaseGroups" .) }}
+{{- range $group := $groups }}
+{{- $name := include "simple-balance.databaseGroupName" (dict "root" $root "group" $group) }}
+{{/*
+One budget per Citus group, not one for the database as a whole. A single budget
+across every group would let a node drain take the primary of every worker at
+once while still satisfying "one unavailable" — each group would be down to its
+standby simultaneously, which is the moment a second failure loses shards.
+
+A group of one replica gets no budget: `maxUnavailable: 1` on a single-replica
+group blocks every drain forever, which is how a cluster ends up with nodes
+nobody can patch.
+*/}}
+{{- if gt (int $root.Values.database.replicasPerGroup) 1 }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "simple-balance.componentLabels" (dict "root" $root "component" "database") | nindent 4 }}
+    cluster-name: {{ include "simple-balance.databaseName" $root }}
+    citus-group: {{ $group | quote }}
+spec:
+  maxUnavailable: {{ $root.Values.database.podDisruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "simple-balance.componentSelectorLabels" (dict "root" $root "component" "database") | nindent 6 }}
+      cluster-name: {{ include "simple-balance.databaseName" $root }}
+      citus-group: {{ $group | quote }}
+---
+{{- end }}
+{{- end }}
+{{- end }}

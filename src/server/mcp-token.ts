@@ -47,7 +47,7 @@ async function getSigningKey(): Promise<SigningKey> {
     return cachedSigningKey;
   }
 
-  // Only creating one is worth serialising, and only two containers starting
+  // Only creating one is worth serializing, and only two containers starting
   // together would ever contend for it.
   cachedSigningKey = await getDb().transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(${MCP_SIGNING_KEY_LOCK})`);

@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import type { Actor } from "../../shared/domain.js";
-import { dateRangeSchema } from "../../shared/domain.js";
+import { compareCurrencies, dateRangeSchema } from "../../shared/domain.js";
 import { getDb } from "../db/client.js";
 import { canonicalDecimal, decimal } from "./helpers.js";
 import { getPreferences } from "./preferences.js";
@@ -27,7 +27,7 @@ export async function getSummary(actor: Actor, input: unknown, includeArchived =
   const range = dateRangeSchema.parse(input);
   const start = range.start ?? "0001-01-01";
   const db = getDb();
-  const { timezone } = await getPreferences(actor);
+  const { timezone, defaultCurrency } = await getPreferences(actor);
   const today = todayIn(timezone);
   // An open-ended range meant 9999-12-31, so a transaction dated next month
   // counted toward a balance the page called "as of today" and toward the cash
@@ -53,7 +53,10 @@ export async function getSummary(actor: Actor, input: unknown, includeArchived =
     where a.user_id = ${actor.userId}
       and a.system_kind is null
       and (${includeArchived} or a.archived_at is null)
-    group by a.id
+    -- Both key columns. The primary key becomes (user_id, id) when the ledger
+    -- is distributed, and grouping by the id alone then determines none of the
+    -- other columns this selects. Correct under either key.
+    group by a.user_id, a.id
     order by a.currency, lower(a.name)
   `);
   // The income and expense accounts are the income statement. Reading the flow
@@ -77,7 +80,7 @@ export async function getSummary(actor: Actor, input: unknown, includeArchived =
     group by p.currency
   `);
   // The amount is the posting's; the transaction and the leg are joined only
-  // for the label it was filed under. Recategorising therefore updates past
+  // for the label it was filed under. Recategorizing therefore updates past
   // reports, and a voided entry drops out because its postings already net to
   // nothing.
   //
@@ -108,7 +111,7 @@ export async function getSummary(actor: Actor, input: unknown, includeArchived =
       on c.user_id = p.user_id
       -- A case rather than a coalesce: a leg with no category is a share the
       -- person left unfiled on purpose, and coalesce would quietly fall
-      -- through to the transaction's own label instead of honouring it.
+      -- through to the transaction's own label instead of honoring it.
       and c.id = case
         when p.leg_id is not null then l.category_id
         else t.category_id
@@ -119,7 +122,7 @@ export async function getSummary(actor: Actor, input: unknown, includeArchived =
       ${archived.filter}
     group by p.currency, c.id, c.name
     having sum(p.amount) <> 0
-    -- Uncategorised last, whatever it totals. It is not a category somebody
+    -- Uncategorized last, whatever it totals. It is not a category somebody
     -- chose, so ranking it against the ones they did puts "work still to do" at
     -- the top of a list meant to answer where the money went. Sorted here
     -- rather than in the page, so an agent reading the summary sees the same
@@ -183,6 +186,11 @@ export async function getSummary(actor: Actor, input: unknown, includeArchived =
     // that end is in the future.
     asOf: end,
     includesArchived: includeArchived,
-    currencies: [...currencies.values()].sort((a, b) => a.currency.localeCompare(b.currency)),
+    // `compareCurrencies` in `src/shared/domain.ts`, which the Reports page
+    // asks too. Two pages ordering the same ledger differently is a defect
+    // even when every figure on both is right.
+    currencies: [...currencies.values()].sort((a, b) =>
+      compareCurrencies(defaultCurrency)(a.currency, b.currency),
+    ),
   };
 }

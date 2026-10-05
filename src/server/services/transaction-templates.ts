@@ -132,8 +132,8 @@ type NotificationRow = typeof templateNotifications.$inferSelect;
  * The reminder as a caller sees it: the rule they set, and when it next goes.
  *
  * `nextNotification` is the stored column rather than a recomputed one, unlike a
- * recurrence's, because for a one-off it is the only thing that says whether it
- * has already been sent. Null means nothing further is owed.
+ * recurrence's, because for a one-time reminder it is the only thing that says
+ * whether it has already been sent. Null means nothing further is owed.
  */
 const notificationView = (row: NotificationRow) => ({
   frequency: row.frequency,
@@ -189,8 +189,8 @@ async function readNotifications(tx: DbTransaction, actor: Actor, templateIds: r
  * `undefined` leaves whatever is stored alone, which is what an update that says
  * nothing about the reminder means; `null` removes it. Replacing rather than
  * patching, because the rule is refused or accepted whole — a stored monthly
- * rule merged with an incoming null frequency would be a one-off still carrying
- * a month policy, which the table refuses and nobody asked for.
+ * rule merged with an incoming null frequency would be a one-time reminder
+ * still carrying a month policy, which the table refuses and nobody asked for.
  */
 async function writeNotification(
   tx: DbTransaction,
@@ -236,9 +236,10 @@ async function writeNotification(
   // sent last week is owed again the moment somebody edits the payee.
   //
   // Compared after defaults are applied, never against the incoming object: a
-  // one-off legitimately omits the interval and both policies, so the raw shapes
-  // differ every time even when nothing changed. A schedule that really did
-  // change starts afresh, which is what somebody moving the date is asking for.
+  // one-time reminder legitimately omits the interval and both policies, so the
+  // raw shapes differ every time even when nothing changed. A schedule that
+  // really did change starts afresh, which is what somebody moving the date is
+  // asking for.
   const unchanged =
     existing !== undefined &&
     existing.notifyAt === notification.time &&
@@ -560,7 +561,7 @@ export async function bulkDeleteTransactionTemplates(
       return { dryRun: true, changedCount: items.length, items };
     }
 
-    // Before the delete: the reminders go with the templates, so afterwards
+    // Before the delete: the reminders go with the templates, so afterward
     // there is nothing left to record.
     const reminders = await readNotifications(
       tx,

@@ -1,0 +1,510 @@
+{{- if and .Values.database.enabled .Values.database.patroniCleanup.enabled }}
+{{- $scope := include "simple-balance.databaseName" . }}
+{{- $cleanupName := printf "%s-cleanup" $scope | trunc 63 | trimSuffix "-" }}
+{{- $groups := fromJsonArray (include "simple-balance.databaseGroups" .) }}
+{{- $expected := list }}
+{{- range $group := $groups }}
+{{- $base := include "simple-balance.databaseGroupName" (dict "root" $ "group" $group) }}
+{{- $expected = concat $expected (list $base (printf "%s-config" $base) (printf "%s-sync" $base) (printf "%s-failover" $base)) }}
+{{- end }}
+{{/*
+Remove Patroni's own Kubernetes objects when the release is uninstalled.
+
+**Why anything is needed at all.** Patroni keeps this cluster's state in the
+Kubernetes API rather than in a separate etcd, and it creates those objects
+itself at runtime: a leader Endpoints per Citus group named `<scope>-<group>`,
+plus `-config`, and `-sync` and `-failover` when synchronous mode and a manual
+switchover produce them. Helm did not create them, they carry none of Helm's
+ownership labels, and Helm deletes only what is in the release manifest — so
+`helm uninstall` leaves every one of them behind.
+
+That is fatal on the next install under the same release name. The `-config`
+endpoint still carries `initialize`, and Patroni reads its *presence* as "this
+cluster exists, do not bootstrap". Worse, the value left behind is the empty
+string, which `ha.py` reads as "a member is bootstrapping right now" — a claim
+with no timeout on it:
+
+    bootstrap()                 takes the bootstrap branch only when
+                                `self.cluster.initialize is None`
+    concurrent_bootstrap        `self.cluster.initialize == ""`
+    `bootstrap (without leader)` is skipped when concurrent_bootstrap
+
+Both escapes are shut, so every pod logs `waiting for leader to bootstrap`
+every ten seconds, forever, Running and 0/1, with nothing crashing and no event
+saying anything is wrong. Deleting the PVCs is the obvious reach and is what
+*produces* it, because the state then describes a cluster whose data is gone.
+Deleting the namespace was the only recovery. `docs/citus-runbook.md` has it.
+
+**post-delete, and never pre-delete.** The obvious spelling is a `pre-delete`
+hook and it is wrong twice over, both times in Helm's own source:
+
+  - `pkg/action/uninstall.go:203` runs the pre-delete hook *before*
+    `deleteRelease` at `:216`. Every database pod is therefore still running
+    while the hook works. The leader restores both objects inside one
+    `loop_wait` — `ha.py:2200-2204` rewrites `initialize` whenever it holds the
+    lock and the sysid is not valid, and `set_config_value` recreates the
+    config endpoint (and, through `patch_or_create_config`, the `-config`
+    Service with it). A pre-delete hook deletes four objects and is handed them
+    straight back ten seconds later. It would look correct and fix nothing.
+  - `:203` *returns* the hook's error, before the release status is persisted
+    at `:212`. A pre-delete hook that cannot run therefore refuses the whole
+    uninstall: nothing is deleted and nothing can be until the hook works or
+    somebody knows to pass `--no-hooks`. Under Pulumi that is a `destroy` that
+    fails on the Release resource.
+
+`post-delete` at `:230` appends its error to a list instead of returning it;
+`:235` marks the release uninstalled and `:244` purges the history regardless.
+So a hook that cannot run at all — no permissions, image unavailable, no node
+to schedule on — leaves the release deleted and Patroni's endpoints behind,
+prints the Job's logs (see the output-log policy below), and exits non-zero
+with `uninstallation completed with 1 error(s)`. That residue is exactly what
+happens today without this file, and the runbook's namespace-delete recovery
+still applies to it. **It fails safe by construction rather than by care**,
+which is the only reason a hook that deletes database cluster state is
+defensible at all.
+
+**Fails safe at the cluster is not the same as fails safe at Pulumi, and the
+difference has to be said rather than implied.** `uninstall.go:262` still
+*returns* that joined error, and `pulumi-kubernetes`'s `helm_release.go` Delete
+returns it unchanged, so `pulumi destroy` on an in-cluster stack stops with the
+Release still in state although nothing of it is left in the cluster. Retrying
+does not clear it: the history was purged before the error was returned, so the
+second `uninstall` answers `release: not found` and the provider does not set
+`IgnoreNotFound`. `pulumi state delete <urn>` on the Release, then `destroy`
+again, is the way out, and `docs/citus-runbook.md` says so where an operator
+will meet it. That is a stranded state entry rather than a stranded database —
+the cluster is gone either way — and it is the price of the property above. The
+flag is the way to decline it: on a teardown that takes the namespace anyway,
+`database.patroniCleanup.enabled: false` leaves nothing for the hook to do,
+because the endpoints go with the namespace.
+
+**One event, and it must never gain a second.** Helm fires `post-delete` from
+`Uninstall.Run` alone: grepping `pkg/action/install.go`, `upgrade.go` and
+`rollback.go` for `HookPostDelete` returns nothing, and `uninstall --dry-run`
+returns at `uninstall.go:78`, before any hook runs. Adding `pre-upgrade` or
+`pre-rollback` here would destroy the state of a cluster that is still serving.
+
+**It waits for the pods itself, because nothing else does.** Helm's default
+uninstall wait strategy is `hookOnly`, whose `WaitForDelete` is a literal
+`return nil` (`pkg/kube/statuswait.go:297-299`), and the StatefulSets are
+deleted with background propagation while the pods hold a 60s termination
+grace period. A post-delete hook that deleted immediately would lose the same
+race a pre-delete hook loses — a surviving leader would simply write the
+objects back. So the Job blocks until no database pod is left, and fails rather
+than deleting early.
+*/}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $cleanupName }}
+  labels:
+    {{- include "simple-balance.componentLabels" (dict "root" . "component" "database-cleanup") | nindent 4 }}
+  annotations:
+    {{- with .Values.commonAnnotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    # Hook resources rather than ordinary release resources, and that is not a
+    # stylistic choice: `deleteRelease` (uninstall.go:216) runs before the
+    # post-delete hook, so a templated ServiceAccount, Role and RoleBinding
+    # would already be gone by the time the Job needed them.
+    "helm.sh/hook": post-delete
+    # Negative weight so all three exist before the Job at weight 0. Helm
+    # applies hooks in weight order and only deletes the successful ones after
+    # the whole phase has run — `hooks.go:150-162` walks `executingHooks`
+    # backwards *after* the loop — so the credentials outlive the Job that uses
+    # them and are removed after it, in reverse.
+    "helm.sh/hook-weight": "-5"
+    # `hook-failed` matters as much as `hook-succeeded`. A hook resource is not
+    # in the release manifest, so with no policy Helm keeps it — and once the
+    # release history is purged there is no release left to delete it. Without
+    # both, a failed run orphans a ServiceAccount, a Role and a RoleBinding in
+    # a namespace with nothing to clean them up.
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded,hook-failed
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $cleanupName }}
+  labels:
+    {{- include "simple-balance.componentLabels" (dict "root" . "component" "database-cleanup") | nindent 4 }}
+  annotations:
+    {{- with .Values.commonAnnotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    "helm.sh/hook": post-delete
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded,hook-failed
+{{/*
+The narrowest set that does the job, namespaced, and every verb here is one the
+database ServiceAccount already holds — so this adds no class of authority to
+the namespace that was not in it while the cluster was running.
+
+No `get`: the Job never reads a single object by name. It lists by label and
+deletes by the names the list gave it.
+
+No `deletecollection`: that verb is the one that could take out a neighbouring
+release in a bad moment, and nothing here needs it.
+
+**No `resourceNames`, and that is the one deliberate looseness.** It would be
+tighter on `delete` — but a name list can only be computed from *this* render,
+and an operator who reduced `database.workers` has Patroni objects for groups
+this render no longer knows about. They would survive the cleanup and deadlock
+the next install of that group: an incomplete cleanup reproduces exactly the
+defect this file exists to fix, silently. A collection verb also cannot carry
+`resourceNames` at all, so `list` would need a rule without it regardless.
+The blast radius is instead held by the label selector and by the Job
+re-checking each object's labels before it deletes it.
+*/}}
+rules:
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    verbs: ["list", "delete"]
+  {{/*
+  Services because Patroni creates the headless `-config` Service itself when
+  it writes the config endpoint and finds none (`kubernetes.py`
+  `_create_config_service`, reached from `patch_or_create_config` whenever
+  there is no resource version). Helm deletes Services before StatefulSets, so
+  a live Patroni can put one back under a name Helm no longer owns — and an
+  unowned object of a name the chart wants makes the next `helm install` fail
+  its ownership check rather than deadlock. Anything Helm does own is skipped;
+  see the Job.
+  */}}
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["list", "delete"]
+  {{/* Read-only, and only to answer "are the database pods gone yet". */}}
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $cleanupName }}
+  labels:
+    {{- include "simple-balance.componentLabels" (dict "root" . "component" "database-cleanup") | nindent 4 }}
+  annotations:
+    {{- with .Values.commonAnnotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    "helm.sh/hook": post-delete
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded,hook-failed
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $cleanupName }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $cleanupName }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $cleanupName }}
+  labels:
+    {{- include "simple-balance.componentLabels" (dict "root" . "component" "database-cleanup") | nindent 4 }}
+  annotations:
+    {{- with .Values.commonAnnotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    "helm.sh/hook": post-delete
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded,hook-failed
+    # Print the container's logs when the hook fails. Without this the Job is
+    # deleted by the policy above and takes the only account of *why* it failed
+    # with it, leaving an operator a bare `Job failed`. Helm fetches them by
+    # `job-name=` (`hooks.go:260`) before running the deletion, so both survive
+    # in the right order. An older Helm that does not know this annotation
+    # ignores it; it is not a hook event and nothing parses it as one.
+    "helm.sh/hook-output-log-policy": hook-failed
+spec:
+  # One retry, not six. A 403 or a wrong name fails identically every time and
+  # only burns the budget; one retry covers an API server that was briefly
+  # unavailable at exactly the wrong second.
+  backoffLimit: 1
+  # The third of three nested deadlines, and they are ordered on purpose: the
+  # script gives up on the pods at 150s, the Job at 240s, Helm's hook watch at
+  # its 300s default. Each catches only what the one inside it cannot — the
+  # script explains a cluster that would not terminate, the Job catches a
+  # container that never started at all (an unavailable image), and Helm's
+  # timeout is left as the outermost backstop rather than the usual outcome.
+  activeDeadlineSeconds: 240
+  template:
+    metadata:
+      labels:
+        {{- include "simple-balance.componentLabels" (dict "root" . "component" "database-cleanup") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ $cleanupName }}
+      automountServiceAccountToken: true
+      restartPolicy: Never
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.database.nodeSelector }}
+      # The same placement as the database pods, because the image is pulled
+      # `IfNotPresent` and those are the nodes that already have it. Their
+      # `affinity` is deliberately not copied: it is anti-affinity between
+      # members of a Citus group, which this pod is not one of.
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.database.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: cleanup
+          # The chart's own database image rather than a `kubectl` one. It is
+          # already pinned, already on these nodes, and carries a python3 — the
+          # runtime stage installs it for Patroni's virtualenv and purges only
+          # `python3-venv`. A fifth image would be a fifth digest to keep
+          # current for the sake of four DELETE calls.
+          image: {{ include "simple-balance.databaseImage" . | quote }}
+          imagePullPolicy: {{ .Values.database.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            # Nothing here is interpolated into the program text. Values arrive
+            # as environment variables so that a release or scope containing a
+            # quote is a value rather than a syntax error in a rendered script.
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            # Unbuffered, because this container's log is the only account of
+            # what it did. Python block-buffers stdout when it is a pipe rather
+            # than a terminal, so a Job stopped by `activeDeadlineSeconds`
+            # would lose every progress line it had written, and the lines that
+            # did survive would be ordered after the unbuffered stderr that
+            # explained the failure.
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            {{/*
+            Patroni's own label set, which it stamps on every object it
+            creates. The chart is why it can be matched at all: Patroni takes
+            `kubernetes.labels` from the ConfigMap verbatim and adds
+            `cluster-name` (its scope) and `citus-group`. Removing a line from
+            that block would silently disarm this Job.
+
+            `citus-group` is left out on purpose — it differs per group and
+            this has to reach all of them — and `app.kubernetes.io/instance` is
+            the release name while `cluster-name` contains it, so two releases
+            sharing a namespace differ here twice over. No prefix and no
+            wildcard: `<scope>-0*` would also match a release called
+            `<scope>-0-archive`.
+            */}}
+            - name: SB_SELECTOR
+              value: {{ printf "app.kubernetes.io/name=%s,app.kubernetes.io/instance=%s,app.kubernetes.io/component=database,cluster-name=%s" (include "simple-balance.name" .) .Release.Name $scope | quote }}
+            {{/*
+            The same label set as the one above, and it renders the same string
+            today. Two names because they answer different questions about
+            different kinds — this one is joined by a field selector on phase
+            that an Endpoints object could not carry — and because an edit to
+            one is not an edit to the other.
+
+            It carried three labels rather than four for a while, on the
+            argument that waiting for too much only costs seconds while
+            deleting too much costs a neighbour's database. That argument was
+            right and the selector was still wrong, because `component:
+            database` is not only Patroni's: `database-authinfo-job.yaml` gives
+            its pod the identical three labels and no `cluster-name`. It is not
+            a Patroni member, nothing in Helm's uninstall waits for it either,
+            and a wedged or unreaped one — `Evicted`, or `Terminating` on a node
+            that has gone away — would hold this Job at the deadline and then
+            report "database pods were still running" about a pod that never
+            was one. The Job would exit 1 having deleted nothing and the
+            endpoints would outlive the uninstall: the exact deadlock this file
+            exists to prevent, arrived at through the file that prevents it.
+
+            `citus-group` is still left out, because this has to reach every
+            group. `cluster-name` is the StatefulSet's own pod label
+            (`database-statefulset.yaml`), so no Patroni member can be missed by
+            adding it.
+
+            This pod is labelled `database-cleanup` rather than `database`, so
+            it can never match its own wait and hang forever waiting for
+            itself. That also keeps it out of the database NetworkPolicy's
+            `podSelector`, which under `restrictEgress` allows DNS and the
+            database pods and nothing else — no route to the API server.
+            */}}
+            - name: SB_POD_SELECTOR
+              value: {{ printf "app.kubernetes.io/name=%s,app.kubernetes.io/instance=%s,app.kubernetes.io/component=database,cluster-name=%s" (include "simple-balance.name" .) .Release.Name $scope | quote }}
+            - name: SB_SCOPE
+              value: {{ $scope | quote }}
+            - name: SB_INSTANCE
+              value: {{ .Release.Name | quote }}
+            # What the chart believes Patroni would have named things, for the
+            # log only. `-sync` exists only under synchronous mode and
+            # `-failover` only after a manual switchover, so absence is the
+            # normal case and can never be an error — but a leader endpoint
+            # that was expected and never seen is how a naming drift between
+            # this chart and a future Patroni would first show itself.
+            - name: SB_EXPECTED
+              value: {{ toJson $expected | quote }}
+            - name: SB_POD_DEADLINE
+              value: "150"
+          command:
+            - python3
+            - -c
+            - |
+              import json
+              import os
+              import ssl
+              import sys
+              import time
+              import urllib.error
+              import urllib.parse
+              import urllib.request
+
+              API = "https://kubernetes.default.svc"
+              SA = "/var/run/secrets/kubernetes.io/serviceaccount"
+
+              with open(SA + "/namespace") as handle:
+                  NS = handle.read().strip()
+              with open(SA + "/token") as handle:
+                  TOKEN = handle.read().strip()
+              # The cluster's own CA, not the system store. This is the API
+              # server or it is nothing.
+              CTX = ssl.create_default_context(cafile=SA + "/ca.crt")
+
+              SELECTOR = os.environ["SB_SELECTOR"]
+              POD_SELECTOR = os.environ["SB_POD_SELECTOR"]
+              SCOPE = os.environ["SB_SCOPE"]
+              INSTANCE = os.environ["SB_INSTANCE"]
+              EXPECTED = json.loads(os.environ["SB_EXPECTED"])
+              DEADLINE = int(os.environ["SB_POD_DEADLINE"])
+
+
+              def call(method, path, query=None):
+                  url = API + path
+                  if query:
+                      url = url + "?" + urllib.parse.urlencode(query)
+                  request = urllib.request.Request(url, method=method)
+                  request.add_header("Authorization", "Bearer " + TOKEN)
+                  request.add_header("Accept", "application/json")
+                  with urllib.request.urlopen(request, context=CTX, timeout=30) as response:
+                      body = response.read()
+                  return json.loads(body) if body else {}
+
+
+              # A pod in Succeeded or Failed has no running container by
+              # definition, so it holds no Patroni process and can rewrite
+              # nothing. Waiting for one is waiting for something that has
+              # already happened: an Evicted member, or a pod the garbage
+              # collector has not reached, would otherwise hold this Job to its
+              # deadline and leave the endpoints behind. Terminating is not a
+              # phase — such a pod is still Running and is still waited for,
+              # which is the case that matters.
+              LIVE_PHASES = "status.phase!=Succeeded,status.phase!=Failed"
+
+
+              def listing(kind, selector, fields=None):
+                  query = {"labelSelector": selector}
+                  if fields:
+                      query["fieldSelector"] = fields
+                  return call(
+                      "GET", "/api/v1/namespaces/%s/%s" % (NS, kind), query,
+                  ).get("items", [])
+
+
+              def remove(kind, name):
+                  try:
+                      call("DELETE", "/api/v1/namespaces/%s/%s/%s" % (NS, kind, name))
+                      return "removed"
+                  except urllib.error.HTTPError as error:
+                      # Already gone, or gone between the list and the delete.
+                      # Both are the state this Job exists to produce, so
+                      # neither is a failure and a second run is a no-op.
+                      if error.code == 404:
+                          return "already gone"
+                      # A 403 means this Job's Role and this program disagree
+                      # about what is needed. Said in a sentence rather than
+                      # left as a traceback, because the hook's output policy
+                      # exists so that an operator reading a failed uninstall
+                      # learns something from it.
+                      if error.code == 403:
+                          sys.stderr.write(
+                              "Refused permission to delete %s/%s. The Role this Job runs "
+                              "with grants list and delete on endpoints and services in "
+                              "%s; something has narrowed it.\n" % (kind, name, NS)
+                          )
+                      raise
+
+
+              # Patroni rewrites what this Job deletes within one loop_wait for
+              # as long as a leader is alive, so nothing may be deleted until
+              # every database pod has gone. Transient errors are retried
+              # rather than fatal here: the API server being briefly
+              # unreachable is not evidence that the pods are still up.
+              started = time.monotonic()
+              while True:
+                  try:
+                      alive = [
+                          p["metadata"]["name"]
+                          for p in listing("pods", POD_SELECTOR, LIVE_PHASES)
+                      ]
+                  except Exception as error:  # noqa: BLE001 - see above
+                      alive = ["<unknown: %s>" % error]
+                  if not alive:
+                      break
+                  waited = time.monotonic() - started
+                  if waited >= DEADLINE:
+                      sys.stderr.write(
+                          "Database pods were still running after %ds: %s\n"
+                          % (DEADLINE, ", ".join(sorted(alive)))
+                      )
+                      sys.stderr.write(
+                          "Nothing was deleted. A live Patroni would have rewritten it "
+                          "immediately, so removing its state now would achieve nothing "
+                          "and a forced leader election is not this Job's to cause.\n"
+                      )
+                      sys.exit(1)
+                  print("Waiting for %d database pod(s) to terminate." % len(alive))
+                  time.sleep(5)
+
+              seen = set()
+              for kind in ("endpoints", "services"):
+                  for item in listing(kind, SELECTOR):
+                      meta = item.get("metadata", {})
+                      name = meta.get("name", "")
+                      labels = meta.get("labels") or {}
+                      # The API server already applied the selector. Asserted
+                      # again, against this release's own two discriminators,
+                      # so that a later edit which loosened the selector cannot
+                      # widen what gets deleted without also editing this.
+                      if (
+                          labels.get("cluster-name") != SCOPE
+                          or labels.get("app.kubernetes.io/instance") != INSTANCE
+                      ):
+                          print("%s/%s: left alone, it does not name this release" % (kind, name))
+                          continue
+                      # Patroni stamps no `managed-by`, so this label means Helm
+                      # made the object — and `deleteRelease` ran before this
+                      # hook. Something still carrying it is an uninstall that
+                      # did not finish, and quietly finishing it here would hide
+                      # that rather than report it.
+                      if labels.get("app.kubernetes.io/managed-by") == "Helm":
+                          print("%s/%s: left alone, Helm owns it and did not delete it" % (kind, name))
+                          continue
+                      print("%s/%s: %s" % (kind, name, remove(kind, name)))
+                      seen.add(name)
+
+              absent = sorted(n for n in EXPECTED if n not in seen)
+              if absent:
+                  print("Not present, nothing to do: %s" % ", ".join(absent))
+              print(
+                  "Patroni state for %s is gone; the next install of this release "
+                  "will bootstrap." % SCOPE
+              )
+{{- end }}

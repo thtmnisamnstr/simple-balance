@@ -63,16 +63,25 @@ export class AppError extends Error {
 export const notFound = (message: string, details?: unknown) =>
   new AppError("NOT_FOUND", message, 404, details);
 
-export const conflict = (message: string, details?: unknown) =>
-  new AppError("CONFLICT", message, 409, details);
+/**
+ * `agentMessage` is optional and widens this constructor rather than adding a
+ * sixth: the five-constructor rule in `docs/standards/code/errors.md` 2 is about
+ * how a service raises a refusal, not about how many arguments the refusal
+ * carries. The account limit is the first caller to need it, because the move
+ * that works — upgrading a plan — is one only a person signed into a browser
+ * can make, so the sentence an agent should hear is not the sentence a person
+ * should read.
+ */
+export const conflict = (message: string, details?: unknown, agentMessage?: string) =>
+  new AppError("CONFLICT", message, 409, details, agentMessage);
 
 /**
  * Whether this throw site carried the number the agent sentence would name.
  *
- * Thirteen of the fifty `staleVersion` sites throw with no details at all, and
- * pointing an agent at `details.currentVersion` when nothing is there is the
- * "a refusal offers the move that works" rule failing one level down — the same
- * fault as telling an agent to refresh, one field deeper.
+ * Thirteen of the fifty-three `staleVersion` sites throw with no details at
+ * all, and pointing an agent at `details.currentVersion` when nothing is there
+ * is the "a refusal offers the move that works" rule failing one level down —
+ * the same fault as telling an agent to refresh, one field deeper.
  */
 const carries = (details: unknown, key: string) =>
   typeof details === "object" && details !== null && key in details;
@@ -108,8 +117,15 @@ export const staleVersion = (details?: unknown) =>
 export const duplicate = (message: string, details?: unknown) =>
   new AppError("DUPLICATE", message, 409, details);
 
-export const validationError = (message: string, details?: unknown) =>
-  new AppError("VALIDATION_ERROR", message, 422, details);
+/**
+ * `agentMessage` is here for the same reason `conflict` carries one, and for a
+ * refusal that needs it more: a frozen account arrives under the code that
+ * means "fix the arguments", and no argument an agent can change gets past it.
+ * The browser sentence offers making the account active or upgrading a plan,
+ * and a token handed to a program can do neither on its own.
+ */
+export const validationError = (message: string, details?: unknown, agentMessage?: string) =>
+  new AppError("VALIDATION_ERROR", message, 422, details, agentMessage);
 
 export function zodIssues(error: ZodError): ValidationIssue[] {
   return error.issues.map((issue) => ({

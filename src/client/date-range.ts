@@ -86,3 +86,28 @@ export function useDateRange() {
     setRange({ ...rangeForPreset(next, new Date(), timezone), preset: next });
   return { start, end, preset, setRange, setPreset };
 }
+
+/**
+ * The query string a link should carry when its own text promises rows that an
+ * all-time count counted (`web.md` 11.7).
+ *
+ * Forwarding `location.search` is not enough, and that is how the template
+ * used-count link stayed broken after being recorded as fixed: Templates,
+ * Categories, Payees, Accounts and Recurrences mount no `DateRangeBar`, so
+ * their URL carries no `preset` at all and the forwarded string pins nothing.
+ * The destination then reads a missing param as `this-month` — `presetFromParam`
+ * above — and a template used forty times over two years opens a list showing
+ * the handful dated this month, usually none.
+ *
+ * `start` and `end` are dropped rather than left alone, because `useDateRange`
+ * prefers an explicit param over the preset's own range: keeping them would
+ * bound "all-time" to whatever month the arriving URL happened to name. Every
+ * other param is kept, so a link that also carries a batch or a payee keeps it.
+ */
+export function allTimeSearch(search: string) {
+  const params = new URLSearchParams(search);
+  params.delete("start");
+  params.delete("end");
+  params.set("preset", "all-time");
+  return params.toString();
+}

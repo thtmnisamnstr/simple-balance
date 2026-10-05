@@ -1,15 +1,17 @@
-import { betterAuth } from "better-auth";
+import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { isAPIError } from "better-auth/api";
 import { mcp } from "better-auth/plugins";
 import { eq } from "drizzle-orm";
 import type { Actor } from "../shared/domain.js";
+import { APP_NAME } from "../shared/version.js";
 import {
   isLedgerUserAuthorized,
   mayCreateProviderAccount,
   mayCreateAuthUser,
   mayCreateSession,
 } from "./auth-policy.js";
-import { getConfig } from "./config.js";
+import { getConfig, type LogLevel } from "./config.js";
 import { mailEnabled, passwordResetMessage, sendMail, verificationMessage } from "./mail.js";
 import { isBootstrapClaim } from "./registration-context.js";
 import { revokeAllConnectedApps } from "./services/connected-apps.js";
@@ -17,6 +19,59 @@ import { getDb } from "./db/client.js";
 import * as schema from "./db/schema.js";
 import { user } from "./db/schema.js";
 import { log } from "./log.js";
+
+/**
+ * What the auth library says when something goes wrong, and where it says it.
+ *
+ * Two options, and each closes a way round `log`. `logger.log` sends the lines
+ * the library writes on purpose through `fromLibrary`: the gate `LOG_LEVEL`
+ * means everywhere, and the one that takes every email address out, where at
+ * the default level the library logged the address of every sign-up naming an
+ * account that already exists. `level` is given as well, so a line the gate
+ * would drop is never redacted first; with a `log` function the library
+ * formats nothing, so there are no colors to turn off.
+ *
+ * `onAPIError.onError` is for the errors nobody meant to log. Anything that is
+ * not the library's own `APIError` used to fall through to its router's last
+ * resort, which writes `# SERVER_ERROR:` and the error whole to `console` and
+ * answers an empty 500: round the gate, and with everything the error carries.
+ * A failed query's message holds its bound parameters, and in an auth route
+ * those are addresses and OAuth tokens. Thrown on from here it reaches Hono's
+ * `onError` instead, which narrows it through `log.failure` like any other
+ * failure and answers in the error envelope.
+ *
+ * The library's own errors it still answers itself, and few of them get here:
+ * one a route throws is turned into its response inside the route, a wrong
+ * password included, and only one thrown from around the routes arrives. What
+ * they log is the only choice left. The library's default wrote a 500's status
+ * and error through the instance logger, which is kept; any other one's message
+ * it wrote through a module-level logger that `LOG_LEVEL` does not reach, and
+ * here that is `debug`, because the response already says it.
+ *
+ * Exported for `tests/auth-log.test.ts`, which drives the library's own routes
+ * with exactly these options over an in-memory adapter. A refused Google
+ * sign-up happens only past a database read, and these are the part of the
+ * instance that decides what it logs and what it answers.
+ */
+export function authReporting(level: LogLevel) {
+  return {
+    logger: {
+      level,
+      log: (lineLevel: LogLevel, message: unknown, ...parts: unknown[]) =>
+        log.fromLibrary("Better Auth", lineLevel, message, ...parts),
+    },
+    onAPIError: {
+      onError: (error: unknown) => {
+        if (!isAPIError(error)) throw error;
+        if (error.status === "INTERNAL_SERVER_ERROR") {
+          log.fromLibrary("Better Auth", "error", error.status, error);
+        } else {
+          log.fromLibrary("Better Auth", "debug", error.message);
+        }
+      },
+    },
+  } satisfies Pick<BetterAuthOptions, "logger" | "onAPIError">;
+}
 
 function createAuthInstance() {
   const config = getConfig();
@@ -33,15 +88,12 @@ function createAuthInstance() {
     "ledger:write",
   ];
   return betterAuth({
-    appName: "Simple Balance",
+    appName: APP_NAME,
     baseURL: config.baseUrl,
     basePath: "/api/auth",
     secret: config.authSecret,
     trustedOrigins: [config.baseUrl],
-    logger: {
-      level: config.logLevel,
-      disableColors: config.isProduction,
-    },
+    ...authReporting(config.logLevel),
     // Counted in PostgreSQL rather than in the process. In memory the bound is
     // per replica, so it is multiplied by the replica count and a guesser only
     // has to spread their attempts; the table is the only place every replica
@@ -77,7 +129,7 @@ function createAuthInstance() {
       minPasswordLength: 12,
       maxPasswordLength: 128,
       // Both of these need somewhere to send a link. A deployment with no mail
-      // server keeps the behaviour it has always had: no reset, and an address
+      // server keeps the behavior it has always had: no reset, and an address
       // nobody is asked to prove. Configure SMTP_HOST and MAIL_FROM and the two
       // switch on together, because requiring an address to be confirmed
       // without being able to send the confirmation would lock everybody out.
@@ -115,7 +167,7 @@ function createAuthInstance() {
             sendOnSignIn: true,
             // Deliberately not autoSignInAfterVerification. The token is a
             // stateless JWT that stays valid for its hour, so anyone who came
-            // by the link afterwards would be signed in as its owner. Opening
+            // by the link afterward would be signed in as its owner. Opening
             // it confirms the address; signing in still takes the password.
             expiresIn: 3600,
           },
@@ -210,7 +262,7 @@ function createAuthInstance() {
             // path it is reachable from, this plugin's `/api/auth` one
             // included. Left wide because the plugin's fallback when this is
             // absent is its four OpenID defaults, which name no ledger scope at
-            // all: a client following that would authorise with nothing it
+            // all: a client following that would authorize with nothing it
             // could call a tool with. `scopes` above is the separate question
             // of what `/authorize` accepts, and must keep every tier, because
             // the step-up challenge sends clients back to ask for one.

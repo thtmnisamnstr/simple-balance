@@ -1,7 +1,18 @@
-import { and, eq, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import type { Decimal } from "decimal.js";
-import type { Actor } from "../../shared/domain.js";
+import {
+  accountAllowance,
+  accountsToMarkActive,
+  activeAccountChange,
+  activeAccountsSchema,
+  type Actor,
+  type Entitlement,
+  type FreezableAccount,
+  frozenAccountIds,
+  frozenAccountRefusal,
+  restoreAllowance,
+} from "../../shared/domain.js";
 import {
   accountCreateSchema,
   accountUpdateSchema,
@@ -29,8 +40,10 @@ import {
   lockAccountReferences,
   serializeRow,
   writeAudit,
+  writeAuditMany,
 } from "./helpers.js";
 import { getPreferences } from "./preferences.js";
+import { getEntitlement } from "./billing.js";
 import { calendarDayIn, todayIn } from "../../shared/recurrence-dates.js";
 import { log } from "../log.js";
 
@@ -482,12 +495,22 @@ function accountView(account: typeof ledgerAccounts.$inferSelect, balance?: stri
   };
 }
 
-export async function listAccounts(actor: Actor, end?: string, includeArchived = false) {
+export async function listAccounts(
+  actor: Actor,
+  end?: string,
+  includeArchived = false,
+  transaction?: DbTransaction,
+) {
   // Bound as a parameter below, so this is not an injection, but an unparseable
   // value still reaches PostgreSQL and comes back as a failed cast, which the
   // caller sees as an unexplained 500 rather than as the typo it was.
   const asOf = end === undefined ? undefined : isoDateSchema.parse(end);
-  const db = getDb();
+  // The caller's transaction when there is one. A caller composing this into a
+  // write needs to see what that write did, and a second pooled connection
+  // cannot: at READ COMMITTED it reads the state from before, and on a
+  // one-connection pool there is no second connection to read it with, so the
+  // call waits out `connectionTimeoutMillis` and fails.
+  const db = transaction ?? getDb();
   const result = await db.execute(sql`
     select
       a.*,
@@ -500,7 +523,17 @@ export async function listAccounts(actor: Actor, end?: string, includeArchived =
     where a.user_id = ${actor.userId}
       and a.system_kind is null
       and (${includeArchived} or a.archived_at is null)
-    group by a.id
+    -- The whole primary key, not just the id.
+    --
+    -- PostgreSQL lets a select list name any column functionally determined by
+    -- the GROUP BY, which is why a.name and a.type are allowed here without
+    -- being grouped -- but only when the grouping covers the whole primary key.
+    -- That key is (id) today and becomes (user_id, id) the moment the ledger is
+    -- distributed across a cluster, at which point grouping by the id alone
+    -- determines nothing and this query fails with: column "a.name" must appear
+    -- in the GROUP BY clause. Naming both is correct under either key and costs
+    -- nothing, since user_id is already fixed by the WHERE above.
+    group by a.user_id, a.id
     order by a.archived_at nulls first, lower(a.name)
   `);
 
@@ -509,13 +542,14 @@ export async function listAccounts(actor: Actor, end?: string, includeArchived =
   // names every other account response uses, and a caller could reasonably
   // start depending on either.
   // A raw query hands timestamps back as PostgreSQL writes them, while the
-  // Drizzle paths hand back Dates that serialise as ISO 8601. Both describe
+  // Drizzle paths hand back Dates that serialize as ISO 8601. Both describe
   // themselves with the same schema, so a caller reading one and then the other
   // sees the same field in two shapes. These become Dates to match.
   const timestamp = (value: unknown) =>
     value === null || value === undefined ? null : new Date(String(value));
 
-  return result.rows.map((row) => {
+  const rows: FreezableAccount[] = [];
+  const views = result.rows.map((row) => {
     const normalized = {
       id: row.id,
       userId: row.user_id,
@@ -528,13 +562,22 @@ export async function listAccounts(actor: Actor, end?: string, includeArchived =
       openingDate: row.opening_date,
       openingBalance: String(row.opening_balance),
       inBudget: row.in_budget,
+      active: row.active,
       archivedAt: timestamp(row.archived_at),
       version: row.version,
       createdAt: timestamp(row.created_at),
       updatedAt: timestamp(row.updated_at),
     } as unknown as typeof ledgerAccounts.$inferSelect;
+    rows.push(normalized);
     return accountView(normalized, String(row.calculated_balance));
   });
+  // Stated on every account rather than left for the browser to work out: a
+  // page that re-derived it would be a second implementation of the rule. Asked
+  // of the rule directly rather than through `accountFreeze`, because this read
+  // holds no transaction and already has every row the ranking needs.
+  const entitlement = await getEntitlement(actor, transaction);
+  const frozen = frozenAccountIds(entitlement, rows);
+  return views.map((view) => ({ ...view, frozen: frozen.has(String(view.id)) }));
 }
 
 export async function getAccount(actor: Actor, id: string) {
@@ -545,7 +588,13 @@ export async function getAccount(actor: Actor, id: string) {
     .where(userAccountById(actor, id))
     .limit(1);
   if (!account) throw notFound("Account not found");
-  return accountView(account, await currentBalance(db, actor, account.id));
+  // Declared on `accountResultSchema`, so every account response carries it
+  // or the tool call fails its own output validation.
+  const { frozen } = await readAccountFreeze(actor);
+  return {
+    ...accountView(account, await currentBalance(db, actor, account.id)),
+    frozen: frozen.has(account.id),
+  };
 }
 
 export async function getAccountBalances(
@@ -588,7 +637,8 @@ export async function getAccountBalances(
       -- register is the trial balance's business, which reads system rows on
       -- purpose; here the id answers not-found like every other account path.
       and a.system_kind is null
-    group by a.id
+    -- Both key columns, for the reason given on the balances query above.
+    group by a.user_id, a.id
   `);
   const row = result.rows[0];
   if (!row) throw notFound("Account not found");
@@ -640,6 +690,327 @@ async function assertAccountNameAvailable(
   }
 }
 
+/**
+ * Refuses a new account while every place a limited plan keeps is in use.
+ *
+ * Silent on a deployment that sells nothing, which is the default and every
+ * installation upgrading into this release: `getEntitlement` answers
+ * `{ billing: false }` without a query and this returns.
+ *
+ * An account already over the limit is not taken away. Somebody who had five
+ * accounts before an operator turned billing on keeps all five, readable and
+ * counted in every balance and report; the two the plan cannot keep active are
+ * frozen rather than hidden (`frozenAccountIds`), and a sixth waits for a place
+ * to open up. Taking data away to sell it back is not a thing this product does.
+ */
+async function assertAccountAllowance(tx: DbTransaction, actor: Actor) {
+  const entitlement = await getEntitlement(actor, tx);
+  if (!entitlement.billing || entitlement.accountLimit === null) return;
+  // The places in use, not every account ever opened. Under freezing the limit
+  // is on how many accounts somebody can *use*, so deleting or archiving one
+  // they were using makes room for another — and an account they are not using
+  // costs them nothing. The quota it replaced counted archived accounts to stop
+  // a reset by archiving and restoring; that cannot happen here, because coming
+  // back out of the archive needs a free place too.
+  const allowance = accountAllowance(entitlement, await countActiveAccounts(tx, actor));
+  if (allowance.ok) return;
+  throw conflict(
+    allowance.message,
+    { limit: allowance.limit, current: allowance.current, plan: entitlement.plan },
+    // An agent cannot buy anything, so telling it to upgrade would be telling it
+    // to do something it has no way to do. It gets the number and who to ask.
+    `This ledger is on a plan that keeps ${allowance.limit} accounts and has ${allowance.current}. ` +
+      "Only the person who owns it can raise that, from Settings in the browser.",
+  );
+}
+
+/**
+ * Which accounts this person may not write to, and the limit that says why.
+ *
+ * `limit` travels with the set because the refusal names it and there is no
+ * second place to read it from: a deployment configures the plan, not this
+ * module. Null means nothing is frozen, and it is the answer every install
+ * that sells nothing gets for the cost of one boolean — `getEntitlement`
+ * returns before it touches the database.
+ *
+ * `preloaded` is the whole-tenant account map a bulk caller has already read.
+ * The ranking needs every account, not the ones a draft names, so without it
+ * this reads them; with it, a ten-thousand-row import pays nothing per row.
+ */
+export type AccountFreeze = {
+  /**
+   * Each frozen account's id, mapped to its name.
+   *
+   * A map rather than a set because the refusal names the account, and one
+   * structure rather than a set beside a lookup because two could disagree
+   * about which ids are in it. Membership is still the question every caller
+   * asks, and `has` answers it the same way it did.
+   */
+  readonly frozen: ReadonlyMap<string, string>;
+  readonly limit: number | null;
+};
+
+const NOTHING_FROZEN: AccountFreeze = { frozen: new Map(), limit: null };
+
+/**
+ * The frozen ids with the names the refusal quotes, from rows already read.
+ *
+ * `frozenAccountIds` answers in ids because that is all the browser needs and
+ * all the rule depends on; the name is beside it in the row either way, so
+ * carrying it here costs nothing and saves the refusal a second read.
+ */
+function frozenWithNames(
+  entitlement: Entitlement,
+  rows: readonly (typeof ledgerAccounts.$inferSelect)[],
+): ReadonlyMap<string, string> {
+  const frozen = frozenAccountIds(entitlement, rows);
+  return new Map(rows.filter((row) => frozen.has(row.id)).map((row) => [row.id, row.name]));
+}
+
+/**
+ * The same answer for a read that holds no transaction.
+ *
+ * Separate from `accountFreeze` rather than an optional parameter on it: a
+ * helper handed a transaction must never fall back to the pool, because a
+ * connection of its own commits independently of the caller that is about to
+ * fail, and `tests/service-transactions.test.ts` holds that rule.
+ */
+async function readAccountFreeze(actor: Actor): Promise<AccountFreeze> {
+  const entitlement = await getEntitlement(actor);
+  if (!entitlement.billing || entitlement.accountLimit === null) return NOTHING_FROZEN;
+  const rows = await getDb()
+    .select()
+    .from(ledgerAccounts)
+    .where(and(eq(ledgerAccounts.userId, actor.userId), isNull(ledgerAccounts.systemKind)));
+  return { frozen: frozenWithNames(entitlement, rows), limit: entitlement.accountLimit };
+}
+
+export async function accountFreeze(
+  tx: DbTransaction,
+  actor: Actor,
+  preloaded?: ReadonlyMap<string, typeof ledgerAccounts.$inferSelect>,
+): Promise<AccountFreeze> {
+  const entitlement = await getEntitlement(actor, tx);
+  if (!entitlement.billing || entitlement.accountLimit === null) return NOTHING_FROZEN;
+  const rows = preloaded
+    ? [...preloaded.values()]
+    : await tx
+        .select()
+        .from(ledgerAccounts)
+        .where(and(eq(ledgerAccounts.userId, actor.userId), isNull(ledgerAccounts.systemKind)));
+  return { frozen: frozenWithNames(entitlement, rows), limit: entitlement.accountLimit };
+}
+
+/**
+ * How many of somebody's accounts are holding a place right now.
+ *
+ * Live accounts minus the frozen ones, which is the same arithmetic the page
+ * shows. Archived accounts hold nothing: they refuse every write already, so a
+ * place spent on one would be a place spent on nothing.
+ */
+async function countActiveAccounts(tx: DbTransaction, actor: Actor): Promise<number> {
+  const rows = await tx
+    .select()
+    .from(ledgerAccounts)
+    .where(and(eq(ledgerAccounts.userId, actor.userId), isNull(ledgerAccounts.systemKind)));
+  const entitlement = await getEntitlement(actor, tx);
+  const frozen = frozenAccountIds(entitlement, rows);
+  return rows.filter((row) => row.archivedAt === null && !frozen.has(row.id)).length;
+}
+
+/**
+ * Refuses a change to an account a limited plan has put out of reach.
+ *
+ * `validationError` rather than `conflict`, and the choice decides behavior
+ * two layers away: `validateDraft` catches a validation error and files it as
+ * an issue on the staged row, so a frozen account makes an import row
+ * repairable instead of killing the batch it arrived in. It is also what
+ * archiving already throws, and a frozen account is the same kind of no.
+ *
+ * The refusal names the account. "This account is frozen" was unanswerable
+ * where the caller had named two — a transfer's two sides, or a bulk edit's
+ * whole selection — and the browser had grown a prefix of its own to say what
+ * the server would not, which is the divergence `errors.md` 4 exists to stop.
+ *
+ * `agentMessage` is the half a person never sees, and the diagnosis in it is
+ * the same one: only the advice differs. The browser's advice is to make the
+ * account active or to upgrade, and an MCP token can do neither — buying a plan
+ * is one of the three things reachable only from a session, and the choice is
+ * made once, so resending a list does not take a freeze back. What is left for
+ * an agent is to work on an account that is not frozen and to say why.
+ */
+export function assertAccountsWritable(freeze: AccountFreeze, ids: Iterable<string>) {
+  if (freeze.limit === null) return;
+  for (const id of ids) {
+    const name = freeze.frozen.get(id);
+    if (name !== undefined) {
+      throw validationError(
+        frozenAccountRefusal(freeze.limit, name),
+        undefined,
+        `"${name}" is frozen: the plan in force keeps ${freeze.limit} accounts active and closes the rest to every write. No argument you can change gets past this. whoami reports the plan and its ceiling, list_accounts reports \`frozen\` on each account, and a frozen one comes back into use only when somebody archives or deletes an account that is in use, or the person upgrades from a browser.`,
+      );
+    }
+  }
+}
+
+/**
+ * Writes `active=true` on every live account while they all fit on the free
+ * plan — `accountsToMarkActive`, which says why the column must not be left
+ * saying false there.
+ *
+ * Called on every change to the live set: after an archive or a delete takes
+ * one out, and before a create or a restore puts one in. The second pair is a
+ * backstop for the first — the column should already be right by then — and
+ * costs one read. Whatever plan is in force when it runs, it writes nothing a
+ * limited plan would read differently at that moment, because at or under the
+ * free limit that plan freezes nobody whatever the column says.
+ *
+ * The caller holds the account namespace lock, the one every path that counts
+ * places takes, so the set it reads is the set it writes against. Like
+ * `setActiveAccounts` it leaves `version` alone and writes an `activate` audit
+ * entry for each account it changes, because a person reading their history
+ * should see when an account they had frozen came back into use.
+ */
+async function markFittingAccountsActive(tx: DbTransaction, actor: Actor) {
+  const rows = await tx
+    .select()
+    .from(ledgerAccounts)
+    .where(and(eq(ledgerAccounts.userId, actor.userId), isNull(ledgerAccounts.systemKind)));
+  const reactivating = new Set(accountsToMarkActive(rows));
+  if (!reactivating.size) return;
+  await tx
+    .update(ledgerAccounts)
+    .set({ active: true, updatedAt: new Date() })
+    .where(
+      and(
+        eq(ledgerAccounts.userId, actor.userId),
+        isNull(ledgerAccounts.systemKind),
+        isNull(ledgerAccounts.archivedAt),
+        inArray(ledgerAccounts.id, [...reactivating]),
+      ),
+    );
+  await writeAuditMany(
+    tx,
+    actor,
+    rows
+      .filter((row) => reactivating.has(row.id))
+      .map((row) => ({
+        entityType: "account",
+        entityId: row.id,
+        operation: "activate",
+        before: serializeRow(row),
+        after: serializeRow({ ...row, active: true }),
+      })),
+  );
+}
+
+/**
+ * Chooses which accounts stay usable while a plan limits how many may be.
+ *
+ * Under the account namespace lock, for the reason `createAccount` takes it:
+ * the cap is only meaningful if the count it reads cannot change underneath
+ * it. The whole set arrives at once and the write is one statement, so there
+ * is no moment where somebody has four active accounts.
+ *
+ * **It does not bump `version`.** Every other change to an account does, and
+ * this one deliberately does not: `active` is not part of `accountUpdateSchema`
+ * and nothing edits it through that path, so a bump here would invalidate the
+ * expected version in every form somebody had open for a reason that has
+ * nothing to do with what they were editing. The category-group rule in
+ * `AGENTS.md` makes the same trade for the same reason.
+ *
+ * Archived accounts are left alone. They already refuse every write, so a
+ * place spent on one would be a place spent on nothing.
+ */
+export async function setActiveAccounts(actor: Actor, input: unknown, transaction?: DbTransaction) {
+  const { accountIds } = activeAccountsSchema.parse(input);
+  const wanted = new Set(accountIds);
+  return withTransaction(transaction, async (tx) => {
+    await lockAccountNamespace(tx, actor);
+    const rows = await tx
+      .select()
+      .from(ledgerAccounts)
+      .where(and(eq(ledgerAccounts.userId, actor.userId), isNull(ledgerAccounts.systemKind)));
+    const byId = new Map(rows.map((row) => [row.id, row] as const));
+    for (const id of wanted) {
+      const row = byId.get(id);
+      // Not found rather than forbidden, the way every other account read
+      // answers for an account somebody does not own.
+      if (!row) throw notFound("Account not found");
+      if (row.archivedAt) {
+        throw validationError(
+          "An archived account is already closed to changes and does not use up a place. Restore it first if you want it active.",
+        );
+      }
+    }
+
+    const entitlement = await getEntitlement(actor, tx);
+    const limit = entitlement.billing ? entitlement.accountLimit : null;
+    // The shared rule, so the page grays out the same boxes the server would
+    // refuse: choose once, and afterward only fill a place that opened up.
+    const change = activeAccountChange({ entitlement, accounts: rows, wanted });
+    if (!change.ok) {
+      throw conflict(
+        change.message,
+        // Null where nothing is sold, the way `whoami` says it: a deployment
+        // with no plans has no "free" plan to name, and an agent repeats this.
+        { limit, current: wanted.size, plan: entitlement.billing ? entitlement.plan : null },
+        // An agent can make this call, so the refusal has to say what a valid
+        // one looks like rather than hand the job back to a person — and when
+        // there is nothing to choose, that no list is valid, so it stops
+        // trying different ones.
+        change.reason === "nothing-frozen"
+          ? `${change.message} whoami reports accountLimit and list_accounts reports \`frozen\` on every account; call set_active_accounts only while one of them is frozen.`
+          : `${change.message} list_accounts reports \`frozen\` on every account: name each one where it is false, and add a frozen account only where fewer than ${limit ?? 0} are in use.`,
+      );
+    }
+
+    const live = rows.filter((row) => row.archivedAt === null);
+    const changing = live.filter((row) => row.active !== wanted.has(row.id));
+    if (changing.length) {
+      const mine = and(
+        eq(ledgerAccounts.userId, actor.userId),
+        isNull(ledgerAccounts.systemKind),
+        isNull(ledgerAccounts.archivedAt),
+      );
+      const now = new Date();
+      const activating = changing.filter((row) => wanted.has(row.id)).map((row) => row.id);
+      const freezing = changing.filter((row) => !wanted.has(row.id)).map((row) => row.id);
+      if (activating.length) {
+        await tx
+          .update(ledgerAccounts)
+          .set({ active: true, updatedAt: now })
+          .where(and(mine, inArray(ledgerAccounts.id, activating)));
+      }
+      if (freezing.length) {
+        await tx
+          .update(ledgerAccounts)
+          .set({ active: false, updatedAt: now })
+          .where(and(mine, inArray(ledgerAccounts.id, freezing)));
+      }
+      await writeAuditMany(
+        tx,
+        actor,
+        changing.map((row) => ({
+          entityType: "account",
+          entityId: row.id,
+          operation: wanted.has(row.id) ? "activate" : "freeze",
+          before: serializeRow(row),
+          after: serializeRow({ ...row, active: wanted.has(row.id) }),
+        })),
+      );
+    }
+    // Inside the transaction and on its connection, which is the only way the
+    // answer describes the change this call just made. `withTransaction` hands
+    // a supplied transaction straight through, so a caller composing this —
+    // the shape every other mutation here takes — would otherwise get the list
+    // as it was before, every `frozen` flag with it, and on a one-connection
+    // pool would wait out `connectionTimeoutMillis` for a connection that is
+    // already held and then fail.
+    return listAccounts(actor, undefined, false, tx);
+  });
+}
+
 export async function createAccount(actor: Actor, input: unknown, transaction?: DbTransaction) {
   const parsed = accountCreateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
@@ -648,6 +1019,16 @@ export async function createAccount(actor: Actor, input: unknown, transaction?: 
     // every other namespace here has been protected from since its check was
     // written.
     await lockAccountNamespace(tx, actor);
+    // Before the new account joins the live set, so an account opened on the
+    // paid plan lands beside a column that says what is really in use.
+    await markFittingAccountsActive(tx, actor);
+    // Inside the lock that is already here, and before the name check, because
+    // the cap is the refusal no different name gets around. The lock is what
+    // makes the count mean something: two requests for somebody's fourth
+    // account would otherwise both read three and both insert. Every path that
+    // counts places holds it for the same reason — restoring an archived
+    // account included, which for a while did not.
+    await assertAccountAllowance(tx, actor);
     await assertAccountNameAvailable(tx, actor, parsed.name);
     const [created] = await tx
       .insert(ledgerAccounts)
@@ -661,7 +1042,8 @@ export async function createAccount(actor: Actor, input: unknown, transaction?: 
       operation: "create",
       after: serializeRow(created),
     });
-    return accountView(created, balance);
+    // Just created: within the cap and active by default.
+    return { ...accountView(created, balance), frozen: false };
   });
 }
 
@@ -691,6 +1073,10 @@ export async function updateAccount(
       .limit(1);
     if (!before) throw notFound("Account not found");
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
+    // After the version, before anything is written. A frozen account refuses
+    // every change, not only the ones that move money: a rename is a change,
+    // and an opening-balance edit posts twice.
+    assertAccountsWritable(await accountFreeze(tx, actor), [id]);
 
     if (changes.name && changes.name !== before.name) {
       // The reference lock above is per account id and does not serialize two
@@ -736,7 +1122,8 @@ export async function updateAccount(
       before: serializeRow(before),
       after: serializeRow(updated),
     });
-    return accountView(updated, balance);
+    // `assertAccountsWritable` above refused if it were frozen.
+    return { ...accountView(updated, balance), frozen: false };
   });
 }
 
@@ -749,6 +1136,13 @@ export async function setAccountArchived(
 ) {
   return withTransaction(transaction, async (tx) => {
     await lockAccountReferences(tx, actor, [id]);
+    // Both directions change the live set, and every path that counts places
+    // or rewrites `active` holds this. Restoring counts the free places, and
+    // without the lock a restore racing a create, another restore or the
+    // chooser read the same count and both took the last place — four marked
+    // active, which reopens the one-time choice. After the reference lock, the
+    // order `updateAccount` already takes the two in, so neither can deadlock.
+    await lockAccountNamespace(tx, actor);
     const [before] = await tx
       .select()
       .from(ledgerAccounts)
@@ -759,15 +1153,44 @@ export async function setAccountArchived(
       .limit(1);
     if (!before) throw notFound("Account not found");
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
+    // After the version, before anything is written. A frozen account refuses
+    // every change, not only the ones that move money: a rename is a change,
+    // and an opening-balance edit posts twice.
+    assertAccountsWritable(await accountFreeze(tx, actor), [id]);
     if (archived && (await activeStagedAccountReferenceCount(tx, actor, id)) > 0) {
       throw conflict(
         "Resolve staged transactions that reference this account before archiving it.",
       );
     }
+    if (!archived) {
+      await markFittingAccountsActive(tx, actor);
+      // Coming back out of the archive needs a free place, the same as any
+      // other account would. Without this the restore would land as a fourth
+      // active account and the ordering rule would quietly freeze somebody
+      // else's — a swap through the back door, which is the one thing the
+      // choose-once rule exists to stop.
+      const entitlement = await getEntitlement(actor, tx);
+      if (entitlement.billing && entitlement.accountLimit !== null) {
+        const allowance = restoreAllowance(entitlement, await countActiveAccounts(tx, actor));
+        if (!allowance.ok) {
+          throw conflict(
+            allowance.message,
+            { limit: allowance.limit, current: allowance.current, plan: entitlement.plan },
+            `This ledger's plan keeps ${allowance.limit} accounts active and all of them are in use. Deleting or archiving one frees a place.`,
+          );
+        }
+      }
+    }
     const [updated] = await tx
       .update(ledgerAccounts)
       .set({
         archivedAt: archived ? new Date() : null,
+        // A restore takes the place the check above found free, which only
+        // happens if the row says it is in use. It can have been archived
+        // while marked inactive — on the paid plan, which freezes nothing
+        // whatever the column says — and coming back that way it would be
+        // frozen again at once, with the place it was allowed standing empty.
+        ...(archived ? {} : { active: true }),
         version: expectedVersion + 1,
         updatedAt: new Date(),
       })
@@ -790,7 +1213,10 @@ export async function setAccountArchived(
       before: serializeRow(before),
       after: serializeRow(updated),
     });
-    return accountView(updated, await currentBalance(tx, actor, updated.id));
+    if (archived) await markFittingAccountsActive(tx, actor);
+    // A frozen account never reaches here, and a restored one has just been
+    // written active into a place that was free.
+    return { ...accountView(updated, await currentBalance(tx, actor, updated.id)), frozen: false };
   });
 }
 
@@ -802,6 +1228,9 @@ export async function deleteAccount(
 ) {
   return withTransaction(transaction, async (tx) => {
     await lockAccountReferences(tx, actor, [id]);
+    // For `markFittingAccountsActive` at the end: a delete takes an account
+    // out of the live set, and the column is rewritten against that set.
+    await lockAccountNamespace(tx, actor);
     const [before] = await tx
       .select()
       .from(ledgerAccounts)
@@ -810,6 +1239,10 @@ export async function deleteAccount(
       .limit(1);
     if (!before) throw notFound("Account not found");
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
+    // After the version, before anything is written. A frozen account refuses
+    // every change, not only the ones that move money: a rename is a change,
+    // and an opening-balance edit posts twice.
+    assertAccountsWritable(await accountFreeze(tx, actor), [id]);
     if (before.archivedAt) {
       throw conflict("Archived accounts cannot be deleted. Unarchive this account first.");
     }
@@ -827,7 +1260,7 @@ export async function deleteAccount(
     // Ledger history outlives the transaction that made it. Moving a
     // transaction to another account leaves the adjusting postings behind here,
     // so the account is still part of the books even though nothing points at
-    // it any more. Counting postings catches that; counting transactions alone
+    // it anymore. Counting postings catches that; counting transactions alone
     // would let the delete through and fail on the foreign key instead.
     const [{ count: postingCount }] = await tx
       .select({ count: sql<number>`count(*)::int` })
@@ -899,6 +1332,7 @@ export async function deleteAccount(
       operation: "delete",
       before: serializeRow(before),
     });
+    await markFittingAccountsActive(tx, actor);
     return { id: deleted.id, deleted: true };
   });
 }

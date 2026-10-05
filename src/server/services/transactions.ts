@@ -77,7 +77,14 @@ import {
   writeAuditMany,
 } from "./helpers.js";
 import { type SortPlan, keysetAfter, ordered } from "./sorting.js";
-import { ensureSystemAccount, findSystemAccount, postClosingBalance } from "./accounts.js";
+import {
+  type AccountFreeze,
+  accountFreeze,
+  assertAccountsWritable,
+  ensureSystemAccount,
+  findSystemAccount,
+  postClosingBalance,
+} from "./accounts.js";
 import { pruneOrphanedCategories, resolveDraftCategory } from "./categories.js";
 import { normalizeHumanName } from "../../shared/names.js";
 import { resolveCanonicalPayee } from "./payees.js";
@@ -157,7 +164,7 @@ function transactionView(
 }
 
 /**
- * The legs of each transaction, labelled, with the zeroed ones left out.
+ * The legs of each transaction, labeled, with the zeroed ones left out.
  *
  * A leg worth nothing is no longer part of the split; its row survives only
  * because the postings that name it are append-only, and showing it would mean
@@ -179,6 +186,7 @@ async function getOwnedAccounts(
   ids: string[],
   allowedArchivedIds: ReadonlySet<string> = new Set(),
   preloaded?: ReadonlyMap<string, typeof ledgerAccounts.$inferSelect>,
+  freeze?: AccountFreeze,
 ) {
   const rows = preloaded
     ? [...new Set(ids)]
@@ -204,6 +212,11 @@ async function getOwnedAccounts(
   ) {
     throw validationError("One or more accounts are unavailable");
   }
+  // Separately, and with its own sentence: "unavailable" is what an account
+  // somebody else owns says, and a frozen account is one of theirs that they
+  // can have back. There is no allowlist beside this one — an entry already on
+  // a frozen account is exactly what must not move.
+  if (freeze) assertAccountsWritable(freeze, ids);
   return new Map(rows.map((row) => [row.id, row]));
 }
 
@@ -214,12 +227,25 @@ type PrepareTransactionOptions = {
    * The tenant's accounts, categories and template ids, read once by a caller
    * about to prepare thousands of drafts.
    *
-   * Passed rather than memoised behind the transaction, so nothing has to
+   * Passed rather than memoized behind the transaction, so nothing has to
    * reason about when a cache goes stale: a caller that reads these and then
    * writes to those tables simply does not pass them. All three are bounded per
    * person, so reading them whole costs three queries instead of three per row.
    */
   references?: LedgerReferences;
+  /**
+   * Which accounts are frozen, worked out once by a caller preparing a batch.
+   *
+   * For the callers that need the freeze and none of the rest of
+   * `LedgerReferences`: an import, a commit and a recurrence each prepare one
+   * draft per row, and without this every one of them asks the entitlement and
+   * reads the whole account table again — two billing queries and a scan a
+   * row, on exactly the deployments that sell a plan. Passed rather than
+   * memoized, for the reason `references` is. A caller that changes which
+   * accounts are frozen partway through does not pass it; none of the batch
+   * paths can, since nothing in them opens, archives or chooses an account.
+   */
+  freeze?: AccountFreeze;
   /**
    * Whether a missing counter-account may be opened.
    *
@@ -244,6 +270,14 @@ export type LedgerReferences = {
   accounts: Map<string, typeof ledgerAccounts.$inferSelect>;
   categories: Map<string, CategoryRow>;
   templateIds: ReadonlySet<string>;
+  /**
+   * Which accounts a limited plan has put out of reach, read once here.
+   *
+   * It belongs with the other three for the same reason they are here: the
+   * ranking behind it needs every account this person has, so working it out
+   * per draft would be a whole-table read per row of an import.
+   */
+  freeze: AccountFreeze;
 };
 
 /** Everything prepareTransaction would otherwise look up per draft. */
@@ -265,10 +299,13 @@ export async function loadLedgerReferences(
     .select({ id: transactionTemplates.id })
     .from(transactionTemplates)
     .where(eq(transactionTemplates.userId, actor.userId));
+  const accounts = new Map(accountRows.map((row) => [row.id, row]));
   return {
-    accounts: new Map(accountRows.map((row) => [row.id, row])),
+    accounts,
     categories: new Map(categoryRows.map((row) => [row.id, row])),
     templateIds: new Set(templateRows.map((row) => row.id)),
+    // From the rows already in hand rather than a fifth query.
+    freeze: await accountFreeze(tx, actor, accounts),
   };
 }
 
@@ -411,7 +448,7 @@ export function buildPreparedTransaction(
   systemAccounts: SystemAccountMap,
   // The kinds of every category the entry names, which decide which
   // counter-account its other half lands on. Empty means "nothing contradicts
-  // the direction", which is what an uncategorised entry is.
+  // the direction", which is what an uncategorized entry is.
   namedKinds: ReadonlySet<CategoryKind> = new Set(),
 ): PreparedTransaction {
   const common = {
@@ -680,7 +717,7 @@ async function resyncLegs(
 /**
  * A transaction as the audit log should record it: the row and its legs.
  *
- * The legs carry the categories a split went to, and relabelling one writes no
+ * The legs carry the categories a split went to, and relabeling one writes no
  * posting and touches no column on the transaction. An audit entry built from
  * the row alone therefore has an identical before and after for exactly the
  * change somebody is most likely to want to look up later.
@@ -757,7 +794,7 @@ function withLegIds(
  *
  * Correcting an amount therefore costs one adjusting posting per side rather
  * than a full reversal plus a full repost, and an edit that changes nothing
- * about the movement writes nothing at all. Recategorising a leg is exactly
+ * about the movement writes nothing at all. Recategorizing a leg is exactly
  * that kind of edit: the label lives on the leg row and the leg's identity does
  * not change, so the difference is empty and no posting is written. Changing
  * what a leg is worth does write two, which is right, because the money was
@@ -901,12 +938,14 @@ export async function prepareTransaction(
     ...draft,
     payee: await resolveCanonicalPayee(tx, actor, draft.payee),
   };
+  const freeze = options.references?.freeze ?? options.freeze ?? (await accountFreeze(tx, actor));
   const accountMap = await getOwnedAccounts(
     tx,
     actor,
     accountIds,
     options.allowedArchivedAccountIds,
     options.references?.accounts,
+    freeze,
   );
 
   // Every category the entry names, whether it names one or one per leg. The
@@ -1004,6 +1043,7 @@ export async function createTransactionWithinTx(
   input: TransactionDraft,
   auditOperation = "create",
   allowDuplicate = false,
+  options: { freeze?: AccountFreeze } = {},
 ) {
   // A named category becomes a real one here rather than inside
   // prepareTransaction, which is also how a staged row is checked and must
@@ -1016,7 +1056,7 @@ export async function createTransactionWithinTx(
   // write.
   await lockAccountReferences(tx, actor, draftAccountIds(input));
   const draft = await resolveDraftCategory(tx, actor, input);
-  const prepared = await prepareTransaction(tx, actor, draft);
+  const prepared = await prepareTransaction(tx, actor, draft, { freeze: options.freeze });
   await assertDuplicateAllowed(tx, actor, draft, allowDuplicate);
   const [created] = await tx.insert(transactions).values(prepared.transaction).returning();
   const legIds = await resyncLegs(tx, actor, created.id, prepared.legs);
@@ -1619,7 +1659,7 @@ function applyBulkPatch(
   // there is no single category to set it to and no honest way to guess which
   // leg was meant. Changing the type is refused from the other end: flipping
   // the direction under several legs turns every one of them into a refund at
-  // once, which is a claim about what happened rather than a relabelling. Both
+  // once, which is a claim about what happened rather than a relabeling. Both
   // are refused outright rather than quietly flattening the split, which cannot
   // be undone.
   if (current.legs && (patch.categoryId !== undefined || patch.type)) {
@@ -1870,16 +1910,13 @@ export async function bulkEditTransactions(
       draft: applyBulkPatch(row, parsed.patch, snapshotLegs.get(row.id)),
     }));
 
-    await lockAccountReferences(
-      tx,
-      actor,
-      snapshotDrafts.flatMap(({ row, draft }) => [
-        ...[row.sourceAccountId, row.destinationAccountId].filter((id): id is string =>
-          Boolean(id),
-        ),
-        ...draftAccountIds(draft),
-      ]),
-    );
+    const editedAccountIds = snapshotDrafts.flatMap(({ row, draft }) => [
+      ...[row.sourceAccountId, row.destinationAccountId].filter((id): id is string => Boolean(id)),
+      ...draftAccountIds(draft),
+    ]);
+    await lockAccountReferences(tx, actor, editedAccountIds);
+    // Both ends of the move, and the whole request or none of it.
+    assertAccountsWritable(await accountFreeze(tx, actor), editedAccountIds);
     // A split row carries its categories on the legs, with `categoryId` null
     // on both the row and the draft — so the legs are part of the question,
     // exactly as `lockStagedDraftReferences` already reads them for staged
@@ -1982,7 +2019,7 @@ export async function bulkEditTransactions(
         allowedArchivedAccountIds: existingAccountIds,
         // A category archived since the entry was written still has to be
         // allowed through, or a mass date change fails on a split whose
-        // categories were tidied away months ago.
+        // categories were cleaned up months ago.
         allowedArchivedCategoryIds: new Set(
           [before.categoryId, ...legs.map((leg) => leg.categoryId)].filter(
             (id): id is string => id !== null,
@@ -2096,7 +2133,7 @@ export async function bulkEditTransactions(
 
     // The same rule the single-row edit applies, which this path did not: a
     // category every one of these rows has just moved off, and that nothing else
-    // uses, goes with the edit. Recategorising a hundred rows one at a time
+    // uses, goes with the edit. Recategorizing a hundred rows one at a time
     // cleared the category behind them; doing it in one request left it standing.
     await pruneOrphanedCategories(
       tx,
@@ -2183,13 +2220,14 @@ export async function bulkDeleteTransactions(
       throw validationError("Select at least one transaction");
     }
     const snapshotFingerprint = selectionFingerprint(snapshotRows);
-    await lockAccountReferences(
-      tx,
-      actor,
-      snapshotRows.flatMap((row) =>
-        [row.sourceAccountId, row.destinationAccountId].filter((id): id is string => Boolean(id)),
-      ),
+    const deletedAccountIds = snapshotRows.flatMap((row) =>
+      [row.sourceAccountId, row.destinationAccountId].filter((id): id is string => Boolean(id)),
     );
+    await lockAccountReferences(tx, actor, deletedAccountIds);
+    // Refused whole, never skipped: a mass delete that quietly left some rows
+    // alone would report a count nobody could account for, and AGENTS.md asks
+    // for a refusal rather than a partial.
+    assertAccountsWritable(await accountFreeze(tx, actor), deletedAccountIds);
 
     const snapshotIds = snapshotRows.map((row) => row.id);
     const lockedRows = await tx
@@ -2316,6 +2354,10 @@ export async function updateTransaction(
         (accountId): accountId is string => accountId !== null,
       ),
     );
+    // `prepareTransaction` below checks the accounts the draft names. These are
+    // the ones it may be moving OFF, which only the stored row knows and which
+    // a move changes just as much.
+    assertAccountsWritable(await accountFreeze(tx, actor), allowedArchivedAccountIds);
     const beforeLegs = (await legsByTransaction(tx, actor, [before.id])).get(before.id);
     const allowedArchivedCategoryIds = new Set(
       [before.categoryId, ...(beforeLegs ?? []).map((leg) => leg.categoryId)].filter(
@@ -2401,6 +2443,15 @@ export async function setTransactionDeleted(
       .limit(1);
     if (!before) throw notFound("Transaction not found");
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
+    // Both directions move money: voiding posts the reversal, restoring posts
+    // it back. The accounts come from the stored row, because the request
+    // carries an id and a version and nothing else.
+    assertAccountsWritable(
+      await accountFreeze(tx, actor),
+      [before.sourceAccountId, before.destinationAccountId].filter(
+        (accountId): accountId is string => accountId !== null,
+      ),
+    );
     if (!deleted && before.deletedAt) {
       await assertDuplicateAllowed(tx, actor, transactionToDraft(before), allowDuplicate, id);
     }
@@ -2453,8 +2504,9 @@ export async function setTransactionDeleted(
     return hydrateTransaction(tx, actor, updated);
   });
   // Deleting and restoring are one function with a flag, and they are two
-  // things to watch: a deployment deleting steadily is somebody tidying up, and
-  // one restoring steadily is somebody undoing a mistake being made repeatedly.
+  // things to watch: a deployment deleting steadily is somebody cleaning up,
+  // and one restoring steadily is somebody undoing a mistake being made
+  // repeatedly.
   countAfterCommit(transaction, () =>
     ledgerWrites.inc({ operation: deleted ? "delete" : "restore" }),
   );
@@ -2465,7 +2517,7 @@ export async function setTransactionDeleted(
  * Which categories an edit stopped pointing at.
  *
  * A split makes this more than one field: a receipt cut three ways names three,
- * and relabelling one leg releases only that leg's category. Comparing the two
+ * and relabeling one leg releases only that leg's category. Comparing the two
  * whole sets is what keeps a category that merely moved between legs from
  * looking released.
  */
@@ -2554,7 +2606,7 @@ export async function findDuplicate(
  * Legs are deliberately not part of this, and neither is the category.
  *
  * The question this answers is whether the same money moved twice, and how
- * somebody carved up the receipt afterwards does not change the answer.
+ * somebody carved up the receipt afterward does not change the answer.
  * Including the split would mean re-importing a statement stopped catching the
  * rows that were split last month, which is exactly when the duplicate check
  * matters most.

@@ -1,0 +1,20 @@
+name: simple-balance-oci-single
+runtime:
+  name: nodejs
+  options:
+    typescript: true
+description: >-
+  Simple Balance's `single` profile on two Oracle Cloud compute instances, in
+  the region oci:region names, which the stack has to set: a VCN with one
+  public subnet for the application node and one private subnet, behind a NAT
+  gateway, for a database node that has no public address at all. The
+  application node's security list opens 80 and 443 to everybody and 22 to a
+  Bastion in its subnet; the database node's admits 5432 from the application
+  node's subnet and 22 from a Bastion in its own, and it runs PostgreSQL 18 in
+  a container with a certificate this stack issues, which the application
+  verifies under sslmode=verify-full. Each machine is an Ampere A1 shape sized
+  from the same table the AWS program uses, with a block volume that `pulumi
+  destroy` refuses to delete unless simple-balance:protectDataVolume is false,
+  and both launch with in-transit encryption between the hypervisor and block
+  storage. Set simple-balance:databaseNode to false to build none of the second
+  half and supply a DATABASE_URL of your own instead.

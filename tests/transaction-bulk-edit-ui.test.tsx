@@ -733,7 +733,7 @@ describe("transaction mass selection", () => {
 
     // And a filter that really does move still drops it, because a selection
     // made against one view means nothing against another.
-    fireEvent.change(screen.getByLabelText("Transaction type"), {
+    fireEvent.change(screen.getByLabelText("Filter by type"), {
       target: { value: "deposit" },
     });
     await waitFor(() => expect(screen.queryByText(/transactions selected/)).toBeNull());

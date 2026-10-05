@@ -14,12 +14,14 @@ import { sourceFiles } from "./support/source.js";
  * invalidated by prefix at all.
  *
  * What this deliberately does not check is the guide's next sentence, "keep
- * them arrays of strings and primitives". Five keys in `TransactionBrowser.tsx`
+ * them arrays of strings and primitives". Three keys in `TransactionBrowser.tsx`
  * carry an object or an array — the filter a list is showing, the sort it is
  * under — and they are correct: TanStack Query v5 hashes a key structurally,
  * with object keys sorted, so two equal filters produce one cache entry. A
- * check that banned them would have flagged five working queries, which is
- * exactly the trade this pass exists to avoid.
+ * check that banned them would have flagged three working queries, which is
+ * exactly the trade this pass exists to avoid. The number read five here and
+ * in the guide for a release, which is what a count written in two places does;
+ * `client.md` 1.2 says why it is still a hand count.
  */
 const READERS = [
   "useQuery",

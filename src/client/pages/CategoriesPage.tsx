@@ -6,7 +6,6 @@ import {
   FolderTree,
   Pencil,
   Plus,
-  Search,
   Tags,
   Trash2,
 } from "lucide-react";
@@ -33,14 +32,16 @@ import {
   Field,
   Input,
   Modal,
-  Note,
   PageHeader,
+  RowMenu,
+  SearchBox,
   Select,
   Skeleton,
   SortMenu,
   type SortState,
   useConfirm,
 } from "../components.js";
+import { emptyScreen, waysOut } from "../list-filters.js";
 
 const kindLabels: Record<CategoryKind, string> = {
   income: "Income",
@@ -81,7 +82,7 @@ function CategoryDialog({
     if (!category) return;
     // The deliberate copy: a record seeds the fields once and then the fields
     // are the truth until Save. Nothing here can be worked out during render,
-    // because the whole point is that the person changes it afterwards. The
+    // because the whole point is that the person changes it afterward. The
     // dialog stays mounted so the modal can close, which is why this is an
     // effect on the record rather than a fresh mount keyed on its id — a
     // remount on close would empty the fields while they were still on screen.
@@ -123,7 +124,12 @@ function CategoryDialog({
         }}
       >
         <Field label="Name">
-          <Input value={name} onChange={(event) => setName(event.target.value)} autoFocus />
+          <Input
+            required
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            autoFocus
+          />
         </Field>
         <Field
           label="Applies to"
@@ -170,8 +176,24 @@ export default function CategoriesPage() {
     direction: "asc",
   });
   const [includeArchived, setIncludeArchived] = useState(false);
+  /** What a row action just did, said where focus can reach it. See the mutation below. */
+  const [rowNotice, setRowNotice] = useState("");
+  // Two controls empty this list and the condition only ever read one of them,
+  // so somebody who had archived every category was told they had none. The
+  // toggle is `fromTheStart` because it ships off: counting it as narrowing
+  // would make "no categories yet" unreachable on a ledger that really has
+  // none.
+  const { narrowed, ways } = emptyScreen([
+    { set: Boolean(search.trim()), clear: "clear the search" },
+    {
+      set: !includeArchived,
+      clear: "turn on Show archived to look at the ones you have put away",
+      fromTheStart: true,
+    },
+  ]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [targetId, setTargetId] = useState("");
+  const [mergeOutcome, setMergeOutcome] = useState<string | null>(null);
   const [groupName, setGroupName] = useState("");
   const [groupPolicy, setGroupPolicy] = useState<CategoryGroup["policy"]>("standalone");
   const removeGroup = useConfirm<CategoryGroup>();
@@ -287,7 +309,23 @@ export default function CategoriesPage() {
         method: "DELETE",
       });
     },
-    onSuccess: async () => {
+    onSuccess: async (_result, input) => {
+      /*
+       * 13.3, and `web.md` 9.8 names this as the shape that keeps recurring:
+       * archiving runs straight from the row menu with no dialog, and the row
+       * leaves the list whenever Show archived is off — which it is by
+       * default — so the menu closed, the button went with the row, and focus
+       * fell to `<body>`. Deleting does the same whatever the toggle says. A
+       * rename is not here: that row stays where it is and the dialog it came
+       * from returns focus itself.
+       */
+      if (input.action === "archive")
+        setRowNotice(
+          input.category.archivedAt
+            ? `${input.category.name} restored.`
+            : `${input.category.name} archived.`,
+        );
+      if (input.action === "delete") setRowNotice(`${input.category.name} deleted.`);
       setName("");
       // A rename changes what every transaction row and every category figure
       // says, so those have to be refetched too. The merge below already does
@@ -332,7 +370,33 @@ export default function CategoriesPage() {
         }),
       );
     },
-    onSuccess: async () => {
+    onMutate: () => setMergeOutcome(null),
+    onSuccess: async (result) => {
+      // 13.3's shape, which the rule states as a list of pages rather than as
+      // a property: a control whose success unmounts the control. Merging
+      // empties the participant set, the panel renders only at two or more, so
+      // the button goes and focus falls to `<body>` — and the only Alert in
+      // this panel was the error one, so a merge of nine spellings reported
+      // nothing at all.
+      //
+      // Read off the answer, not off the request. 11.9: the server computes
+      // `mergedSourceCategoryIds`, `updatedTransactionCount` and
+      // `updatedStagedTransactionCount` and all three were dropped, so the one
+      // message shown after an irreversible write said nothing about how much
+      // of the ledger had just moved — and counted `sourceCategories.length`,
+      // which is what was *asked for*. An idempotent replay of the same key,
+      // or a source another tab had already folded, merges fewer than were
+      // named and the sentence would still have claimed all of them.
+      const folded = result.mergedSourceCategoryIds.length;
+      const moved = result.updatedTransactionCount;
+      const staged = result.updatedStagedTransactionCount;
+      setMergeOutcome(
+        `${folded} ${folded === 1 ? "category" : "categories"} folded into “${
+          result.targetCategory.name
+        }”. ${moved} committed ${moved === 1 ? "entry" : "entries"} and ${staged} staged ${
+          staged === 1 ? "row" : "rows"
+        } now name it.`,
+      );
       mergeIdempotencyKey.current = newIdempotencyKey();
       setSelectedIds(new Set());
       setTargetId("");
@@ -490,7 +554,12 @@ export default function CategoriesPage() {
         ) : groups.isPending ? (
           <Skeleton height={90} label="Loading groups…" />
         ) : groups.data.length === 0 ? (
-          <Note>No groups yet.</Note>
+          <EmptyState
+            compact
+            icon={FolderTree}
+            title="No groups yet"
+            body="Group related categories so one budget can cover all of them at once."
+          />
         ) : (
           <div className="table-wrap" tabIndex={0} role="region" aria-label="Category groups">
             <table className="data-table">
@@ -544,17 +613,24 @@ export default function CategoriesPage() {
                       </Select>
                     </td>
                     <td className="align-right">{group.categoryCount}</td>
-                    <td className="align-right">
-                      <Button
-                        variant="ghost"
+                    {/* A trash icon in `.row-actions`, like every other
+                        per-row delete in the product. It was a full-width ghost
+                        button reading "Delete Fixed costs" in a row whose first
+                        cell is an input already holding "Fixed costs", which is
+                        the argument `BudgetsPage` records above its own table
+                        and the state this one was left in. */}
+                    <td className="row-actions">
+                      <button
+                        type="button"
+                        aria-label={`Delete the group ${group.name}`}
                         onClick={() =>
                           removeGroup.ask(group, () =>
                             groupMutation.mutate({ action: "delete", group }),
                           )
                         }
                       >
-                        Delete {group.name}
-                      </Button>
+                        <Trash2 size={16} />
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -594,16 +670,13 @@ export default function CategoriesPage() {
         </section>
       ) : null}
 
-      <div className="category-toolbar">
-        <label className="search-box">
-          <Search size={16} />
-          <Input
-            aria-label="Search categories"
-            placeholder="Search categories"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
-        </label>
+      <div className="filter-bar">
+        <SearchBox
+          label="Search categories"
+          placeholder="Search by name"
+          value={search}
+          onChange={setSearch}
+        />
         <SortMenu fields={categorySortFields} sort={sort} onSort={setSort} />
         <label className="check-label">
           <input
@@ -649,6 +722,9 @@ export default function CategoriesPage() {
           >
             <Combine size={16} /> Merge
           </Button>
+          {/* "Clear selection", the word the three bulk bars use for the same
+              escape. "Cancel" here was a fourth spelling of one operation, on
+              a panel a person reaches from the same list. */}
           <Button
             variant="ghost"
             onClick={() => {
@@ -656,20 +732,31 @@ export default function CategoriesPage() {
               setTargetId("");
             }}
           >
-            Cancel
+            Clear selection
           </Button>
           {mergeMutation.error ? <Alert>{mergeMutation.error.message}</Alert> : null}
         </section>
+      ) : null}
+      {mergeOutcome ? (
+        <Alert kind="success" takeFocus>
+          {mergeOutcome}
+        </Alert>
+      ) : null}
+
+      {rowNotice ? (
+        <Alert kind="success" takeFocus>
+          {rowNotice}
+        </Alert>
       ) : null}
 
       {categories.error ? <Alert>{categories.error.message}</Alert> : null}
       {duplicates.error ? <Alert>{duplicates.error.message}</Alert> : null}
 
       {filtered.length ? (
-        <div className="category-list category-page-list">
+        <div className="record-list record-list-card">
           {filtered.map((category) => (
-            <div className="category-row" key={category.id}>
-              <div className="category-select">
+            <div className="record-row" key={category.id}>
+              <div className="record-name">
                 <input
                   type="checkbox"
                   aria-label={`Select ${category.name} for merging`}
@@ -703,6 +790,14 @@ export default function CategoriesPage() {
                     {category.stagedTransactionCount} staged
                   </small>
                 </span>
+                {/* Here rather than in the badge cell below, which
+                    `styles.css`'s 560px block hides outright. That is right for
+                    the two badges under it — the kind and the count are both
+                    already in the subtitle a line up — and wrong for this one,
+                    which is said nowhere else. An archived category on a phone
+                    showed nothing at all saying it was archived, on the only
+                    screen you reach by turning "Show archived" on. */}
+                {category.archivedAt ? <Badge>Archived</Badge> : null}
               </div>
               <div>
                 <Badge tone={category.kind === "expense" ? "red" : "green"}>
@@ -712,10 +807,9 @@ export default function CategoriesPage() {
                   {category.totalCount} transaction
                   {category.totalCount === 1 ? "" : "s"}
                 </Badge>
-                {category.archivedAt ? <Badge>Archived</Badge> : null}
               </div>
               {/* The group, on the row, because until now the only way to put a
-                  category in one was an unlabelled pencil that opens a modal —
+                  category in one was an unlabeled pencil that opens a modal —
                   and no row ever said which group it was already in. A group
                   you cannot see is a group nobody fills. */}
               <Select
@@ -739,17 +833,15 @@ export default function CategoriesPage() {
                   </option>
                 ))}
               </Select>
+              {/* Edit and Delete as icons, the rest behind a menu, which is
+                  what the register and the staged queue do and what this was
+                  the only list not to: three bare icons and no menu made it a
+                  fourth pattern in a product that already had three. Archive is
+                  the one that moves, because it is the action a person reaches
+                  for least often on a category they are looking at. */}
               <div className="row-actions">
                 <button aria-label={`Edit ${category.name}`} onClick={() => setEditing(category)}>
                   <Pencil size={16} />
-                </button>
-                <button
-                  aria-label={
-                    category.archivedAt ? `Restore ${category.name}` : `Archive ${category.name}`
-                  }
-                  onClick={() => categoryMutation.mutate({ action: "archive", category })}
-                >
-                  {category.archivedAt ? <ArchiveRestore size={16} /> : <Archive size={16} />}
                 </button>
                 <button
                   aria-label={`Delete unused ${category.name}`}
@@ -761,27 +853,52 @@ export default function CategoriesPage() {
                 >
                   <Trash2 size={16} />
                 </button>
+                <RowMenu label={`Actions for ${category.name}`}>
+                  <button
+                    type="button"
+                    onClick={() => categoryMutation.mutate({ action: "archive", category })}
+                  >
+                    {category.archivedAt ? (
+                      <>
+                        <ArchiveRestore size={15} /> Restore {category.name}
+                      </>
+                    ) : (
+                      <>
+                        <Archive size={15} /> Archive {category.name}
+                      </>
+                    )}
+                  </button>
+                </RowMenu>
               </div>
             </div>
           ))}
         </div>
       ) : categories.isPending ? (
         <Skeleton height={120} label="Loading categories…" />
-      ) : categories.error ? null : search.trim() ? (
-        /* Two screens, not one. "Nothing here yet" and "nothing matches what
-            you typed" have different next actions, and one sentence asking for
-            both leaves a reader who has typed a search wondering whether their
-            ledger is empty. */
+      ) : categories.error ? null : (
+        /* Three readings of an empty list, not two. "Nothing here yet" and
+            "nothing matches what you typed" have different next actions, and
+            between them sits the case this page kept getting wrong: nothing
+            typed, and the archived ones hidden by a toggle that ships off. The
+            page cannot ask whether archived categories exist — the hiding is
+            the server's and the response holds only what it let through — so
+            the title says "in this view" and the body names the toggle. */
         <EmptyState
-          icon={<Tags size={24} />}
-          title="No categories match this search"
-          body="Change what you typed, or turn on Show archived to look at the ones you have put away."
-        />
-      ) : (
-        <EmptyState
-          icon={<Tags size={24} />}
-          title="No categories yet"
-          body="Add one above, and every transaction filed under it is counted here."
+          icon={Tags}
+          title={
+            narrowed
+              ? "No categories match this view"
+              : ways.length
+                ? "No categories in this view"
+                : "No categories yet"
+          }
+          body={
+            narrowed
+              ? waysOut(ways)
+              : `Add one above, and every transaction filed under it is counted here.${
+                  ways.length ? ` ${waysOut(ways)}` : ""
+                }`
+          }
         />
       )}
 

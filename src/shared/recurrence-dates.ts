@@ -143,18 +143,25 @@ export function laterOf(left: string, right: string) {
  */
 export function calendarDayIn(instant: Date, timezone: string) {
   // The stored timezone is free text, checked only when it was written, so an
-  // ICU update or a hand-edited row can leave one unrecognisable years later.
+  // ICU update or a hand-edited row can leave one unrecognizable years later.
   // Inside a loop that serves everybody, one such row must not be able to throw.
+  //
+  // The locale decides nothing here and is only ever a label: every part is
+  // read back by name rather than by position, so the order a locale would
+  // print them in never reaches the string this builds. `en-US` because the
+  // rest of the repository speaks American English; any Gregorian,
+  // Latin-digit locale gives the same answer, which was checked against
+  // en-GB and en-CA over 430,000 parts across fourteen timezones.
   let formatter: Intl.DateTimeFormat;
   try {
-    formatter = new Intl.DateTimeFormat("en-CA", {
+    formatter = new Intl.DateTimeFormat("en-US", {
       timeZone: timezone,
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
     });
   } catch {
-    formatter = new Intl.DateTimeFormat("en-CA", {
+    formatter = new Intl.DateTimeFormat("en-US", {
       timeZone: "UTC",
       year: "numeric",
       month: "2-digit",
@@ -188,9 +195,9 @@ export function clockTimeIn(instant: Date, timezone: string) {
     hourCycle: "h23",
   };
   try {
-    formatter = new Intl.DateTimeFormat("en-GB", { timeZone: timezone, ...options });
+    formatter = new Intl.DateTimeFormat("en-US", { timeZone: timezone, ...options });
   } catch {
-    formatter = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", ...options });
+    formatter = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", ...options });
   }
   const value = Object.fromEntries(
     formatter.formatToParts(instant).map((part) => [part.type, part.value]),
@@ -201,8 +208,8 @@ export function clockTimeIn(instant: Date, timezone: string) {
 /**
  * Occurrence `n` counted from the anchor, never from the occurrence before it.
  *
- * That is what makes the 31st of January follow into the 28th of February and
- * then back to the 31st of March. Stepping from the previous date instead turns
+ * That is what makes January 31 follow into February 28 and then back to
+ * March 31. Stepping from the previous date instead turns
  * a rule about the 31st into a rule about the 28th the first time it meets
  * February, and it never recovers.
  */
@@ -243,8 +250,8 @@ function sequenceDate(rule: RecurrenceRule, n: number) {
 /**
  * The date a proposed row carries, which never feeds back into the sequence.
  *
- * A business day is Monday to Friday. There is no holiday calendar and there
- * must not be one: it would be per-country, per-year data ageing inside a
+ * A business day is Monday through Friday. There is no holiday calendar and
+ * there must not be one: it would be per-country, per-year data aging inside a
  * container nobody updates, and PostgreSQL is the only persistent dependency
  * this product allows itself.
  */

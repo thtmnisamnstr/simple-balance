@@ -4,13 +4,26 @@ import { readFileSync } from "node:fs";
  * The variables that also answer to a `NAME_FILE` form.
  *
  * This list is the definition of what this product calls a secret: if a name
- * has a `_FILE` form it is a secret, and if it does not it is a setting. Seven
+ * has a `_FILE` form it is a secret, and if it does not it is a setting. Nine
  * rather than the four `docs/standards/operations.md` first named, because the
  * litmus runs both ways. `SETUP_TOKEN` is the code that claims an unclaimed
  * deployment and `DIRECT_DATABASE_URL` carries a password, so a list of four
  * would have been this file quietly calling both of them settings.
- * `METRICS_TOKEN` is the seventh and joined for the same reason: it is the only
- * thing standing between a scrape endpoint and anybody who can reach the port.
+ * `METRICS_TOKEN` joined for the same reason: it is the only thing standing
+ * between a scrape endpoint and anybody who can reach the port.
+ *
+ * The last two are Stripe's, and they are the first credentials here that spend
+ * somebody else's money. `STRIPE_SECRET_KEY` can charge a card, refund one and
+ * cancel a subscription; `STRIPE_WEBHOOK_SECRET` is the only thing that
+ * distinguishes a real delivery from a forged one, so anybody holding it can
+ * tell this deployment that an invoice was paid. Neither belongs anywhere
+ * `kubectl describe pod` will print it.
+ *
+ * The other Stripe names are deliberately absent. `STRIPE_PUBLISHABLE_KEY`
+ * ships to every browser by design and the two price ids appear in Stripe's own
+ * dashboard URLs, so giving any of them a `_FILE` form would say they are
+ * secrets when they are not, and blunt the distinction this list exists to
+ * draw. The same goes for the AdSense ids, which are rendered into the page.
  */
 const FILE_BACKED_SECRETS = [
   "AUTH_SECRET",
@@ -20,6 +33,8 @@ const FILE_BACKED_SECRETS = [
   "GOOGLE_CLIENT_SECRET",
   "SETUP_TOKEN",
   "METRICS_TOKEN",
+  "STRIPE_SECRET_KEY",
+  "STRIPE_WEBHOOK_SECRET",
 ] as const;
 
 export type FileBackedSecret = (typeof FILE_BACKED_SECRETS)[number];
@@ -41,7 +56,7 @@ let resolved: ReadonlyMap<FileBackedSecret, string> | undefined;
  * are never assigned back into `process.env`, for two reasons, and the second is
  * the load-bearing one.
  *
- * A Node diagnostic report serialises `process.env` as it stands when the report
+ * A Node diagnostic report serializes `process.env` as it stands when the report
  * is written, and `kubectl describe pod` and `kubectl exec -- env` show it too.
  * A value that never enters the environment cannot appear in any of them, which
  * is the whole reason an operator reached for the `_FILE` form.
@@ -55,7 +70,7 @@ let resolved: ReadonlyMap<FileBackedSecret, string> | undefined;
  * entirely, and `db/migrate.ts` needs no knowledge of this file.
  */
 /**
- * Said once per process. `resolveFileBackedSecrets` memoises, so this only
+ * Said once per process. `resolveFileBackedSecrets` memoizes, so this only
  * repeats across a `vi.resetModules()` in tests, but the set costs nothing and
  * makes the intent plain.
  */

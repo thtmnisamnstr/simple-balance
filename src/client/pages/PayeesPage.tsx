@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, Combine, Search, UserRound } from "lucide-react";
+import { ArrowRight, Combine, UserRound } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { Link, payeeDetailSearch, useLocation } from "../router.js";
 import {
@@ -16,8 +16,8 @@ import {
   compareForSort,
   ConfirmDialog,
   EmptyState,
-  Input,
   PageHeader,
+  SearchBox,
   Select,
   Skeleton,
   SortMenu,
@@ -25,6 +25,7 @@ import {
   useConfirm,
 } from "../components.js";
 import { newIdempotencyKey } from "../idempotency.js";
+import { emptyScreen, waysOut } from "../list-filters.js";
 
 const payeeSortFields = [
   { field: "name", label: "Name" },
@@ -38,6 +39,9 @@ export default function PayeesPage() {
   const location = useLocation();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  // One control, and still asked through the shared function: a page that
+  // answers this for itself is a page that answers it differently.
+  const { ways } = emptyScreen([{ set: Boolean(search.trim()), clear: "clear the search" }]);
   const merge = useConfirm<string>();
   const [sort, setSort] = useState<SortState<PayeeSortField>>({
     field: "name",
@@ -45,6 +49,7 @@ export default function PayeesPage() {
   });
   const [participants, setParticipants] = useState<Set<string>>(new Set());
   const [targetPayee, setTargetPayee] = useState("");
+  const [mergeOutcome, setMergeOutcome] = useState<string | null>(null);
   const mergeIdempotencyKey = useRef(newIdempotencyKey());
   const payees = useQuery({
     queryKey: ["payees", "list"],
@@ -73,7 +78,31 @@ export default function PayeesPage() {
         }),
       );
     },
-    onSuccess: async () => {
+    onMutate: () => setMergeOutcome(null),
+    onSuccess: async (result) => {
+      // 13.3's shape, which the rule states as a list of pages rather than as
+      // a property: a control whose success unmounts the control. Merging
+      // empties the participant set, the panel renders only at two or more, so
+      // the button goes and focus falls to `<body>` — and the only Alert in
+      // this panel was the error one, so a merge of nine spellings reported
+      // nothing at all.
+      //
+      // Read off the answer, not off the request, for the reason 11.9 gives
+      // and the one `CategoriesPage` gives beside its identical call: the
+      // server returns which spellings it actually folded and how many rows it
+      // rewrote, and a sentence derived from `selectedPayees.length - 1` is
+      // the one figure after an irreversible write that is not read from that
+      // write's own result.
+      const folded = result.mergedSourcePayees.length;
+      const moved = result.updatedTransactionCount;
+      const staged = result.updatedStagedTransactionCount;
+      setMergeOutcome(
+        `${folded} ${folded === 1 ? "spelling" : "spellings"} folded into “${
+          result.targetPayee
+        }”. ${moved} committed ${moved === 1 ? "entry" : "entries"} and ${staged} staged ${
+          staged === 1 ? "row" : "rows"
+        } now name it.`,
+      );
       mergeIdempotencyKey.current = newIdempotencyKey();
       setParticipants(new Set());
       setTargetPayee("");
@@ -151,16 +180,13 @@ export default function PayeesPage() {
         </section>
       ) : null}
 
-      <div className="category-toolbar">
-        <label className="search-box">
-          <Search size={16} />
-          <Input
-            aria-label="Search payees"
-            placeholder="Search payees"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
-        </label>
+      <div className="filter-bar">
+        <SearchBox
+          label="Search payees"
+          placeholder="Search by name"
+          value={search}
+          onChange={setSearch}
+        />
         <SortMenu fields={payeeSortFields} sort={sort} onSort={setSort} />
       </div>
 
@@ -202,19 +228,24 @@ export default function PayeesPage() {
               setTargetPayee("");
             }}
           >
-            Cancel
+            Clear selection
           </Button>
           {mergeMutation.error ? <Alert>{mergeMutation.error.message}</Alert> : null}
         </section>
+      ) : null}
+      {mergeOutcome ? (
+        <Alert kind="success" takeFocus>
+          {mergeOutcome}
+        </Alert>
       ) : null}
 
       {payees.error ? <Alert>{payees.error.message}</Alert> : null}
       {duplicates.error ? <Alert>{duplicates.error.message}</Alert> : null}
       {filtered.length ? (
-        <div className="category-list category-page-list">
+        <div className="record-list record-list-card">
           {filtered.map((payee) => (
-            <div className="category-row" key={payee.name}>
-              <div className="category-select">
+            <div className="record-row" key={payee.name}>
+              <div className="record-name">
                 <input
                   type="checkbox"
                   aria-label={`Select ${payee.name} for merging`}
@@ -272,9 +303,24 @@ export default function PayeesPage() {
         <Skeleton height={120} label="Loading payees…" />
       ) : (
         <EmptyState
-          icon={<UserRound size={24} />}
-          title="No payees in this view"
-          body="Payees appear here when you commit or stage a transaction."
+          icon={UserRound}
+          // Two screens, not one. `web.md` 12.1: a search that matches nothing
+          // and a ledger with no payees in it are different situations whose
+          // ways out are opposite — clear the search, or go and write a
+          // transaction. This said the second to both, so somebody who mistyped
+          // a name was told to commit a transaction they had already committed.
+          // Templates and Recurring branch the same way.
+          //
+          // The condition is the unfiltered list rather than the search box: a
+          // search that happens to match everything still leaves rows, and it is
+          // having none *while the ledger has payees* that means the filter is
+          // what emptied the view.
+          title={payees.data?.length ? "No payees match" : "No payees yet"}
+          body={
+            payees.data?.length
+              ? waysOut(ways)
+              : "Payees appear here when you commit or stage a transaction."
+          }
         />
       )}
       <ConfirmDialog
