@@ -61,7 +61,7 @@ use the constructor that names the situation.
 | `validationError` | 422 | The request is well-formed and asks for something impossible. |
 
 **The transport is the named exception, and it is two lines.**
-`src/server/api.ts` constructs `AppError` directly at `:1517` and `:1535`, and
+`src/server/api.ts` constructs `AppError` directly at `:1632` and `:1650`, and
 both carry a code no service raises at all: `FORBIDDEN` and
 `REAUTHENTICATION_REQUIRED` belong to the two operations that are reachable
 from a session and never from a token, which is exactly the pair `AGENTS.md`
@@ -82,10 +82,10 @@ So the rule is scoped rather than absolute: a service uses the constructors, and
 the transport may name a status the service half has no word for. It was four
 lines rather than two, and shrinking it is what the other two paragraphs of this
 section used to be about. The already-configured-password site was byte-for-byte
-what `conflict()` produces and now calls it (`src/server/api.ts:1526`). The malformed-body guard
+what `conflict()` produces and now calls it (`src/server/api.ts:1641`). The malformed-body guard
 was a `VALIDATION_ERROR` **400** where the constructor is 422 by definition,
 which is why it could not use one — it is now a `TransportError`
-(`src/server/api.ts:1400`, the class at `src/server/services/errors.ts:13-23`),
+(`src/server/api.ts:1515`, the class at `src/server/services/errors.ts:13-23`),
 a separate enumeration for the refusals that are about the request rather than
 about the ledger, so `VALIDATION_ERROR` means one status again and the code an
 MCP tool can raise stays the service half alone.
@@ -291,9 +291,9 @@ array. Showing the envelope is how "A budget cannot be negative" reached the
 screen as "Request validation failed".
 
 The client digs the messages out of the details
-(`src/client/api.ts:113-119`, discriminating on `path` so a CSV parser's errors
+(`src/client/api.ts:143-149`, discriminating on `path` so a CSV parser's errors
 fall through), deduplicates them on the field-and-sentence pair rather than the
-sentence (`:127-135`), and shows those in preference to the envelope (`:139`).
+sentence (`:157-165`), and shows those in preference to the envelope (`:169`).
 Which means schema messages are user-facing: write them that way.
 
 *Checked by:* `human` on the phrasing; `tests/domain.test.ts` pins several

@@ -208,6 +208,10 @@ integration("a frozen account", () => {
     // was unanswerable about a request that had given two.
     await expect(transfer(ids.First!, ids.Fourth!)).rejects.toThrow(/"Fourth" is frozen/);
     await expect(transfer(ids.Fourth!, ids.First!)).rejects.toThrow(/"Fourth" is frozen/);
+    // The limit the sentence names, and which account it is about, as fields.
+    await expect(transfer(ids.First!, ids.Fourth!)).rejects.toMatchObject({
+      details: { accountId: ids.Fourth, limit: MAX_FREE_ACCOUNTS },
+    });
   });
 
   it("refuses a change to the account's own details, a rename included", async () => {

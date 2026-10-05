@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
+import { renamedRoutes } from "./support/routes.js";
 
 /**
  * An id out of the URL has to be checked before it reaches a query.
@@ -29,9 +30,10 @@ describe("ids taken out of the URL", () => {
     // registered against the same one as its replacement, which is where the
     // check lives — so counting it here would demand a `pathId` call that would
     // be a second parse of the same id.
-    const idRoutes = [
-      ...source.matchAll(/app\.\w+\(\s*"(\/api\/v1[^"]*:id[^"]*)",\s*(deprecated\()?/g),
-    ].filter((match) => !match[2]);
+    const renamed = renamedRoutes(source);
+    const idRoutes = [...source.matchAll(/app\.(\w+)\(\s*"(\/api\/v1[^"]*:id[^"]*)"/g)].filter(
+      (match) => !renamed.has(`${match[1]!.toUpperCase()} ${match[2]}`),
+    );
     expect(idRoutes.length).toBeGreaterThan(10);
     expect(source).toContain("uuidPathSchema");
     expect(source.match(/pathId\(c/g)?.length).toBeGreaterThanOrEqual(idRoutes.length);

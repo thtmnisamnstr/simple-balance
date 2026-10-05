@@ -856,7 +856,7 @@ export function assertAccountsWritable(freeze: AccountFreeze, ids: Iterable<stri
     if (name !== undefined) {
       throw validationError(
         frozenAccountRefusal(freeze.limit, name),
-        undefined,
+        { accountId: id, limit: freeze.limit },
         `"${name}" is frozen: the plan in force keeps ${freeze.limit} accounts active and closes the rest to every change to what they hold. No argument you can change gets past this. whoami reports the plan and its ceiling, list_accounts reports \`frozen\` on each account, and a frozen one comes back into use only when somebody archives or deletes an account that is in use, or the person upgrades from a browser. Archiving the frozen account itself, or deleting it while nothing is on it, is allowed and frees no place.`,
       );
     }

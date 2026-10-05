@@ -1429,7 +1429,7 @@ again beside itself. Both landed after the 0.2.0 sandbox smoke test found
 refusals only at the top of the form. The two things this note used to name as
 missing are what made it possible. The path is kept: `ApiClientError.issues`
 (`src/client/api.ts:52`) carries each sentence with the dotted request path it
-is about, and `errorIssues` (`:160`) hands the summary that list, with `path:
+is about, and `errorIssues` (`:190`) hands the summary that list, with `path:
 null` for anything that is not a field's — a duplicate-name conflict, a network
 failure. And there is a registry, per form rather than per page: `Form` and
 `FormErrors` (`src/client/components.tsx:454-475`) put one refusal in a context
@@ -1895,7 +1895,7 @@ produced by the first.
 The mixed state is already handled. `SelectionCheckbox`
 (`src/client/components.tsx:187-202`) takes an `indeterminate` prop and writes it
 onto the DOM node in an effect, because React does not expose it, and all three
-select-all checkboxes pass it: `TransactionBrowser.tsx:1078`,
+select-all checkboxes pass it: `TransactionBrowser.tsx:1089`,
 `TemplatesPage.tsx:495`, `StagingPage.tsx:1030`.
 
 *Checked by:* `tests/bulk-row-cap.test.ts` and the server-side selection tests
@@ -1945,7 +1945,7 @@ puts both in the menu and shows no icon at all.
 
 The register is the full shape — Edit and Delete as icons, then a menu holding
 Clone, Save as template and Save as recurring
-(`src/client/TransactionBrowser.tsx:1357-1414`) — and the staged queue is the
+(`src/client/TransactionBrowser.tsx:1368-1425`) — and the staged queue is the
 same with Commit in front (`src/client/pages/StagingPage.tsx:1347-1391`).
 Templates and Recurring have exactly two and put both in the menu
 (`TemplatesPage.tsx:654-667`, `RecurrencesPage.tsx:318-331`). Nine

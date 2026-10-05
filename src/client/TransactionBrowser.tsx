@@ -17,6 +17,7 @@ import { Link, payeeDetailSearch, useLocation, withoutLedgerText } from "./route
 import {
   api,
   ApiClientError,
+  download,
   json,
   queryString,
   type Account,
@@ -356,6 +357,9 @@ export function TransactionBrowser({
     enabled: selection.mode === "filter",
     staleTime: Number.POSITIVE_INFINITY,
     refetchOnWindowFocus: false,
+  });
+  const exportMutation = useMutation({
+    mutationFn: () => download(`/api/v1/csv/export?${queryString(params)}`),
   });
   const deleteMutation = useMutation({
     mutationFn: ({
@@ -846,9 +850,13 @@ export function TransactionBrowser({
 
   const actions = (
     <>
-      <a className="button button-secondary" href={`/api/v1/csv/export?${queryString(params)}`}>
+      <Button
+        variant="secondary"
+        onClick={() => exportMutation.mutate()}
+        loading={exportMutation.isPending}
+      >
         <Download size={16} /> Export CSV
-      </a>
+      </Button>
       {allowCreate ? (
         <Button
           onClick={() => setEditing("new")}
@@ -1024,6 +1032,9 @@ export function TransactionBrowser({
         <Alert>{filterSelectionPreview.error.message}</Alert>
       ) : null}
       {bulkDeleteMutation.error ? <Alert>{bulkDeleteMutation.error.message}</Alert> : null}
+      {exportMutation.error ? (
+        <Alert takeFocus>Nothing was exported. {exportMutation.error.message}</Alert>
+      ) : null}
       {bulkNotice ? (
         <Alert kind={bulkNotice.kind} takeFocus>
           {bulkNotice.message}

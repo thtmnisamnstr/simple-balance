@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
+import { renamedRoutes } from "./support/routes.js";
 
 /**
  * The route tables in `docs/standards/http.md` against the routes the server
@@ -36,13 +37,17 @@ async function allRoutes() {
   const source = await readFile(apiPath, "utf8");
   const surface: string[] = [];
   const deprecated: { route: string; successor: string }[] = [];
-  for (const match of source.matchAll(
-    /app\.(get|post|put|delete)\(\s*"(\/api\/v1[^"]*)",\s*(deprecated\("([^"]+)"\))?/g,
-  )) {
+  const renamed = renamedRoutes(source);
+  for (const match of source.matchAll(/app\.(get|post|put|delete)\(\s*"(\/api\/v1[^"]*)"/g)) {
     const route = `${match[1]!.toUpperCase()} ${match[2]}`;
-    if (match[3]) deprecated.push({ route, successor: match[4]! });
+    const successor = renamed.get(route);
+    if (successor) deprecated.push({ route, successor });
     else surface.push(route);
   }
+  // A table entry no route answers to would mark a path that 404s anyway.
+  expect(
+    [...renamed.keys()].filter((route) => !deprecated.some((one) => one.route === route)),
+  ).toEqual([]);
   return { surface, deprecated };
 }
 
@@ -176,9 +181,7 @@ describe("the paths kept alive across a rename", () => {
     const { surface, deprecated } = await allRoutes();
     const missing = deprecated.filter(
       ({ route, successor }) =>
-        !surface.includes(
-          `${route.slice(0, route.indexOf(" "))} ${successor.replace(/\{([^}]+)\}/g, ":$1")}`,
-        ),
+        !surface.includes(`${route.slice(0, route.indexOf(" "))} ${successor}`),
     );
     expect(missing).toEqual([]);
   });

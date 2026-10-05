@@ -81,6 +81,24 @@ and the next `up` makes the key.
   example, "Choose the account the money comes from" where 0.2.0 passed on
   "Invalid input: expected string, received undefined". The `field` beside it
   is unchanged, and a field that is present but wrong keeps the wording it had.
+- **Eight refusals carry their number in `details`.** The CSV byte and row
+  caps carry `{field: "csv", limit}`, the export cap and the two report bounds
+  `{limit}`, the register bound `{limit, postingCount}`, the 413
+  `{limit}`, and the frozen-account refusal `{accountId, limit}`. Each was a
+  refusal with no `details` at all, so nothing a client read is gone; the
+  frozen refusal keeps its `422 VALIDATION_ERROR`.
+- **Every response on a renamed path carries `Deprecation`, `Sunset` and
+  `Link`**, including the 401, 403, 413 and 415 refused before the route,
+  which went without them in 0.2.0. The `successor-version` link names the id
+  the request was sent with — `</api/v1/accounts/<id>/archived>` — where it
+  was the literal `{id}` template, and the `deprecation` link points at the
+  0.1.6 changelog entry rather than the top of the file. The four old paths
+  still answer until the sunset, March 1, 2027.
+- **A cross-origin `403` and a `415` carry `Cache-Control: no-store`**, which
+  every other `/api/v1` response already did.
+- **`Accept: text/event-stream;q=0` gets JSON.** 0.2.0 sent frames to any
+  `Accept` containing the type; a weight of zero now means no, as RFC 9110
+  says. A wildcard alone never asked for frames and still does not.
 - **Archiving or deleting a frozen account succeeds.** 0.2.0 refused both
   with `422 VALIDATION_ERROR` naming the account, over HTTP and MCP alike; they
   now behave as they do on any account, so a delete still needs nothing on the

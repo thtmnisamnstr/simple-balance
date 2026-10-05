@@ -39,7 +39,7 @@ exactly this and are correct. What a key must not carry is anything that does
 not survive `JSON.stringify` — a function, a class instance, a `Map` — because
 structural hashing flattens those and two different questions become one entry.
 An earlier version of this sentence banned objects outright, which would have
-flagged all three — `:287`, `:315` and `:351` — and
+flagged all three — `:288`, `:316` and `:352` — and
 `tests/query-keys.test.ts:16-24` records why the check declines to.
 
 **That three is a hand count, and nothing holds it.** It was written in two
@@ -236,10 +236,10 @@ The two deciders live in `src/shared/domain.ts` and are imported by no file in
 what somebody may do, and `frozenAccountIds`, which turns that into a set of
 ids. Both are reachable — the module boundary allows it — and both are named in
 the client only in comments explaining why they are not called
-(`src/client/api.ts:503-507`, `src/client/TransactionBrowser.tsx:433`). What
+(`src/client/api.ts:533-537`, `src/client/TransactionBrowser.tsx:437`). What
 the browser reads instead is the answer: `frozen` on each account
-(`src/client/api.ts:511`), and an ad that exists only because the server sent a
-placement at all (`src/server/api.ts:1467`, `src/client/ads.tsx:7-14`).
+(`src/client/api.ts:541`), and an ad that exists only because the server sent a
+placement at all (`src/server/api.ts:1582`, `src/client/ads.tsx:7-14`).
 
 **The obvious alternative was to compute it in the browser from the session**,
 which is one import and looks like 2.2 being obeyed. It is wrong three times

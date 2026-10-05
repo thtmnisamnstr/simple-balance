@@ -781,7 +781,7 @@ it was given, the range it had to be in, and the number in force instead — and
 is printed once per name at startup, in front of whoever just deployed. What was
 kept from the first pass is the part that mattered most: all six are read at
 startup rather than at the call site. `configuredCsvMaxRows()` used to run inside
-an import (`src/server/services/import-export.ts:751`) and the recurrence limits
+an import (`src/server/services/import-export.ts:754`) and the recurrence limits
 inside a tick, so a message about either arrived hours later in a log nobody was
 reading, or on a deployment that never imported a CSV, not at all.
 `assertConfiguredLimits()` (`src/server/config-limits.ts:224-231`) reads all six
@@ -1094,7 +1094,7 @@ shutdown, is the slow half.** Migrations run at startup under advisory lock
 (`src/server/index.ts:28,78`; `src/server/scheduler.ts:73,101`), so readiness
 cannot open before they finish. The 0.1.5 notes record that the payee index
 "takes a moment to build while the container starts, before it opens readiness"
-(`docs/upgrades.md:1138-1140`). So the generous number is `--start-period`,
+(`docs/upgrades.md:1156-1158`). So the generous number is `--start-period`,
 currently 20s (`Dockerfile:58`), plus a Kubernetes startup probe. Not the
 shutdown deadline.
 

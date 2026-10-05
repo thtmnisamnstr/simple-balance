@@ -1414,6 +1414,7 @@ export async function listAllTransactions(
       if (all.length > maxRows) {
         throw validationError(
           `Export exceeds ${maxRows.toLocaleString("en-US")} rows. Narrow it with a start and end date and export one range at a time.`,
+          { limit: maxRows },
         );
       }
       if (rows.length < batchSize) return all;

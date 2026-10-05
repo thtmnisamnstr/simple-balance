@@ -101,6 +101,10 @@ describe("the CSV preview", () => {
     const csv = `date,payee,amount\n${"2026-01-01,Someone,1.00\n".repeat(50)}`;
     expect(() => getCsvPreview(csv)).toThrow(AppError);
     expect(() => getCsvPreview(csv)).toThrow(/64-byte limit/);
+    // And as a field, so a client never parses the sentence for the number.
+    expect(() => getCsvPreview(csv)).toThrow(
+      expect.objectContaining({ details: { field: "csv", limit: 64 } }),
+    );
   });
 
   it("still previews a file within the limit", () => {

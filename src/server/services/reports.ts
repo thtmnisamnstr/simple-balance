@@ -201,6 +201,7 @@ export async function getReport(actor: Actor, input: unknown, includeArchived = 
   if (gridRows.rows.length > MAX_REPORT_BUCKETS) {
     throw validationError(
       `That range needs more than ${MAX_REPORT_BUCKETS} ${bucket} columns, which is the most a report will draw. Ask for a coarser bucket or a shorter range.`,
+      { limit: MAX_REPORT_BUCKETS },
     );
   }
   const buckets = clip(
@@ -632,6 +633,7 @@ export async function getAccountRegister(actor: Actor, id: string, input: unknow
   if (total > MAX_REGISTER_ENTRIES) {
     throw validationError(
       `That range holds ${total} postings, and ${MAX_REGISTER_ENTRIES} is the most a register will list. Ask for a shorter range.`,
+      { limit: MAX_REGISTER_ENTRIES, postingCount: total },
     );
   }
 

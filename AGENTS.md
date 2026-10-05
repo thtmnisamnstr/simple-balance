@@ -163,7 +163,7 @@
   postings, require idempotency; a record somebody names is protected by its own
   name being unique, so a second submit fails rather than duplicating. Bulk
   commits are explicit-ID, validate-first, and atomic. The active-account choice
-  is the one update that carries neither, and the reason is in its shape: it
+  is the one update to a ledger record that carries neither, and the reason is in its shape: it
   states the whole set that stays active, so sending it a second time leaves
   exactly the state the first call left, and what serializes it is
   `lockAccountNamespace` rather than a version — an expected version would not
@@ -171,7 +171,12 @@
   no version either, because `active` is not reachable through the account edit
   schema, so a bump would invalidate the expected version in every form somebody
   had open over a column they were not editing. That is the trade the
-  category-group rule below already makes.
+  category-group rule below already makes. Three account-management writes take
+  no version either, each argued in `docs/standards/http.md` and held to a
+  register by `tests/http-version-and-idempotency.test.ts`: saving preferences,
+  which writes only the fields it names; revoking an agent, where revoking twice
+  is revoking; and deleting the account, which leaves nothing for a stale
+  version to protect.
 - Ten thousand rows is the cap, and it is the same number everywhere: a mass
   edit, a mass delete, a commit, and a CSV import. An import that stages more
   than one action can clear is a cap doing damage. A filtered selection is
@@ -433,7 +438,7 @@ disagreement rather than quietly losing it.
 Two habits from those guides are worth knowing before the first edit, because
 both look like mistakes:
 
-- **Comments are dense on purpose** — 26.3% of non-blank lines in `src`. They
+- **Comments are dense on purpose** — 26.4% of non-blank lines in `src`. They
   carry why the obvious alternative is wrong. Do not tidy them away.
   (`docs/standards/code/comments.md`.)
 - **Some loops must not be parallelized.** Legs resolve one at a time so two

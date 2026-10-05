@@ -631,6 +631,6 @@ export const importBatchListQuerySchema = z.object({
     .max(100)
     .default(25)
     .describe(
-      "Batches per page, 1 to 100. Defaults to 25, lower than the other lists because a batch summary is bigger.",
+      "Batches per page, 1 to 100. Defaults to 25, lower than the other lists because each batch's staged count is worked out when the page is read.",
     ),
 });

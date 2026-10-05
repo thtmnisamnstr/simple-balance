@@ -26,6 +26,26 @@ import {
  */
 const FRAME_INTERVAL_MS = 250;
 
+/**
+ * Whether an `Accept` header asks for frames.
+ *
+ * Read as RFC 9110 §12.5.1 reads it rather than as a substring: a media range
+ * with `q=0` is "not acceptable", so `text/event-stream;q=0` is a caller saying
+ * it cannot read frames, and the substring test sent them anyway. Nothing that
+ * sends `q=0` can be relying on getting them, so honoring it breaks nobody.
+ * Only this type is weighed. A wildcard does not ask for frames, because a
+ * caller sending one has said nothing about a format it may never have heard
+ * of, and the JSON answer is the one every client reads.
+ */
+export function acceptsFrames(accept: string | undefined): boolean {
+  return (accept ?? "").split(",").some((range) => {
+    const [type = "", ...parameters] = range.split(";").map((part) => part.trim());
+    if (type.toLowerCase() !== PROGRESS_MEDIA_TYPE) return false;
+    const weight = parameters.find((parameter) => /^q\s*=/i.test(parameter));
+    return weight === undefined || Number(weight.split("=")[1]) > 0;
+  });
+}
+
 /** What a service is handed to say where it has got to. */
 export type ProgressReporter = (event: ProgressEvent) => void;
 

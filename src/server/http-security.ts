@@ -437,8 +437,12 @@ function errorResponse(
   // is what somebody remembered.
   code: TransportErrorCode,
   message: string,
+  // Only the size cap passes any: it is the one transport refusal whose
+  // sentence names a number, and `http.md` rules that a number in a message is
+  // a field in the details too, so a client never parses the sentence for it.
+  details?: Record<string, unknown>,
 ) {
-  return context.json({ error: { code, message } }, status);
+  return context.json({ error: details ? { code, message, details } : { code, message } }, status);
 }
 
 function contentType(request: Request) {
@@ -964,6 +968,7 @@ export function boundRequestBody(options: BodyLimitOptions): MiddlewareHandler {
         413,
         "PAYLOAD_TOO_LARGE",
         `Request body exceeds the ${maxBytes}-byte limit`,
+        { limit: maxBytes },
       );
     }
 
@@ -1009,6 +1014,7 @@ export function boundRequestBody(options: BodyLimitOptions): MiddlewareHandler {
           413,
           "PAYLOAD_TOO_LARGE",
           `Request body exceeds the ${maxBytes}-byte limit`,
+          { limit: maxBytes },
         );
       }
       chunks.push(value);

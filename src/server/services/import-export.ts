@@ -75,7 +75,10 @@ import { csvRowsStaged } from "../metrics.js";
 export function assertCsvWithinSizeLimit(csv: string) {
   const maxBytes = configuredCsvMaxBytes();
   if (Buffer.byteLength(csv, "utf8") > maxBytes) {
-    throw validationError(`CSV exceeds the ${maxBytes}-byte limit`);
+    throw validationError(`CSV exceeds the ${maxBytes}-byte limit`, {
+      field: "csv",
+      limit: maxBytes,
+    });
   }
 }
 
@@ -759,6 +762,7 @@ export async function stageCsv(
   if (parsedCsv.data.length > maxRows) {
     throw validationError(
       `CSV exceeds the ${maxRows}-row limit. A larger export can be filtered by date and imported one range at a time.`,
+      { field: "csv", limit: maxRows },
     );
   }
   if (

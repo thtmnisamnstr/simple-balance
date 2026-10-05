@@ -143,6 +143,30 @@ tell whoever runs the server if it keeps happening. An agent refused for
 missing a scope is told which scope and to ask the person to reconnect, rather
 than "Forbidden".
 
+**An export that is too large says so in the app.** Exporting more than a
+hundred thousand transactions is refused with a sentence saying to export one
+date range at a time, and the Export button followed a link, so that sentence
+arrived as a page of raw JSON in place of the app — as did a session that had
+lapsed. The button now fetches the file and shows a refusal where you are.
+
+**A refusal that names a number carries it as a field.** The CSV size and row
+limits, the export limit, the request size limit, the report and register
+limits and the frozen-account refusal said their number only in the sentence,
+so a program had to read English to learn it. Each now carries `limit` in its
+details, as the bulk and plan limits always did.
+
+**Old API paths say they are going, even when they refuse.** The four paths
+renamed in 0.1.6 marked themselves deprecated only once a request reached
+them, so a signed-out request — the first thing an old tab meets after its
+session lapses — got a plain 401. Every response on an old path now carries the
+deprecation headers, and the link to the new path names the real id rather than
+`{id}`. A cross-origin or wrong-content-type refusal is now marked uncacheable
+like every other `/api/v1` response.
+
+**A client that declines progress frames gets none.** An `Accept` header
+weighing `text/event-stream` at `q=0` — "not acceptable" — still got frames;
+it now gets the JSON answer.
+
 **The account-deletion summary counts what is actually in the queue.** It
 counted every staged row ever kept, so somebody with an empty queue was told
 thousands of staged rows were about to be deleted.

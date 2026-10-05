@@ -294,7 +294,7 @@ A stored `periodStart` is therefore a **name for a period**, not a boundary to
 compare dates against.
 
 The read side widens spending to whole periods at **both** ends
-(`src/server/services/budgets.ts:1195`):
+(`src/server/services/budgets.ts:1196`):
 
 ```sql
 and p.date >= date_trunc(${unit}, ${queryStart}::date)::date
@@ -378,7 +378,7 @@ Five sites were found this way and all five name both columns:
 `src/server/services/accounts.ts:538` and `:643`,
 `src/server/services/summary.ts:59`, and the two written in Drizzle's builder,
 `src/server/services/category-groups.ts:74` and
-`src/server/services/import-export.ts:135`.
+`src/server/services/import-export.ts:138`.
 
 The obvious alternative is to leave it until there is a cluster to fail on.
 Grouping by the id alone is legal today, passes the entire suite, and breaks the

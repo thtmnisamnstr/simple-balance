@@ -86,6 +86,36 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 /**
+ * A file the server writes, saved the way a link would save it, except that a
+ * refusal is read as one.
+ *
+ * The export was a plain link, so a refusal — an export over the row cap, a
+ * session that had lapsed — opened the JSON envelope as a page of raw text in
+ * place of the app, and the sentence naming the remedy was there only for
+ * somebody willing to read braces. Fetched instead, a refusal throws the same
+ * `ApiClientError` every other call does and the page shows its sentence. The
+ * filename is the server's, from `Content-Disposition`, so the dated name it
+ * picks in the person's own timezone survives the detour.
+ */
+export async function download(path: string): Promise<void> {
+  const response = await fetch(path, { credentials: "include" });
+  if (!response.ok) {
+    throw refusalFrom(
+      await response.json().catch(() => null),
+      response.statusText,
+      response.status,
+    );
+  }
+  const named = /filename="([^"]+)"/.exec(response.headers.get("Content-Disposition") ?? "");
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = named?.[1] ?? "export.csv";
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+/**
  * One refusal envelope, read the same way wherever it arrives.
  *
  * A streamed reply cannot use a status code — its 200 went out with the first

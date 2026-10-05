@@ -2,6 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { readdir, readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
+import { renamedRoutes } from "./support/routes.js";
 import { createMcpServer } from "../src/server/mcp.js";
 import { listQuerySchema, stageListQuerySchema } from "../src/shared/domain.js";
 import { sourceFiles, topLevelDeclarations, type SourceFile } from "./support/source.js";
@@ -120,16 +121,16 @@ const COVERED_BY: Record<string, string> = {
 async function registeredRoutes() {
   const source = await readFile(new URL("../src/server/api.ts", import.meta.url), "utf8");
   const routes = new Set<string>();
-  for (const match of source.matchAll(
-    /app\.(get|post|put|delete)\(\s*"(\/api\/v1[^"]*)",\s*(deprecated\()?/g,
-  )) {
+  const renamed = renamedRoutes(source);
+  for (const match of source.matchAll(/app\.(get|post|put|delete)\(\s*"(\/api\/v1[^"]*)"/g)) {
+    const route = `${match[1]!.toUpperCase()} ${match[2]}`;
     // A path kept alive across a rename is the same capability under its old
     // spelling, registered against the same handler. Counting it here would ask
     // for a second tool and a second browser call for one thing, which is the
     // opposite of what parity is about. `tests/http-route-table.test.ts` holds
     // these to naming a successor that exists.
-    if (match[3]) continue;
-    routes.add(`${match[1]!.toUpperCase()} ${match[2]}`);
+    if (renamed.has(route)) continue;
+    routes.add(route);
   }
   return routes;
 }

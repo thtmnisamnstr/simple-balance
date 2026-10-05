@@ -242,7 +242,7 @@ convention expects.
 answer: that the list items stay at the five that earned their shape, and that
 the lines running past 80 columns do not grow past where they already are.
 *Not checked:* that the top heading matches `package.json`. That is a hand step
-in the release recipe at `docs/upgrades.md:1375`, step 4, "Date the
+in the release recipe at `docs/upgrades.md:1393`, step 4, "Date the
 `## Unreleased` heading in `CHANGELOG.md`", and it has already been the subject
 of a commit ("Date 0.1.4 the day it is cut"). Nor is whether an entry describes
 a change somebody would notice, which is the judgement this section is mostly
@@ -348,12 +348,12 @@ publish runs `npm run verify` first, so an unwritten note now stops the release
 rather than reaching an operator mid-upgrade. *Also checked:* the frozen
 migration list, which `tests/migrations.test.ts` holds to what is on disk.
 *Not checked:* the changelog heading, a hand step in the release recipe at
-`docs/upgrades.md:1375`, and which release a migration is attributed to, which
+`docs/upgrades.md:1393`, and which release a migration is attributed to, which
 is prose inside a list a test can only check the membership of.
 
 ## Upgrade notes
 
-**Binding, quoting `AGENTS.md:329-377`, the frozen migration list:** "Every
+**Binding, quoting `AGENTS.md:334-382`, the frozen migration list:** "Every
 migration that has shipped is frozen" and "Never edit or regenerate one:
 someone's database has already run it, and changing it would leave their schema
 and its recorded history disagreeing." What follows is the documentation the
@@ -363,7 +363,7 @@ end of the bullet — it grew, and the number did not.
 
 **House, the shape.** A `## Before you upgrade to X.Y.Z` section, and its first
 sentence tells an operator whether they can stop reading. The 0.1.6 note at
-`docs/upgrades.md:1061-1062` is the model: "Nothing refuses to start that 0.1.5
+`docs/upgrades.md:1079-1080` is the model: "Nothing refuses to start that 0.1.5
 accepted, and nothing about an existing configuration has to change. Five
 things are worth knowing." The 0.1.4 section is the other model, because the
 answer there was different: "0.1.4 refuses to start on three configurations
@@ -493,7 +493,7 @@ The reasoning, which is what the next person should argue with:
 So, taking Nygard's Status field and immutability rule without the ceremony:
 
 - **House. A recorded decision names the release it was made in.** The exemplar
-  is `AGENTS.md:329-377`, the frozen migration list, which names every migration
+  is `AGENTS.md:334-382`, the frozen migration list, which names every migration
   and the release it shipped in, and is the most reliable section in the file
   for exactly that reason.
 - **House. A reversal edits the old text to say it is superseded, and says by
@@ -848,7 +848,7 @@ What is checked:
 
 | Correspondence | Checked by |
 | --- | --- |
-| Every MCP tool name appears in `docs/mcp.md` | `tests/mcp-parity.test.ts:307-317`, by name rather than by count, "so the failure says which" |
+| Every MCP tool name appears in `docs/mcp.md` | `tests/mcp-parity.test.ts:308-318`, by name rather than by count, "so the failure says which" |
 | Every pinned image tag in the tree matches the release, *and* is a file `set-version` rewrites | `tests/version.test.ts:232-262`, which finds them by sweeping the repository rather than by holding a list — the list had gone stale once, leaving a third file deploying the release it was written during |
 | The product backlog's version matches the manifest | `tests/version.test.ts:321-323` |
 | `docs/deployment.md`'s settings tables against `.env.example` and `deploy/compose/.env.example`, both directions | `tests/env-example.test.ts`, which documents every variable an example names and shows an example of every variable the tables document, and holds its own two exception lists to being genuinely exceptional. Two of the four example files are outside this row: `deploy/compose/single/.env.example` and `deploy/compose/single/.env.postgres.example` arrived with the `single` profile, and no table on the deployment page describes either |
@@ -1026,7 +1026,7 @@ that moved them "fixed" the history into something false: one landed on prose
 it claims is a closing fence. So a number quoted as it once was is written
 `` `AGENTS.md`:289-326 ``, the line outside the backticks, which no check and
 no repoint pass reads as a pointer — and a citation meant to be followed is
-written as one span, `` `AGENTS.md:289` ``, and is repointed when it drifts.
+written as one span, `` `AGENTS.md:294` ``, and is repointed when it drifts.
 
 *Checked by:* `tests/standards-citations.test.ts`, as far as a test can go: that
 the file exists, that the lines are inside it, that a range does not run

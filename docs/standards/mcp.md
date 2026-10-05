@@ -218,7 +218,7 @@ to be argued again rather than quietly standing.
   ones deprecated in their descriptions; the notification is not a migration
   plan on its own.
 
-*Checked by:* `tests/mcp-parity.test.ts:312-317` fails a registered tool that
+*Checked by:* `tests/mcp-parity.test.ts:313-318` fails a registered tool that
 `docs/mcp.md` does not name, because "the guide fell seventeen tools behind
 before anything noticed". *Also checked by:* `tests/mcp-parity.test.ts` for the
 one regex that covers the rest — the character set and the 1-to-128 length, the
@@ -345,11 +345,11 @@ Further rules:
 *Checked by:* `tests/mcp-measurements.test.ts` for the spellings, which counts
 the losing one and holds it at zero — a count rather than a list, so a
 seventeenth "this person" needs no edit and a third "this user's" fails. And
-`tests/mcp-parity.test.ts:427-445`, which asserts only
+`tests/mcp-parity.test.ts:428-446`, which asserts only
 `length > 30`. All 77 pass, including the 12 under a hundred characters. The same
 file also holds the set of descriptions allowed to name a scope at all
-(`:494-506`), which is the narrowed rule above, and pins the naming and title
-rules (`:461-482`). *Also checked by:* `tests/mcp-measurements.test.ts:172-182`
+(`:495-507`), which is the narrowed rule above, and pins the naming and title
+rules (`:462-483`). *Also checked by:* `tests/mcp-measurements.test.ts:172-182`
 for the warning word on a destructive tool, which is the sentence above read
 back off the surface: it holds both of that sentence's numbers, so a destructive
 tool added without a confirm-or-undo word leaves the first alone, moves the
@@ -496,7 +496,7 @@ unrepresentable, so the model's own sampling cannot produce it.
   is in use", which is what somebody opening an account needs and is not what
   the parameter does on a listing. `currency` filters entries rather than
   accounts: it matches a row either of whose sides carries that code
-  (`src/server/services/transactions.ts:1552-1559`), so a conversion comes back
+  (`src/server/services/transactions.ts:1553-1560`), so a conversion comes back
   under both of its currencies and a filtered page is not a page in one
   currency, which is the thing an agent totaling it has to know. It used to
   read that way at five published positions — on `list_transactions` and
@@ -530,7 +530,7 @@ unrepresentable, so the model's own sampling cannot produce it.
   shallow rather than deep, which is the property the bound is about, and it is
   overwhelmingly nullability rather than genuine union.
 
-*Checked by:* `tests/mcp-parity.test.ts:508-529`, which pins three listings to
+*Checked by:* `tests/mcp-parity.test.ts:509-530`, which pins three listings to
 the schema their service actually parses, `list_transactions`,
 `list_staged_transactions` and `list_import_batches`, because "a tool declaring
 a wider schema than its service parses is worse than a missing filter".
@@ -559,12 +559,12 @@ them more often.
 | Token holds | Tools | `tools/list` characters | Approx tokens |
 | --- | --- | --- | --- |
 | no ledger scope | 0 | `tools/list` is not offered at all | 0 |
-| `ledger:read` | 37 | 170,082 | ~43,000 |
-| `ledger:stage` | 42 | 209,596 | ~52,000 |
-| `ledger:write` | 77 | 487,050 | ~122,000 |
+| `ledger:read` | 37 | 170,118 | ~43,000 |
+| `ledger:stage` | 42 | 209,632 | ~52,000 |
+| `ledger:write` | 77 | 487,086 | ~122,000 |
 
 Composition at the write tier: names 1,467, titles 1,884, descriptions 28,273,
-input schemas 211,115, output schemas 227,740. **Descriptions are 5.8% of what
+input schemas 211,151, output schemas 227,740. **Descriptions are 5.8% of what
 an agent loads; names, titles and descriptions together are 6.5%.** Output
 schemas are 46.8%.
 
@@ -742,7 +742,7 @@ already existed.
   `list_staged_transactions`, `list_import_batches`, `list_audit_events`.
 - **House.** `nextCursor: null` means two things, end of list and ordering not
   keyset-resumable, and the envelope says which: `cursorAvailable` is on every
-  page of both listings (`src/server/services/transactions.ts:1507`), and
+  page of both listings (`src/server/services/transactions.ts:1508`), and
   `nextCursor`'s own description says that null means either "last page" or
   "this ordering cannot be resumed" and points at the flag. Before it, an agent
   walking a ledger under `sort: "account"` got one page, a null cursor, and no
@@ -944,10 +944,10 @@ claim, and a false claim is a defect.
   acting on one. The annotations are set because they are true, not because
   something is known to read them.
 
-*Checked by:* `tests/mcp-parity.test.ts:331-346`, which derives what a read-only
+*Checked by:* `tests/mcp-parity.test.ts:332-347`, which derives what a read-only
 token may see from `readOnlyHint` rather than from a roster, "because three
 recurrence write tools were added to the file in the read block and nobody had to
-remember" a list. *Also checked by:* `tests/mcp-parity.test.ts:363-391`, which
+remember" a list. *Also checked by:* `tests/mcp-parity.test.ts:364-392`, which
 closes the other direction: a tool annotated `readOnlyHint: true` whose handler
 reaches a service that writes a row. That is the worse failure of the two,
 because the annotation is what a client shows the person approving the call, and
@@ -1162,7 +1162,7 @@ it means choosing which half to defer to anyway.
   precedent, with the honest note that the protocol does not standardize how a
   client opts in.
 
-*Checked by:* `tests/mcp-parity.test.ts:338-346` and `:393-425`;
+*Checked by:* `tests/mcp-parity.test.ts:339-347` and `:394-426`;
 `tests/mcp-output.test.ts:218-227`, which asserts that a token holding no ledger
 scope gets no tools at all rather than merely missing the two the test was
 written for, "because naming them left the branch accepting any other tool
@@ -1197,7 +1197,7 @@ human witness.
   bookkeeping: deleting an account, setting a sign-in password, and the billing
   routes are reachable from a session and never from an MCP token."
 - **House.** An exception carries a written reason, not a name on a list. Nine
-  browser-only exceptions (`tests/mcp-parity.test.ts:20-39`) and one agent-only
+  browser-only exceptions (`tests/mcp-parity.test.ts:21-40`) and one agent-only
   each carry a paragraph. The count went to nine when billing landed, in the
   same change that added four of them, and this sentence stopped one short —
   which is what a count in prose beside a list in a test does.
@@ -1238,22 +1238,22 @@ human witness.
   established, it is an original practice, and it should be described as what it
   is rather than as evidence of quality.
 
-*Checked by:* `tests/mcp-parity.test.ts`, both directions. Forward at `:245-260`
-(every route reachable through a named tool) and `:276-305`, which extracts which
+*Checked by:* `tests/mcp-parity.test.ts`, both directions. Forward at `:246-261`
+(every route reachable through a named tool) and `:277-306`, which extracts which
 service each route and each tool calls and compares them, with a `compared` floor
-at `:302` guarding the regex from silently matching nothing. Backward at
-`:568-596`, which matches each route's whole path against `src/client`, each
+at `:303` guarding the regex from silently matching nothing. Backward at
+`:569-597`, which matches each route's whole path against `src/client`, each
 parameter standing in for a template hole rather than only the prefix before the
 first one: `/api/v1/accounts` is satisfied the moment anything fetches an
 account, which left every parameterized sub-route beneath it unchecked and a
-page free to stop calling one. Exceptions are policed at `:264-268`, which fails
-an exception naming a route that no longer exists, and at `:598-602`, which
+page free to stop calling one. Exceptions are policed at `:265-269`, which fails
+an exception naming a route that no longer exists, and at `:599-603`, which
 fails any agent-only reason under forty characters. Nothing measures the
 browser-only reasons; they stay a reviewer's job. The two forbidden capabilities
-are pinned by name at `:319-329`. *Also checked by:* `:767-795` for the field
+are pinned by name at `:320-330`. *Also checked by:* `:768-796` for the field
 level, which reads each listing route's schema and the page's own request object
 and fails a filter the route parses that the page cannot send, with a `compared`
-floor so a reader that stopped matching cannot pass on nothing; and `:755-761`,
+floor so a reader that stopped matching cannot pass on nothing; and `:756-762`,
 which fails a filter named as unoffered without a reason over forty characters,
 exactly as the route exceptions are policed.
 
@@ -1423,17 +1423,17 @@ which is an evaluation rather than a test.
 
 | Rule | Checked by |
 | --- | --- |
-| Every `/api/v1` route is reachable through a named tool, or is a named exception with a reason | `tests/mcp-parity.test.ts:245-260` |
-| A tool reaches the same service as its route | `tests/mcp-parity.test.ts:276-305` |
-| No route exists that no page calls, without a named exception | `tests/mcp-parity.test.ts:568-596` |
-| A listing page sends every filter its route parses, or names the one it does not with a reason | `tests/mcp-parity.test.ts:767-803`, for the register and the staged queue |
-| Deleting an account and setting a password are absent from the tool list | `tests/mcp-parity.test.ts:319-329` |
-| Every registered tool is named in `docs/mcp.md` | `tests/mcp-parity.test.ts:312-317` |
-| A read-only token sees nothing that declares itself a write | `tests/mcp-parity.test.ts:338-346` |
-| A listing declares the schema its service parses | `tests/mcp-parity.test.ts:515-529` |
+| Every `/api/v1` route is reachable through a named tool, or is a named exception with a reason | `tests/mcp-parity.test.ts:246-261` |
+| A tool reaches the same service as its route | `tests/mcp-parity.test.ts:277-306` |
+| No route exists that no page calls, without a named exception | `tests/mcp-parity.test.ts:569-597` |
+| A listing page sends every filter its route parses, or names the one it does not with a reason | `tests/mcp-parity.test.ts:768-804`, for the register and the staged queue |
+| Deleting an account and setting a password are absent from the tool list | `tests/mcp-parity.test.ts:320-330` |
+| Every registered tool is named in `docs/mcp.md` | `tests/mcp-parity.test.ts:313-318` |
+| A read-only token sees nothing that declares itself a write | `tests/mcp-parity.test.ts:339-347` |
+| A listing declares the schema its service parses | `tests/mcp-parity.test.ts:516-530` |
 | Every tool publishes a concrete two-member output schema | `tests/mcp-output.test.ts:26-52` |
 | A token with no ledger scope gets no tools | `tests/mcp-output.test.ts:218-227` |
-| A description is longer than thirty characters | `tests/mcp-parity.test.ts:427-445` |
+| A description is longer than thirty characters | `tests/mcp-parity.test.ts:428-446` |
 | A tool name is well formed and no title claims another tier's verb | `tests/mcp-parity.test.ts` |
 | The `tools/list` payload stays under its ceiling | `tests/mcp-measurements.test.ts`, and more strictly than a ceiling: each of the three tiers' exact character cost is pinned to the number this guide publishes, so a payload that grows fails whether or not it has passed a threshold |
 | A destructive tool's description warns | `tests/mcp-measurements.test.ts:172-182` |
@@ -1450,7 +1450,7 @@ which is an evaluation rather than a test.
 | A tool that cannot be undone says so, and a recoverable one says how to get back | `tests/mcp-measurements.test.ts` |
 | One spelling per concept across every description | `tests/mcp-measurements.test.ts` |
 | A mutating tool takes an idempotency key | `tests/mcp-measurements.test.ts:519-556` |
-| `readOnlyHint` is true only where nothing the handler calls writes, and a read-only token sees nothing else | `tests/mcp-parity.test.ts:338-346` and `:363-391`, both substantive directions |
+| `readOnlyHint` is true only where nothing the handler calls writes, and a read-only token sees nothing else | `tests/mcp-parity.test.ts:339-347` and `:364-392`, both substantive directions |
 | A tool annotated `readOnlyHint: true` is registered behind a write scope | `tests/mcp-protocol-surface.test.ts`, off `TOOL_SCOPES`. Empty today: all 37 read-only tools are in the read block. It would waste a tier's tool list rather than lie about one, which is why it is the residue rather than the rule — and why the failure that matters is the agent's: a `ledger:read` token asking for a report it is entitled to is told the tool is absent, and `instructions` gives it nothing else to go on |
 | Tool order is deterministic | `tests/mcp-protocol-surface.test.ts`, which pins the whole 77-name order and that each tier's list is that order filtered. Registration order is the de facto order and is met by construction; what the check buys is that a silent reorder costs a prompt-cache miss on 486,889 characters and is indistinguishable in a diff from a tool being added |
 | CIMD is offered before DCR, and the documents say which is current | **Not a rule.** The priority order is a rule for a *client* choosing how to obtain a client id, and a server that advertises no CIMD support moves the client to the fallback this deployment implements. Concluded in the specification-gaps section below, where this row used to contradict it |

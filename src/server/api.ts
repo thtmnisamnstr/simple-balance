@@ -6,7 +6,7 @@ import {
   withMcpAuth,
 } from "better-auth/plugins";
 import { eq, sql } from "drizzle-orm";
-import { Hono, type Context, type Handler, type MiddlewareHandler } from "hono";
+import { Hono, type Context, type Handler } from "hono";
 import { getCookie } from "hono/cookie";
 import { secureHeaders } from "hono/secure-headers";
 import type { PoolClient } from "pg";
@@ -65,8 +65,8 @@ import {
 import { serveMetrics } from "./metrics-route.js";
 import { runAsBootstrapClaim } from "./registration-context.js";
 import { APP_VERSION } from "../shared/version.js";
-import { streamProgress } from "./stream.js";
-import { PROGRESS_MEDIA_TYPE, type ApiErrorEnvelope } from "../shared/progress.js";
+import { acceptsFrames, streamProgress } from "./stream.js";
+import type { ApiErrorEnvelope } from "../shared/progress.js";
 import {
   getMcpJwks,
   issueMcpAccessToken,
@@ -1349,6 +1349,126 @@ if (adsEnabled()) {
   });
 }
 
+/**
+ * When they were deprecated, and when they stop answering.
+ *
+ * `Deprecation` carries a date rather than `true`: RFC 9745 supersedes the
+ * draft that spelled it as a boolean, and its value "MUST be a Date as per
+ * Section 3.3.7 of RFC 9651", which on the wire is `@` and seconds since the
+ * epoch. The first version of this shipped `true`, which is the draft nobody
+ * implements anymore.
+ *
+ * The sunset is 188 days after the deprecation, which clears the ninety days
+ * and the one minor release `docs/standards/http.md` asks for. It was a date in
+ * the past for a while — a window that had closed before the release carrying
+ * it shipped, which tells a client the path is already gone while it is still
+ * answering. `tests/http-route-table.test.ts` now reads both values as dates and
+ * fails once the sunset is in the past, so the day it expires is a decision
+ * somebody makes rather than a promise that quietly went stale.
+ */
+const RENAMED_PATH_DEPRECATION = "@1787616000";
+const RENAMED_PATH_SUNSET = "Mon, 01 Mar 2027 00:00:00 GMT";
+/**
+ * The changelog entry, not the changelog. `http.md` asks the `deprecation`
+ * relation to point at the entry that announced the change, and the whole file
+ * is three thousand lines of every other change; the release heading is the
+ * nearest anchor GitHub generates.
+ */
+const RENAMED_PATH_CHANGELOG =
+  "https://github.com/thtmnisamnstr/simple-balance/blob/main/CHANGELOG.md#016---2026-09-12";
+
+/**
+ * The four paths renamed in 0.1.6, still answering on their old spelling.
+ *
+ * `/api/v1` is cookie-only and same-origin, so the argument for renaming rather
+ * than deprecating was that the only client which could be calling the old ones
+ * ships in this image. That is true of *this* image and not of the one already
+ * running: a browser tab left open across the upgrade would have met a 404 on
+ * the first archive or bulk delete somebody tried, indistinguishable from a bug.
+ *
+ * Each old path is registered against the same handler as its replacement. Not
+ * a redirect — an old tab cannot rewrite its own URLs, so a 307 would cost a
+ * round trip to say something it cannot act on.
+ */
+const RENAMED_PATHS: readonly { method: string; path: string; successor: string }[] = [
+  {
+    method: "POST",
+    path: "/api/v1/accounts/:id/archive",
+    successor: "/api/v1/accounts/:id/archived",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/categories/:id/archive",
+    successor: "/api/v1/categories/:id/archived",
+  },
+  {
+    method: "POST",
+    path: "/api/v1/staged-transactions/delete",
+    successor: "/api/v1/staged-transactions/bulk-delete",
+  },
+  {
+    method: "GET",
+    path: "/api/v1/staged/:id/duplicate",
+    successor: "/api/v1/staged-transactions/:id/duplicate",
+  },
+];
+
+const renamedPathPatterns = RENAMED_PATHS.map((renamed) => ({
+  ...renamed,
+  pattern: new RegExp(`^${renamed.path.replace(":id", "([^/]+)")}$`),
+}));
+
+/**
+ * Where this request should have gone, if it came in on an old spelling.
+ *
+ * With the id it was sent with, rather than the `{id}` template the first
+ * version linked: a brace is not allowed in a URI reference (RFC 3986), so the
+ * `successor-version` link was one no client could follow. Encoded, because
+ * the segment is whatever the caller sent and a `>` or `,` in it would end the
+ * link early.
+ */
+function renamedPathSuccessor(method: string, path: string): string | null {
+  const asked = method === "HEAD" ? "GET" : method;
+  for (const renamed of renamedPathPatterns) {
+    if (renamed.method !== asked) continue;
+    const match = renamed.pattern.exec(path);
+    if (match) return renamed.successor.replace(":id", encodeURIComponent(match[1] ?? ""));
+  }
+  return null;
+}
+
+/**
+ * What every `/api/v1` response says about itself, said before anything can
+ * refuse the request.
+ *
+ * Both used to be set later — `no-store` inside the session check and the
+ * deprecation headers by a middleware on each old route — so the refusals that
+ * come first went out without them: a cross-origin 403 or a 415 could be held
+ * by a cache, and a 401 on an old spelling did not say the spelling was going.
+ * The 401 is the one an old tab is likeliest to meet, since it is what a tab
+ * left open across an upgrade gets once its session lapses. One middleware, and
+ * first, is also what `http.md` §Deprecation asks: one place sets both headers,
+ * never a route.
+ */
+app.use("/api/v1/*", async (c, next) => {
+  // Everything below this line is somebody's ledger, and it is reached with a
+  // cookie rather than an Authorization header, so nothing stops a shared cache
+  // or a browser's back-forward store holding on to it by default. Said once
+  // here rather than remembered on each of thirty routes.
+  c.header("Cache-Control", "no-store");
+  const successor = renamedPathSuccessor(c.req.method, c.req.path);
+  if (successor) {
+    c.header("Deprecation", RENAMED_PATH_DEPRECATION);
+    c.header("Sunset", RENAMED_PATH_SUNSET);
+    // Two relations, because they answer different questions: `successor-version`
+    // is where to go instead, and `deprecation` is where to read why.
+    c.header(
+      "Link",
+      `<${successor}>; rel="successor-version", <${RENAMED_PATH_CHANGELOG}>; rel="deprecation"`,
+    );
+  }
+  await next();
+});
 app.use(
   "/api/v1/*",
   protectBrowserMutation({
@@ -1358,11 +1478,6 @@ app.use(
   }),
 );
 app.use("/api/v1/*", async (c, next) => {
-  // Everything below this line is somebody's ledger, and it is reached with a
-  // cookie rather than an Authorization header, so nothing stops a shared cache
-  // or a browser's back-forward store holding on to it by default. Said once
-  // here rather than remembered on each of thirty routes.
-  c.header("Cache-Control", "no-store");
   const identity = await getWebIdentity(c.req.raw.headers);
   if (!identity) {
     await rejectRequestBody(c);
@@ -1606,56 +1721,6 @@ app.put("/api/v1/accounts/active", async (c) =>
 app.put("/api/v1/accounts/:id", async (c) =>
   c.json(await updateAccount(c.get("actor"), pathId(c), await body(c))),
 );
-/**
- * When they were deprecated, and when they stop answering.
- *
- * `Deprecation` carries a date rather than `true`: RFC 9745 supersedes the
- * draft that spelled it as a boolean, and its value "MUST be a Date as per
- * Section 3.3.7 of RFC 9651", which on the wire is `@` and seconds since the
- * epoch. The first version of this shipped `true`, which is the draft nobody
- * implements anymore.
- *
- * The sunset is 188 days after the deprecation, which clears the ninety days
- * and the one minor release `docs/standards/http.md` asks for. It was a date in
- * the past for a while — a window that had closed before the release carrying
- * it shipped, which tells a client the path is already gone while it is still
- * answering. `tests/http-route-table.test.ts` now reads both values as dates and
- * fails once the sunset is in the past, so the day it expires is a decision
- * somebody makes rather than a promise that quietly went stale.
- */
-const RENAMED_PATH_DEPRECATION = "@1787616000";
-
-/**
- * The four paths renamed in 0.1.6, still answering on their old spelling.
- *
- * `/api/v1` is cookie-only and same-origin, so the argument for renaming rather
- * than deprecating was that the only client which could be calling the old ones
- * ships in this image. That is true of *this* image and not of the one already
- * running: a browser tab left open across the upgrade would have met a 404 on
- * the first archive or bulk delete somebody tried, indistinguishable from a bug.
- *
- * Each old path is registered against the same handler as its replacement, and
- * marks itself deprecated with the date it goes. Not a redirect — an old tab
- * cannot rewrite its own URLs, so a 307 would cost a round trip to say something
- * it cannot act on.
- */
-const RENAMED_PATH_SUNSET = "Mon, 01 Mar 2027 00:00:00 GMT";
-
-function deprecated(successor: string): MiddlewareHandler {
-  return async (c, next) => {
-    c.header("Deprecation", RENAMED_PATH_DEPRECATION);
-    c.header("Sunset", RENAMED_PATH_SUNSET);
-    // Two relations, because they answer different questions: `successor-version`
-    // is where to go instead, and `deprecation` is where to read why.
-    c.header(
-      "Link",
-      `<${successor}>; rel="successor-version", ` +
-        `<https://github.com/thtmnisamnstr/simple-balance/blob/main/CHANGELOG.md>; rel="deprecation"`,
-    );
-    await next();
-  };
-}
-
 const archiveAccount: Handler<AppEnv> = async (c) => {
   const parsed = versionedMutationSchema.extend({ archived: z.boolean() }).parse(await body(c));
   return c.json(
@@ -1663,11 +1728,7 @@ const archiveAccount: Handler<AppEnv> = async (c) => {
   );
 };
 app.post("/api/v1/accounts/:id/archived", archiveAccount);
-app.post(
-  "/api/v1/accounts/:id/archive",
-  deprecated("/api/v1/accounts/{id}/archived"),
-  archiveAccount,
-);
+app.post("/api/v1/accounts/:id/archive", archiveAccount);
 app.delete("/api/v1/accounts/:id", async (c) => {
   const parsed = versionedMutationSchema.parse(await body(c));
   return c.json(await deleteAccount(c.get("actor"), pathId(c), parsed.expectedVersion));
@@ -1800,11 +1861,7 @@ const archiveCategory: Handler<AppEnv> = async (c) => {
   );
 };
 app.post("/api/v1/categories/:id/archived", archiveCategory);
-app.post(
-  "/api/v1/categories/:id/archive",
-  deprecated("/api/v1/categories/{id}/archived"),
-  archiveCategory,
-);
+app.post("/api/v1/categories/:id/archive", archiveCategory);
 app.delete("/api/v1/categories/:id", async (c) => {
   const parsed = versionedMutationSchema.parse(await body(c));
   return c.json(await deleteCategory(c.get("actor"), pathId(c), parsed.expectedVersion));
@@ -1888,11 +1945,7 @@ app.post("/api/v1/staged-transactions/bulk-edit", async (c) =>
 const bulkDeleteStaged: Handler<AppEnv> = async (c) =>
   c.json(await deleteStages(c.get("actor"), bulkDeleteStageSchema.parse(await body(c))));
 app.post("/api/v1/staged-transactions/bulk-delete", bulkDeleteStaged);
-app.post(
-  "/api/v1/staged-transactions/delete",
-  deprecated("/api/v1/staged-transactions/bulk-delete"),
-  bulkDeleteStaged,
-);
+app.post("/api/v1/staged-transactions/delete", bulkDeleteStaged);
 /**
  * Whether this caller can read frames, and therefore whether to send them.
  *
@@ -1902,8 +1955,7 @@ app.post(
  * body field would have published the switch on the MCP tool as well, whose
  * transport answers in one JSON object and could never honor it.
  */
-const wantsFrames = (c: Context<AppEnv>) =>
-  (c.req.header("Accept") ?? "").includes(PROGRESS_MEDIA_TYPE);
+const wantsFrames = (c: Context<AppEnv>) => acceptsFrames(c.req.header("Accept"));
 
 /**
  * The refusal a terminal frame carries: the envelope, without the status.
@@ -1977,11 +2029,7 @@ app.get("/api/v1/summary", async (c) =>
 const stagedDuplicate: Handler<AppEnv> = async (c) =>
   c.json(await getStagedDuplicateReview(c.get("actor"), pathId(c)));
 app.get("/api/v1/staged-transactions/:id/duplicate", stagedDuplicate);
-app.get(
-  "/api/v1/staged/:id/duplicate",
-  deprecated("/api/v1/staged-transactions/{id}/duplicate"),
-  stagedDuplicate,
-);
+app.get("/api/v1/staged/:id/duplicate", stagedDuplicate);
 app.get("/api/v1/reports/:report", async (c) =>
   c.json(
     await getReport(

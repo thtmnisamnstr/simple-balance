@@ -1120,6 +1120,7 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
   if (gridRows.rows.length > MAX_REPORT_BUCKETS) {
     throw validationError(
       `That range needs more than ${MAX_REPORT_BUCKETS} ${parsed.periodUnit} periods, which is the most a budget report will draw. Ask for a coarser period or a shorter range.`,
+      { limit: MAX_REPORT_BUCKETS },
     );
   }
   // The day the figures actually stop at, which is the end of the last period
