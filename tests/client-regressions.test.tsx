@@ -14,7 +14,7 @@ import type {
   Transaction,
 } from "../src/client/api.js";
 import { TransactionBrowser } from "../src/client/TransactionBrowser.js";
-import { AccountForm, TransactionForm } from "../src/client/forms.js";
+import { AccountForm, TransactionForm, draftFromTransaction } from "../src/client/forms.js";
 import StagingPage from "../src/client/pages/StagingPage.js";
 import { BrowserRouter } from "../src/client/router.js";
 import { TimezoneProvider } from "../src/client/timezone.js";
@@ -148,15 +148,50 @@ describe("account opening balances", () => {
     );
 
     const form = within(container);
-    expect(form.getByLabelText("Starting amount")).toHaveValue("500");
+    expect(form.getByLabelText("Starting amount")).toHaveValue("500.00");
     fireEvent.change(form.getByLabelText("Account type"), {
       target: { value: "checking" },
     });
-    expect(form.getByLabelText("Opening balance")).toHaveValue("-500");
+    expect(form.getByLabelText("Opening balance")).toHaveValue("-500.00");
     fireEvent.submit(container.querySelector("form")!);
 
     await waitFor(() => {
-      expect(requestBody?.openingBalance).toBe("-500");
+      expect(requestBody?.openingBalance).toBe("-500.00");
+    });
+  });
+});
+
+describe("an edit form's amounts", () => {
+  it("open at the currency's decimals rather than the stored scale", () => {
+    // The opening balance arrives at the column's full scale and a
+    // transaction's amount arrives canonical, so the two edit forms opened on
+    // "3250.000000000000000000" and on "12.5".
+    const client = queryClient();
+    client.setQueryData(["accounts"], []);
+    render(
+      <QueryClientProvider client={client}>
+        <TimezoneProvider timezone="UTC">
+          <AccountForm
+            account={{ ...checkingAccount, openingBalance: "3250.000000000000000000" }}
+            defaultCurrency="USD"
+            onDone={() => undefined}
+          />
+        </TimezoneProvider>
+      </QueryClientProvider>,
+    );
+    expect(screen.getByLabelText("Opening balance")).toHaveValue("3250.00");
+
+    const draft = draftFromTransaction({
+      ...groceryTransaction,
+      sourceAmount: "12.5",
+      legs: [
+        { id: "a", categoryId: groceriesCategory.id, amount: "10", note: null },
+        { id: "b", categoryId: groceriesCategory.id, amount: "2.5", note: null },
+      ],
+    } as Transaction);
+    expect(draft).toMatchObject({
+      amount: "12.50",
+      legs: [{ amount: "10.00" }, { amount: "2.50" }],
     });
   });
 });

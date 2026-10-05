@@ -42,7 +42,13 @@ import {
   unitNoun,
   unitNounPlural,
 } from "../budget-display.js";
-import { compareMoney, formatDate, formatMoney, isNegativeMoney } from "../money.js";
+import {
+  amountForInput,
+  compareMoney,
+  formatDate,
+  formatMoney,
+  isNegativeMoney,
+} from "../money.js";
 
 const periodUnits: { value: BudgetPeriodUnitName; label: string }[] = [
   { value: "week", label: "Weekly" },
@@ -732,10 +738,12 @@ export default function BudgetsPage({ session }: { session: Session }) {
                         onClick={() => {
                           setError("");
                           setEditing(plan);
-                          setEditAmount(plan.amount);
+                          setEditAmount(amountForInput(plan.amount, plan.currency));
                           setEditActiveTo(plan.activeTo ?? "");
                           setEditRollover(plan.rollover);
-                          setEditRolloverCap(plan.rolloverCap ?? "");
+                          setEditRolloverCap(
+                            plan.rolloverCap ? amountForInput(plan.rolloverCap, plan.currency) : "",
+                          );
                         }}
                       >
                         <Pencil size={16} />

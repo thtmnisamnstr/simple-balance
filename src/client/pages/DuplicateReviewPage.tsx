@@ -339,6 +339,7 @@ export default function DuplicateReviewPage() {
                   categories={categories.data!}
                   transaction={committed ?? undefined}
                   staged={staged ?? undefined}
+                  autoFocus={false}
                   onDone={refresh}
                 />
 

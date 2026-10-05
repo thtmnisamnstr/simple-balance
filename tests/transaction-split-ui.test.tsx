@@ -242,8 +242,9 @@ describe("splitting a transaction in the form", () => {
     captureRequests(bodies);
     renderForm({ transaction: split });
 
-    expect(legAmount(1).value).toBe("60");
-    expect(legAmount(2).value).toBe("40");
+    // At the currency's decimals, as every edit form opens a stored amount.
+    expect(legAmount(1).value).toBe("60.00");
+    expect(legAmount(2).value).toBe("40.00");
     const pickers = screen.getAllByPlaceholderText("Type to search or add");
     expect((pickers[0] as HTMLInputElement).value).toBe("Food");
 

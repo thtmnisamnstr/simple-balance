@@ -260,7 +260,9 @@ export default function RecurrencesPage() {
                     </td>
                     <td>
                       <div className="transaction-payee">
-                        <span>{formatDate(recurrence.nextOccurrence.occurrenceDate)}</span>
+                        <span className="nowrap">
+                          {formatDate(recurrence.nextOccurrence.occurrenceDate)}
+                        </span>
                         {recurrence.overdue ? (
                           <Badge tone="amber">Past due</Badge>
                         ) : recurrence.nextOccurrence.postedDate === null ? (

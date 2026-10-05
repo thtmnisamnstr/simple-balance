@@ -636,7 +636,7 @@ export default function TemplatesPage() {
                             <Badge tone={template.notification.repeats ? "blue" : undefined}>
                               {template.notification.repeats ? "Repeating" : "Once"}
                             </Badge>
-                            <span className="table-subtitle">
+                            <span className="table-subtitle nowrap">
                               {template.notification.nextNotificationDate
                                 ? `${formatDate(template.notification.nextNotificationDate)} at ${formatTime(template.notification.time)}`
                                 : template.notification.repeats

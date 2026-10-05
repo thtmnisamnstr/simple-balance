@@ -142,6 +142,32 @@ export function formatMoney(amount: string, currency: string, locales?: string |
   }
 }
 
+/**
+ * A stored amount as an input should start out: the currency's own decimal
+ * places, like `formatMoney`, but as a plain decimal the input reads back —
+ * no symbol, no grouping, ASCII digits, and the sign kept.
+ *
+ * What the server sends is not that. An account's opening balance arrives at
+ * the column's full scale, so the edit form opened on "3250.000000000000000000",
+ * and a transaction or a budget arrives canonical, so $12.50 opened as "12.5"
+ * and the duplicate review put "1850.00" beside "1850" for one payment. Only
+ * zeros are added or removed: a digit the currency does not have is kept rather
+ * than rounded away, because an input is for changing a value, not for
+ * deciding it. A crypto asset, which has no ISO precision, keeps the digits it
+ * has and loses only trailing zeros.
+ */
+export function amountForInput(amount: string, currency: string) {
+  const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(amount);
+  if (!match) return amount;
+  const [, sign, integer, fraction = ""] = match;
+  const digits = isoCurrency(currency)
+    ? (numberFormat(undefined, { style: "currency", currency }).resolvedOptions()
+        .minimumFractionDigits ?? 0)
+    : 0;
+  const kept = fraction.replace(/0+$/, "").padEnd(digits, "0");
+  return `${sign}${integer}${kept ? `.${kept}` : ""}`;
+}
+
 export function isNegativeMoney(amount: string) {
   return amount.startsWith("-") && !/^-?0(?:\.0+)?$/.test(amount);
 }

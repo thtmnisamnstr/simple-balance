@@ -456,7 +456,7 @@ exception. Six closed sets already read against that sentence:
 (`src/client/select-options.ts:113`, which both category pages read),
 `transactionTypeLabels`
 (`src/client/pages/TemplatesPage.tsx:68`), and `ORDINAL_LABELS` and
-`FREQUENCY_LABELS` (`src/client/forms.tsx:2449`, `:2530`) for the two schedule
+`FREQUENCY_LABELS` (`src/client/forms.tsx:2464`, `:2545`) for the two schedule
 pickers. In four of the six the label is a different *word* rather than the same
 word capitalized: `credit_card` reads Credit Card, `plus` reads Premium, `both`
 reads "Income or expense", and the ordinal `-1` reads Last.

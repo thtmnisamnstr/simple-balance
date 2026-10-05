@@ -473,8 +473,8 @@ floating-point numbers."
 
 The server uses `decimal.js` through one wrapper
 (`src/server/services/helpers.ts:22`).
-The client uses scaled `bigint` (`src/client/money.ts:160`,
-`src/client/money.ts:175`),
+The client uses scaled `bigint` (`src/client/money.ts:186`,
+`src/client/money.ts:201`),
 because the browser bundle should not carry a decimal library to render a table.
 
 Two implementations of one rule is a risk worth naming: they must agree. What

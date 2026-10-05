@@ -66,7 +66,7 @@ import {
 } from "./staged-draft.js";
 import type { TransactionSortField, TransactionType } from "../shared/domain.js";
 import { frozenAccountRefusal, MAX_FREE_ACCOUNTS, transactionTypes } from "../shared/domain.js";
-import { emptyScreen, waysOut } from "./list-filters.js";
+import { emptyScreen, waysOut, noAccountReason } from "./list-filters.js";
 
 /** The share a split is named by in a list: its biggest one. */
 function largestLeg(legs: Transaction["legs"]) {
@@ -424,7 +424,7 @@ export function TransactionBrowser({
   const frozenSentence = frozenAccountRefusal(frozenLimit);
   // Unnamed, and the one caller that stays so: this button is dead because
   // *every* account is frozen, so there is no one of them to name.
-  const cannotAdd = accounts.data?.length ? frozenSentence : "Create an account first.";
+  const cannotAdd = accounts.data?.length ? frozenSentence : noAccountReason(accounts);
   // Read off `frozen`, which is `frozenAccountIds` answered by the server
   // against the rows and the entitlement it enforces with. Running the rule
   // again here would be the second copy `Account.frozen` exists to prevent,
@@ -848,7 +848,7 @@ export function TransactionBrowser({
         <Button
           onClick={() => setEditing("new")}
           disabled={!writableAccounts.length}
-          disabledReason={accounts.isPending ? undefined : cannotAdd}
+          disabledReason={cannotAdd}
         >
           <Plus size={16} /> Add transaction
         </Button>
@@ -1136,7 +1136,7 @@ export function TransactionBrowser({
                         {/* Staged rows cannot join a committed bulk edit. */}
                         <span className="sr-only">Not selectable</span>
                       </td>
-                      <td>{stagedDate ? formatDate(stagedDate) : "—"}</td>
+                      <td className="nowrap">{stagedDate ? formatDate(stagedDate) : "—"}</td>
                       {/* The same cell the committed rows below open with, and
                           for the same reason (9.2): the payee is what names a
                           row here, so it is the row header in both branches of

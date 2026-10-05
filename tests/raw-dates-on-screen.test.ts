@@ -138,3 +138,43 @@ describe("a date on screen", () => {
     ).toEqual([]);
   });
 });
+
+/**
+ * A date in a table cell stays on one line.
+ *
+ * The register's committed rows always said `nowrap` on the date, and nothing
+ * said the rule, so the staged queue, the staged rows above them, the import
+ * preview and Recurring's next date each let "Oct 5, 2026" break into three
+ * lines the moment the table had to share its width — which at 820px, with
+ * the sidebar still showing, is every table in the product. A date read one
+ * word a line is a date read wrongly, and the date is the column a person
+ * scans a ledger by.
+ *
+ * Asked of the markup rather than the stylesheet: a cell is in scope when it
+ * hands `formatDate` its own content, and it passes when the cell, or the
+ * element holding the date, carries `nowrap`.
+ */
+describe("a date in a table cell", () => {
+  it("does not wrap", async () => {
+    const loose: string[] = [];
+    for (const file of await tsFiles(CLIENT)) {
+      if (!file.pathname.endsWith(".tsx")) continue;
+      const code = await readFile(file, "utf8");
+      const name = file.pathname.split("/src/client/")[1];
+      for (const cell of code.matchAll(/<td\b([^>]*)>([\s\S]*?)<\/td>/g)) {
+        const [, attributes, markup] = cell;
+        // A date read aloud by a label is not drawn, so it cannot wrap.
+        const body = markup!.replace(/(?:aria-label|title)=\{`[\s\S]*?`\}/g, "");
+        if (!body.includes("formatDate(")) continue;
+        const kept =
+          /\bnowrap\b/.test(attributes!) ||
+          /className="[^"]*\bnowrap\b[^"]*"[^>]*>(?:(?!<\/)[\s\S])*?formatDate\(/.test(body);
+        if (!kept) {
+          const line = code.slice(0, cell.index).split("\n").length;
+          loose.push(`${name}:${line}`);
+        }
+      }
+    }
+    expect(loose, 'give the cell, or the element holding the date, className="nowrap"').toEqual([]);
+  });
+});

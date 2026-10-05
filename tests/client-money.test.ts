@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  amountForInput,
   formatMoney,
   isNegativeMoney,
   isPositiveMoney,
@@ -49,5 +50,23 @@ describe("exact client money rendering", () => {
         "99999999999999999999999999.999999999999",
       ),
     ).toBe("50");
+  });
+});
+
+describe("an amount put into an input", () => {
+  it("starts at the currency's own decimal places, whatever scale it was stored at", () => {
+    expect(amountForInput("3250.000000000000000000", "USD")).toBe("3250.00");
+    expect(amountForInput("12.5", "USD")).toBe("12.50");
+    expect(amountForInput("1850", "USD")).toBe("1850.00");
+    expect(amountForInput("-480.25", "USD")).toBe("-480.25");
+    expect(amountForInput("116250", "JPY")).toBe("116250");
+    expect(amountForInput("116250.000", "JPY")).toBe("116250");
+  });
+
+  it("adds and removes only zeros, never a digit somebody stored", () => {
+    expect(amountForInput("12.345", "USD")).toBe("12.345");
+    expect(amountForInput("0.000000000000000001", "BTC")).toBe("0.000000000000000001");
+    expect(amountForInput("2.500000000000000000", "BTC")).toBe("2.5");
+    expect(amountForInput("not a number", "USD")).toBe("not a number");
   });
 });

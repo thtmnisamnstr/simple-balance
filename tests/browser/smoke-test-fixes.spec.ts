@@ -218,3 +218,117 @@ test("a refused delete says so where focus is, naming what was refused", async (
   await expect(refusal).toBeFocused();
   await expect(refusal).toBeInViewport();
 });
+
+/** Each matching element's own text, and how many lines it is laid out on. */
+const linesOf = (selector: string) =>
+  page.evaluate(
+    (sel) =>
+      [...document.querySelectorAll(sel)].map((element) => {
+        // Text alone: an icon sits a few pixels off the words' top and would
+        // count as a line of its own.
+        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+        const tops: number[] = [];
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          if (!node.textContent?.trim()) continue;
+          const range = document.createRange();
+          range.selectNodeContents(node);
+          tops.push(...[...range.getClientRects()].map((rect) => rect.top));
+        }
+        const half = parseFloat(getComputedStyle(element).fontSize) / 2;
+        const lines = tops
+          .sort((a, b) => a - b)
+          .filter((top, index, all) => index === 0 || top - all[index - 1]! > half).length;
+        return { text: (element.textContent ?? "").trim(), lines };
+      }),
+    selector,
+  );
+
+test("a page's header actions wrap rather than push the page sideways", async () => {
+  // Staged with a duplicate waiting has the longest set of header actions in
+  // the product, and `reflow.spec.ts` visits it with none: at 820px it was
+  // 59px wider than the window with its title on two lines, and at 390px the
+  // duplicates button broke inside itself.
+  await withdrawal("Corner Market", "84.20");
+  await post("/api/v1/staged-transactions", {
+    idempotencyKey: randomUUID(),
+    draft: {
+      type: "withdrawal",
+      date: today,
+      payee: "Corner Market",
+      amount: "84.20",
+      fromAccountId: accountId,
+    },
+  });
+  for (const width of [1440, 1050, 900, 820, 390]) {
+    await page.setViewportSize({ width, height: 860 });
+    await page.goto("/staged");
+    await expect(page.getByRole("link", { name: /possible duplicate/ })).toBeVisible();
+    const overflow = await page.evaluate(
+      () => document.scrollingElement!.scrollWidth - window.innerWidth,
+    );
+    expect(overflow, `${width}px scrolls sideways by ${overflow}px`).toBeLessThanOrEqual(0);
+    for (const item of await linesOf(".page-heading h1, .page-heading .page-actions .button")) {
+      expect(item.lines, `${width}px: "${item.text}" breaks across lines`).toBe(1);
+    }
+  }
+  await page.setViewportSize({ width: 1280, height: 860 });
+});
+
+test("the duplicate review opens with focus in neither form", async () => {
+  // Both sides are a TransactionForm, each of which used to take focus for
+  // its payee, so the page opened with the cursor halfway down it in
+  // whichever rendered last.
+  await page.goto("/staged/duplicates");
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  await expect(page.locator("form").first()).toBeVisible();
+  const inForm = await page.evaluate(() =>
+    document.activeElement?.closest("form") ? document.activeElement.outerHTML.slice(0, 90) : null,
+  );
+  expect(inForm).toBeNull();
+});
+
+test("an ordinary balance stays whole beside a long account name", async () => {
+  // The overview's account list let both columns shrink and break anywhere,
+  // which kept a 26-digit balance on screen and split "$8,924.60" too.
+  await post("/api/v1/accounts", {
+    name: "Everyday Joint Checking With A Long Name",
+    type: "checking",
+    currency: "USD",
+    openingDate: today,
+    openingBalance: "8924.60",
+  });
+  for (const width of [1280, 820, 390]) {
+    await page.setViewportSize({ width, height: 860 });
+    await page.goto("/");
+    await expect(page.getByText("Everyday Joint Checking With A Long Name").first()).toBeVisible();
+    for (const item of await linesOf(".account-mini-row > span")) {
+      // The enormous balance an earlier test opened may wrap; that is the
+      // one it is allowed to.
+      if (item.text.replace(/\D/g, "").length > 20) continue;
+      expect(item.lines, `${width}px: "${item.text}" is split`).toBe(1);
+    }
+  }
+  await page.setViewportSize({ width: 1280, height: 860 });
+});
+
+test("a badge's icon keeps its distance from its words", async () => {
+  const account = await post("/api/v1/accounts", {
+    name: "Badge Checking",
+    type: "checking",
+    currency: "USD",
+    openingDate: today,
+    openingBalance: "0",
+    institution: "Pacific Mutual",
+  });
+  await page.goto(`/accounts/${account.id}`);
+  const gap = await page.locator(".badge", { hasText: "Pacific Mutual" }).evaluate((badge) => {
+    const icon = badge.querySelector("svg")!.getBoundingClientRect();
+    const words = [...badge.childNodes].find(
+      (node) => node.nodeType === Node.TEXT_NODE && node.textContent!.trim(),
+    )!;
+    const range = document.createRange();
+    range.selectNodeContents(words);
+    return range.getBoundingClientRect().left - icon.right;
+  });
+  expect(gap).toBeGreaterThanOrEqual(3);
+});

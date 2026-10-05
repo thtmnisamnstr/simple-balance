@@ -95,7 +95,7 @@ import {
   type BulkEditValues,
 } from "../bulk-edit.js";
 import { useDebounced } from "../debounce.js";
-import { emptyScreen, waysOut } from "../list-filters.js";
+import { emptyScreen, waysOut, noAccountReason } from "../list-filters.js";
 
 function stageSummary(stage: StagedTransaction, accounts: Account[]) {
   return summarizeStagedDraft(stage.draft, accounts);
@@ -819,7 +819,7 @@ export default function StagingPage() {
             <Button
               onClick={() => setEditing("new")}
               disabled={!accounts.data?.length}
-              disabledReason={accounts.isPending ? undefined : "Create an account first."}
+              disabledReason={noAccountReason(accounts)}
             >
               <Plus size={16} /> Stage transaction
             </Button>
@@ -1122,7 +1122,7 @@ export default function StagingPage() {
                         }}
                       />
                     </td>
-                    <td>
+                    <td className="nowrap">
                       {inlineFor(stage, "date") ? (
                         <Input
                           type="date"

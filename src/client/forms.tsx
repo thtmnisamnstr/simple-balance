@@ -62,6 +62,7 @@ import {
   Textarea,
 } from "./components.js";
 import {
+  amountForInput,
   compareMoney,
   formatDate,
   formatMoney,
@@ -105,9 +106,8 @@ export function AccountForm({
   );
   const [openingBalance, setOpeningBalance] = useState(() => {
     if (!account) return "0";
-    return liabilityAccountTypes.has(account.type)
-      ? account.openingBalance.replace(/^-/, "")
-      : account.openingBalance;
+    const stored = amountForInput(account.openingBalance, account.currency);
+    return liabilityAccountTypes.has(account.type) ? stored.replace(/^-/, "") : stored;
   });
   const [liabilityBalanceKind, setLiabilityBalanceKind] = useState<"owed" | "credit">(
     account && liabilityAccountTypes.has(account.type) && isPositiveMoney(account.openingBalance)
@@ -384,6 +384,13 @@ export function PayeeInput({
 }
 
 export function draftFromTransaction(transaction: Transaction): TransactionDraft {
+  const from = (amount: string | null | undefined) =>
+    amountForInput(amount!, transaction.sourceCurrency ?? "");
+  const to = (amount: string | null | undefined) =>
+    amountForInput(amount!, transaction.destinationCurrency ?? "");
+  // The legs are the counter-account side, so in the currency of the account
+  // the money left or arrived at; a transfer is never split.
+  const leg = transaction.type === "deposit" ? to : from;
   const common = {
     date: transaction.date,
     description: transaction.description ?? null,
@@ -393,11 +400,11 @@ export function draftFromTransaction(transaction: Transaction): TransactionDraft
     // would replace it with a new leg and retire the one it stood for.
     ...(transaction.legs.length
       ? {
-          legs: transaction.legs.map((leg) => ({
-            id: leg.id,
-            categoryId: leg.categoryId,
-            amount: leg.amount,
-            note: leg.note,
+          legs: transaction.legs.map((part) => ({
+            id: part.id,
+            categoryId: part.categoryId,
+            amount: leg(part.amount),
+            note: part.note,
           })),
         }
       : {}),
@@ -408,7 +415,7 @@ export function draftFromTransaction(transaction: Transaction): TransactionDraft
     return {
       type: "deposit",
       toAccountId: transaction.destinationAccountId!,
-      amount: transaction.destinationAmount!,
+      amount: to(transaction.destinationAmount),
       ...common,
     };
   }
@@ -416,7 +423,7 @@ export function draftFromTransaction(transaction: Transaction): TransactionDraft
     return {
       type: "withdrawal",
       fromAccountId: transaction.sourceAccountId!,
-      amount: transaction.sourceAmount!,
+      amount: from(transaction.sourceAmount),
       ...common,
     };
   }
@@ -424,8 +431,8 @@ export function draftFromTransaction(transaction: Transaction): TransactionDraft
     type: "transfer",
     fromAccountId: transaction.sourceAccountId!,
     toAccountId: transaction.destinationAccountId!,
-    sourceAmount: transaction.sourceAmount!,
-    destinationAmount: transaction.destinationAmount!,
+    sourceAmount: from(transaction.sourceAmount),
+    destinationAmount: to(transaction.destinationAmount),
     ...common,
   };
 }
@@ -1549,6 +1556,7 @@ export function TransactionForm({
   initialPayee,
   initialType,
   initialMode = "commit",
+  autoFocus = true,
   onDone,
 }: {
   accounts: Account[];
@@ -1568,6 +1576,13 @@ export function TransactionForm({
   initialPayee?: string;
   initialType?: TransactionType;
   initialMode?: "commit" | "stage";
+  /**
+   * Whether the payee takes focus when the form appears. On by default,
+   * because almost every form here is one somebody just opened. A page that
+   * lays forms out side by side turns it off: two forms each claiming focus
+   * left it in whichever rendered last, halfway down the page.
+   */
+  autoFocus?: boolean;
   onDone: () => void;
 }) {
   const timezone = useTimezone();
@@ -2249,7 +2264,7 @@ export function TransactionForm({
           {/* The component, not a copy of it: PayeeInput's own comment says a
               second copy would be a second answer to "what counts as the same
               payee", and this form carried that second copy byte for byte. */}
-          <PayeeInput autoFocus required value={payee} onChange={setPayee} />
+          <PayeeInput autoFocus={autoFocus} required value={payee} onChange={setPayee} />
         </Field>
       </div>
       {type !== "deposit" ? (

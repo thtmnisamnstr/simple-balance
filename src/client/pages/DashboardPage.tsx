@@ -32,6 +32,7 @@ import {
   PageHeader,
   Skeleton,
 } from "../components.js";
+import { noAccountReason } from "../list-filters.js";
 import {
   compareMoney,
   formatDate,
@@ -111,7 +112,7 @@ export default function DashboardPage() {
           <Button
             onClick={() => setOpen(true)}
             disabled={!accounts.data?.length}
-            disabledReason={accounts.isPending ? undefined : "Create an account first."}
+            disabledReason={noAccountReason(accounts)}
           >
             <Plus size={16} /> Add transaction
           </Button>

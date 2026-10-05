@@ -99,3 +99,31 @@ describe("the published staged draft", () => {
     expect([...new Set(written)].filter((key) => !staged.has(key))).toEqual([]);
   });
 });
+
+describe("what a staged row says about a field it left out", () => {
+  it("names the field to fill in rather than Zod's type error", async () => {
+    // An agent may stage a row without an account, and the queue showed it as
+    // "Invalid input: expected string, received undefined".
+    const { zodIssues } = await import("../src/server/services/errors.js");
+    const draft = {
+      type: "withdrawal",
+      date: "2026-10-05",
+      payee: "Unknown Vendor",
+      amount: "19.00",
+    };
+    const parsed = transactionDraftSchema.safeParse(draft);
+    expect(parsed.success).toBe(false);
+    const issues = zodIssues(parsed.error!, draft);
+    expect(issues).toContainEqual({
+      field: "fromAccountId",
+      message: "Choose the account the money comes from",
+    });
+    expect(issues.map((issue) => issue.message).join(" ")).not.toMatch(/Invalid input/);
+    // Present but wrong is still Zod's to describe; only an absence is reworded.
+    const wrong = { ...draft, fromAccountId: 7 };
+    const wrongIssues = zodIssues(transactionDraftSchema.safeParse(wrong).error!, wrong);
+    expect(wrongIssues.find((issue) => issue.field === "fromAccountId")?.message).toMatch(
+      /expected string/,
+    );
+  });
+});

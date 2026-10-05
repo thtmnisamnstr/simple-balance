@@ -682,7 +682,7 @@ export default function ImportPage() {
                       const issue = row.issues[0]?.message;
                       return (
                         <tr key={index}>
-                          <td>{date ? formatDate(date) : "—"}</td>
+                          <td className="nowrap">{date ? formatDate(date) : "—"}</td>
                           {/* The payee heads the row, as it does in the queue
                               these same rows land in two clicks later. The
                               interpreted preview's columns are fixed, so one

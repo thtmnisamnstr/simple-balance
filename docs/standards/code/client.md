@@ -19,7 +19,7 @@ stale one.
 
 The exception is a form editing something loaded: the query result seeds the
 initial state and then the state is the truth until the save. That is a
-deliberate copy with a defined end, and `src/client/forms.tsx:1708` is the site
+deliberate copy with a defined end, and `src/client/forms.tsx:1723` is the site
 that cites this sentence for it.
 
 *Checked by:* nothing, and §4 says why — the two shapes are the same three
@@ -65,7 +65,7 @@ invalidation written by hand, and no test will remind you.
 **Binding, mostly.** If it can be worked out from what is already in state, work
 it out during render. `splitting`, `showsCategoryPicker`, `splitSettled` and
 `entrySide` in `TransactionForm` are all plain `const`s
-(`src/client/forms.tsx:1777-1789` and `:1845`), and every one of them would be
+(`src/client/forms.tsx:1792-1804` and `:1860`), and every one of them would be
 a synchronization bug as state.
 
 `react/set-state-in-effect` found thirteen sites and every one has been
@@ -137,7 +137,7 @@ it. `react/use-memo` wants a dependency list of simple expressions, and the
 reminder preview's was `JSON.stringify(parsedReminder?.data ?? null)` — a memo
 keyed on a value rebuilt every render, stringified so it would compare equal at
 a cost larger than the five dates it was saving. It is computed during render
-now (`src/client/forms.tsx:1081-1087`), which is the same fix as 1.3's and why
+now (`src/client/forms.tsx:1088-1094`), which is the same fix as 1.3's and why
 the rule sits in this section rather than in one of its own: both findings were
 a dependency array admitting that the thing above it was not worth memoizing.
 The obvious alternative was to key the memo on the raw fields instead, which
@@ -160,7 +160,7 @@ to exactly one group and that two forms on one page stay separate.
 ### 2.1 The client has its own exact money, and uses it for decisions
 
 **Binding.** `src/client/money.ts` works in scaled `bigint`, through
-`moneyUnits` (`src/client/money.ts:160`). Use
+`moneyUnits` (`src/client/money.ts:186`). Use
 `compareMoney`, `isNegativeMoney` and `sumMoney` for anything that decides
 something.
 
@@ -350,7 +350,7 @@ What is left for this guide is the code-side half: where in `src/client` the
 field has to become reachable. A request type in `api.ts` that carries the
 field is not reachability — it makes the field settable by code and by nobody
 at a screen. The control is what closes it, and the shape has recurred three
-times: a body field (`src/client/forms.tsx:2868-2875`), a creation field
+times: a body field (`src/client/forms.tsx:2883-2890`), a creation field
 (`src/client/pages/CategoriesPage.tsx:282-285`) and a list filter
 (`src/client/pages/StagingPage.tsx:828-832`), each site carrying the same note
 about the one before it. Three instances is a pattern rather than a scar: when

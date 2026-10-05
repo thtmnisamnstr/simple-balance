@@ -2,9 +2,10 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Account, PaginatedPage, StagedTransaction, Transaction } from "../src/client/api.js";
+import { noAccountReason } from "../src/client/list-filters.js";
 import { TransactionBrowser } from "../src/client/TransactionBrowser.js";
 import { BrowserRouter } from "../src/client/router.js";
 import { TimezoneProvider } from "../src/client/timezone.js";
@@ -52,7 +53,7 @@ function queryClient() {
   });
 }
 
-function stub() {
+function stub({ accountsFail = false } = {}) {
   const transactionQueries: URL[] = [];
   vi.stubGlobal(
     "fetch",
@@ -79,7 +80,14 @@ function stub() {
       if (url.pathname === "/api/v1/staged-transactions") {
         return json(empty satisfies PaginatedPage<StagedTransaction>);
       }
-      if (url.pathname === "/api/v1/accounts") return json([account]);
+      if (url.pathname === "/api/v1/accounts") {
+        return accountsFail
+          ? new Response(JSON.stringify({ error: { code: "INTERNAL", message: "Down" } }), {
+              status: 500,
+              headers: { "Content-Type": "application/json" },
+            })
+          : json([account]);
+      }
       if (url.pathname === "/api/v1/categories") return json([]);
       if (url.pathname === "/api/v1/payees/suggestions") return json([]);
       return new Response("Not found", { status: 404 });
@@ -145,5 +153,20 @@ describe("the register's empty screen", () => {
     expect(await screen.findByText("No transactions match this view")).toBeInTheDocument();
     expect(screen.getByText(/clear the type filter/i)).toBeInTheDocument();
     expect(screen.getByText(/turn on Show deleted/i)).toBeInTheDocument();
+  });
+});
+
+describe("the Add button when the accounts did not load", () => {
+  it("says they did not load, rather than that there are none", async () => {
+    // It said "Create an account first." to somebody whose accounts merely
+    // failed to arrive, which is a false sentence on a disabled button.
+    stub({ accountsFail: true });
+    renderRegister();
+    const add = await screen.findByRole("button", { name: /Add transaction/ });
+    await waitFor(() =>
+      expect(add).toHaveAccessibleDescription(noAccountReason({ isPending: false, isError: true })),
+    );
+    expect(noAccountReason({ isPending: false, isError: false })).toBe("Create an account first.");
+    expect(noAccountReason({ isPending: true, isError: false })).toBeUndefined();
   });
 });

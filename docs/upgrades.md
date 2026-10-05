@@ -63,6 +63,10 @@ and the next `up` makes the key.
 - **`/robots.txt` is a robots file** asking every crawler but AdSense's to
   stay out, where 0.2.0 answered it with the app's own page. It ships in the
   client bundle, so the decomposed profile's nginx serves it with no change.
+- **A staged row that leaves a field out names it.** Its issue reads, for
+  example, "Choose the account the money comes from" where 0.2.0 passed on
+  "Invalid input: expected string, received undefined". The `field` beside it
+  is unchanged, and a field that is present but wrong keeps the wording it had.
 - **Archiving or deleting a frozen account succeeds.** 0.2.0 refused both
   with `422 VALIDATION_ERROR` naming the account, over HTTP and MCP alike; they
   now behave as they do on any account, so a delete still needs nothing on the

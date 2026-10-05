@@ -593,9 +593,10 @@ a {
 
 .page-heading {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 24px;
+  gap: 16px 24px;
 }
 
 .page-header h1 {
@@ -622,11 +623,17 @@ a {
   text-transform: uppercase;
 }
 
+/* Beside the title while both fit, and on a row of their own, still at the
+   right edge, once they do not. Without the wrap a long set of actions held
+   its width and pushed the page sideways: Staged with duplicates waiting was
+   59px wider than an 820px window, with its title squeezed onto two lines. */
 .page-actions {
   display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
   align-items: center;
   gap: 9px;
+  margin-left: auto;
 }
 
 .button {
@@ -1214,6 +1221,9 @@ input[type="radio"] {
   display: inline-flex;
   width: fit-content;
   align-items: center;
+  /* A flex container drops the space JSX leaves between an icon and its text,
+     so without a gap the two touch. */
+  gap: 4px;
   padding: 3px 7px;
   border-radius: 99px;
   color: var(--muted);
@@ -1482,13 +1492,26 @@ input[type="radio"] {
   display: block;
 }
 
-/* The name and the balance each give way rather than push the row wider. */
-.account-mini-row > * {
+/* The row wraps rather than the number. Letting both children shrink and
+   break anywhere kept a 26-digit balance on screen and also split an ordinary
+   one, "$8,924." over "60", wherever a long name left it a narrow column. The
+   balance keeps its whole width and drops beneath the name when the two do not
+   fit; only a figure wider than the whole row breaks, and only within it. */
+.account-mini-row {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+
+.account-mini-row > :first-child {
+  flex: 1 1 auto;
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
 .account-mini-row > span {
+  max-width: 100%;
+  margin-left: auto;
+  overflow-wrap: anywhere;
   text-align: right;
 }
 
@@ -4275,8 +4298,13 @@ polyline.chart-line {
   .page-heading > .page-actions {
     width: 100%;
   }
+  /* Equal shares while the labels fit, and a row each once they do not: the
+     minimum is what lets the row wrap at all, since a zero basis always fits.
+     Without it "Review 2 possible duplicates" broke onto two lines inside its
+     own button at 390px. */
   .page-heading > .page-actions .button {
     flex: 1;
+    min-width: max-content;
   }
   /* The same stacking for a section heading that carries actions, which is the
      embedded transaction browser on the three detail pages. It was written as

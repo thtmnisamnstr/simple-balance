@@ -185,7 +185,7 @@ async function validateDraft(
   if (!parsed.success) {
     return {
       draft: null,
-      issues: zodIssues(parsed.error),
+      issues: zodIssues(parsed.error, withoutLegIds),
       duplicateOfId: null,
       duplicateKey: null,
     };
