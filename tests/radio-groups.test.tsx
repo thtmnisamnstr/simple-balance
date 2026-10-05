@@ -44,10 +44,24 @@ function mount(node: React.ReactNode) {
   );
 }
 
+/** A group's name, from `aria-label` or the visible words `aria-labelledby` names. */
+function groupName(group: Element) {
+  const labelledBy = group.getAttribute("aria-labelledby");
+  const named = labelledBy
+    ? labelledBy
+        .split(" ")
+        .map((id) => group.ownerDocument.getElementById(id)?.textContent?.trim() ?? "")
+        .join(" ")
+        .trim()
+    : "";
+  return group.getAttribute("aria-label")?.trim() || named;
+}
+
 /** Every radio, with the group it claims to belong to. */
 function radioGroups(container: HTMLElement) {
   return [...container.querySelectorAll('[role="radiogroup"]')].map((group) => ({
-    label: group.getAttribute("aria-label") ?? "(unlabeled)",
+    label: groupName(group) || "(unlabeled)",
+    named: Boolean(groupName(group)),
     native: [...group.querySelectorAll('input[type="radio"]')] as HTMLInputElement[],
     aria: [...group.querySelectorAll('[role="radio"]')] as HTMLElement[],
   }));
@@ -122,6 +136,19 @@ describe("radio groups", () => {
       // a set of radios outside one is the same defect with less signposting.
       for (const radio of container.querySelectorAll<HTMLInputElement>('input[type="radio"]')) {
         expect(radio.getAttribute("name"), radio.outerHTML.slice(0, 90)).toBeTruthy();
+      }
+    });
+
+    it(`names every radio group on ${what}`, () => {
+      const { container } = mount(form);
+      revealOptionalSections(container);
+      const groups = radioGroups(container);
+      expect(groups.length, "there are groups to check").toBeGreaterThan(0);
+      for (const group of groups) {
+        expect(
+          group.named,
+          `a group holding "${group.native[0]?.value ?? group.aria[0]?.textContent}" has no name`,
+        ).toBe(true);
       }
     });
 

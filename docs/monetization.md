@@ -256,6 +256,12 @@ is zero. If you sell through other partners as well you need more lines than
 this one, and the way to do that is to serve your own `/ads.txt` from whatever
 terminates TLS in front of this deployment; it will take precedence.
 
+`/robots.txt` is served too, and it lets AdSense's crawler (`Mediapartners-Google`)
+in while asking every other crawler to stay out. AdSense matches ads to a page
+by reading it with that crawler, so a robots file that turned it away would get
+less relevant ads rather than none. If whatever terminates TLS serves a robots
+file of its own, keep that allowance in it.
+
 **If this deployment is on a subdomain** — `balance.example.com` rather than
 `example.com` — crawlers read the **root** domain's `/ads.txt`, not this one.
 What that means depends on whether the publisher id is the same in both places:

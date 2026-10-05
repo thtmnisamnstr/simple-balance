@@ -330,7 +330,8 @@ looks like, so set it when asked and not otherwise.
 value. There is no version to check on this record and no undo beyond setting it
 back, so confirm it with the person first.
 
-`summarize_own_data` counts everything in the ledger.
+`summarize_own_data` counts everything in the ledger, and the staged rows it
+counts are the ones still waiting in the queue rather than every row ever kept.
 
 `get_financial_summary` answers a question about money rather than about a row.
 It computes balances, deposits, withdrawals and

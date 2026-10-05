@@ -254,7 +254,7 @@ parts, in order:
 Further rules:
 
 - **House.** A floor of three to four sentences. Measured today: 77
-  descriptions, 28,246 characters, median 295, range 33 to 1,890, and **12 under
+  descriptions, 28,273 characters, median 295, range 33 to 1,890, and **12 under
   100 characters**. The distribution is bimodal, but the terse half does not
   cover the dangerous tools: `commit_staged_transactions` is 232 characters and
   tells the agent to confirm with the person first, `merge_categories` is 186
@@ -559,11 +559,11 @@ them more often.
 | Token holds | Tools | `tools/list` characters | Approx tokens |
 | --- | --- | --- | --- |
 | no ledger scope | 0 | `tools/list` is not offered at all | 0 |
-| `ledger:read` | 37 | 170,055 | ~43,000 |
-| `ledger:stage` | 42 | 209,583 | ~52,000 |
-| `ledger:write` | 77 | 487,037 | ~122,000 |
+| `ledger:read` | 37 | 170,082 | ~43,000 |
+| `ledger:stage` | 42 | 209,610 | ~52,000 |
+| `ledger:write` | 77 | 487,064 | ~122,000 |
 
-Composition at the write tier: names 1,467, titles 1,884, descriptions 28,246,
+Composition at the write tier: names 1,467, titles 1,884, descriptions 28,273,
 input schemas 211,129, output schemas 227,740. **Descriptions are 5.8% of what
 an agent loads; names, titles and descriptions together are 6.5%.** Output
 schemas are 46.8%.

@@ -898,7 +898,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Count everything in this ledger",
         description:
-          "How many accounts, transactions, categories, staged rows, import batches, payees, and connected agents this person has.",
+          "How many accounts, transactions, categories, staged rows still waiting in the queue, import batches, payees, and connected agents this person has.",
         inputSchema: toolInput({}),
         outputSchema: mcpOutputSchema(ownDataSummaryResultSchema),
         annotations: readAnnotations,

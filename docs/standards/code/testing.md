@@ -23,14 +23,14 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 258 pass, 75 skip | **2,800 pass, 885 skip** |
-| `npm test`, database set | 333 pass | **3,685 pass** |
+| `npm test`, no database | 258 pass, 75 skip | **2,803 pass, 885 skip** |
+| `npm test`, database set | 333 pass | **3,688 pass** |
 | `npm run test:integration` | 76 pass | 886 pass |
 
 The integration tier reports 886 tests on its own and 885 skips inside a
 database-less `npm test`, and the one-test difference is not an error: one case
 in that tier needs no database and so runs either way. It is counted among the
-2,800 rather than among the skips, which is why the two rows add up to 3,685
+2,803 rather than among the skips, which is why the two rows add up to 3,688
 both times.
 
 The third row is one test larger than the first row's skip count, and the odd

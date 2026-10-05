@@ -452,8 +452,9 @@ exception to.
 **House.** §Naming says a name is the same word on every surface, and names no
 exception. Six closed sets already read against that sentence:
 `accountTypeLabels` (`src/shared/domain.ts:53`), `PLAN_LABELS`
-(`src/shared/domain.ts:3364`), `kindLabels`
-(`src/client/pages/CategoriesPage.tsx:47`), `transactionTypeLabels`
+(`src/shared/domain.ts:3364`), `categoryKindLabels`
+(`src/client/select-options.ts:113`, which both category pages read),
+`transactionTypeLabels`
 (`src/client/pages/TemplatesPage.tsx:68`), and `ORDINAL_LABELS` and
 `FREQUENCY_LABELS` (`src/client/forms.tsx:2449`, `:2530`) for the two schedule
 pickers. In four of the six the label is a different *word* rather than the same
