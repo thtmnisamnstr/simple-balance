@@ -210,14 +210,14 @@ integration("a frozen account", () => {
     await expect(transfer(ids.Fourth!, ids.First!)).rejects.toThrow(/"Fourth" is frozen/);
   });
 
-  it("refuses every change to the account itself", async () => {
+  it("refuses a change to the account's own details, a rename included", async () => {
+    // Archiving and deleting it are allowed, and held in
+    // `frozen-bulk-refusals.integration.test.ts`; this ledger is shared by
+    // every case in order, so putting Fourth away here would change the rest.
     const before = await getAccount(actor, ids.Fourth!);
     await expect(
       updateAccount(actor, ids.Fourth!, { name: "Renamed", expectedVersion: before.version }),
     ).rejects.toThrow(/frozen/i);
-    await expect(setAccountArchived(actor, ids.Fourth!, before.version, true)).rejects.toThrow(
-      /frozen/i,
-    );
   });
 
   it("refuses an entry being deleted, which names no account at all", async () => {

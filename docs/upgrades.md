@@ -63,6 +63,13 @@ and the next `up` makes the key.
 - **`/robots.txt` is a robots file** asking every crawler but AdSense's to
   stay out, where 0.2.0 answered it with the app's own page. It ships in the
   client bundle, so the decomposed profile's nginx serves it with no change.
+- **Archiving or deleting a frozen account succeeds.** 0.2.0 refused both
+  with `422 VALIDATION_ERROR` naming the account, over HTTP and MCP alike; they
+  now behave as they do on any account, so a delete still needs nothing on the
+  account and an archived one still needs a free place to be restored. Every
+  other write to a frozen account is refused exactly as before, with a sentence
+  that now says its entries and details cannot change rather than that nothing
+  can.
 
 ## Before you upgrade to 0.2.0
 

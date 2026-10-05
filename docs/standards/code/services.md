@@ -289,7 +289,7 @@ numbers above are today's and the test is what keeps the rule.
 **Binding**, for a write that changes something somebody edited. The caller sends
 the version it read; the service compares, throws `staleVersion` if it moved,
 and bumps on success
-(`updateAccount`, `src/server/services/accounts.ts:1050`).
+(`updateAccount`, `src/server/services/accounts.ts:1060`).
 
 This said "everywhere, no exceptions" for a release, and that was false in both
 halves by the time it was written. `setActiveAccounts` takes no expected version
@@ -376,14 +376,14 @@ the caller supplied, it needs a key.
 
 The mechanism is worth understanding rather than copying. `getIdempotent` looks
 the key up **and hashes the request**
-(`src/server/services/helpers.ts:91-122`).
+(`src/server/services/helpers.ts:146-177`).
 Same key and same request returns the stored response. Same key and a
 *different* request is a `conflict`, because the caller has reused a key for
 something else and silently returning the old answer would be worse than
 refusing.
 
 The hash is over a canonicalized payload
-(`src/server/services/helpers.ts:168`):
+(`src/server/services/helpers.ts:223`):
 keys sorted, `undefined` dropped, dates as ISO strings. Without that, two
 identical requests whose JSON key order differed would hash differently and the
 retry would be refused.
@@ -421,7 +421,7 @@ it.
 **Binding.** Anything that decides "does this name already exist?" takes an
 advisory lock on that namespace first, and there are five namespaces:
 accounts, categories, payees, templates and recurrences
-(`src/server/services/helpers.ts:307-368`). Otherwise two concurrent requests
+(`src/server/services/helpers.ts:362-423`). Otherwise two concurrent requests
 both read "no", and both create.
 
 Accounts were the fifth and were added late, which is the point of listing them.
@@ -460,14 +460,14 @@ name would skip it correctly and still be wrong.
 Two more rules ride on the locks, and both live in comments a new path will not
 stumble on by itself. First, the order is fixed: all account locks in sorted id
 order, then the account namespace, then the category namespace, then the payee
-namespace (`src/server/services/helpers.ts:290-295`), with the template and
+namespace (`src/server/services/helpers.ts:345-350`), with the template and
 recurrence locks after those. Two writers that take the same locks in
 different orders deadlock under concurrency, and nothing but the order stops
 it. Second, the category lock is not only for paths deciding a name: a write
 that merely *references* a category takes it too, because a category delete
 counts references before it archives, and a create sitting between its
 ownership check and its insert is invisible to that count — the recurrence
-lands naming a dead category (`src/server/services/recurrences.ts:528-536`,
+lands naming a dead category (`src/server/services/recurrences.ts:529-537`,
 and the same guard in `transaction-templates.ts` and `budgets.ts`). A new write
 that names or references a category needs the lock even though no name is
 being invented.
@@ -635,9 +635,9 @@ instances. The class is `human`: no program knows which paths are siblings.
 
 **Binding.** The largest guard added in 0.2.0 is the account freeze, and it is
 built the only way a guard over a plan can be: `accountFreeze(tx, actor)`
-(`src/server/services/accounts.ts:788`) reads the entitlement **on the caller's
+(`src/server/services/accounts.ts:798`) reads the entitlement **on the caller's
 transaction**, and `assertAccountsWritable(freeze, ids)`
-(`src/server/services/accounts.ts:842`) refuses against what that read said.
+(`src/server/services/accounts.ts:852`) refuses against what that read said.
 Fifteen declarations across five modules take the freeze, and ten of them call
 the assertion.
 
@@ -648,7 +648,7 @@ at a moment no code observes, and a deployment that stops selling answers
 written on the way down would go on saying what it said then, and that last case
 would lock paying customers out of their own books. `ledger_account.active` is
 the person's choice and nothing else; `frozenAccountIds`
-(`src/shared/domain.ts:3550`) combines it with the entitlement at read time.
+(`src/shared/domain.ts:3586`) combines it with the entitlement at read time.
 
 The obvious alternative is to resolve the entitlement once at the edge — in the
 route, or in a middleware — and pass the answer down. It is wrong for the reason
@@ -711,16 +711,16 @@ which is how you can tell it is one decision made once:
   part of `accountUpdateSchema` and nothing edits it through that path, so a
   bump here would invalidate the expected version in every form somebody had
   open for a reason that has nothing to do with what they were editing."
-- `markFittingAccountsActive` (`src/server/services/accounts.ts:870`) — the same
+- `markFittingAccountsActive` (`src/server/services/accounts.ts:880`) — the same
   column from the other direction, and it says "like `setActiveAccounts`".
-- `proposeDueOccurrences` (`src/server/services/recurrences.ts:313`) — "a tick
+- `proposeDueOccurrences` (`src/server/services/recurrences.ts:314`) — "a tick
   advancing a watermark is not a change to what they configured".
 - The four reference rewrites in the two merges
-  (`src/server/services/categories.ts:1184`, `:1266`,
+  (`src/server/services/categories.ts:1188`, `:1270`,
   `src/server/services/payees.ts:458`) — "a merge relabels what a recurrence
   points at without changing what somebody configured". 2.6 owns why the
   rewrites happen at all; this is why they are silent.
-- `deleteCategoryGroup` (`src/server/services/category-groups.ts:274`) — and
+- `deleteCategoryGroup` (`src/server/services/category-groups.ts:281`) — and
   this one `AGENTS.md` states outright: the foreign key never bumped it, so
   bumping it would make a Citus cluster refuse an edit a single node accepts.
 
@@ -761,7 +761,7 @@ function that opened it is the one that releases it.**
 **Metrics.** `ledger_writes_total` names the books rather than the traffic, so a
 count standing for a write that rolled back is a lie about the books. Every
 service counts through `countAfterCommit`
-(`src/server/services/helpers.ts:150`), which counts immediately when the
+(`src/server/services/helpers.ts:205`), which counts immediately when the
 service opened its own transaction and otherwise queues; the MCP transport
 flushes with `flushDeferredCounts` after `getDb().transaction` resolves
 (`src/server/mcp.ts:338`). Six call sites, in `transactions.ts` and
@@ -779,7 +779,7 @@ collected whether anybody flushed it or not.
 nothing in it, so it is sent after the transaction that earned it commits, never
 inside it (`AGENTS.md`). `proposeDueOccurrences` collects what to announce
 through a callback and `runDueRecurrences` sends it outside, awaited rather than
-left running (`src/server/services/recurrences.ts:410`); the reminder sweep
+left running (`src/server/services/recurrences.ts:411`); the reminder sweep
 sends after `claimDueNotification`'s transaction has moved the watermark and
 committed.
 
@@ -850,7 +850,7 @@ the same new category end up on one category rather than two: the second
 lookup sees what the first created.
 ```
 
-(`src/server/services/categories.ts:195-197`, the docstring on
+(`src/server/services/categories.ts:196-198`, the docstring on
 `resolveDraftCategory` rather than the signature under it.)
 
 Run those in parallel and a split naming "Groceries" twice creates two
@@ -902,7 +902,7 @@ instead of lowering the spending.
 
 Where the direction genuinely cannot decide — a name with nothing behind it
 yet — the caller says so with `categoryKind`
-(`src/server/services/categories.ts:210`),
+(`src/server/services/categories.ts:211`),
 and that field is ignored when the category already exists, because that one has
 an answer already.
 

@@ -12,7 +12,7 @@ importer all have opinions about.
 
 Everything is grounded in three places: `src/shared/csv.ts`, which both the
 browser preview and the server use, `src/server/services/import-export.ts`,
-which reads and writes files, and `src/server/api.ts:1921-1951`, which is the
+which reads and writes files, and `src/server/api.ts:1935-1965`, which is the
 transport: preview, stage, the batch list and export. That range named the
 progress-frame helpers and the commit route for a release, two screens above
 the routes this file is about. It is the failure
@@ -189,7 +189,7 @@ was responsible for — and the defect is in this guide, not in the code.
 
 **Settled.** The download filename is dated in the person's own timezone,
 through `todayIn(timezone)` like every other "today" in this product
-(`src/server/api.ts:1939-1951`). It used to read the server clock, so somebody
+(`src/server/api.ts:1953-1965`). It used to read the server clock, so somebody
 at UTC+13 downloading at 09:00 got yesterday's date on the file — the one thing
 a dated filename exists to get right.
 
@@ -199,7 +199,7 @@ a dated filename exists to get right.
 
 Papa Parse guesses the delimiter and the preview reports what it guessed, both
 in the API response (`CsvPreview.delimiter`, `src/shared/csv.ts:167-214`) and on
-screen (`src/client/pages/ImportPage.tsx:363-367`). The import screen says so
+screen (`src/client/pages/ImportPage.tsx:369-373`). The import screen says so
 before a file is chosen: "Comma, semicolon, and tab delimiters are detected
 automatically."
 
@@ -250,7 +250,7 @@ happily turn the column into a float the moment it opens.
 - **An amount in an exported cell is a canonical decimal string.** No thousands
   separator, `.` as the decimal mark, trailing zeros stripped, at most 26
   integer and 18 fractional digits. That is `canonicalDecimal`
-  (`src/server/services/helpers.ts:24-29`), the same function the API returns.
+  (`src/server/services/helpers.ts:79-84`), the same function the API returns.
 - **An exported amount is never negative.** Direction is the `transaction_type`
   column. `positiveDecimalStringSchema` already says it: "Direction comes from
   the transaction type, so this is never negative."
@@ -451,7 +451,7 @@ and nothing would catch it until an importer did.
 **House, the per-shape column contract.** **A deposit** fills
 `destination_amount` and `destination_currency`; the source columns are empty.
 **A withdrawal** fills the source columns. **A transfer** fills both and
-`effective_rate` (`src/server/services/transactions.ts:468-569`).
+`effective_rate` (`src/server/services/transactions.ts:470-571`).
 
 **House, the split contract.** **A split** travels in `legs_json` as an array of
 at least two objects, each with `categoryName`, `amount` and `note`
@@ -632,7 +632,7 @@ Three mechanisms, and they are deliberately not the same strictness:
 1. **The stored fingerprint.** Every staged row gets one key: the external
    reference when the row has one, because that is an identity rather than a
    guess, otherwise a heuristic key over type, date, payee, account and amount
-   (`stagedDuplicateKey`, `src/server/services/transactions.ts:2614-2662`).
+   (`stagedDuplicateKey`, `src/server/services/transactions.ts:2678-2726`).
 2. **The advisory badge.** The queue also looks for a committed transaction of
    the same type, account and amount within `LIKELY_DUPLICATE_DAYS`, which is
    three (`src/shared/domain.ts:1381`, `src/server/services/staging.ts:587-663`).
@@ -654,8 +654,8 @@ we can use to avoid importing duplicates". We read that id when the file has
 one: map it to `externalId`, or let one of our own exports carry it.
 
 *Checked by:* `tests/integration/duplicates.integration.test.ts:62` (the
-heuristic guard), the staged-against-staged case at `:279` and rows that repeat
-each other at `:639`, and
+heuristic guard), the staged-against-staged case at `:282` and rows that repeat
+each other at `:642`, and
 `tests/integration/csv-roundtrip-fidelity.integration.test.ts:75-123` for the
 external reference surviving a round trip.
 
@@ -690,7 +690,7 @@ is all-or-nothing at its own level:
 *Checked by:* `tests/bulk-row-cap.test.ts` for the caps,
 `tests/integration/import-export.integration.test.ts:105` for the idempotent
 replay that binds a stage to the file and mapping it was run against, and
-`tests/integration/duplicates.integration.test.ts:279` ("detects selected staged
+`tests/integration/duplicates.integration.test.ts:282` ("detects selected staged
 duplicates in dry runs and commits atomically only with override") for the
 all-or-nothing commit.
 
@@ -725,7 +725,7 @@ panel are given the same number for the same fault.
 Blank lines are skipped before anything is counted, so an interior blank leaves
 the number one low; a trailing blank, which is the common case, comes after
 everything it could shift. Nothing else numbers a row at all: the queue shows no
-position (`src/client/pages/StagingPage.tsx:1021-1070`) and a staged row stores no
+position (`src/client/pages/StagingPage.tsx:1022-1071`) and a staged row stores no
 source row number (`src/server/db/schema.ts:778-890`), so a queue entry is
 traceable to a line only through its `raw_data`.
 
@@ -799,7 +799,7 @@ the same number.
   somebody maps its columns (`src/server/services/import-export.ts:116-124`).
 - **The request envelope.** A CSV route and `/mcp` are sized at six times
   `CSV_MAX_BYTES` plus 64 KiB, the six being the worst case for JSON string
-  escaping (`src/server/http-security.ts:382-383`, `:992`).
+  escaping (`src/server/http-security.ts:382-383`, `:1043`).
 - **Rows.** Counted after blank lines are skipped, so a trailing newline is not
   a row.
 

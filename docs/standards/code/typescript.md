@@ -48,7 +48,7 @@ The last of those cost five lines. `AppError` and `ApiClientError` both declared
 their fields in the constructor signature, which is TypeScript-only syntax that
 emits assignments. They now declare fields and assign them
 (`src/server/services/errors.ts:31-61`,
-`src/client/api.ts:35-52`).
+`src/client/api.ts:35-67`).
 
 The gain is not stylistic. It means `node --experimental-strip-types` and every
 other type-stripping runtime can run this source directly, and it means reading
@@ -188,7 +188,7 @@ lookup that a database constraint guarantees is honest, and the alternative is a
 branch that cannot be reached and cannot be tested.
 
 The one this section was written about is
-`src/server/services/accounts.ts:570`, building the row an archived account
+`src/server/services/accounts.ts:572`, building the row an archived account
 would have had so the caller sees the shape it expects; the alternative was
 making every field optional for one call site. The other three are a different
 thing wearing the same syntax, and 2.6 is their rule: each is confined to one
@@ -234,7 +234,7 @@ export type CategoryKind = (typeof categoryKinds)[number];
 
 The array is the single source: Zod validates from it, the database enum is
 generated from it (`src/server/db/schema.ts:199`),
-and the UI iterates it (`src/client/pages/CategoriesPage.tsx:138`).
+and the UI iterates it (`src/client/pages/CategoriesPage.tsx:135`).
 Adding a member is one edit, and every one of those follows.
 
 *Checked by:* `npm run typecheck`, for the half of it that is a refusal:
@@ -308,14 +308,14 @@ either of the other two that the rule working was a deviation from it. Both pass
 the test the `securityHeaderOptions` paragraph below sets, and one of them is
 load-bearing by `AGENTS.md`:
 
-- `PLAN_LABELS` (`src/shared/domain.ts:3329-3332`) is, in `AGENTS.md`'s words,
+- `PLAN_LABELS` (`src/shared/domain.ts:3364-3367`) is, in `AGENTS.md`'s words,
   "the one place a plan's name is written". `satisfies Record<Plan, string>` is
   what makes a plan added without a label fail to compile; `as const` is what
   keeps `PLAN_LABELS.plus` the literal `"Premium"` rather than `string`, which
   is what `tests/product-facts.test.ts:61` asserts and what the marketing site
   reads through `docs/product/facts.json`. Annotating `Record<Plan, string>`
   would do the first and lose the second.
-- `authReporting` (`src/server/auth.ts:56-73`) returns the logger and error
+- `authReporting` (`src/server/auth.ts:75-98`) returns the logger and error
   handler Better Auth is configured with, checked against
   `Pick<BetterAuthOptions, "logger" | "onAPIError">` without being flattened
   into it. `src/server/auth.ts:121` spreads the result and
@@ -372,7 +372,7 @@ names it. Both spellings confine the cast to one name, which is what the rule
 asks; neither widens anything else.
 
 That discipline is the rule, and it is what separates these from the fourth —
-`src/server/services/accounts.ts:570`, which assembles an internal row shape and
+`src/server/services/accounts.ts:572`, which assembles an internal row shape and
 which 2.2 already records. A cast confined to one property can be read, checked
 against the vendor's changelog, and deleted when the vendor catches up. A cast
 that asserts a whole shape cannot.

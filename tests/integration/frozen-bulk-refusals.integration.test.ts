@@ -1,22 +1,28 @@
 /**
- * The frozen-account guards nothing held: the bulk paths, the category merge,
- * the account delete and the commit.
+ * The frozen-account guards nothing held: the bulk paths, the category merge
+ * and the commit — and putting a frozen account away, which is held the other
+ * way round.
  *
- * `assertAccountsWritable` is called at ten sites and the refusal was proved at
- * six of them. For three of the four left — `bulkDeleteTransactions`,
- * `mergeCategories` and `deleteAccount` — that call is the *only* guard on the
- * path: a bulk delete reaches `repostTransaction`, which consults no freeze,
- * and neither the merge nor the account delete goes through
- * `prepareTransaction`. Deleting any one of those lines unguarded the path and
+ * `assertAccountsWritable` is called at eight sites and the refusal was proved
+ * at five of them. For two of the three left — `bulkDeleteTransactions` and
+ * `mergeCategories` — that call is the *only* guard on the path: a bulk delete
+ * reaches `repostTransaction`, which consults no freeze, and the merge does not
+ * go through `prepareTransaction`. Deleting either line unguarded the path and
  * left all three tiers green.
+ *
+ * Archiving and deleting a frozen account were guarded too, and are not any
+ * more: putting an account away gives it no place, so refusing it only stopped
+ * somebody who had downgraded from tidying up. What has to hold instead is
+ * that neither hands another frozen account a place, and that an archived one
+ * still needs a free place to come back. The last block here holds both.
  *
  * `AGENTS.md` names "a payee **or category** merge that walks the whole ledger"
  * as the pair that must refuse. The payee half is pinned in
  * `frozen-accounts.integration.test.ts`; the twin written from the same
  * sentence was not, which is how a rule loses one of its halves.
  *
- * Two of the four are defended in depth and are here for the case that gets
- * past the other guard:
+ * Two of them are defended in depth and are here for the case that gets past
+ * the other guard:
  *
  *   - `bulkEditTransactions` also prepares each row, so a patch that leaves the
  *     accounts alone is refused by `resolveAccounts` regardless. The one that
@@ -57,6 +63,7 @@ import {
   deleteAccount,
   getAccount,
   listAccounts,
+  setAccountArchived,
 } from "../../src/server/services/accounts.js";
 import { createCategory, mergeCategories } from "../../src/server/services/categories.js";
 import { commitStages, createStage, listStages } from "../../src/server/services/staging.js";
@@ -225,23 +232,6 @@ integration("what a frozen account refuses when the request never names it", () 
     ).rejects.toThrow(/frozen/i);
   });
 
-  it("refuses being deleted, even with nothing on it", async () => {
-    // A delete of an unused account is the one write that looks harmless, and
-    // it is the one that would hand the place back: the account is gone, the
-    // ledger fits again, and a choice nobody made has been undone by a write
-    // the plan was supposed to refuse.
-    const { owner, accounts } = await ledgerWithFrozenAccount("frozen-bulk-delete-account", []);
-    const fourth = await getAccount(owner, accounts.Fourth!);
-
-    await expect(deleteAccount(owner, accounts.Fourth!, fourth.version)).rejects.toThrow(/frozen/i);
-    expect((await listAccounts(owner)).map((account) => account.name).sort()).toEqual([
-      "First",
-      "Fourth",
-      "Second",
-      "Third",
-    ]);
-  });
-
   it("refuses a commit of a staged row that would land on it, as a row issue", async () => {
     // Not `/frozen/i` against the thrown message: `validateDraft` catches the
     // refusal and files it against the row, so the commit refuses with its own
@@ -278,6 +268,86 @@ integration("what a frozen account refuses when the request never names it", () 
           expect.objectContaining({ message: expect.stringMatching(/"Fourth" is frozen/) }),
         ]),
       },
+    });
+  });
+
+  describe("putting a frozen account away", () => {
+    const frozenNames = async (owner: Actor) =>
+      (await listAccounts(owner))
+        .filter((account) => account.frozen)
+        .map((account) => account.name)
+        .sort();
+
+    /** Five accounts, so archiving or deleting one frozen account leaves another to watch. */
+    const ledgerWithTwoFrozen = async (id: string, rowsOnFourth: readonly string[] = []) => {
+      const owner = await freshOwner(id);
+      await paidUntil(owner, far);
+      const accounts: Record<string, string> = {};
+      for (const name of ["First", "Second", "Third", "Fourth", "Fifth"]) {
+        accounts[name] = await open(owner, name);
+      }
+      for (const amount of rowsOnFourth) await spend(owner, accounts.Fourth!, amount);
+      await paidUntil(owner, null);
+      expect(await frozenNames(owner)).toEqual(["Fifth", "Fourth"]);
+      return { owner, accounts };
+    };
+
+    it("archives one, closing it at zero and giving the other no place", async () => {
+      const { owner, accounts } = await ledgerWithTwoFrozen("frozen-archive", ["40"]);
+      const fourth = await getAccount(owner, accounts.Fourth!);
+
+      const archived = await setAccountArchived(owner, accounts.Fourth!, fourth.version, true);
+      expect(archived.archivedAt).not.toBeNull();
+      expect(archived.balance).toMatch(/^0(\.0+)?$/);
+      expect(await frozenNames(owner)).toEqual(["Fifth"]);
+      expect(
+        (await listAccounts(owner))
+          .filter((account) => !account.frozen)
+          .map((account) => account.name)
+          .sort(),
+      ).toEqual(["First", "Second", "Third"]);
+      // Coming back is where the limit is enforced, so the archive is not the
+      // first half of a swap.
+      await expect(
+        setAccountArchived(owner, accounts.Fourth!, archived.version, false),
+      ).rejects.toThrow(/needs one of those places/);
+    });
+
+    it("deletes one with nothing on it, giving the other no place", async () => {
+      const { owner, accounts } = await ledgerWithTwoFrozen("frozen-delete");
+      const fifth = await getAccount(owner, accounts.Fifth!);
+
+      await expect(deleteAccount(owner, accounts.Fifth!, fifth.version)).resolves.toMatchObject({
+        deleted: true,
+      });
+      expect(await frozenNames(owner)).toEqual(["Fourth"]);
+      expect((await listAccounts(owner)).map((account) => account.name).sort()).toEqual([
+        "First",
+        "Fourth",
+        "Second",
+        "Third",
+      ]);
+    });
+
+    it("sends one with history to the archive instead, as it would any account", async () => {
+      const { owner, accounts } = await ledgerWithTwoFrozen("frozen-delete-used", ["12"]);
+      const fourth = await getAccount(owner, accounts.Fourth!);
+
+      await expect(deleteAccount(owner, accounts.Fourth!, fourth.version)).rejects.toThrow(
+        /Archive it instead/,
+      );
+    });
+
+    it("answers a restore of one that is already live with its real standing", async () => {
+      // The no-op path used to sit behind the freeze check, which made
+      // `frozen: false` true by construction there. Without the check it has
+      // to be read.
+      const { owner, accounts } = await ledgerWithTwoFrozen("frozen-restore-noop");
+      const fourth = await getAccount(owner, accounts.Fourth!);
+
+      const answer = await setAccountArchived(owner, accounts.Fourth!, fourth.version, false);
+      expect(answer.frozen).toBe(true);
+      expect(answer.version).toBe(fourth.version);
     });
   });
 });

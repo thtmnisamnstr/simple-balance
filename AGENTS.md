@@ -253,11 +253,17 @@
   and counts toward every balance, summary and report: no `frozen` clause may
   enter a read, or the archive rule's warning applies, that never make a figure
   correct by filtering alone while the figures beside it do not. What it refuses
-  is every write, including the ones that name no account — an entry deleted by
-  id, an edit moving money off it, and a payee or category merge that walks the
-  whole ledger. Those refuse whole rather than skipping rows. Archived accounts
-  are outside all of it: they already refuse every write, so they are never
-  frozen and use up none of the places. **The choice is made once.** An account
+  is every change to what it holds, including the ones that name no account —
+  an entry deleted by id, an edit moving money off it, a rename, and a payee or
+  category merge that walks the whole ledger. Those refuse whole rather than
+  skipping rows. What it never refuses is being put away: a frozen account may
+  be archived, or deleted while nothing is on it, because it held no place and
+  so frees none for anything else, and coming back out of the archive needs a
+  free place like any restore. Refusing that left somebody who had downgraded
+  with accounts they could read and could not tidy away, which is a penalty
+  rather than a limit. Archived accounts are outside all of it: they already
+  refuse every write, so they are never frozen and use up none of the places.
+  **The choice is made once.** An account
   in use stays in use until it is archived or deleted, and only then may a
   frozen one take its place — `activeAccountChange` is that rule, and
   `activeChoicePending` says when the question is still open: more live

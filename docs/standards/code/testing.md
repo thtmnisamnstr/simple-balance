@@ -23,14 +23,14 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 258 pass, 75 skip | **2,799 pass, 882 skip** |
-| `npm test`, database set | 333 pass | **3,681 pass** |
-| `npm run test:integration` | 76 pass | 883 pass |
+| `npm test`, no database | 258 pass, 75 skip | **2,800 pass, 885 skip** |
+| `npm test`, database set | 333 pass | **3,685 pass** |
+| `npm run test:integration` | 76 pass | 886 pass |
 
-The integration tier reports 883 tests on its own and 882 skips inside a
+The integration tier reports 886 tests on its own and 885 skips inside a
 database-less `npm test`, and the one-test difference is not an error: one case
 in that tier needs no database and so runs either way. It is counted among the
-2,799 rather than among the skips, which is why the two rows add up to 3,681
+2,800 rather than among the skips, which is why the two rows add up to 3,685
 both times.
 
 The third row is one test larger than the first row's skip count, and the odd
@@ -268,7 +268,7 @@ read a figure that is true of what it created and is also a property of
 something larger:
 
 - `rollover.from` is the earliest `activeFrom` across *every* plan the actor
-  holds (`src/server/services/budgets.ts:1097`). The forecast tests anchor one
+  holds (`src/server/services/budgets.ts:1109`). The forecast tests anchor one
   in 2020 to give a stepped chain a base, so shuffled ahead of it the carry
   origin answered 2020.
 - `period.unfunded` is null when nobody anywhere set a funding order, which the
@@ -618,9 +618,9 @@ The guides cite the code three ways:
 
 | Shape | Example |
 | --- | --- |
-| Full path | `` `src/client/forms.tsx:334` `` |
-| Bare filename | `` `forms.tsx:337` `` — resolved by basename |
-| Continuation | `` `:628` `` — inherits the last file the prose named |
+| Full path | `` `src/client/forms.tsx:344` `` |
+| Bare filename | `` `forms.tsx:347` `` — resolved by basename |
+| Continuation | `` `:638` `` — inherits the last file the prose named |
 
 The full-path example used to name line 342, where that file opens a return
 with a bare `<>`. 6.2 calls a citation that has landed on a fragment a cheap

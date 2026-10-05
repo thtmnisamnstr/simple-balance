@@ -857,7 +857,7 @@ export function assertAccountsWritable(freeze: AccountFreeze, ids: Iterable<stri
       throw validationError(
         frozenAccountRefusal(freeze.limit, name),
         undefined,
-        `"${name}" is frozen: the plan in force keeps ${freeze.limit} accounts active and closes the rest to every write. No argument you can change gets past this. whoami reports the plan and its ceiling, list_accounts reports \`frozen\` on each account, and a frozen one comes back into use only when somebody archives or deletes an account that is in use, or the person upgrades from a browser.`,
+        `"${name}" is frozen: the plan in force keeps ${freeze.limit} accounts active and closes the rest to every change to what they hold. No argument you can change gets past this. whoami reports the plan and its ceiling, list_accounts reports \`frozen\` on each account, and a frozen one comes back into use only when somebody archives or deletes an account that is in use, or the person upgrades from a browser. Archiving the frozen account itself, or deleting it while nothing is on it, is allowed and frees no place.`,
       );
     }
   }
@@ -1166,13 +1166,20 @@ export async function setAccountArchived(
       .limit(1);
     if (!before) throw notFound("Account not found");
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
-    // After the version, before anything is written. A frozen account refuses
-    // every change, not only the ones that move money: a rename is a change,
-    // and an opening-balance edit posts twice.
-    assertAccountsWritable(await accountFreeze(tx, actor), [id]);
+    // No freeze check, in either direction. A frozen account takes no change
+    // to what it holds, but putting it away is not one of those: archiving
+    // gives up a place it never had, and the limit is enforced where an
+    // account comes back, by the restore check below, so an archive can never
+    // be the first half of a swap. Refusing it left somebody who downgraded
+    // with a page of accounts they could read and could not tidy away. A
+    // restore had nothing to refuse here anyway: an archived account is never
+    // frozen.
     // Asked for the state it is already in: nothing moves, so nothing is written.
     if ((before.archivedAt !== null) === archived) {
-      return { ...accountView(before, await currentBalance(tx, actor, id)), frozen: false };
+      return {
+        ...accountView(before, await currentBalance(tx, actor, id)),
+        frozen: (await accountFreeze(tx, actor)).frozen.has(id),
+      };
     }
     if (archived && (await activeStagedAccountReferenceCount(tx, actor, id)) > 0) {
       throw conflict(
@@ -1231,7 +1238,7 @@ export async function setAccountArchived(
       after: serializeRow(updated),
     });
     if (archived) await markFittingAccountsActive(tx, actor);
-    // A frozen account never reaches here, and a restored one has just been
+    // Archived now, which is never frozen, or restored, which has just been
     // written active into a place that was free.
     return { ...accountView(updated, await currentBalance(tx, actor, updated.id)), frozen: false };
   });
@@ -1256,10 +1263,8 @@ export async function deleteAccount(
       .limit(1);
     if (!before) throw notFound("Account not found");
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
-    // After the version, before anything is written. A frozen account refuses
-    // every change, not only the ones that move money: a rename is a change,
-    // and an opening-balance edit posts twice.
-    assertAccountsWritable(await accountFreeze(tx, actor), [id]);
+    // No freeze check, for the reason `setAccountArchived` gives: a frozen
+    // account held no place, so deleting it frees none for anything else.
     if (before.archivedAt) {
       throw conflict("Archived accounts cannot be deleted. Unarchive this account first.");
     }

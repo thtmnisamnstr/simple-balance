@@ -80,8 +80,16 @@ which are archiving one, deleting one, or upgrading.
 
 **Somebody who already has more than three keeps all of them, and chooses three
 to keep using.** The rest are *frozen*: every balance, every entry and every
-report still counts them and still shows them, and nothing about them may
-change — no new entry, no edit, no delete, not even a rename.
+report still counts them and still shows them, and nothing they hold may
+change — no new entry, no edit, no deleted entry, not even a rename.
+
+**A frozen account can always be put away.** Archiving one, or deleting one
+with nothing on it, is allowed, because neither gives anything a place: a
+frozen account never held one, and coming back out of the archive needs a free
+place like any restore. Somebody who downgrades with thirty accounts and uses
+three should be able to clear away the other twenty-seven in an afternoon.
+Refusing it, as 0.2.0 did, made a downgrade feel like a punishment, and the
+limit was never at risk.
 
 **The choice is made once, and after that the only move is filling a place that
 has opened up.** An account somebody is using stays that way until they archive

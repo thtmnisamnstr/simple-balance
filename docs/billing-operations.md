@@ -504,10 +504,12 @@ three notices anything. Above it nothing is archived, hidden or deleted — ever
 account stays listed, readable and counted in every balance, report and export —
 but only three stay usable: the three oldest, until the person makes their
 one-time choice on the Accounts page, or an agent makes it with
-`set_active_accounts`. The rest are frozen and refuse every write: a new entry,
-an edit, a delete, a rename, and a payee or category merge that would touch one,
-which refuses whole. A staged or imported row that names one gets an issue
-instead of committing. `docs/monetization.md` has the whole rule, and why the
+`set_active_accounts`. The rest are frozen and refuse every change to what they
+hold: a new entry, an edit, a deleted entry, a rename, and a payee or category
+merge that would touch one, which refuses whole. A staged or imported row that
+names one gets an issue instead of committing. They can still be archived, or
+deleted while nothing is on them, so somebody can clear away the ones they no
+longer use without upgrading first. `docs/monetization.md` has the whole rule, and why the
 choice is made only once.
 
 **So grant an override first** to everybody who should keep every account —

@@ -283,13 +283,14 @@ export default function AccountsPage({ session }: { session: Session }) {
                 const liability = liabilityAccountTypes.has(account.type);
                 const noPlace = Boolean(account.archivedAt) && !restore.ok;
                 const noPlaceId = `${reasonId}-${account.id}`;
-                // The sentence the server refuses all three items with, so a
-                // frozen card says why its menu is gray instead of leaving the
-                // person to find out from a 422. Said once, under the last
-                // item, because one reason covers all three. The fallback is
-                // the only limit any plan freezes under, for a session that
-                // arrived without one. The Restore wiring never meets this: an
-                // archived account is never frozen.
+                // The sentence the server refuses an edit with, so a frozen
+                // card says why Edit is gray instead of leaving the person to
+                // find out from a 422. Under Edit, the one item it explains:
+                // archiving and deleting stay open on a frozen account, because
+                // neither gives it a place. The fallback is the only limit any
+                // plan freezes under, for a session that arrived without one.
+                // The Restore wiring never meets this: an archived account is
+                // never frozen.
                 const frozenReason = account.frozen
                   ? frozenAccountRefusal(activeLimit ?? MAX_FREE_ACCOUNTS, account.name)
                   : null;
@@ -315,9 +316,14 @@ export default function AccountsPage({ session }: { session: Session }) {
                           >
                             <Pencil size={15} /> Edit
                           </button>
+                          {frozenReason ? (
+                            <small className="button-reason menu-reason" id={frozenId}>
+                              {frozenReason}
+                            </small>
+                          ) : null}
                           <button
-                            disabled={account.frozen || noPlace}
-                            aria-describedby={noPlace ? noPlaceId : describedBy}
+                            disabled={noPlace}
+                            aria-describedby={noPlace ? noPlaceId : undefined}
                             onClick={() => {
                               // Archiving moves money: the balance is posted
                               // out to equity so the account ends at zero.
@@ -357,8 +363,6 @@ export default function AccountsPage({ session }: { session: Session }) {
                           ) : null}
                           <button
                             className="danger"
-                            disabled={account.frozen}
-                            aria-describedby={describedBy}
                             onClick={() => {
                               removal.ask(account, () =>
                                 mutation.mutate({ account, action: "delete" }),
@@ -367,11 +371,6 @@ export default function AccountsPage({ session }: { session: Session }) {
                           >
                             <Trash2 size={15} /> Delete if unused
                           </button>
-                          {frozenReason ? (
-                            <small className="button-reason menu-reason" id={frozenId}>
-                              {frozenReason}
-                            </small>
-                          ) : null}
                         </RowMenu>
                       </div>
                     </header>

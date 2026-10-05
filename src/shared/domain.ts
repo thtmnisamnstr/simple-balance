@@ -1041,7 +1041,7 @@ export const activeAccountsSchema = z.object({
     .array(uuid())
     .max(1000)
     .describe(
-      "Every account that stays usable. Any account of yours left out of this list is frozen: still readable, and closed to every change until the plan stops limiting how many may be active. The choice is made once — an account already in use stays in use, and a frozen one may be named here only when archiving or deleting an account has freed a place, unless time on the paid plan left more accounts marked active than the plan keeps, which opens the choice again. Archived accounts are not part of this and use up no place. Refused while nothing is frozen, which is on a plan with no limit and whenever every account fits within it, unless the list names exactly the accounts already active.",
+      "Every account that stays usable. Any account of yours left out of this list is frozen: still readable, and closed to every change to what it holds until the plan stops limiting how many may be active, though it can still be archived or deleted. The choice is made once — an account already in use stays in use, and a frozen one may be named here only when archiving or deleting an account has freed a place, unless time on the paid plan left more accounts marked active than the plan keeps, which opens the choice again. Archived accounts are not part of this and use up no place. Refused while nothing is frozen, which is on a plan with no limit and whenever every account fits within it, unless the list names exactly the accounts already active.",
     ),
 });
 
@@ -3554,7 +3554,8 @@ export type FreezableAccount = {
 };
 
 /**
- * Which of somebody's accounts are frozen — readable, and closed to every write.
+ * Which of somebody's accounts are frozen — readable, and closed to every change
+ * to what they hold.
  *
  * **Derived, never stored.** The column records the *choice*; this combines it
  * with the entitlement, and it has to be that way round because entitlements
@@ -3879,7 +3880,7 @@ export function frozenAccountRefusal(limit: number, name?: string) {
   const subject = name ? `"${name}" is frozen.` : "This account is frozen.";
   return (
     `${subject} A free plan keeps ${limit} accounts active and the rest readable, ` +
-    "so nothing here can change until you make it one of the active ones or upgrade."
+    "so its entries and details cannot change until you make it one of the active ones or upgrade."
   );
 }
 

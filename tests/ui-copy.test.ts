@@ -252,7 +252,8 @@ const CLOSE_IS_NOT_ARCHIVED = new Set([
  * archived one.
  *
  * `common.md`'s table draws exactly this distinction — Frozen is "a live
- * account a plan's limit leaves closed to every write", against Archived — so
+ * account a plan's limit leaves closed to every change to what it holds",
+ * against Archived — so
  * "closed to" is the one phrasing that may carry the word next to the word
  * "account".
  */

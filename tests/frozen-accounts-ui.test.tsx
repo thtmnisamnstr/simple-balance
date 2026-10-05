@@ -625,14 +625,21 @@ describe("a frozen account's card on the Accounts page", () => {
     return within(trigger.closest("details") as HTMLElement);
   }
 
-  it("says why Edit, Archive and Delete are unavailable, in the refusal's own sentence", async () => {
+  it("says why Edit is unavailable, in the refusal's own sentence", async () => {
     const menu = await menuOf(FROZEN.name);
-    for (const name of ["Edit", "Archive", "Delete if unused"]) {
+    const edit = menu.getByRole("button", { name: "Edit", hidden: true });
+    expect(edit).toBeDisabled();
+    expect(edit).toHaveAccessibleDescription(frozenAccountRefusal(MAX_FREE_ACCOUNTS, FROZEN.name));
+  });
+
+  it("leaves Archive and Delete open, with nothing to explain", async () => {
+    // Putting a frozen account away gives it no place, so somebody who
+    // downgraded can tidy away the accounts they no longer use.
+    const menu = await menuOf(FROZEN.name);
+    for (const name of ["Archive", "Delete if unused"]) {
       const item = menu.getByRole("button", { name, hidden: true });
-      expect(item).toBeDisabled();
-      expect(item).toHaveAccessibleDescription(
-        frozenAccountRefusal(MAX_FREE_ACCOUNTS, FROZEN.name),
-      );
+      expect(item).toBeEnabled();
+      expect(item).not.toHaveAccessibleDescription();
     }
   });
 

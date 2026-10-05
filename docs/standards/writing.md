@@ -242,7 +242,7 @@ convention expects.
 answer: that the list items stay at the five that earned their shape, and that
 the lines running past 80 columns do not grow past where they already are.
 *Not checked:* that the top heading matches `package.json`. That is a hand step
-in the release recipe at `docs/upgrades.md:1364`, step 4, "Date the
+in the release recipe at `docs/upgrades.md:1371`, step 4, "Date the
 `## Unreleased` heading in `CHANGELOG.md`", and it has already been the subject
 of a commit ("Date 0.1.4 the day it is cut"). Nor is whether an entry describes
 a change somebody would notice, which is the judgement this section is mostly
@@ -348,22 +348,22 @@ publish runs `npm run verify` first, so an unwritten note now stops the release
 rather than reaching an operator mid-upgrade. *Also checked:* the frozen
 migration list, which `tests/migrations.test.ts` holds to what is on disk.
 *Not checked:* the changelog heading, a hand step in the release recipe at
-`docs/upgrades.md:1364`, and which release a migration is attributed to, which
+`docs/upgrades.md:1371`, and which release a migration is attributed to, which
 is prose inside a list a test can only check the membership of.
 
 ## Upgrade notes
 
-**Binding, quoting `AGENTS.md:309-354`, the frozen migration list:** "Every
+**Binding, quoting `AGENTS.md:320-365`, the frozen migration list:** "Every
 migration that has shipped is frozen" and "Never edit or regenerate one:
 someone's database has already run it, and changing it would leave their schema
 and its recorded history disagreeing." What follows is the documentation the
-operator is owed for that. The range used to read `:289-326`, which stopped
+operator is owed for that. The range used to read `:300-337`, which stopped
 eleven lines short of the second of those two sentences and fifteen short of the
 end of the bullet — it grew, and the number did not.
 
 **House, the shape.** A `## Before you upgrade to X.Y.Z` section, and its first
 sentence tells an operator whether they can stop reading. The 0.1.6 note at
-`docs/upgrades.md:981-982` is the model: "Nothing refuses to start that 0.1.5
+`docs/upgrades.md:1030-1031` is the model: "Nothing refuses to start that 0.1.5
 accepted, and nothing about an existing configuration has to change. Five
 things are worth knowing." The 0.1.4 section is the other model, because the
 answer there was different: "0.1.4 refuses to start on three configurations
@@ -493,7 +493,7 @@ The reasoning, which is what the next person should argue with:
 So, taking Nygard's Status field and immutability rule without the ceremony:
 
 - **House. A recorded decision names the release it was made in.** The exemplar
-  is `AGENTS.md:309-354`, the frozen migration list, which names every migration
+  is `AGENTS.md:320-365`, the frozen migration list, which names every migration
   and the release it shipped in, and is the most reliable section in the file
   for exactly that reason.
 - **House. A reversal edits the old text to say it is superseded, and says by
@@ -743,7 +743,7 @@ them cover the whole range:
   Note the last line, which states the bound: "Unbounded on purpose: the keys
   are locale-and-currency pairs and a ledger holds a handful of currencies, so
   there is nothing here to grow."
-- **The trade named, not only the choice.** `src/client/components.tsx:711-725`:
+- **The trade named, not only the choice.** `src/client/components.tsx:842-856`:
   a fixed popover, why absolute fails in a scrolling table card, what fixed
   costs, and then the harder half: "Deliberately not `role="menu"` ... menu
   roles without the keyboard behavior they imply are worse than none."
@@ -893,7 +893,7 @@ default argued to belong to the nginx container has to say so by name.
 **House, and specific to this product.** Any convention stated in `docs/mcp.md`
 prose that an agent must obey also appears in a tool or field description,
 because an agent never reads the prose. The document already articulates the
-principle at `:91`: "Fields carry descriptions, so an agent reading the schema
+principle at `:99`: "Fields carry descriptions, so an agent reading the schema
 learns the conventions that matter."
 [`mcp.md`](mcp.md#descriptions) owns the rule; it is repeated here because the
 temptation is to write the convention down in the guide and consider it
@@ -992,9 +992,9 @@ numbers themselves, one mechanism per claim:
 **House**, not mechanizable, and the practice that decides whether a citation is
 still worth following in a year. Four citations in this guide alone had drifted
 onto something else entirely: `tests/migrations.test.ts:363` onto a docblock
-about a different migration, `docs/upgrades.md:1227` onto the closing fence of a
-code block, `AGENTS.md:289-326` onto a range whose second quoted sentence now
-sits thirty-one lines past its end, and `StagingPage.tsx:1075` onto a row
+about a different migration, `docs/upgrades.md:1276` onto the closing fence of a
+code block, `AGENTS.md:300-337` onto a range whose second quoted sentence now
+sits thirty-one lines past its end, and `StagingPage.tsx:1076` onto a row
 checkbox.
 All four passed `tests/standards-citations.test.ts`, which says as much itself:
 "what it cannot prove is that the line still holds the thing the sentence
@@ -1054,25 +1054,25 @@ edit.
 
   - `App.tsx:696`, the scope description on the authorization page.
   - `select-options.ts:110`, the timezone label.
-  - `components.tsx:994`, every page title: `` `${title} — ${APP_NAME}` ``.
+  - `components.tsx:1128`, every page title: `` `${title} — ${APP_NAME}` ``.
   - `TemplatesPage.tsx:628`, "never — every date is skipped".
-  - `AccountsPage.tsx:557-558`, the sentence explaining what a frozen account
+  - `AccountsPage.tsx:646-647`, the sentence explaining what a frozen account
     still does, and `BudgetsPage.tsx:1387`, the note under an average with
     nothing behind it. Both arrived this release.
   - `SettingsPage.tsx:522`, the warning about what cancelling takes with it.
   - `PlanPage.tsx:1944` and `:1956`, the "Annual — $30.00 a year" price
     labels.
-  - The review queue's inline-edit labels at `StagingPage.tsx:1142-1146`, `:1262-1265` and
-    `:1336-1340`, which lead with the visible value and set the instruction off
+  - The review queue's inline-edit labels at `StagingPage.tsx:1143-1147`, `:1263-1266` and
+    `:1337-1341`, which lead with the visible value and set the instruction off
     behind a dash.
 
   The lone "—" in an empty table cell is a placeholder glyph rather than
   punctuation and is not counted. Two further sites, `SettingsPage.tsx:142` and
-  `ReportsPage.tsx:217-221`, are prose inside JSX and read as copy but are
+  `ReportsPage.tsx:224-228`, are prose inside JSX and read as copy but are
   comments, so they answer to the comment rule rather than to this one.
 
   The inline-edit citation is the one worth dwelling on. It read
-  `StagingPage.tsx:1075`, and that line had become a row checkbox — a non-blank line
+  `StagingPage.tsx:1076`, and that line had become a row checkbox — a non-blank line
   of plausible-looking code, so every check in
   `tests/standards-citations.test.ts` passed on it, including the one that
   catches a citation landing on a closing brace. §Cite by name, then by line is

@@ -289,8 +289,8 @@ table's sense, and whether the "Not" column is honest, stays review.
 | **Recurrence** | A saved shape and a schedule that proposes a staged row on its due date. | Something that posts. |
 | **Template** | A saved shape with no schedule. | A recurrence. |
 | **Plan** | What a sign-in is entitled to and billed for: free or paid. `plus` on the wire, **Premium** on screen. | A budget plan, which is always written out in full. |
-| **Entitlement** | What a plan permits, worked out from the plan and the moment rather than stored (`resolveEntitlement`, `src/shared/domain.ts:3415`). | A plan. An entitlement follows from one and changes with nobody present, which is why no column holds it. |
-| **Frozen** | A live account a plan's limit leaves closed to every write: fully readable, counted in every balance, summary and report, refusing every change. | Archived. An archived account already refuses writes, is outside the limit, and uses up no place. |
+| **Entitlement** | What a plan permits, worked out from the plan and the moment rather than stored (`resolveEntitlement`, `src/shared/domain.ts:3450`). | A plan. An entitlement follows from one and changes with nobody present, which is why no column holds it. |
+| **Frozen** | A live account a plan's limit leaves closed to every change to what it holds: fully readable, counted in every balance, summary and report, and still free to be archived, or deleted while nothing is on it. | Archived. An archived account already refuses writes, is outside the limit, and uses up no place. |
 | **Place** | One of the accounts a plan keeps usable; the product's word for the slot. | An account. A place opens up only when an account in use is archived or deleted. |
 
 Where the UI and a tool description disagree about a word, this table decides.
@@ -346,15 +346,15 @@ commit subject and a comment: plain, declarative, specific.
   below ten. A count that arrives as a *value* cannot be spelled out by writing
   the sentence differently, so it is spelled out by a map where the sentence
   reads as a sentence — `NUMBER_WORDS` and `GRACE_IN_WORDS`
-  (`src/client/pages/PlanPage.tsx:628-634`) turn `BILLING_GRACE_DAYS` into words
+  (`src/client/pages/PlanPage.tsx:638-644`) turn `BILLING_GRACE_DAYS` into words
   and fall back to digits past the end of the list, which "reads worse and is
   still true" — and left as a digit where it reads as a figure beside others.
   The plan and freezing copy is all of the second kind and none of the first,
   and the two halves of it currently disagree: the grace period is spelled out
   and the account limit is not. `MAX_FREE_ACCOUNTS` is three, and it renders as
-  "up to 3 accounts" (`src/client/pages/PlanPage.tsx:1567`), "Your plan keeps 3
-  accounts usable" (`src/client/pages/AccountsPage.tsx:556`) and "All 3 places
-  are in use" (`src/client/pages/AccountsPage.tsx:597`), the last of which is a
+  "up to 3 accounts" (`src/client/pages/PlanPage.tsx:1706`), "Your plan keeps 3
+  accounts usable" (`src/client/pages/AccountsPage.tsx:645`) and "All 3 places
+  are in use" (`src/client/pages/AccountsPage.tsx:686`), the last of which is a
   figure beside a figure and right as a digit. The first two are sentences and
   would read better in words. Say so in a review; do not grep for it, because
   there is nothing to find. Every one of these literals says `${limit}`, and the
@@ -413,7 +413,7 @@ The membership test is the whole of it, and all four clauses have to hold:
 One value passes today. Stripe reports a subscription price as an integer count
 of the currency's smallest unit (`src/server/stripe.ts:1262`), the server hands
 it on untouched (`src/server/services/billing.ts:1152`), and `formatPrice`
-(`src/client/pages/PlanPage.tsx:578-598`) divides it by the scale `Intl` already
+(`src/client/pages/PlanPage.tsx:588-608`) divides it by the scale `Intl` already
 knows and formats it in the same breath. The argument is written at the site and
 ends "Do not copy this into anything that touches a posting", which is the
 sentence to read before deciding a second value qualifies.
@@ -452,7 +452,7 @@ exception to.
 **House.** §Naming says a name is the same word on every surface, and names no
 exception. Six closed sets already read against that sentence:
 `accountTypeLabels` (`src/shared/domain.ts:53`), `PLAN_LABELS`
-(`src/shared/domain.ts:3329`), `kindLabels`
+(`src/shared/domain.ts:3364`), `kindLabels`
 (`src/client/pages/CategoriesPage.tsx:47`), `transactionTypeLabels`
 (`src/client/pages/TemplatesPage.tsx:68`), and `ORDINAL_LABELS` and
 `FREQUENCY_LABELS` (`src/client/forms.tsx:2449`, `:2530`) for the two schedule

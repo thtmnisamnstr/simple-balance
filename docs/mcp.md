@@ -107,12 +107,14 @@ because that is money owed.
 `update_account`, `archive_account`, `set_active_accounts`, and
 `delete_account`.
 
-**A frozen account refuses every write, and says so in `frozen`.** A plan that
-limits how many accounts may be active is the only thing that freezes one: the
-rest stay fully readable and keep counting toward every balance and report,
-and they refuse new entries, edits, deletes, renames and archiving alike. A
-payee or category merge that would rewrite an entry on one is refused whole
-rather than applied to the rest. `whoami` carries `plan`, `accountLimit` and
+**A frozen account refuses every change to what it holds, and says so in
+`frozen`.** A plan that limits how many accounts may be active is the only thing
+that freezes one: the rest stay fully readable and keep counting toward every
+balance and report, and they refuse new entries, edits, deleted entries and
+renames alike. A payee or category merge that would rewrite an entry on one is
+refused whole rather than applied to the rest. `archive_account` and
+`delete_account` still work on one, because neither gives it a place, so an
+agent asked to clear away unused accounts after a downgrade can. `whoami` carries `plan`, `accountLimit` and
 `accountsUsed`: `plan` is null where nothing is sold, and `accountLimit` and
 `accountsUsed` are null wherever there is no limit, which includes Premium.
 `set_active_accounts` names the whole set that stays usable.

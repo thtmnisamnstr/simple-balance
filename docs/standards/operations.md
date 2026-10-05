@@ -180,7 +180,7 @@ fixture was wrong and all twelve refusals were passing for the wrong reason.
 subject.
 
 One policy about personal data in log lines, in one process.
-`account-deletion.ts:213-220` logs counts and no address, with the comment
+`account-deletion.ts:222-229` logs counts and no address, with the comment
 "Deliberately without the address: they asked to be gone." `sendMail` follows it:
 every `Message` carries `about`, a fixed phrase naming the kind of message
 (`src/server/mail.ts:97-107`), and that phrase is what the log line carries
@@ -797,7 +797,7 @@ is a real answer here — the honest spelling of "do not prune" — where on a c
 it would be a broken deployment. The sibling is right. What is missing is the
 line in `assertConfiguredLimits()`: the value is read inside a scheduler tick
 (`src/server/recurrence-scheduler.ts:171`) and inside the sweep itself
-(`src/server/services/helpers.ts:418`), so a typo in it warns on a timer rather
+(`src/server/services/helpers.ts:473`), so a typo in it warns on a timer rather
 than in front of whoever just deployed — and on a deployment that leaves
 retention off, which is the default, the warning says the value is having no
 effect in a log line nobody correlates with the deploy. It is a row of the
@@ -1074,7 +1074,7 @@ than shipping an image that lies about what it was built on.
 needs and nothing a request does not.
 
 `/health/live` returns 200 unconditionally. `/health/ready` runs `select 1` and
-returns 200 or 503 (`src/server/api.ts:417-432`, and the same pair on the
+returns 200 or 503 (`src/server/api.ts:418-433`, and the same pair on the
 scheduler at `src/server/scheduler.ts:30-38`). Both are registered above every
 auth middleware and neither is authenticated.
 
@@ -1094,7 +1094,7 @@ shutdown, is the slow half.** Migrations run at startup under advisory lock
 (`src/server/index.ts:28,78`; `src/server/scheduler.ts:73,101`), so readiness
 cannot open before they finish. The 0.1.5 notes record that the payee index
 "takes a moment to build while the container starts, before it opens readiness"
-(`docs/upgrades.md:1085-1087`). So the generous number is `--start-period`,
+(`docs/upgrades.md:1134-1136`). So the generous number is `--start-period`,
 currently 20s (`Dockerfile:58`), plus a Kubernetes startup probe. Not the
 shutdown deadline.
 
@@ -1103,7 +1103,7 @@ shutdown deadline.
 succeeded, and stays closed until they have", and readiness never knew anything
 about configuration or migrations. Both now say what it does:
 `docs/deployment.md:1025-1030` and `README.md:137-140` describe one statement
-against the database and nothing else, and `src/server/api.ts:424-430` says the
+against the database and nothing else, and `src/server/api.ts:425-431` says the
 same beside the route. The difference matters to an operator designing alerting:
 a migration that succeeded on an older image leaves readiness green against a
 schema this build does not expect.
@@ -1338,7 +1338,7 @@ neither half can report alone.** `billing_webhook_deliveries_total` is the API's
 and only the API's — five of the webhook route's exits reply
 `200 {"received":true}`, so `http_requests_total` cannot tell a delivery that
 granted or revoked an entitlement from one that was acknowledged and ignored
-(`src/server/api.ts:1169`, `:1183`). `billing_sweeps_total` is the scheduler's,
+(`src/server/api.ts:1171`, `:1185`). `billing_sweeps_total` is the scheduler's,
 and it is the twelve-hourly catch-up for the same subscriptions
 (`src/server/recurrence-scheduler.ts:195-204`). An operator scraping one half
 can be told that the webhook has been failing for hours, or that the sweep keeps
@@ -2088,6 +2088,6 @@ nobody owns until it is written down with a date on it.
 | --- | --- | --- |
 | The `_FILE` secret form is unreachable through the orchestrated paths this guide argues from | `deploy/helm/simple-balance/templates/server-deployment.yaml:72-85`, `deploy/compose/compose.distributed.yml:50`, `:71` | The chart *can* mount a Secret and chooses not to for these nine names: both workloads already project `ca.crt` out of the database Secret by key and mount it, so the mechanism exists and is pointed at a different file, while the application's own credentials still arrive through `envFrom`. Both compose files write `DATABASE_URL` inline and make `AUTH_SECRET` a required interpolation. The application supports the form everywhere and a `docker run` reaches it with a bind mount, so this is the chart and the compose files rather than the resolver. A `secretFiles` values block projecting the named secrets the way `database-ca` already is, and setting each `NAME_FILE` to where it landed, plus a commented `secrets:` stanza, are what would close it. It narrowed rather than widened in 0.2.0: the `vps` profile that took the same shortcut was deleted, and the `single` profile's machines fold `env.db` and `secrets.env` into `.env` on every start, which is a file on disk doing the job `_FILE` would |
 | `METRICS_TOKEN_FILE` has no consumer-side proof | `src/server/config-files.ts:28-38` | Eight of the nine `_FILE` names are read back through the consumer that has to end up holding the value, both Stripe secrets included. That one rests on the resolver's registry alone, so a name added there and never wired to the scrape endpoint would look identical |
-| `IDEMPOTENCY_RETENTION_HOURS` is the one bounded integer still read at its call site | `src/server/config-limits.ts:224-231`, read at `src/server/recurrence-scheduler.ts:171` and `src/server/services/helpers.ts:418` | §Validating at startup argues that all of them are read at startup so a wrong value is in front of whoever just deployed, and `assertConfiguredLimits()` reads six. The parser is right — zero is a real answer here, which is why it is a sibling of `boundedEnvironmentInteger` rather than a seventh call to it — so closing this is one line in that function and a seventh case in the `getConfig()` test beside the other six |
+| `IDEMPOTENCY_RETENTION_HOURS` is the one bounded integer still read at its call site | `src/server/config-limits.ts:224-231`, read at `src/server/recurrence-scheduler.ts:171` and `src/server/services/helpers.ts:473` | §Validating at startup argues that all of them are read at startup so a wrong value is in front of whoever just deployed, and `assertConfiguredLimits()` reads six. The parser is right — zero is a real answer here, which is why it is a sibling of `boundedEnvironmentInteger` rather than a seventh call to it — so closing this is one line in that function and a seventh case in the `getConfig()` test beside the other six |
 | `PRIVACY_POLICY_URL`, `TERMS_OF_USE_URL` and `SITE_ADDRESS` are unprefixed names this product invented | `src/server/config.ts` (`parseLegalDocuments`), `deploy/compose/single/Caddyfile:33` | §Naming freezes the existing unprefixed names and applies the rule to new ones; these three are new, unreleased and unprefixed, so they are a decision rather than an exception. **Due before 0.2.0 ships**, because whichever way it goes freezes then — a rename afterwards is a breaking change for every operator. The section states the two ways out and what each costs |
 | `prom-client` is deprecated by rename | `package.json` | §Metrics declines `@prometheus-io/client` for a stated reason — four releases, the newest a day old, against the version the ecosystem runs — and that reason expires with time rather than with a decision. **Due in the release after 0.2.0.** The move is an import rename if the API held, and finding out costs one branch. It is here rather than in that section because "revisit it next release" falls due the moment this one ships and nothing else records it |

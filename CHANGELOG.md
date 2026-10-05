@@ -18,6 +18,15 @@ confirmed. Nothing else asks: a move to monthly waits for the renewal, canceling
 runs to the end of the period, and both are undone on the same tab, so canceling
 stays exactly as easy as subscribing.
 
+**A frozen account can be archived or deleted.** After a downgrade, every
+account past the free plan's three refused every change, including being put
+away, so somebody with thirty accounts who wanted to clear out the ones they no
+longer use had to upgrade first or swap each one into use and out again. Archive
+and delete now work on a frozen account, from the Accounts page and from an
+agent alike. Neither gives anything a place, because a frozen account never
+held one, and an archived account still needs a free place to come back, so the
+limit is exactly where it was. Its entries and details stay closed to change.
+
 ### Fixed
 
 **Saving something without changing it no longer makes every other copy of it

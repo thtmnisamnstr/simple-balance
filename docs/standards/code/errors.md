@@ -24,9 +24,9 @@ caller to fix something they did not do.
 Twelve throws in `src/server/services` are that second kind, and all twelve are
 correct. They come in four shapes: three `TypeError`s in the idempotency
 canonicalizer for payload shapes that cannot occur
-(`src/server/services/helpers.ts:175`, `:191` and `:197`); two for a reference
+(`src/server/services/helpers.ts:230`, `:246` and `:252`); two for a reference
 count that came back non-numeric after being cast to one in SQL
-(`src/server/services/payees.ts:58` and `src/server/services/categories.ts:485`);
+(`src/server/services/payees.ts:58` and `src/server/services/categories.ts:486`);
 three for an `insert().returning()` that came back empty, which either throws or
 returns the row (`src/server/services/budgets.ts:566`, `:934` and
 `src/server/services/category-groups.ts:132`); and four in billing, each
@@ -82,10 +82,10 @@ So the rule is scoped rather than absolute: a service uses the constructors, and
 the transport may name a status the service half has no word for. It was four
 lines rather than two, and shrinking it is what the other two paragraphs of this
 section used to be about. The already-configured-password site was byte-for-byte
-what `conflict()` produces and now calls it (`src/server/api.ts:1513`). The malformed-body guard
+what `conflict()` produces and now calls it (`src/server/api.ts:1527`). The malformed-body guard
 was a `VALIDATION_ERROR` **400** where the constructor is 422 by definition,
 which is why it could not use one — it is now a `TransportError`
-(`src/server/api.ts:1378`, the class at `src/server/services/errors.ts:13-23`),
+(`src/server/api.ts:1392`, the class at `src/server/services/errors.ts:13-23`),
 a separate enumeration for the refusals that are about the request rather than
 about the ledger, so `VALIDATION_ERROR` means one status again and the code an
 MCP tool can raise stays the service half alone.
@@ -193,7 +193,7 @@ about how many arguments the refusal carries.
 
 The two callers show the rule running in both directions, which is what makes it
 a rule rather than a workaround for billing. The account allowance
-(`src/server/services/accounts.ts:717`) tells a browser to upgrade under
+(`src/server/services/accounts.ts:727`) tells a browser to upgrade under
 Settings, and tells an agent that only the person who owns the ledger can raise
 the limit: billing is session-only by `AGENTS.md`, so an agent told to upgrade
 is told to do something it holds no credential for, which is the same fault as
@@ -205,8 +205,8 @@ agent stops trying different ones instead of guessing.
 
 Six throw sites carry one today and the shape recurs: the archive restore meets
 the same ceiling from the other side
-(`src/server/services/accounts.ts:1193`), the frozen-account refusal is the same
-argument under a 422 (`src/server/services/accounts.ts:847`), and the two in
+(`src/server/services/accounts.ts:1200`), the frozen-account refusal is the same
+argument under a 422 (`src/server/services/accounts.ts:857`), and the two in
 `closeBillingForDeletion` (`src/server/services/billing.ts:1946` and `:1953`)
 send a person to whoever runs the server while naming the cause, and whether
 retrying helps, for a program. Those last two are reached only from the
@@ -276,9 +276,9 @@ array. Showing the envelope is how "A budget cannot be negative" reached the
 screen as "Request validation failed".
 
 The client digs the messages out of the details
-(`src/client/api.ts:98-104`, discriminating on `path` so a CSV parser's errors
+(`src/client/api.ts:113-119`, discriminating on `path` so a CSV parser's errors
 fall through), deduplicates them on the field-and-sentence pair rather than the
-sentence (`:112-119`), and shows those in preference to the envelope (`:122`).
+sentence (`:127-135`), and shows those in preference to the envelope (`:139`).
 Which means schema messages are user-facing: write them that way.
 
 *Checked by:* `human` on the phrasing; `tests/domain.test.ts` pins several
@@ -322,8 +322,8 @@ has to be told *when* to blame it: a plan already held and a plan set to end
 are disabled on their own account, so the tab offers the grant's sentence only
 where `planChangeTakesEffect` says the press would have spent money, which is
 the same line the route draws with `sellsSomething`.
-`frozenAccountRefusal` (`src/shared/domain.ts:3840`) is thrown by
-`assertAccountsWritable` (`src/server/services/accounts.ts:842`) and is the
+`frozenAccountRefusal` (`src/shared/domain.ts:3876`) is thrown by
+`assertAccountsWritable` (`src/server/services/accounts.ts:852`) and is the
 reason an account card's **Edit**, **Archive** and **Delete** now carry, and a
 transaction row's **Edit**, **Delete** and **Restore** with them.
 

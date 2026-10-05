@@ -62,7 +62,7 @@ one per account. `routeLabel` (`src/server/api.ts:323-330`) reads Hono's matched
 pattern, and resolves the two different things that both arrive as `/*`: a
 request answered by middleware mounted above the routes — which is where a 413
 from the body limit lands — is labeled by its prefix from a fixed list
-(`:320`), and a path that matched nothing at all is one literal, because a
+(`:321`), and a path that matched nothing at all is one literal, because a
 mistyped URL is exactly where unbounded labels come from.
 
 *Checked by:* `tests/metrics.test.ts`, which asks for `/api/v1/accounts/<uuid>`
@@ -73,7 +73,7 @@ paths and insists both land under one name.
 
 **House.** Every counter increments whether or not `METRICS_ENABLED` is set.
 What the setting decides is whether `GET /metrics` is registered at all
-(`src/server/api.ts:333`) — registered rather than refusing, so a deployment
+(`src/server/api.ts:334`) — registered rather than refusing, so a deployment
 that never asked has no such route.
 
 The measurement behind that: a labeled increment costs about 130ns and does
@@ -93,7 +93,7 @@ and never on a path that did not do the work:
   the counter did not move.
 - An idempotent replay is not a second write. Five counters double-counted one
   until each mutation started signaling replay out of its transaction callback
-  (`src/server/services/transactions.ts:1088`, `:1099`, `:1125`), and the
+  (`src/server/services/transactions.ts:1130`, `:1141`, `:1167`), and the
   visible cost was a client retrying a four-thousand-row edit reporting eight
   thousand rows changed. The retry is a fact about the client, and it has its
   own counter.
@@ -134,7 +134,7 @@ produce refusals, is where the label itself is checked.
 
 **House.** Seventy-seven tools are timed and counted by wrapping `registerTool`
 once (`src/server/mcp.ts:621`), and every HTTP request by one middleware
-mounted above everything, including the guards (`src/server/api.ts:271`). Both
+mounted above everything, including the guards (`src/server/api.ts:272`). Both
 are chosen so a tool or a route added tomorrow is instrumented by existing
 rather than by somebody remembering.
 
@@ -197,12 +197,12 @@ declaration.
 ### 1.9 A route with more exits than status codes counts through one function
 
 **House, and mechanizable.** The Stripe webhook has one way out, and the
-docstring above it says why (`src/server/api.ts:1152-1167`). Counted
+docstring above it says why (`src/server/api.ts:1154-1169`). Counted
 2026-10-01: seven of its exits answer the same `200 {"received":true}` under
 six outcome names, so `http_requests_total` — method, route, status — cannot
 tell a delivery that granted an entitlement from one that was acknowledged and
 ignored, and five of the seven write nothing to the log either. `answered`
-(`:1168`) takes the branch's name, increments
+(`:1170`) takes the branch's name, increments
 `billing_webhook_deliveries_total` and writes the body, so counting each
 delivery exactly once is structural: there is no other way to return a 2xx.
 
@@ -222,7 +222,7 @@ unauthenticated caller supplies: a single exit is what makes the set
 enumerable, and the outcome is the branch's own name rather than the event
 type, which is Stripe's vocabulary and grows whenever Stripe ships an event.
 One exit sits outside the funnel and says so — the signature refusal
-(`src/server/api.ts:1183`), which is the only answer carrying a status of its
+(`src/server/api.ts:1185`), which is the only answer carrying a status of its
 own.
 
 The shape recurs for any route whose interesting outcomes are finer than its
@@ -379,7 +379,7 @@ The five sites that show what the rule costs, each with the thing it
 deliberately leaves out:
 
 - **A request** logs the method, the path and the status
-  (`src/server/api.ts:296`) and never the query string, because a filter carries
+  (`src/server/api.ts:297`) and never the query string, because a filter carries
   payees and search terms.
 - **An MCP tool call** logs the tool name and the outcome
   (`src/server/mcp.ts:648`) and never the arguments, which are somebody's ledger
@@ -495,7 +495,7 @@ was designed to avoid in the first place.
 
 An empty `catch` is for a case where nothing went wrong, and it says which in a
 comment. There are two in `src/server`, both canceling a request body the peer
-may have closed already (`src/server/http-security.ts:467` and `:951`), and both
+may have closed already (`src/server/http-security.ts:467` and `:1002`), and both
 carry that sentence.
 
 *Checked by:* `tests/log-level.test.ts`, which finds every `catch` whose body is
@@ -592,7 +592,7 @@ the page rather than by anything failing.
   so the next person meets them as decisions rather than as surprises.
 
 - **Two stale counts in the code §1.9 argues from.** The webhook's own
-  docstring (`src/server/api.ts:1152-1167`) says five exits answer
+  docstring (`src/server/api.ts:1154-1169`) says five exits answer
   `200 {"received":true}` and four of them write nothing to the log, and
   `src/server/metrics.ts:220` repeats the five. Counted 2026-10-01 they are
   seven and five: the `setup_intent.succeeded` branch arrived after both

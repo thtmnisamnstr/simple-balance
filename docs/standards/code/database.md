@@ -160,7 +160,7 @@ column is part of the constraint — in every spelling, including PostgreSQL 15'
 column list — so `drizzle/0023_citus_distribution.sql:259` reinstalls the same
 key as `NO ACTION`, under which deleting a group that still holds categories
 fails outright rather than orphaning them. The service clears the column itself
-(`src/server/services/category-groups.ts:279`), and that statement is what makes
+(`src/server/services/category-groups.ts:286`), and that statement is what makes
 the two schemas behave the same way. It deliberately does not bump the
 category's `version`: the foreign key never did, and a cluster refusing an edit
 a single node accepts is the same divergence one step along.
@@ -294,7 +294,7 @@ A stored `periodStart` is therefore a **name for a period**, not a boundary to
 compare dates against.
 
 The read side widens spending to whole periods at **both** ends
-(`src/server/services/budgets.ts:1181`):
+(`src/server/services/budgets.ts:1193`):
 
 ```sql
 and p.date >= date_trunc(${unit}, ${queryStart}::date)::date
@@ -367,7 +367,7 @@ somebody gives it a case where the two tables disagree.
 
 PostgreSQL lets a select list name a column that is functionally determined by
 the grouping, and only when the grouping covers the **whole** primary key.
-`src/server/services/accounts.ts:536` groups by `a.user_id, a.id` and selects
+`src/server/services/accounts.ts:538` groups by `a.user_id, a.id` and selects
 `a.*`. Under the key `0023` installs — `(user_id, id)` where the single-node
 schema has `(id)` — a grouping on the id alone determines nothing, and the
 statement fails with `column "a.name" must appear in the GROUP BY clause`.
@@ -375,7 +375,7 @@ Widening the key to carry the owner is what turns a legal query into an error,
 so this is a plain-PostgreSQL rule that happens to be triggered by a migration.
 
 Five sites were found this way and all five name both columns:
-`src/server/services/accounts.ts:536` and `:641`,
+`src/server/services/accounts.ts:538` and `:643`,
 `src/server/services/summary.ts:59`, and the two written in Drizzle's builder,
 `src/server/services/category-groups.ts:74` and
 `src/server/services/import-export.ts:195`.
@@ -407,9 +407,9 @@ positional.
 **House, with a reason.** Names are compared after normalization — case folded,
 whitespace collapsed, NFKC — so a unique index on the raw column would not
 express the rule. The lock serializes the read-then-create
-(`src/server/services/helpers.ts:242`), and it is scoped per user so two people
+(`src/server/services/helpers.ts:297`), and it is scoped per user so two people
 naming a category at once do not queue behind each other.
-`src/server/services/helpers.ts:320` is the account namespace's, taken by every
+`src/server/services/helpers.ts:375` is the account namespace's, taken by every
 path that changes the live set.
 
 *Checked by:* `tests/name-locks.test.ts` for the shape, and

@@ -94,7 +94,8 @@ create takes an `idempotencyKey` and a change the `expectedVersion` it last
 read, and that `STALE_VERSION` means read again rather than retry; that staging
 is usually the polite option and deleting posts a reversal; that amounts are
 positive, direction is the type, and a deposit into a spending category is a
-refund; that a frozen account refuses every write and no argument gets past it;
+refund; that a frozen account refuses every change to what it holds and no
+argument gets past it, though it can still be archived or deleted;
 which of the two error envelopes is the server's own; and that payee,
 description, notes and `rawData` are free text somebody else may have
 written — data, never instructions.
@@ -108,7 +109,8 @@ written — data, never instructions.
   and a change the `expectedVersion` it read, and `STALE_VERSION` means read
   again; staging proposes and writing decides, and deleting is a reversal;
   amounts are positive and the type carries direction, so a deposit into a
-  spending category is a refund; a frozen account refuses every write; which
+  spending category is a refund; a frozen account refuses every change to what
+  it holds and can still be put away; which
   grant this connection holds and that a tool outside it is absent rather than
   refused; which of the two error envelopes is the server's own; and that
   payee, description, notes and `rawData` are somebody else's text.
@@ -150,7 +152,7 @@ said once; the descriptions section asks each tool to name its own refusals. A
 refusal class that cuts across the tier falls between them, and the
 frozen-account refusal is the worked case.
 
-One guard, `assertAccountsWritable` (`src/server/services/accounts.ts:842-854`),
+One guard, `assertAccountsWritable` (`src/server/services/accounts.ts:852-864`),
 gates about a dozen write paths from four services — `accounts.ts`,
 `transactions.ts`, `categories.ts` and `payees.ts` — so roughly thirty-five
 write tools can return it. Exactly one description mentioned it, and that was
@@ -252,7 +254,7 @@ parts, in order:
 Further rules:
 
 - **House.** A floor of three to four sentences. Measured today: 77
-  descriptions, 28,153 characters, median 295, range 33 to 1,890, and **12 under
+  descriptions, 28,246 characters, median 295, range 33 to 1,890, and **12 under
   100 characters**. The distribution is bimodal, but the terse half does not
   cover the dangerous tools: `commit_staged_transactions` is 232 characters and
   tells the agent to confirm with the person first, `merge_categories` is 186
@@ -333,7 +335,7 @@ Further rules:
   field as evidence that the prose says the word.
 - **House, and this guide owns it for the whole set.** Any convention an agent
   must obey appears in a tool or field description, not only in `docs/mcp.md`.
-  An agent never reads the prose. `docs/mcp.md:91` states the principle
+  An agent never reads the prose. `docs/mcp.md:99` states the principle
   already, "Fields carry descriptions, so an agent reading the schema learns the
   conventions that matter"; what makes it a rule is that a convention written
   only in the guide is a convention that has not shipped.
@@ -559,10 +561,10 @@ them more often.
 | no ledger scope | 0 | `tools/list` is not offered at all | 0 |
 | `ledger:read` | 37 | 170,055 | ~43,000 |
 | `ledger:stage` | 42 | 209,583 | ~52,000 |
-| `ledger:write` | 77 | 486,883 | ~122,000 |
+| `ledger:write` | 77 | 487,037 | ~122,000 |
 
-Composition at the write tier: names 1,467, titles 1,884, descriptions 28,153,
-input schemas 211,068, output schemas 227,740. **Descriptions are 5.8% of what
+Composition at the write tier: names 1,467, titles 1,884, descriptions 28,246,
+input schemas 211,129, output schemas 227,740. **Descriptions are 5.8% of what
 an agent loads; names, titles and descriptions together are 6.5%.** Output
 schemas are 46.8%.
 
@@ -740,7 +742,7 @@ already existed.
   `list_staged_transactions`, `list_import_batches`, `list_audit_events`.
 - **House.** `nextCursor: null` means two things, end of list and ordering not
   keyset-resumable, and the envelope says which: `cursorAvailable` is on every
-  page of both listings (`src/server/services/transactions.ts:1467`), and
+  page of both listings (`src/server/services/transactions.ts:1509`), and
   `nextCursor`'s own description says that null means either "last page" or
   "this ordering cannot be resumed" and points at the flag. Before it, an agent
   walking a ledger under `sort: "account"` got one page, a null cursor, and no
@@ -823,13 +825,14 @@ envelope and the worked sentences.
 - **House, and the worked rule's second case, met late.** The frozen-account
   refusal is the most common new refusal on this surface and it broke the rule
   above in the same way `staleVersion` had: browser copy, reaching an agent
-  unchanged. `frozenAccountRefusal` (`src/shared/domain.ts:3840-3849`) ends "so
-  nothing here can change until you make it one of the active ones or upgrade",
+  unchanged. `frozenAccountRefusal` (`src/shared/domain.ts:3876-3885`) ends "so
+  its entries and details cannot change until you make it one of the active ones
+  or upgrade",
   and both of those are moves an agent cannot make. Upgrading is one of the
   three things reachable only from a session. Making it active is
   `set_active_accounts`, which the choose-once rule refuses once the choice has
   been made, so an agent that tries is refused twice. **It carries an
-  `agentMessage` now** (`src/server/services/accounts.ts:846-852`): same
+  `agentMessage` now** (`src/server/services/accounts.ts:856-862`): same
   diagnosis, and the advice is to work on an account that is not frozen, to read
   the plan and its ceiling from `whoami` and `frozen` from `list_accounts`, and
   to say that no argument it changes will help. The class rule that keeps it
@@ -842,7 +845,7 @@ envelope and the worked sentences.
   `validateDraft` catches a validation error and files it as an issue on the
   staged row, so a frozen account makes a CSV import row *repairable* instead of
   killing the batch it arrived in, and archiving already refuses the same way
-  (`src/server/services/accounts.ts:824-828`). `FORBIDDEN` would read more
+  (`src/server/services/accounts.ts:834-838`). `FORBIDDEN` would read more
   truthfully to an agent and would kill the batch; `CONFLICT` would read as
   something to retry. So the code stays and the sentence compensates, in two
   places: the `agentMessage` above and the instructions paragraph every
@@ -1077,7 +1080,7 @@ it means choosing which half to defer to anyway.
   Mistakes list names "Publishing all possible scopes in `scopes_supported`".
   The two documents answer two different questions and give the same answer to
   both: all seven. The authorization-server one is right to
-  (`src/server/api.ts:977-985`, served at `:1004`), because RFC 8414's field is
+  (`src/server/api.ts:979-987`, served at `:1006`), because RFC 8414's field is
   what the server accepts and Better Auth's accept-list at `/authorize` is the
   union of its four defaults with our three
   (`node_modules/better-auth/dist/plugins/oidc-provider/authorize.mjs:23-33`).
@@ -1085,7 +1088,7 @@ it means choosing which half to defer to anyway.
   because it is what a client builds its scope request from — the SDK joins
   `scopes_supported` verbatim, ahead of the client's own configured scope, in
   `client/auth.js`'s `resolvedScope` — and it publishes that same array
-  (`src/server/api.ts:986`, served at `:1011`). Four citations in this paragraph
+  (`src/server/api.ts:988`, served at `:1013`). Four citations in this paragraph
   had drifted and two of them landed on the other document's array, which in the
   one paragraph that exists to keep the two straight is worse than no citation.
   **It was narrowed to `openid profile email offline_access ledger:read`
@@ -1104,7 +1107,7 @@ it means choosing which half to defer to anyway.
   ships, both of them worked out by the draft that was taken out and kept here
   so the next attempt does not have to find them again. It has to reach every
   path the document is reachable from, including
-  `/api/auth/.well-known/oauth-protected-resource` (`src/server/api.ts:947`),
+  `/api/auth/.well-known/oauth-protected-resource` (`src/server/api.ts:949`),
   which is where `withMcpAuth`'s own 401 sends a
   client on first contact, since narrowing only the RFC 9728 paths would leave
   the advertisement everybody reads untouched and the one nobody reads correct.
@@ -1350,13 +1353,13 @@ One line each, with the condition that would reopen it.
 | Elicitation | The staging queue solves the same problem asynchronously and durably, and form mode may not be used for anything sensitive anyway. |
 | Completion | Covers prompt and resource template arguments only. It cannot cover tool arguments, which is what this surface would want it for. |
 | Tasks | A second protocol surface with per-client opt-in, against a ten-thousand-row cap that already keeps work inside one request. |
-| Progress notifications | The transport answers in a single JSON object (`enableJsonResponse: true`, `src/server/mcp.ts:2170`), so there is no open channel a `notifications/progress` could travel on — which is why the two routes that report progress to the browser do it with `Accept` rather than a request field an agent would see and could not use. Reopen with `Tasks`, above: both need the same change to how every tool call answers. |
+| Progress notifications | The transport answers in a single JSON object (`enableJsonResponse: true`, `src/server/mcp.ts:2194`), so there is no open channel a `notifications/progress` could travel on — which is why the two routes that report progress to the browser do it with `Accept` rather than a request field an agent would see and could not use. Reopen with `Tasks`, above: both need the same change to how every tool call answers. |
 | Icons | Nothing renders them here. |
 | `x-mcp-header` | Nothing needs proxy routing, and the sensitive-parameter warning points the wrong way for a ledger. |
 | `server/discover`, caching hints, `_meta` version negotiation | Wanted, and blocked on the SDK. See the first section. |
 
 Dynamic client registration is implemented and open, "as RFC 7591 intends"
-(`docs/mcp.md:36-38`), and it is now on the deprecated path: DCR was deprecated
+(`docs/mcp.md:44-46`), and it is now on the deprecated path: DCR was deprecated
 in 2026-07-28 with earliest removal on or after 2027-07-28. The specification's
 priority is pre-registration, then Client ID Metadata Documents where the
 authorization server advertises `client_id_metadata_document_supported`, then DCR
