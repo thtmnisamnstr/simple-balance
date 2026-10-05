@@ -3,7 +3,7 @@
 The one convention in this repository that is genuinely unusual, and the reason
 it pays.
 
-**26.3% of the non-blank lines in `src` are comments** — 16,183 of 61,510. That
+**26.3% of the non-blank lines in `src` are comments** — 16,235 of 61,672. That
 is far above what most codebases carry and far above what most style guides
 recommend. It is deliberate, and this guide exists so that nobody "tidies" it
 away and so that the density is spent on the right things.
@@ -90,6 +90,18 @@ The best ones name the alternative they exist to prevent:
 That docstring stops the next person adding an "Add category" button beside the
 field, which is the obvious thing and the wrong thing.
 
+**A docstring sits directly on what it describes.** An editor shows a
+declaration the docblock immediately above it, so a declaration slid in between
+an existing docblock and its code takes that docblock's argument and leaves the
+old code with none. Twenty-six had been: `currentBalance`'s explanation hovered
+over `userAccountById`, and two docblocks stacked on `fillGroupRows` disagreed
+about which function summed a group's limit. A file's own header is the one
+docblock a declaration's may follow straight on.
+
+*Checked by:* `tests/docblocks-attached.test.ts`, which refuses a docblock
+followed by another docblock, or by a blank line, outside a file's header —
+both leave the editor showing nothing on the code beneath.
+
 ## 5. A silenced rule carries its reason at the site
 
 **Binding.** Fourteen sites in `src` disable a rule inline rather than in
@@ -106,12 +118,12 @@ a paragraph arguing why the rule is wrong about that line:
 // oxlint-disable-next-line jsx-a11y/no-static-element-interactions
 ```
 
-That one is `src/client/forms.tsx:566`. `src/client/components.tsx:917`
+That one is `src/client/forms.tsx:569`. `src/client/components.tsx:917`
 silences two rules in a single comment and does not borrow this argument: it
 makes its own, that a keyboard user's activation of the buttons inside bubbles
 to the same handler, so the element is a catcher for its children's events
 rather than a mouse-only control. Thirteen of the fourteen paragraphs sit
-directly above the disable. The exception is `src/client/forms.tsx:1729`, where
+directly above the disable. The exception is `src/client/forms.tsx:1732`, where
 the reason is about the whole effect and sits above it, and the disable reaches
 only the first of the two lines inside that assign. The second lints clean
 anyway — the rule reports once per effect, on the first setter it sees — which

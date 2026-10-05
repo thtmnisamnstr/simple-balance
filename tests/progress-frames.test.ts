@@ -10,6 +10,7 @@ import {
   type ProgressEvent,
   type ProgressFrame,
 } from "../src/shared/progress.js";
+import { INTERNAL_ERROR_MESSAGE } from "../src/server/services/errors.js";
 
 /**
  * The format the server writes and the browser reads, held to one function.
@@ -244,7 +245,7 @@ describe("the response that carries the frames", () => {
         async () => {
           throw new Error("refused");
         },
-        () => ({ error: { code: "INTERNAL_ERROR", message: "An unexpected error occurred" } }),
+        () => ({ error: { code: "INTERNAL_ERROR", message: INTERNAL_ERROR_MESSAGE } }),
       );
       settled = stream.settled;
       return stream.response;

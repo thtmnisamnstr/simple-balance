@@ -336,7 +336,6 @@ integration("a category nothing points at any more", () => {
           categoryId: to,
         },
       },
-      undefined,
       { mayEditLedgerRecords: false },
     );
     expect(await names()).toContain("Stage scoped");
@@ -478,7 +477,6 @@ integration("a category nothing points at any more", () => {
         patch: { categoryId: keeper },
         idempotencyKey: nextKey(),
       },
-      undefined,
       { mayEditLedgerRecords: false },
     );
 

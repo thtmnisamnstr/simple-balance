@@ -353,17 +353,17 @@ is prose inside a list a test can only check the membership of.
 
 ## Upgrade notes
 
-**Binding, quoting `AGENTS.md:320-365`, the frozen migration list:** "Every
+**Binding, quoting `AGENTS.md:329-377`, the frozen migration list:** "Every
 migration that has shipped is frozen" and "Never edit or regenerate one:
 someone's database has already run it, and changing it would leave their schema
 and its recorded history disagreeing." What follows is the documentation the
-operator is owed for that. The range used to read `:300-337`, which stopped
+operator is owed for that. The range used to read lines 289 to 326, which stopped
 eleven lines short of the second of those two sentences and fifteen short of the
 end of the bullet — it grew, and the number did not.
 
 **House, the shape.** A `## Before you upgrade to X.Y.Z` section, and its first
 sentence tells an operator whether they can stop reading. The 0.1.6 note at
-`docs/upgrades.md:1034-1035` is the model: "Nothing refuses to start that 0.1.5
+`docs/upgrades.md:1061-1062` is the model: "Nothing refuses to start that 0.1.5
 accepted, and nothing about an existing configuration has to change. Five
 things are worth knowing." The 0.1.4 section is the other model, because the
 answer there was different: "0.1.4 refuses to start on three configurations
@@ -493,7 +493,7 @@ The reasoning, which is what the next person should argue with:
 So, taking Nygard's Status field and immutability rule without the ceremony:
 
 - **House. A recorded decision names the release it was made in.** The exemplar
-  is `AGENTS.md:320-365`, the frozen migration list, which names every migration
+  is `AGENTS.md:329-377`, the frozen migration list, which names every migration
   and the release it shipped in, and is the most reliable section in the file
   for exactly that reason.
 - **House. A reversal edits the old text to say it is superseded, and says by
@@ -748,7 +748,7 @@ them cover the whole range:
   costs, and then the harder half: "Deliberately not `role="menu"` ... menu
   roles without the keyboard behavior they imply are worse than none."
 - **The invariant with the consequence of breaking it.**
-  `src/shared/domain.ts:2372-2374`: "`.strict()` is the load-bearing part: a
+  `src/shared/domain.ts:2383-2385`: "`.strict()` is the load-bearing part: a
   filter this cannot honor is an error rather than a key quietly dropped,
   because a selection resolves twice and an ignored filter makes the count and
   the fingerprint agree about the wrong set."
@@ -992,9 +992,9 @@ numbers themselves, one mechanism per claim:
 **House**, not mechanizable, and the practice that decides whether a citation is
 still worth following in a year. Four citations in this guide alone had drifted
 onto something else entirely: `tests/migrations.test.ts:363` onto a docblock
-about a different migration, `docs/upgrades.md:1280` onto the closing fence of a
-code block, `AGENTS.md:300-337` onto a range whose second quoted sentence now
-sits thirty-one lines past its end, and `StagingPage.tsx:1076` onto a row
+about a different migration, `docs/upgrades.md`:1227 onto the closing fence of a
+code block, `AGENTS.md`:289-326 onto a range whose second quoted sentence now
+sits thirty-one lines past its end, and `StagingPage.tsx`:1075 onto a row
 checkbox.
 All four passed `tests/standards-citations.test.ts`, which says as much itself:
 "what it cannot prove is that the line still holds the thing the sentence
@@ -1019,6 +1019,14 @@ is both, not either.
 This is not a defect of this guide in particular. The same pass found drifted
 citations across this set rather than only here, which is a property of line
 numbers and not of anybody's care.
+
+**A citation quoted as history keeps its number outside the code span.** The
+four drifts above are records of what a citation used to say, and a repoint pass
+that moved them "fixed" the history into something false: one landed on prose
+it claims is a closing fence. So a number quoted as it once was is written
+`` `AGENTS.md`:289-326 ``, the line outside the backticks, which no check and
+no repoint pass reads as a pointer — and a citation meant to be followed is
+written as one span, `` `AGENTS.md:289` ``, and is repointed when it drifts.
 
 *Checked by:* `tests/standards-citations.test.ts`, as far as a test can go: that
 the file exists, that the lines are inside it, that a range does not run
@@ -1062,8 +1070,8 @@ edit.
   - `SettingsPage.tsx:522`, the warning about what cancelling takes with it.
   - `PlanPage.tsx:1944` and `:1956`, the "Annual — $30.00 a year" price
     labels.
-  - The review queue's inline-edit labels at `StagingPage.tsx:1143-1147`, `:1263-1266` and
-    `:1337-1341`, which lead with the visible value and set the instruction off
+  - The review queue's inline-edit labels at `StagingPage.tsx:1148-1152`, `:1268-1271` and
+    `:1342-1346`, which lead with the visible value and set the instruction off
     behind a dash.
 
   The lone "—" in an empty table cell is a placeholder glyph rather than
@@ -1072,7 +1080,7 @@ edit.
   comments, so they answer to the comment rule rather than to this one.
 
   The inline-edit citation is the one worth dwelling on. It read
-  `StagingPage.tsx:1076`, and that line had become a row checkbox — a non-blank line
+  `StagingPage.tsx`:1075, and that line had become a row checkbox — a non-blank line
   of plausible-looking code, so every check in
   `tests/standards-citations.test.ts` passed on it, including the one that
   catches a citation landing on a closing brace. §Cite by name, then by line is

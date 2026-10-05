@@ -1,4 +1,5 @@
 import { BulkEditToggle, Input, Textarea } from "./components.js";
+import type { EntryType } from "../shared/domain.js";
 
 /**
  * The parts of a mass-edit panel that are the same on both screens.
@@ -28,7 +29,7 @@ export type BulkEditValues = {
   accountId: string;
   description: string;
   notes: string;
-  type: "deposit" | "withdrawal";
+  type: EntryType;
 };
 
 export const emptyBulkEditEnabled = (): Record<BulkEditField, boolean> => ({

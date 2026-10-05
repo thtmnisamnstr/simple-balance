@@ -75,7 +75,7 @@ erases just as well.
 
 **Contested.** The flag is good advice in general and wrong here. All three
 sites it flags are Hono middleware
-(`src/server/api.ts:1352`, `src/server/http-security.ts:480` and `:938`),
+(`src/server/api.ts:1360`, `src/server/http-security.ts:480` and `:938`),
 where a `MiddlewareHandler` returns a `Response` to answer the request or
 nothing at all to let the next handler run. "Returns on some paths and not
 others" is the contract, not a mistake.
@@ -261,6 +261,18 @@ tuple", which would fire on correct inline unions used once, but "no union whose
 member set equals a tuple that already exists". That is one set spelled twice,
 and the two can come apart.
 
+**Narrower than its own reason, until 0.2.1.** "One set spelled twice" covers a
+set nobody wrote a tuple for, and that check could not see one: the CSV date
+formats and decimal separators were spelled four and five times, one of them a
+literal `z.enum` in a service, and a budget row's limit source, an import's
+resolutions and the duplicate review's two sides were each spelled in a
+service, its MCP output schema and the client — where a member added to the
+service alone fails the tool with an output validation error. Each has a tuple
+now, and the same file's third case asks that any set spelled more than once —
+as an alias, inline, or a `z.enum` of literals, though not a key list inside
+`Pick` or `Omit` — have one source. Two sets that only share their words are
+named with the reason: an account card's row actions and a category's.
+
 A `type X = "a" | "b";` alias is only where such a union is easiest to see, not
 where it stops. The same set restated as a property or a parameter type reads as
 part of a shape rather than as a declaration, and nine had accumulated there:
@@ -296,7 +308,7 @@ export const budgetPeriodUnits = [
 ] as const satisfies readonly ReportBucket[];
 ```
 
-(`src/shared/domain.ts:1410`.)
+(`src/shared/domain.ts:1420`.)
 
 `as const` keeps the four literals; `satisfies` checks that every one of them is
 a bucket the report engine can group by. Annotating the constant
@@ -308,7 +320,7 @@ either of the other two that the rule working was a deviation from it. Both pass
 the test the `securityHeaderOptions` paragraph below sets, and one of them is
 load-bearing by `AGENTS.md`:
 
-- `PLAN_LABELS` (`src/shared/domain.ts:3364-3367`) is, in `AGENTS.md`'s words,
+- `PLAN_LABELS` (`src/shared/domain.ts:3392-3395`) is, in `AGENTS.md`'s words,
   "the one place a plan's name is written". `satisfies Record<Plan, string>` is
   what makes a plan added without a label fail to compile; `as const` is what
   keeps `PLAN_LABELS.plus` the literal `"Premium"` rather than `string`, which
@@ -339,7 +351,7 @@ totalled: a fourth arriving does not falsify a sentence here.
 ### 2.5 Discriminated unions carry the discriminant in the name
 
 **House.** A transaction draft is a union on `type`, and each member declares it
-as a literal (`src/shared/domain.ts:558`). Every
+as a literal (`src/shared/domain.ts:568`). Every
 function that takes one either handles all three or narrows first. This is why
 `noFallthroughCasesInSwitch` was free: there was nothing to find.
 
@@ -602,7 +614,7 @@ updateTransaction(actor, id, input, transaction?)
 setTransactionDeleted(actor, id, expectedVersion, deleted, allowDuplicate?, transaction?)
 ```
 
-(`src/server/services/transactions.ts:1118`, `:2337` and `:2430`.)
+(`src/server/services/transactions.ts:1116`, `:2335` and `:2435`.)
 
 Note that `updateTransaction` takes `input: unknown` and parses it, rather than
 a typed object: the version and the draft arrive together inside it. An update
@@ -624,7 +636,7 @@ nothing to say about the signature, which is the side this rule is about.
   improve on it. Everything in `src/server/services` does this.
 - **Return a result** when the caller is going to render the failure rather than
   propagate it. `resolveEntrySide` returns `{ ok: false, message }`
-  (`src/shared/domain.ts:162`) precisely so the
+  (`src/shared/domain.ts:174`) precisely so the
   browser can preview the refusal without provoking it.
 
 That second shape exists because of a real defect: the form used to let somebody

@@ -100,7 +100,7 @@ A table added without its cascade makes deletion fail rather than silently
 orphan rows, which is the right failure and still a bug.
 
 One table must **not** cascade, and naming it is part of the rule rather than an
-aside. `billing_webhook_event` (`src/server/db/schema.ts:1634`) carries no
+aside. `billing_webhook_event` (`src/server/db/schema.ts:1638`) carries no
 `user_id` and hangs from nobody: it records which deliveries Stripe has already
 been answered for, which is the deployment's fact rather than any person's.
 Letting it cascade would drop that record with the account and let a retry
@@ -262,11 +262,11 @@ into something that cannot hold, or the next unscoped read gets waved through by
 analogy to the one already there.
 
 The exception is the webhook path, which has no actor at all. Stripe names a
-customer; `src/server/services/billing.ts:486` reads `billing_customer` by
+customer; `src/server/services/billing.ts:487` reads `billing_customer` by
 `stripe_customer_id` alone to find out whose it is. There is nothing to scope it
 by, because this read is *how* the user is derived. It is safe for one reason,
 and the reason is what a second unscoped read would have to supply too:
-`src/server/db/schema.ts:1445` makes `stripe_customer_id` unique across the
+`src/server/db/schema.ts:1449` makes `stripe_customer_id` unique across the
 table, and the value is issued by Stripe rather than typed by anybody, so the
 row it returns is the only row it could return. A read keyed on something a
 person can choose has no such argument, and everything downstream of this one is
@@ -294,7 +294,7 @@ A stored `periodStart` is therefore a **name for a period**, not a boundary to
 compare dates against.
 
 The read side widens spending to whole periods at **both** ends
-(`src/server/services/budgets.ts:1193`):
+(`src/server/services/budgets.ts:1195`):
 
 ```sql
 and p.date >= date_trunc(${unit}, ${queryStart}::date)::date
@@ -378,7 +378,7 @@ Five sites were found this way and all five name both columns:
 `src/server/services/accounts.ts:538` and `:643`,
 `src/server/services/summary.ts:59`, and the two written in Drizzle's builder,
 `src/server/services/category-groups.ts:74` and
-`src/server/services/import-export.ts:195`.
+`src/server/services/import-export.ts:135`.
 
 The obvious alternative is to leave it until there is a cluster to fail on.
 Grouping by the id alone is legal today, passes the entire suite, and breaks the

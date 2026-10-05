@@ -130,13 +130,21 @@ import {
   listCategoryGroups,
   updateCategoryGroup,
 } from "./services/category-groups.js";
-import { AppError, conflict, TransportError, validationError } from "./services/errors.js";
 import {
+  AppError,
+  conflict,
+  TransportError,
+  validationError,
+  INTERNAL_ERROR_MESSAGE,
+} from "./services/errors.js";
+import {
+  assertCsvWithinSizeLimit,
   exportTransactionsCsv,
   getCsvPreview,
   listActiveImportBatches,
   stageCsv,
 } from "./services/import-export.js";
+import { csvPreviewInputSchema, csvStageInputSchema } from "../shared/csv.js";
 import { deleteOwnAccount, summarizeOwnData } from "./services/account-deletion.js";
 import {
   listConnectedApps,
@@ -408,7 +416,7 @@ export function errorEnvelope(error: unknown): { envelope: ApiErrorEnvelope; sta
   // still have reached the log.
   log.failure("Request failed", error);
   return {
-    envelope: { error: { code: "INTERNAL_ERROR", message: "An unexpected error occurred" } },
+    envelope: { error: { code: "INTERNAL_ERROR", message: INTERNAL_ERROR_MESSAGE } },
     status: 500,
   };
 }
@@ -1245,6 +1253,22 @@ if (getConfig().billing) {
 }
 
 /**
+ * One field of a violation report, made safe to put in a line of a log.
+ *
+ * The body is attacker-controlled: anybody who can reach this path can post
+ * whatever they like, and the browser's own reports carry URLs from pages this
+ * app does not control. Newlines would let one report write several log lines —
+ * a forged "error" among them — and an unbounded string would let one request
+ * fill a disk. Neither is exotic; both are what an unsanitized log line is for.
+ */
+const field = (value: unknown) => {
+  if (typeof value !== "string" || value === "") return "something";
+  // Control characters out, length capped. A blocked URI long enough to be
+  // truncated has already said which host it was.
+  return value.replaceAll(/[\u0000-\u001f\u007f]/g, " ").slice(0, 200);
+};
+
+/**
  * Where a browser posts what the policy would have blocked.
  *
  * Registered only while `SB_CSP_REPORT_ONLY` is on, the way `/metrics` and the
@@ -1261,22 +1285,6 @@ if (getConfig().billing) {
  * Always 204, for the same reason the Stripe webhook always answers 2xx: this
  * is a one-way message and there is nobody to tell about a failure.
  */
-/**
- * One field of a violation report, made safe to put in a line of a log.
- *
- * The body is attacker-controlled: anybody who can reach this path can post
- * whatever they like, and the browser's own reports carry URLs from pages this
- * app does not control. Newlines would let one report write several log lines —
- * a forged "error" among them — and an unbounded string would let one request
- * fill a disk. Neither is exotic; both are what an unsanitized log line is for.
- */
-const field = (value: unknown) => {
-  if (typeof value !== "string" || value === "") return "something";
-  // Control characters out, length capped. A blocked URI long enough to be
-  // truncated has already said which host it was.
-  return value.replaceAll(/[\u0000-\u001f\u007f]/g, " ").slice(0, 200);
-};
-
 if (getConfig().cspReportOnly) {
   app.post(CSP_REPORT_PATH, async (c) => {
     const report = await c.req.json().catch(() => null);
@@ -1427,15 +1435,6 @@ const created = <T extends { id: string }>(
   c.header("Location", `/api/v1/${collection}/${row.id}`);
   return c.json(row, 201);
 };
-/**
- * The query string with the named parameters read as booleans.
- *
- * A query string carries "true", never true, and a Zod boolean will not read
- * one as the other, so a flag declared as a boolean for MCP - where the input
- * really is JSON - refuses every value the browser can send. The reports route
- * converts one flag by hand for exactly this reason; this is that conversion
- * with a name, so the next route to grow a flag does not have to rediscover it.
- */
 /**
  * `?includeArchived=` read through the shared schema rather than by hand.
  *
@@ -1608,20 +1607,6 @@ app.put("/api/v1/accounts/:id", async (c) =>
   c.json(await updateAccount(c.get("actor"), pathId(c), await body(c))),
 );
 /**
- * The four paths renamed in 0.1.6, still answering on their old spelling.
- *
- * `/api/v1` is cookie-only and same-origin, so the argument for renaming rather
- * than deprecating was that the only client which could be calling the old ones
- * ships in this image. That is true of *this* image and not of the one already
- * running: a browser tab left open across the upgrade would have met a 404 on
- * the first archive or bulk delete somebody tried, indistinguishable from a bug.
- *
- * Each old path is registered against the same handler as its replacement, and
- * marks itself deprecated with the date it goes. Not a redirect — an old tab
- * cannot rewrite its own URLs, so a 307 would cost a round trip to say something
- * it cannot act on.
- */
-/**
  * When they were deprecated, and when they stop answering.
  *
  * `Deprecation` carries a date rather than `true`: RFC 9745 supersedes the
@@ -1639,6 +1624,21 @@ app.put("/api/v1/accounts/:id", async (c) =>
  * somebody makes rather than a promise that quietly went stale.
  */
 const RENAMED_PATH_DEPRECATION = "@1787616000";
+
+/**
+ * The four paths renamed in 0.1.6, still answering on their old spelling.
+ *
+ * `/api/v1` is cookie-only and same-origin, so the argument for renaming rather
+ * than deprecating was that the only client which could be calling the old ones
+ * ships in this image. That is true of *this* image and not of the one already
+ * running: a browser tab left open across the upgrade would have met a 404 on
+ * the first archive or bulk delete somebody tried, indistinguishable from a bug.
+ *
+ * Each old path is registered against the same handler as its replacement, and
+ * marks itself deprecated with the date it goes. Not a redirect — an old tab
+ * cannot rewrite its own URLs, so a 307 would cost a round trip to say something
+ * it cannot act on.
+ */
 const RENAMED_PATH_SUNSET = "Mon, 01 Mar 2027 00:00:00 GMT";
 
 function deprecated(successor: string): MiddlewareHandler {
@@ -1925,7 +1925,7 @@ app.post("/api/v1/staged-transactions/commit", async (c) => {
   // local would make this route look as though it reached no service at all.
   const { response, settled } = streamProgress(
     c,
-    (report) => commitStages(c.get("actor"), input, undefined, { onProgress: report }),
+    (report) => commitStages(c.get("actor"), input, { onProgress: report }),
     framedRefusal,
   );
   c.set("streamSettled", settled);
@@ -1933,15 +1933,22 @@ app.post("/api/v1/staged-transactions/commit", async (c) => {
 });
 
 app.post("/api/v1/csv/preview", async (c) => {
-  const parsed = z.object({ csv: z.string().min(1) }).parse(await body(c));
+  const parsed = csvPreviewInputSchema.parse(await body(c));
   return c.json(getCsvPreview(parsed.csv));
 });
 app.post("/api/v1/csv/stage", async (c) => {
-  const input = await body(c);
+  // The request's own shape and the byte cap before choosing to stream, as the
+  // commit route does: once frames start the status line is spent at 200, so a
+  // body that was never a stage request came back as 200 and an error frame
+  // rather than the 422 it is. What only reading the file can find — a row
+  // over the cap, a broken quote — still arrives as a frame, which is the
+  // streaming rule.
+  const input = csvStageInputSchema.parse(await body(c));
+  assertCsvWithinSizeLimit(input.csv);
   if (!wantsFrames(c)) return c.json(await stageCsv(c.get("actor"), input));
   const { response, settled } = streamProgress(
     c,
-    (report) => stageCsv(c.get("actor"), input, undefined, { onProgress: report }),
+    (report) => stageCsv(c.get("actor"), input, { onProgress: report }),
     framedRefusal,
   );
   c.set("streamSettled", settled);

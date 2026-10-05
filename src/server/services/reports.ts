@@ -265,14 +265,6 @@ function rankCategories(currency: CurrencyReport): CurrencyReport {
 }
 
 /**
- * Balances at the end of each bucket, accumulated with a window function over a
- * single pass of the postings.
- *
- * Asking the database for a balance as of each bucket's end instead costs one
- * correlated aggregate per column, which on five years of monthly buckets is
- * fifty times slower and gets worse as the series lengthens.
- */
-/**
  * The statement, apart from running it, so a test can plan the SQL that ships.
  *
  * Every plan assertion here used to `explain` a copy of this query retyped
@@ -333,6 +325,14 @@ export function balanceStatement(
   `;
 }
 
+/**
+ * Balances at the end of each bucket, accumulated with a window function over a
+ * single pass of the postings.
+ *
+ * Asking the database for a balance as of each bucket's end instead costs one
+ * correlated aggregate per column, which on five years of monthly buckets is
+ * fifty times slower and gets worse as the series lengthens.
+ */
 async function balanceCells(
   actor: Actor,
   report: ReportName,
@@ -455,20 +455,6 @@ export function qualifyRepeatedLabels(cells: Cell[]): Cell[] {
   );
 }
 
-/**
- * Where the money in the spendable accounts came from and went to, by the class
- * of the account on the far side of each transaction.
- *
- * `sides` reduces a transaction to its distinct accounts per currency, so a
- * receipt split three ways presents one counter-account rather than three rows
- * that would triple the cash side. Matching on currency is what makes a
- * conversion resolve to the exchange account in the moving side's own currency
- * instead of to all three of its other legs.
- *
- * Closing postings are left out because archiving is not a payment: counted as
- * movement, closing an account would report its whole balance as money spent on
- * the day it was closed.
- */
 /** The cash-flow statement, apart from running it. Same reason as above. */
 export function cashFlowStatement(
   userId: string,
@@ -547,6 +533,20 @@ export function cashFlowStatement(
   `;
 }
 
+/**
+ * Where the money in the spendable accounts came from and went to, by the class
+ * of the account on the far side of each transaction.
+ *
+ * `sides` reduces a transaction to its distinct accounts per currency, so a
+ * receipt split three ways presents one counter-account rather than three rows
+ * that would triple the cash side. Matching on currency is what makes a
+ * conversion resolve to the exchange account in the moving side's own currency
+ * instead of to all three of its other legs.
+ *
+ * Closing postings are left out because archiving is not a payment: counted as
+ * movement, closing an account would report its whole balance as money spent on
+ * the day it was closed.
+ */
 async function cashFlowCells(
   actor: Actor,
   bucket: ReportBucket,

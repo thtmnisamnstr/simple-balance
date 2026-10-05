@@ -26,13 +26,34 @@ const SOURCES = [
   ...globSync("src/server/**/*.ts"),
 ];
 
-/** Every double-quoted literal on a line that is not a comment. */
+/**
+ * Every piece of text on a line that is not a comment: a double-quoted
+ * literal, the fixed parts of a template literal, and JSX text between a `>`
+ * and a `<`.
+ *
+ * Double quotes alone was the first version, and it could not see
+ * `` `Forbidden: ${name} needs ${required}` `` — a template literal an agent is
+ * handed on every scope refusal — or a sentence written straight into JSX.
+ */
 function literals(source: string) {
   const found: { text: string; line: number }[] = [];
-  source.split("\n").forEach((line, index) => {
+  // A block comment's lines go blank rather than away, so a line number still
+  // points at its line. A JSX comment runs over lines that start with no `*`.
+  const code = source.replaceAll(/\/\*[\s\S]*?\*\//g, (comment) =>
+    comment.replaceAll(/[^\n]/g, " "),
+  );
+  code.split("\n").forEach((line, index) => {
     if (/^\s*(?:\/\/|\*|\/\*)/.test(line)) return;
     for (const match of line.matchAll(/"([^"\\]{2,})"/g)) {
       found.push({ text: match[1]!, line: index + 1 });
+    }
+    for (const match of line.matchAll(/`([^`]{2,})`/g)) {
+      const fixed = match[1]!.replaceAll(/\$\{[^}]*\}/g, " ").trim();
+      if (fixed.length >= 2) found.push({ text: fixed, line: index + 1 });
+    }
+    for (const match of line.matchAll(/>([^<>{}=;()]*[A-Za-z][^<>{}=;()]*)</g)) {
+      const text = match[1]!.trim();
+      if (text.includes(" ")) found.push({ text, line: index + 1 });
     }
   });
   return found;
@@ -47,7 +68,8 @@ function literals(source: string) {
  * importer said "Amount has invalid decimal or thousands separators" on the
  * preview screen, which is a sentence about a parser.
  */
-const BANNED = /\b(please|sorry|valid|invalid|oops|forbidden|illegal|you forgot)\b/i;
+const BANNED =
+  /\b(please|sorry|valid|invalid|oops|forbidden|illegal|you forgot|unexpected|an error occurred)\b/i;
 
 /**
  * Machine words that are spelled like banned ones, named individually.
@@ -78,7 +100,7 @@ const NOT_COPY = new Set([
  * unexpected error occurred". Nobody outside a log ever sees the words, so
  * rewriting them would be rewriting a note to whoever is reading the stack.
  */
-const FOR_THE_LOG = /new Error\(/;
+const FOR_THE_LOG = /new Error\(|\blog\.(?:failure|warn|info|error|debug)\(/;
 
 describe("what the product says", () => {
   it("uses none of the banned words in a sentence a person reads", () => {

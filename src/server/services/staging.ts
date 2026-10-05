@@ -468,8 +468,10 @@ function stageSortPlan(
   const tie = ordered(id, direction);
   const draft = sql`${stagedTransactions.draft}`;
   // Draft fields are optional, so absent values need a defined place to land.
-  const paged = (expression: SQL) => ({
-    orderBy: [ordered(expression, direction, true), tie],
+  // A computed key that is never null says so: AGENTS.md asks for `nulls last`
+  // only on a key that can be null.
+  const paged = (expression: SQL, nullable = true) => ({
+    orderBy: [ordered(expression, direction, nullable), tie],
     keyset: null,
     cursorValue: null,
   });
@@ -500,11 +502,14 @@ function stageSortPlan(
       // it — a strict match, another row still waiting, or something already
       // committed that looks like the same money. Asking only about the strict
       // match sorted a badged row in among the ready ones.
-      return paged(sql`case
+      return paged(
+        sql`case
         when jsonb_array_length(${stagedTransactions.validationIssues}) > 0 then 0
         when ${possiblyDuplicate} then 1
         else 2
-      end`);
+      end`,
+        false,
+      );
     case "amount":
       // A transfer states its amount as `sourceAmount`, which is what the queue
       // shows for one, so sorting on `amount` alone left every transfer with no
@@ -946,12 +951,22 @@ export async function updateStage(
   actor: Actor,
   id: string,
   input: unknown,
-  transaction?: DbTransaction,
   options: { mayEditLedgerRecords?: boolean } = {},
+  transaction?: DbTransaction,
 ) {
   const { draft, expectedVersion } = stageUpdateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
-    await lockStagedDraftReferences(tx, actor, [draft]);
+    // The stored draft as well as the new one: the category it may be moving
+    // off is pruned at the end under the category lock, which has to be taken
+    // here, before the payee lock, or this and a create naming a category take
+    // the two in opposite orders. Read without a lock; the version check below
+    // refuses the edit if the row changed in between.
+    const [prior] = await tx
+      .select({ draft: stagedTransactions.draft })
+      .from(stagedTransactions)
+      .where(and(eq(stagedTransactions.id, id), eq(stagedTransactions.userId, actor.userId)))
+      .limit(1);
+    await lockStagedDraftReferences(tx, actor, prior ? [draft, prior.draft] : [draft]);
     const canonicalDraft = await canonicalizeStagedDraftPayee(tx, actor, draft);
     const [before] = await tx
       .select()
@@ -1157,8 +1172,8 @@ export async function deleteStages(actor: Actor, input: unknown, transaction?: D
 export async function commitStages(
   actor: Actor,
   input: unknown,
-  transaction?: DbTransaction,
   options: { onProgress?: (event: ProgressEvent) => void } = {},
+  transaction?: DbTransaction,
 ) {
   const parsed = commitStageSchema.parse(input);
   // Deliberately not awaited and deliberately unable to fail: it writes three
@@ -1477,8 +1492,8 @@ function patchedStageDraft(draft: Record<string, unknown>, patch: BulkStagePatch
 export async function bulkEditStages(
   actor: Actor,
   input: unknown,
-  transaction?: DbTransaction,
   options: { mayEditLedgerRecords?: boolean } = {},
+  transaction?: DbTransaction,
 ) {
   const parsed = bulkStageEditSchema.parse(input);
   const { selection, patch } = parsed;
@@ -1601,7 +1616,8 @@ export async function bulkEditStages(
     }
 
     let drafts = rows.map((row) => patchedStageDraft(row.draft as Record<string, unknown>, patch));
-    await lockStagedDraftReferences(tx, actor, drafts);
+    // The rows' stored drafts too, for the reason `updateStage` gives.
+    await lockStagedDraftReferences(tx, actor, [...drafts, ...rows.map((row) => row.draft)]);
     // Now the rows, under the locks, and the selection re-verified: a row
     // edited between the snapshot and here is a stale selection, not a row to
     // silently edit on top of.

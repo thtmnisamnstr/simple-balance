@@ -117,6 +117,32 @@ load. The duplicate review no longer opens with the cursor in its second form,
 a badge's icon no longer touches its words, and a staged row missing a field
 names the field to fill in rather than repeating a type error.
 
+**Two edits at once no longer deadlock.** Editing an entry or a staged row so it
+no longer names a category, while another write named a category on a
+different account, could stop both and fail one of them with a server error.
+The two locks they take are now always taken in the same order. A bulk edit
+already did this; the single edits and the staged edits now do too.
+
+**The budget forecast counts a recurring refund as a refund.** A monthly
+deposit into a spending category was projected as income, beside a history that
+had always counted the same refund as spending going down. It now lowers the
+projected spending, and income paid back out lowers the projected income.
+
+**Asking to see a CSV import as it goes no longer turns a bad request into a
+success.** A malformed upload sent with a request for progress came back as a
+200 with an error inside it; it is refused with a 422, as a commit already was.
+
+**An agent can preview a staged delete and then do it.** A dry run of deleting
+staged rows stored its result under the request's key, so sending the real
+delete with that key next was refused as a conflict. It no longer stores
+anything, as every other dry run already did.
+
+**A server failure says what to do.** It used to say "An unexpected error
+occurred". It now says the server could not finish and to try again, and to
+tell whoever runs the server if it keeps happening. An agent refused for
+missing a scope is told which scope and to ask the person to reconnect, rather
+than "Forbidden".
+
 **The account-deletion summary counts what is actually in the queue.** It
 counted every staged row ever kept, so somebody with an empty queue was told
 thousands of staged rows were about to be deleted.

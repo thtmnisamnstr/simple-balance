@@ -155,7 +155,7 @@ server to send the count, and a server that sends none gets no sentence.
 
 There is a second shape, for when the browser has no business previewing at all.
 Rather than send the data and a rule for using it, **send nothing and let the
-absence be the answer.** `getAdPlacement` (`src/server/services/billing.ts:2539`)
+absence be the answer.** `getAdPlacement` (`src/server/services/billing.ts:2540`)
 returns the publisher and slot ids, or `null`: a session belonging to somebody
 who should see no advertising simply carries no ad configuration, so the page
 has nothing to render a slot from. `AdSlot` (`src/client/ads.tsx:70`) has no
@@ -247,7 +247,7 @@ doing.
 
 Billing added the other two, and both argue it where they are written rather
 than here — `beginBillingOperation` cites this rule by name
-(`src/server/services/billing.ts:585-596`). The seventh carries a reason none of
+(`src/server/services/billing.ts:586-597`). The seventh carries a reason none of
 the first six has, and it is the one to copy: **the row has to be durable before
 the network call.** `beginBillingOperation` records the intent to call Stripe
 and commits it, because a process that dies mid-call otherwise leaves no record
@@ -259,7 +259,7 @@ that nothing will ever want to compose with it, or — like these two — that
 composing with it is exactly what must not happen.
 
 The parameter is not decoration. The MCP transport passes its transaction in
-(`src/server/mcp.ts:307-340`, and every `runIdempotentMcpMutation` call under it)
+(`src/server/mcp.ts:310-343`, and every `runIdempotentMcpMutation` call under it)
 so that
 its idempotency record, the mutation and the audit events land on one connection
 and commit together. Take it away and an agent's write could record its
@@ -648,7 +648,7 @@ at a moment no code observes, and a deployment that stops selling answers
 written on the way down would go on saying what it said then, and that last case
 would lock paying customers out of their own books. `ledger_account.active` is
 the person's choice and nothing else; `frozenAccountIds`
-(`src/shared/domain.ts:3586`) combines it with the entitlement at read time.
+(`src/shared/domain.ts:3614`) combines it with the entitlement at read time.
 
 The obvious alternative is to resolve the entitlement once at the edge — in the
 route, or in a middleware — and pass the answer down. It is wrong for the reason
@@ -716,7 +716,7 @@ which is how you can tell it is one decision made once:
 - `proposeDueOccurrences` (`src/server/services/recurrences.ts:314`) — "a tick
   advancing a watermark is not a change to what they configured".
 - The four reference rewrites in the two merges
-  (`src/server/services/categories.ts:1188`, `:1270`,
+  (`src/server/services/categories.ts:1171`, `:1253`,
   `src/server/services/payees.ts:458`) — "a merge relabels what a recurrence
   points at without changing what somebody configured". 2.6 owns why the
   rewrites happen at all; this is why they are silent.
@@ -764,8 +764,8 @@ service counts through `countAfterCommit`
 (`src/server/services/helpers.ts:205`), which counts immediately when the
 service opened its own transaction and otherwise queues; the MCP transport
 flushes with `flushDeferredCounts` after `getDb().transaction` resolves
-(`src/server/mcp.ts:338`). Six call sites, in `transactions.ts` and
-`staging.ts`.
+(`src/server/mcp.ts:341`). Seven call sites, in `transactions.ts`, `staging.ts`
+and `import-export.ts`, which counts the rows a CSV import staged.
 
 The keying is the part a new author gets wrong, and the source says so where it
 is written (`src/server/services/helpers.ts:197`): the queue is a
@@ -784,7 +784,7 @@ sends after `claimDueNotification`'s transaction has moved the watermark and
 committed.
 
 **A follow-up write, and a follow-up read.** `deferSubscriptionRead`
-(`src/server/services/billing.ts:2228`) stamps a failed attempt *after* the
+(`src/server/services/billing.ts:2229`) stamps a failed attempt *after* the
 locked write it follows has let its lock go, "so it can land where the locked
 write above timed out". And `setActiveAccounts` returns `listAccounts(actor)`
 from outside its own transaction, because `listAccounts` reads through the pool
@@ -807,7 +807,11 @@ that may never have happened.
 
 *Checked by:* `tests/services-guide.test.ts`, "a metric about the books waits
 for the commit", which holds the two halves a program can see: every
-`ledgerWrites.inc` in this directory is inside a `countAfterCommit` callback,
+increment of a metric a service imports is inside a `countAfterCommit`
+callback — every one, after `csv_rows_staged` was counted straight inside
+`stageCsv` while the check asked only about `ledgerWrites` — except the
+idempotency replay count, which is traffic rather than the books and is named
+with that reason,
 and the deferred queue is keyed on the transaction rather than on a module-level
 collection. Mail is held by `tests/integration/notifications.integration.test.ts`
 — "writes when it proposes, and says what it proposed", "says nothing on a tick
@@ -850,7 +854,7 @@ the same new category end up on one category rather than two: the second
 lookup sees what the first created.
 ```
 
-(`src/server/services/categories.ts:196-198`, the docstring on
+(`src/server/services/categories.ts:179-181`, the docstring on
 `resolveDraftCategory` rather than the signature under it.)
 
 Run those in parallel and a split naming "Groceries" twice creates two
@@ -893,7 +897,7 @@ a source read can settle here.
 **Binding**, because it is the rule most recently got wrong.
 
 Resolving a category by name never widens the category it finds
-(`src/server/services/categories.ts:156`).
+(`src/server/services/categories.ts:139`).
 Widening to `both` was correct while an entry could only name a category of its
 own direction. It stopped being correct when a category running against the
 direction became a refund, and it stopped quietly: `both` agrees with whichever
@@ -902,7 +906,7 @@ instead of lowering the spending.
 
 Where the direction genuinely cannot decide — a name with nothing behind it
 yet — the caller says so with `categoryKind`
-(`src/server/services/categories.ts:211`),
+(`src/server/services/categories.ts:194`),
 and that field is ignored when the category already exists, because that one has
 an answer already.
 

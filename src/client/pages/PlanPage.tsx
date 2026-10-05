@@ -58,7 +58,7 @@ import {
 import { newIdempotencyKey } from "../idempotency.js";
 import { formatTimestamp } from "../money.js";
 import { useTimezone } from "../timezone.js";
-import { usePaintedTheme } from "../theme.js";
+import { usePaintedTheme, type Resolved } from "../theme.js";
 import type { BillingInterval } from "../../shared/domain.js";
 
 type PlanSubscription = NonNullable<BillingStatus["subscription"]>;
@@ -451,7 +451,7 @@ function fieldMetrics(): FieldMetrics {
  * A token that comes back empty is left out, so Stripe falls back to its own
  * value instead of being handed a blank one.
  */
-function stripeAppearance(painted: "light" | "dark", metrics: FieldMetrics) {
+function stripeAppearance(painted: Resolved, metrics: FieldMetrics) {
   const root = window.getComputedStyle(document.documentElement);
   return {
     theme: painted === "dark" ? ("night" as const) : ("stripe" as const),

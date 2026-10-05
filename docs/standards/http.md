@@ -38,14 +38,14 @@ writing down why it has no tool.
 Three facts, all currently true, combine into that:
 
 1. Every `/api/v1` request resolves its user with `getWebIdentity`, which reads
-   a session cookie and nothing else (`src/server/api.ts:1352-1378`). There is no
+   a session cookie and nothing else (`src/server/api.ts:1360-1386`). There is no
    bearer path.
 2. Every state-changing `/api/v1` request must present an `Origin` (or failing
    that a `Referer`) equal to the configured base URL
-   (`src/server/http-security.ts:478-512`, mounted at `src/server/api.ts:1344-1351`).
+   (`src/server/http-security.ts:478-512`, mounted at `src/server/api.ts:1352-1359`).
 3. Every state-changing `/api/v1` request must declare
    `Content-Type: application/json`, including the ones with no body at all
-   (`requireContentType: true`, `src/server/api.ts:1349`).
+   (`requireContentType: true`, `src/server/api.ts:1357`).
 
 So `curl` can read nothing and write nothing, and the answer for programmatic
 access has been MCP. Story SB-030 in [`docs/roadmap.md`](../roadmap.md) removes
@@ -88,7 +88,7 @@ The count is the table's, and only the table is pinned:
 ways, and this sentence just reports them. The scope column is the scope the
 equivalent MCP tool needs today, and therefore the scope a bearer token will
 need once SB-030 lands; `ledger:read` is implied by both of the others
-(`src/server/mcp.ts:504-515`).
+(`src/server/mcp.ts:507-518`).
 
 The register at `tests/mcp-parity.test.ts:20-39` does two jobs rather than one,
 and reading it as one job is how the second gets lost. Most of its entries are
@@ -214,7 +214,7 @@ client reads a missing `invoice` as unknown rather than as nothing owed.
 
 A read-only token can list grants and cannot revoke them, so a stolen
 `ledger:read` token cannot spend its last minutes locking out the agents it was
-stolen from (`src/server/api.ts:1572-1580`).
+stolen from (`src/server/api.ts:1571-1579`).
 
 ### Accounts
 
@@ -347,9 +347,9 @@ Unversioned, and each for a reason.
 
 | Route | What it is |
 | --- | --- |
-| `GET /health/live`, `GET /health/ready` | Liveness, and a `select 1` against the database. `503` when the database is unreachable (`src/server/api.ts:424-439`). |
+| `GET /health/live`, `GET /health/ready` | Liveness, and a `select 1` against the database. `503` when the database is unreachable (`src/server/api.ts:432-447`). |
 | `/api/auth/*` | Better Auth, plus this product's own sign-up, consent and MCP token routes. No JSON body under it carries the session token: the `HttpOnly` cookie does, and a script that could read the token from a body could do everything the cookie keeps from it (`withholdSessionTokens`, `src/server/http-security.ts:818`). |
-| `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, `/.well-known/openid-configuration` | RFC 9728 and OAuth discovery, each also served under `/mcp` and `/mcp/` because RFC 9728 puts the resource path after the well-known segment (`src/server/api.ts:1016-1023`). |
+| `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, `/.well-known/openid-configuration` | RFC 9728 and OAuth discovery, each also served under `/mcp` and `/mcp/` because RFC 9728 puts the resource path after the well-known segment (`src/server/api.ts:1024-1031`). |
 | `/mcp`, `/mcp/` | The MCP transport. Governed by [`mcp.md`](mcp.md). |
 | `GET /metrics` | Prometheus text format, and registered only when `METRICS_ENABLED=true`, so a deployment that did not ask for it has no such route rather than a route that refuses. A `METRICS_TOKEN` makes it demand a bearer token. Not proxied by the bundled frontend. |
 | `POST /api/billing/webhook` | Where Stripe reports what happened, and registered only when Stripe is configured, so a deployment that sells nothing has no such route. Outside `/api/v1` because everything under that prefix is guarded by `protectBrowserMutation`, which refuses a mutation carrying no matching `Origin` — and a webhook carries none. Authenticated by Stripe's signature over the raw body rather than by a session. Every deliberate no-op answers 2xx, because a non-2xx makes Stripe retry and delays finalization of every auto-collection invoice on the account for up to 72 hours. |
@@ -386,7 +386,7 @@ somebody remembering to add it.
   `/accounts/{id}/register` are the deepest paths here. Zalando's guideline is
   three; two is enough for a ledger with eleven resources.
 - **House.** Every path id is a UUID and is parsed at the boundary before it
-  reaches a query, through `pathId` (`src/server/api.ts:1404-1405`). Nothing in a
+  reaches a query, through `pathId` (`src/server/api.ts:1412-1413`). Nothing in a
   specification or in `AGENTS.md` requires it; the failure it prevents does. Two
   names are exempt and both are checked another way: `clientId`, which is an
   OAuth client id and not a UUID, and `report`, which is parsed against a closed
@@ -420,7 +420,7 @@ somebody remembering to add it.
   than simply make them.
 - **House, and the three inconsistencies that were here are gone.** The paths
   read the way the rules above say now:
-  `GET /api/v1/staged-transactions/{id}/duplicate` (`src/server/api.ts:1972`)
+  `GET /api/v1/staged-transactions/{id}/duplicate` (`src/server/api.ts:1979`)
   rather than a `staged` collection that existed nowhere else;
   `POST /api/v1/staged-transactions/bulk-delete` (`src/server/api.ts:1890`)
   rather than a `delete` that spelled the same operation as
@@ -467,8 +467,8 @@ fails UUID validation before any service runs. The caller gets a 422 about an id
 they never sent, for a path the published table says exists.
 
 The three that exist today are all registered the right way round —
-`PUT /api/v1/accounts/active` at `src/server/api.ts:1604` ahead of
-`PUT /api/v1/accounts/:id` at `:1607`, and `GET /api/v1/categories/duplicates`
+`PUT /api/v1/accounts/active` at `src/server/api.ts:1603` ahead of
+`PUT /api/v1/accounts/:id` at `:1606`, and `GET /api/v1/categories/duplicates`
 and `/summaries` at `:1679` and `:1682` ahead of `GET /api/v1/categories/:id`
 at `:1685`. The state-sub-resource bullet above is what keeps producing this
 shape: a state that belongs to the collection rather than to one row is a
@@ -513,7 +513,7 @@ absence rather than as the single-page shell.
 **The obvious alternative — register it and answer 403 — is right somewhere
 else, which is why it is tempting.** `POST /api/auth/sign-up/email` answers
 `403 LOCAL_AUTH_DISABLED` on a deployment with local sign-in off
-(`src/server/api.ts:505`), and that is correct, because the caller is this
+(`src/server/api.ts:513`), and that is correct, because the caller is this
 product's own browser, it will render the refusal, and a person will read it.
 The test is who is calling. Where the caller is a program that will never show
 anybody the body, a refusal is a disclosure with no reader.
@@ -548,7 +548,7 @@ left open honestly rather than closed by a test that would pass forever.
   the bodyless request that gets through the gate.
 - **House.** A malformed or absent JSON body is a 400 with a message saying so,
   not a 500. Every mutation reads its body through one helper for this reason
-  (`src/server/api.ts:1384-1394`); before it existed a truncated body arrived as a
+  (`src/server/api.ts:1392-1402`); before it existed a truncated body arrived as a
   500 with a stack trace in the log.
 - **House.** Request bodies are bounded, and the bound is derived from a
   documented cap rather than chosen. The figures come from this repository
@@ -586,10 +586,10 @@ left open honestly rather than closed by a test that would pass forever.
   [`common.md`](common.md#naming).
 - **House, and a live gap.** Unknown query parameters and unknown body fields
   are an error. Newer schemas are `.strict()`; the older core ones are not.
-  `listQuerySchema` (`src/shared/domain.ts:2017-2084`) accepts anything, so
+  `listQuerySchema` (`src/shared/domain.ts:2028-2095`) accepts anything, so
   `?sortt=date` returns page one in the default order with a 200, which is the
   wrong answer delivered confidently. The bulk filter schema derived from it
-  **is** strict (`src/shared/domain.ts:2092-2094`), so the two disagree about
+  **is** strict (`src/shared/domain.ts:2103-2105`), so the two disagree about
   the same parameter set. Make `listQuerySchema` strict. The two staged
   selection schemas were the same disagreement between callers rather than
   between schemas, and are strict now; see [the bulk selection
@@ -607,7 +607,7 @@ left open honestly rather than closed by a test that would pass forever.
   used to compare `c.req.query("includeArchived") === "true"` by hand, so
   `?includeArchived=yes` silently meant false: the caller asked for something,
   was not refused, and got the opposite. All five go through
-  `includeArchivedFlag` (`src/server/api.ts:1446-1447`), which parses with the shared
+  `includeArchivedFlag` (`src/server/api.ts:1445-1446`), which parses with the shared
   schema.
 
   The budget report was the sixth, and it was found after the other five: it
@@ -615,7 +615,7 @@ left open honestly rather than closed by a test that would pass forever.
   **on**, so `?includeArchived=1` turned them off without saying so, and on that
   report off means every penny spent through a closed account leaves the
   figures. The only thing that differed was the default, so `queryBoolean` takes
-  one (`src/shared/domain.ts:1531-1539`) and the route hands the schema the raw
+  one (`src/shared/domain.ts:1542-1550`) and the route hands the schema the raw
   query. `tests/domain.test.ts` holds both halves: the two spellings that work,
   and that `1`, `yes`, `TRUE`, `on` and an empty value are refused rather than
   read as off.
@@ -678,18 +678,18 @@ only for template mass edits.
   and reading it as "clear this" turns a mis-click into a data loss.
 
 The budgeting schemas already follow it: `activeTo` present and null ends a
-plan, absent leaves it alone (`src/shared/domain.ts:1775-1804`). So does the
+plan, absent leaves it alone (`src/shared/domain.ts:1786-1815`). So does the
 template mass edit, whose schema comment says why blank and absent have to stay
 different: "blank and absent being different is the whole of what a stored draft
-records" (`src/shared/domain.ts:881-887`).
+records" (`src/shared/domain.ts:891-897`).
 
 **Where the code disagrees.** Three patch schemas answer this question and two
 of them read `""` as a clear rather than refusing it. The transaction bulk patch
 carries `.transform((value) => (value === "" ? null : value))` on `description`
-and `notes` (`src/shared/domain.ts:2239-2252`), pinned by
+and `notes` (`src/shared/domain.ts:2250-2263`), pinned by
 `tests/domain.test.ts:144-185`, and the staged bulk patch carries the identical
-transform on the same two fields (`src/shared/domain.ts:2533-2546`). The
-template mass edit (`:953-964`) is the only one of the three that refuses the
+transform on the same two fields (`src/shared/domain.ts:2544-2557`). The
+template mass edit (`:963-974`) is the only one of the three that refuses the
 empty string. So fixing only the transaction path leaves the same defect on the
 staged one. There is an argument for the
 transform, that a transaction description has no "unset" state distinct from
@@ -757,10 +757,10 @@ deprecation rather than a fix.
   that no longer exists fails too, so the register cannot drift the way the
   shapes did.
 - **House.** Two list envelopes:
-  - `Page<T>`: `{items, nextCursor}` (`src/shared/domain.ts:2685-2689`), where
+  - `Page<T>`: `{items, nextCursor}` (`src/shared/domain.ts:2696-2700`), where
     callers only stream forward.
   - `PaginatedPage<T>`: `Page<T>` plus `{page, pageSize, totalCount,
-    totalPages, cursorAvailable}` (`src/shared/domain.ts:2691-2705`), where
+    totalPages, cursorAvailable}` (`src/shared/domain.ts:2702-2716`), where
     `cursorAvailable` says whether this ordering can be resumed with a cursor.
 - **House.** `201 Created` on a create that mints a row, `200 OK` on everything
   else that succeeds. **No `/api/v1` route returns `204`**; every response there
@@ -769,7 +769,7 @@ deprecation rather than a fix.
 
   **One route outside `/api/v1` does, and the exception is the rule's own
   argument running out.** `POST /api/csp-report` answers `204` always
-  (`src/server/api.ts:1303`). It has no tool and can never have one — a browser
+  (`src/server/api.ts:1311`). It has no tool and can never have one — a browser
   posts to it, nothing reads the answer, and there is nobody to tell about a
   failure — so "the two transports return the same thing" is a constraint with
   one transport in it. Scope the rule to `/api/v1` rather than quietly allowing
@@ -777,7 +777,7 @@ deprecation rather than a fix.
   same argument, and no `/api/v1` route can.
 - **House.** A `201` carries a `Location` header naming the created resource,
   per RFC 9110 section 10.2.2. All eight creates go through one helper
-  (`src/server/api.ts:1410-1430`) rather than each remembering it, because a
+  (`src/server/api.ts:1417-1437`) rather than each remembering it, because a
   route that forgot would be indistinguishable from a route that meant not to
   send one. Purely additive, so no client that worked against the previous
   release stops working. `POST /api/v1/category-groups` is the one whose
@@ -799,7 +799,7 @@ deprecation rather than a fix.
   output schema fails the call …".
 - **House.** `GET /api/v1/csv/export` is the only route whose *default*
   representation is not JSON: `text/csv; charset=utf-8; header=present` with a
-  `Content-Disposition` filename (`src/server/api.ts:1953-1965`). Its format is
+  `Content-Disposition` filename (`src/server/api.ts:1960-1972`). Its format is
   governed by [`csv.md`](csv.md). Two routes offer a second representation
   beside their JSON one, chosen by `Accept`; see
   [Streaming a response](#streaming-a-response).
@@ -832,7 +832,7 @@ code.
 | 413 | Body over the derived limit for that path |
 | 415 | Missing or unacceptable `Content-Type` on a state change |
 | 422 | The body is valid JSON and valid against no rule the ledger will accept |
-| 429 | Rate limited: the setup-code limiter (`src/server/api.ts:544-558`), and Better Auth's production limiter on `/api/auth` (`src/server/auth.ts:127-131`) |
+| 429 | Rate limited: the setup-code limiter (`src/server/api.ts:552-566`), and Better Auth's production limiter on `/api/auth` (`src/server/auth.ts:127-131`) |
 | 500 | Anything unhandled, with no detail |
 | 503 | `GET /health/ready` when the database is unreachable |
 
@@ -848,7 +848,7 @@ code.
 - **House.** One code maps to one status. `VALIDATION_ERROR` was 422 from a
   service and 400 from the malformed-body guard, so on that code the status
   carried information the code did not, which is backwards. The malformed body
-  now has its own code: `MALFORMED_BODY` at 400 (`src/server/api.ts:1392`),
+  now has its own code: `MALFORMED_BODY` at 400 (`src/server/api.ts:1400`),
   raised as a `TransportError` rather than an `AppError`
   (`src/server/services/errors.ts:13-23`), which is also what keeps it out of
   the service vocabulary an MCP tool can raise. Adding a code is not a breaking
@@ -856,17 +856,17 @@ code.
 - **House, and a gap.** A missing `expectedVersion` should be `428 Precondition
   Required` (RFC 6585), which says exactly what happened and which Zalando rates
   `use`. Today it is a Zod failure and a 422
-  (`src/shared/domain.ts:1223-1238`, `src/server/api.ts:380-403`).
+  (`src/shared/domain.ts:1233-1248`, `src/server/api.ts:388-411`).
 - **House, and a mismatch.** A path id that is not a UUID can never name a row,
   so the answer is 404, for the same reason a stranger's id is 404: what the
   caller asked for is not there. Today `pathId` raises a Zod failure
-  (`src/server/api.ts:1404-1405`) which the global handler renders as a 422
-  (`src/server/api.ts:380-403`), so a mistyped URL and a rejected body look the
+  (`src/server/api.ts:1412-1413`) which the global handler renders as a 422
+  (`src/server/api.ts:388-411`), so a mistyped URL and a rejected body look the
   same to a client. The 404 catch-all already answers a mistyped *path* this
   way; a mistyped *id* should match it.
 - **House, and a gap.** A wrong method on an existing path should be 405 with
   `Allow`. Today it falls to the catch-all and is a 404
-  (`src/server/api.ts:2005-2007`). OWASP's REST guidance is to allowlist methods
+  (`src/server/api.ts:2012-2014`). OWASP's REST guidance is to allowlist methods
   and reject the rest with 405.
 - **House.** A 429 carries `Retry-After`. Neither of the two the process emits
   did. The setup-code limiter now sends the window it counts by, taken from the
@@ -877,7 +877,7 @@ code.
   wait longer than they had to; under-reporting sends them back for a second
   429. Better Auth's own limiter sends the non-standard `X-Retry-After` its
   library chose, and the `/api/auth/*` middleware mirrors it into the standard
-  header on the way out (`src/server/api.ts:455-464`) rather than renaming it,
+  header on the way out (`src/server/api.ts:463-472`) rather than renaming it,
   so a client already reading the non-standard one keeps working. `Retry-After`
   is standard in RFC 9110; the `RateLimit-*` draft headers are not, their syntax
   has changed between revisions, and pinning to them buys nothing yet.
@@ -898,7 +898,7 @@ wrong method.
 **Binding for the shape.** [`common.md`](common.md#errors) fixes it:
 `{ error: { code, message, details? } }`, one enumeration, published. Over MCP
 it is the `result` member; over HTTP it is the body today
-(`src/server/api.ts:361-414`).
+(`src/server/api.ts:369-422`).
 
 **Contested, and this is the live decision.** The conformance target in
 [`index.md`](index.md#conformance-targets) is RFC 9457 problem details, and this
@@ -953,13 +953,13 @@ derives by reading the `(code, status)` pair off every `AppError` and
 ### Rules that hold either way
 
 - **House.** The published enumeration is frozen contract, and it is complete.
-  `apiErrorCodes` (`src/shared/domain.ts:2657`) is the sum of two lists
+  `apiErrorCodes` (`src/shared/domain.ts:2668`) is the sum of two lists
   held apart on purpose: `serviceErrorCodes`, the nine an `AppError` can carry,
   and `transportErrorCodes`, the six the transport refuses with before a service
   runs — `CROSS_ORIGIN_REQUEST` (`src/server/http-security.ts:491`, `:560`),
   `UNSUPPORTED_MEDIA_TYPE` (`:505`, `:544`), `PAYLOAD_TOO_LARGE` (`:965`,
   `:1010`), `INVALID_CONTENT_LENGTH` (`:954`), `REQUEST_BODY_NOT_ALLOWED`
-  (`:980`) and `MALFORMED_BODY` (`src/server/api.ts:1392`), which the
+  (`:980`) and `MALFORMED_BODY` (`src/server/api.ts:1400`), which the
   [status codes](#status-codes) section above argues for by name and which is
   therefore the sixth rather than an addition this list has not caught up with.
   All fifteen reach a caller from `/api/v1` in this guide's own
@@ -983,8 +983,8 @@ derives by reading the `(code, status)` pair off every `AppError` and
   consent and setup routes answered with a flat `{code, message}` that the
   browser's own reader cannot see, because it looks inside `error`. All
   fifteen now send both, through `transportError`
-  (`src/server/api.ts:505`, `:530`, `:553`, `:562`, `:574`, `:590`, `:601`,
-  `:638`, `:793`, `:872`, `:878`, `:887`, `:921`, `:928` and `:1186`): the flat
+  (`src/server/api.ts:513`, `:538`, `:561`, `:570`, `:582`, `:598`, `:609`,
+  `:646`, `:801`, `:880`, `:886`, `:895`, `:929`, `:936` and `:1194`): the flat
   pair a 0.1.5 client reads, and the envelope everything else in the product
   uses. The fifteenth is the Stripe webhook's signature refusal, which is
   neither auth nor consent nor setup but reaches a caller the same way.
@@ -992,15 +992,15 @@ derives by reading the `(code, status)` pair off every `AppError` and
   the field — the same rule the renamed routes follow, and the reason this was
   not simply swapped.
   **One named exception:** the `/.well-known` catch-all returns
-  `{error, error_description}` (`src/server/api.ts:1040-1042`). That is the OAuth
+  `{error, error_description}` (`src/server/api.ts:1048-1050`). That is the OAuth
   error shape, its reader is an OAuth client, and it is correct there.
 - **House, and settled the same way.** Field errors are `{field, message}` with
   `field` a dotted path. `zodIssues()` produces exactly that
-  (`src/server/services/errors.ts:123-128`) and MCP uses it
-  (`src/server/mcp.ts:297`); the global HTTP handler shipped `error.issues`
+  (`src/server/services/errors.ts:180-185`) and MCP uses it
+  (`src/server/mcp.ts:300`); the global HTTP handler shipped `error.issues`
   straight from Zod, putting the validator's own discriminators on the wire as
   public contract. Each issue now carries `field` beside what it already had
-  (`src/server/api.ts:396-399`), because 0.1.5 shipped the raw issue and a client
+  (`src/server/api.ts:404-407`), because 0.1.5 shipped the raw issue and a client
   reading `path` still works. Under problem details this array becomes
   `errors`, and dropping the Zod half belongs with that change.
 - **House, following AIP-193 and the Azure guidelines.** Any number in a message
@@ -1013,8 +1013,8 @@ derives by reading the `(code, status)` pair off every `AppError` and
   its bound parameters*, and one of those parameters is the OAuth access token
   the MCP token endpoint looks a grant up by. Logging such an error whole
   writes a live credential into the log on any database hiccup." The 500 body
-  is a fixed sentence with no detail (`src/server/api.ts:410-413`), and the
-  comment above it at `src/server/api.ts:405-408` says why the narrowing is
+  is a fixed sentence with no detail (`src/server/api.ts:418-421`), and the
+  comment above it at `src/server/api.ts:413-416` says why the narrowing is
   not done there.
   The narrowing is not this route's: it lives in `log.failure`
   (`src/server/log.ts:91-101`), so all five paths in this process that can log a
@@ -1057,7 +1057,7 @@ cannot branch on a code that does not decide. The `errorResponse` sites were
 clean; this was the only split.
 
 The webhook's refusal now answers `INVALID_SIGNATURE`
-(`src/server/api.ts:1186`), which is the move `MALFORMED_BODY` made when it
+(`src/server/api.ts:1194`), which is the move `MALFORMED_BODY` made when it
 split off from `VALIDATION_ERROR` for the same reason. Adding a code is
 additive, so nothing a client handled narrows; the status is unchanged, which is
 all Stripe reads. It is deliberately **not** in `apiErrorCodes`, because that
@@ -1095,7 +1095,7 @@ That invariant is why this API has both mechanisms, and it is not indecision.
   ordering a keyset cannot resume, such as one that sorts by a name reached from
   another table (`src/server/services/sorting.ts:4-11`).
 - **House.** When both `cursor` and `page` are sent, the cursor wins and `page`
-  is reported as 1 (`src/server/services/transactions.ts:1464-1466`).
+  is reported as 1 (`src/server/services/transactions.ts:1462-1464`).
 - **House, following AIP-158.** `nextCursor: null` is the end signal, and the
   only one. The Azure guidelines forbid exactly that spelling; AIP-158 permits
   it. Keep the null, because the field's presence is contractual: Zod output
@@ -1105,7 +1105,7 @@ That invariant is why this API has both mechanisms, and it is not indecision.
   things: the collection has ended, and this ordering issues no cursors at all.
   A client could not tell them apart, so the envelope now says which:
   `cursorAvailable` rides on every paginated page from both listings
-  (`src/shared/domain.ts:2691-2705`), and a null beside `cursorAvailable: true`
+  (`src/shared/domain.ts:2702-2716`), and a null beside `cursorAvailable: true`
   is an ended collection rather than a guess. [`mcp.md`](mcp.md) records the
   same field on the tool side.
 - **Binding.** A cursor binds the ordering it was issued for and is refused
@@ -1214,7 +1214,7 @@ That invariant is why this API has both mechanisms, and it is not indecision.
   exists to be cheap.
   **The code disagrees with that bound today.** `listTransactions` runs its
   `count()` unconditionally, before it looks at whether a cursor was sent
-  (`src/server/services/transactions.ts:1458-1463`), so a cursor page pays for a
+  (`src/server/services/transactions.ts:1456-1461`), so a cursor page pays for a
   full count it does not use. Skip the count when a cursor is present.
 - **House, four keyset pitfalls,** written here because they currently live only
   in code comments, where nobody looks before adding the seventh sortable
@@ -1243,14 +1243,14 @@ That invariant is why this API has both mechanisms, and it is not indecision.
      and PostgreSQL answers a value it cannot read with an error
      (`src/server/services/sorting.ts:29-39`, `src/server/services/cursor.ts:197-210`).
 - **House.** `limit` is optional, defaults to 50 and is capped at 200
-  (`src/shared/domain.ts:2050`). A server may return fewer rows than asked for.
+  (`src/shared/domain.ts:2061`). A server may return fewer rows than asked for.
 - **House.** Every list contract on this surface is a published Zod schema, and
   `GET /api/v1/audit-events` was the one that was not. It read `cursor` and
   `limit` out of the query string by hand and handed `Number(...)` to the
   service, so `?limit=x` arrived as `NaN` and the service grew a guard against
   it — the right defense in the wrong place, and one the MCP tool's own inline
   shape said nothing about. Both transports now parse `auditListQuerySchema`
-  (`src/shared/domain.ts:1997-2015`), which lives with the others, is coerced so
+  (`src/shared/domain.ts:2008-2026`), which lives with the others, is coerced so
   that a query string's `"50"` and a tool call's `50` are one contract, and is
   *not* `.strict()`: both transports have always ignored an unknown query
   parameter and refusing one now is a narrowing a release may not make. The
@@ -1275,13 +1275,13 @@ That invariant is why this API has both mechanisms, and it is not indecision.
   list query, the bulk filter selection and the MCP tool, and adding one changes
   what a fingerprint covers.
 - **House.** Sorting is `sort` plus `direction`, with `direction` one of `asc`
-  or `desc` (`src/shared/domain.ts:2023-2032`). If multi-key sorting ever
+  or `desc` (`src/shared/domain.ts:2034-2043`). If multi-key sorting ever
   arrives it becomes `sort=-date,payee`, following JSON:API and Zalando rule
   137, rather than a second parameter, because a second parameter cannot express
   precedence.
 - **Binding.** Order is presentation and never scopes a write. `sort`,
   `direction`, `cursor`, `page` and `limit` are omitted from every bulk filter
-  schema (`src/shared/domain.ts:2092-2094`), so two requests selecting the same
+  schema (`src/shared/domain.ts:2103-2105`), so two requests selecting the same
   rows in different orders are the same selection.
 
 *Checked by:* the bulk filter schemas being `.strict()` in `src/shared/domain.ts`,
@@ -1295,7 +1295,7 @@ a misspelled `sort` key still answers 200 with page one in the default order.
 
 - **House, and the reason is the standing test.** The version travels in the
   body as `expectedVersion`, never as `If-Match`
-  (`src/shared/domain.ts:1223-1238`). A mismatch is `409 STALE_VERSION` with
+  (`src/shared/domain.ts:1233-1248`). A mismatch is `409 STALE_VERSION` with
   `{currentVersion}` in the details. Google AIP-154 sanctions a body-carried
   token with an abort on mismatch, and Zalando's appendix rates a payload
   version number as "perfect optimistic locking", so this is a published pattern
@@ -1317,13 +1317,13 @@ a misspelled `sort` key still answers 200 with page one in the default order.
   grounds that the other exists.
 - **House, and the objection is open on HTTP today.** Over MCP every mutation is
   wrapped in an idempotency record by the transport itself
-  (`runIdempotentMcpMutation`, `src/server/mcp.ts:307-340`, used on twenty-nine
+  (`runIdempotentMcpMutation`, `src/server/mcp.ts:310-343`, used on twenty-nine
   tools at last count — nothing pins the number, so recount before leaning on
   it), so the Azure objection does not bite there. Over HTTP only the writes
   whose schema declares an `idempotencyKey` are protected, and **no ledger
   update or delete does**: `transactionUpdateSchema` and
   `versionedMutationSchema` carry a version and nothing else
-  (`src/shared/domain.ts:1223-1238`). So an HTTP update to the books whose
+  (`src/shared/domain.ts:1233-1248`). So an HTTP update to the books whose
   response is lost genuinely cannot be retried, and the browser hides it by
   refetching. That is the gap, and it is the same gap as the missing keys on
   five creates below.
@@ -1331,7 +1331,7 @@ a misspelled `sort` key still answers 200 with page one in the default order.
   **Two updates outside the ledger already take one**, which is why the claim is
   scoped rather than general. `PUT /api/v1/billing/subscription` and
   `PUT …/subscription/cancellation` each carry an `idempotencyKey`
-  (`src/shared/domain.ts:3911-3923`), as the billing section above states. They
+  (`src/shared/domain.ts:3939-3951`), as the billing section above states. They
   are the proof the shape works on an update and not an exception to the rule:
   each spends money at a third party, where a lost response and a retry is a
   second charge rather than a second refetch. What the ledger updates are
@@ -1339,7 +1339,7 @@ a misspelled `sort` key still answers 200 with page one in the default order.
 - **House, one named exception.** `PUT /api/v1/budget-entries` is an upsert and
   its `expectedVersion` is optional: absent on the first set for a period,
   required to change one that is already there
-  (`src/shared/domain.ts:1807-1814`).
+  (`src/shared/domain.ts:1818-1825`).
 - **Binding.** `AGENTS.md`: "Any write that changes a leg must bump the parent
   transaction's `version` in the same transaction." A version that does not move when a leg moves would
   let a bulk selection fingerprint describe a row that has changed underneath
@@ -1376,7 +1376,7 @@ so a second submit fails rather than duplicating."
   October 2025 and is expired and archived, with no intended RFC status. Stripe
   is the de facto reference and it uses a header, which this API cannot.
 - **House.** A key is 8 to 200 characters, trimmed, and a UUID is the suggested
-  form (`src/shared/domain.ts:306-313`).
+  form (`src/shared/domain.ts:316-323`).
 - **House, matching Zalando rule 230 point for point.** The key is scoped to
   `(user, operation, key)`, stored with a hash of the canonical request and the
   response, replayed on repeat, and refused with a 409 when the same key arrives
@@ -1446,15 +1446,15 @@ so a second submit fails rather than duplicating."
   creates that write postings require idempotency, and this guide extends that
   to every create, because a public client retrying a `POST` after a timeout
   should not get two rows. `POST /transactions` and `POST /staged-transactions`
-  take a key (`src/shared/domain.ts:1210` and `:1254`) and `POST /accounts`,
+  take a key (`src/shared/domain.ts:1220` and `:1264`) and `POST /accounts`,
   `POST /categories`, `POST /recurrences` and `POST /transaction-templates` do
-  not (`src/shared/domain.ts:1048`, `:1088`, `:3288`, `:3215`) — those four are
+  not (`src/shared/domain.ts:1058`, `:1098`, `:3299`, `:3226`) — those four are
   protected by a unique name, which is the `AGENTS.md` carve-out, and the reason
   the gap is narrower than it looks.
   `POST /categories/merge` was protected by nothing while the sister route
-  `POST /payees/merge` demanded a key (`src/shared/domain.ts:1181-1195`), so two
+  `POST /payees/merge` demanded a key (`src/shared/domain.ts:1191-1205`), so two
   merges disagreed about the same question. It takes one now
-  (`src/shared/domain.ts:1141-1145`), and the browser sends it. **Optional, not
+  (`src/shared/domain.ts:1151-1155`), and the browser sends it. **Optional, not
   required**, which is the only way to add it in a release a 0.1.5 client has to
   survive: that client merges without sending anything, and a required field
   would refuse a request that worked yesterday. Narrowing it belongs in a later
@@ -1464,7 +1464,7 @@ so a second submit fails rather than duplicating."
 - **House.** No `GET` or `DELETE` accepts a key. A safe method needs none, and a
   delete on this API is a versioned mutation, which is idempotent by
   construction, with one exception:
-  `DELETE /api/v1/connected-apps/{clientId}` (`src/server/api.ts:1578-1580`)
+  `DELETE /api/v1/connected-apps/{clientId}` (`src/server/api.ts:1577-1579`)
   reads no body and takes no `expectedVersion`, where the other seven versioned
   deletes parse `versionedMutationSchema` (`src/server/api.ts:1672`, `:1685`,
   `:1696`, `:1710`, `:1718`, `:1758`, `:1809`). Revoking a grant is idempotent
@@ -1504,7 +1504,7 @@ edit, a mass delete, a commit, and a CSV import."
 
 - **House, scoped to what the invariant above covers: transaction and staged
   mass edits.** Two selection shapes and no third for those
-  (`src/shared/domain.ts:2175-2178`):
+  (`src/shared/domain.ts:2186-2189`):
   - `{"mode": "ids", "items": [{"id", "expectedVersion"}]}` for rows the caller
     can see.
   - `{"mode": "filter", "filter", "excludedIds", "expectedCount",
@@ -1512,20 +1512,20 @@ edit, a mass delete, a commit, and a CSV import."
     the fingerprint were issued by a preview call.
 - **House, and three routes outside that scope encode a selection their own
   way. Each records why, and that is the answer rather than a deferral.**
-  `transactionTemplateBulkSelectionSchema` (`src/shared/domain.ts:850-879`) is
+  `transactionTemplateBulkSelectionSchema` (`src/shared/domain.ts:860-889`) is
   `{items: [{id, expectedVersion}]}` with no `mode` discriminator, and stays
   that way because `AGENTS.md` already settled it: a template mass edit "has no
   filtered selection, because the list is capped and the browser holds all of
   it". A discriminated union with one member is ceremony, and `mode` would be a
   required new request field bought for nothing. The schema's own comment
-  (`src/shared/domain.ts:842-849`) argued this before this guide asked.
+  (`src/shared/domain.ts:852-859`) argued this before this guide asked.
 
-  `commitStageSchema` (`src/shared/domain.ts:1305-1331`) and `bulkDeleteStageSchema` (`src/shared/domain.ts:1344-1366`) are
+  `commitStageSchema` (`src/shared/domain.ts:1315-1341`) and `bulkDeleteStageSchema` (`src/shared/domain.ts:1354-1376`) are
   `{stagedIds: uuid[], expectedVersions: Record<string, number>}`, a parallel
   map rather than a list of pairs. That is the older spelling and it stays.
   Moving it changes the wire on the one route that puts money in the books, and
   the request shape is what the recorded idempotency payload is hashed from
-  (`src/server/services/staging.ts:1174-1179`), so a commit retried across the
+  (`src/server/services/staging.ts:1189-1194`), so a commit retried across the
   deploy would come back `CONFLICT` instead of replaying — a self-inflicted
   failure on the write that can least afford one, in exchange for no behavior a
   caller can observe. A missing map entry already refused rather than wrote.
@@ -1536,8 +1536,8 @@ edit, a mass delete, a commit, and a CSV import."
   fault named: nothing went stale, the request arrived incomplete, and an agent
   told to read the row again and retry sends the same payload back. Both
   services now refuse it by name with the offending id in the details
-  (`src/server/services/staging.ts:1056-1074`), the way `mergeCategories`
-  (`src/server/services/categories.ts:933-939`) already did with the identical
+  (`src/server/services/staging.ts:1071-1089`), the way `mergeCategories`
+  (`src/server/services/categories.ts:916-922`) already did with the identical
   encoding, and a repeated id is refused as a duplicate rather than reported as
   a missing row. A superset map is still accepted: naming a version the caller
   did not select harms nothing, and refusing it would break a working request to
@@ -1586,7 +1586,7 @@ edit, a mass delete, a commit, and a CSV import."
   per-row reporting. A caller that wants to know what will happen asks first,
   rather than being told afterwards which rows failed. Six of the seven had it;
   `bulkDeleteStageSchema`, behind `POST /api/v1/staged-transactions/bulk-delete`
-  (`src/shared/domain.ts:1344-1366`), did not, which made the one bulk write that
+  (`src/shared/domain.ts:1354-1376`), did not, which made the one bulk write that
   removes rows the one nobody could ask about first. It validates the whole
   request — every row present, every row still staged, every version current —
   and returns the ids it would have deleted with `dryRun: true`, stopping before
@@ -1600,11 +1600,11 @@ edit, a mass delete, a commit, and a CSV import."
   the work so it finishes inside a request: ten thousand rows everywhere, with
   the body limit derived from that cap rather than guessed.
   **The one operation that outgrows this is CSV export**, which buffers up to
-  100,000 transactions in memory (`src/server/services/import-export.ts:1047`)
+  100,000 transactions in memory (`src/server/services/import-export.ts:993`)
   against very carefully specified request limits. The bound it needed is now
   stated and enforced: `CSV_EXPORT_MAX_ROWS` (`src/server/config-limits.ts:30`)
   refuses a larger export with the remedy named — narrow the date range and
-  export one range at a time (`src/server/services/transactions.ts:1416-1421`).
+  export one range at a time (`src/server/services/transactions.ts:1414-1419`).
   [`csv.md`](csv.md) records the decision as settled, and
   `tests/bulk-row-cap.test.ts` holds both refusals to their message.
   **Reporting progress does not reopen this.** Two of these bounded writes now
@@ -1647,7 +1647,7 @@ socket already open is the only channel that exists.
   payload is identical; only the transcript differs, which is what `Accept` is
   for. A body field would have put the switch in the contract and published it
   on a tool whose transport answers in a single JSON object
-  (`enableJsonResponse: true`, `src/server/mcp.ts:2194`) and could never honor
+  (`enableJsonResponse: true`, `src/server/mcp.ts:2198`) and could never honor
   it — advertising a capability an agent cannot reach, which is the
   `categoryKind` defect pointing the other way.
 - **Three frame types, and exactly one terminal frame, last:** `progress` while
@@ -1658,7 +1658,7 @@ socket already open is the only channel that exists.
   streamed response is 200 before its outcome is known and nothing can change it
   afterwards, so the refusal carries the same `{ error: { code, message,
   details? } }` object the JSON branch would have — from the same function,
-  `errorEnvelope` (`src/server/api.ts:361`), so the two renderings cannot drift.
+  `errorEnvelope` (`src/server/api.ts:369`), so the two renderings cannot drift.
   That is a third rendering of one error object beside the two
   [Errors](#errors) allows, and it exists only because of the status line.
 - **An intermediate frame carries no committed fact.** It says which row a loop
@@ -1706,7 +1706,7 @@ test, and a streamed commit has not been watched through the chart's ingress.
 
 - **House.** Everything under `/api/v1` is `Cache-Control: no-store`, without
   exception, set once in middleware rather than once per route
-  (`src/server/api.ts:1352-1357`). RFC 9111's shared-cache protection keys off
+  (`src/server/api.ts:1360-1365`). RFC 9111's shared-cache protection keys off
   the `Authorization` header, and `/api/v1` authenticates with a cookie, so that
   protection does not apply and `no-store` is doing the whole job. When SB-030
   adds bearer tokens, `no-store` stays: two mechanisms for one guarantee is
@@ -1721,11 +1721,11 @@ test, and a streamed commit has not been watched through the chart's ingress.
   (`SecurityHeaderContext`, `:60-73`) — so which policy a response carries is
   decided per request path rather than once for the process: one middleware
   picks between two prebuilt header sets by asking `isStripeSurfacePath`
-  (`src/server/api.ts:235-255`). Two other headers are set by hand outside
+  (`src/server/api.ts:243-263`). Two other headers are set by hand outside
   `/api/v1` and are documented under CORS: `Access-Control-Allow-Origin` on the
-  JWKS route (`src/server/api.ts:774`) and on discovery (`:991`), and
-  `Cache-Control` on those two (`:775`, `:994`) and on `/api/v1` itself
-  (`:1357`). The split deployment's nginx repeats them for the files it serves,
+  JWKS route (`src/server/api.ts:782`) and on discovery (`:999`), and
+  `Cache-Control` on those two (`:783`, `:1002`) and on `/api/v1` itself
+  (`:1365`). The split deployment's nginx repeats them for the files it serves,
   and the two are compared value for value by a test rather than by a reader.
 
   **The content policy is the only header that is wholly per surface.** Two more
@@ -1817,8 +1817,8 @@ test, and a streamed commit has not been watched through the chart's ingress.
     same risk. Whether it should be is a deployment decision and belongs in
     configuration, not in code.
   - **Two exceptions exist today and are correct**, both outside `/api/v1`:
-    `GET /api/auth/mcp/jwks` (`src/server/api.ts:773`) and the OAuth discovery
-    endpoints (`discoveryHeaders`, `src/server/api.ts:989-995`) both send
+    `GET /api/auth/mcp/jwks` (`src/server/api.ts:781`) and the OAuth discovery
+    endpoints (`discoveryHeaders`, `src/server/api.ts:997-1003`) both send
     `Access-Control-Allow-Origin: *`. They are deliberately public and read by
     clients that are not browsers and have no origin to speak of. A rule saying
     "this process never emits ACAO" would be contradicted by grep on the day it
@@ -1828,8 +1828,8 @@ test, and a streamed commit has not been watched through the chart's ingress.
     preflight for something that is not allowed.
 - **House.** The single-page app never answers an API path. Three JSON 404
   catch-alls sit below every route their prefix owns and above the shell:
-  `/api/v1/*` (`src/server/api.ts:2005-2007`), `/.well-known/*` (`:1040-1042`)
-  and `/api/billing/*` (`:2014-2016`). Without them a mistyped path came back as
+  `/api/v1/*` (`src/server/api.ts:2012-2014`), `/.well-known/*` (`:1048-1050`)
+  and `/api/billing/*` (`:2021-2023`). Without them a mistyped path came back as
   200 `text/html`, which an API client parses as a syntax error and a person
   debugging reads as a working page.
 
@@ -1898,17 +1898,17 @@ way.
   token carries `error="insufficient_scope"` and names the scope required.
 - **House, a deliberate absence.** A 401 on a cookie-authenticated `/api/v1`
   request carries no `WWW-Authenticate`
-  (`src/server/api.ts:1352-1378`). A Bearer challenge there would invite an agent
+  (`src/server/api.ts:1360-1386`). A Bearer challenge there would invite an agent
   to present a token that will never be accepted. When SB-030 lands, the
   challenge appears on the routes that can actually accept one.
 - **Binding**, RFC 9728. Protected resource metadata is served at the root and
   at every `/mcp` path spelling, because a client told the resource is
   `<origin>/mcp` looks under the well-known suffix with the resource path
-  appended (`src/server/api.ts:1016-1023`). Answering only at the root left the
+  appended (`src/server/api.ts:1024-1031`). Answering only at the root left the
   single-page app returning HTML with a 200, which a client cannot parse and
   will not retry.
 - **Binding.** The scopes are `ledger:read`, `ledger:stage` and `ledger:write`,
-  published in the discovery documents (`src/server/api.ts:979-988`, `:1013`), and the
+  published in the discovery documents (`src/server/api.ts:987-996`, `:1021`), and the
   route table above says which each route needs. `AGENTS.md`: "`ledger:stage`
   proposes and never decides."
 - **Binding.** Seven routes stay session-only whatever the token. `AGENTS.md`:
@@ -1959,7 +1959,7 @@ is Better Auth's and is covered by its own tests rather than these.
   client and to nobody over HTTP — not on health, not in a header — so the one
   surface an operator actually polls was the one that could not answer "which
   build is this" during a rolling deploy. Both health routes now carry it
-  (`src/server/api.ts:424-439`), and so do the scheduler's
+  (`src/server/api.ts:432-447`), and so do the scheduler's
   (`src/server/scheduler.ts:29-38`), because that process is deployed
   separately and reading the version off the API's answer would answer about
   the wrong one. Not a header: a header on every response is a cost paid by

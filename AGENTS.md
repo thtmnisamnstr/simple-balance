@@ -46,9 +46,12 @@
   three. Never make an account that was created without a mail server unusable
   once one is added, and never refuse to store a notification setting because
   there is nowhere to send it yet.
-- Decisions made inside a Better Auth database hook must come from configuration
-  and the request, never from a query. The hook runs inside the sign-up
-  transaction, which on a one-connection pool is holding the only connection.
+- Decisions made inside a Better Auth database hook come from configuration,
+  the request, and reads through the hook's own adapter, and never from the
+  application pool. The hook runs inside the sign-up transaction, which on a
+  one-connection pool is holding the only connection, so a pool read waits for
+  itself; the adapter Better Auth hands the hook runs on that same connection.
+  `tests/auth-policy-paths.test.ts` holds the hooks to it.
 - The books are double-entry. Every transaction settles to zero in each currency
   it touches, checked before anything is written. A deposit credits the
   destination and debits income; a withdrawal debits the source and credits
@@ -88,7 +91,13 @@
   `id:version`, so a leg relabeled underneath one would leave that description
   agreeing about a row that changed.
 - Postings are append-only. To correct one, work out the difference per account,
-  currency, and date, and append only that. Never update or delete a posting.
+  currency, and date, and append only that. Never update a posting, and never
+  delete one while its account exists. Deleting an account is allowed only while
+  it has never held a transaction, and then it takes its opening pair and any
+  closing pair with it: both halves of each name that account, nothing else
+  refers to them, and leaving them would fail the delete on a foreign key.
+  `deleteAccount` is the one place a posting is deleted, and
+  `tests/postings-append-only.test.ts` keeps it the one.
   An edit that changes nothing about the movement writes nothing at all, and an
   edit that changes nothing writes nothing anywhere: no posting, no new
   `version`, no audit entry, on every record a form saves with an expected
@@ -356,10 +365,13 @@
   is also the only place the cluster's
   schema is written down, which is why `deploy/citus/` no longer holds a second
   copy — `docs/citus-runbook.md` points an operator at the migration itself for
-  the by-hand path. `0016` is the
-  one exception to the composite-key habit and says why in the schema: a
-  category's group is a single-column reference, because `on delete set null`
-  nulls every column of the constraint it is on and the tenant is not nullable.
+  the by-hand path. Two references
+  break the composite-key habit on a single node, and the schema says why for
+  each. A category's group (`0016`) is single-column because `on delete set
+  null` nulls every column of the constraint it is on and the tenant is not
+  nullable. A template's reminder (`0009`) points at its template by id alone;
+  the reminder is written only from a template the person owns, and `0023`
+  makes the key composite on a cluster, where Citus needs the tenant in it.
   `tests/migrations.test.ts` holds this list to what is on disk, because a list
   of what may never change is worth nothing if it can quietly fall behind.
   Never edit or regenerate one: someone's database has already run it, and

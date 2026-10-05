@@ -27,7 +27,7 @@ money owed. Crypto wallets track native quantities; nothing here quotes a market
 price.
 
 Retiring an account archives it. That posts whatever it still holds out to
-equity, so the account closes at zero and stops counting toward your totals
+equity, so the account ends at zero and stops counting toward your totals
 without the books going out of balance. Restoring it posts the balance back, and
 its history stays readable throughout. On a plan that limits how many accounts
 are usable, restoring one needs a free place, the same as opening one does; see

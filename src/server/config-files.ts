@@ -50,6 +50,13 @@ export type FileBackedSecret = (typeof FILE_BACKED_SECRETS)[number];
 let resolved: ReadonlyMap<FileBackedSecret, string> | undefined;
 
 /**
+ * Said once per process. `resolveFileBackedSecrets` memoizes, so this only
+ * repeats across a `vi.resetModules()` in tests, but the set costs nothing and
+ * makes the intent plain.
+ */
+const warned = new Set<string>();
+
+/**
  * Reads every `NAME_FILE` that is set, once per process.
  *
  * The resolved values stay in this map and are handed out by `readSecret`. They
@@ -69,13 +76,6 @@ let resolved: ReadonlyMap<FileBackedSecret, string> | undefined;
  * entrypoint is added next. Resolving on first read removes the ordering
  * entirely, and `db/migrate.ts` needs no knowledge of this file.
  */
-/**
- * Said once per process. `resolveFileBackedSecrets` memoizes, so this only
- * repeats across a `vi.resetModules()` in tests, but the set costs nothing and
- * makes the intent plain.
- */
-const warned = new Set<string>();
-
 function warnOnce(message: string) {
   if (warned.has(message)) return;
   warned.add(message);

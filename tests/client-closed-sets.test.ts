@@ -77,8 +77,9 @@ describe("a closed set", () => {
       'const value: string = "deposit";',
       'const narrowed = value as "deposit" | "withdrawal" | "transfer";',
       // Two of the three is a deliberate narrowing to a smaller set, not a
-      // second spelling of the same one, so it is not a hit.
-      'const pair = value as "deposit" | "withdrawal";',
+      // second spelling of the same one, so it is not a hit. A pair with no
+      // tuple of its own: deposit and withdrawal have one now, `entryTypes`.
+      'const pair = value as "deposit" | "transfer";',
     ].join("\n");
     const byMembers = tuples();
     const seen = assertedUnions(synthetic, "synthetic.ts");

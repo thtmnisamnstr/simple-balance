@@ -44,6 +44,7 @@ import {
   reversesEntry,
   transactionDraftSchema,
   transactionUpdateSchema,
+  type EntryType,
 } from "../../shared/domain.js";
 import { getDb, type Database, type DbTransaction, withTransaction } from "../db/client.js";
 import {
@@ -336,10 +337,7 @@ function counterAccount(
  * browser previews it and this enforces it. All this adds is the refusal: the
  * form shows the sentence beside the field, and here it is a 422.
  */
-function counterKindFor(
-  type: "deposit" | "withdrawal",
-  namedKinds: ReadonlySet<CategoryKind>,
-): SystemAccountKind {
+function counterKindFor(type: EntryType, namedKinds: ReadonlySet<CategoryKind>): SystemAccountKind {
   const side = resolveEntrySide(type, namedKinds);
   if (!side.ok) throw validationError(side.message);
   return side.counterKind;
@@ -2420,6 +2418,13 @@ export async function updateTransaction(
       ...draftAccountIds(draft),
       ...allowedArchivedAccountIds,
     ]);
+    // The category namespace too, whenever the stored entry names a category,
+    // and not only when the new draft does. Moving an entry off its category
+    // prunes that category at the end, which takes this lock — after the payee
+    // lock `prepareTransaction` takes — and a create naming a category takes
+    // the two the other way round: the ABBA inversion helpers.ts orders against,
+    // which `bulkEditTransactions` already closed for the rows it reads.
+    if (allowedArchivedCategoryIds.size) await lockCategoryNamespace(tx, actor);
     const resolvedDraft = await resolveDraftCategory(tx, actor, draft);
     const prepared = await prepareTransaction(tx, actor, resolvedDraft, {
       allowedArchivedAccountIds,

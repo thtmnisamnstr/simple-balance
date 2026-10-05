@@ -1232,7 +1232,6 @@ integration("budgets", () => {
           decimalSeparator: "." as const,
           dryRun: false,
         },
-        undefined,
         // The scope that cannot create a category, which is what defers it.
         { mayMutateCategories: false },
       );

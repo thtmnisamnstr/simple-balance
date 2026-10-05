@@ -70,23 +70,6 @@ function categoryKindForDraft(draft: TransactionDraft): CategoryKind {
   return "both";
 }
 
-/**
- * The kind a category ends up with when an entry names it by name.
- *
- * Widening to `both` was right while an entry could only ever name a category
- * of its own direction: the only way to accept "Groceries" on a deposit was to
- * say Groceries covers both. It stopped being right when a category running
- * against the direction became a refund, and it stopped quietly. Widening
- * destroys the very signal that makes an entry a refund, and it does it
- * permanently: `both` agrees with whichever direction it is handed, so every
- * later refund into that category credits income instead of lowering the
- * spending, and the budget it was supposed to move never moves again.
- *
- * So income against expense keeps what is already there. That pairing is a
- * refund, not an ambiguity. Only a pairing that genuinely says the category is
- * used both ways widens, and the plain way to get one of those is to say so.
- */
-
 /** Live categories first, then a stable order, so a match never depends on row order. */
 export function preferredCategory(left: CategoryRow, right: CategoryRow) {
   if (Boolean(left.archivedAt) !== Boolean(right.archivedAt)) {

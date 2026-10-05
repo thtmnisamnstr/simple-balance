@@ -2,6 +2,7 @@ import { inspect } from "node:util";
 import { Client as PgClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { user } from "../../src/server/db/schema.js";
+import { INTERNAL_ERROR_MESSAGE } from "../../src/server/services/errors.js";
 
 const connection = process.env.TEST_DATABASE_URL;
 const integration = describe.skipIf(!connection);
@@ -408,7 +409,7 @@ integration("an auth route that fails, reported through the log", () => {
 
     expect(response!.status).toBe(500);
     expect(await response!.json()).toEqual({
-      error: { code: "INTERNAL_ERROR", message: "An unexpected error occurred" },
+      error: { code: "INTERNAL_ERROR", message: INTERNAL_ERROR_MESSAGE },
     });
     const logged = lines.join("\n");
     expect(logged).not.toMatch(/SERVER_ERROR|failing@allowed\.test|tok_secret/);

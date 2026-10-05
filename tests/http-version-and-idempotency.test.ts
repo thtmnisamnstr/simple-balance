@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import * as csv from "../src/shared/csv.js";
 import * as domain from "../src/shared/domain.js";
 import { idempotencyKeySchema } from "../src/shared/domain.js";
 import { sourceFiles, topLevelDeclarations, type SourceFile } from "./support/source.js";
@@ -142,7 +143,11 @@ describe("every mutating route", () => {
       let key = false;
       let read = 0;
       for (const name of requestSchemas(handler)) {
-        const schema = (domain as Record<string, unknown>)[name];
+        // Both shared modules: the CSV request schemas live beside the format
+        // rather than in domain.ts, and a schema this did not find would read
+        // as a route asking for nothing.
+        const schema =
+          (domain as Record<string, unknown>)[name] ?? (csv as Record<string, unknown>)[name];
         if (!schema) continue;
         read += 1;
         const json = z.toJSONSchema(schema as z.ZodType, { io: "input", unrepresentable: "any" });

@@ -12,6 +12,8 @@ import {
   budgetReportQuerySchema,
   MAX_REPORT_BUCKETS,
   MAX_ROLLOVER_PERIODS,
+  type BudgetGroupLimitSource,
+  type BudgetLimitSource,
 } from "../../shared/domain.js";
 import { todayIn } from "../../shared/recurrence-dates.js";
 import { getDb, type DbTransaction, withTransaction } from "../db/client.js";
@@ -119,7 +121,7 @@ type BudgetPeriodRow = {
    */
   remaining: string | null;
   /** Where the amount came from, so a page can say whether it was overridden. */
-  source: "entry" | "plan" | "none";
+  source: BudgetLimitSource;
   /**
    * What earlier periods left to this one, or null when nothing rolls over.
    *
@@ -174,7 +176,7 @@ type BudgetGroupRow = {
   /** What its categories spent between them, however the limit was arrived at. */
   actual: string;
   remaining: string | null;
-  source: "entry" | "plan" | "sum" | "none";
+  source: BudgetGroupLimitSource;
   carriedIn: string | null;
   available: string | null;
   carriedOut: string | null;
@@ -755,15 +757,6 @@ export async function deleteBudgetPlan(
 }
 
 /**
- * The first day of the period a date falls in, worked out by PostgreSQL rather
- * than in JavaScript.
- *
- * Because the report grid is `date_trunc` and this has to agree with it exactly.
- * Working out the start of an ISO week in JavaScript is a different function
- * from the one PostgreSQL runs, and the two disagreeing would put a limit on a
- * different Monday from its spending.
- */
-/**
  * The four carry columns, checked against each other and against the window.
  *
  * The schemas refuse a patch that is wrong on its own terms — a target with no
@@ -888,6 +881,15 @@ async function resolveCarry(
   };
 }
 
+/**
+ * The first day of the period a date falls in, worked out by PostgreSQL rather
+ * than in JavaScript.
+ *
+ * Because the report grid is `date_trunc` and this has to agree with it exactly.
+ * Working out the start of an ISO week in JavaScript is a different function
+ * from the one PostgreSQL runs, and the two disagreeing would put a limit on a
+ * different Monday from its spending.
+ */
 async function truncatePeriod(
   executor: Pick<DbTransaction, "execute">,
   periodUnit: BudgetPeriodUnit,
@@ -1561,20 +1563,15 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
 }
 
 /**
- * What each group spent, and what a summing group is allowed.
+ * What each group spent, from the rows that are already there.
  *
- * Two jobs, one pass over the rows that are already there. Every group gets its
- * categories' spending added up, whether or not it holds a budget: a group with
- * no budget still answers "what did all of this cost", which is most of why
- * somebody groups categories at all. A `sum_of_children` group also gets its
- * limit from those same rows, so its budget is its members' budgets by
- * construction rather than by a second figure that could disagree with them.
+ * Every group gets its categories' spending added up, whether or not it holds
+ * a budget: a group with no budget still answers "what did all of this cost",
+ * which is most of why somebody groups categories at all. Its limit is not
+ * worked out here. A `standalone` group's came from its own plan or entry, and
+ * a `sum_of_children` group's is its members' added up — after the fold, in
+ * `sumChildBudgets`, because a member's limit is not final until then.
  *
- * A `standalone` group's limit is left alone. It came from its own plan or
- * entry, and the fold may still change it — that is what a group budget that
- * rolls over or works itself out means.
- */
-/**
  * A group's history follows its current members, and that is a choice.
  *
  * Membership is a column on the category rather than a record of when it moved,
@@ -1729,14 +1726,6 @@ async function rolloverPlans(actor: Actor, periodUnit: BudgetPeriodUnit) {
 type CarryingPlan = Awaited<ReturnType<typeof rolloverPlans>>[number];
 
 /**
- * How many whole periods separate two period starts.
- *
- * Both arguments are period starts that PostgreSQL produced, so this is
- * subtraction rather than a second opinion about where a period begins — which
- * is the thing `truncatePeriod` exists to keep out of JavaScript. A week is
- * seven days whatever the calendar does; the other three are months apart.
- */
-/**
  * The start of the period before this one.
  *
  * Same license as `periodsBetween`: the argument is a period start PostgreSQL
@@ -1758,6 +1747,14 @@ function previousPeriodStart(unit: BudgetPeriodUnit, start: string): string {
   return `${String(backYear).padStart(4, "0")}-${String(backMonth).padStart(2, "0")}-01`;
 }
 
+/**
+ * How many whole periods separate two period starts.
+ *
+ * Both arguments are period starts that PostgreSQL produced, so this is
+ * subtraction rather than a second opinion about where a period begins — which
+ * is the thing `truncatePeriod` exists to keep out of JavaScript. A week is
+ * seven days whatever the calendar does; the other three are months apart.
+ */
 export function periodsBetween(unit: BudgetPeriodUnit, from: string, to: string): number {
   if (unit === "week") {
     const days = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000;
@@ -1937,14 +1934,6 @@ function applyCap(carry: ReturnType<typeof decimal>, cap: string | null) {
 }
 
 /**
- * What a sinking fund puts aside this period: what is still needed, over the
- * periods left to need it in.
- *
- * Nothing once the fund is full, and everything still missing once the target
- * period has arrived — a fund that is short on the day it is needed asks for
- * the shortfall rather than a share of it.
- */
-/**
  * The amount a rule works out for one period.
  *
  * Four rules and one shape: each answers "what should this period budget",
@@ -2012,6 +2001,14 @@ function derivedAmount(
   }
 }
 
+/**
+ * What a sinking fund puts aside this period: what is still needed, over the
+ * periods left to need it in.
+ *
+ * Nothing once the fund is full, and everything still missing once the target
+ * period has arrived — a fund that is short on the day it is needed asks for
+ * the shortfall rather than a share of it.
+ */
 function sinkingFundAmount(
   plan: CarryingPlan,
   unit: BudgetPeriodUnit,

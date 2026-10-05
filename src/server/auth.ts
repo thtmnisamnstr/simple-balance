@@ -21,6 +21,25 @@ import { user } from "./db/schema.js";
 import { log } from "./log.js";
 
 /**
+ * What this deployment asks Google for, said once.
+ *
+ * Better Auth puts `email profile openid` in front of whatever `scope` names
+ * unless `disableDefaultScope` is set, so naming the three here as well sent
+ * each of them twice on every sign-in. Google ignores the repeats, and the
+ * consent screen and the authorization URL are what a person checking what
+ * this app asks for actually reads.
+ */
+export function googleProviderOptions(clientId: string, clientSecret: string) {
+  return {
+    clientId,
+    clientSecret,
+    disableDefaultScope: true,
+    scope: ["openid", "email", "profile"],
+    prompt: "select_account" as const,
+  };
+}
+
+/**
  * What the auth library says when something goes wrong, and where it says it.
  *
  * Two options, and each closes a way round `log`. `logger.log` sends the lines
@@ -53,25 +72,6 @@ import { log } from "./log.js";
  * sign-up happens only past a database read, and these are the part of the
  * instance that decides what it logs and what it answers.
  */
-/**
- * What this deployment asks Google for, said once.
- *
- * Better Auth puts `email profile openid` in front of whatever `scope` names
- * unless `disableDefaultScope` is set, so naming the three here as well sent
- * each of them twice on every sign-in. Google ignores the repeats, and the
- * consent screen and the authorization URL are what a person checking what
- * this app asks for actually reads.
- */
-export function googleProviderOptions(clientId: string, clientSecret: string) {
-  return {
-    clientId,
-    clientSecret,
-    disableDefaultScope: true,
-    scope: ["openid", "email", "profile"],
-    prompt: "select_account" as const,
-  };
-}
-
 export function authReporting(level: LogLevel) {
   return {
     logger: {
@@ -246,11 +246,14 @@ function createAuthInstance() {
       session: {
         create: {
           before: async (newSession, context) => {
+            // Through the hook's own adapter, which runs on the transaction's
+            // connection. Every session this app creates comes from a request,
+            // so there always is one; a caller with none is refused rather than
+            // read for through the pool, which is the deadlock AGENTS.md names.
             const transactionAdapter = context?.context.internalAdapter;
-            const linkedAccounts = transactionAdapter
-              ? await transactionAdapter.findAccounts(newSession.userId)
-              : undefined;
-            return mayCreateSession(newSession.userId, context?.path, linkedAccounts);
+            if (!transactionAdapter) return false;
+            const linkedAccounts = await transactionAdapter.findAccounts(newSession.userId);
+            return mayCreateSession(context?.path, linkedAccounts);
           },
         },
       },

@@ -302,6 +302,25 @@ integration("embedded local authentication", () => {
     expect(await getDb().select().from(user)).toHaveLength(1);
   });
 
+  it("refuses a malformed CSV stage request before it starts streaming", async () => {
+    // A frames client still gets the status its request earned: once the first
+    // frame goes out the status line is spent at 200, so a body that was never
+    // a stage request has to be refused before that, as the commit route is.
+    const response = await app.request("http://localhost:3000/api/v1/csv/stage", {
+      method: "POST",
+      headers: {
+        cookie: ownerCookie,
+        origin: "http://localhost:3000",
+        "content-type": "application/json",
+        accept: "text/event-stream",
+      },
+      body: JSON.stringify({ csv: "date,amount\n", fileName: "" }),
+    });
+    expect(response.status).toBe(422);
+    expect(response.headers.get("content-type")).toMatch(/application\/json/);
+    expect(await response.json()).toMatchObject({ error: { code: "VALIDATION_ERROR" } });
+  });
+
   it("rejects cross-origin finance and session mutations", async () => {
     const financeMutation = await app.request("http://localhost:3000/api/v1/preferences", {
       method: "PUT",

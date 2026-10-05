@@ -88,7 +88,7 @@ import {
   updateTransactionTemplate,
 } from "./services/transaction-templates.js";
 import { mcpToolCalls, mcpToolDuration } from "./metrics.js";
-import { AppError, zodIssues } from "./services/errors.js";
+import { AppError, zodIssues, INTERNAL_ERROR_MESSAGE } from "./services/errors.js";
 import {
   flushDeferredCounts,
   getIdempotent,
@@ -96,13 +96,16 @@ import {
   setIdempotent,
 } from "./services/helpers.js";
 import {
-  csvStageInputSchema,
   exportTransactionsCsv,
   getCsvPreview,
-  importBatchListQuerySchema,
   listActiveImportBatches,
   stageCsv,
 } from "./services/import-export.js";
+import {
+  csvPreviewInputSchema,
+  csvStageInputSchema,
+  importBatchListQuerySchema,
+} from "../shared/csv.js";
 import { getPlanSummary } from "./services/billing.js";
 import { getPreferences, preferencePatchSchema, setPreferences } from "./services/preferences.js";
 import { summarizeOwnData } from "./services/account-deletion.js";
@@ -296,7 +299,7 @@ async function runTool(fn: () => Promise<unknown>) {
               message: "Request validation failed",
               details: zodIssues(error),
             }
-          : { code: "INTERNAL_ERROR", message: "An unexpected error occurred" };
+          : { code: "INTERNAL_ERROR", message: INTERNAL_ERROR_MESSAGE };
     return {
       ...toolResult({ error: body }),
       isError: true,
@@ -885,9 +888,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         title: "Preview CSV columns",
         description:
           "Read the delimiter, headers, and first rows of a CSV without staging anything or touching the ledger. Use it to work out the column mapping before calling stage_csv.",
-        inputSchema: toolInput({
-          csv: z.string().min(1).describe("The file's text."),
-        }),
+        inputSchema: csvPreviewInputSchema.strict(),
         outputSchema: mcpOutputSchema(csvFilePreviewResultSchema),
         annotations: readAnnotations,
       },
@@ -1216,9 +1217,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       ({ id, input, idempotencyKey }) =>
         runTool(() =>
           runIdempotentMcpMutation(actor, "stage.update", idempotencyKey, { id, input }, (tx) =>
-            updateStage(actor, id, input, tx, {
-              mayEditLedgerRecords: scopes.has("ledger:write"),
-            }),
+            updateStage(actor, id, input, { mayEditLedgerRecords: scopes.has("ledger:write") }, tx),
           ),
         ),
     );
@@ -1244,6 +1243,11 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         // `mcp.stage.delete` record was hashed from: narrowing it here would
         // turn a retry across the deploy into a CONFLICT.
         const { idempotencyKey, ...selection } = input;
+        // A dry run writes nothing, so it records nothing either — as the other
+        // seven dry-run tools behave. Recording it made the real delete sent
+        // with the same key a CONFLICT, which is exactly the "show the count,
+        // then do it" flow the description asks for.
+        if (selection.dryRun) return runTool(() => deleteStages(actor, selection));
         return runTool(() =>
           runIdempotentMcpMutation(actor, "stage.delete", idempotencyKey, input, (tx) =>
             deleteStages(actor, selection, tx),
@@ -1263,7 +1267,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       },
       (input) =>
         runTool(() =>
-          bulkEditStages(actor, input, undefined, {
+          bulkEditStages(actor, input, {
             mayEditLedgerRecords: scopes.has("ledger:write"),
           }),
         ),
@@ -1283,7 +1287,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
           mayMutateCategories: scopes.has("ledger:write"),
         };
         // Both branches now, because stageCsv honors the key itself.
-        return runTool(() => stageCsv(actor, input, undefined, options));
+        return runTool(() => stageCsv(actor, input, options));
       },
     );
   }
@@ -2142,7 +2146,7 @@ async function scopeChallenge(
           // model can act on.
           error: {
             code: -32_000,
-            message: `Forbidden: ${name} needs ${required}`,
+            message: `${name} needs the ${required} scope, which this connection was not granted. Ask the person to reconnect and approve it.`,
             "www-authenticate": challenge,
           },
           id: call.id ?? null,

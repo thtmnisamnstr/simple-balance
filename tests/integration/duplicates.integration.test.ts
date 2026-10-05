@@ -538,6 +538,56 @@ integration("transaction duplicate protection", () => {
     expect((await getStage(actor, doomed.id)).status).toBe("deleted");
   });
 
+  it("shows the count with a dry run, then deletes with the same key", async () => {
+    // The flow the description asks for. The dry run used to store its result
+    // under the key, so the real call sent next with that key was a CONFLICT;
+    // the other seven dry-run tools never recorded one.
+    const mcpActor: Actor = {
+      userId: actor.userId,
+      source: "mcp",
+      clientId: "staged-dry-run-client",
+    };
+    const server = createMcpServer(mcpActor, new Set(["ledger:stage"]));
+    const client = new Client({ name: "staged-dry-run-test", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    const doomed = await createStage(actor, {
+      draft: {
+        type: "deposit",
+        date: "2026-08-13",
+        payee: "Staged dry run over MCP",
+        description: "Staged dry run over MCP",
+        toAccountId: stagedAccountId,
+        amount: "7.66",
+      },
+      idempotencyKey: "mcp-staged-dry-run-stage",
+    });
+    const selection = {
+      stagedIds: [doomed.id],
+      expectedVersions: { [doomed.id]: doomed.version },
+      idempotencyKey: "mcp-staged-dry-run",
+    };
+    const preview = await client.callTool({
+      name: "delete_staged_transactions",
+      arguments: { ...selection, dryRun: true },
+    });
+    expect(preview.isError).not.toBe(true);
+    expect(preview.structuredContent).toMatchObject({ result: { dryRun: true } });
+    const real = await client.callTool({
+      name: "delete_staged_transactions",
+      arguments: selection,
+    });
+    expect(real.isError, JSON.stringify(real.structuredContent)).not.toBe(true);
+    expect(real.structuredContent).toMatchObject({
+      result: { deletedIds: [doomed.id], dryRun: false },
+    });
+
+    await client.close();
+    await server.close();
+  });
+
   it("serializes concurrent direct-service retries before reading idempotency", async () => {
     const draft: TransactionDraft = {
       type: "deposit",

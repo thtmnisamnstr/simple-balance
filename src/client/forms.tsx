@@ -81,6 +81,9 @@ import { calendarDateInTimezone, useTimezone } from "./timezone.js";
 import { newIdempotencyKey } from "./idempotency.js";
 import { cleanHumanName, normalizeHumanName } from "../shared/names.js";
 
+/** Whether a transaction form writes to the books or to the staging queue. */
+type SaveMode = "commit" | "stage";
+
 // Keys for legs the server has not named yet. A counter, not an id: it only
 // has to be unique within one page's lifetime, and it exists so a removed
 // middle row does not re-key the rows behind it.
@@ -464,21 +467,6 @@ const transactionTypeOptions: {
 ];
 
 /**
- * The transaction type, as one control rather than three copies of it.
- *
- * Two shapes, because there are two behaviors. A template may hold no type at
- * all, and clicking the chosen one again is how somebody says so — which a radio
- * cannot express, since a radio has no way to become unset. That shape is a group
- * of toggles reporting `aria-pressed`.
- *
- * Where a type is always set it is a real radio group, and a real radio group
- * owes the keyboard more than a row of buttons does: the group is one tab stop
- * rather than three, and the arrows move the choice inside it. These were three
- * buttons each claiming `role="radio"` with none of that, so a screen reader was
- * told to expect arrow keys that did nothing and the tab key walked through every
- * option on the way past.
- */
-/**
  * The accounts a select may offer.
  *
  * Live ones, plus any archived account this record already points at, and both
@@ -505,6 +493,21 @@ function selectableAccounts(accounts: Account[], ...referenced: (string | undefi
   );
 }
 
+/**
+ * The transaction type, as one control rather than three copies of it.
+ *
+ * Two shapes, because there are two behaviors. A template may hold no type at
+ * all, and clicking the chosen one again is how somebody says so — which a radio
+ * cannot express, since a radio has no way to become unset. That shape is a group
+ * of toggles reporting `aria-pressed`.
+ *
+ * Where a type is always set it is a real radio group, and a real radio group
+ * owes the keyboard more than a row of buttons does: the group is one tab stop
+ * rather than three, and the arrows move the choice inside it. These were three
+ * buttons each claiming `role="radio"` with none of that, so a screen reader was
+ * told to expect arrow keys that did nothing and the tab key walked through every
+ * option on the way past.
+ */
 type TransactionTypeChoiceProps =
   // Only the shape that permits no type can report one, so the two are separate
   // rather than one signature widened to fit both. A caller whose state cannot
@@ -692,6 +695,11 @@ export function CategoryPicker({
   );
 }
 
+/** A figure as money where the currency is known, and as the bare figure until it is. */
+function shownMoney(amount: string, currency: string | undefined) {
+  return currency ? formatMoney(amount, currency) : amount;
+}
+
 /**
  * The category side of the form: one picker, or one row per share of a split.
  *
@@ -704,11 +712,6 @@ export function CategoryPicker({
  * of 33.33 + 33.33 + 33.34 against 100 could come out a hair short and refuse
  * a split that adds up perfectly well.
  */
-/** A figure as money where the currency is known, and as the bare figure until it is. */
-function shownMoney(amount: string, currency: string | undefined) {
-  return currency ? formatMoney(amount, currency) : amount;
-}
-
 function CategoryLegs({
   categories,
   categoryId,
@@ -1575,7 +1578,7 @@ export function TransactionForm({
   initialCategoryId?: string;
   initialPayee?: string;
   initialType?: TransactionType;
-  initialMode?: "commit" | "stage";
+  initialMode?: SaveMode;
   /**
    * Whether the payee takes focus when the form appears. On by default,
    * because almost every form here is one somebody just opened. A page that
@@ -1656,7 +1659,7 @@ export function TransactionForm({
   );
   const [amount, setAmount] = useState(initial?.amount ?? "");
   const [destinationAmount, setDestinationAmount] = useState(initial?.destinationAmount ?? "");
-  const [mode, setMode] = useState<"commit" | "stage">(initialMode);
+  const [mode, setMode] = useState<SaveMode>(initialMode);
   const [allowDuplicate, setAllowDuplicate] = useState(false);
   const [createAnother, setCreateAnother] = useState(false);
   const [resetAfterSave, setResetAfterSave] = useState(false);
@@ -1804,15 +1807,6 @@ export function TransactionForm({
     ) === "0";
 
   /**
-   * The side of the books this entry will land on, previewed.
-   *
-   * `AGENTS.md` says the browser previews this rule and the services enforce
-   * it, and for a while only the second half was true: the form happily offered
-   * a split with one income leg and one expense leg, which the server refuses
-   * with a 422 nobody could have predicted from the screen. One function, so
-   * the sentence here is the sentence the service would have thrown.
-   */
-  /**
    * Every category this entry will actually be filed under.
    *
    * Which ones those are depends on whether it is a split, and it has to be
@@ -1857,6 +1851,15 @@ export function TransactionForm({
   // server falls back to.
   const newCategoryKind: CategoryKind = categoryKind || (type === "deposit" ? "income" : "expense");
 
+  /**
+   * The side of the books this entry will land on, previewed.
+   *
+   * `AGENTS.md` says the browser previews this rule and the services enforce
+   * it, and for a while only the second half was true: the form happily offered
+   * a split with one income leg and one expense leg, which the server refuses
+   * with a 422 nobody could have predicted from the screen. One function, so
+   * the sentence here is the sentence the service would have thrown.
+   */
   const entrySide =
     type === "transfer"
       ? null

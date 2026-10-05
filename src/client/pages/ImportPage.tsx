@@ -2,7 +2,15 @@ import { Link } from "../router.js";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, FileSpreadsheet, FlaskConical, Upload } from "lucide-react";
 import { type ChangeEvent, useMemo, useRef, useState } from "react";
-import { csvCell, isAppExportCsv, type CsvMapping } from "../../shared/csv.js";
+import {
+  csvCell,
+  isAppExportCsv,
+  type CsvDateFormat,
+  type CsvDecimalSeparator,
+  type CsvMapping,
+  type CategoryResolution,
+  type PayeeResolution,
+} from "../../shared/csv.js";
 import {
   PROGRESS_STREAM_MIN_ROWS,
   type CategoryKind,
@@ -54,13 +62,13 @@ type StageResult = {
       resolvedName: string;
       categoryId: string | null;
       kind: CategoryKind;
-      resolution: "existing" | "new" | "updated" | "deferred";
+      resolution: CategoryResolution;
       unarchived: boolean;
     }[];
     payees: {
       inputPayee: string;
       resolvedPayee: string;
-      resolution: "existing" | "new";
+      resolution: PayeeResolution;
     }[];
   };
 };
@@ -136,8 +144,8 @@ export default function ImportPage() {
   const [preview, setPreview] = useState<CsvPreview | null>(null);
   const [mapping, setMapping] = useState<Partial<CsvMapping>>({});
   const [defaultAccountId, setDefaultAccountId] = useState("");
-  const [dateFormat, setDateFormat] = useState<"YMD" | "MDY" | "DMY">("YMD");
-  const [decimalSeparator, setDecimalSeparator] = useState<"." | ",">(".");
+  const [dateFormat, setDateFormat] = useState<CsvDateFormat>("YMD");
+  const [decimalSeparator, setDecimalSeparator] = useState<CsvDecimalSeparator>(".");
   const [result, setResult] = useState<StageResult | null>(null);
   const [resultReading, setResultReading] = useState("");
   const stageIdempotencyKey = useRef(newIdempotencyKey());
@@ -480,7 +488,7 @@ export default function ImportPage() {
                           <Select
                             value={decimalSeparator}
                             onChange={(event) =>
-                              setDecimalSeparator(event.target.value as "." | ",")
+                              setDecimalSeparator(event.target.value as CsvDecimalSeparator)
                             }
                           >
                             <option value=".">1,234.56</option>

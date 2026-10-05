@@ -31,7 +31,7 @@ import { TemplateForm } from "../forms.js";
 import { Link, useLocation } from "../router.js";
 import { allTimeSearch } from "../date-range.js";
 import { newIdempotencyKey } from "../idempotency.js";
-import type { TransactionTemplateBulkPatch } from "../../shared/domain.js";
+import type { TransactionTemplateBulkPatch, DraftAccountField } from "../../shared/domain.js";
 import { emptyScreen, waysOut } from "../list-filters.js";
 
 const PAGE_SIZE = 25;
@@ -78,7 +78,7 @@ const sideForType: Record<string, "fromAccountId" | "toAccountId" | "both"> = {
   transfer: "both",
 };
 
-function accountAllowed(field: "fromAccountId" | "toAccountId", type: string) {
+function accountAllowed(field: DraftAccountField, type: string) {
   const side = sideForType[type];
   return side === "both" || side === field;
 }
@@ -321,7 +321,7 @@ export default function TemplatesPage() {
       actions.type === "set" ? values.type : template.draft.type,
     ),
   );
-  const sideUnavailable = (field: "fromAccountId" | "toAccountId") =>
+  const sideUnavailable = (field: DraftAccountField) =>
     [...selectedTypes].some((type) => type && !accountAllowed(field, type));
 
   const resetBulkForm = () => {
@@ -745,8 +745,7 @@ export default function TemplatesPage() {
             {BULK_FIELDS.map((field) => {
               const action = actions[field.key];
               const isAccount = field.key === "fromAccountId" || field.key === "toAccountId";
-              const blocked =
-                isAccount && sideUnavailable(field.key as "fromAccountId" | "toAccountId");
+              const blocked = isAccount && sideUnavailable(field.key as DraftAccountField);
               return (
                 <div
                   key={field.key}

@@ -1232,20 +1232,6 @@ export function BulkEditToggle({
 }
 
 /**
- * Stands in for content while it loads. Without it the empty state shows first,
- * so a page with plenty of data still greets you with "nothing here yet" for as
- * long as the request takes.
- *
- * The shimmer is `aria-hidden`, because a picture of a paragraph is not a
- * paragraph. That left a gap when the loading sentences this replaced were
- * retired: they said "Loading accounts…" out loud and the shimmer said nothing,
- * so somebody using a screen reader met silence where the page had been. The
- * `label` is that sentence, kept, in a live region that announces once.
- *
- * Pass `label` on the first skeleton of a group and leave it off the rest — a
- * list of eight rows should say "Loading transactions…" once, not eight times.
- */
-/**
  * The bar that appears when rows are selected: how many, and what may be done
  * to them.
  *
@@ -1291,6 +1277,20 @@ export function SelectionBar({
  */
 export const selectionCount = (count: number) => count.toLocaleString();
 
+/**
+ * Stands in for content while it loads. Without it the empty state shows first,
+ * so a page with plenty of data still greets you with "nothing here yet" for as
+ * long as the request takes.
+ *
+ * The shimmer is `aria-hidden`, because a picture of a paragraph is not a
+ * paragraph. That left a gap when the loading sentences this replaced were
+ * retired: they said "Loading accounts…" out loud and the shimmer said nothing,
+ * so somebody using a screen reader met silence where the page had been. The
+ * `label` is that sentence, kept, in a live region that announces once.
+ *
+ * Pass `label` on the first skeleton of a group and leave it off the rest — a
+ * list of eight rows should say "Loading transactions…" once, not eight times.
+ */
 export function Skeleton({ height = 16, label }: { height?: number; label?: string }) {
   return (
     <>
@@ -1473,21 +1473,6 @@ export function Alert({
 }
 
 /**
- * A muted paragraph: the sentence under a control that says what it means.
- *
- * A component rather than a class because the class was `.settings-note`, named
- * after the page it was born on and then used 26 times across eight files —
- * `App.tsx`, `forms.tsx` and six pages, none of them Settings. `web.md` 6.3
- * asks for a class to be named for its component and not for a page, and
- * offered two ways out: rename it, or make the paragraph real. This is the
- * second, which also puts it in 6.1's inventory, where the duplicate check has
- * something to fire against next time somebody writes a muted `<p>` by hand.
- *
- * No props beyond its children. Every one of the 26 was the same element with
- * the same class and nothing else, which is what made it a component rather
- * than a utility.
- */
-/**
  * A transfer's category cell: a dash, and words for whoever cannot see one.
  *
  * One component so the transactions list and the staged queue cannot drift
@@ -1503,6 +1488,21 @@ export function TransferCategory() {
   );
 }
 
+/**
+ * A muted paragraph: the sentence under a control that says what it means.
+ *
+ * A component rather than a class because the class was `.settings-note`, named
+ * after the page it was born on and then used 26 times across eight files —
+ * `App.tsx`, `forms.tsx` and six pages, none of them Settings. `web.md` 6.3
+ * asks for a class to be named for its component and not for a page, and
+ * offered two ways out: rename it, or make the paragraph real. This is the
+ * second, which also puts it in 6.1's inventory, where the duplicate check has
+ * something to fire against next time somebody writes a muted `<p>` by hand.
+ *
+ * No props beyond its children. Every one of the 26 was the same element with
+ * the same class and nothing else, which is what made it a component rather
+ * than a utility.
+ */
 export function Note({ children }: PropsWithChildren) {
   return <p className="note">{children}</p>;
 }

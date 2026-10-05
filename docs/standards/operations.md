@@ -156,7 +156,7 @@ conformance.
 
 **Binding, and already met by accident of the schema.** A subject cannot contain
 CR or LF. Recurrence and template names go through `oneLine`
-(`src/shared/domain.ts:324-330`), which refuses every character
+(`src/shared/domain.ts:334-340`), which refuses every character
 from U+0000 to U+001F and U+007F, so header injection through a subject is
 closed at the schema rather than at the mailer. Worth writing down precisely because the
 defense is nowhere near the code it defends.
@@ -203,7 +203,7 @@ relay's own sentence and may quote the address inside it; that is the relay
 talking, and an operator who cannot read it has to reproduce the failure by
 hand. A Drizzle error is narrowed for a harder reason, and it is narrowed in one
 place rather than at each transport: see §Logging below, which owns
-`log.failure` (`src/server/log.ts:75-101`). `src/server/api.ts:405-409` is the
+`log.failure` (`src/server/log.ts:75-101`). `src/server/api.ts:413-417` is the
 HTTP transport handing it over, with the comment saying why it stopped doing the
 narrowing itself.
 
@@ -462,14 +462,14 @@ else refuses to start.
 
 This is the rule most worth stating because the alternative is truthiness, and
 truthiness has no symptom. `RECURRENCE_SCHEDULER` already does it, and
-`config.ts:272-274` gives the reason: "A misspelling here has no symptom: the
+`config.ts:275-277` gives the reason: "A misspelling here has no symptom: the
 process starts, serves, and quietly proposes nothing until somebody notices a
 year of missing rent." `RECURRENCE_SCHEDULER=yes` read as falsy is a deployment
-that looks healthy and proposes nothing. `TRUST_PROXY` (`config.ts:268-271`) and
-`SMTP_SSL` (`config.ts:518-521`) follow the same pattern.
+that looks healthy and proposes nothing. `TRUST_PROXY` (`config.ts:271-274`) and
+`SMTP_SSL` (`config.ts:521-524`) follow the same pattern.
 
 The same argument applies to any closed set, not only booleans. `NODE_ENV` is
-parsed against three values and refuses a fourth (`config.ts:243-247`), because
+parsed against three values and refuses a fourth (`config.ts:246-250`), because
 `NODE_ENV=Production` compared against the string `production` had no symptom
 either: no setup code, no rate limiting, no secure cookies.
 
@@ -479,7 +479,7 @@ the database or the process.
 
 **House.** A list is comma-separated, each entry trimmed, and empty entries are
 skipped rather than refused. `parseRegistrationRule`
-(`src/server/config.ts:960-996`) is the model: split, trim, lowercase, drop the
+(`src/server/config.ts:968-1004`) is the model: split, trim, lowercase, drop the
 blanks, then validate what is left with a message naming the bad entry.
 
 *Checked by:* `tests/config.test.ts:163-184`, which asserts that
@@ -574,7 +574,7 @@ the second is the load-bearing one. A Node diagnostic report serializes
 section exists to worry about. And a resolver that writes into the environment
 has to run before anything reads it, which is an ordering nobody can see:
 `getPool` and `directConnectionString` (`src/server/db/client.ts:13-42`,
-`:69-78`) read the connection string themselves, and `npm run db:migrate` never
+`:62-71`) read the connection string themselves, and `npm run db:migrate` never
 calls `getConfig` at all, so the write-back design needed a second call site
 bolted onto that script and would have needed a third for the next entrypoint.
 Resolving on first read removes the ordering entirely. `getConfig` calls the
@@ -583,7 +583,7 @@ contradictory secret file then refuses at startup rather than at the first
 query, which is what the next section asks of everything else.
 
 The same argument decided the one line that looks like it should have been left
-alone. `config.ts:444-452` hands `getPool()` the *development default* for
+alone. `config.ts:447-455` hands `getPool()` the *development default* for
 `DATABASE_URL` and is now guarded so it does that and nothing else, because
 unguarded it would have written a value read from `DATABASE_URL_FILE` straight
 back into the environment the form exists to keep it out of.
@@ -781,11 +781,11 @@ it was given, the range it had to be in, and the number in force instead — and
 is printed once per name at startup, in front of whoever just deployed. What was
 kept from the first pass is the part that mattered most: all six are read at
 startup rather than at the call site. `configuredCsvMaxRows()` used to run inside
-an import (`src/server/services/import-export.ts:811`) and the recurrence limits
+an import (`src/server/services/import-export.ts:751`) and the recurrence limits
 inside a tick, so a message about either arrived hours later in a log nobody was
 reading, or on a deployment that never imported a CSV, not at all.
 `assertConfiguredLimits()` (`src/server/config-limits.ts:224-231`) reads all six
-and `getConfig()` calls it (`src/server/config.ts:226-238`), which every
+and `getConfig()` calls it (`src/server/config.ts:229-241`), which every
 entrypoint runs before it serves anything.
 
 **There is a seventh bounded integer and it is still read at its call site**,
@@ -1074,7 +1074,7 @@ than shipping an image that lies about what it was built on.
 needs and nothing a request does not.
 
 `/health/live` returns 200 unconditionally. `/health/ready` runs `select 1` and
-returns 200 or 503 (`src/server/api.ts:418-433`, and the same pair on the
+returns 200 or 503 (`src/server/api.ts:426-441`, and the same pair on the
 scheduler at `src/server/scheduler.ts:30-38`). Both are registered above every
 auth middleware and neither is authenticated.
 
@@ -1103,7 +1103,7 @@ shutdown deadline.
 succeeded, and stays closed until they have", and readiness never knew anything
 about configuration or migrations. Both now say what it does:
 `docs/deployment.md:1025-1030` and `README.md:137-140` describe one statement
-against the database and nothing else, and `src/server/api.ts:425-431` says the
+against the database and nothing else, and `src/server/api.ts:433-439` says the
 same beside the route. The difference matters to an operator designing alerting:
 a migration that succeeded on an older image leaves readiness green against a
 schema this build does not expect.
@@ -1321,7 +1321,7 @@ carry the id and not the payee, the search term or the bound parameter.
 
 **House, and off unless asked for.** `GET /metrics` answers in the Prometheus
 text format, on the port everything else is served on, and only when
-`METRICS_ENABLED=true` (`src/server/api.ts:332-334`). Registered rather
+`METRICS_ENABLED=true` (`src/server/api.ts:340-342`). Registered rather
 than refused: a deployment that never asked has no such route, which is the same
 answer the MCP surface gives for a tool outside a token's scope.
 
@@ -1338,7 +1338,7 @@ neither half can report alone.** `billing_webhook_deliveries_total` is the API's
 and only the API's — five of the webhook route's exits reply
 `200 {"received":true}`, so `http_requests_total` cannot tell a delivery that
 granted or revoked an entitlement from one that was acknowledged and ignored
-(`src/server/api.ts:1171`, `:1185`). `billing_sweeps_total` is the scheduler's,
+(`src/server/api.ts:1179`, `:1193`). `billing_sweeps_total` is the scheduler's,
 and it is the twelve-hourly catch-up for the same subscriptions
 (`src/server/recurrence-scheduler.ts:195-204`). An operator scraping one half
 can be told that the webhook has been failing for hours, or that the sweep keeps

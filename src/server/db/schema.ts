@@ -351,8 +351,8 @@ export const categories = pgTable(
     /**
      * At most one group, and never a group of groups.
      *
-     * A single-column reference, unlike every other cross-table link here,
-     * which pair the tenant with the id. `on delete set null` sets *every*
+     * A single-column reference, unlike every other cross-table link here but
+     * a template's reminder, which pair the tenant with the id. `on delete set null` sets *every*
      * column of the constraint, so the composite form would null the tenant as
      * well and fail against `user_id not null` — PostgreSQL 15 can name the
      * column to clear and Drizzle cannot emit that. What the composite key
@@ -994,7 +994,11 @@ export const templateNotifications = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    // One reminder per template, and it goes when the template does.
+    // One reminder per template, and it goes when the template does. By id
+    // alone on a single node, the other exception to the composite-key habit
+    // besides a category's group: a reminder is written only from a template
+    // the person owns, so the id cannot name somebody else's, and `0023` makes
+    // the key composite on a cluster, where Citus needs the tenant in it.
     templateId: uuid("template_id")
       .notNull()
       .unique()

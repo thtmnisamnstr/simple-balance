@@ -118,6 +118,16 @@ export const duplicate = (message: string, details?: unknown) =>
   new AppError("DUPLICATE", message, 409, details);
 
 /**
+ * What a person or an agent is told when the server failed and nothing about
+ * the request can say why. It says what happened and the one move left,
+ * because errors.md 3.1 refuses "an unexpected error occurred": three words of
+ * apology-shaped noise and no information. The cause goes to the log, never
+ * here.
+ */
+export const INTERNAL_ERROR_MESSAGE =
+  "This could not be finished because of a problem on the server. Try again, and if it keeps happening, tell whoever runs this server.";
+
+/**
  * `agentMessage` is here for the same reason `conflict` carries one, and for a
  * refusal that needs it more: a frozen account arrives under the code that
  * means "fix the arguments", and no argument an agent can change gets past it.

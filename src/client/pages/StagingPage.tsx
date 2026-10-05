@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { isoDateSchema } from "../../shared/domain.js";
+import { isoDateSchema, type EntryType } from "../../shared/domain.js";
 import {
   api,
   ApiClientError,
@@ -96,6 +96,11 @@ import {
 } from "../bulk-edit.js";
 import { useDebounced } from "../debounce.js";
 import { emptyScreen, waysOut, noAccountReason } from "../list-filters.js";
+
+/** The four cells a staged row edits in place. */
+type InlineField = "date" | "payee" | "category" | "amount";
+/** What a staged row's own buttons do to it. */
+type RowAction = "commit" | "delete";
 
 function stageSummary(stage: StagedTransaction, accounts: Account[]) {
   return summarizeStagedDraft(stage.draft, accounts);
@@ -315,7 +320,7 @@ export default function StagingPage() {
   const [commitProgress, setCommitProgress] = useState<ProgressEvent | null>(null);
 
   const bulkMutation = useMutation({
-    mutationFn: (action: "commit" | "delete") => {
+    mutationFn: (action: RowAction) => {
       const expectedVersions = Object.fromEntries(
         selectedRows.map((stage) => [stage.id, stage.version]),
       );
@@ -596,7 +601,7 @@ export default function StagingPage() {
    */
   const [inline, setInline] = useState<{
     id: string;
-    field: "date" | "payee" | "category" | "amount";
+    field: InlineField;
     value: string;
     categoryName: string;
   } | null>(null);
@@ -626,7 +631,7 @@ export default function StagingPage() {
     }: {
       stage: StagedTransaction;
       draft: Record<string, unknown>;
-      field: "date" | "payee" | "category" | "amount";
+      field: InlineField;
     }) =>
       api(`/api/v1/staged-transactions/${stage.id}`, {
         ...json({ draft, expectedVersion: stage.version }),
@@ -722,7 +727,7 @@ export default function StagingPage() {
   };
   const openInline = (
     stage: StagedTransaction,
-    field: "date" | "payee" | "category" | "amount",
+    field: InlineField,
     value: string,
     categoryName = "",
   ) => {
@@ -735,11 +740,11 @@ export default function StagingPage() {
     if (inline) focusAfterInline.current = { id: inline.id, field: inline.field };
     setInline(null);
   };
-  const inlineFor = (stage: StagedTransaction, field: "date" | "payee" | "category" | "amount") =>
+  const inlineFor = (stage: StagedTransaction, field: InlineField) =>
     inline && inline.id === stage.id && inline.field === field ? inline : null;
 
   const rowMutation = useMutation({
-    mutationFn: ({ stage, action }: { stage: StagedTransaction; action: "commit" | "delete" }) => {
+    mutationFn: ({ stage, action }: { stage: StagedTransaction; action: RowAction }) => {
       if (action === "delete") {
         return api("/api/v1/staged-transactions/bulk-delete", {
           ...json({
@@ -1666,7 +1671,7 @@ export default function StagingPage() {
                 onChange={(event) =>
                   setBulkValues((current) => ({
                     ...current,
-                    type: event.target.value as "deposit" | "withdrawal",
+                    type: event.target.value as EntryType,
                   }))
                 }
               >

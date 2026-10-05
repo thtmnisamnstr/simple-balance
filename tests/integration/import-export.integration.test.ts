@@ -424,7 +424,6 @@ integration("CSV import and export identification", () => {
         dateFormat: "YMD" as const,
         decimalSeparator: "." as const,
       },
-      undefined,
       { mayMutateCategories: false },
     )) as { sample: { draft: Record<string, unknown> | null }[] };
     expect(staged.sample[0]!.draft).toMatchObject({

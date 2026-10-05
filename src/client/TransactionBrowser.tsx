@@ -65,7 +65,12 @@ import {
   templateDraftFromDraft,
 } from "./staged-draft.js";
 import type { TransactionSortField, TransactionType } from "../shared/domain.js";
-import { frozenAccountRefusal, MAX_FREE_ACCOUNTS, transactionTypes } from "../shared/domain.js";
+import {
+  frozenAccountRefusal,
+  MAX_FREE_ACCOUNTS,
+  transactionTypes,
+  type EntryType,
+} from "../shared/domain.js";
 import { emptyScreen, waysOut, noAccountReason } from "./list-filters.js";
 
 /** The share a split is named by in a list: its biggest one. */
@@ -1717,7 +1722,7 @@ export function TransactionBrowser({
                 onChange={(event) =>
                   setBulkValues((current) => ({
                     ...current,
-                    type: event.target.value as "deposit" | "withdrawal",
+                    type: event.target.value as EntryType,
                   }))
                 }
               >

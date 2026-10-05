@@ -455,14 +455,6 @@ export function presentAccountBalance(type: AccountType, balance: string) {
 }
 
 /**
- * The balance an account actually holds, summed from its postings.
- *
- * The list query derives this for every account at once. The single-account
- * paths have no such aggregate to draw on, and returning the declared opening
- * balance in its place would report a figure that stopped being true the moment
- * the first transaction landed.
- */
-/**
  * The where-clause every by-id account read and write shares.
  *
  * The income, expense, exchange and equity accounts are the ledger's own
@@ -480,6 +472,14 @@ function userAccountById(actor: Actor, id: string) {
   );
 }
 
+/**
+ * The balance an account actually holds, summed from its postings.
+ *
+ * The list query derives this for every account at once. The single-account
+ * paths have no such aggregate to draw on, and returning the declared opening
+ * balance in its place would report a figure that stopped being true the moment
+ * the first transaction landed.
+ */
 async function currentBalance(tx: Pick<DbTransaction, "execute">, actor: Actor, accountId: string) {
   const result = await tx.execute(sql`
     select coalesce(sum(p.amount), 0)::text as balance

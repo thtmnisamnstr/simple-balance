@@ -23,6 +23,7 @@ import {
   subscriptionAction,
   type SubscriptionAction,
   subscriptionPutSchema,
+  type StripeInterval,
 } from "../../shared/domain.js";
 import { billingEnabled, getConfig } from "../config.js";
 import { getDb, type DbTransaction, withTransaction } from "../db/client.js";
@@ -1030,7 +1031,7 @@ type PlanPrice = {
   readonly id: string;
   readonly unitAmount: number | null;
   readonly currency: string;
-  readonly interval: "month" | "year" | null;
+  readonly interval: StripeInterval | null;
 };
 
 /** What the plan tab reads. Entirely from this deployment's own tables, bar the two prices. */

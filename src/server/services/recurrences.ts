@@ -6,6 +6,7 @@ import {
   recurrenceScheduleSchema,
   recurrenceShapeSchema,
   recurrenceUpdateSchema,
+  type DraftAccountField,
 } from "../../shared/domain.js";
 import {
   nextOccurrenceAfter,
@@ -94,8 +95,7 @@ async function recurrenceReferenceIssues(
   const sides = (["fromAccountId", "toAccountId"] as const)
     .map((field) => ({ field, id: (shape as Record<string, unknown>)[field] }))
     .filter(
-      (side): side is { field: "fromAccountId" | "toAccountId"; id: string } =>
-        typeof side.id === "string",
+      (side): side is { field: DraftAccountField; id: string } => typeof side.id === "string",
     );
   if (sides.length) {
     const rows = await tx

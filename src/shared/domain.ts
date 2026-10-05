@@ -122,6 +122,18 @@ export type CategoryKind = (typeof categoryKinds)[number];
 
 export const transactionTypes = ["deposit", "withdrawal", "transfer"] as const;
 
+/** The two types that file under a category: a transfer has no category side. */
+export const entryTypes = ["deposit", "withdrawal"] as const;
+export type EntryType = (typeof entryTypes)[number];
+
+/** The two fields a draft names an account in, one per side of the movement. */
+export const draftAccountFields = ["fromAccountId", "toAccountId"] as const;
+export type DraftAccountField = (typeof draftAccountFields)[number];
+
+/** Which side of a possible duplicate a record is on in the review. */
+export const duplicateSideKinds = ["staged", "committed"] as const;
+export type DuplicateSideKind = (typeof duplicateSideKinds)[number];
+
 /**
  * Where a row in the staging queue has got to.
  *
@@ -159,10 +171,7 @@ export type EntrySide =
   | { ok: true; counterKind: "income" | "expense"; reversal: boolean }
   | { ok: false; message: string };
 
-export function resolveEntrySide(
-  type: "deposit" | "withdrawal",
-  namedKinds: Iterable<CategoryKind>,
-): EntrySide {
+export function resolveEntrySide(type: EntryType, namedKinds: Iterable<CategoryKind>): EntrySide {
   const kinds = new Set(namedKinds);
   const forward = type === "deposit" ? "income" : "expense";
   const reverse = type === "deposit" ? "expense" : "income";
@@ -206,10 +215,6 @@ export const themes = ["system", "light", "dark"] as const;
 export type Theme = (typeof themes)[number];
 
 /**
- * Who did it. A scheduler write is not a person at a screen, and saying it was
- * would be a false statement in an audit trail.
- */
-/**
  * Which sign-in methods a deployment offers.
  *
  * In `src/shared` rather than in `src/server/config.ts` because the browser
@@ -219,6 +224,11 @@ export type Theme = (typeof themes)[number];
  * set rather than two that happen to agree.
  */
 export const authModes = ["local", "google", "both"] as const;
+
+/**
+ * Who did it. A scheduler write is not a person at a screen, and saying it was
+ * would be a false statement in an audit trail.
+ */
 export type AuthMode = (typeof authModes)[number];
 
 export const actorSources = ["web", "mcp", "schedule"] as const;
@@ -711,7 +721,7 @@ const stagedDraftSchema = z
       .unknown()
       .optional()
       .describe(
-        "The split, if the proposal came with one: an array shaped like create_transaction's legs — amount, and categoryId or categoryName with its own categoryKind, plus an optional description. The legs have to add up to the amount before the row can commit, and a transfer may not carry any. Leaving it out of an update clears the split, because an update replaces the draft whole.",
+        "The split, if the proposal came with one: an array shaped like create_transaction's legs — amount, and categoryId or categoryName with its own categoryKind, plus an optional note. The legs have to add up to the amount before the row can commit, and a transfer may not carry any. Leaving it out of an update clears the split, because an update replaces the draft whole.",
       ),
   })
   .catchall(z.unknown());
@@ -1416,6 +1426,16 @@ export const budgetPeriodUnits = [
 export type BudgetPeriodUnit = (typeof budgetPeriodUnits)[number];
 
 /**
+ * Whether a group's budget stands on its own or is what its members add up to.
+ *
+ * Declared on the group because both are defensible and picking one silently is
+ * the failure: Monarch's group budget stands alone and hledger's is the sum of
+ * its children, and a person who expects one and gets the other has a page of
+ * figures that are all wrong in the same direction.
+ */
+export const budgetGroupPolicies = ["standalone", "sum_of_children"] as const;
+
+/**
  * How a plan's per-period amount is arrived at.
  *
  * Stored, and never asked for. There is no method chooser in this product and
@@ -1430,15 +1450,6 @@ export type BudgetPeriodUnit = (typeof budgetPeriodUnits)[number];
  * budget, a percentage of income is a share of what came in. Two of them at
  * once is refused, because the row would have to decide which one it meant.
  */
-/**
- * Whether a group's budget stands on its own or is what its members add up to.
- *
- * Declared on the group because both are defensible and picking one silently is
- * the failure: Monarch's group budget stands alone and hledger's is the sum of
- * its children, and a person who expects one and gets the other has a page of
- * figures that are all wrong in the same direction.
- */
-export const budgetGroupPolicies = ["standalone", "sum_of_children"] as const;
 export type BudgetGroupPolicy = (typeof budgetGroupPolicies)[number];
 
 /**
@@ -1540,14 +1551,6 @@ const queryBoolean = (whenAbsent: boolean) =>
 export const queryBooleanSchema = queryBoolean(false);
 
 /**
- * A standing budget for one category, per period, in one currency.
- *
- * There is no amount spanning currencies here and there is nowhere to put one.
- * A budget is a vector the way net worth is, because this ledger holds no
- * exchange rate that is not the rate some transfer actually got, and a
- * converted total would be the one figure on the page nobody could check.
- */
-/**
  * What a budget does with the difference at the end of a period.
  *
  * Shared by create and update so the two cannot drift, and written as one
@@ -1591,6 +1594,14 @@ const budgetRule = {
     ),
 };
 
+/**
+ * A standing budget for one category, per period, in one currency.
+ *
+ * There is no amount spanning currencies here and there is nowhere to put one.
+ * A budget is a vector the way net worth is, because this ledger holds no
+ * exchange rate that is not the rate some transfer actually got, and a
+ * converted total would be the one figure on the page nobody could check.
+ */
 const budgetCarry = {
   rollover: z
     .boolean()
@@ -2251,7 +2262,7 @@ const bulkTransactionPatchSchema = z
         "Replaces the working notes on every selected row; null, or an empty string, clears them. Nothing is appended, so a long note on one row is lost to a short one applied across the selection.",
       ),
     type: z
-      .enum(["deposit", "withdrawal"])
+      .enum(entryTypes)
       .optional()
       .describe(
         "Flips every selected entry between deposit and withdrawal, keeping its amount and carrying its account to the side the new type reads. A selection holding a transfer or a split is refused: flipping direction under several legs would make every one a refund.",
@@ -2545,7 +2556,7 @@ const bulkStagePatchSchema = z
         "Replaces the working notes on every selected row; null, or an empty string, clears them. Nothing is appended, so a long note on one row is lost to a short one applied across the selection.",
       ),
     type: z
-      .enum(["deposit", "withdrawal"])
+      .enum(entryTypes)
       .optional()
       .describe(
         "Flips every selected draft between deposit and withdrawal, carrying whatever account it had to the side the new type reads. A selection holding a transfer or a split is refused. Set it with accountId to finish a row that never said which way the money went.",
@@ -3332,6 +3343,23 @@ export const recurrenceUpdateSchema = z
 export const plans = ["free", "plus"] as const;
 export type Plan = (typeof plans)[number];
 
+/** What decided a plan: an operator's override, a subscription, or neither. */
+export const entitlementSources = ["override", "subscription", "free"] as const;
+export type EntitlementSource = (typeof entitlementSources)[number];
+
+/** A price's billing interval, in Stripe's own words. */
+export const stripeIntervals = ["month", "year"] as const;
+export type StripeInterval = (typeof stripeIntervals)[number];
+
+/**
+ * Which record produced a budget row's limit: a one-period entry, a standing
+ * plan, or nothing. A group's row adds `sum`, its categories added up.
+ */
+export const budgetLimitSources = ["entry", "plan", "none"] as const;
+export type BudgetLimitSource = (typeof budgetLimitSources)[number];
+export const budgetGroupLimitSources = ["entry", "plan", "sum", "none"] as const;
+export type BudgetGroupLimitSource = (typeof budgetGroupLimitSources)[number];
+
 /**
  * How many financial accounts a free plan keeps.
  *
@@ -3388,7 +3416,7 @@ export type Entitlement =
       readonly plan: Plan;
       /** Null means unlimited, which is what the paid plan buys. */
       readonly accountLimit: number | null;
-      readonly source: "override" | "subscription" | "free";
+      readonly source: EntitlementSource;
     };
 
 /**
@@ -3470,7 +3498,7 @@ export function resolveEntitlement(input: {
 
   const paid = (source: "override" | "subscription") =>
     ({ billing: true, plan: "plus", accountLimit: null, source }) as const;
-  const free = (source: "override" | "subscription" | "free") =>
+  const free = (source: EntitlementSource) =>
     ({ billing: true, plan: "free", accountLimit: MAX_FREE_ACCOUNTS, source }) as const;
 
   // An operator's decision outranks Stripe's, and an expiry is what makes that

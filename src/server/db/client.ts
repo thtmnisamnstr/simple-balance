@@ -49,13 +49,6 @@ export function getDb() {
 }
 
 /**
- * Keep the cross-process owner-bootstrap lock off the application pool.
- *
- * The lock holder calls Better Auth, which needs the main pool. A dedicated
- * single-connection pool prevents a small application pool from deadlocking
- * while also bounding this process to one PostgreSQL lock connection.
- */
-/**
  * The connection string for work a transaction pooler cannot carry.
  *
  * Two things here hold a session-level advisory lock across statements: the
@@ -77,6 +70,13 @@ export function directConnectionString() {
   return connectionString;
 }
 
+/**
+ * Keep the cross-process owner-bootstrap lock off the application pool.
+ *
+ * The lock holder calls Better Auth, which needs the main pool. A dedicated
+ * single-connection pool prevents a small application pool from deadlocking
+ * while also bounding this process to one PostgreSQL lock connection.
+ */
 export function getAuthBootstrapLockPool() {
   if (!authBootstrapLockPool) {
     authBootstrapLockPool = new Pool({

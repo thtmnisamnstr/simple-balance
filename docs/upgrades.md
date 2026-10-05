@@ -63,6 +63,20 @@ and the next `up` makes the key.
 - **`/robots.txt` is a robots file** asking every crawler but AdSense's to
   stay out, where 0.2.0 answered it with the app's own page. It ships in the
   client bundle, so the decomposed profile's nginx serves it with no change.
+- **`POST /api/v1/csv/stage` refuses a malformed body with a 422 before it
+  streams.** A client that asked for progress frames used to get a 200 and an
+  `error` frame for a request that was never a stage request; it gets the same
+  JSON 422 a client that did not ask for frames gets. A refusal only reading
+  the file can find, such as a row over the cap, still arrives as a frame.
+- **`delete_staged_transactions` with `dryRun` records nothing.** Sending the
+  real delete next with the same `idempotencyKey` now succeeds, where it was
+  refused with `CONFLICT`.
+- **Two messages say something useful.** A 500's message reads "This could not
+  be finished because of a problem on the server. Try again, and if it keeps
+  happening, tell whoever runs this server." in place of "An unexpected error
+  occurred", and an MCP scope refusal names the scope and the move instead of
+  "Forbidden: …". The `INTERNAL_ERROR` code and the JSON-RPC `-32000` are
+  unchanged.
 - **A staged row that leaves a field out names it.** Its issue reads, for
   example, "Choose the account the money comes from" where 0.2.0 passed on
   "Invalid input: expected string, received undefined". The `field` beside it

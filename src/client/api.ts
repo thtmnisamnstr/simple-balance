@@ -318,7 +318,7 @@ export type PlanPrice = {
    * the amount. Stripe's word rather than the setting's, so a price configured
    * in the wrong slot cannot be labeled as the one it is not.
    */
-  interval: "month" | "year" | null;
+  interval: StripeInterval | null;
 };
 
 /**
@@ -483,7 +483,14 @@ export type UserAuthState = {
   googleLinked: boolean;
 };
 
-import type { Theme } from "../shared/domain.js";
+import type {
+  Theme,
+  EntryType,
+  DuplicateSideKind,
+  BudgetGroupLimitSource,
+  BudgetLimitSource,
+  StripeInterval,
+} from "../shared/domain.js";
 export type { Theme } from "../shared/domain.js";
 
 export type Preferences = {
@@ -698,7 +705,7 @@ export type TransactionBulkEditPatch = {
   accountId?: string;
   description?: string | null;
   notes?: string | null;
-  type?: "deposit" | "withdrawal";
+  type?: EntryType;
 };
 
 export type StagedTransaction = {
@@ -747,13 +754,9 @@ export type StagedBulkEditPatch = {
   accountId?: string;
   description?: string | null;
   notes?: string | null;
-  type?: "deposit" | "withdrawal";
+  type?: EntryType;
 };
 
-/**
- * A saved starting point for the transaction form. The draft is partial on
- * purpose: a key that is not there is a field the person left for later.
- */
 /**
  * A reminder to make this template's transaction, or null when there is none.
  *
@@ -784,6 +787,10 @@ export type TemplateNotification = {
   nextNotificationDate: string | null;
 };
 
+/**
+ * A saved starting point for the transaction form. The draft is partial on
+ * purpose: a key that is not there is a field the person left for later.
+ */
 export type TransactionTemplate = {
   transactionCount?: number;
   stagedTransactionCount?: number;
@@ -950,7 +957,7 @@ export type StagedDuplicateReview = {
 };
 
 export type DuplicateReviewSide = {
-  kind: "staged" | "committed";
+  kind: DuplicateSideKind;
   staged: StagedTransaction | null;
   committed: Transaction | null;
 };
@@ -1035,7 +1042,7 @@ export type BudgetReportRow = {
   limit: string | null;
   actual: string;
   remaining: string | null;
-  source: "entry" | "plan" | "none";
+  source: BudgetLimitSource;
   /** Null when this budget does not carry anything forward. */
   carriedIn: string | null;
   available: string | null;
@@ -1080,7 +1087,7 @@ export type BudgetGroupRow = {
   limit: string | null;
   actual: string;
   remaining: string | null;
-  source: "entry" | "plan" | "sum" | "none";
+  source: BudgetGroupLimitSource;
   carriedIn: string | null;
   available: string | null;
   carriedOut: string | null;
