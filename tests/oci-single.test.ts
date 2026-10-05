@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import type { ListedVolume } from "../deploy/pulumi/oci-single/platform.js";
-import { requireDataVolumeDomain, requireRegion } from "../deploy/pulumi/oci-single/platform.js";
+import {
+  requireDataVolumeDomain,
+  requireRegion,
+  waitForDnsName,
+} from "../deploy/pulumi/oci-single/platform.js";
 import {
   OCI_SINGLE,
   programCode,
@@ -215,5 +219,49 @@ describe("an availability domain the kept data volume is not in", () => {
     const [application, database] = resourceCalls(program, "oci.core.Volume");
     expect(application).toContain("\n    displayName: dataVolumeName,\n");
     expect(database).toContain("\n        displayName: databaseVolumeName,\n");
+  });
+});
+
+describe("the settings key, made in a vault whose endpoint is not in DNS yet", () => {
+  const host = "abc-management.kms.us-sanjose-1.oci.oraclecloud.com";
+
+  /** A clock that the waits advance, so the test takes no real time. */
+  function clock() {
+    let t = 0;
+    return { now: () => t, sleep: async (ms: number) => void (t += ms) };
+  }
+
+  it("waits until the name exists, asking again at each interval", async () => {
+    const answers = [false, false, true];
+    const asked: string[] = [];
+    const time = clock();
+    await waitForDnsName(
+      host,
+      async (name) => {
+        asked.push(name);
+        return answers.shift()!;
+      },
+      { ...time, intervalMs: 10_000 },
+    );
+    expect(asked).toEqual([host, host, host]);
+    expect(time.now()).toBe(20_000);
+  });
+
+  it("gives up at the deadline, naming the endpoint and the way forward", async () => {
+    await expect(
+      waitForDnsName(host, async () => false, {
+        ...clock(),
+        timeoutMs: 60_000,
+        intervalMs: 10_000,
+      }),
+    ).rejects.toThrow(/abc-management.*still not in DNS.*Run pulumi up again once it resolves/s);
+  });
+
+  it("is what the key is created against, rather than the endpoint the vault reports", () => {
+    const [key] = resourceCalls(program, "oci.kms.Key");
+    expect(key).toContain("managementEndpoint: settingsVault.managementEndpoint.apply(");
+    expect(key).toContain(
+      "await waitForDnsName(new URL(endpoint).hostname, authoritativeNameExists());",
+    );
   });
 });

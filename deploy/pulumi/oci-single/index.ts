@@ -19,11 +19,13 @@ import {
   databaseInstanceMetadata,
   hsmKeyWarning,
   instanceMetadata,
+  authoritativeNameExists,
   readKmsSelection,
   requireDataVolumeDomain,
   requireRegion,
   requireSshPublicKey,
   requireUsableKmsKey,
+  waitForDnsName,
 } from "./platform";
 
 /**
@@ -607,7 +609,13 @@ const settingsKey = settingsVault
       displayName: `${name}-settings`,
       keyShape: { algorithm: "AES", length: 32 },
       protectionMode: "SOFTWARE",
-      managementEndpoint: settingsVault.managementEndpoint,
+      // Not the endpoint as the vault reports it, but once it resolves: see
+      // `waitForDnsName` for why creating the key the moment the vault is
+      // ACTIVE fails, and fails again on the next `up`.
+      managementEndpoint: settingsVault.managementEndpoint.apply(async (endpoint) => {
+        await waitForDnsName(new URL(endpoint).hostname, authoritativeNameExists());
+        return endpoint;
+      }),
       freeformTags: tags,
     })
   : undefined;
