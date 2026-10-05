@@ -2,6 +2,22 @@
 
 Notable changes, newest first.
 
+## Unreleased
+
+### Fixed
+
+**The first `pulumi up` of a new `oci-single` stack no longer fails at the
+settings key.** OCI reports a new vault active minutes before the vault's own
+management hostname resolves, and 0.2.0 made the key in it straight away, so
+every new stack stopped with `no such host` after its network, its vault and its
+database machine were built. Running `up` again did not help for five minutes or
+more, because the router and the operator's machine had each cached the failed
+lookup. The program now asks OCI's own nameservers until the hostname exists, so
+the provider's first lookup succeeds and there is no failure for anything to
+cache. It waits up to fifteen minutes and says what to do if that runs out: the
+vault is kept, and the next `up` makes the key. A stack that is already up plans
+no change.
+
 ## 0.2.0 - 2026-10-04
 
 **This release upgrades cleanly from 0.1.6.** Every new setting is additive and
