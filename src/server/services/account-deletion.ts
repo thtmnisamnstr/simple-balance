@@ -112,7 +112,16 @@ export async function summarizeOwnData(actor: Actor): Promise<OwnDataSummary> {
         db
           .select({ count: sql<number>`count(*)::int` })
           .from(stagedTransactions)
-          .where(eq(stagedTransactions.userId, actor.userId)),
+          // The queue, not its history. A committed or discarded row stays in
+          // the table as provenance and the transactions it became are already
+          // counted, so counting every row told somebody whose queue was empty
+          // that thousands of staged rows were about to go.
+          .where(
+            and(
+              eq(stagedTransactions.userId, actor.userId),
+              eq(stagedTransactions.status, "staged"),
+            ),
+          ),
       ),
       countOf(
         db

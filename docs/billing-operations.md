@@ -187,7 +187,14 @@ mode when you go live, because nothing made in one mode exists in the other.
    one here.
 
    Link is optional. It is off until you turn it on under Wallets in the
-   payment method settings, and Stripe does not offer it in India. With it
+   payment method settings, and Stripe does not offer it in India. With Link
+   on, the payment form can show a **Bank** choice beside **Card**, sometimes
+   with bank logos or a cash-back badge. That is Link paying from a bank
+   account the person has saved with Link, still the `link` method, and not
+   ACH Direct Debit: the sandbox's invoice PaymentIntents read back
+   `payment_method_types: ["card", "link"]` while the form showed it. Check a
+   PaymentIntent's types rather than the form's labels before concluding
+   another method is on. With it
    off, every form offers a card, with Apple Pay and Google Pay where the
    domain is registered, and nothing is refused. Neither kind of request names
    Link as a method it needs: Stripe refuses a request that names a method the

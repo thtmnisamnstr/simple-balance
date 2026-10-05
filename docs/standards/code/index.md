@@ -149,7 +149,7 @@ leaves out:
 | `restriction` | 5,085 | Declined. |
 
 **Those are the numbers the decision was made on, and they are not today's.**
-Re-measured with `npx oxlint -A all -D <category>`, 2026-10-01: correctness 70,
+Re-measured with `npx oxlint -A all -D <category>`, 2026-10-01: correctness 69,
 `suspicious` 3,189, `perf` 950, `pedantic` 4,012, `style` 44,493, `restriction`
 12,429. Five of those six are dated rather than held, which `writing.md` §A
 measured number carries a test or a date allows only because holding a figure
@@ -157,11 +157,11 @@ that moves with every file added would teach people to bump it without reading.
 The sixth is held, and it is the only one anybody acts on. The two columns do
 not measure the same rule set, which is most of the movement between them:
 
-- **`correctness` reads 70, and `npm run lint` still reads zero.** That command
-  overrides every exception `.oxlintrc.json` writes down, and the 70 are
+- **`correctness` reads 69, and `npm run lint` still reads zero.** That command
+  overrides every exception `.oxlintrc.json` writes down, and the 69 are
   exactly those exceptions: `prefer-tag-over-role` 29,
   `no-noninteractive-tabindex` 14, `no-autofocus` 11,
-  `control-has-associated-label` 8, `no-control-regex` 4,
+  `control-has-associated-label` 7, `no-control-regex` 4,
   `label-has-associated-control` 3, `anchor-has-content` 1. The category is
   denied and clean; this is what denying it with exceptions looks like from
   outside.

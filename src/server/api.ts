@@ -52,6 +52,7 @@ import {
   rawPathOf,
   securityHeaderOptions,
   withCountableClientAddress,
+  withholdSessionTokens,
 } from "./http-security.js";
 import { handleMcpRequest } from "./mcp.js";
 import {
@@ -464,6 +465,7 @@ app.use("/api/auth/*", async (c, next) => {
 });
 app.use("/api/auth/*", protectAuthMutation(getConfig().baseUrl));
 app.use("/api/auth/*", hardenAuthCookies(getConfig().baseUrl));
+app.use("/api/auth/*", withholdSessionTokens());
 
 // Everything below hands its request to Better Auth through this, so the
 // rate limiter always counts against an address the caller cannot choose.
@@ -1356,6 +1358,18 @@ app.use("/api/v1/*", async (c, next) => {
   const identity = await getWebIdentity(c.req.raw.headers);
   if (!identity) {
     await rejectRequestBody(c);
+    // The browser's first question on every load is "is anybody signed in?",
+    // and a 401 answering "no" is logged by every browser as a failed request
+    // on every signed-out visit. Asked with `optional=true`, "no" is an answer
+    // rather than a failure: `200 null`. Opt-in, so a client that has always
+    // read the 401 still gets it, and on this one route only, because
+    // everywhere else being signed out really is the request failing.
+    if (
+      c.req.path === "/api/v1/session" &&
+      queryBooleanSchema.safeParse(c.req.query("optional") ?? false).data === true
+    ) {
+      return c.json(null);
+    }
     return c.json({ error: { code: "UNAUTHORIZED", message: "Sign in is required" } }, 401);
   }
   c.set("authUser", identity.user);

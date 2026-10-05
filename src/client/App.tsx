@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   LayoutTemplate,
   LogOut,
+  MapPinOff,
   Moon,
   Menu,
   ReceiptText,
@@ -26,7 +27,7 @@ import {
   addressCarriesLedgerText,
   isPlanSurfacePath,
   withoutLedgerText,
-  Navigate,
+  Link,
   NavLink,
   Route,
   Routes,
@@ -35,7 +36,7 @@ import {
 } from "./router.js";
 import { api, ApiClientError, json, type AuthPublicOptions, type Session } from "./api.js";
 import { authClient } from "./auth-client.js";
-import { Alert, Button, Field, Input, Note } from "./components.js";
+import { Alert, Button, EmptyState, Field, Input, Note, PageHeader } from "./components.js";
 import AccountsPage from "./pages/AccountsPage.js";
 import AccountDetailPage from "./pages/AccountDetailPage.js";
 import ActivityPage from "./pages/ActivityPage.js";
@@ -872,9 +873,15 @@ function Shell({ session }: { session: Session }) {
   // Focus into the drawer when it opens and back to the hamburger when it
   // closes, which is what a `<dialog>` would do and what this cannot inherit.
   const wasOpen = useRef(false);
+  // Except when the drawer closed because a link in it was followed. The route
+  // change has already moved focus to `<main>`, in the effect above, and
+  // handing it to the hamburger afterward took it straight back out of the
+  // page somebody had just asked for.
+  const closingForNavigation = useRef(false);
   useEffect(() => {
     if (mobileNav) drawerClose.current?.focus();
-    else if (wasOpen.current) hamburger.current?.focus();
+    else if (wasOpen.current && !closingForNavigation.current) hamburger.current?.focus();
+    closingForNavigation.current = false;
     wasOpen.current = mobileNav;
   }, [mobileNav]);
 
@@ -906,6 +913,7 @@ function Shell({ session }: { session: Session }) {
         Skip to main content
       </a>
       <aside
+        id="app-navigation"
         className={`sidebar ${mobileNav ? "open" : ""}`}
         {...(mobileNav ? { role: "dialog", "aria-modal": true, "aria-label": "Navigation" } : {})}
       >
@@ -933,7 +941,10 @@ function Shell({ session }: { session: Session }) {
               // The date range travels; a payee name does not.
               to={{ pathname: to, search: withoutLedgerText(location.search) }}
               end={end}
-              onClick={() => setMobileNav(false)}
+              onClick={() => {
+                if (to !== location.pathname) closingForNavigation.current = true;
+                setMobileNav(false);
+              }}
             >
               <Icon size={18} />
               <span>{label}</span>
@@ -1002,7 +1013,13 @@ function Shell({ session }: { session: Session }) {
           way out. */}
       <div className="main-column" inert={mobileNav}>
         <header className="mobile-header">
-          <button ref={hamburger} onClick={() => setMobileNav(true)} aria-label="Open navigation">
+          <button
+            ref={hamburger}
+            onClick={() => setMobileNav(true)}
+            aria-label="Open navigation"
+            aria-expanded={mobileNav}
+            aria-controls="app-navigation"
+          >
             <Menu size={21} />
           </button>
           <div className="brand">
@@ -1050,7 +1067,7 @@ function Shell({ session }: { session: Session }) {
                   <PlanPage session={session} termsOfUseUrl={deployment.data?.termsOfUseUrl} />
                 }
               />
-              <Route path="*" element={<Navigate to="/" replace />} />
+              <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </TimezoneProvider>
         </main>
@@ -1180,16 +1197,92 @@ function ResetPassword() {
   );
 }
 
+/**
+ * An address that names no page, said as such.
+ *
+ * It used to redirect to the Overview without a word, so a mistyped or stale
+ * bookmark looked like the app ignoring the link rather than the link being
+ * wrong — and nothing about the address left on screen said which.
+ */
+function NotFoundPage() {
+  return (
+    <div className="page-stack">
+      <PageHeader eyebrow="Not found" title="There is no page here." />
+      <EmptyState
+        icon={MapPinOff}
+        title="Nothing lives at this address."
+        body="The link may be mistyped, or it may point at something that has since been deleted."
+        action={<Link to="/">Go to the Overview</Link>}
+      />
+    </div>
+  );
+}
+
+/**
+ * What each code Better Auth sends to `/auth-error` means, in this app's words.
+ *
+ * Only the code is read, and only when it is a short plain token, the shape
+ * Better Auth itself sanitizes it to. The description beside it is whatever
+ * the address said, so a crafted link could put any sentence on this
+ * product's own screen; it is never shown.
+ */
+const authErrorSentences: Record<string, string> = {
+  invalid_client:
+    "That authorization link names an app this server does not know. Go back to the app you were connecting and start again from there.",
+  invalid_request:
+    "The app asking for access sent a request this server cannot accept. Go back to it and start again.",
+  invalid_scope:
+    "The app asked for access this server does not offer. Go back to it and start again.",
+  unsupported_response_type:
+    "The app asking for access sent a request this server cannot accept. Go back to it and start again.",
+  access_denied: "Access was not granted, so nothing was connected.",
+  state_mismatch: "That sign-in was started in another window or took too long. Start it again.",
+  state_not_found: "That sign-in was started in another window or took too long. Start it again.",
+  please_restart_the_process: "That sign-in took too long to finish. Start it again.",
+  account_not_linked:
+    "That Google account is not connected to an account here. Sign in with your password, then connect Google under Settings.",
+  unable_to_link_account:
+    "That Google account could not be connected. Sign in with your password and try again from Settings.",
+};
+
+function AuthError() {
+  const raw = new URLSearchParams(window.location.search).get("error") ?? "";
+  const code = /^[A-Za-z0-9_'-]{1,64}$/.test(raw) ? raw : "";
+  return (
+    <main className="auth-shell consent-shell">
+      <section className="auth-card">
+        <div className="brand-mark large">
+          <CircleDollarSign size={31} />
+        </div>
+        <span className="eyebrow">{APP_NAME}</span>
+        <h1>That did not work.</h1>
+        <p>
+          {authErrorSentences[code.toLowerCase()] ??
+            "Something went wrong while signing in or connecting an app. Start again from where you began."}
+        </p>
+        {code ? <Note>{`Error code: ${code}`}</Note> : null}
+        <Button type="button" onClick={() => window.location.assign("/")}>
+          Go to {APP_NAME}
+        </Button>
+      </section>
+    </main>
+  );
+}
+
 export default function App() {
   const session = useQuery({
     queryKey: ["session"],
-    queryFn: () => api<Session>("/api/v1/session"),
+    // `optional=true` answers a signed-out visitor `200 null` rather than a 401
+    // the browser would log as a failed request on every visit.
+    queryFn: () => api<Session | null>("/api/v1/session?optional=true"),
     retry: false,
   });
   // Answered before anything is decided about the session, because somebody
   // resetting a password is by definition unable to sign in. The query above
   // stays unconditional so the hooks do not change shape under a navigation.
   if (window.location.pathname === "/reset-password") return <ResetPassword />;
+  // The same, for a flow that failed before it reached anything signed in.
+  if (window.location.pathname === "/auth-error") return <AuthError />;
   if (session.isPending) {
     return (
       <div className="loading-screen">
@@ -1220,7 +1313,7 @@ export default function App() {
       </main>
     );
   }
-  if (!session.data) return <SignIn error={session.error} />;
+  if (!session.data) return <SignIn error={session.error ?? undefined} />;
   if (window.location.pathname === "/oauth/consent") return <OAuthConsent />;
   return <Shell session={session.data} />;
 }

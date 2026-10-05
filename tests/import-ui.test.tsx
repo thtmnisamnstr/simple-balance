@@ -227,6 +227,30 @@ describe("importing a Simple Balance export", () => {
     }
   });
 
+  /**
+   * The alphabetically first of several accounts used to be chosen for the
+   * person, one press from staging a whole file into an account nobody had
+   * named. Found by the 0.2.0 sandbox smoke test, where it was somebody
+   * else's card.
+   */
+  it("chooses no account for the person when there are several to choose from", async () => {
+    stubApi(preview, [checking, card]);
+    await chooseFile(csv, "simple-balance-export.csv");
+
+    const account = (await screen.findByLabelText("Account")) as HTMLSelectElement;
+    expect(account.value).toBe("");
+    expect(account.options[account.selectedIndex]?.textContent).toBe("Choose an account");
+    expect((screen.getByRole("button", { name: "Dry run" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  });
+
+  it("chooses the only account there is", async () => {
+    stubApi(preview, [card]);
+    await chooseFile(csv, "simple-balance-export.csv");
+    expect(((await screen.findByLabelText("Account")) as HTMLSelectElement).value).toBe(card.id);
+  });
+
   it("stages against the chosen account and sends no mapping", async () => {
     const bodies = stubApi(preview, [checking, card]);
     await chooseFile(csv, "simple-balance-export.csv");

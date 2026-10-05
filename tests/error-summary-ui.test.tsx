@@ -2,7 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, ApiClientError } from "../src/client/api.js";
 import { Modal } from "../src/client/components.js";
@@ -52,6 +52,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+const summaryOf = (container: HTMLElement) =>
+  container.querySelector<HTMLElement>(".error-summary")!;
+
 describe("the error summary on a form", () => {
   it("shows every sentence the refusal carried, not just the first", async () => {
     vi.stubGlobal(
@@ -66,8 +69,9 @@ describe("the error summary on a form", () => {
     const { container } = mount(<AccountForm defaultCurrency="USD" onDone={() => {}} />);
     submit(container);
     await screen.findByText("There is a problem");
-    expect(screen.getByText("Account name is already taken")).toBeInTheDocument();
-    expect(screen.getByText("Amount must be greater than zero")).toBeInTheDocument();
+    const summary = within(summaryOf(container));
+    expect(summary.getByText("Account name is already taken")).toBeInTheDocument();
+    expect(summary.getByText("Amount must be greater than zero")).toBeInTheDocument();
   });
 
   it("keeps two fields refused in the same words as two lines", async () => {
@@ -79,7 +83,7 @@ describe("the error summary on a form", () => {
     const { container } = mount(<AccountForm defaultCurrency="USD" onDone={() => {}} />);
     submit(container);
     await screen.findByText("There is a problem");
-    expect(screen.getAllByText(same)).toHaveLength(2);
+    expect(within(summaryOf(container)).getAllByText(same)).toHaveLength(2);
   });
 
   it("shows one line when the same field is refused twice in the same words", async () => {
@@ -91,7 +95,7 @@ describe("the error summary on a form", () => {
     const { container } = mount(<AccountForm defaultCurrency="USD" onDone={() => {}} />);
     submit(container);
     await screen.findByText("There is a problem");
-    expect(screen.getAllByText(same)).toHaveLength(1);
+    expect(within(summaryOf(container)).getAllByText(same)).toHaveLength(1);
   });
 
   it("moves focus to itself so the message is not left behind the button", async () => {
@@ -166,5 +170,55 @@ describe("what a refusal leaves on the error", () => {
     );
     expect(error!.message).toBe("CSV contains malformed quoted data");
     expect(error!.messages).toEqual(["CSV contains malformed quoted data"]);
+  });
+});
+
+/**
+ * The half of GOV.UK's contract 8.3 recorded as still to do, closed after the
+ * 0.2.0 sandbox smoke test found refusals only at the top of the form: every
+ * sentence a field claims is said again beside that field, the field is marked
+ * invalid, and the summary line links to it.
+ */
+describe("a refusal reaching the field it is about", () => {
+  it("shows the sentence beside the field, marks it invalid, and links the summary line to it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        refusal([
+          issue(["name"], "Account name is already taken"),
+          issue(["openingBalance"], "Amount must be greater than zero"),
+        ]),
+      ),
+    );
+    const { container } = mount(<AccountForm defaultCurrency="USD" onDone={() => {}} />);
+    submit(container);
+    await screen.findByText("There is a problem");
+
+    const name = screen.getByLabelText("Account name");
+    expect(name).toHaveAttribute("aria-invalid", "true");
+    const described = (name.getAttribute("aria-describedby") ?? "").split(" ");
+    expect(described.map((id) => document.getElementById(id)?.textContent)).toContain(
+      "Account name is already taken",
+    );
+
+    const link = within(summaryOf(container)).getByRole("link", {
+      name: "Account name is already taken",
+    });
+    fireEvent.click(link);
+    expect(document.activeElement).toBe(name);
+  });
+
+  it("leaves a sentence no field claims in the summary alone, as text", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(refusal(undefined, "An account with this name already exists", 409)),
+    );
+    const { container } = mount(<AccountForm defaultCurrency="USD" onDone={() => {}} />);
+    submit(container);
+    await screen.findByText("There is a problem");
+    const summary = within(summaryOf(container));
+    expect(summary.getByText("An account with this name already exists")).toBeInTheDocument();
+    expect(summary.queryByRole("link")).toBeNull();
+    expect(screen.getByLabelText("Account name")).not.toHaveAttribute("aria-invalid");
   });
 });

@@ -42,12 +42,9 @@ import {
   useConfirm,
 } from "../components.js";
 import { emptyScreen, waysOut } from "../list-filters.js";
+import { categoryKindLabels } from "../select-options.js";
 
-const kindLabels: Record<CategoryKind, string> = {
-  income: "Income",
-  expense: "Expense",
-  both: "Income or expense",
-};
+const kindLabels: Record<CategoryKind, string> = categoryKindLabels;
 
 const categorySortFields = [
   { field: "name", label: "Name" },
@@ -159,6 +156,13 @@ function CategoryDialog({
       </form>
     </Modal>
   );
+}
+
+/** What a row action on a category would have done, for the sentence saying it did not. */
+function rowActionVerb(input: { action: "update" | "archive" | "delete"; category: Category }) {
+  if (input.action === "delete") return "deleted";
+  if (input.action === "archive") return input.category.archivedAt ? "restored" : "archived";
+  return "changed";
 }
 
 export default function CategoriesPage() {
@@ -309,6 +313,9 @@ export default function CategoriesPage() {
         method: "DELETE",
       });
     },
+    // A notice about the last row action is not true of the next one, and left
+    // up it sat beside that one's refusal saying the opposite.
+    onMutate: () => setRowNotice(""),
     onSuccess: async (_result, input) => {
       /*
        * 13.3, and `web.md` 9.8 names this as the shape that keeps recurring:
@@ -476,9 +483,9 @@ export default function CategoriesPage() {
             value={kind}
             onChange={(event) => setKind(event.target.value as CategoryKind)}
           >
-            <option value="expense">Expense</option>
-            <option value="income">Income</option>
-            <option value="both">Both</option>
+            <option value="expense">{kindLabels.expense}</option>
+            <option value="income">{kindLabels.income}</option>
+            <option value="both">{kindLabels.both}</option>
           </Select>
           <Select
             aria-label="Category group"
@@ -496,7 +503,9 @@ export default function CategoriesPage() {
             <Plus size={16} /> Add category
           </Button>
         </form>
-        {categoryMutation.error ? <Alert>{categoryMutation.error.message}</Alert> : null}
+        {categoryMutation.error && categoryMutation.variables?.action === "create" ? (
+          <Alert>{categoryMutation.error.message}</Alert>
+        ) : null}
       </section>
 
       <section className="panel panel-stack">
@@ -746,6 +755,19 @@ export default function CategoriesPage() {
       {rowNotice ? (
         <Alert kind="success" takeFocus>
           {rowNotice}
+        </Alert>
+      ) : null}
+      {/* A refusal from a row, beside the notices about rows and naming the
+          category, taking focus. It used to render in the Add category panel
+          at the top of the page, so a refused delete far down the list
+          changed nothing anybody could see. */}
+      {categoryMutation.error &&
+      categoryMutation.variables &&
+      categoryMutation.variables.action !== "create" ? (
+        <Alert takeFocus>
+          {`“${categoryMutation.variables.category.name}” was not ${rowActionVerb(
+            categoryMutation.variables,
+          )}. ${categoryMutation.error.message}`}
         </Alert>
       ) : null}
 

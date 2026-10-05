@@ -797,6 +797,57 @@ export function hardenAuthCookies(baseUrl: string): MiddlewareHandler {
   };
 }
 
+/**
+ * Keep the session token out of every body the auth routes send.
+ *
+ * The cookie is `HttpOnly` so that no script on the page can read it, and then
+ * Better Auth hands the same value back in JSON anyway: `get-session` carries
+ * it as `session.token`, `list-sessions` as `token` on every session, and
+ * sign-in, sign-up and change-password as a top-level `token`. Any script that
+ * can call `fetch` on this origin could read a seven-day credential out of
+ * those and take it elsewhere. The content security policy allows scripts
+ * from any HTTPS origin while advertising is on, so "any script" is not a
+ * hypothetical worth waving away.
+ *
+ * Nothing here reads one. The browser authenticates with the cookie alone and
+ * an MCP client with its own bearer token, which is a different field on a
+ * different route. The one Better Auth call that takes a session token as
+ * input, `revoke-session`, is not used by this app; `revoke-other-sessions`
+ * and signing out need none.
+ */
+export function withholdSessionTokens(): MiddlewareHandler {
+  return async (context, next) => {
+    await next();
+    if (!(context.res.headers.get("content-type") ?? "").includes("application/json")) return;
+    const text = await context.res.clone().text();
+    if (!text.includes('"token"')) return;
+    let body: unknown;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      return;
+    }
+    const strip = (value: unknown) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return;
+      const record = value as Record<string, unknown>;
+      delete record.token;
+      if (record.session && typeof record.session === "object") {
+        delete (record.session as Record<string, unknown>).token;
+      }
+    };
+    if (Array.isArray(body)) body.forEach(strip);
+    else strip(body);
+    const { status, statusText } = context.res;
+    const headers = new Headers(context.res.headers);
+    headers.delete("content-length");
+    // Hono's setter copies every header of the response it replaces onto the
+    // new one, `content-length` included, which would describe the longer
+    // body. Clearing it first leaves only the headers carried over above.
+    context.res = undefined;
+    context.res = new Response(JSON.stringify(body), { status, statusText, headers });
+  };
+}
+
 type NativeOutgoingResponse = {
   shouldKeepAlive?: boolean;
   writableFinished?: boolean;

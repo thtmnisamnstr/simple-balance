@@ -33,6 +33,7 @@ import { notifyRecurrenceProposed } from "./notifications.js";
 import {
   lockCategoryNamespace,
   lockRecurrenceNamespace,
+  patchChangesNothing,
   serializeRow,
   writeAudit,
 } from "./helpers.js";
@@ -617,6 +618,16 @@ export async function updateRecurrence(
             : { ordinal: before.positionOrdinal, weekday: before.positionWeekday },
     });
     const columns = scheduleColumns(schedule);
+    if (
+      patchChangesNothing(before, {
+        name: changes.name,
+        shape: changes.shape,
+        notifyOnCreate: changes.notifyOnCreate,
+        ...columns,
+      })
+    ) {
+      return recurrenceRowView(before);
+    }
     // proposes_from is deliberately untouched. It is how far back this was ever
     // allowed to reach, and an edit today must not conjure rows for months
     // already dealt with.

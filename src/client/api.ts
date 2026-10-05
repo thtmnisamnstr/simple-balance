@@ -42,12 +42,27 @@ export class ApiClientError extends Error {
    * summary gets the whole set.
    */
   messages: string[];
+  /**
+   * The same sentences with the field each is about, as a dotted path in the
+   * request body (`draft.payee`, `name`). Kept beside `messages` rather than
+   * instead of it so a `Field` can show its own sentence inline and the
+   * summary can link to that field — GOV.UK's contract, which needed the path
+   * this used to drop once it had deduplicated on it.
+   */
+  issues: { path: string; message: string }[];
 
-  constructor(code: string, message: string, details?: unknown, messages?: string[]) {
+  constructor(
+    code: string,
+    message: string,
+    details?: unknown,
+    messages?: string[],
+    issues: { path: string; message: string }[] = [],
+  ) {
     super(message);
     this.code = code;
     this.details = details;
     this.messages = messages?.length ? messages : [message];
+    this.issues = issues;
   }
 }
 
@@ -110,18 +125,21 @@ function refusalFrom(payload: unknown, fallbackMessage: string, status?: number)
   // summary exists for. Only an exact repeat — the same path refused twice, by
   // a regex and then a refinement — is dropped.
   const seen = new Set<string>();
-  const messages: string[] = [];
+  const kept: { path: string; message: string }[] = [];
   for (const issue of issues) {
-    const key = `${issue.path.join(".")} ${issue.message}`;
+    const path = issue.path.join(".");
+    const key = `${path} ${issue.message}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    messages.push(issue.message);
+    kept.push({ path, message: issue.message });
   }
+  const messages = kept.map((issue) => issue.message);
   return new ApiClientError(
     envelope?.error?.code ?? (status === undefined ? "HTTP_ERROR" : `HTTP_${status}`),
     messages[0] ?? envelope?.error?.message ?? fallbackMessage,
     details,
     messages,
+    kept,
   );
 }
 
@@ -133,6 +151,16 @@ function refusalFrom(payload: unknown, fallbackMessage: string, status?: number)
  */
 export const errorMessages = (error: unknown): string[] =>
   error instanceof ApiClientError ? error.messages : error instanceof Error ? [error.message] : [];
+
+/**
+ * Every sentence with the field it is about, or with no field where the failure
+ * named none — a network error, a duplicate-name conflict, anything that is not
+ * a Zod issue. One entry per sentence, in the order `errorMessages` gives.
+ */
+export const errorIssues = (error: unknown): { path: string | null; message: string }[] =>
+  error instanceof ApiClientError && error.issues.length
+    ? error.issues
+    : errorMessages(error).map((message) => ({ path: null, message }));
 
 /**
  * A stream that stopped without saying how it went. Client-side, deliberately:
@@ -939,6 +967,9 @@ export type AuditEvent = {
    */
   entityId: string;
   operation: string;
+  /** The record before and after, as stored. Read only to name it on screen. */
+  before?: unknown;
+  after?: unknown;
   createdAt: string;
 };
 

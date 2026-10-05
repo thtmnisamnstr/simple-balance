@@ -15,7 +15,7 @@ import {
 } from "../components.js";
 import { formatDate, formatMoney, isNegativeMoney, sumMoney } from "../money.js";
 import { useDateRange } from "../date-range.js";
-import { Link, useLocation, useParams, useSearchParams } from "../router.js";
+import { Link, Navigate, useLocation, useParams, useSearchParams } from "../router.js";
 import { reportBuckets, reportNames, type ReportName } from "../../shared/domain.js";
 import { emptyScreen, waysOut } from "../list-filters.js";
 
@@ -190,6 +190,13 @@ export default function ReportsPage() {
 
   return (
     <>
+      {/* A report name this page does not know drew Net worth under an address
+          that still said otherwise. Replaced rather than pushed, so Back does
+          not land on the bad address again; inside the page rather than as an
+          early return, so the page's first return still carries its header. */}
+      {param !== undefined && !isReportName(param) ? (
+        <Navigate to={{ pathname: "/reports", search: location.search }} replace />
+      ) : null}
       <PageHeader eyebrow="Reports" title={TITLES[report]} description={BLURBS[report]} />
 
       <nav className="report-tabs" aria-label="Reports">

@@ -18,7 +18,7 @@ import { createAccount } from "../../src/server/services/accounts.js";
 import { deleteOwnAccount, summarizeOwnData } from "../../src/server/services/account-deletion.js";
 import { createCategory } from "../../src/server/services/categories.js";
 import { setPreferences } from "../../src/server/services/preferences.js";
-import { createStage } from "../../src/server/services/staging.js";
+import { createStage, deleteStages } from "../../src/server/services/staging.js";
 import { createTransaction } from "../../src/server/services/transactions.js";
 
 const connection = process.env.TEST_DATABASE_URL;
@@ -205,6 +205,33 @@ integration("deleting an account takes everything in it", () => {
     expect(summary.stagedTransactions).toBe(1);
     expect(summary.payees).toBe(1);
     expect(summary.connectedAgents).toBe(1);
+  });
+
+  // A discarded or committed row stays in the table as provenance. Counting it
+  // told somebody with an empty queue that thousands of staged rows were about
+  // to go, which the 0.2.0 sandbox smoke test read off the deletion panel.
+  it("counts the staged queue, not rows already dealt with", async () => {
+    const accountId = (
+      await getDb().execute<{ id: string }>(
+        sql`select id from ledger_account where user_id = ${leaver.userId} and system_kind is null limit 1`,
+      )
+    ).rows[0]!.id;
+    const discarded = await createStage(leaver, {
+      idempotencyKey: nextKey(),
+      draft: {
+        type: "withdrawal",
+        date: "2026-02-03",
+        payee: "Leaver Gone",
+        amount: "1.00",
+        fromAccountId: accountId,
+      },
+    });
+    await deleteStages(leaver, {
+      stagedIds: [discarded.id],
+      expectedVersions: { [discarded.id]: discarded.version },
+      idempotencyKey: nextKey(),
+    });
+    expect((await summarizeOwnData(leaver)).stagedTransactions).toBe(1);
   });
 
   // Typing the address is the only thing on the screen a click cannot produce.

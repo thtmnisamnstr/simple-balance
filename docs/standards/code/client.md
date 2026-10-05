@@ -238,7 +238,7 @@ ids. Both are reachable — the module boundary allows it — and both are named
 the client only in comments explaining why they are not called
 (`src/client/api.ts:468-472`, `src/client/TransactionBrowser.tsx:419`). What
 the browser reads instead is the answer: `frozen` on each account
-(`src/client/api.ts:476`), and an ad that exists only because the server sent a
+(`src/client/api.ts:504`), and an ad that exists only because the server sent a
 placement at all (`src/server/api.ts:1454`, `src/client/ads.tsx:7-14`).
 
 **The obvious alternative was to compute it in the browser from the session**,
@@ -296,7 +296,7 @@ them used to be the opposite:
 **In a form that stacks.** Two shapes take a bare control and an `aria-label`
 instead: a filter bar, which `web.md` §7.6 governs, and `.inline-form` — the
 one-row "add a category" (`src/client/pages/CategoriesPage.tsx:465`) and "add a
-group" (`:515`) bars, which are both of them. This sentence named a third, "add
+group" (`:524`) bars, which are both of them. This sentence named a third, "add
 a payee", which does not exist and never did: the payees page has no form on it
 at all, and a carve-out listing a site that is not there invites the next one
 to be written because the list implied a pattern. In the second shape, a
@@ -352,7 +352,7 @@ field is not reachability — it makes the field settable by code and by nobody
 at a screen. The control is what closes it, and the shape has recurred three
 times: a body field (`src/client/forms.tsx:2815-2822`), a creation field
 (`src/client/pages/CategoriesPage.tsx:278-281`) and a list filter
-(`src/client/pages/StagingPage.tsx:827-831`), each site carrying the same note
+(`src/client/pages/StagingPage.tsx:828-832`), each site carrying the same note
 about the one before it. Three instances is a pattern rather than a scar: when
 a shared schema gains a field, the form gains a control in the same change.
 

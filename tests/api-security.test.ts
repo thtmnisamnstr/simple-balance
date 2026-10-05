@@ -209,6 +209,24 @@ describe("static files at the root of the client bundle", () => {
   // whole file — with two palettes that passes when the color turns up in the
   // wrong block, so doubling it would have kept the words and lost the meaning.
 
+  /**
+   * `/robots.txt` reached the single-page shell, which a crawler reads as a
+   * robots file with no rules in it, found by the 0.2.0 sandbox smoke test. It
+   * is a file in public/, so the bundle-root handler above serves it.
+   */
+  it("ships a robots file that keeps every page out of a search index", () => {
+    const robots = readFileSync(
+      path.join(import.meta.dirname, "..", "public", "robots.txt"),
+      "utf8",
+    );
+    const groups = robots
+      .split(/\n\s*\n/)
+      .map((group) => group.split("\n").filter((line) => line && !line.startsWith("#")))
+      .filter((lines) => lines.length);
+    const everyone = groups.find((lines) => lines.includes("User-agent: *"));
+    expect(everyone).toContain("Disallow: /");
+  });
+
   it("keeps the icon the document asks for in the bundle", () => {
     const html = readFileSync(path.join(import.meta.dirname, "..", "index.html"), "utf8");
     for (const match of html.matchAll(/<(?:link[^>]+href|script[^>]+src)="\/([^"]+)"/g)) {

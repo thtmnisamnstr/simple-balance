@@ -53,6 +53,25 @@ import { log } from "./log.js";
  * sign-up happens only past a database read, and these are the part of the
  * instance that decides what it logs and what it answers.
  */
+/**
+ * What this deployment asks Google for, said once.
+ *
+ * Better Auth puts `email profile openid` in front of whatever `scope` names
+ * unless `disableDefaultScope` is set, so naming the three here as well sent
+ * each of them twice on every sign-in. Google ignores the repeats, and the
+ * consent screen and the authorization URL are what a person checking what
+ * this app asks for actually reads.
+ */
+export function googleProviderOptions(clientId: string, clientSecret: string) {
+  return {
+    clientId,
+    clientSecret,
+    disableDefaultScope: true,
+    scope: ["openid", "email", "profile"],
+    prompt: "select_account" as const,
+  };
+}
+
 export function authReporting(level: LogLevel) {
   return {
     logger: {
@@ -61,6 +80,12 @@ export function authReporting(level: LogLevel) {
         log.fromLibrary("Better Auth", lineLevel, message, ...parts),
     },
     onAPIError: {
+      // Where Better Auth sends a person when a flow fails before reaching
+      // anything of ours — an MCP client's authorization link naming a client
+      // that does not exist, most often. Unset, production sends them to
+      // `/?error=…`, which landed on the Overview with nothing on screen saying
+      // why. The browser app answers this path with a page that does.
+      errorURL: "/auth-error",
       onError: (error: unknown) => {
         if (!isAPIError(error)) throw error;
         if (error.status === "INTERNAL_SERVER_ERROR") {
@@ -189,14 +214,7 @@ function createAuthInstance() {
       transaction: true,
     }),
     socialProviders: config.googleAuthEnabled
-      ? {
-          google: {
-            clientId: config.googleClientId!,
-            clientSecret: config.googleClientSecret!,
-            scope: ["openid", "email", "profile"],
-            prompt: "select_account",
-          },
-        }
+      ? { google: googleProviderOptions(config.googleClientId!, config.googleClientSecret!) }
       : {},
     databaseHooks: {
       user: {

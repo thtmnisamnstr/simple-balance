@@ -23,8 +23,10 @@ contract. Anything in this guide that contradicts it loses.
   stateless protocol: all the information needed to process a request is
   contained in the request itself." This surface holds by construction rather
   than by discipline: `handleMcpRequest` builds a server and a transport per
-  request (`src/server/mcp.ts:2166-2175`), so there is no connection to carry
-  state in.
+  request (`src/server/mcp.ts:2189-2199`), so there is no connection to carry
+  state in — and so anything but a POST is a `405` (`methodNotAllowed`,
+  `:2182`), because a stream nothing can write to and a session that does not
+  exist are not things to hand out.
 - **Where the target is not met, say so rather than claiming it.** The installed
   SDK, `@modelcontextprotocol/sdk` 1.32.0, declares
   `LATEST_PROTOCOL_VERSION = "2025-11-25"` and supports nothing newer, so the
@@ -492,7 +494,7 @@ unrepresentable, so the model's own sampling cannot produce it.
   is in use", which is what somebody opening an account needs and is not what
   the parameter does on a listing. `currency` filters entries rather than
   accounts: it matches a row either of whose sides carries that code
-  (`src/server/services/transactions.ts:1512-1519`), so a conversion comes back
+  (`src/server/services/transactions.ts:1554-1561`), so a conversion comes back
   under both of its currencies and a filtered page is not a page in one
   currency, which is the thing an agent totaling it has to know. It used to
   read that way at five published positions — on `list_transactions` and
@@ -1327,7 +1329,7 @@ creating state which expires says so, which is prose in a description.
   issued specifically for them as the intended audience" and "MUST NOT accept or
   transit any other tokens". This deployment binds the audience to its own `/mcp`
   and replaces anything that is not a JWT it signed, in either header shape
-  (`src/server/api.ts:1087-1106`).
+  (`src/server/api.ts:1089-1108`).
 - **House.** `x-mcp-header` mirrors a tool argument into an HTTP header for proxy
   routing, and the specification warns against marking sensitive parameters with
   it. Nothing here needs proxy routing and everything here is somebody's

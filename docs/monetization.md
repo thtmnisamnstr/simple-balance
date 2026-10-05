@@ -403,6 +403,15 @@ subscriber whose plan is set to end presses **Keep my plan** before changing
 interval, because renewing again is the consent the renewal terms below are
 shown for, and it is that button's to give.
 
+**One press asks first: the one that charges a card now.** Moving from monthly
+to annual bills the difference the moment it is pressed, so the tab opens a
+confirmation saying the annual plan starts today, what is left of the month is
+credited and the difference is charged now, and charges nothing until it is
+confirmed. Nothing else asks. A move to monthly waits for the renewal and a
+cancellation runs to the end of the period, and both are undone on the same tab
+with one more press — and canceling in particular stays exactly as easy as
+subscribing was.
+
 **The renewal terms are stated where the consent is asked for.** Beside the
 Annual and Monthly buttons, beside the payment form's confirm button for the
 plan being paid for, beside **Keep my plan**, which turns renewal back on after

@@ -10,6 +10,14 @@ A trailing slash works too. `/mcp` is the canonical form and the one discovery
 advertises, but `/mcp/` reaches the same endpoint, because a client configured
 with one used to complete the whole OAuth flow and then get a 404 on every call.
 
+Every call is a POST. `GET`, `DELETE` and `PUT` answer `405` with `Allow: POST`
+once the token checks out, which is how the transport lets a stateless server
+say it offers no server-to-client stream and has no session to end. Until
+0.2.1 a `GET` was answered `200 text/event-stream` and then held open with
+nothing ever written to it, one connection and one server instance per client
+for as long as the client kept it; MCP SDK clients treat the `405` as "no
+stream here" and carry on.
+
 Agent clients get the same ledger validation, review workflow, duplicate
 protection, and audit trail the browser gets. Nothing is relaxed for automation.
 

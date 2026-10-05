@@ -51,6 +51,7 @@ import {
   Skeleton,
   SortableHeader,
   type SortState,
+  TransferCategory,
   useConfirm,
 } from "./components.js";
 import { formatDate, formatMoney, movementSign, sumMoney, compareMoney } from "./money.js";
@@ -368,7 +369,15 @@ export function TransactionBrowser({
           allowDuplicate,
         }),
       }),
-    onSuccess: async () => {
+    onSuccess: async (_, { transaction, deleted }) => {
+      // The button pressed goes with the row it was on, or turns into the
+      // opposite one, so focus fell to <body> with nothing on screen saying the
+      // press had worked. The same notice a bulk action leaves, which takes
+      // focus for exactly that reason.
+      setBulkNotice({
+        kind: "success",
+        message: `${deleted ? "Deleted" : "Restored"} “${transaction.payee}”, ${formatDate(transaction.date)}.`,
+      });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["transactions"] }),
         queryClient.invalidateQueries({ queryKey: ["accounts"] }),
@@ -1016,7 +1025,7 @@ export function TransactionBrowser({
         </Alert>
       ) : null}
       {deleteMutation.error ? (
-        <Alert>
+        <Alert takeFocus>
           {/* One alert for the whole list, so it names the entry it is about.
               The refusal alone said "This account is frozen" above a page of
               rows, and left the person to work out which one had been meant. */}
@@ -1270,6 +1279,10 @@ export function TransactionBrowser({
                             </strong>
                             <span>{transaction.description || meta.label}</span>
                           </div>
+                          {/* In words as well as struck through: a line through
+                              the text is a style, and a screen reader read a
+                              deleted entry exactly like a live one. */}
+                          {transaction.deletedAt ? <Badge>Deleted</Badge> : null}
                         </div>
                       </th>
                       <td>
@@ -1302,6 +1315,12 @@ export function TransactionBrowser({
                             )}
                             <Badge tone="blue">Split · {transaction.legs.length}</Badge>
                           </div>
+                        ) : transaction.type === "transfer" ? (
+                          // A transfer moves money between two of your own
+                          // accounts and files under no category by design, so
+                          // "Uncategorized" read as something left undone. The
+                          // staged queue already says it this way.
+                          <TransferCategory />
                         ) : transaction.category ? (
                           <Link
                             to={{

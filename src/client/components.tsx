@@ -24,13 +24,14 @@ import {
   useContext,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import type { SortDirection } from "../shared/domain.js";
 import { APP_NAME } from "../shared/version.js";
 import { PROGRESS_VERB, type ProgressEvent } from "../shared/progress.js";
-import { errorMessages } from "./api.js";
+import { errorIssues } from "./api.js";
 import type { DatePreset } from "./date-range.js";
 import { useDateRange } from "./date-range.js";
 
@@ -353,14 +354,31 @@ export function Button({
 }) {
   const reasonId = useId();
   const explained = Boolean(disabledReason) && Boolean(props.disabled) && !loading;
+  const { onClick } = props;
   const button = (
     // A spinner is a picture of waiting, which is nothing at all to somebody who
     // cannot see it. `aria-busy` says the control is working and the `.sr-only`
     // word says so in text, because a disabled button otherwise goes silent at
     // exactly the moment a person most wants to know their click landed.
+    //
+    // Working is `aria-disabled`, never `disabled`, whatever the caller passed
+    // beside `loading`. A browser blurs an element it disables, so a button that
+    // disabled itself for its own request let go of focus the moment it was
+    // pressed and the answer arrived with focus on `<body>` — the question
+    // web.md 13.3 left open. The click is swallowed here instead, and
+    // `preventDefault` is what also stops a form's implicit submission, which
+    // the browser delivers as a click on this button.
     <button
       {...props}
-      disabled={loading || props.disabled}
+      disabled={loading ? false : props.disabled}
+      aria-disabled={loading || undefined}
+      onClick={(event) => {
+        if (loading) {
+          event.preventDefault();
+          return;
+        }
+        onClick?.(event);
+      }}
       aria-busy={loading || undefined}
       aria-describedby={
         [explained ? reasonId : null, props["aria-describedby"]].filter(Boolean).join(" ") ||
@@ -408,6 +426,55 @@ export function RequiredNote() {
 }
 
 /**
+ * One form's refusal, shared by its summary and its fields.
+ *
+ * Per form rather than per page, because two forms are often open at once — a
+ * dialog over the list behind it — and both have a `payee`. `ids` is where each
+ * `Field` puts the element a summary line should take somebody to, keyed by
+ * the request path it claims; a `useId` is opaque, so knowing a path would not
+ * give the id without it.
+ */
+type FormErrorScope = {
+  issues: { path: string | null; message: string }[];
+  ids: Map<string, string>;
+};
+
+const FormErrorContext = createContext<FormErrorScope | null>(null);
+
+/** A field named `draft.legs` speaks for `draft.legs.2.amount` as well. */
+const claimsPath = (name: string, path: string | null) =>
+  path !== null && (path === name || path.startsWith(`${name}.`));
+
+/**
+ * Wraps a form so the refusal its submit got reaches both halves of GOV.UK's
+ * contract: every sentence in the summary at the top, linked, and each one again
+ * beside the field it is about. The fields say which request paths are theirs
+ * with `Field`'s `name`; a sentence no field claims stays in the summary alone,
+ * which is where a duplicate-name conflict or a network failure belongs.
+ */
+export function FormErrors({ error, children }: { error: unknown; children: ReactNode }) {
+  // One map for the form's lifetime, which the fields write into from effects.
+  const [ids] = useState(() => new Map<string, string>());
+  const scope = useMemo(() => ({ issues: errorIssues(error), ids }), [error, ids]);
+  return <FormErrorContext.Provider value={scope}>{children}</FormErrorContext.Provider>;
+}
+
+/**
+ * A `<form>` that is its own refusal's scope: `FormErrors` around the element,
+ * so a form takes part by naming its error rather than by wrapping its body.
+ */
+export function Form({
+  error,
+  ...props
+}: React.FormHTMLAttributes<HTMLFormElement> & { error: unknown }) {
+  return (
+    <FormErrors error={error}>
+      <form {...props} />
+    </FormErrors>
+  );
+}
+
+/**
  * Every sentence a submit failure carried, at the top of the form, with focus.
  *
  * Focus is moved with a ref because nothing reloads. GOV.UK's summary works on
@@ -444,8 +511,41 @@ export function ErrorSummary({
     if (!error) return;
     container.current?.focus();
   }, [error]);
-  const messages = errorMessages(error);
-  if (!messages.length) return null;
+  const scope = useContext(FormErrorContext);
+  const issues = errorIssues(error);
+  if (!issues.length) return null;
+  // The element a line takes somebody to: the field that claimed its path, if
+  // one did. Looked up at render, after every field below has registered.
+  const targetOf = (path: string | null) => {
+    if (!scope || path === null) return null;
+    for (const [name, id] of scope.ids) if (claimsPath(name, path)) return id;
+    return null;
+  };
+  // Focus rather than a fragment, so nothing is written into the address and a
+  // dialog's own history stays as it was. The control inside the field, which
+  // for a group of controls is the first of them.
+  const goTo = (id: string) => {
+    const field = document.getElementById(id);
+    const control =
+      field?.querySelector<HTMLElement>("input, select, textarea, button") ?? field ?? null;
+    control?.focus();
+  };
+  const line = (issue: { path: string | null; message: string }) => {
+    const target = targetOf(issue.path);
+    return target ? (
+      <a
+        href={`#${target}`}
+        onClick={(event) => {
+          event.preventDefault();
+          goTo(target);
+        }}
+      >
+        {issue.message}
+      </a>
+    ) : (
+      issue.message
+    );
+  };
   // Defaults to 3 rather than GOV.UK's fixed 2 because every call site is inside
   // `Modal`, whose title is already an `<h2>` and is the dialog's accessible
   // name; a second `<h2>` in the body reads as a peer section of the dialog
@@ -453,18 +553,18 @@ export function ErrorSummary({
   const Heading = level === 2 ? "h2" : "h3";
   // Plain defense against a refusal carrying an unbounded list. No call site
   // reaches it today.
-  const shown = messages.slice(0, 10);
-  const rest = messages.length - shown.length;
+  const shown = issues.slice(0, 10);
+  const rest = issues.length - shown.length;
   return (
     <div ref={container} tabIndex={-1} className="alert alert-error error-summary">
       <div role="alert">
         <Heading className="error-summary-title">There is a problem</Heading>
         {shown.length === 1 ? (
-          <p>{shown[0]}</p>
+          <p>{line(shown[0]!)}</p>
         ) : (
           <ul>
-            {shown.map((message, index) => (
-              <li key={`${index}-${message}`}>{message}</li>
+            {shown.map((issue, index) => (
+              <li key={`${index}-${issue.path ?? ""}-${issue.message}`}>{line(issue)}</li>
             ))}
           </ul>
         )}
@@ -518,6 +618,7 @@ export function Field({
   label,
   hint,
   error,
+  name,
   optional = false,
   as,
   children,
@@ -525,6 +626,14 @@ export function Field({
   label: string;
   hint?: string;
   error?: string;
+  /**
+   * The request path or paths this field's value is sent as — `name`,
+   * `draft.payee`, both `draft.amount` and `draft.sourceAmount` for an amount
+   * that is either. Inside `FormErrors`, a server sentence about one of them is
+   * shown here as the field's error and the summary links to it. A path covers
+   * the paths below it, so `draft.legs` speaks for every leg.
+   */
+  name?: string | readonly string[];
   /**
    * Said in the HINT, never in the label.
    *
@@ -547,11 +656,32 @@ export function Field({
 }>) {
   const base = useId();
   const controlId = `${base}-control`;
+  const scope = useContext(FormErrorContext);
+  const names = name === undefined ? [] : typeof name === "string" ? [name] : name;
+  const nameKey = names.join(" ");
+  useEffect(() => {
+    if (!scope || !nameKey) return;
+    const claimed = nameKey.split(" ");
+    for (const path of claimed) scope.ids.set(path, `${base}-field`);
+    return () => {
+      for (const path of claimed) {
+        if (scope.ids.get(path) === `${base}-field`) scope.ids.delete(path);
+      }
+    };
+  }, [scope, nameKey, base]);
+  // A sentence the field itself computed wins: it is about what is on screen
+  // now, where the server's is about what was last sent.
+  const served = scope
+    ? scope.issues
+        .filter((issue) => names.some((path) => claimsPath(path, issue.path)))
+        .map((issue) => issue.message)
+    : [];
+  const shownError = error ?? (served.length ? [...new Set(served)].join(" ") : undefined);
   // "Optional." leads, because it is the shorter claim and the one a reader
   // scanning a column of fields is looking for.
   const hintText = optional ? (hint ? `Optional. ${hint}` : "Optional.") : hint;
   const hintId = hintText ? `${base}-hint` : undefined;
-  const errorId = error ? `${base}-error` : undefined;
+  const errorId = shownError ? `${base}-error` : undefined;
   const describedBy = [hintId, errorId].filter(Boolean).join(" ") || undefined;
   return (
     // A `<div>` rather than a wrapping `<label>`, and the hint and the error
@@ -566,6 +696,7 @@ export function Field({
     // what a `<label for>` is for.
     <div
       className="field"
+      id={`${base}-field`}
       {...(as === "group" ? { role: "group", "aria-labelledby": `${base}-label` } : {})}
     >
       {as === "group" ? (
@@ -582,13 +713,13 @@ export function Field({
           {hintText}
         </span>
       ) : null}
-      {error ? (
+      {shownError ? (
         <span className="field-error" id={errorId}>
-          {error}
+          {shownError}
         </span>
       ) : null}
       <FieldContext.Provider
-        value={as === "group" ? null : { id: controlId, describedBy, invalid: Boolean(error) }}
+        value={as === "group" ? null : { id: controlId, describedBy, invalid: Boolean(shownError) }}
       >
         {children}
       </FieldContext.Provider>
@@ -861,6 +992,7 @@ export function ConfirmDialog({
   title,
   description,
   confirmLabel = "Delete",
+  confirmVariant = "danger",
   onConfirm,
   onCancel,
   children,
@@ -869,6 +1001,8 @@ export function ConfirmDialog({
   title: string;
   description?: string;
   confirmLabel?: string;
+  /** `primary` for a confirmation that buys something rather than destroys it. */
+  confirmVariant?: "danger" | "primary";
   onConfirm: () => void;
   onCancel: () => void;
   children?: ReactNode;
@@ -884,7 +1018,7 @@ export function ConfirmDialog({
           <Button type="button" variant="ghost" onClick={onCancel}>
             Cancel
           </Button>
-          <Button type="button" variant="danger" onClick={onConfirm}>
+          <Button type="button" variant={confirmVariant} onClick={onConfirm}>
             {confirmLabel}
           </Button>
         </>
@@ -1308,7 +1442,22 @@ export function Alert({
    * moving focus away from it would be the defect rather than the fix.
    */
   useEffect(() => {
-    if (takeFocus) box.current?.focus();
+    if (!takeFocus) return;
+    box.current?.focus();
+    // When the work was confirmed in a dialog, the dialog is still open as this
+    // mounts: a modal dialog makes everything outside it inert, so the focus
+    // above does not land, and closing the dialog then hands focus back to the
+    // button that opened it — which the work just removed, leaving `<body>`.
+    // A bulk edit's "N transactions updated." was exactly that. The dialog's
+    // `close` event fires after it has restored focus, so focusing again there
+    // is the last word.
+    const open = [...document.querySelectorAll("dialog[open]")].find(
+      (dialog) => !dialog.contains(box.current),
+    );
+    if (!open) return;
+    const refocus = () => box.current?.focus();
+    open.addEventListener("close", refocus, { once: true });
+    return () => open.removeEventListener("close", refocus);
   }, [takeFocus, children]);
   return (
     <div
@@ -1338,6 +1487,22 @@ export function Alert({
  * the same class and nothing else, which is what made it a component rather
  * than a utility.
  */
+/**
+ * A transfer's category cell: a dash, and words for whoever cannot see one.
+ *
+ * One component so the transactions list and the staged queue cannot drift
+ * apart again — one of them said "Uncategorized", which reads as work left
+ * undone, about a row that can never have a category.
+ */
+export function TransferCategory() {
+  return (
+    <span className="subtle">
+      <span aria-hidden="true">—</span>
+      <span className="sr-only">No category: transfers have none</span>
+    </span>
+  );
+}
+
 export function Note({ children }: PropsWithChildren) {
   return <p className="note">{children}</p>;
 }

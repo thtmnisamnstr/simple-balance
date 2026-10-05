@@ -21,6 +21,61 @@ Decimal.set({
 
 export const decimal = (value: string | Decimal) => new Decimal(value);
 
+/**
+ * Whether two stored values mean the same thing to every screen.
+ *
+ * Amounts compare as numbers, because a numeric column hands back eighteen
+ * places and a request as many as somebody typed. Blank, empty and absent all
+ * read as "nothing here", so a form sending `""` for a field the row holds as
+ * null is not a change. Objects compare by content with their keys sorted,
+ * because a JSON column does not keep the order it was written in.
+ */
+export function sameStoredValue(left: unknown, right: unknown, numeric = false): boolean {
+  const blank = (value: unknown) => value === null || value === undefined || value === "";
+  if (blank(left) || blank(right)) return blank(left) && blank(right);
+  if (numeric) return decimal(String(left)).equals(String(right));
+  if (left instanceof Date || right instanceof Date) {
+    return new Date(left as string).getTime() === new Date(right as string).getTime();
+  }
+  if (typeof left === "object" || typeof right === "object") {
+    return stableJson(left) === stableJson(right);
+  }
+  return left === right;
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value)
+      .filter((key) => (value as Record<string, unknown>)[key] !== undefined)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson((value as Record<string, unknown>)[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/**
+ * Whether applying a patch would leave the row exactly as it is.
+ *
+ * An edit that changes nothing writes nothing: no new version, no audit entry.
+ * A bumped version is not free — every other form holding the record goes
+ * stale and refuses its next save over a change nobody made — and an audit
+ * entry whose before and after agree is a record of nothing. A key the patch
+ * leaves out is a field the edit leaves alone, so only the keys it carries are
+ * compared.
+ */
+export function patchChangesNothing(
+  stored: Record<string, unknown>,
+  patch: Record<string, unknown>,
+  numericKeys: readonly string[] = [],
+) {
+  return Object.entries(patch).every(
+    ([key, value]) =>
+      value === undefined || sameStoredValue(stored[key], value, numericKeys.includes(key)),
+  );
+}
+
 export function canonicalDecimal(value: string | Decimal): string {
   const result = decimal(value)
     .toFixed(18)

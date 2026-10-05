@@ -2163,7 +2163,31 @@ async function scopeChallenge(
   return { response: null, forward };
 }
 
+/**
+ * What a stateless endpoint says to anything but a POST.
+ *
+ * The SDK answers PUT with this already, but it treats GET as a request for
+ * the standalone server-to-client stream and answers 200 `text/event-stream`,
+ * and it treats DELETE as ending a session and answers 200. Neither exists
+ * here: every POST builds a server, answers, and is gone, so nothing could ever
+ * be written to that stream, and there is no session to end. The stream stayed
+ * open regardless, holding a connection and a whole server instance for every
+ * client that asked — and the SDK's own client asks once after every
+ * `initialize`. The Streamable HTTP transport lets a server decline both with a
+ * 405, which is what the SDK's stateless example does, and its client treats a
+ * 405 on that GET as "no stream here" rather than as an error.
+ *
+ * The envelope is the SDK's own for PUT, so all three refusals read the same.
+ */
+function methodNotAllowed() {
+  return Response.json(
+    { jsonrpc: "2.0", error: { code: -32_000, message: "Method not allowed." }, id: null },
+    { status: 405, headers: { Allow: "POST" } },
+  );
+}
+
 export async function handleMcpRequest(request: Request, actor: Actor, scopes: Set<string>) {
+  if (request.method !== "POST") return methodNotAllowed();
   const { response, forward } = await scopeChallenge(request, scopes);
   if (response) return response;
   const transport = new WebStandardStreamableHTTPServerTransport({

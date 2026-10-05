@@ -7,8 +7,11 @@ keep, so upgrading is swapping it for a newer one.
 
 This note is written as work lands rather than when the release is cut.
 
-**Nothing to do by hand.** One fix, and it is to the first `pulumi up` of an
-`oci-single` stack, so a stack that is already up plans no change.
+**Nothing to do by hand.** No migration, no new setting, and nothing an
+existing configuration has to change. A stack that is already up plans no
+change. What follows is what moves under a client, all of it found by a full
+smoke test of a 0.2.0 deployment, and none of it removes a route, a tool or a
+CSV column.
 
 **`oci-single` waits for its settings vault to be reachable before making the
 key in it.** OCI reports a new vault active minutes before it publishes the
@@ -21,6 +24,45 @@ The program now asks OCI's own nameservers until the hostname exists, so the
 first lookup the provider makes succeeds and nothing has a "no" to remember. It
 waits up to fifteen minutes, and says so if that runs out; the vault is kept,
 and the next `up` makes the key.
+
+**What a client sees differently.**
+
+- **An unchanged save returns the version it was sent.** Saving a
+  transaction, account, category, group, budget, template, recurrence or staged
+  row without changing anything now writes nothing — no new version, no audit
+  entry — where 0.2.0 bumped the version every time. Asking for the state a
+  record is already in (archiving an archived account, deleting a deleted
+  entry) is the same. A client that assumed `version + 1` after a save has to
+  read the version the response carries, which it always should have. A mass
+  edit writes only the rows its patch changes: `updatedCount` counts those, and
+  an unchanged row's `nextVersion` equals its `previousVersion`.
+- **Two account names that differ only in case or spacing are refused.**
+  Creating "CHECKING" beside "Checking", or renaming onto it, is a `409
+  DUPLICATE`, the rule categories and payees already followed. Two such
+  accounts a ledger already holds are left alone and either can still be
+  renamed.
+- **A recurring transfer naming one account on both sides is refused** on
+  create and on an edit that sends such a shape, with the message the staged
+  row it would have proposed carried. One already stored goes on proposing that
+  flagged row until it is edited.
+- **`/mcp` answers `GET`, `DELETE` and `PUT` with `405`.** 0.2.0 answered a
+  `GET` `200 text/event-stream` and held it open with nothing ever written;
+  MCP SDK clients treat the `405` as "no stream here".
+- **No session token in an auth route's JSON.** `get-session`,
+  `list-sessions`, sign-in, sign-up and change-password no longer carry the
+  session token in their bodies. The browser never read it — it uses the
+  cookie — and a script that did was reading the credential `HttpOnly`
+  exists to hide.
+- **`GET /api/v1/session?optional=true` answers `200 null` when signed out.**
+  New and opt-in; without the parameter it is the `401` it always was.
+- **A failed sign-in or authorization flow lands on `/auth-error`**, a page
+  that says what went wrong, rather than on `/?error=…`.
+- **The account-deletion summary counts the staged queue**, the rows still
+  waiting there, rather than every staged row ever kept as provenance. MCP's
+  `summarize_own_data` reports the same count.
+- **`/robots.txt` is a robots file** asking every crawler but AdSense's to
+  stay out, where 0.2.0 answered it with the app's own page. It ships in the
+  client bundle, so the decomposed profile's nginx serves it with no change.
 
 ## Before you upgrade to 0.2.0
 

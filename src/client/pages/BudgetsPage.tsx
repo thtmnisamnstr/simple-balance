@@ -1417,7 +1417,11 @@ export default function BudgetsPage({ session }: { session: Session }) {
               aria-label={`Projected balances in ${currency.currency}`}
             >
               <table className="data-table">
-                <caption className="sr-only">
+                {/* On screen, not only to a screen reader. One of these per
+                    currency stacks up as identical tables of figures, and with
+                    the caption hidden nothing visible said which money each
+                    one was counting. */}
+                <caption className="table-caption">
                   Projected balances in {currency.currency}
                   {forecast.data ? `, from ${formatDate(forecast.data.from)}` : ""}
                 </caption>

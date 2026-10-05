@@ -242,7 +242,7 @@ convention expects.
 answer: that the list items stay at the five that earned their shape, and that
 the lines running past 80 columns do not grow past where they already are.
 *Not checked:* that the top heading matches `package.json`. That is a hand step
-in the release recipe at `docs/upgrades.md:1322`, step 4, "Date the
+in the release recipe at `docs/upgrades.md:1364`, step 4, "Date the
 `## Unreleased` heading in `CHANGELOG.md`", and it has already been the subject
 of a commit ("Date 0.1.4 the day it is cut"). Nor is whether an entry describes
 a change somebody would notice, which is the judgement this section is mostly
@@ -348,7 +348,7 @@ publish runs `npm run verify` first, so an unwritten note now stops the release
 rather than reaching an operator mid-upgrade. *Also checked:* the frozen
 migration list, which `tests/migrations.test.ts` holds to what is on disk.
 *Not checked:* the changelog heading, a hand step in the release recipe at
-`docs/upgrades.md:1322`, and which release a migration is attributed to, which
+`docs/upgrades.md:1364`, and which release a migration is attributed to, which
 is prose inside a list a test can only check the membership of.
 
 ## Upgrade notes
@@ -1060,7 +1060,7 @@ edit.
     still does, and `BudgetsPage.tsx:1387`, the note under an average with
     nothing behind it. Both arrived this release.
   - `SettingsPage.tsx:522`, the warning about what cancelling takes with it.
-  - `PlanPage.tsx:1914` and `:1926`, the "Annual — $30.00 a year" price
+  - `PlanPage.tsx:1944` and `:1956`, the "Annual — $30.00 a year" price
     labels.
   - The review queue's inline-edit labels at `StagingPage.tsx:1142-1146`, `:1262-1265` and
     `:1336-1340`, which lead with the visible value and set the instruction off

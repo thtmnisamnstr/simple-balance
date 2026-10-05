@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { globSync, readFileSync } from "node:fs";
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Button, Field, Input, Select, Textarea } from "../src/client/components.js";
 
 /**
@@ -142,8 +142,9 @@ describe("a field around a composite", () => {
   it("is what the three split fields use, and each leg is named", () => {
     const forms = readFileSync("src/client/forms.tsx", "utf8");
     // Three call sites wrap `CategoryLegs`, and all three are groups.
+    // The opening tag spans lines once it names the request paths it claims.
     expect([
-      ...forms.matchAll(/<Field label="Category" hint="Optional" as="group">/g),
+      ...forms.matchAll(/<Field\s+label="Category"\s+hint="Optional"\s+as="group"[\s>]/g),
     ]).toHaveLength(3);
     // Both shapes of the composite name their picker: one when unsplit, one per
     // leg once split. The `ariaLabel` prop existed for a release with nothing
@@ -248,6 +249,43 @@ describe("a disabled button", () => {
     );
     expect(container.querySelector(".button-reason")).toBeNull();
     expect(screen.getByRole("button").getAttribute("aria-busy")).toBe("true");
+  });
+
+  /**
+   * Working is `aria-disabled`, never `disabled`: a browser blurs an element it
+   * disables, so a button that disabled itself for its own request dropped
+   * focus to <body> the moment it was pressed. web.md 13.3 recorded this as
+   * unsettled; the 0.2.0 sandbox smoke test found it on Add category, Stage all
+   * rows and every "create another".
+   */
+  it("keeps focus while it works, and swallows the press it would repeat", () => {
+    const onClick = vi.fn();
+    render(
+      <Button loading disabled onClick={onClick}>
+        Save category
+      </Button>,
+    );
+    const button = screen.getByRole("button");
+    act(() => button.focus());
+    expect((button as HTMLButtonElement).disabled).toBe(false);
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(button);
+    expect(onClick).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(button);
+  });
+
+  it("does not submit its form while it works, by click or by Enter", () => {
+    const onSubmit = vi.fn((event: React.FormEvent) => event.preventDefault());
+    render(
+      <form onSubmit={onSubmit}>
+        <input aria-label="Name" />
+        <Button type="submit" loading>
+          Save
+        </Button>
+      </form>,
+    );
+    fireEvent.click(screen.getByRole("button"));
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it("keeps the same element when the reason comes and goes", () => {

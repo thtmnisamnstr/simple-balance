@@ -70,6 +70,8 @@ import {
   lockCategoryNamespace,
   lockIdempotencyKey,
   lockPayeeNamespace,
+  patchChangesNothing,
+  sameStoredValue,
   selectionFingerprint,
   serializeRow,
   setIdempotent,
@@ -625,6 +627,46 @@ function transactionShapeColumns(values: typeof transactions.$inferInsert) {
     // constraint holds the row to a shape it no longer has.
     legCount: values.legCount ?? 0,
   };
+}
+
+/**
+ * Whether saving this draft would leave the entry exactly as it is.
+ *
+ * `repostTransaction` already writes no posting for an edit that moves no
+ * money, but the row itself was still rewritten, its version bumped and an
+ * audit entry written for a change that was not one. A bumped version is not
+ * harmless: every other form holding this entry is now stale and refuses its
+ * next save, over nothing. So an unchanged save writes nothing at all, the
+ * way AGENTS.md has always described it.
+ *
+ * The columns compare the way `sameStoredValue` says. A leg matches only by
+ * id: a leg sent without one is a new leg, which moves the money to a new leg
+ * id even when the figures agree.
+ */
+function changesNothing(
+  before: typeof transactions.$inferSelect,
+  beforeLegs: readonly TransactionLegRow[],
+  prepared: PreparedTransaction,
+) {
+  const next = {
+    ...transactionShapeColumns(prepared.transaction),
+    externalId: prepared.transaction.externalId ?? null,
+  };
+  const current = { ...transactionShapeColumns(before), externalId: before.externalId ?? null };
+  if (!patchChangesNothing(current, next, ["sourceAmount", "destinationAmount", "effectiveRate"])) {
+    return false;
+  }
+  const liveLegs = beforeLegs.filter((leg) => !decimal(leg.amount).isZero());
+  if (liveLegs.length !== prepared.legs.length) return false;
+  return prepared.legs.every((leg, index) => {
+    const stored = liveLegs[index]!;
+    return (
+      leg.id === stored.id &&
+      leg.categoryId === stored.categoryId &&
+      sameStoredValue(leg.amount, stored.amount, true) &&
+      sameStoredValue(leg.note, stored.note)
+    );
+  });
 }
 
 /**
@@ -1745,6 +1787,7 @@ type BulkEditPlan = {
   before: TransactionRow;
   draft: TransactionDraft;
   prepared: PreparedTransaction;
+  unchanged: boolean;
 };
 
 function assertExpectedFilterSnapshot(
@@ -2049,15 +2092,21 @@ export async function bulkEditTransactions(
         before,
         prepared,
         draft: { ...draft, payee: canonicalPayee },
+        // A row the patch leaves exactly as it was is not written, the way a
+        // single unchanged save is not: setting a category on a hundred rows
+        // that forty already had bumped all hundred, and every form holding
+        // one of the forty went stale over nothing.
+        unchanged: changesNothing(before, legs, prepared),
       });
     }
+    const changing = plans.filter((plan) => !plan.unchanged);
 
-    await assertBulkDuplicatesAllowed(tx, actor, plans, parsed.allowDuplicates);
+    await assertBulkDuplicatesAllowed(tx, actor, changing, parsed.allowDuplicates);
 
-    const plannedItems = plans.map(({ before, draft }) => ({
+    const plannedItems = plans.map(({ before, draft, unchanged }) => ({
       id: before.id,
       previousVersion: before.version,
-      nextVersion: before.version + 1,
+      nextVersion: unchanged ? before.version : before.version + 1,
       type: draft.type,
       date: draft.date,
       payee: draft.payee,
@@ -2065,7 +2114,7 @@ export async function bulkEditTransactions(
     const visibleItems =
       parsed.selection.mode === "filter" ? plannedItems.slice(0, 200) : plannedItems;
     const baseResult = {
-      updatedCount: plans.length,
+      updatedCount: changing.length,
       dryRun: parsed.dryRun,
       selectionCount: plans.length,
       selectionFingerprint: snapshotFingerprint,
@@ -2079,7 +2128,7 @@ export async function bulkEditTransactions(
 
     const now = new Date();
     const updatedRows: TransactionRow[] = [];
-    for (const { before, prepared } of plans) {
+    for (const { before, prepared } of changing) {
       const values = prepared.transaction;
       const [updated] = await tx
         .update(transactions)
@@ -2101,7 +2150,7 @@ export async function bulkEditTransactions(
       updatedRows.push(updated);
     }
 
-    for (const { before, prepared } of plans) {
+    for (const { before, prepared } of changing) {
       const legIds = await resyncLegs(tx, actor, before.id, prepared.legs);
       // A deleted row keeps its labels editable and its ledger void.
       await repostTransaction(
@@ -2114,7 +2163,7 @@ export async function bulkEditTransactions(
     const editedLegs = await legsByTransaction(
       tx,
       actor,
-      plans.map((plan) => plan.before.id),
+      changing.map((plan) => plan.before.id),
     );
     // One insert for the whole edit rather than one per row. They land in this
     // transaction either way, so a round trip each bought nothing — and a mass
@@ -2122,7 +2171,7 @@ export async function bulkEditTransactions(
     await writeAuditMany(
       tx,
       actor,
-      plans.map(({ before }, index) => ({
+      changing.map(({ before }, index) => ({
         entityType: "transaction",
         entityId: before.id,
         operation: "bulk_update",
@@ -2138,7 +2187,7 @@ export async function bulkEditTransactions(
     await pruneOrphanedCategories(
       tx,
       actor,
-      plans.flatMap((plan, index) =>
+      changing.flatMap((plan, index) =>
         categoriesReleasedBy(
           {
             categoryId: plan.before.categoryId,
@@ -2341,6 +2390,7 @@ export async function updateTransaction(
   transaction?: DbTransaction,
 ) {
   const { draft, expectedVersion, allowDuplicate } = transactionUpdateSchema.parse(input);
+  let wrote = true;
   const updated = await withTransaction(transaction, async (tx) => {
     const [before] = await tx
       .select()
@@ -2375,6 +2425,10 @@ export async function updateTransaction(
       allowedArchivedAccountIds,
       allowedArchivedCategoryIds,
     });
+    if (changesNothing(before, beforeLegs ?? [], prepared)) {
+      wrote = false;
+      return hydrateTransaction(tx, actor, before);
+    }
     await assertDuplicateAllowed(tx, actor, resolvedDraft, allowDuplicate, id);
     const [updated] = await tx
       .update(transactions)
@@ -2423,7 +2477,7 @@ export async function updateTransaction(
     );
     return hydrateTransaction(tx, actor, updated);
   });
-  countAfterCommit(transaction, () => ledgerWrites.inc({ operation: "update" }));
+  if (wrote) countAfterCommit(transaction, () => ledgerWrites.inc({ operation: "update" }));
   return updated;
 }
 
@@ -2435,6 +2489,7 @@ export async function setTransactionDeleted(
   allowDuplicate = false,
   transaction?: DbTransaction,
 ) {
+  let wrote = true;
   const changed = await withTransaction(transaction, async (tx) => {
     const [before] = await tx
       .select()
@@ -2443,6 +2498,13 @@ export async function setTransactionDeleted(
       .limit(1);
     if (!before) throw notFound("Transaction not found");
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
+    // Asked for the state it is already in. Deleting a deleted entry used to
+    // stamp it again, bump its version and write a second audit entry for a
+    // reversal that posted nothing.
+    if ((before.deletedAt !== null) === deleted) {
+      wrote = false;
+      return hydrateTransaction(tx, actor, before);
+    }
     // Both directions move money: voiding posts the reversal, restoring posts
     // it back. The accounts come from the stored row, because the request
     // carries an id and a version and nothing else.
@@ -2507,9 +2569,11 @@ export async function setTransactionDeleted(
   // things to watch: a deployment deleting steadily is somebody cleaning up,
   // and one restoring steadily is somebody undoing a mistake being made
   // repeatedly.
-  countAfterCommit(transaction, () =>
-    ledgerWrites.inc({ operation: deleted ? "delete" : "restore" }),
-  );
+  if (wrote) {
+    countAfterCommit(transaction, () =>
+      ledgerWrites.inc({ operation: deleted ? "delete" : "restore" }),
+    );
+  }
   return changed;
 }
 

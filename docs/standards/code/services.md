@@ -312,6 +312,29 @@ correct.
 `staleVersion` carries `currentVersion` so a client can offer "reload and try
 again" rather than "something went wrong". See `errors.md`.
 
+**And a write that changes nothing is not a write.** After the version check,
+every update compares what it would store with what is stored and, when they
+agree, returns the row as it is: no new version, no audit entry, no posting
+(`patchChangesNothing` and `sameStoredValue`, `src/server/services/helpers.ts`).
+Until the 0.2.0 sandbox smoke test, saving an entry unchanged moved its version
+from 1 to 2, and a bumped version is not harmless: every other form and every
+mass-edit fingerprint holding the record is now stale and refuses its next
+save, over a change nobody made. The comparison reads values the way a screen
+does — amounts as numbers, blank and absent as the same thing, a JSON column by
+content — because a column hands back eighteen places and a request as many as
+somebody typed. A transaction compares its legs by id as well
+(`changesNothing`, `src/server/services/transactions.ts`), since a leg sent
+without one is a new leg even when its figures agree. Asking a record for the
+state it is already in — archiving an archived account, deleting a deleted
+entry — is the same nothing, and a mass edit writes only the rows its patch
+changes, reports those rows' versions unmoved, and counts only the changed ones
+in `updatedCount`. Checked by
+`tests/integration/unchanged-edits.integration.test.ts`, which saves every
+record a form edits without changing it, and by `tests/unchanged-writes.test.ts`,
+which finds every exported service function that bumps a version and requires
+it to compare first or be named with the reason its writes always change
+something — a merge, and the queue's delete and commit.
+
 *Checked by:* `tests/integration/mcp-tools.integration.test.ts`, "tells an agent
 to read the row again, and hands it the version to use", which sends a version
 the row never had and asserts the refusal comes back naming the version it
@@ -412,6 +435,16 @@ sites would not have found it: nothing named a lock that did not exist.
 The lock is per user and per namespace, so it serializes the smallest thing that
 has to be serialized.
 
+**What "already exists" means is the same in all five.** A name is compared
+folded — case and spacing ignored, `normalizeHumanName` in
+`src/shared/names.ts` — and accounts were the one namespace that compared
+exactly, so "Checking" and "CHECKING" could sit side by side as two accounts
+nobody could tell apart in a picker. They now compare folded too, inside the
+lock (`assertAccountNameAvailable`, `src/server/services/accounts.ts`). In the
+service rather than by a unique index on the folded name, because a deployment
+that already holds two such accounts would fail the migration that added one;
+this way they keep both and can rename either.
+
 **The account lock now serializes two different questions, and the heading only
 names one of them.** The second is "is there a free place?", which a plan that
 caps active accounts makes a question two requests can both answer yes to.
@@ -440,7 +473,7 @@ that names or references a category needs the lock even though no name is
 being invented.
 
 A sixth lock now sits in that range and is **not** part of the ordering.
-`lockBillingState` (`src/server/services/helpers.ts:343-359`) is the same
+`lockBillingState` (`src/server/services/helpers.ts:398-414`) is the same
 mechanism for a different purpose: it serializes the read-decide-write in
 `reconcileSubscription`, because Stripe guarantees no ordering between
 deliveries and two replicas holding snapshots of one subscription would
@@ -633,7 +666,7 @@ repairable instead of killing the batch it arrived in. It is also what archiving
 already throws, and a frozen account is the same kind of no.
 
 **The pool-side read is a second function, not an optional parameter.**
-`readAccountFreeze(actor)` (`src/server/services/accounts.ts:778`) exists for
+`readAccountFreeze(actor)` (`src/server/services/accounts.ts:788`) exists for
 `getAccount`, which holds no transaction. Giving `accountFreeze` an optional
 `tx` would have been one function instead of two, and it is exactly the shape
 2.1's second half forbids: a helper handed a transaction must never be able to
@@ -674,7 +707,7 @@ Nine update statements in this directory take it, in seven declarations, and
 every one argues it in a comment beside the write. They cross-cite each other,
 which is how you can tell it is one decision made once:
 
-- `setActiveAccounts` (`src/server/services/accounts.ts:915`) — "`active` is not
+- `setActiveAccounts` (`src/server/services/accounts.ts:925`) — "`active` is not
   part of `accountUpdateSchema` and nothing edits it through that path, so a
   bump here would invalidate the expected version in every form somebody had
   open for a reason that has nothing to do with what they were editing."
@@ -735,7 +768,7 @@ flushes with `flushDeferredCounts` after `getDb().transaction` resolves
 `staging.ts`.
 
 The keying is the part a new author gets wrong, and the source says so where it
-is written (`src/server/services/helpers.ts:142`): the queue is a
+is written (`src/server/services/helpers.ts:197`): the queue is a
 `WeakMap<DbTransaction, …>`. **A module-level queue would be shared between
 concurrent requests and one request could flush another's counts** — the worse
 bug in place of the one being fixed. Two requests hold two transaction objects,
@@ -860,7 +893,7 @@ a source read can settle here.
 **Binding**, because it is the rule most recently got wrong.
 
 Resolving a category by name never widens the category it finds
-(`src/server/services/categories.ts:155`).
+(`src/server/services/categories.ts:156`).
 Widening to `both` was correct while an entry could only name a category of its
 own direction. It stopped being correct when a category running against the
 direction became a refund, and it stopped quietly: `both` agrees with whichever

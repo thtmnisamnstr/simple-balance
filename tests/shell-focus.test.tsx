@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { readdirSync, readFileSync } from "node:fs";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { Alert } from "../src/client/components.js";
+import { Alert, Modal } from "../src/client/components.js";
 
 /**
  * Where focus is, at the four moments `web.md` 13.3 called the largest hole in
@@ -126,6 +126,32 @@ describe("an alert that reports a finished action", () => {
     const alert = screen.getByRole("status");
     expect(document.activeElement).toBe(alert);
     expect(alert.getAttribute("tabindex")).toBe("-1");
+  });
+
+  /**
+   * When the work was confirmed in a dialog, the dialog is still open as the
+   * sentence mounts, and closing it hands focus back to the button that opened
+   * it — which the work removed. The sentence takes focus again on the dialog's
+   * `close`. Found by the 0.2.0 sandbox smoke test on a bulk edit's "N
+   * transactions updated."; `tests/browser/smoke-test-fixes.spec.ts` holds it
+   * in a real browser, where the open dialog makes the page behind it inert.
+   */
+  it("takes focus again once the dialog it was confirmed in has closed", () => {
+    const view = (open: boolean) => (
+      <>
+        <Modal open={open} title="Edit selected" onClose={() => {}}>
+          <button type="button">Apply changes</button>
+        </Modal>
+        <Alert kind="success" takeFocus>
+          2 transactions updated.
+        </Alert>
+      </>
+    );
+    const { rerender } = render(view(true));
+    // What the open dialog does in a browser: focus stays inside it.
+    act(() => screen.getByRole("button", { name: "Apply changes", hidden: true }).focus());
+    rerender(view(false));
+    expect(document.activeElement).toBe(screen.getByRole("status"));
   });
 
   it("leaves focus alone otherwise", () => {

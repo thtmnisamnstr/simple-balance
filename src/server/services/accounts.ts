@@ -38,10 +38,12 @@ import {
   decimal,
   lockAccountNamespace,
   lockAccountReferences,
+  patchChangesNothing,
   serializeRow,
   writeAudit,
   writeAuditMany,
 } from "./helpers.js";
+import { normalizeHumanName } from "../../shared/names.js";
 import { getPreferences } from "./preferences.js";
 import { getEntitlement } from "./billing.js";
 import { calendarDayIn, todayIn } from "../../shared/recurrence-dates.js";
@@ -671,18 +673,26 @@ async function assertAccountNameAvailable(
   name: string,
   excludeId?: string,
 ) {
-  const [existing] = await tx
-    .select({ id: ledgerAccounts.id })
+  // Compared the way categories and payees are, ignoring case and spacing, so
+  // "Checking" and "CHECKING" cannot sit side by side as two accounts nobody
+  // can tell apart in a picker. Decided here rather than by an index on the
+  // folded name: a deployment that already holds two such accounts keeps
+  // them, and can still rename either one, where a new unique index would
+  // have failed the migration that added it. Every caller holds
+  // `lockAccountNamespace`, which is what keeps two requests from both
+  // reading the folded name as free.
+  const wanted = normalizeHumanName(name);
+  const rows = await tx
+    .select({ id: ledgerAccounts.id, name: ledgerAccounts.name })
     .from(ledgerAccounts)
     .where(
       and(
         eq(ledgerAccounts.userId, actor.userId),
-        eq(ledgerAccounts.name, name),
         isNull(ledgerAccounts.systemKind),
         excludeId ? ne(ledgerAccounts.id, excludeId) : undefined,
       ),
-    )
-    .limit(1);
+    );
+  const existing = rows.find((row) => normalizeHumanName(row.name) === wanted);
   if (existing) {
     throw duplicate("An account with this name already exists", {
       duplicateAccountId: existing.id,
@@ -1077,6 +1087,9 @@ export async function updateAccount(
     // every change, not only the ones that move money: a rename is a change,
     // and an opening-balance edit posts twice.
     assertAccountsWritable(await accountFreeze(tx, actor), [id]);
+    if (patchChangesNothing(before, changes, ["openingBalance"])) {
+      return { ...accountView(before, await currentBalance(tx, actor, id)), frozen: false };
+    }
 
     if (changes.name && changes.name !== before.name) {
       // The reference lock above is per account id and does not serialize two
@@ -1157,6 +1170,10 @@ export async function setAccountArchived(
     // every change, not only the ones that move money: a rename is a change,
     // and an opening-balance edit posts twice.
     assertAccountsWritable(await accountFreeze(tx, actor), [id]);
+    // Asked for the state it is already in: nothing moves, so nothing is written.
+    if ((before.archivedAt !== null) === archived) {
+      return { ...accountView(before, await currentBalance(tx, actor, id)), frozen: false };
+    }
     if (archived && (await activeStagedAccountReferenceCount(tx, actor, id)) > 0) {
       throw conflict(
         "Resolve staged transactions that reference this account before archiving it.",

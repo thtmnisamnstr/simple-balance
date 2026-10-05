@@ -188,6 +188,9 @@ export default function AccountsPage({ session }: { session: Session }) {
             ...json({ expectedVersion: account.version }),
             method: "DELETE",
           }),
+    // The last notice is about the last press. Left up, it sat beside this
+    // press's refusal saying the opposite.
+    onMutate: () => setNotice(""),
     onSuccess: async (_result, { account, action }) => {
       setNotice(
         action === "delete"
@@ -228,7 +231,20 @@ export default function AccountsPage({ session }: { session: Session }) {
           failure is not here: it renders where the list would have been, so
           the page does not become a header, a filter bar and nothing with the
           explanation scrolled off the top. 7.6. */}
-      {mutation.error ? <Alert>{mutation.error.message}</Alert> : null}
+      {/* Named, and taking focus: the press came from a menu far down the
+          page, and the confirmation that asked first has closed, so without
+          it focus fell to <body> and the refusal was off screen. */}
+      {mutation.error && mutation.variables ? (
+        <Alert takeFocus>
+          {`“${mutation.variables.account.name}” was not ${
+            mutation.variables.action === "delete"
+              ? "deleted"
+              : mutation.variables.account.archivedAt
+                ? "restored"
+                : "archived"
+          }. ${mutation.error.message}`}
+        </Alert>
+      ) : null}
       {notice ? (
         <Alert kind="success" takeFocus>
           {notice}

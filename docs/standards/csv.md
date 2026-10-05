@@ -479,7 +479,7 @@ that transfer actually got. On import the two amounts travel on the staged row
 and the rate does not, because the rate is `destination / source` and
 recomputing it from the amounts cannot disagree with them. If the two accounts
 chosen at commit share a currency, the commit refuses: "Same-currency transfer
-amounts must match" (`src/server/services/transactions.ts:542-597`). That is the
+amounts must match" (`src/server/services/transactions.ts:544-599`). That is the
 right refusal. A rate is a fact about a movement, not a preference.
 
 **Binding.** `AGENTS.md`: "Preserve audit history, transaction provenance, and
@@ -635,7 +635,7 @@ Three mechanisms, and they are deliberately not the same strictness:
    (`stagedDuplicateKey`, `src/server/services/transactions.ts:2614-2662`).
 2. **The advisory badge.** The queue also looks for a committed transaction of
    the same type, account and amount within `LIKELY_DUPLICATE_DAYS`, which is
-   three (`src/shared/domain.ts:1381`, `src/server/services/staging.ts:586-662`).
+   three (`src/shared/domain.ts:1381`, `src/server/services/staging.ts:587-663`).
    The payee is ignored outright and the date gets three days of latitude, on
    purpose: the bank posts when it settles rather than when the card was swiped,
    and it names the merchant its own way. This decides nothing. It opens a

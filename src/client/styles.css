@@ -649,12 +649,19 @@ a {
     background 120ms ease;
 }
 
-.button:active:not(:disabled) {
+.button:active:not(:disabled, [aria-disabled="true"]) {
   transform: translateY(1px);
 }
 
 .button:disabled {
   cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Working rather than unavailable: the button keeps focus (see `Button`), and
+   looks as a disabled one did, with the cursor saying it is busy. */
+.button[aria-disabled="true"] {
+  cursor: progress;
   opacity: 0.5;
 }
 
@@ -664,7 +671,7 @@ a {
   box-shadow: 0 5px 14px var(--accent-glow);
 }
 
-.button-primary:hover:not(:disabled) {
+.button-primary:hover:not(:disabled, [aria-disabled="true"]) {
   background: var(--green-fill-hover);
 }
 
@@ -771,7 +778,7 @@ a {
   background: var(--surface);
 }
 
-.button-secondary:hover:not(:disabled) {
+.button-secondary:hover:not(:disabled, [aria-disabled="true"]) {
   border-color: var(--line-strong);
   background: var(--surface-soft);
 }
@@ -781,7 +788,7 @@ a {
   background: transparent;
 }
 
-.button-ghost:hover:not(:disabled) {
+.button-ghost:hover:not(:disabled, [aria-disabled="true"]) {
   background: var(--fill-subtle);
 }
 
@@ -1312,12 +1319,34 @@ input[type="radio"] {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
+  gap: 12px;
+}
+
+/* Wrapped like the metric tiles below it, never clipped. A balance has up to
+   twenty-six integer digits, and at 375px one that long pushed the heading off
+   the right edge and the whole page scrolled sideways. The flex item has to be
+   allowed to shrink before the text inside it can wrap. */
+.currency-heading > div {
+  min-width: 0;
 }
 
 .currency-heading h2 {
   margin: 4px 0 0;
   font-size: 20px;
   letter-spacing: -0.03em;
+  overflow-wrap: anywhere;
+}
+
+/* A table's own name, shown above it. Left-aligned like the column it heads
+   and set like the currency code it most often carries. */
+.table-caption {
+  padding: 12px 14px 8px;
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 780;
+  letter-spacing: 0.06em;
+  text-align: left;
+  caption-side: top;
 }
 
 .currency-code {
@@ -1451,6 +1480,16 @@ input[type="radio"] {
 
 .account-mini-row strong {
   display: block;
+}
+
+/* The name and the balance each give way rather than push the row wider. */
+.account-mini-row > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.account-mini-row > span {
+  text-align: right;
 }
 
 .account-mini-list {
@@ -1667,6 +1706,13 @@ input[type="radio"] {
 
 .account-card-link > footer strong {
   font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+/* For the same reason as the currency heading: the balance may be very long,
+   and a flex child will not shrink below its content unless told it may. */
+.account-card-link > footer > div {
+  min-width: 0;
 }
 
 /* SC 2.5.8 Target Size, met on the spacing branch rather than the size one.
@@ -3518,6 +3564,16 @@ input[type="radio"] {
   gap: 14px;
 }
 
+/* The question a radio row answers, set like a field's label because that is
+   what it is: the visible name the group is labelled by. */
+.radio-question {
+  display: block;
+  margin-top: 8px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 650;
+}
+
 .recurrence-preview {
   display: grid;
   gap: 6px;
@@ -4152,18 +4208,26 @@ polyline.chart-line {
   .sidebar {
     transform: translateX(-102%);
     box-shadow: 18px 0 55px var(--shadow-overlay);
+    /* Hidden only once the slide out has finished, so it stays visible while
+       it moves. */
     transition:
       transform 180ms ease,
-      visibility 180ms;
+      visibility 0s linear 180ms;
     /* Moved off screen it is still focusable, so tabbing from the header walked
        into a menu nobody can see and ended on Sign out. Hidden takes it out of
        the tab order; the transform still does the animation. */
     visibility: hidden;
   }
 
+  /* Visible at once on the way in. A transitioned `visibility` holds its old
+     value until partway through, so the drawer was still hidden at the moment
+     it was asked to take focus, and focus stayed on <body>. */
   .sidebar.open {
     transform: translateX(0);
     visibility: visible;
+    transition:
+      transform 180ms ease,
+      visibility 0s;
   }
   .mobile-close {
     display: grid;
@@ -4230,9 +4294,12 @@ polyline.chart-line {
   .section-title:has(> .page-actions) > .page-actions .button {
     flex: 1;
   }
+  /* `minmax(0, 1fr)`, not `1fr`: a bare `1fr` cannot go below its content's
+     narrowest width, so a twenty-six digit balance in the accounts panel
+     widened the column past the screen and both panels with it. */
   .dashboard-detail-grid,
   .auth-shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .auth-art {
     display: none;

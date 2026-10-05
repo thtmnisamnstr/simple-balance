@@ -156,8 +156,13 @@ describe("splitting a transaction in the form", () => {
     fireEvent.click(screen.getByText("Split across categories"));
 
     fireEvent.change(legAmount(1), { target: { value: "60" } });
-    expect(screen.getByText("40 left to assign.")).toBeInTheDocument();
+    // As money, in the account's currency: the bare "40 left to assign." named
+    // neither, which the 0.2.0 sandbox smoke test found on a euro account.
+    expect(screen.getByText("$40.00 left to assign.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Commit transaction/ })).toBeDisabled();
+
+    fireEvent.change(legAmount(2), { target: { value: "65.5" } });
+    expect(screen.getByText("$25.50 more than the total is assigned.")).toBeInTheDocument();
 
     fireEvent.change(legAmount(2), { target: { value: "40" } });
     expect(screen.getByText("The split adds up.")).toBeInTheDocument();

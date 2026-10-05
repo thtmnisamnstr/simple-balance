@@ -75,7 +75,7 @@ erases just as well.
 
 **Contested.** The flag is good advice in general and wrong here. All three
 sites it flags are Hono middleware
-(`src/server/api.ts:1350`, `src/server/http-security.ts:480` and `:887`),
+(`src/server/api.ts:1352`, `src/server/http-security.ts:480` and `:938`),
 where a `MiddlewareHandler` returns a `Response` to answer the request or
 nothing at all to let the next handler run. "Returns on some paths and not
 others" is the contract, not a mistake.
@@ -318,7 +318,7 @@ load-bearing by `AGENTS.md`:
 - `authReporting` (`src/server/auth.ts:56-73`) returns the logger and error
   handler Better Auth is configured with, checked against
   `Pick<BetterAuthOptions, "logger" | "onAPIError">` without being flattened
-  into it. `src/server/auth.ts:96` spreads the result and
+  into it. `src/server/auth.ts:121` spreads the result and
   `tests/auth-log.test.ts:379` destructures `.onAPIError` off it — which the
   library's own type makes optional, so an annotation would stop that
   compiling.
@@ -602,7 +602,7 @@ updateTransaction(actor, id, input, transaction?)
 setTransactionDeleted(actor, id, expectedVersion, deleted, allowDuplicate?, transaction?)
 ```
 
-(`src/server/services/transactions.ts:1076`, `:2337` and `:2430`.)
+(`src/server/services/transactions.ts:1118`, `:2337` and `:2430`.)
 
 Note that `updateTransaction` takes `input: unknown` and parses it, rather than
 a typed object: the version and the draft arrive together inside it. An update

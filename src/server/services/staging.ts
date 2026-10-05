@@ -53,6 +53,7 @@ import {
   lockCategoryNamespace,
   lockIdempotencyKey,
   lockPayeeNamespace,
+  patchChangesNothing,
   selectionFingerprint,
   serializeRow,
   setIdempotent,
@@ -960,13 +961,17 @@ export async function updateStage(
     if (!before || before.status !== "staged") throw notFound("Staged transaction not found");
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
     const validation = await validateDraft(tx, actor, canonicalDraft);
+    const next = {
+      draft: canonicalDraft,
+      validationIssues: validation.issues,
+      duplicateOfId: validation.duplicateOfId,
+      duplicateKey: validation.duplicateKey,
+    };
+    if (patchChangesNothing(before, next)) return stageView(before);
     const [updated] = await tx
       .update(stagedTransactions)
       .set({
-        draft: canonicalDraft,
-        validationIssues: validation.issues,
-        duplicateOfId: validation.duplicateOfId,
-        duplicateKey: validation.duplicateKey,
+        ...next,
         version: expectedVersion + 1,
         updatedAt: new Date(),
       })
@@ -1624,15 +1629,27 @@ export async function bulkEditStages(
       });
     }
 
+    // A row the patch leaves as it was, issues and all, is not written: the same
+    // rule a single unchanged save follows, for the same reason.
+    const changing = planned.filter(
+      (entry) =>
+        !patchChangesNothing(entry.row, {
+          draft: entry.draft,
+          validationIssues: entry.issues,
+          duplicateOfId: entry.duplicateOfId,
+          duplicateKey: entry.duplicateKey,
+        }),
+    );
+    const changed = new Set(changing);
     const items = planned.map((entry) => ({
       id: entry.row.id,
-      version: entry.row.version + (parsed.dryRun ? 0 : 1),
+      version: entry.row.version + (parsed.dryRun || !changed.has(entry) ? 0 : 1),
       issueCount: entry.issues.length,
       possiblyDuplicate: entry.duplicateOfId !== null,
     }));
     const result: BulkStageEditResult = {
       dryRun: parsed.dryRun,
-      updatedCount: planned.length,
+      updatedCount: changing.length,
       validCount: planned.filter((entry) => entry.issues.length === 0).length,
       invalidCount: planned.filter((entry) => entry.issues.length > 0).length,
       items,
@@ -1646,8 +1663,8 @@ export async function bulkEditStages(
     // refuses for having too many bind parameters.
     const CHUNK = 500;
     const now = new Date();
-    for (let start = 0; start < planned.length; start += CHUNK) {
-      const batch = planned.slice(start, start + CHUNK);
+    for (let start = 0; start < changing.length; start += CHUNK) {
+      const batch = changing.slice(start, start + CHUNK);
       const patches = sql.join(
         batch.map(
           (entry) =>
@@ -1691,8 +1708,8 @@ export async function bulkEditStages(
     // landed. One query per chunk against rows this transaction holds locked.
     const before = new Map(planned.map((entry) => [entry.row.id, entry.row]));
     const audits: Parameters<typeof writeAuditMany>[2][number][] = [];
-    for (let start = 0; start < planned.length; start += CHUNK) {
-      const ids = planned.slice(start, start + CHUNK).map((entry) => entry.row.id);
+    for (let start = 0; start < changing.length; start += CHUNK) {
+      const ids = changing.slice(start, start + CHUNK).map((entry) => entry.row.id);
       const rows = await tx
         .select()
         .from(stagedTransactions)

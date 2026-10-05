@@ -755,9 +755,11 @@ describe("the CSV import, with frozen accounts in the ledger", () => {
     return { ...view, staged };
   }
 
-  it("starts on an account the rows can be posted to, and lists no frozen one", async () => {
+  it("lists no frozen account, and stages against the one chosen", async () => {
     // Every row of the file lands on this one account, so a frozen default
-    // stages the whole file with the same issue on every row.
+    // stages the whole file with the same issue on every row. With two live
+    // accounts nothing is chosen for the person at all — the first of several
+    // was, until the 0.2.0 sandbox smoke test — so the choice is made here.
     const { container, staged } = mountImport([FROZEN, LIVE, OTHER]);
     await screen.findByRole("heading", { name: "Choose a CSV file" });
     const csv = "date,payee,amount\n2026-07-31,Market,-12.34";
@@ -767,6 +769,8 @@ describe("the CSV import, with frozen accounts in the ledger", () => {
       target: { files: [file] },
     });
     const picker = (await screen.findByLabelText("Account")) as HTMLSelectElement;
+    expect(picker.value).toBe("");
+    fireEvent.change(picker, { target: { value: LIVE.id } });
     expect(picker.value).toBe(LIVE.id);
     const names = [...picker.options].map((option) => option.textContent);
     expect(names.join(" ")).toContain(OTHER.name);

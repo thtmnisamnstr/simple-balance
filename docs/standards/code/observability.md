@@ -58,7 +58,7 @@ metrics library does not return.
 ### 1.3 A route label is the pattern, never the path
 
 **Binding.** `/api/v1/accounts/:id` is one series; `/api/v1/accounts/<uuid>` is
-one per account. `routeLabel` (`src/server/api.ts:322-329`) reads Hono's matched
+one per account. `routeLabel` (`src/server/api.ts:323-330`) reads Hono's matched
 pattern, and resolves the two different things that both arrive as `/*`: a
 request answered by middleware mounted above the routes — which is where a 413
 from the body limit lands — is labeled by its prefix from a fixed list

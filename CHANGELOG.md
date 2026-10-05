@@ -4,7 +4,108 @@ Notable changes, newest first.
 
 ## Unreleased
 
+Everything below except the `oci-single` fix came out of a full smoke test of a
+0.2.0 deployment — the browser app, the HTTP API, the MCP surface and billing
+against a Stripe sandbox.
+
+### Changed
+
+**Moving from monthly to annual asks first.** It is the one plan change that
+charges a card the moment it is pressed, and it did so on a single click. The
+plan tab now says the annual plan starts today, that what is left of the month
+is credited and the difference is charged now, and charges nothing until that is
+confirmed. Nothing else asks: a move to monthly waits for the renewal, canceling
+runs to the end of the period, and both are undone on the same tab, so canceling
+stays exactly as easy as subscribing.
+
 ### Fixed
+
+**Saving something without changing it no longer makes every other copy of it
+stale.** An unchanged save of a transaction, account, category, group, budget,
+template, recurrence or staged row rewrote the row and bumped its version, so a
+second tab or an agent holding the same record was refused its next save over a
+change nobody made. Such a save now writes nothing — no new version, no audit
+entry, no posting — and so does archiving something already archived or
+deleting something already deleted. A mass edit writes only the rows its change
+actually changes, and its count says how many that was.
+
+**MCP connections no longer hold a server open for nothing.** The endpoint is
+stateless, and it answered every client's `GET` with an event stream that could
+never carry a message and stayed open, one connection and one server instance
+per connected agent. It now answers `405`, which MCP clients read as "no stream
+here".
+
+**The session cookie's secret stays out of page script.** The cookie is
+`HttpOnly`, and the sign-in, sign-up, session and session-list answers handed
+the same value back in JSON anyway, readable by any script running on the page
+— and while advertising is on, the page allows scripts from any HTTPS origin.
+Those answers no longer carry it.
+
+**Forms say what is wrong next to the field that is wrong.** A refusal from the
+server listed its sentences at the top of the account, transaction, template
+and recurrence forms and nowhere else. Each sentence now also appears beside the
+field it is about, which is marked invalid, and each line of the summary at the
+top is a link that takes you to that field.
+
+**Focus stays where you are working.** A button that was busy dropped focus, so
+the next Tab started from the top of the page; the result of a bulk edit, or of
+anything confirmed in a dialog, never received focus; deleting or restoring a
+single transaction said nothing at all; opening the menu on a phone left focus
+behind it, and following a link from it pulled focus back out of the page it
+opened. All of these now land focus on the button that is still there or on the
+sentence saying what happened. The menu button says whether the menu is open,
+and a deleted transaction is labeled "Deleted" in words as well as struck
+through.
+
+**A refused delete says so where you can see it.** Deleting a category or an
+account that is still in use put the refusal at the top of the page, often far
+above the row, beside an earlier success message that was no longer true. The
+refusal now names what was not deleted, takes focus, and replaces the old
+message.
+
+**A CSV import no longer picks an account for you.** With several accounts, the
+first one alphabetically was already chosen, one press from staging a whole file
+into an account nobody had named. It now asks, unless there is only one.
+
+**Two accounts can no longer be told apart only by capital letters.** Account
+names were the one kind of name compared exactly, so "Checking" and "CHECKING"
+could both exist. They are now compared the way categories and payees are.
+Accounts that already differ only that way are kept.
+
+**A recurring transfer between an account and itself is refused when it is
+made**, rather than accepted and then filling the staged queue, every time it
+came due, with a row nobody could commit.
+
+**Pages that were hard to read on a phone or a screen reader.** A very large
+balance pushed the overview and accounts pages sideways at phone widths, and
+now wraps. The budgets forecast showed one table per currency with nothing on
+screen saying which currency each was. Transfers read "Uncategorized" on the
+transactions list, which looked like work left undone, and now show a dash as
+the staged queue already did. A split's remaining amount read "10 left to
+assign" with no currency and "-65.5 left" when over-assigned; it is written as
+money, and over-assigning says so. The activity history read like code —
+"Create from stage transaction" — and never said which record changed; each
+line now says what happened, in words, and names the record. And the
+add-category form called a kind "Both" that the rest of the app calls "Income
+or expense", while the question about what kind a new category is had no
+visible wording at all.
+
+**Addresses that lead nowhere say so.** An unknown address silently showed the
+overview, a report name nobody knows showed net worth under the wrong address,
+and a failed sign-in or MCP authorization link landed on the overview with no
+word of what had gone wrong. Each now gets a page, or a redirect, that says what
+happened.
+
+**The account-deletion summary counts what is actually in the queue.** It
+counted every staged row ever kept, so somebody with an empty queue was told
+thousands of staged rows were about to be deleted.
+
+**Smaller things.** The free-plan refusal said "this one has 3" where it meant
+the ledger; the plan tab mentioned frozen accounts when none were frozen; Google
+sign-in asked for each of its three scopes twice; a signed-out visit logged a
+failed request in the browser on every load; and `/robots.txt` answered with the
+app's own page, which a crawler reads as having no rules.
+
 
 **The first `pulumi up` of a new `oci-single` stack no longer fails at the
 settings key.** OCI reports a new vault active minutes before the vault's own

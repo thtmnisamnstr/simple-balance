@@ -77,8 +77,11 @@ integration("transaction duplicate protection", () => {
     };
 
     const created = await createTransaction(actor, original, "duplicate-direct-original");
+    // A change that is not to the movement, so the save is written and passes
+    // through the duplicate check: an entry is never its own duplicate. An
+    // identical draft would write nothing and never reach the check.
     const selfUpdated = await updateTransaction(actor, created.id, {
-      draft: original,
+      draft: { ...original, notes: "checked against itself" },
       expectedVersion: created.version,
       allowDuplicate: false,
     });

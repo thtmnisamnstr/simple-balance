@@ -116,7 +116,7 @@ describe("choosing what a new category is", () => {
     chooseType(/Deposit/);
     fireEvent.change(picker(), { target: { value: "Gadgets" } });
     expect(
-      screen.getByRole("radiogroup", { name: "What kind of category Gadgets is" }),
+      screen.getByRole("radiogroup", { name: "What kind of category is “Gadgets”?" }),
     ).toBeInTheDocument();
     // The direction's own guess is what is selected until somebody says
     // otherwise, so the default answer is the one the server would have given.
@@ -222,7 +222,7 @@ describe("choosing what a new category is", () => {
     fireEvent.change(pickers[1]!, { target: { value: "Returned Coat" } });
     expect(screen.getAllByLabelText("A refund of money you spent")).toHaveLength(1);
     expect(
-      screen.getByRole("radiogroup", { name: "What kind of category these are" }),
+      screen.getByRole("radiogroup", { name: "What kind of categories are these?" }),
     ).toBeInTheDocument();
   });
 });
@@ -257,7 +257,7 @@ describe("choosing what a new category is, on a recurrence", () => {
     chooseType(/Withdrawal/);
     fireEvent.change(picker(), { target: { value: "Bicycle repairs" } });
     expect(
-      screen.getByRole("radiogroup", { name: "What kind of category Bicycle repairs is" }),
+      screen.getByRole("radiogroup", { name: "What kind of category is “Bicycle repairs”?" }),
     ).toBeInTheDocument();
   });
 

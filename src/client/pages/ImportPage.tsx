@@ -194,7 +194,13 @@ export default function ImportPage() {
       setFileName(name);
       setPreview(parsed);
       setMapping(inferMapping(parsed.headers));
-      setDefaultAccountId((current) => current || writableAccounts[0]?.id || "");
+      // Chosen for them only when there is nothing to choose between. Picking
+      // the alphabetically first of several put a file one press away from
+      // landing in an account nobody had named — and the queue would then
+      // file every row there.
+      setDefaultAccountId(
+        (current) => current || (writableAccounts.length === 1 ? writableAccounts[0]!.id : ""),
+      );
       setResult(null);
       setResultReading("");
       stageIdempotencyKey.current = newIdempotencyKey();
@@ -380,9 +386,13 @@ export default function ImportPage() {
                   <div className={appExport ? undefined : "two-columns"}>
                     <Field label="Account">
                       <Select
+                        required
                         value={defaultAccountId}
                         onChange={(event) => setDefaultAccountId(event.target.value)}
                       >
+                        <option value="" disabled>
+                          Choose an account
+                        </option>
                         {writableAccounts.map((account) => (
                           <option key={account.id} value={account.id}>
                             {account.name} ({account.currency})

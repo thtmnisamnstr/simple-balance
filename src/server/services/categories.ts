@@ -23,6 +23,7 @@ import {
   getIdempotent,
   lockCategoryNamespace,
   lockIdempotencyKey,
+  patchChangesNothing,
   serializeRow,
   setIdempotent,
   writeAudit,
@@ -568,6 +569,7 @@ export async function updateCategory(
       .limit(1);
     if (!before) throw notFound("Category not found");
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
+    if (patchChangesNothing(before, changes)) return serializeRow(before);
     if (changes.name !== undefined) {
       await assertNormalizedNameAvailable(tx, actor, changes.name, id);
     }
@@ -620,6 +622,8 @@ export async function setCategoryArchived(
       .limit(1);
     if (!before) throw notFound("Category not found");
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
+    // Asked for the state it is already in: nothing moves, so nothing is written.
+    if ((before.archivedAt !== null) === archived) return serializeRow(before);
     if (archived && (await activeStagedCategoryReferenceCount(tx, actor, id)) > 0) {
       throw conflict(
         "Resolve staged transactions that reference this category before archiving it.",

@@ -65,6 +65,7 @@ const WORDS: Record<number, string> = {
   24: "twenty-four",
   27: "twenty-seven",
   28: "twenty-eight",
+  30: "thirty",
   35: "thirty-five",
   36: "thirty-six",
 };

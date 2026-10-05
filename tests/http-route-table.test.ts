@@ -140,9 +140,11 @@ describe("the conventions the paths follow", () => {
   /**
    * And the parameters a handler still names, as a fixed list.
    *
-   * Eight reads remain and every one of them hands its string straight to
-   * something that parses it — `queryBooleanSchema` for the flag,
-   * `isoDateSchema` inside the service for the dates. That is the defense in
+   * Nine reads remain and every one of them hands its string straight to
+   * something that parses it — `queryBooleanSchema` for the two flags,
+   * `isoDateSchema` inside the service for the dates. `optional` is the
+   * session probe's, read before the route because signed out is decided in
+   * the middleware (`docs/standards/http.md`, Session and account). That is the defense in
    * the right place, so these are not defects; naming them is what makes a
    * ninth a decision somebody made rather than one that arrived.
    */
@@ -152,7 +154,7 @@ describe("the conventions the paths follow", () => {
     const named = [
       ...new Set([...routes.matchAll(/c\.req\.query\(\s*"([^"]+)"/g)].map((match) => match[1]!)),
     ].sort();
-    expect(named).toEqual(["end", "includeArchived", "search", "start"]);
+    expect(named).toEqual(["end", "includeArchived", "optional", "search", "start"]);
   });
 });
 

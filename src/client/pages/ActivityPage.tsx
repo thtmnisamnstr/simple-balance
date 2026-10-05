@@ -24,28 +24,105 @@ function actorPresentation(source: ActorSource | string) {
 }
 
 /**
- * An audit event as the line somebody reads: "create budget plan", which the
- * stylesheet capitalizes to "Create Budget Plan".
+ * What each stored operation did, in words, as the end of a sentence.
  *
  * The stored operation is history and stays exactly as it was written — the
  * MCP returns it, and a log that rewrote its own entries would not be one — so
- * the words are made here, on the way to the screen. Most operations are a
- * bare snake_case verb ("payee_merge"), but the budget and category-group
- * services record theirs as `entity.camelCaseVerb`, and printing that whole
- * opened the page with "BudgetPlan.Create Budget Plan": the entity twice, once
- * as a code identifier. The prefix only names the entity the line already
- * ends with, so everything up to the last dot is dropped and the camelCase
- * verb is split into words.
+ * the words are made here, on the way to the screen. Splitting the identifier
+ * into words was the old answer and it read as code: "create from stage
+ * transaction", "payee merge transaction". An operation this table does not
+ * know still falls back to that, so a newer server never shows a blank line.
+ */
+const operationWords: Record<string, string> = {
+  create: "created",
+  update: "edited",
+  delete: "deleted",
+  restore: "restored",
+  archive: "archived",
+  unarchive: "restored from the archive",
+  revoke: "disconnected",
+  merge: "merged",
+  merge_into: "merged into another",
+  category_merge: "moved to another category by a merge",
+  payee_merge: "moved to another payee by a merge",
+  bulk_edit: "edited with others at once",
+  bulk_update: "edited with others at once",
+  bulk_delete: "deleted with others at once",
+  create_from_csv: "imported from a CSV file",
+  update_from_csv: "changed by a CSV import",
+  create_from_transaction: "created by a transaction that named it",
+  update_from_transaction: "changed by a transaction that named it",
+  create_from_recurrence: "proposed by a recurring transaction",
+  create_from_stage: "committed from the staged queue",
+  commit: "committed",
+  moveOnMerge: "moved by a category merge",
+  activate: "marked in use",
+};
+
+/** What each kind of record is called on screen, which is not always its table. */
+const entityWords: Record<string, string> = {
+  account: "account",
+  budget_entry: "budget entry",
+  budget_plan: "budget plan",
+  category: "category",
+  category_group: "category group",
+  connected_app: "agent connection",
+  import_batch: "import",
+  payee: "payee",
+  recurrence: "recurring transaction",
+  staged_transaction: "staged row",
+  transaction: "transaction",
+  transaction_template: "template",
+  user_preferences: "preferences",
+};
+
+/**
+ * The record's own name, read out of what the entry recorded about it.
+ *
+ * "Edited transaction" said what kind of thing changed and not which one, on a
+ * page whose whole job is telling somebody what happened to their books. The
+ * snapshot is the record as it was stored, so this is its name as written, and
+ * a record deleted since still has one.
+ */
+function recordName(snapshot: unknown): string | null {
+  if (!snapshot || typeof snapshot !== "object") return null;
+  const record = snapshot as Record<string, unknown>;
+  const draft =
+    record.draft && typeof record.draft === "object"
+      ? (record.draft as Record<string, unknown>)
+      : {};
+  const name = [record.name, record.payee, draft.payee, record.fileName, record.clientName].find(
+    (value): value is string => typeof value === "string" && value.trim() !== "",
+  );
+  if (!name) return null;
+  const trimmed = name.trim();
+  return trimmed.length > 80 ? `${trimmed.slice(0, 79)}…` : trimmed;
+}
+
+/**
+ * An audit event as the line somebody reads: "transaction “Grocer” edited".
+ *
+ * Built lowercase on purpose: the stylesheet uppercases the first letter and
+ * nothing else, so the record's name keeps the spelling it was given. The
+ * entity prefix a dotted operation carries (`budgetPlan.create`) only names
+ * the kind the line already starts with, so it is dropped.
  *
  * Exported for `tests/activity-sentence.test.ts`.
  */
-export function activitySentence(event: Pick<AuditEvent, "operation" | "entityType">) {
-  const verb = event.operation
-    .slice(event.operation.lastIndexOf(".") + 1)
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .replaceAll("_", " ")
-    .toLowerCase();
-  return `${verb} ${event.entityType.replaceAll("_", " ")}`;
+export function activitySentence(
+  event: Pick<AuditEvent, "operation" | "entityType"> &
+    Partial<Pick<AuditEvent, "before" | "after">>,
+) {
+  const operation = event.operation.slice(event.operation.lastIndexOf(".") + 1);
+  const verb =
+    operationWords[operation] ??
+    operation
+      .replace(/([a-z])([A-Z])/g, "$1 $2")
+      .replaceAll("_", " ")
+      .toLowerCase();
+  const noun = entityWords[event.entityType] ?? event.entityType.replaceAll("_", " ");
+  const name = recordName(event.after) ?? recordName(event.before);
+  return `${noun}${name ? ` “${name}”` : ""} ${verb}`;
 }
 
 export default function ActivityPage() {

@@ -5,10 +5,10 @@ keeping.
 
 | Tier | Files | Runs with | Needs |
 | --- | --- | --- | --- |
-| Unit (node) | 195 | `npm test` | nothing |
+| Unit (node) | 198 | `npm test` | nothing |
 | Unit (jsdom) | 59 | `npm test` | nothing |
-| Integration | 75 | `npm test` **or** `npm run test:integration` | PostgreSQL |
-| Browser | 6 | `npm run test:browser` | PostgreSQL, Chromium |
+| Integration | 76 | `npm test` **or** `npm run test:integration` | PostgreSQL |
+| Browser | 7 | `npm run test:browser` | PostgreSQL, Chromium |
 
 **`npm test` collects the integration tier too**, which surprises people and is
 worth stating plainly. `vitest.config.ts:21` excludes four things and only two
@@ -23,14 +23,14 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 255 pass, 74 skip | **2,769 pass, 863 skip** |
-| `npm test`, database set | 329 pass | **3,632 pass** |
-| `npm run test:integration` | 75 pass | 864 pass |
+| `npm test`, no database | 258 pass, 75 skip | **2,799 pass, 882 skip** |
+| `npm test`, database set | 333 pass | **3,681 pass** |
+| `npm run test:integration` | 76 pass | 883 pass |
 
-The integration tier reports 864 tests on its own and 863 skips inside a
+The integration tier reports 883 tests on its own and 882 skips inside a
 database-less `npm test`, and the one-test difference is not an error: one case
 in that tier needs no database and so runs either way. It is counted among the
-2,769 rather than among the skips, which is why the two rows add up to 3,632
+2,799 rather than among the skips, which is why the two rows add up to 3,681
 both times.
 
 The third row is one test larger than the first row's skip count, and the odd
@@ -95,15 +95,18 @@ two assumptions with nothing watching.
 
 ### 1.2 The browser tier is small on purpose
 
-**House.** Six files, one worker, against a real API and a real PostgreSQL.
+**House.** Seven files, one worker, against a real API and a real PostgreSQL.
 `budgets.spec.ts` is the one that drives flows — twenty-three tests of a
-person getting through the budgets page — and the other five are each here
+person getting through the budgets page — and the other six are each here
 rather than in jsdom for the reason 1.1 gives: what they assert is something
-only a layout or paint engine computes. `plan-buttons.spec.ts` measures an
+only a layout, paint or focus engine computes. `plan-buttons.spec.ts` measures an
 offset between two buttons, `progress-paint.spec.ts` reads a progress bar's
 pixels, `reflow.spec.ts` and `target-size.spec.ts` measure the document and
-every target, and `selection-bar.spec.ts` measures one bar in each state its
-controls can take. The tier is slow and it is the only one that proves the
+every target, `selection-bar.spec.ts` measures one bar in each state its
+controls can take, and `smoke-test-fixes.spec.ts` holds what a smoke test of a
+0.2.0 deployment found — where focus lands after a dialog closes, whether a
+transitioned drawer can take focus, whether a long figure pushes the page
+sideways. The tier is slow and it is the only one that proves the
 whole stack works, so it covers a path per capability rather than a case per
 branch. `tests/testing-guide-counts.test.ts` holds the first of those numbers
 to the file it counts, because it sat at eleven while the file grew to eighteen

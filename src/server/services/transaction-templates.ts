@@ -34,6 +34,7 @@ import {
   lockCategoryNamespace,
   lockIdempotencyKey,
   lockTransactionTemplateNamespace,
+  patchChangesNothing,
   serializeRow,
   setIdempotent,
   writeAudit,
@@ -223,27 +224,13 @@ async function writeNotification(
       ),
     );
   if (notification === null) return null;
-  const rule = {
-    frequency: notification.frequency,
-    interval: notification.interval ?? 1,
-    anchorDate: notification.anchorDate,
-    monthPolicy: notification.monthPolicy ?? "last_day",
-    weekendPolicy: notification.weekendPolicy ?? "allow",
-    position: notification.position ?? null,
-  } as const;
+  const rule = ruleOfNotification(notification);
   // Saving the template again must not re-send what has already gone. The row is
   // replaced whole, so without this the watermark is replaced too and a reminder
-  // sent last week is owed again the moment somebody edits the payee.
-  //
-  // Compared after defaults are applied, never against the incoming object: a
-  // one-time reminder legitimately omits the interval and both policies, so the
-  // raw shapes differ every time even when nothing changed. A schedule that
-  // really did change starts afresh, which is what somebody moving the date is
-  // asking for.
-  const unchanged =
-    existing !== undefined &&
-    existing.notifyAt === notification.time &&
-    sameRule(notificationRuleOf(existing), rule);
+  // sent last week is owed again the moment somebody edits the payee. A schedule
+  // that really did change starts afresh, which is what somebody moving the date
+  // is asking for.
+  const unchanged = notificationChangesNothing(existing ?? null, notification);
   const [created] = await tx
     .insert(templateNotifications)
     .values({
@@ -261,11 +248,44 @@ async function writeNotification(
       // in the past is somebody asking to be told about something they have
       // already missed, and the sweep collapses a backlog to one message, so it
       // costs one mail and answers the question they were asking.
-      lastNotifiedDate: unchanged ? existing.lastNotifiedDate : null,
-      nextNotificationDate: unchanged ? existing.nextNotificationDate : firstNotificationDate(rule),
+      lastNotifiedDate: unchanged && existing ? existing.lastNotifiedDate : null,
+      nextNotificationDate:
+        unchanged && existing ? existing.nextNotificationDate : firstNotificationDate(rule),
     })
     .returning();
   return created;
+}
+
+/** A reminder's schedule with the defaults a one-time reminder leaves out filled in. */
+function ruleOfNotification(notification: TemplateNotification) {
+  return {
+    frequency: notification.frequency,
+    interval: notification.interval ?? 1,
+    anchorDate: notification.anchorDate,
+    monthPolicy: notification.monthPolicy ?? "last_day",
+    weekendPolicy: notification.weekendPolicy ?? "allow",
+    position: notification.position ?? null,
+  } as const;
+}
+
+/**
+ * Whether saving this reminder would leave the stored one as it is.
+ *
+ * Compared after defaults are applied, never against the incoming object: a
+ * one-time reminder legitimately omits the interval and both policies, so the
+ * raw shapes differ every time even when nothing changed.
+ */
+function notificationChangesNothing(
+  existing: NotificationRow | null,
+  notification: TemplateNotification | null | undefined,
+) {
+  if (notification === undefined) return true;
+  if (notification === null) return existing === null;
+  return (
+    existing !== null &&
+    existing.notifyAt === notification.time &&
+    sameRule(notificationRuleOf(existing), ruleOfNotification(notification))
+  );
 }
 
 /** Two reminder rules, compared field by field with the position flattened. */
@@ -770,13 +790,19 @@ export async function updateTransactionTemplate(
     if (before.version !== expectedVersion) {
       throw staleVersion({ currentVersion: before.version });
     }
+    const beforeNotification = (await readNotifications(tx, actor, [id])).get(id) ?? null;
+    if (
+      patchChangesNothing(before, { name: changes.name, draft: changes.draft }) &&
+      notificationChangesNothing(beforeNotification, changes.notification)
+    ) {
+      return templateView(before, beforeNotification);
+    }
     if (changes.name !== undefined) {
       await assertNameAvailable(tx, actor, changes.name, id);
     }
     if (changes.draft !== undefined) {
       await assertReferencesAreOwned(tx, actor, changes.draft);
     }
-    const beforeNotification = (await readNotifications(tx, actor, [id])).get(id) ?? null;
     const notification = await writeNotification(tx, actor, id, changes.notification);
     const [updated] = await tx
       .update(transactionTemplates)

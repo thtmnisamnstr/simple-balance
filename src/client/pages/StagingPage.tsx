@@ -55,6 +55,7 @@ import {
   Skeleton,
   SortableHeader,
   type SortState,
+  TransferCategory,
   useConfirm,
 } from "../components.js";
 import { formatDate, formatMoney, movementSign } from "../money.js";
@@ -1220,7 +1221,7 @@ export default function StagingPage() {
                         </div>
                       ) : type === "transfer" ? (
                         // A transfer files under no category by design.
-                        "—"
+                        <TransferCategory />
                       ) : inlineFor(stage, "category") ? (
                         <span
                           // A grouping for the picker's input and list, so a

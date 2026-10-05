@@ -247,3 +247,41 @@ describe("creating one", () => {
     ).toBe(false);
   });
 });
+
+describe("a recurring transfer", () => {
+  const transfer = (to: string) =>
+    shape({ type: "transfer", toAccountId: to, amount: "50.00" }) as Record<string, unknown>;
+
+  it("is refused on create when both sides name one account", () => {
+    const result = recurrenceCreateSchema.safeParse({
+      name: "Sweep",
+      shape: transfer(accountId),
+      schedule: schedule(),
+    });
+    expect(result.success).toBe(false);
+    expect(messages(result)).toContain("Transfer accounts must be different");
+    expect(result.error?.issues[0]?.path).toEqual(["shape", "toAccountId"]);
+  });
+
+  it("is refused on an edit that sends such a shape", () => {
+    const result = recurrenceUpdateSchema.safeParse({
+      shape: transfer(accountId),
+      expectedVersion: 1,
+    });
+    expect(messages(result)).toContain("Transfer accounts must be different");
+  });
+
+  it("is accepted between two accounts", () => {
+    expect(
+      recurrenceCreateSchema.safeParse({
+        name: "Sweep",
+        shape: transfer(otherAccountId),
+        schedule: schedule(),
+      }).success,
+    ).toBe(true);
+  });
+
+  it("still parses when stored that way, so the scheduler keeps proposing a flagged row", () => {
+    expect(recurrenceShapeSchema.safeParse(transfer(accountId)).success).toBe(true);
+  });
+});

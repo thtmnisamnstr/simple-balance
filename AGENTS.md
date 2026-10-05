@@ -89,7 +89,12 @@
   agreeing about a row that changed.
 - Postings are append-only. To correct one, work out the difference per account,
   currency, and date, and append only that. Never update or delete a posting.
-  An edit that changes nothing about the movement writes nothing at all.
+  An edit that changes nothing about the movement writes nothing at all, and an
+  edit that changes nothing writes nothing anywhere: no posting, no new
+  `version`, no audit entry, on every record a form saves with an expected
+  version. A bumped version is not free — every other form holding the record
+  goes stale over a change nobody made — so each update compares first
+  (`patchChangesNothing` in `src/server/services/helpers.ts`).
 - Deleting voids an entry by posting its reversal, and restoring posts it back.
   Nothing filters deleted rows out of a balance, because a voided entry already
   nets to zero. Editing a deleted entry leaves it void.
@@ -410,7 +415,7 @@ disagreement rather than quietly losing it.
 Two habits from those guides are worth knowing before the first edit, because
 both look like mistakes:
 
-- **Comments are dense on purpose** — 26.2% of non-blank lines in `src`. They
+- **Comments are dense on purpose** — 26.3% of non-blank lines in `src`. They
   carry why the obvious alternative is wrong. Do not tidy them away.
   (`docs/standards/code/comments.md`.)
 - **Some loops must not be parallelized.** Legs resolve one at a time so two

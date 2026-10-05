@@ -28,7 +28,7 @@ canonicalizer for payload shapes that cannot occur
 count that came back non-numeric after being cast to one in SQL
 (`src/server/services/payees.ts:58` and `src/server/services/categories.ts:485`);
 three for an `insert().returning()` that came back empty, which either throws or
-returns the row (`src/server/services/budgets.ts:560`, `:934` and
+returns the row (`src/server/services/budgets.ts:566`, `:934` and
 `src/server/services/category-groups.ts:132`); and four in billing, each
 doubting something established moments earlier — the route's own registration,
 the actor's user row, a customer row whose insert had just lost a conflict, and
@@ -61,7 +61,7 @@ use the constructor that names the situation.
 | `validationError` | 422 | The request is well-formed and asks for something impossible. |
 
 **The transport is the named exception, and it is two lines.**
-`src/server/api.ts` constructs `AppError` directly at `:1504` and `:1522`, and
+`src/server/api.ts` constructs `AppError` directly at `:1518` and `:1536`, and
 both carry a code no service raises at all: `FORBIDDEN` and
 `REAUTHENTICATION_REQUIRED` belong to the two operations that are reachable
 from a session and never from a token, which is exactly the pair `AGENTS.md`
@@ -198,14 +198,14 @@ Settings, and tells an agent that only the person who owns the ledger can raise
 the limit: billing is session-only by `AGENTS.md`, so an agent told to upgrade
 is told to do something it holds no credential for, which is the same fault as
 telling it to reload. The active-account chooser
-(`src/server/services/accounts.ts:953`) goes the other way. This is a call an
+(`src/server/services/accounts.ts:963`) goes the other way. This is a call an
 agent *can* make, so its sentence names the call, says what a valid one looks
 like, and — where nothing is frozen — says that no list at all is valid, so the
 agent stops trying different ones instead of guessing.
 
 Six throw sites carry one today and the shape recurs: the archive restore meets
 the same ceiling from the other side
-(`src/server/services/accounts.ts:1176`), the frozen-account refusal is the same
+(`src/server/services/accounts.ts:1193`), the frozen-account refusal is the same
 argument under a 422 (`src/server/services/accounts.ts:847`), and the two in
 `closeBillingForDeletion` (`src/server/services/billing.ts:1946` and `:1953`)
 send a person to whoever runs the server while naming the cause, and whether

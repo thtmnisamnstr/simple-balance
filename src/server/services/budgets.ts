@@ -23,7 +23,13 @@ import {
   type BudgetEntryRow,
   type BudgetPlanRow,
 } from "../db/schema.js";
-import { canonicalDecimal, decimal, lockCategoryNamespace, writeAudit } from "./helpers.js";
+import {
+  canonicalDecimal,
+  decimal,
+  lockCategoryNamespace,
+  patchChangesNothing,
+  writeAudit,
+} from "./helpers.js";
 import { conflict, notFound, staleVersion, validationError } from "./errors.js";
 import { getPreferences } from "./preferences.js";
 import { archivedExclusion, gridQuery, PERIOD_UNITS, withClause } from "./report-sql.js";
@@ -678,13 +684,16 @@ export async function updateBudgetPlan(
       amount: parsed.amount === undefined ? before.amount : parsed.amount,
       isGroup: before.groupId !== null,
     });
+    const next = { amount: carry.amount, activeFrom, activeTo, ...carry.columns };
+    if (
+      patchChangesNothing(before, next, ["amount", "rolloverCap", "targetAmount", "rulePercent"])
+    ) {
+      return planView(before, target);
+    }
     const [updated] = await tx
       .update(budgetPlans)
       .set({
-        amount: carry.amount,
-        activeFrom,
-        activeTo,
-        ...carry.columns,
+        ...next,
         version: before.version + 1,
         updatedAt: new Date(),
       })
@@ -948,6 +957,9 @@ export async function setBudgetEntry(actor: Actor, input: unknown, transaction?:
     }
     if (before.version !== parsed.expectedVersion) {
       throw staleVersion({ currentVersion: before.version });
+    }
+    if (patchChangesNothing(before, { amount: parsed.amount }, ["amount"])) {
+      return entryView(before, target);
     }
     const [updated] = await tx
       .update(budgetEntries)

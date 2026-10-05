@@ -2168,6 +2168,7 @@ describe("a change that needs no payment", () => {
 
     upgraded({ changeInvoice: "paid" });
     await pressFocused(/Annual —/);
+    fireEvent.click(await screen.findByRole("button", { name: "Switch and pay the difference" }));
     await focusedOn(
       "You are on the annual plan now, and the difference was charged to your payment method.",
     );
@@ -2175,6 +2176,7 @@ describe("a change that needs no payment", () => {
 
     upgraded({ changeInvoice: "none" });
     await pressFocused(/Annual —/);
+    fireEvent.click(await screen.findByRole("button", { name: "Switch and pay the difference" }));
     await focusedOn(
       "You are on the annual plan now. Nothing has been charged for the difference, and it goes " +
         "on your next invoice.",
@@ -2183,6 +2185,7 @@ describe("a change that needs no payment", () => {
 
     upgraded({ changeInvoice: "owed" });
     await pressFocused(/Annual —/);
+    fireEvent.click(await screen.findByRole("button", { name: "Switch and pay the difference" }));
     await focusedOn("You are on the annual plan now, and the difference is still to pay.");
     cleanup();
 
@@ -2190,6 +2193,7 @@ describe("a change that needs no payment", () => {
     // it: the plan alone, and no claim about money either way.
     upgraded({});
     await pressFocused(/Annual —/);
+    fireEvent.click(await screen.findByRole("button", { name: "Switch and pay the difference" }));
     await focusedOn("You are on the annual plan now.");
   });
 
@@ -2693,5 +2697,40 @@ describe("advertising on the plan tab", () => {
     mount(status({ entitlement: free }));
     expect(await screen.findByText(/up to 3 accounts in use at once\./)).toBeVisible();
     expect(screen.queryByText(/ads on the page/)).toBeNull();
+  });
+});
+
+/**
+ * The one press that spends money the moment it is pressed asks first. Found by
+ * the 0.2.0 sandbox smoke test, where Monthly to Annual charged the difference
+ * on a single click. Everything else stays one press: a move to monthly waits
+ * for the renewal and a cancellation runs to the end of the period, and both
+ * are undone on this tab.
+ */
+describe("a press that charges a card now", () => {
+  const changes = (sent: Sent[]) =>
+    sent.filter((request) => request.path !== "/api/v1/billing" && request.method !== "GET");
+
+  it("asks before moving from monthly to annual, and Cancel sends nothing", async () => {
+    const sent = changing(
+      status({ subscription: subscription({ interval: "monthly" }) }),
+      status({ subscription: subscription() }),
+    );
+    await pressFocused(/Annual —/);
+    const dialog = await screen.findByRole("dialog", { name: "Switch to the annual plan now?" });
+    expect(dialog.textContent).toMatch(/charged to your payment method now/);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(changes(sent)).toEqual([]);
+  });
+
+  it("does not ask before scheduling a move to monthly", async () => {
+    const sent = changing(
+      status({ subscription: subscription() }),
+      status({ subscription: subscription({ scheduledInterval: "monthly" }) }),
+    );
+    await pressFocused(/Monthly —/);
+    await waitFor(() => expect(changes(sent)).toHaveLength(1));
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

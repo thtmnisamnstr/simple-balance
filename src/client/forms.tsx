@@ -53,6 +53,7 @@ import {
   Alert,
   Button,
   ErrorSummary,
+  Form,
   Field,
   Input,
   Note,
@@ -63,6 +64,7 @@ import {
 import {
   compareMoney,
   formatDate,
+  formatMoney,
   formatTime,
   isNegativeMoney,
   isPositiveMoney,
@@ -187,7 +189,8 @@ export function AccountForm({
   });
 
   return (
-    <form
+    <Form
+      error={mutation.error}
       className="form-grid"
       onSubmit={(event) => {
         event.preventDefault();
@@ -196,7 +199,7 @@ export function AccountForm({
     >
       <ErrorSummary error={mutation.error} />
       <RequiredNote />
-      <Field label="Account name">
+      <Field label="Account name" name="name">
         <Input
           autoFocus
           required
@@ -206,7 +209,7 @@ export function AccountForm({
         />
       </Field>
       <div className="two-columns">
-        <Field label="Account type">
+        <Field label="Account type" name="type">
           <Select
             value={type}
             onChange={(event) => changeAccountType(event.target.value as UserAccountType)}
@@ -218,7 +221,11 @@ export function AccountForm({
             ))}
           </Select>
         </Field>
-        <Field label="Currency or crypto asset" hint="Fixed once this account is in use">
+        <Field
+          label="Currency or crypto asset"
+          hint="Fixed once this account is in use"
+          name="currency"
+        >
           <Select required value={currency} onChange={(event) => setCurrency(event.target.value)}>
             {currencyOptions(currency).map((option) => (
               <option key={option} value={option}>
@@ -229,7 +236,7 @@ export function AccountForm({
         </Field>
       </div>
       <div className={liabilityAccountTypes.has(type) ? "three-columns" : "two-columns"}>
-        <Field label="Opening date">
+        <Field label="Opening date" name="openingDate">
           <Input
             type="date"
             required
@@ -248,7 +255,10 @@ export function AccountForm({
             </Select>
           </Field>
         ) : null}
-        <Field label={liabilityAccountTypes.has(type) ? "Starting amount" : "Opening balance"}>
+        <Field
+          label={liabilityAccountTypes.has(type) ? "Starting amount" : "Opening balance"}
+          name="openingBalance"
+        >
           <Input
             inputMode="decimal"
             required
@@ -262,14 +272,14 @@ export function AccountForm({
           />
         </Field>
       </div>
-      <Field label="Institution" hint="Optional">
+      <Field label="Institution" hint="Optional" name="institution">
         <Input
           value={institution}
           onChange={(event) => setInstitution(event.target.value)}
           placeholder="Your bank or card issuer"
         />
       </Field>
-      <Field label="Notes" hint="Optional">
+      <Field label="Notes" hint="Optional" name="notes">
         <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} />
       </Field>
       <label className="check-label">
@@ -294,7 +304,7 @@ export function AccountForm({
           {account ? "Save account" : "Create account"}
         </Button>
       </div>
-    </form>
+    </Form>
   );
 }
 
@@ -687,6 +697,11 @@ export function CategoryPicker({
  * of 33.33 + 33.33 + 33.34 against 100 could come out a hair short and refuse
  * a split that adds up perfectly well.
  */
+/** A figure as money where the currency is known, and as the bare figure until it is. */
+function shownMoney(amount: string, currency: string | undefined) {
+  return currency ? formatMoney(amount, currency) : amount;
+}
+
 function CategoryLegs({
   categories,
   categoryId,
@@ -696,6 +711,7 @@ function CategoryLegs({
   onLegsChange,
   total,
   requireBalance = true,
+  currency,
 }: {
   categories: Category[];
   categoryId: string;
@@ -707,6 +723,13 @@ function CategoryLegs({
   // A template's amounts are optional by design, so its split is not asked to
   // add up to anything until it is used.
   requireBalance?: boolean;
+  /**
+   * The account's currency, so what is left is written as money: "10 left to
+   * assign" said neither which currency nor that it was ten pounds rather than
+   * ten euro, and an over-assigned split read as "-65.5 left". Absent until an
+   * account is chosen, when the plain figure is all there is to say.
+   */
+  currency?: string;
 }) {
   const blank = (): TransactionFormLeg => ({
     id: "",
@@ -837,7 +860,9 @@ function CategoryLegs({
               ? "Enter an amount for the transaction and for each category."
               : settled
                 ? "The split adds up."
-                : `${remainder} left to assign.`}
+                : remainder.startsWith("-")
+                  ? `${shownMoney(remainder.slice(1), currency)} more than the total is assigned.`
+                  : `${shownMoney(remainder, currency)} left to assign.`}
         </small>
       </div>
     </div>
@@ -1121,7 +1146,8 @@ export function TemplateForm({
 
   const accountOptions = selectableAccounts(accounts, fromAccountId, toAccountId);
   return (
-    <form
+    <Form
+      error={mutation.error}
       className="form-grid"
       onSubmit={(event) => {
         event.preventDefault();
@@ -1133,7 +1159,7 @@ export function TemplateForm({
     >
       <ErrorSummary error={mutation.error} />
       <RequiredNote />
-      <Field label="Template name" hint="What you will pick it out by later.">
+      <Field label="Template name" hint="What you will pick it out by later." name="name">
         <Input
           autoFocus
           required
@@ -1153,16 +1179,16 @@ export function TemplateForm({
       )}
 
       <div className="two-columns">
-        <Field label="Payee" hint="Leave blank to fill in each time.">
+        <Field label="Payee" hint="Leave blank to fill in each time." name="draft.payee">
           <PayeeInput value={payee} onChange={setPayee} />
         </Field>
-        <Field label="Date" hint="Leave blank to use the day you apply it.">
+        <Field label="Date" hint="Leave blank to use the day you apply it." name="draft.date">
           <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
         </Field>
       </div>
 
       {type !== "deposit" ? (
-        <Field label={type === "transfer" ? "From account" : "Account"}>
+        <Field label={type === "transfer" ? "From account" : "Account"} name="draft.fromAccountId">
           <Select value={fromAccountId} onChange={(event) => setFromAccountId(event.target.value)}>
             <option value="">Leave blank</option>
             {accountOptions.map((account) => (
@@ -1174,7 +1200,7 @@ export function TemplateForm({
         </Field>
       ) : null}
       {type !== "withdrawal" ? (
-        <Field label={type === "transfer" ? "To account" : "Account"}>
+        <Field label={type === "transfer" ? "To account" : "Account"} name="draft.toAccountId">
           <Select value={toAccountId} onChange={(event) => setToAccountId(event.target.value)}>
             <option value="">Leave blank</option>
             {accountOptions.map((account) => (
@@ -1186,7 +1212,7 @@ export function TemplateForm({
         </Field>
       ) : null}
 
-      <Field label="Amount" hint="Leave blank when it differs every time.">
+      <Field label="Amount" hint="Leave blank when it differs every time." name="draft.amount">
         <Input
           inputMode="decimal"
           value={amount}
@@ -1198,6 +1224,7 @@ export function TemplateForm({
 
       {type === "transfer" ? (
         <Field
+          name="draft.destinationAmount"
           label="Amount received"
           hint="For a transfer between currencies: what arrives on the other side. Leave blank when both accounts share a currency, or to fill it in each time."
         >
@@ -1212,7 +1239,12 @@ export function TemplateForm({
       ) : null}
 
       {type === "transfer" ? null : (
-        <Field label="Category" hint="Optional" as="group">
+        <Field
+          label="Category"
+          hint="Optional"
+          as="group"
+          name={["draft.categoryId", "draft.categoryName", "draft.legs"]}
+        >
           <CategoryLegs
             categories={categories}
             categoryId={categoryId}
@@ -1228,14 +1260,14 @@ export function TemplateForm({
           />
         </Field>
       )}
-      <Field label="Description" hint="Optional">
+      <Field label="Description" hint="Optional" name="draft.description">
         <Input
           value={description}
           onChange={(event) => setDescription(event.target.value)}
           placeholder="Additional details"
         />
       </Field>
-      <Field label="Notes" hint="Optional">
+      <Field label="Notes" hint="Optional" name="draft.notes">
         <Textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} />
       </Field>
 
@@ -1283,7 +1315,7 @@ export function TemplateForm({
 
             {reminderRepeats ? (
               <div className="two-columns">
-                <Field label="Repeats">
+                <Field label="Repeats" name="notification.frequency">
                   <Select
                     value={reminderFrequency}
                     onChange={(event) =>
@@ -1298,6 +1330,7 @@ export function TemplateForm({
                   </Select>
                 </Field>
                 <Field
+                  name="notification.interval"
                   label={`Every N ${FREQUENCY_UNITS[reminderFrequency]}s`}
                   hint="1 means every one."
                 >
@@ -1314,6 +1347,7 @@ export function TemplateForm({
 
             <div className="two-columns">
               <Field
+                name="notification.anchorDate"
                 label={reminderRepeats ? "Starting" : "Send on"}
                 hint={
                   reminderRepeats
@@ -1328,7 +1362,11 @@ export function TemplateForm({
                   onChange={(event) => setReminderDate(event.target.value)}
                 />
               </Field>
-              <Field label="Send at" hint="Your own clock, not the server's.">
+              <Field
+                label="Send at"
+                hint="Your own clock, not the server's."
+                name="notification.time"
+              >
                 <Input
                   type="time"
                   required
@@ -1366,7 +1404,7 @@ export function TemplateForm({
                 </div>
                 {reminderByPosition ? (
                   <div className="two-columns">
-                    <Field label="Which one to remind on">
+                    <Field label="Which one to remind on" name="notification.position">
                       <Select
                         value={String(reminderOrdinal)}
                         onChange={(event) =>
@@ -1382,7 +1420,7 @@ export function TemplateForm({
                         ))}
                       </Select>
                     </Field>
-                    <Field label="Day to remind on">
+                    <Field label="Day to remind on" name="notification.position">
                       <Select
                         value={String(reminderWeekday)}
                         onChange={(event) => setReminderWeekday(Number(event.target.value))}
@@ -1496,7 +1534,7 @@ export function TemplateForm({
           {template ? "Save template" : "Save as template"}
         </Button>
       </div>
-    </form>
+    </Form>
   );
 }
 
@@ -2134,7 +2172,8 @@ export function TransactionForm({
   });
 
   return (
-    <form
+    <Form
+      error={mutation.error}
       className="form-grid"
       onSubmit={(event: FormEvent) => {
         event.preventDefault();
@@ -2198,7 +2237,7 @@ export function TransactionForm({
         }}
       />
       <div className="two-columns">
-        <Field label="Date">
+        <Field label="Date" name="draft.date">
           <Input
             type="date"
             required
@@ -2206,7 +2245,7 @@ export function TransactionForm({
             onChange={(event) => setDate(event.target.value)}
           />
         </Field>
-        <Field label="Payee">
+        <Field label="Payee" name="draft.payee">
           {/* The component, not a copy of it: PayeeInput's own comment says a
               second copy would be a second answer to "what counts as the same
               payee", and this form carried that second copy byte for byte. */}
@@ -2214,7 +2253,7 @@ export function TransactionForm({
         </Field>
       </div>
       {type !== "deposit" ? (
-        <Field label={type === "transfer" ? "From account" : "Account"}>
+        <Field label={type === "transfer" ? "From account" : "Account"} name="draft.fromAccountId">
           <Select
             required
             value={fromAccountId}
@@ -2233,7 +2272,7 @@ export function TransactionForm({
         </Field>
       ) : null}
       {type !== "withdrawal" ? (
-        <Field label={type === "transfer" ? "To account" : "Account"}>
+        <Field label={type === "transfer" ? "To account" : "Account"} name="draft.toAccountId">
           <Select
             required
             value={toAccountId}
@@ -2253,6 +2292,7 @@ export function TransactionForm({
       ) : null}
       <div className={crossCurrency ? "two-columns" : ""}>
         <Field
+          name={["draft.amount", "draft.sourceAmount"]}
           label={
             type === "transfer"
               ? `Amount sent${source ? ` (${source.currency})` : ""}`
@@ -2274,6 +2314,7 @@ export function TransactionForm({
         </Field>
         {crossCurrency ? (
           <Field
+            name="draft.destinationAmount"
             label={`Amount received${destination ? ` (${destination.currency})` : ""}`}
             hint="The implied rate is saved with the transfer"
           >
@@ -2289,7 +2330,7 @@ export function TransactionForm({
         ) : null}
       </div>
       <div className="two-columns">
-        <Field label="Description" hint="Optional">
+        <Field label="Description" hint="Optional" name="draft.description">
           <Input
             value={description ?? ""}
             onChange={(event) => setDescription(event.target.value)}
@@ -2298,7 +2339,12 @@ export function TransactionForm({
         </Field>
       </div>
       {type === "transfer" ? null : (
-        <Field label="Category" hint="Optional" as="group">
+        <Field
+          label="Category"
+          hint="Optional"
+          as="group"
+          name={["draft.categoryId", "draft.categoryName", "draft.categoryKind", "draft.legs"]}
+        >
           <CategoryLegs
             key={categoryPickerVersion}
             categories={categories}
@@ -2311,42 +2357,49 @@ export function TransactionForm({
             legs={legs}
             onLegsChange={setLegs}
             total={amount}
+            currency={(type === "deposit" ? destination : source)?.currency}
           />
           {newCategoryNames.length > 0 ? (
-            <div
-              className="radio-row"
-              role="radiogroup"
-              aria-label={
-                newCategoryNames.length === 1
-                  ? `What kind of category ${newCategoryNames[0]} is`
-                  : "What kind of category these are"
-              }
-            >
-              <label className="check-label">
-                <input
-                  type="radio"
-                  name={categoryKindGroup}
-                  checked={newCategoryKind === (type === "deposit" ? "income" : "expense")}
-                  onChange={() => setCategoryKind("")}
-                />
-                {type === "deposit" ? "Money you earned" : "Money you spent"}
-              </label>
-              <label className="check-label">
-                <input
-                  type="radio"
-                  name={categoryKindGroup}
-                  checked={newCategoryKind === (type === "deposit" ? "expense" : "income")}
-                  onChange={() => setCategoryKind(type === "deposit" ? "expense" : "income")}
-                />
-                {type === "deposit"
-                  ? "A refund of money you spent"
-                  : "Paying back money you earned"}
-              </label>
-            </div>
+            <>
+              {/* The question on screen, and the group named by it. It was only an
+                `aria-label`, so a sighted person met two radio buttons under the
+                category with nothing saying what they were choosing between. */}
+              <span className="radio-question" id={`${categoryKindGroup}-question`}>
+                {newCategoryNames.length === 1
+                  ? `What kind of category is “${newCategoryNames[0]}”?`
+                  : "What kind of categories are these?"}
+              </span>
+              <div
+                className="radio-row"
+                role="radiogroup"
+                aria-labelledby={`${categoryKindGroup}-question`}
+              >
+                <label className="check-label">
+                  <input
+                    type="radio"
+                    name={categoryKindGroup}
+                    checked={newCategoryKind === (type === "deposit" ? "income" : "expense")}
+                    onChange={() => setCategoryKind("")}
+                  />
+                  {type === "deposit" ? "Money you earned" : "Money you spent"}
+                </label>
+                <label className="check-label">
+                  <input
+                    type="radio"
+                    name={categoryKindGroup}
+                    checked={newCategoryKind === (type === "deposit" ? "expense" : "income")}
+                    onChange={() => setCategoryKind(type === "deposit" ? "expense" : "income")}
+                  />
+                  {type === "deposit"
+                    ? "A refund of money you spent"
+                    : "Paying back money you earned"}
+                </label>
+              </div>
+            </>
           ) : null}
         </Field>
       )}
-      <Field label="Notes" hint="Optional">
+      <Field label="Notes" hint="Optional" name="draft.notes">
         <Textarea rows={3} value={notes ?? ""} onChange={(event) => setNotes(event.target.value)} />
       </Field>
       {!transaction && !staged ? (
@@ -2430,7 +2483,7 @@ export function TransactionForm({
               : "Commit transaction"}
         </Button>
       </div>
-    </form>
+    </Form>
   );
 }
 
@@ -2885,7 +2938,8 @@ export function RecurrenceForm({
   );
 
   return (
-    <form
+    <Form
+      error={mutation.error}
       className="form-grid"
       onSubmit={(event) => {
         event.preventDefault();
@@ -2894,7 +2948,7 @@ export function RecurrenceForm({
     >
       <ErrorSummary error={mutation.error} />
       <RequiredNote />
-      <Field label="Name" hint="What you will pick it out by later.">
+      <Field label="Name" hint="What you will pick it out by later." name="name">
         <Input
           autoFocus
           required
@@ -2906,12 +2960,12 @@ export function RecurrenceForm({
 
       <TransactionTypeChoice value={type} onChange={setType} />
 
-      <Field label="Payee">
+      <Field label="Payee" name="shape.payee">
         <PayeeInput value={payee} onChange={setPayee} />
       </Field>
 
       {type !== "deposit" ? (
-        <Field label={type === "transfer" ? "From account" : "Account"}>
+        <Field label={type === "transfer" ? "From account" : "Account"} name="shape.fromAccountId">
           <Select
             required
             value={fromAccountId}
@@ -2927,7 +2981,7 @@ export function RecurrenceForm({
         </Field>
       ) : null}
       {type !== "withdrawal" ? (
-        <Field label={type === "transfer" ? "To account" : "Account"}>
+        <Field label={type === "transfer" ? "To account" : "Account"} name="shape.toAccountId">
           <Select
             required
             value={toAccountId}
@@ -2945,6 +2999,7 @@ export function RecurrenceForm({
 
       <div className={crossCurrency ? "two-columns" : ""}>
         <Field
+          name={["shape.amount", "shape.sourceAmount"]}
           label={
             crossCurrency && sendingAccount ? `Amount sent (${sendingAccount.currency})` : "Amount"
           }
@@ -2960,6 +3015,7 @@ export function RecurrenceForm({
         </Field>
         {crossCurrency ? (
           <Field
+            name="shape.destinationAmount"
             label={`Amount received (${receivingAccount!.currency})`}
             hint="Optional. Leave blank unless the rate is agreed in advance."
           >
@@ -2975,7 +3031,12 @@ export function RecurrenceForm({
       </div>
 
       {type === "transfer" ? null : (
-        <Field label="Category" hint="Optional" as="group">
+        <Field
+          label="Category"
+          hint="Optional"
+          as="group"
+          name={["shape.categoryId", "shape.categoryName", "shape.categoryKind", "shape.legs"]}
+        >
           <CategoryLegs
             categories={categories}
             categoryId={categoryId}
@@ -2987,38 +3048,45 @@ export function RecurrenceForm({
             legs={legs}
             onLegsChange={setLegs}
             total={amount}
+            currency={(type === "deposit" ? receivingAccount : sendingAccount)?.currency}
           />
           {newCategoryNames.length > 0 ? (
-            <div
-              className="radio-row"
-              role="radiogroup"
-              aria-label={
-                newCategoryNames.length === 1
-                  ? `What kind of category ${newCategoryNames[0]} is`
-                  : "What kind of category these are"
-              }
-            >
-              <label className="check-label">
-                <input
-                  type="radio"
-                  name={categoryKindGroup}
-                  checked={newCategoryKind === (type === "deposit" ? "income" : "expense")}
-                  onChange={() => setCategoryKind("")}
-                />
-                {type === "deposit" ? "Money you earned" : "Money you spent"}
-              </label>
-              <label className="check-label">
-                <input
-                  type="radio"
-                  name={categoryKindGroup}
-                  checked={newCategoryKind === (type === "deposit" ? "expense" : "income")}
-                  onChange={() => setCategoryKind(type === "deposit" ? "expense" : "income")}
-                />
-                {type === "deposit"
-                  ? "A refund of money you spent"
-                  : "Paying back money you earned"}
-              </label>
-            </div>
+            <>
+              {/* The question on screen, and the group named by it. It was only an
+                `aria-label`, so a sighted person met two radio buttons under the
+                category with nothing saying what they were choosing between. */}
+              <span className="radio-question" id={`${categoryKindGroup}-question`}>
+                {newCategoryNames.length === 1
+                  ? `What kind of category is “${newCategoryNames[0]}”?`
+                  : "What kind of categories are these?"}
+              </span>
+              <div
+                className="radio-row"
+                role="radiogroup"
+                aria-labelledby={`${categoryKindGroup}-question`}
+              >
+                <label className="check-label">
+                  <input
+                    type="radio"
+                    name={categoryKindGroup}
+                    checked={newCategoryKind === (type === "deposit" ? "income" : "expense")}
+                    onChange={() => setCategoryKind("")}
+                  />
+                  {type === "deposit" ? "Money you earned" : "Money you spent"}
+                </label>
+                <label className="check-label">
+                  <input
+                    type="radio"
+                    name={categoryKindGroup}
+                    checked={newCategoryKind === (type === "deposit" ? "expense" : "income")}
+                    onChange={() => setCategoryKind(type === "deposit" ? "expense" : "income")}
+                  />
+                  {type === "deposit"
+                    ? "A refund of money you spent"
+                    : "Paying back money you earned"}
+                </label>
+              </div>
+            </>
           ) : null}
         </Field>
       )}
@@ -3026,7 +3094,7 @@ export function RecurrenceForm({
       <fieldset className="form-fieldset">
         <legend>Schedule</legend>
         <div className="two-columns">
-          <Field label="Repeats">
+          <Field label="Repeats" name="schedule.frequency">
             <Select
               value={frequency}
               onChange={(event) => setFrequency(event.target.value as RecurrenceFrequencyName)}
@@ -3038,7 +3106,11 @@ export function RecurrenceForm({
               ))}
             </Select>
           </Field>
-          <Field label={`Every N ${FREQUENCY_UNITS[frequency]}s`} hint="1 means every one.">
+          <Field
+            label={`Every N ${FREQUENCY_UNITS[frequency]}s`}
+            hint="1 means every one."
+            name="schedule.interval"
+          >
             <Input
               type="number"
               min={1}
@@ -3050,6 +3122,7 @@ export function RecurrenceForm({
         </div>
 
         <Field
+          name="schedule.anchorDate"
           label="Starting"
           hint="The first candidate date, and the one every later date is counted from. Nothing dated before today is ever proposed."
         >
@@ -3085,7 +3158,7 @@ export function RecurrenceForm({
             </div>
             {byPosition ? (
               <div className="two-columns">
-                <Field label="Which one">
+                <Field label="Which one" name="schedule.position">
                   <Select
                     value={String(ordinal)}
                     onChange={(event) =>
@@ -3099,7 +3172,7 @@ export function RecurrenceForm({
                     ))}
                   </Select>
                 </Field>
-                <Field label="Day">
+                <Field label="Day" name="schedule.position">
                   <Select
                     value={String(weekday)}
                     onChange={(event) => setWeekday(Number(event.target.value))}
@@ -3113,7 +3186,7 @@ export function RecurrenceForm({
                 </Field>
               </div>
             ) : (
-              <Field label="When the month is too short">
+              <Field label="When the month is too short" name="schedule.monthPolicy">
                 <Select
                   value={monthPolicy}
                   onChange={(event) =>
@@ -3129,6 +3202,7 @@ export function RecurrenceForm({
         ) : null}
 
         <Field
+          name="schedule.weekendPolicy"
           label="When it lands on a weekend"
           hint="A business day here means Monday through Friday. Holidays are not modeled."
         >
@@ -3179,14 +3253,14 @@ export function RecurrenceForm({
         ) : null}
       </fieldset>
 
-      <Field label="Description" hint="Optional">
+      <Field label="Description" hint="Optional" name="shape.description">
         <Input
           value={description}
           onChange={(event) => setDescription(event.target.value)}
           placeholder="Additional details"
         />
       </Field>
-      <Field label="Notes" hint="Optional">
+      <Field label="Notes" hint="Optional" name="shape.notes">
         <Textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} />
       </Field>
 
@@ -3255,6 +3329,6 @@ export function RecurrenceForm({
           {recurrence ? "Save recurrence" : "Create recurrence"}
         </Button>
       </div>
-    </form>
+    </Form>
   );
 }

@@ -308,8 +308,8 @@ sentence is "Everything in it goes: accounts, transactions, categories…"
 (`src/client/pages/SettingsPage.tsx:450-452`), meaning the financial ones. The
 confirmation repeats it (`:572`, `:578`). `AGENTS.md` wins over this guide and
 calls a sign-in an account throughout, as do three places in the product
-(`src/client/App.tsx:394`, `src/client/pages/SettingsPage.tsx:169`,
-`src/client/pages/PlanPage.tsx:1125`), so the old row — "A user. A person has a
+(`src/client/App.tsx:395`, `src/client/pages/SettingsPage.tsx:169`,
+`src/client/pages/PlanPage.tsx:1137`), so the old row — "A user. A person has a
 sign-in, not an account." — was asserting a rule the repository has never
 followed, and the sharp case is the one screen where the ambiguity it was written
 to prevent actually bites. Rewriting the panel is a copy change this guide cannot
@@ -453,9 +453,9 @@ exception to.
 exception. Six closed sets already read against that sentence:
 `accountTypeLabels` (`src/shared/domain.ts:53`), `PLAN_LABELS`
 (`src/shared/domain.ts:3329`), `kindLabels`
-(`src/client/pages/CategoriesPage.tsx:46`), `transactionTypeLabels`
+(`src/client/pages/CategoriesPage.tsx:47`), `transactionTypeLabels`
 (`src/client/pages/TemplatesPage.tsx:68`), and `ORDINAL_LABELS` and
-`FREQUENCY_LABELS` (`src/client/forms.tsx:2449`, `:2477`) for the two schedule
+`FREQUENCY_LABELS` (`src/client/forms.tsx:2449`, `:2530`) for the two schedule
 pickers. In four of the six the label is a different *word* rather than the same
 word capitalized: `credit_card` reads Credit Card, `plus` reads Premium, `both`
 reads "Income or expense", and the ordinal `-1` reads Last.

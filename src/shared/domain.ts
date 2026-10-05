@@ -2762,6 +2762,28 @@ const recurrenceLegSchema = z
   })
   .strict();
 
+/**
+ * A recurring transfer has two different accounts, said when it is created.
+ *
+ * For the reason the legs are summed below: a recurrence is replayed. Moving
+ * money within one account was accepted here and refused only by the staged
+ * row each occurrence proposed, so the schedule went on filling the queue with
+ * rows saying "Transfer accounts must be different" and nothing could ever
+ * commit. The message is that one, so the two places read alike.
+ */
+function checkRecurrenceTransferSides(
+  shape: { fromAccountId?: string; toAccountId?: string },
+  context: z.RefinementCtx,
+) {
+  if (shape.fromAccountId && shape.fromAccountId === shape.toAccountId) {
+    context.addIssue({
+      code: "custom",
+      path: ["toAccountId"],
+      message: "Transfer accounts must be different",
+    });
+  }
+}
+
 function checkRecurrenceShape(
   shape: {
     type?: string;
@@ -2911,6 +2933,19 @@ export const recurrenceShapeSchema = z.discriminatedUnion("type", [
 ]);
 
 export type RecurrenceShape = z.infer<typeof recurrenceShapeSchema>;
+
+/**
+ * The shape as somebody states it, which is stricter than the shape as stored.
+ *
+ * The scheduler parses every stored shape with `recurrenceShapeSchema` before
+ * it proposes anything. A recurrence made before a check existed has to go on
+ * parsing there, or upgrading would turn the flagged rows it used to propose
+ * into a tick that throws on it forever. So a check that is new is added here,
+ * where only a create or an edit meets it.
+ */
+const recurrenceShapeInputSchema = recurrenceShapeSchema.superRefine((shape, context) => {
+  if (shape.type === "transfer") checkRecurrenceTransferSides(shape, context);
+});
 
 const recurrenceAnchorDateSchema = isoDateSchema.refine(
   (value) => value >= "1900-01-01" && value <= "2999-12-31",
@@ -3255,7 +3290,7 @@ export const recurrenceCreateSchema = z
     name: oneLine(z.string().trim().min(1).max(120)).describe(
       "What to call this recurrence, so a person can pick it out of a list later. Not shown on the entries it proposes.",
     ),
-    shape: recurrenceShapeSchema.describe(
+    shape: recurrenceShapeInputSchema.describe(
       "The entry to propose each time, without a date — the occurrence supplies that. Amounts may be left blank for something whose figure changes.",
     ),
     schedule: recurrenceScheduleSchema.describe(
@@ -3272,7 +3307,7 @@ export const recurrenceUpdateSchema = z
       .describe(
         "What to call this recurrence, so a person can pick it out of a list later. Not shown on the entries it proposes.",
       ),
-    shape: recurrenceShapeSchema
+    shape: recurrenceShapeInputSchema
       .optional()
       .describe(
         "What each occurrence proposes. Sent whole rather than field by field: leave a field out of the shape and the proposal leaves it out too, which is how an amount that varies is asked for each time.",
@@ -3497,7 +3532,7 @@ export function accountAllowance(
     limit,
     current,
     message:
-      `A free plan keeps ${limit} accounts active, and this one has ${current}. ` +
+      `A free plan keeps ${limit} accounts active, and this ledger has ${current}. ` +
       "Archive or delete one to free a place, or upgrade under Settings.",
   };
 }

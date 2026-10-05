@@ -6,12 +6,9 @@ import { formatMoney, isNegativeMoney, sumMoney } from "../money.js";
 import { useDateRange } from "../date-range.js";
 import { Link, useLocation, useParams } from "../router.js";
 import { TransactionBrowser } from "../TransactionBrowser.js";
+import { categoryKindLabels } from "../select-options.js";
 
-const kindLabels = {
-  income: "Income",
-  expense: "Expense",
-  both: "Income or expense",
-} as const;
+const kindLabels = categoryKindLabels;
 
 /**
  * What this category holds, per currency, out of a report.
