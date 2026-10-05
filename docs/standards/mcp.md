@@ -26,7 +26,7 @@ contract. Anything in this guide that contradicts it loses.
   request (`src/server/mcp.ts:2166-2175`), so there is no connection to carry
   state in.
 - **Where the target is not met, say so rather than claiming it.** The installed
-  SDK, `@modelcontextprotocol/sdk` 1.30.0, declares
+  SDK, `@modelcontextprotocol/sdk` 1.32.0, declares
   `LATEST_PROTOCOL_VERSION = "2025-11-25"` and supports nothing newer, so the
   endpoint negotiates 2025-11-25 today. Three 2026-07-28 obligations are
   unreachable from here and none of them is a design decision: `server/discover`,

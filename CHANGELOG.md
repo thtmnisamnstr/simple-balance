@@ -1218,6 +1218,16 @@ site's copy loses the key on its next sync.
 
 ### Fixed
 
+**Twenty-three security advisories are closed by this release** — six rated
+high, seventeen medium — across `nodemailer`, `undici` and `ip-address`, in the
+application, its runtime image and the Pulumi programs. `nodemailer` moves to
+its 10.x line, which is the only one carrying the fixes; nothing about how mail
+is configured changes. The application's Node base image moves to the current
+24-alpine build, and the frontend's nginx from the 1.29 line, which stopped
+receiving builds in May, to the maintained 1.30 stable line. Routine minor and
+patch updates come with them, among them the MCP SDK, Better Auth, Hono, zod and
+the Pulumi SDKs.
+
 **Selecting staged transactions no longer pushes the filters down the page,
 and the bar that appears instead holds together through a commit.** Ticking
 rows on Staged transactions used to grow the filter row into a second and third

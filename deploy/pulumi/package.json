@@ -11,12 +11,12 @@
     "typecheck": "tsc --noEmit -p aws/tsconfig.json && tsc --noEmit -p gcp/tsconfig.json && tsc --noEmit -p oci/tsconfig.json && tsc --noEmit -p aws-single/tsconfig.json && tsc --noEmit -p oci-single/tsconfig.json"
   },
   "dependencies": {
-    "@pulumi/aws": "7.45.0",
-    "@pulumi/eks": "4.3.0",
-    "@pulumi/gcp": "9.36.1",
-    "@pulumi/kubernetes": "4.34.1",
+    "@pulumi/aws": "7.48.0",
+    "@pulumi/eks": "4.4.0",
+    "@pulumi/gcp": "9.37.0",
+    "@pulumi/kubernetes": "4.34.2",
     "@pulumi/oci": "4.22.0",
-    "@pulumi/pulumi": "3.261.0",
+    "@pulumi/pulumi": "3.265.0",
     "@pulumi/random": "4.21.2",
     "@pulumi/tls": "5.6.1"
   },
