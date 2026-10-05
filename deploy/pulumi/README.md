@@ -83,16 +83,15 @@ Except where a line says otherwise, this applies to all four.
   build them:
 
   ```
-  ghcr.io/thtmnisamnstr/simple-balance-server:0.1.6
-  ghcr.io/thtmnisamnstr/simple-balance-frontend:0.1.6
-  ghcr.io/thtmnisamnstr/simple-balance-scheduler:0.1.6
+  ghcr.io/thtmnisamnstr/simple-balance-server:0.2.0
+  ghcr.io/thtmnisamnstr/simple-balance-frontend:0.2.0
+  ghcr.io/thtmnisamnstr/simple-balance-scheduler:0.2.0
   ```
 
   Point `simple-balance:imageRepositoryPrefix` somewhere else only for a private
-  mirror of them. Every program deploys the pinned release image, which until
-  0.2.0 is released is 0.1.6 and predates billing, ads and the frontend's
-  trusted-proxy setting; `simple-balance:imageTag` selects another published
-  release.
+  mirror of them. Every program deploys the pinned release image, 0.2.0, the
+  first to carry billing, ads and the frontend's trusted-proxy setting;
+  `simple-balance:imageTag` selects another published release.
 
 - **Nothing optional is turned on for you.** Mail, Google sign-in, billing,
   ads, the legal pages and every other setting the application reads are off
@@ -1304,9 +1303,9 @@ the due rows between them.
   pass the chart the trusted list and the recursion that go with it, as
   `frontend.trustedProxyCidr` and `frontend.realIpRecursive`. But the last hop
   is the frontend image's own nginx, and every program deploys the pinned
-  release, which is 0.1.6 until 0.2.0 is released. That frontend reads neither
-  value and reports the ingress's address for everybody, so the `TRUST_PROXY`
-  allowance the API applies per address is still shared. On AWS the load
+  release, which is 0.2.0, whose frontend reads both. An image tag set back to
+  0.1.6 reads neither value and reports the ingress's address for everybody, so
+  the `TRUST_PROXY` allowance the API applies per address would be shared. On AWS the load
   balancer's half takes effect at the next `pulumi up`; the frontend's half,
   on either cloud, arrives with an image of 0.2.0 or later.
 - **On AWS, the first `pulumi up` that turns proxy protocol on interrupts the

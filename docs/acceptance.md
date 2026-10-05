@@ -51,12 +51,11 @@ closed by writing more code here, and none should be reported as closed.
 | The `ha` cluster, on a cloud | It has run on kind, where storage is local and a node is deleted politely rather than disappearing | Follows from the row above |
 
 **On a cloud machine, the Stripe and Ads rows need a release that carries
-billing and ads.** Every cloud program deploys the release image its checkout
-pins — 0.1.6 until 0.2.0 is released — and that image predates both: it reads
-none of their settings and starts without saying it ignored them, so a Stripe
-or AdSense account applied to it proves nothing. `simple-balance:imageTag`
-selects another published release, and billing and ads reach a cloud machine
-with the release that carries them.
+billing and ads, and 0.2.0 is it.** Every cloud program deploys the release
+image its checkout pins, which is now 0.2.0. A stack whose
+`simple-balance:imageTag` names 0.1.6 runs an image that reads none of the
+billing or ads settings and starts without saying it ignored them, so a Stripe
+or AdSense account applied to it proves nothing.
 
 ## What this page is not
 

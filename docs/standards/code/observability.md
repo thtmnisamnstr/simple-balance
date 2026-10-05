@@ -211,7 +211,7 @@ for the reason 1.5 already gives one level down — a count somebody has to
 remember is the count missing from the branch added next release. On this route
 the missing branch is also invisible, because its status matches six others.
 The cost of having no such counter at all is already written down:
-`docs/deployment.md:251` sends anybody asking whether the subscription path
+`docs/deployment.md:250` sends anybody asking whether the subscription path
 worked to `simple_balance_billing_sweeps_total`, which is the twelve-hourly
 catch-up and reports a webhook that has been failing for hours as healthy right
 up to the tick that repairs it.

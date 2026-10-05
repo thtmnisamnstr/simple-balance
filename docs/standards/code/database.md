@@ -23,10 +23,9 @@ opens, so "the primary key" below means the narrow one unless it says otherwise.
 **Binding.** `AGENTS.md`: "Every migration that has shipped is frozen:"
 Twenty-six migrations, `0000_initial.sql` through
 `0025_subscription_cancel_at.sql`. Frozen is about shipping, not about existing:
-`0000` through `0021` went out in released versions and may never change — the
-budget set, `0013` through `0021`, shipped in 0.1.6 — while `0022` through
-`0025` are written and unreleased, so `AGENTS.md` says those four may still be
-regenerated. They freeze when 0.2.0 ships, and the next schema change after them
+every one of them went out in a released version and may never change — the
+budget set, `0013` through `0021`, in 0.1.6, and the plans, billing and
+distribution set, `0022` through `0025`, in 0.2.0. The next schema change
 starts at `0026`. A change to what has shipped is a new forward-only migration,
 generated with `npm run db:generate`.
 

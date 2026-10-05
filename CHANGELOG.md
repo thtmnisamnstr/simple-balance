@@ -2,7 +2,7 @@
 
 Notable changes, newest first.
 
-## Unreleased
+## 0.2.0 - 2026-10-04
 
 **This release upgrades cleanly from 0.1.6.** Every new setting is additive and
 every one of them defaults to absent, so a deployment that changes nothing sells
@@ -1218,19 +1218,16 @@ site's copy loses the key on its next sync.
 
 ### Fixed
 
-**Thirty security advisories are closed by this release** — eleven rated
-high, eighteen medium and one low — across `nodemailer`, `undici`, `ip-address`
-and `fast-uri` in the application and its runtime image, and `@grpc/grpc-js`
-and `brace-expansion` under the Pulumi programs. One more, in
-`http-cache-semantics`, has no fixed version yet; it sits inside the Pulumi
-CLI's own package fetching on the machine that runs `pulumi`, and reaches no
-image. `nodemailer` moves to
-its 10.x line, which is the only one carrying the fixes; nothing about how mail
-is configured changes. The application's Node base image moves to the current
-24-alpine build, and the frontend's nginx from the 1.29 line, which stopped
-receiving builds in May, to the maintained 1.30 stable line. Routine minor and
-patch updates come with them, among them the MCP SDK, Better Auth, Hono, zod and
-the Pulumi SDKs.
+**Thirty-five security advisories are closed by this release** — eleven rated
+high, twenty medium and four low — across `nodemailer`, `undici`, `ip-address`
+and `fast-uri` in the application and its runtime image, and `@grpc/grpc-js`,
+`brace-expansion` and `http-cache-semantics` under the Pulumi programs.
+`nodemailer` moves to its 10.x line, which is the only one carrying the fixes;
+nothing about how mail is configured changes. The application's Node base image
+moves to the current 24-alpine build, and the frontend's nginx from the 1.29
+line, which stopped receiving builds in May, to the maintained 1.30 stable line.
+Routine minor and patch updates come with them, among them the MCP SDK, Better
+Auth, Hono, zod and the Pulumi SDKs.
 
 **Selecting staged transactions no longer pushes the filters down the page,
 and the bar that appears instead holds together through a commit.** Ticking
@@ -1392,7 +1389,7 @@ balancing on the frontend's Service, since through instance groups the pod would
 see a node instead. It costs an AWS stack that is already running one
 interruption of seconds to about a minute at the next `pulumi up`, while the two
 ends change over. The frontend's half needs a frontend image of 0.2.0 or later,
-and the programs deploy 0.1.6 until 0.2.0 is released. With the chart's
+and the programs deploy 0.2.0, which carries it. With the chart's
 `NetworkPolicy` off, as both programs leave it, a pod inside the cluster can
 still reach the API directly, or on AWS the frontend, and name its own address;
 that reach is not new, and turning the policy on closes it. None of this has run

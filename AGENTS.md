@@ -320,21 +320,18 @@
   `0018_incremental_taper.sql`, `0019_budget_target_pair.sql`,
   `0020_reference_indexes.sql` and `0021_idempotency_retention.sql` in 0.1.6.
   `0022_plans_and_billing.sql`, `0023_citus_distribution.sql`,
-  `0024_active_accounts.sql` and `0025_subscription_cancel_at.sql` are on disk
-  and **unreleased**, so they are the four migrations here that may still be
-  regenerated: no deployment has run any of them. They freeze when 0.2.0 ships,
-  and until then the rule to keep is that everything through `0021` is somebody
-  else's history and `0022` through `0025` are still ours. The next schema
-  change after them starts at `0026`. Permitted is not the same as free, and it
-  is this branch's own databases that pay: drizzle's migrator runs a file only
-  where the recorded timestamp is older than the folder's and never compares the
-  hash, so a database that has already run one records the regenerated one as
-  done, migrates clean, and then fails at the first read of whatever was added,
-  with no signal at startup. `0025` is a column on `billing_subscription` that
-  was briefly folded into `0022` for that reason and then unfolded, after the
-  fold left the browser tier's database a migration behind its own schema. So:
-  regenerate one only while no database anywhere has run it, and add a file
-  wherever one has.
+  `0024_active_accounts.sql` and `0025_subscription_cancel_at.sql` in 0.2.0.
+  Nothing on disk is unreleased, and the next schema change starts at `0026`.
+  A migration written between releases may be regenerated only while no
+  database anywhere has run it, and permitted is not the same as free:
+  drizzle's migrator runs a file only where the recorded timestamp is older
+  than the folder's and never compares the hash, so a database that has already
+  run one records the regenerated one as done, migrates clean, and then fails at
+  the first read of whatever was added, with no signal at startup. `0025` is a
+  column on `billing_subscription` that was briefly folded into `0022` for that
+  reason and then unfolded, after the fold left the browser tier's database a
+  migration behind its own schema. So: regenerate one only while no database
+  anywhere has run it, and add a file wherever one has.
   `0024` adds one column with a constant default, which rewrites no rows on any
   PostgreSQL and which Citus propagates to the shards without a gate; `0025`
   adds a nullable one with no default, which is metadata-only for the same

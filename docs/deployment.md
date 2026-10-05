@@ -150,10 +150,9 @@ and names the variable. A blank value is the same as unset, which is what every
 compose recipe passes when you set nothing.
 
 Both names are unprefixed, which the `SB_` rule for names this product invents
-does not allow. Neither has been released, so whether they keep these spellings
-or both take the prefix is still open until 0.2.0 ships;
-`docs/standards/operations.md` §Naming records the question. Whichever it is,
-the two are spelled the same way.
+does not allow. They shipped this way in 0.2.0, so these are their spellings;
+`docs/standards/operations.md` §Naming records them as named exceptions. The
+two are spelled the same way, and always will be.
 
 ### Only for selling a plan
 

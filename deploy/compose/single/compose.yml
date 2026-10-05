@@ -31,7 +31,7 @@ services:
     # recurrences that never propose.
     # Pinned rather than :latest, because an upgrade moves the schema and should
     # be a decision rather than whatever a restart happened to pull.
-    image: ghcr.io/thtmnisamnstr/simple-balance:0.1.6
+    image: ghcr.io/thtmnisamnstr/simple-balance:0.2.0
     restart: unless-stopped
     ports:
       # Loopback, always, and the bind address is what makes that true — not the

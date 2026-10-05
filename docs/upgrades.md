@@ -3,20 +3,28 @@
 Everything persistent is in PostgreSQL. The container holds nothing you need to
 keep, so upgrading is swapping it for a newer one.
 
-## Before you upgrade to 0.1.7
+## Before you upgrade to 0.2.1
 
-**This heading is the next release's slot and its number is provisional.** The
-release being built is 0.2.0, and this heading is spelled 0.1.7 only because
-`tests/version.test.ts` asks for the next _patch_ of whatever `package.json`
-currently says. It gets its real number in the cut commit, right after
-`npm run set-version` — §Cutting a release, step 2, which also opens the note
-for the release after it. Nothing renames it on its own. The content below is
-what matters and is written as the work lands, because a note written while a
-release is being cut says whatever the person cutting it can remember.
+Nothing has landed for 0.2.1 yet. This note is written as work lands rather
+than when the release is cut, and it is here, empty, because a missing heading
+and an unwritten note look the same from the outside.
+
+## Before you upgrade to 0.2.0
 
 **Nothing about an existing configuration has to change, and the application
 refuses nothing 0.1.6 accepted.** Everything added is optional and off unless an
 operator sets it.
+
+**It closes thirty-five dependency advisories**, eleven of them rated high, in
+`nodemailer`, `undici`, `ip-address` and `fast-uri` inside the images, and in
+`@grpc/grpc-js`, `brace-expansion` and `http-cache-semantics` under the Pulumi
+programs. Nothing about this needs an action from you — the first set ships
+inside the image, and the second is installed by `npm ci` in `deploy/pulumi` —
+but it is a reason to take this release rather than stay where you are.
+`nodemailer` moves to its 10.x line, with no change to how mail is configured.
+The Node base image moves to the current `24-alpine` build and the major stays
+at 24; the split deployment's frontend image moves from nginx 1.29, which
+stopped receiving builds in May, to the maintained 1.30 line.
 
 **That includes `deploy/compose/compose.distributed.yml`,** the one recipe here
 that bundles its own PostgreSQL: it still runs 0.1.6's `postgres:16-alpine` on
@@ -264,9 +272,9 @@ visitor's and only a walk past it reaches the visitor. A
 on this load balancer that still takes its address for everybody: unset it, or
 set `simple-balance:realIpRecursive=true` with a list that keeps those three.
 
-**On either cloud, the frontend's half waits for the image.** Both programs
-deploy the release image their checkout pins, which is 0.1.6 until 0.2.0 is
-released, and that frontend reads neither setting. On AWS the ingress half
+**On either cloud, the frontend's half comes with the image.** Both programs
+deploy the release image their checkout pins, which is 0.2.0 from this release,
+and only a frontend of 0.2.0 or later reads either setting. On AWS the ingress half
 takes effect at the next `pulumi up`, but the 0.1.6 frontend still reports
 ingress-nginx's pod to the API, so the allowance stays shared until the image
 is 0.2.0 or later; on GCP nothing about the frontend changes until then.
@@ -1275,8 +1283,9 @@ repository closes.
 2. Give this release's upgrade note its number, and open the next one, in the
    same commit. `set-version` does not touch this file, and the moment it has
    run the suite asks for two headings the provisional one cannot supply.
-   Rename the provisional `## Before you upgrade to 0.1.7` at the top of this
-   file to `## Before you upgrade to 0.2.0` — a prerelease such as `0.2.0-rc.1`
+   Rename the provisional heading at the top of this file — spelled as the
+   next patch of the previous version, as `## Before you upgrade to 0.1.7` was
+   on the way to 0.2.0 — to this release's number — a prerelease such as `0.2.0-rc.1`
    takes the release's number too, because it upgrades on to the same schema —
    and delete its paragraph saying the number is provisional. Then add
    `## Before you upgrade to 0.2.1` above it, with one paragraph saying nothing
