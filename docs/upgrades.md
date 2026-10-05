@@ -5,9 +5,22 @@ keep, so upgrading is swapping it for a newer one.
 
 ## Before you upgrade to 0.2.1
 
-Nothing has landed for 0.2.1 yet. This note is written as work lands rather
-than when the release is cut, and it is here, empty, because a missing heading
-and an unwritten note look the same from the outside.
+This note is written as work lands rather than when the release is cut.
+
+**Nothing to do by hand.** One fix, and it is to the first `pulumi up` of an
+`oci-single` stack, so a stack that is already up plans no change.
+
+**`oci-single` waits for its settings vault to be reachable before making the
+key in it.** OCI reports a new vault active minutes before it publishes the
+vault's own management hostname. 0.2.0 made the key straight away, and the
+first `pulumi up` of every new stack failed with `dial tcp: lookup
+…-management.kms…: no such host`, after both machines' network and the vault
+were built. Running `up` again failed the same way for another five minutes or
+more, because the router and macOS had each remembered the "no such host".
+The program now asks OCI's own nameservers until the hostname exists, so the
+first lookup the provider makes succeeds and nothing has a "no" to remember. It
+waits up to fifteen minutes, and says so if that runs out; the vault is kept,
+and the next `up` makes the key.
 
 ## Before you upgrade to 0.2.0
 

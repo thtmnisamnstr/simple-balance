@@ -223,9 +223,9 @@ convention expects.
 - **Section headings borrow Keep a Changelog's vocabulary**: Added, Changed,
   Deprecated, Removed, Fixed, Security. This file also uses `Internal`, for a
   change with no user-visible effect that an operator or a contributor would
-  still want to find. Across the dated sections: five Added, five Changed, six
-  Fixed, one Security, one Internal. Counting `## Unreleased` as well gives six,
-  six and seven. The 0.1.0 entry predates the convention and uses its own
+  still want to find. Across the dated sections: six Added, six Changed, seven
+  Fixed, one Security, one Internal. Counting `## Unreleased` as well gives
+  eight Fixed. The 0.1.0 entry predates the convention and uses its own
   headings; leave it.
 - **A change a person would notice gets an entry.** "Notice" means one of four
   things: behavior on a screen, a value on the wire in any of the three

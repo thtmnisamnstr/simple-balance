@@ -379,3 +379,89 @@ export function hsmKeyWarning(facts: OciKeyFacts): string | undefined {
     "a key with protection mode SOFTWARE and point this at that one before the first pulumi up."
   );
 }
+
+// ---------------------------------------------- the settings vault's endpoint ---
+
+/** Whether a DNS name exists yet, asked somewhere that will not remember a no. */
+export type NameExists = (host: string) => Promise<boolean>;
+
+/**
+ * Waits for a new vault's management endpoint to exist in DNS.
+ *
+ * OCI reports a vault ACTIVE minutes before it publishes the per-vault hostname
+ * every Key Management call goes to, so creating the key straight away fails
+ * with `dial tcp: lookup …-management.kms…: no such host`. The retry is worse
+ * than the failure: the resolver that answered no — the operator's router,
+ * then macOS's own cache — keeps that answer for the zone's negative TTL,
+ * 300 seconds, after the name exists, so the next `pulumi up` fails the same
+ * way. Hence `exists` asks OCI's own nameservers rather than the machine's
+ * resolver: the first lookup the provider makes is then one that succeeds, and
+ * nothing on the way has a no to remember.
+ */
+export async function waitForDnsName(
+  host: string,
+  exists: NameExists,
+  {
+    timeoutMs = 15 * 60_000,
+    intervalMs = 10_000,
+    now = Date.now,
+    sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+  }: {
+    timeoutMs?: number;
+    intervalMs?: number;
+    now?: () => number;
+    sleep?: (ms: number) => Promise<void>;
+  } = {},
+): Promise<void> {
+  const deadline = now() + timeoutMs;
+  while (!(await exists(host))) {
+    if (now() >= deadline) {
+      throw new Error(
+        `${host}, the settings vault's management endpoint, is still not in DNS ` +
+          `${Math.round(timeoutMs / 60_000)} minutes after the vault became active. ` +
+          "Run pulumi up again once it resolves: the vault is kept, and the key is created then.",
+      );
+    }
+    await sleep(intervalMs);
+  }
+}
+
+/**
+ * A {@link NameExists} that asks the zone's authoritative nameservers.
+ *
+ * The nameservers are found through the ordinary resolver, which is safe:
+ * they are long-lived names it already has, not the new one. The question about
+ * the new name goes to them directly, from a resolver of its own that caches
+ * nothing. Any failure is a "not yet", and the deadline above is what ends it.
+ */
+export function authoritativeNameExists(): NameExists {
+  return async (host) => {
+    const { Resolver, resolveNs, resolve4 } = await import("node:dns/promises");
+    const labels = host.split(".");
+    for (let i = 1; i < labels.length - 1; i++) {
+      const zone = labels.slice(i).join(".");
+      let servers: string[];
+      try {
+        servers = await resolveNs(zone);
+      } catch {
+        continue;
+      }
+      const addresses = (
+        await Promise.all(servers.map((ns) => resolve4(ns).catch(() => [])))
+      ).flat();
+      if (addresses.length === 0) return false;
+      const resolver = new Resolver({ timeout: 5_000, tries: 2 });
+      resolver.setServers(addresses);
+      try {
+        await resolver.resolveCname(host);
+        return true;
+      } catch {
+        return resolver.resolve4(host).then(
+          (found) => found.length > 0,
+          () => false,
+        );
+      }
+    }
+    return false;
+  };
+}
