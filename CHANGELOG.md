@@ -1218,9 +1218,13 @@ site's copy loses the key on its next sync.
 
 ### Fixed
 
-**Twenty-three security advisories are closed by this release** — six rated
-high, seventeen medium — across `nodemailer`, `undici` and `ip-address`, in the
-application, its runtime image and the Pulumi programs. `nodemailer` moves to
+**Thirty security advisories are closed by this release** — eleven rated
+high, eighteen medium and one low — across `nodemailer`, `undici`, `ip-address`
+and `fast-uri` in the application and its runtime image, and `@grpc/grpc-js`
+and `brace-expansion` under the Pulumi programs. One more, in
+`http-cache-semantics`, has no fixed version yet; it sits inside the Pulumi
+CLI's own package fetching on the machine that runs `pulumi`, and reaches no
+image. `nodemailer` moves to
 its 10.x line, which is the only one carrying the fixes; nothing about how mail
 is configured changes. The application's Node base image moves to the current
 24-alpine build, and the frontend's nginx from the 1.29 line, which stopped
