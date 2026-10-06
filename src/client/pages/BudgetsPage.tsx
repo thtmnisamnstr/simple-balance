@@ -48,6 +48,7 @@ import {
   formatDate,
   formatMoney,
   isNegativeMoney,
+  moneyLabel,
 } from "../money.js";
 
 const periodUnits: { value: BudgetPeriodUnitName; label: string }[] = [
@@ -450,8 +451,11 @@ export default function BudgetsPage({ session }: { session: Session }) {
           <Target size={17} />
           <span>Budgeting by</span>
         </div>
+        {/* Named by the words beside it, as the forecast bar's selects are: the
+            name was "Budget period" under a visible "Budgeting by", so a voice
+            user saying what they could see named nothing (SC 2.5.3). */}
         <Select
-          aria-label="Budget period"
+          aria-label="Budgeting by"
           value={periodUnit}
           onChange={(event) => setPeriodUnit(event.target.value as BudgetPeriodUnitName)}
         >
@@ -530,7 +534,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
           </Field>
           {targetAmount === "" && rule !== "income" ? (
             <Field
-              label="Amount"
+              label={moneyLabel("Amount", currency)}
               hint={
                 rule === "step"
                   ? "The first period's amount. The increase starts from the one after."
@@ -615,7 +619,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
               onChange={(event) => setActiveTo(event.target.value)}
             />
           </Field>
-          <Field label="Saving up for" optional>
+          <Field label={moneyLabel("Saving up for", currency)} optional>
             <Input
               inputMode="decimal"
               value={targetAmount}
@@ -657,7 +661,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
             Carry what is left over into the next {unitNoun[periodUnit]}
           </label>
           {rollover ? (
-            <Field label="Most to carry" optional>
+            <Field label={moneyLabel("Most to carry", currency)} optional>
               <Input
                 inputMode="decimal"
                 value={rolloverCap}
@@ -877,7 +881,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
                   decision. 8.3's point is that the native half needs nothing:
                   no form here sets `noValidate`, so the browser blocks the
                   submit, focuses the field and says why, for one word. */}
-              <Field label="Amount">
+              <Field label={moneyLabel("Amount", editing?.currency)}>
                 <Input
                   required
                   inputMode="decimal"
@@ -894,7 +898,11 @@ export default function BudgetsPage({ session }: { session: Session }) {
                 Carry what is left over into the next {unitNoun[editing?.periodUnit ?? periodUnit]}
               </label>
               {editRollover ? (
-                <Field label="Most to carry" optional hint="Leave blank for no limit.">
+                <Field
+                  label={moneyLabel("Most to carry", editing?.currency)}
+                  optional
+                  hint="Leave blank for no limit."
+                >
                   <Input
                     inputMode="decimal"
                     value={editRolloverCap}
@@ -1056,7 +1064,10 @@ export default function BudgetsPage({ session }: { session: Session }) {
             setEntry.mutate();
           }}
         >
-          <Field label="Amount" hint={`Applies to this ${unitNoun[periodUnit]} only.`}>
+          <Field
+            label={moneyLabel("Amount", override?.currency)}
+            hint={`Applies to this ${unitNoun[periodUnit]} only.`}
+          >
             <Input
               required
               inputMode="decimal"

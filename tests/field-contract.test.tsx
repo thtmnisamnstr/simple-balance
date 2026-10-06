@@ -1,8 +1,17 @@
 // @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
 import { globSync, readFileSync } from "node:fs";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Button, Field, Input, Select, Textarea } from "../src/client/components.js";
+import {
+  BulkEditToggle,
+  Button,
+  Field,
+  Input,
+  Select,
+  Textarea,
+} from "../src/client/components.js";
+import { CategoryPicker } from "../src/client/forms.js";
 
 /**
  * The three things `Field` was wrong about, and the one it still cannot do.
@@ -120,6 +129,57 @@ describe("a field and its control", () => {
  * onward had no accessible name at all — while the amount and note inputs in
  * the same rows did, which is what made it look deliberate.
  */
+/**
+ * The two places a hint was a sentence beside a control and nothing more.
+ *
+ * A mass edit's toggle had no hint slot, so every caller wrote a `<small>`
+ * after its control: "Leave blank to clear", the one currency an account
+ * change could take, and every reason a toggle was dead. The category picker
+ * did the same with what saving would do to the name. All of it was on
+ * screen and none of it was read with the control (`web.md` 8.1).
+ */
+describe("a hint that is not a Field's", () => {
+  it("is read with a mass edit's toggle and with its control", () => {
+    render(
+      <BulkEditToggle
+        label="Change account"
+        enabled={false}
+        onToggle={() => {}}
+        disabled
+        hint="Account cannot be edited across the selection while a transfer is in it."
+      >
+        <Select aria-label="New account" disabled>
+          <option value="">Choose an account</option>
+        </Select>
+      </BulkEditToggle>,
+    );
+    const reason = "Account cannot be edited across the selection while a transfer is in it.";
+    expect(screen.getByRole("checkbox", { name: "Change account" })).toHaveAccessibleDescription(
+      reason,
+    );
+    expect(screen.getByRole("combobox", { name: "New account" })).toHaveAccessibleDescription(
+      reason,
+    );
+  });
+
+  it("is read with the category picker, beside its Field's own hint", () => {
+    render(
+      <Field label="Category" hint="Optional">
+        <CategoryPicker
+          categories={[]}
+          categoryId=""
+          categoryName="Gifts"
+          ariaLabel="Category"
+          onChange={() => {}}
+        />
+      </Field>,
+    );
+    expect(screen.getByRole("combobox", { name: "Category" })).toHaveAccessibleDescription(
+      "Optional Saving will add “Gifts” as a new category.",
+    );
+  });
+});
+
 describe("a field around a composite", () => {
   it("is a labeled group rather than a label", () => {
     render(
@@ -496,7 +556,11 @@ describe("a disabled button that is not a `Button`", () => {
         if (close === -1) continue;
         const tag = source.slice(at, close + 1);
         const inMenu = menus.some((menu) => at > menu.open && at < menu.close);
-        if (!inMenu && !tag.includes("{...")) continue;
+        // And any plain button disabled on its own tag, wherever it is. This
+        // read only row menus and spreads, so the staged queue's Commit icon
+        // and the split editor's "Add a category" went gray with no reason
+        // for a release each, in plain sight of a check about exactly that.
+        if (!inMenu && !tag.includes("{...") && !/\sdisabled=\{/.test(tag)) continue;
         found.push({ where: `${path}:${source.slice(0, at).split("\n").length}`, tag, source });
       }
     }
@@ -538,9 +602,38 @@ describe("a disabled button that is not a `Button`", () => {
 
   const goesGray = (button: PlainButton) => carries(button, "disabled");
 
+  /**
+   * Gray for a reason the control already shows, each named with it.
+   *
+   * `Button` itself renders a plain `<button>`, and its own `disabled` is the
+   * caller's, already held by the census above. A pagination step is gray at
+   * an end of the pages, which the current page number beside it says, and
+   * while a turn is in flight, which its spinner says. A busy flag alone is
+   * 12.3's working state, not a refusal.
+   */
+  const SAYS_SO_ALREADY = [
+    {
+      where: "src/client/components.tsx",
+      tag: /\{\.\.\.props\}/,
+      because: "`Button`'s own element",
+    },
+    {
+      where: "src/client/components.tsx",
+      tag: /pagination-(step|page)/,
+      because: "the page number in view says which end",
+    },
+  ];
+  const busyOnly = (tag: string) => /\sdisabled=\{[^|&}]*(?:[Pp]ending|busy)[^|&}]*\}/.test(tag);
+
   it("points at the reason it is gray", () => {
     const silent = plainButtons().filter(
-      (button) => goesGray(button) && !carries(button, "aria-describedby"),
+      (button) =>
+        goesGray(button) &&
+        !carries(button, "aria-describedby") &&
+        !busyOnly(button.tag) &&
+        !SAYS_SO_ALREADY.some(
+          (entry) => button.where.startsWith(`${entry.where}:`) && entry.tag.test(button.tag),
+        ),
     );
     expect(
       silent.map((button) => button.where),
@@ -552,6 +645,6 @@ describe("a disabled button that is not a `Button`", () => {
     expect(
       plainButtons().filter(goesGray).length,
       "the census is really finding them, spreads included",
-    ).toBeGreaterThan(4);
+    ).toBeGreaterThan(8);
   });
 });

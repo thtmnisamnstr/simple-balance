@@ -116,6 +116,7 @@ export function BulkEditDescriptionField({ values, enabled, onEnabled, onValue }
       label="Change description"
       enabled={enabled.description}
       onToggle={(on) => onEnabled("description", on)}
+      hint={enabled.description ? "Leave blank to clear." : undefined}
     >
       <Input
         aria-label="New description"
@@ -124,7 +125,6 @@ export function BulkEditDescriptionField({ values, enabled, onEnabled, onValue }
         placeholder="Leave blank to clear"
         onChange={(event) => onValue({ description: event.target.value })}
       />
-      {enabled.description ? <small>Leave blank to clear.</small> : null}
     </BulkEditToggle>
   );
 }
@@ -135,6 +135,7 @@ export function BulkEditNotesField({ values, enabled, onEnabled, onValue }: Fiel
       label="Change notes"
       enabled={enabled.notes}
       onToggle={(on) => onEnabled("notes", on)}
+      hint={enabled.notes ? "Leave blank to clear." : undefined}
     >
       <Textarea
         aria-label="New notes"
@@ -144,7 +145,6 @@ export function BulkEditNotesField({ values, enabled, onEnabled, onValue }: Fiel
         placeholder="Leave blank to clear"
         onChange={(event) => onValue({ notes: event.target.value })}
       />
-      {enabled.notes ? <small>Leave blank to clear.</small> : null}
     </BulkEditToggle>
   );
 }

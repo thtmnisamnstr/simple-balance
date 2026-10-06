@@ -470,35 +470,38 @@ export default function CategoriesPage() {
         description="Group income and spending, with how much each one is used across the whole ledger. Spot near-duplicates and merge them."
       />
       <section className="panel panel-stack">
+        {/* A form, so each control is a `Field` with a label on screen. They were
+            bare controls named by `aria-label`, with a placeholder as the only
+            visible word — "Groceries" — which vanishes on the first keystroke
+            and was never a label (`web.md` 8.1, SC 3.3.2). A filter bar may be
+            bare because it has no submit, no refusal and no required field;
+            this has all three. */}
         <form className="inline-form" onSubmit={addCategory}>
-          <Input
-            required
-            aria-label="Category name"
-            placeholder="Groceries"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
-          <Select
-            aria-label="Category applies to"
-            value={kind}
-            onChange={(event) => setKind(event.target.value as CategoryKind)}
-          >
-            <option value="expense">{kindLabels.expense}</option>
-            <option value="income">{kindLabels.income}</option>
-            <option value="both">{kindLabels.both}</option>
-          </Select>
-          <Select
-            aria-label="Category group"
-            value={newGroupId}
-            onChange={(event) => setNewGroupId(event.target.value)}
-          >
-            <option value="">No group</option>
-            {(groups.data ?? []).map((group) => (
-              <option key={group.id} value={group.id}>
-                {group.name}
-              </option>
-            ))}
-          </Select>
+          <Field label="Category name">
+            <Input
+              required
+              placeholder="Groceries"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+          </Field>
+          <Field label="Applies to">
+            <Select value={kind} onChange={(event) => setKind(event.target.value as CategoryKind)}>
+              <option value="expense">{kindLabels.expense}</option>
+              <option value="income">{kindLabels.income}</option>
+              <option value="both">{kindLabels.both}</option>
+            </Select>
+          </Field>
+          <Field label="Category group">
+            <Select value={newGroupId} onChange={(event) => setNewGroupId(event.target.value)}>
+              <option value="">No group</option>
+              {(groups.data ?? []).map((group) => (
+                <option key={group.id} value={group.id}>
+                  {group.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
           <Button type="submit" loading={categoryMutation.isPending}>
             <Plus size={16} /> Add category
           </Button>
@@ -531,21 +534,23 @@ export default function CategoriesPage() {
             }
           }}
         >
-          <Input
-            required
-            aria-label="Group name"
-            placeholder="Fixed costs"
-            value={groupName}
-            onChange={(event) => setGroupName(event.target.value)}
-          />
-          <Select
-            aria-label="Group budget"
-            value={groupPolicy}
-            onChange={(event) => setGroupPolicy(event.target.value as CategoryGroup["policy"])}
-          >
-            <option value="standalone">Has a budget of its own</option>
-            <option value="sum_of_children">Adds up its categories' budgets</option>
-          </Select>
+          <Field label="Group name">
+            <Input
+              required
+              placeholder="Fixed costs"
+              value={groupName}
+              onChange={(event) => setGroupName(event.target.value)}
+            />
+          </Field>
+          <Field label="Group budget">
+            <Select
+              value={groupPolicy}
+              onChange={(event) => setGroupPolicy(event.target.value as CategoryGroup["policy"])}
+            >
+              <option value="standalone">Has a budget of its own</option>
+              <option value="sum_of_children">Adds up its categories' budgets</option>
+            </Select>
+          </Field>
           <Button type="submit" loading={groupMutation.isPending}>
             <Plus size={16} /> Add group
           </Button>

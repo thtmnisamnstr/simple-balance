@@ -435,9 +435,15 @@ a {
   background: var(--fill-subtle);
 }
 
+/* SC 1.4.1: the current page was told apart by hue alone — `--green-dark`
+   against `--ink-soft` is 1.01:1 in lightness, and the fill against the sidebar
+   1.13 — so to anyone who does not see the green, every link looked the same.
+   The bar at the leading edge is a shape, and it is drawn in the link's own
+   text color, which already clears 4.5:1 on the fill. */
 .sidebar nav a.active {
   color: var(--green-dark);
   background: var(--green-soft);
+  box-shadow: inset 3px 0 0 var(--green-dark);
 }
 
 .sidebar-foot {
@@ -1641,8 +1647,14 @@ input[type="radio"] {
   border-radius: 13px;
 }
 
-.account-card.archived {
-  opacity: 0.65;
+/* Archived is said by the card's badge and by its name and balance turning to
+   `--muted`, not by fading the card. It was `opacity: 0.65`, which took the
+   muted type and balance labels to 2.63:1 in light and 3.69:1 in dark, under
+   SC 1.4.3's 4.5:1 for text a person still reads. Before the hover rule below,
+   so a pointer on the card still lights its name. */
+.account-card.archived h2,
+.account-card.archived footer strong {
+  color: var(--muted);
 }
 
 .account-card-link {
@@ -2258,9 +2270,21 @@ input[type="radio"] {
   font-size: 11px;
 }
 
+/* A voided entry is muted, struck through and badged, and not faded. It was
+   `opacity: 0.5`, which took every piece of text in the row under SC 1.4.3's
+   4.5:1 — the cells to 2.50:1, the amounts to about 2.3, the "Deleted" badge
+   itself to 1.91 — and a voided entry is content somebody reads rather than a
+   disabled control, so the exemption for those does not reach it. `--muted`
+   holds 4.5:1 on the surface in both themes. The amounts lose their green and
+   red with the rest: a voided entry moves no money, and the sign beside the
+   figure still says which way it would have. */
 .row-deleted {
-  opacity: 0.5;
+  color: var(--muted);
   text-decoration: line-through;
+}
+
+.row-deleted :is(a, .transaction-cell strong, .money.deposit, .money.withdrawal, .money) {
+  color: var(--muted);
 }
 
 .row-actions {
@@ -2336,29 +2360,6 @@ input[type="radio"] {
 .row-actions button:disabled {
   cursor: not-allowed;
   opacity: 0.5;
-}
-
-/* Where the house dim is the wrong number: a control inside something that is
-   already dimmed. Opacity composites down the subtree, so the two multiply.
-   A voided row is at 0.5 (`.row-deleted` above) and an archived account card at
-   0.65 (`.account-card.archived`), which put a disabled control at 0.25 and
-   0.325 — `--muted` at 1.39:1 and `--ink-soft` at 1.75:1 on `--surface`, a
-   control that has vanished rather than one stating a condition, which is the
-   opposite of what the dim is for.
-
-   Both are reachable and both are what disabling these families created: a
-   voided entry on a frozen account shows Restore alone, and an archived card's
-   Restore is refused while every place is in use. Dropped rather than scaled to
-   a product of 0.5, because the container's dim is already the whole answer the
-   eye gets in there, and a control dimmer than the row it sits in reads as
-   missing. What still separates a dead control from a live one inside a dimmed
-   container is the cursor, the hover that does not light, and the reason it
-   points at. The next container that dims a subtree joins this list; nothing
-   else can be done about it in CSS, because a descendant combinator cannot say
-   "no ancestor dims". */
-.row-deleted .row-actions button:disabled,
-.account-card.archived .menu-popover button:disabled {
-  opacity: 1;
 }
 
 .checkbox-cell {
@@ -2472,11 +2473,19 @@ input[type="radio"] {
   cursor: pointer;
 }
 
+/* SC 1.4.1: chosen was a change of hue and nothing else — the border 1.05:1
+   against the unchosen one, the text 1.70, the fill 1.08 — on a control every
+   transaction, template and recurrence form opens with. The chosen one now has
+   an edge twice as thick and drawn in the text color, so it is heavier as well
+   as greener. An inset ring rather than a wider border, so choosing one does
+   not shift the three by a pixel. */
 .transaction-type.selected {
-  border-color: var(--green-line-strong);
+  border-color: var(--green-dark);
   color: var(--green-dark);
   background: var(--green-wash);
-  box-shadow: 0 0 0 2px var(--focus-inner);
+  box-shadow:
+    inset 0 0 0 1px var(--green-dark),
+    0 0 0 2px var(--focus-inner);
 }
 
 .transaction-type span,
@@ -2905,6 +2914,7 @@ input[type="radio"] {
 .inline-form {
   display: grid;
   grid-template-columns: minmax(120px, 1fr) 160px 160px auto;
+  align-items: end;
   gap: 8px;
 }
 

@@ -5,7 +5,12 @@ import { describe, expect, it } from "vitest";
 import { renamedRoutes } from "./support/routes.js";
 import { createMcpServer } from "../src/server/mcp.js";
 import { listQuerySchema, stageListQuerySchema } from "../src/shared/domain.js";
-import { sourceFiles, topLevelDeclarations, type SourceFile } from "./support/source.js";
+import {
+  blankComments,
+  sourceFiles,
+  topLevelDeclarations,
+  type SourceFile,
+} from "./support/source.js";
 import { mutationNames } from "./support/mutations.js";
 
 /**
@@ -630,7 +635,10 @@ async function clientSource() {
       if (entry.isDirectory()) {
         out.push(...(await walk(new URL(`${entry.name}/`, directory))));
       } else if (/\.tsx?$/.test(entry.name)) {
-        out.push(await readFile(new URL(entry.name, directory), "utf8"));
+        // Comments blanked: the method reader walks quotes to find where a call
+        // ends, and an apostrophe in a comment inside a request body — "a
+        // group's rank" — opened a string that never closed.
+        out.push(blankComments(await readFile(new URL(entry.name, directory), "utf8")));
       }
     }
     return out;

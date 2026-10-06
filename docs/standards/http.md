@@ -90,7 +90,7 @@ equivalent MCP tool needs today, and therefore the scope a bearer token will
 need once SB-030 lands; `ledger:read` is implied by both of the others
 (`src/server/mcp.ts:509-520`).
 
-The register at `tests/mcp-parity.test.ts:21-40` does two jobs rather than one,
+The register at `tests/mcp-parity.test.ts:26-45` does two jobs rather than one,
 and reading it as one job is how the second gets lost. Most of its entries are
 routes with **no tool at all**, and those are the ones marked session only
 below. One entry is a route whose tool is **spelled differently**:
@@ -363,7 +363,7 @@ and putting `v1` in front of a well-known path would make it undiscoverable.
 `/metrics` is the name every scraper already looks for, and a versioned one
 would have to be configured everywhere to say the same thing.
 
-*Checked by:* `tests/mcp-parity.test.ts:121-136` extracts the registered
+*Checked by:* `tests/mcp-parity.test.ts:126-141` extracts the registered
 `/api/v1` routes from source, so a route added without a tool or a written
 exception fails, and `tests/http-route-table.test.ts` now holds the `/api/v1`
 tables above to that same extraction in both directions. Four of the rows in
@@ -543,7 +543,7 @@ left open honestly rather than closed by a test that would pass forever.
   (`src/server/http-security.ts:500-512`). The consequence is real and the
   browser client lives with it: revoking an agent is a `DELETE` that sends `{}`
   purely so it can declare a content type
-  (`src/client/pages/SettingsPage.tsx:630-639`).
+  (`src/client/pages/SettingsPage.tsx:636-645`).
   *Checked by:* `tests/api-security.test.ts:64-88`, both halves, the refusal and
   the bodyless request that gets through the gate.
 - **House.** A malformed or absent JSON body is a 400 with a message saying so,
@@ -1983,7 +1983,7 @@ way.
   Identity, the plan's ceiling and how much of it is used are `whoami`, and the
   regional settings are `get_preferences`. What is left is which sign-in methods
   the deployment offers, which is no business of an agent's
-  (`tests/mcp-parity.test.ts:26-27`).
+  (`tests/mcp-parity.test.ts:31-32`).
 - **House.** Signed out, `GET /api/v1/session` is a `401` like every other
   route here, and `GET /api/v1/session?optional=true` is `200 null`. The
   browser asks that way because "is anybody signed in?" is the first thing it

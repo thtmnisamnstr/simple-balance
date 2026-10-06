@@ -578,17 +578,22 @@ export function ErrorSummary({
 /**
  * What a `Field` tells the control inside it.
  *
- * Through context rather than by cloning the child. `Field` is used at 96 sites
- * and its children are arbitrary JSX — an `<Input>`, a `<Select>`, a
- * `CategoryPicker` that renders one three levels down — so `cloneElement` would
- * reach the first case and silently miss the rest. A context reaches all of
- * them, wires nothing at the call sites, and costs a `useId` per field.
+ * Through context rather than by cloning the child. `Field` wraps every form
+ * field in the app (`web.md` 8.1 keeps the count) and its children are
+ * arbitrary JSX — an `<Input>`, a `<Select>`, a `CategoryPicker` that renders
+ * one three levels down — so `cloneElement` would reach the first case and
+ * silently miss the rest. A context reaches all of them, wires nothing at the
+ * call sites, and costs a `useId` per field.
  *
  * `null` means "there is no single control here to point at": that is the
  * `as="group"` case, where the label belongs to the group and each control
  * inside carries its own name.
  */
-type FieldWiring = { id: string; describedBy: string | undefined; invalid: boolean } | null;
+type FieldWiring = {
+  id: string | undefined;
+  describedBy: string | undefined;
+  invalid: boolean;
+} | null;
 
 const FieldContext = createContext<FieldWiring>(null);
 
@@ -697,7 +702,13 @@ export function Field({
     <div
       className="field"
       id={`${base}-field`}
-      {...(as === "group" ? { role: "group", "aria-labelledby": `${base}-label` } : {})}
+      // A group has no single control to point at its hint and error, so the
+      // group itself does: a sentence about the whole composite is read when
+      // focus enters it, rather than sitting beside fifty controls none of
+      // which names it.
+      {...(as === "group"
+        ? { role: "group", "aria-labelledby": `${base}-label`, "aria-describedby": describedBy }
+        : {})}
     >
       {as === "group" ? (
         <span className="field-label" id={`${base}-label`}>
@@ -747,12 +758,27 @@ function fieldProps(
 ) {
   if (!field) return {};
   return {
-    ...(own.id === undefined ? { id: field.id } : {}),
+    ...(own.id === undefined && field.id !== undefined ? { id: field.id } : {}),
     ...(own["aria-describedby"] === undefined && field.describedBy
       ? { "aria-describedby": field.describedBy }
       : {}),
     ...(own["aria-invalid"] === undefined && field.invalid ? { "aria-invalid": true } : {}),
   };
+}
+
+/**
+ * The `aria-describedby` for a control that has a sentence of its own to add to
+ * what its `Field` already says.
+ *
+ * A control passed its own `aria-describedby` loses the Field's, because a
+ * caller's prop wins (`fieldProps`). The category picker has a line of its own
+ * — "Saving will add … as a new category" — that was rendered beside its input
+ * and pointed at by nothing (`web.md` 8.1); passing it alone would have cut
+ * the field's hint and error off instead. So the two are joined here.
+ */
+export function useFieldDescribedBy(own: string | undefined) {
+  const field = useContext(FieldContext);
+  return [field?.describedBy, own].filter(Boolean).join(" ") || undefined;
 }
 
 export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
@@ -1208,13 +1234,28 @@ export function BulkEditToggle({
   enabled,
   onToggle,
   disabled = false,
+  hint,
   children,
 }: PropsWithChildren<{
   label: string;
   enabled: boolean;
   onToggle: (enabled: boolean) => void;
   disabled?: boolean;
+  /**
+   * What to know about this field, wired the way `Field` wires a hint.
+   *
+   * It was a `<small>` each caller wrote after the control, pointed at by
+   * nothing (`web.md` 8.1, Binding on SC 1.3.1): "Leave blank to clear", the
+   * one currency an account change may take, and every reason a toggle is
+   * disabled, all sat beside controls a screen reader read without them. The
+   * toggle and the control both point at it now — the toggle because a reason
+   * it is dead is about the toggle, the control because what to type is about
+   * the control.
+   */
+  hint?: string;
 }>) {
+  const hintId = useId();
+  const describedBy = hint ? hintId : undefined;
   return (
     <div className={enabled ? "bulk-edit-field enabled" : "bulk-edit-field"}>
       <label className="bulk-edit-toggle">
@@ -1222,11 +1263,15 @@ export function BulkEditToggle({
           type="checkbox"
           checked={enabled}
           disabled={disabled}
+          aria-describedby={describedBy}
           onChange={(event) => onToggle(event.target.checked)}
         />
         <span>{label}</span>
       </label>
-      {children}
+      <FieldContext.Provider value={{ id: undefined, describedBy, invalid: false }}>
+        {children}
+      </FieldContext.Provider>
+      {hint ? <small id={hintId}>{hint}</small> : null}
     </div>
   );
 }

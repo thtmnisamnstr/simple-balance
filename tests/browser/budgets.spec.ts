@@ -139,7 +139,7 @@ async function seedLedger(page: Page) {
     [salary, "income"],
   ] as const) {
     await page.getByLabel("Category name").fill(name);
-    await page.getByLabel("Category applies to").selectOption(kind);
+    await page.getByLabel("Applies to").selectOption(kind);
     await page.getByRole("button", { name: "Add category" }).click();
     await expect(page.getByText(name, { exact: false }).first()).toBeVisible();
   }
@@ -545,7 +545,7 @@ test.describe("the budgets page in a browser", () => {
     });
     await page.goto("/budgets");
     await expect(page.getByRole("heading", { name: /^budgets$/i })).toBeVisible();
-    await page.getByRole("combobox", { name: "Budget period" }).selectOption("quarter");
+    await page.getByRole("combobox", { name: "Budgeting by" }).selectOption("quarter");
     await expect(page.getByRole("heading", { name: /^budgets$/i })).toBeVisible();
     expect(problems).toEqual([]);
   });
@@ -621,7 +621,7 @@ test.describe("the budgets page in a browser", () => {
     const carried = `Carried ${Date.now()}`;
     await page.goto("/categories");
     await page.getByLabel("Category name").fill(carried);
-    await page.getByLabel("Category applies to").selectOption("expense");
+    await page.getByLabel("Applies to").selectOption("expense");
     await page.getByRole("button", { name: "Add category" }).click();
     await expect(page.getByText(carried, { exact: false }).first()).toBeVisible();
 
@@ -638,7 +638,7 @@ test.describe("the budgets page in a browser", () => {
     //field and a closed `<dialog>` is still in the document.
     const setBudget = page.locator("form.budget-form");
     await setBudget.getByLabel(/^Category/).selectOption({ label: carried });
-    await setBudget.getByLabel(/^Amount$/).fill("100.00");
+    await setBudget.getByLabel(/^Amount( \(|$)/).fill("100.00");
     await setBudget.getByLabel(/^Currency/).selectOption("USD");
     await setBudget.getByLabel(/^Starting/).fill("2026-07-01");
     await setBudget.getByLabel(/^Carry what is left over/).check();
@@ -665,7 +665,7 @@ test.describe("the budgets page in a browser", () => {
     const fund = `Fund ${Date.now()}`;
     await page.goto("/categories");
     await page.getByLabel("Category name").fill(fund);
-    await page.getByLabel("Category applies to").selectOption("expense");
+    await page.getByLabel("Applies to").selectOption("expense");
     await page.getByRole("button", { name: "Add category" }).click();
     await expect(page.getByText(fund, { exact: false }).first()).toBeVisible();
 
@@ -676,7 +676,7 @@ test.describe("the budgets page in a browser", () => {
     // Typing a target hides the amount box, because a fund works out its own
     // figure, and turns the carry on, because a fund that does not keep what it
     // saved saves nothing.
-    await expect(setBudget.getByLabel(/^Amount$/)).toHaveCount(0);
+    await expect(setBudget.getByLabel(/^Amount( \(|$)/)).toHaveCount(0);
     await expect(setBudget.getByLabel(/^Carry what is left over/)).toBeChecked();
     await setBudget.getByLabel(/^Needed by/).fill("2026-12-20");
     await setBudget.getByLabel(/^Currency/).selectOption("USD");
@@ -700,7 +700,7 @@ test.describe("the budgets page in a browser", () => {
     const share = `Share ${Date.now()}`;
     await page.goto("/categories");
     await page.getByLabel("Category name").fill(share);
-    await page.getByLabel("Category applies to").selectOption("expense");
+    await page.getByLabel("Applies to").selectOption("expense");
     await page.getByRole("button", { name: "Add category" }).click();
     await expect(page.getByText(share, { exact: false }).first()).toBeVisible();
 
@@ -709,7 +709,7 @@ test.describe("the budgets page in a browser", () => {
     await setBudget.getByLabel(/^Category/).selectOption({ label: share });
     await setBudget.getByLabel("Amount decided by").selectOption("income");
     // The amount box goes away, because the amount is not somebody's to type.
-    await expect(setBudget.getByLabel(/^Amount$/)).toHaveCount(0);
+    await expect(setBudget.getByLabel(/^Amount( \(|$)/)).toHaveCount(0);
     await setBudget.getByLabel(/Share of income/).fill("15");
     await setBudget.getByLabel(/^Currency/).selectOption("USD");
     await setBudget.getByLabel(/^Starting/).fill("2026-07-01");
@@ -742,7 +742,7 @@ test.describe("the budgets page in a browser", () => {
     ).toBeVisible();
 
     await page.getByLabel("Category name").fill(rent);
-    await page.getByLabel("Category applies to").selectOption("expense");
+    await page.getByLabel("Applies to").selectOption("expense");
     await page.getByRole("button", { name: "Add category" }).click();
     await page.getByRole("button", { name: `Edit ${rent}` }).click();
     const dialog = page.getByRole("dialog");
@@ -754,7 +754,7 @@ test.describe("the budgets page in a browser", () => {
     await setBudget
       .getByLabel(/^Category or group/)
       .selectOption({ label: `${groupName} (group)` });
-    await setBudget.getByLabel(/^Amount$/).fill("1200.00");
+    await setBudget.getByLabel(/^Amount( \(|$)/).fill("1200.00");
     await setBudget.getByLabel(/^Currency/).selectOption("USD");
     await setBudget.getByLabel(/^Starting/).fill("2026-08-01");
     await setBudget.getByRole("button", { name: /^set budget$/i }).click();
@@ -785,14 +785,14 @@ test.describe("the budgets page in a browser", () => {
     const pension = `Pension ${Date.now()}`;
     await page.goto("/categories");
     await page.getByLabel("Category name").fill(envelope);
-    await page.getByLabel("Category applies to").selectOption("expense");
+    await page.getByLabel("Applies to").selectOption("expense");
     await page.getByRole("button", { name: "Add category" }).click();
     await expect(page.getByText(envelope, { exact: false }).first()).toBeVisible();
 
     await page.goto("/budgets");
     const setBudget = page.locator("form.budget-form");
     await setBudget.getByLabel(/^Category or group/).selectOption({ label: envelope });
-    await setBudget.getByLabel(/^Amount$/).fill("100.00");
+    await setBudget.getByLabel(/^Amount( \(|$)/).fill("100.00");
     await setBudget.getByLabel(/^Currency/).selectOption("USD");
     await setBudget.getByLabel(/^Starting/).fill("2026-08-01");
     await setBudget.getByLabel(/^Carry what is left over/).check();
@@ -957,7 +957,7 @@ test.describe("the budgets page in a browser", () => {
     const unnamed = `Unbudgeted ${Date.now()}`;
     await page.goto("/categories");
     await page.getByLabel("Category name").fill(unnamed);
-    await page.getByLabel("Category applies to").selectOption("expense");
+    await page.getByLabel("Applies to").selectOption("expense");
     await page.getByRole("button", { name: "Add category" }).click();
     await expect(page.getByText(unnamed, { exact: false }).first()).toBeVisible();
 

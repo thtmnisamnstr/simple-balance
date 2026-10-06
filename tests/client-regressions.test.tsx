@@ -107,7 +107,7 @@ describe("account opening balances", () => {
     );
 
     expect(screen.getByLabelText("Starting balance type")).toHaveValue("credit");
-    expect(screen.getByLabelText("Starting amount")).toHaveValue("42.50");
+    expect(screen.getByLabelText(/^Starting amount/)).toHaveValue("42.50");
     fireEvent.submit(container.querySelector("form")!);
 
     await waitFor(() => {
@@ -148,11 +148,11 @@ describe("account opening balances", () => {
     );
 
     const form = within(container);
-    expect(form.getByLabelText("Starting amount")).toHaveValue("500.00");
+    expect(form.getByLabelText(/^Starting amount/)).toHaveValue("500.00");
     fireEvent.change(form.getByLabelText("Account type"), {
       target: { value: "checking" },
     });
-    expect(form.getByLabelText("Opening balance")).toHaveValue("-500.00");
+    expect(form.getByLabelText(/^Opening balance/)).toHaveValue("-500.00");
     fireEvent.submit(container.querySelector("form")!);
 
     await waitFor(() => {
@@ -179,7 +179,7 @@ describe("an edit form's amounts", () => {
         </TimezoneProvider>
       </QueryClientProvider>,
     );
-    expect(screen.getByLabelText("Opening balance")).toHaveValue("3250.00");
+    expect(screen.getByLabelText(/^Opening balance/)).toHaveValue("3250.00");
 
     const draft = draftFromTransaction({
       ...groceryTransaction,
@@ -984,6 +984,50 @@ describe("staged queue pagination", () => {
       }),
     );
     expect(screen.getByText("1 selected")).toBeInTheDocument();
+  });
+
+  /**
+   * `web.md` 12.3: a dead control says why. A staged row with an issue had its
+   * Commit disabled and nothing pointing at the reason, while the status cell
+   * beside it already showed the issue.
+   */
+  it("says why a row with an issue cannot be committed", async () => {
+    window.history.replaceState(null, "", "/staged?start=2026-07-01&end=2026-07-31");
+    const row = {
+      ...staged(
+        "66666666-6666-4666-8666-666666666666",
+        "Needs an account",
+        "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      ),
+      validationIssues: [
+        { field: "draft.fromAccountId", message: "Choose the account the money comes from" },
+      ],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input), window.location.origin);
+        if (url.pathname === "/api/v1/staged-transactions") {
+          return Response.json({ items: [row], nextCursor: null });
+        }
+        if (url.pathname === "/api/v1/accounts") return Response.json([checkingAccount]);
+        return Response.json(
+          url.pathname === "/api/v1/import-batches" ? { items: [], nextCursor: null } : [],
+        );
+      }),
+    );
+    render(
+      <QueryClientProvider client={queryClient()}>
+        <TimezoneProvider timezone="UTC">
+          <BrowserRouter>
+            <StagingPage />
+          </BrowserRouter>
+        </TimezoneProvider>
+      </QueryClientProvider>,
+    );
+    const commit = await screen.findByRole("button", { name: "Commit staged transaction" });
+    expect(commit).toBeDisabled();
+    expect(commit).toHaveAccessibleDescription("Choose the account the money comes from");
   });
 
   it("reuses a staged-commit key when a lost response is retried", async () => {

@@ -3,7 +3,7 @@
 The one convention in this repository that is genuinely unusual, and the reason
 it pays.
 
-**26.4% of the non-blank lines in `src` are comments** — 16,375 of 62,070. That
+**26.4% of the non-blank lines in `src` are comments** — 16,456 of 62,241. That
 is far above what most codebases carry and far above what most style guides
 recommend. It is deliberate, and this guide exists so that nobody "tidies" it
 away and so that the density is spent on the right things.
@@ -118,12 +118,12 @@ a paragraph arguing why the rule is wrong about that line:
 // oxlint-disable-next-line jsx-a11y/no-static-element-interactions
 ```
 
-That one is `src/client/forms.tsx:569`. `src/client/components.tsx:917`
+That one is `src/client/forms.tsx:575`. `src/client/components.tsx:943`
 silences two rules in a single comment and does not borrow this argument: it
 makes its own, that a keyboard user's activation of the buttons inside bubbles
 to the same handler, so the element is a catcher for its children's events
 rather than a mouse-only control. Thirteen of the fourteen paragraphs sit
-directly above the disable. The exception is `src/client/forms.tsx:1762`, where
+directly above the disable. The exception is `src/client/forms.tsx:1798`, where
 the reason is about the whole effect and sits above it, and the disable reaches
 only the first of the two lines inside that assign. The second lints clean
 anyway — the rule reports once per effect, on the first setter it sees — which

@@ -23,7 +23,7 @@ import {
   Skeleton,
   useConfirm,
 } from "../components.js";
-import { formatDate, formatMoney } from "../money.js";
+import { formatDate, formatMoney, movementSign } from "../money.js";
 import { TransactionForm } from "../forms.js";
 import { summarizeStagedDraft } from "../staged-draft.js";
 import { Link, Navigate, useParams } from "../router.js";
@@ -318,18 +318,23 @@ export default function DuplicateReviewPage() {
                       <Badge tone="amber">Waiting in the queue</Badge>
                     )}
                   </h2>
+                  {/* Signed, as every movement is (`web.md` 10.1). On the one page
+                      asking whether two records are the same payment, a $50
+                      deposit and a $50 withdrawal read identically without it. */}
                   <span>
                     {committed
                       ? `${formatDate(committed.date)} · ${
                           (committed.sourceAmount ?? committed.destinationAmount)
-                            ? formatMoney(
+                            ? `${movementSign(committed.type).sign}${formatMoney(
                                 committed.sourceAmount ?? committed.destinationAmount ?? "0",
                                 committed.sourceCurrency ?? committed.destinationCurrency ?? "",
-                              )
+                              )}`
                             : ""
                         }`
                       : summary?.amount && summary.currency
-                        ? `${formatDate(String(staged?.draft.date ?? ""))} · ${formatMoney(summary.amount, summary.currency)}`
+                        ? `${formatDate(String(staged?.draft.date ?? ""))} · ${
+                            movementSign(String(staged?.draft.type ?? "")).sign
+                          }${formatMoney(summary.amount, summary.currency)}`
                         : formatDate(String(staged?.draft.date ?? ""))}
                   </span>
                 </div>

@@ -60,6 +60,7 @@ import {
   RequiredNote,
   Select,
   Textarea,
+  useFieldDescribedBy,
 } from "./components.js";
 import {
   amountForInput,
@@ -69,6 +70,8 @@ import {
   formatTime,
   isNegativeMoney,
   isPositiveMoney,
+  isZeroMoney,
+  moneyLabel,
   moneyRemainder,
 } from "./money.js";
 import {
@@ -259,7 +262,10 @@ export function AccountForm({
           </Field>
         ) : null}
         <Field
-          label={liabilityAccountTypes.has(type) ? "Starting amount" : "Opening balance"}
+          label={moneyLabel(
+            liabilityAccountTypes.has(type) ? "Starting amount" : "Opening balance",
+            currency,
+          )}
           name="openingBalance"
         >
           <Input
@@ -656,12 +662,24 @@ export function CategoryPicker({
   // category and leaves the category's kind alone. Filtering here is what made
   // a refund impossible to enter.
   const existing = categories.find((category) => normalizeHumanName(category.name) === normalized);
+  // What saving will do with the name, pointed at by the input as well as shown
+  // beside it, so a screen reader hears whether a new category is about to be
+  // made — the one consequence of this field nobody can undo by retyping.
+  const noteId = useId();
+  const note =
+    normalized && !existing
+      ? `Saving will add “${cleaned}” as a new category.`
+      : normalized && existing && !categoryId
+        ? `Will use your existing “${existing.name}”.`
+        : null;
+  const describedBy = useFieldDescribedBy(note ? noteId : undefined);
 
   return (
     <div className="category-picker">
       <Input
         list={listId}
         aria-label={ariaLabel}
+        aria-describedby={describedBy}
         autoFocus={autoFocus}
         value={categoryName}
         onChange={(event) => {
@@ -685,12 +703,7 @@ export function CategoryPicker({
           <option key={category.id} value={category.name} />
         ))}
       </datalist>
-      {normalized && !existing ? (
-        <small>Saving will add “{cleaned}” as a new category.</small>
-      ) : null}
-      {normalized && existing && !categoryId ? (
-        <small>Will use your existing “{existing.name}”.</small>
-      ) : null}
+      {note ? <small id={noteId}>{note}</small> : null}
     </div>
   );
 }
@@ -751,6 +764,8 @@ function CategoryLegs({
   });
   const replace = (index: number, changes: Partial<TransactionFormLeg>) =>
     onLegsChange(legs.map((leg, at) => (at === index ? { ...leg, ...changes } : leg)));
+  const remainderId = useId();
+  const capId = useId();
 
   if (!legs.length) {
     return (
@@ -791,7 +806,8 @@ function CategoryLegs({
     total,
     legs.map((leg) => leg.amount || "0"),
   );
-  const settled = remainder === "0";
+  const settled = isZeroMoney(remainder);
+  const atCap = legs.length >= MAX_TRANSACTION_LEGS;
 
   return (
     <div className="category-legs">
@@ -818,7 +834,10 @@ function CategoryLegs({
             onChange={(event) => replace(index, { amount: event.target.value })}
             placeholder="0.00"
             pattern="(0|[1-9][0-9]{0,25})(\.[0-9]{1,18})?"
-            aria-label={`Amount for split ${index + 1}`}
+            aria-label={moneyLabel(`Amount for split ${index + 1}`, currency)}
+            // The line saying what is left to assign is about every amount
+            // here, and was pointed at by none of them.
+            aria-describedby={remainderId}
           />
           <Input
             value={leg.note}
@@ -853,11 +872,18 @@ function CategoryLegs({
           type="button"
           className="link-button"
           onClick={() => onLegsChange([...legs, blank()])}
-          disabled={legs.length >= MAX_TRANSACTION_LEGS}
+          disabled={atCap}
+          aria-describedby={atCap ? capId : undefined}
         >
           Add a category
         </button>
+        {/* `web.md` 12.3: a control that is dead says why, and this one went
+            dead at the cap with nothing saying so. */}
+        {atCap ? (
+          <small id={capId}>{`A split can name up to ${MAX_TRANSACTION_LEGS} categories.`}</small>
+        ) : null}
         <small
+          id={remainderId}
           className={
             settled || !requireBalance
               ? "category-legs-remainder settled"
@@ -870,7 +896,7 @@ function CategoryLegs({
               ? "Enter an amount for the transaction and for each category."
               : settled
                 ? "The split adds up."
-                : remainder.startsWith("-")
+                : isNegativeMoney(remainder)
                   ? `${shownMoney(remainder.slice(1), currency)} more than the total is assigned.`
                   : `${shownMoney(remainder, currency)} left to assign.`}
         </small>
@@ -1038,6 +1064,12 @@ export function TemplateForm({
   const [toAccountId, setToAccountId] = useState(source.toAccountId ?? "");
   const [amount, setAmount] = useState(source.amount ?? "");
   const [destinationAmount, setDestinationAmount] = useState(source.destinationAmount ?? "");
+  // The account each amount is in, for its label: the side the type reads, or,
+  // with no type yet, whichever side has been filled in.
+  const currencyOf = (id: string) => accounts.find((account) => account.id === id)?.currency;
+  const amountCurrency = currencyOf(
+    type === "deposit" ? toAccountId : type ? fromAccountId : fromAccountId || toAccountId,
+  );
   const [categoryId, setCategoryId] = useState(source.categoryId ?? "");
   const [categoryName, setCategoryName] = useState(
     categories.find((category) => category.id === source.categoryId)?.name ??
@@ -1222,7 +1254,11 @@ export function TemplateForm({
         </Field>
       ) : null}
 
-      <Field label="Amount" hint="Leave blank when it differs every time." name="draft.amount">
+      <Field
+        label={moneyLabel("Amount", amountCurrency)}
+        hint="Leave blank when it differs every time."
+        name="draft.amount"
+      >
         <Input
           inputMode="decimal"
           value={amount}
@@ -1235,7 +1271,7 @@ export function TemplateForm({
       {type === "transfer" ? (
         <Field
           name="draft.destinationAmount"
-          label="Amount received"
+          label={moneyLabel("Amount received", currencyOf(toAccountId))}
           hint="For a transfer between currencies: what arrives on the other side. Leave blank when both accounts share a currency, or to fill it in each time."
         >
           <Input
@@ -1831,10 +1867,12 @@ export function TransactionForm({
   const showsCategoryPicker = !splitting && type !== "transfer";
   const splitSettled =
     !splitting ||
-    moneyRemainder(
-      amount,
-      legs.map((leg) => leg.amount || "0"),
-    ) === "0";
+    isZeroMoney(
+      moneyRemainder(
+        amount,
+        legs.map((leg) => leg.amount || "0"),
+      ),
+    );
 
   /**
    * Every category this entry will actually be filed under.
@@ -2343,12 +2381,8 @@ export function TransactionForm({
           name={["draft.amount", "draft.sourceAmount"]}
           label={
             type === "transfer"
-              ? `Amount sent${source ? ` (${source.currency})` : ""}`
-              : `Amount${
-                  (type === "deposit" ? destination : source)
-                    ? ` (${(type === "deposit" ? destination : source)!.currency})`
-                    : ""
-                }`
+              ? moneyLabel("Amount sent", source?.currency)
+              : moneyLabel("Amount", (type === "deposit" ? destination : source)?.currency)
           }
         >
           <Input
@@ -2363,7 +2397,7 @@ export function TransactionForm({
         {crossCurrency ? (
           <Field
             name="draft.destinationAmount"
-            label={`Amount received${destination ? ` (${destination.currency})` : ""}`}
+            label={moneyLabel("Amount received", destination?.currency)}
             hint="The implied rate is saved with the transfer"
           >
             <Input
@@ -2391,6 +2425,11 @@ export function TransactionForm({
           label="Category"
           hint="Optional"
           as="group"
+          // The browser's preview of the server's category rule, on the field
+          // it is about. It was an alert at the foot of the form, so the
+          // Category group never said it was wrong and nothing pointed at the
+          // sentence (`web.md` 8.1).
+          error={entrySideError || undefined}
           name={["draft.categoryId", "draft.categoryName", "draft.categoryKind", "draft.legs"]}
         >
           <CategoryLegs
@@ -2508,7 +2547,6 @@ export function TransactionForm({
         </>
       ) : null}
       {repeatNotice ? <Alert kind="success">{repeatNotice}</Alert> : null}
-      {entrySideError ? <Alert kind="error">{entrySideError}</Alert> : null}
       <div className="form-actions">
         <Button type="button" variant="ghost" onClick={onDone}>
           Cancel
@@ -2965,10 +3003,12 @@ export function RecurrenceForm({
   const entrySideError = entrySide && !entrySide.ok ? entrySide.message : "";
   const splitSettled =
     !splitting ||
-    moneyRemainder(
-      amount,
-      legs.map((leg) => leg.amount || "0"),
-    ) === "0";
+    isZeroMoney(
+      moneyRemainder(
+        amount,
+        legs.map((leg) => leg.amount || "0"),
+      ),
+    );
   // Every leg of a split has to name a category and an amount, or the save
   // silently posts fewer legs than are on screen. A row left blank used to be
   // dropped, which took the split below two and sent no category at all.
@@ -3009,8 +3049,12 @@ export function RecurrenceForm({
 
       <TransactionTypeChoice value={type} onChange={setType} />
 
+      {/* Required, as the shared schema says ("Payee is required") and as the
+          transaction form's payee already was: a field neither marked optional
+          nor required is the bug `web.md` 8.4 names, and the browser never
+          blocked a blank one. */}
       <Field label="Payee" name="shape.payee">
-        <PayeeInput value={payee} onChange={setPayee} />
+        <PayeeInput required value={payee} onChange={setPayee} />
       </Field>
 
       {type !== "deposit" ? (
@@ -3050,7 +3094,12 @@ export function RecurrenceForm({
         <Field
           name={["shape.amount", "shape.sourceAmount"]}
           label={
-            crossCurrency && sendingAccount ? `Amount sent (${sendingAccount.currency})` : "Amount"
+            crossCurrency
+              ? moneyLabel("Amount sent", sendingAccount?.currency)
+              : moneyLabel(
+                  "Amount",
+                  (type === "deposit" ? receivingAccount : sendingAccount)?.currency,
+                )
           }
           hint="Leave blank when it differs every time. Each proposal then waits on Staged transactions for a number."
         >
@@ -3065,7 +3114,7 @@ export function RecurrenceForm({
         {crossCurrency ? (
           <Field
             name="shape.destinationAmount"
-            label={`Amount received (${receivingAccount!.currency})`}
+            label={moneyLabel("Amount received", receivingAccount?.currency)}
             hint="Optional. Leave blank unless the rate is agreed in advance."
           >
             <Input
@@ -3084,6 +3133,11 @@ export function RecurrenceForm({
           label="Category"
           hint="Optional"
           as="group"
+          // The browser's preview of the server's category rule, on the field
+          // it is about. It was an alert at the foot of the form, so the
+          // Category group never said it was wrong and nothing pointed at the
+          // sentence (`web.md` 8.1).
+          error={entrySideError || undefined}
           name={["shape.categoryId", "shape.categoryName", "shape.categoryKind", "shape.legs"]}
         >
           <CategoryLegs
@@ -3349,7 +3403,6 @@ export function RecurrenceForm({
         ordinary staged row you check and commit.
       </Alert>
 
-      {entrySideError ? <Alert kind="error">{entrySideError}</Alert> : null}
       <div className="form-actions">
         <Button type="button" variant="ghost" onClick={onDone}>
           Cancel

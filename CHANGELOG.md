@@ -143,6 +143,22 @@ tell whoever runs the server if it keeps happening. An agent refused for
 missing a scope is told which scope and to ask the person to reconnect, rather
 than "Forbidden".
 
+**The app reads correctly to people who do not see color, use a screen reader
+or zoom in.** A deleted transaction and an archived account card were faded
+until their text was hard to read; they are muted and labelled instead. The
+page you are on in the sidebar and the transaction type you have chosen were
+marked by color alone, and now have a bar and a heavier edge. Money fields now
+say their currency in their label, as the transaction form's always did. Notes
+beside a field — what saving a new category name will do, what is left to
+assign in a split, why a field in a bulk edit cannot be changed — are now read
+with the field. The two add forms on Categories have labels on screen rather
+than a placeholder that disappears as you type. A split that mixes spending and
+income says so on the Category field. The duplicate review signs both amounts,
+so a deposit and a withdrawal of the same figure no longer look alike; a staged
+row's Review link keeps the date range it was found in; a staged row that
+cannot be committed says why; and the account-deletion email field can be
+filled in by your browser.
+
 **What an agent could do, a person can now do too.** Six things were
 reachable only through the MCP: overriding one month of a group's own budget,
 reading the activity history past its latest hundred entries, seeing the row a

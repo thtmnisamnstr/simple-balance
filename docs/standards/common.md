@@ -55,7 +55,12 @@ a number. This footer claimed that scan "would catch it and does not exist" for
 the whole of 0.2.0's development: it landed in `ca6bab1`, before this release
 branched. What it genuinely does not read is `src/client`, which is where the
 one sanctioned conversion lives and so where an unsanctioned one would hide;
-`tests/common-guide.test.ts` holds that one to its single site instead.
+`tests/common-guide.test.ts` holds that one to its single site instead, and holds
+the comparison rule over the client: nothing outside `src/client/money.ts` asks
+`=== "0"`, `!== "0"` or `.startsWith("-")` of a figure. Four places decided a
+figure was zero by its text until it was written — right only while whatever
+produced the string wrote zero one way — and `isZeroMoney` is what they ask
+now.
 
 ## Dates and times
 
@@ -306,7 +311,7 @@ both, a sentence apart: the deletion panel is titled "Delete this account"
 (`src/client/pages/SettingsPage.tsx:449`), meaning the sign-in, and its next
 sentence is "Everything in it goes: accounts, transactions, categories…"
 (`src/client/pages/SettingsPage.tsx:450-452`), meaning the financial ones. The
-confirmation repeats it (`:572`, `:578`). `AGENTS.md` wins over this guide and
+confirmation repeats it (`:584`, `:578`). `AGENTS.md` wins over this guide and
 calls a sign-in an account throughout, as do three places in the product
 (`src/client/App.tsx:395`, `src/client/pages/SettingsPage.tsx:169`,
 `src/client/pages/PlanPage.tsx:1137`), so the old row — "A user. A person has a
@@ -455,8 +460,8 @@ exception. Six closed sets already read against that sentence:
 (`src/shared/domain.ts:3432`), `categoryKindLabels`
 (`src/client/select-options.ts:113`, which both category pages read),
 `transactionTypeLabels`
-(`src/client/pages/TemplatesPage.tsx:71`), and `ORDINAL_LABELS` and
-`FREQUENCY_LABELS` (`src/client/forms.tsx:2498`, `:2579`) for the two schedule
+(`src/client/pages/TemplatesPage.tsx:70`), and `ORDINAL_LABELS` and
+`FREQUENCY_LABELS` (`src/client/forms.tsx:2537`, `:2617`) for the two schedule
 pickers. In four of the six the label is a different *word* rather than the same
 word capitalized: `credit_card` reads Credit Card, `plus` reads Premium, `both`
 reads "Income or expense", and the ordinal `-1` reads Last.

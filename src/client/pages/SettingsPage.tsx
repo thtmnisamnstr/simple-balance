@@ -527,13 +527,19 @@ export function DeleteAccount({ session }: { session: Session }) {
               ) : null}
             </Note>
           ) : null}
+          {/* The person's own address, so it says so (SC 1.3.5): `type="email"`
+              and the `email` token, which is what lets a password manager or
+              a speech tool fill it. It turned autofill off, and repeated the
+              address in a placeholder beside the hint that already shows it.
+              What makes this deliberate is the button and the dialog after
+              it, not making somebody retype what their browser knows. */}
           <Field label="Type your email address to confirm" hint={session.user.email}>
             <Input
               required
+              type="email"
+              autoComplete="email"
               value={confirmEmail}
-              autoComplete="off"
               onChange={(event) => setConfirmEmail(event.target.value)}
-              placeholder={session.user.email}
             />
           </Field>
           {deletion.error ? <Alert>{deletion.error.message}</Alert> : null}

@@ -140,12 +140,13 @@ afterEach(() => {
  *
  * Opacity composites down the subtree, and that is the whole reason this is
  * here. `web.md` 1.5 says a disabled control in a family that paints itself
- * dims to `0.5` to say so — but a row that is already at `0.5` because the
- * entry is voided, or a card at `0.65` because the account is archived, makes
- * that `0.25` and `0.325`, which is not a dim but a disappearance. Both
- * combinations are reachable and neither is visible to a test that reads the
- * stylesheet as text: jsdom computes no cascade, so `getComputedStyle` here
- * reports the inline style and nothing else.
+ * dims to `0.5` to say so. A voided row was at `0.5` and an archived card at
+ * `0.65`, which made that `0.25` and `0.325` — not a dim but a disappearance —
+ * and the containers' own fade took their text under 4.5:1. They are muted
+ * now rather than faded, so a dead control inside one is dimmed exactly as it
+ * is anywhere else, and this measures that. Neither is visible to a test that
+ * reads the stylesheet as text: jsdom computes no cascade, so
+ * `getComputedStyle` here reports the inline style and nothing else.
  *
  * Matching is jsdom's own, against the real rendered tree, so the answer is
  * about the markup the page produces rather than one written out again here.
@@ -409,27 +410,23 @@ describe("entries on a frozen account, in the transaction list", () => {
     expect(row.getByRole("button", { name: "Restore" })).toHaveAccessibleDescription(reason);
   });
 
-  it("leaves that Restore as dim as its voided row and no dimmer", async () => {
-    // The row is the only place a frozen entry and a dimmed container meet: a
-    // voided row shows Restore alone, so the dim that says "disabled" would
-    // land on the row's only remaining action, on top of the dim that says
-    // "voided". Nothing above says which two numbers those are — the point is
-    // that they do not multiply.
+  it("dims that Restore as a dead action is dimmed anywhere, and never the row", async () => {
+    // A voided row shows Restore alone, so the dim that says "disabled" lands
+    // on the row's only remaining action. It used to land on top of the row's
+    // own fade and multiply to nearly nothing; the row is muted now, not
+    // faded, so its dead action is exactly as dim as one in an ordinary row.
     mountList([VOIDED, ON_FROZEN]);
     const voided = await rowOf("Old refund");
     const restore = voided.getByRole("button", { name: "Restore" });
     await waitFor(() => expect(restore).toBeDisabled());
-    const row = restore.closest("tr")!;
-    expect(seenOpacity(row), "a voided row is dimmed").toBeLessThan(1);
-    expect(seenOpacity(restore), "and its dead action is not dimmed again").toBe(seenOpacity(row));
+    expect(seenOpacity(restore.closest("tr")!), "a voided row is not faded").toBe(1);
 
-    // And the dim is still doing its job one row along, where nothing above the
-    // control is dimming: without this, deleting the rule outright would pass.
     const ordinary = await rowOf("Frozen market");
     const edit = ordinary.getByRole("button", { name: "Edit" });
     expect(edit).toBeDisabled();
-    expect(seenOpacity(edit.closest("tr")!), "an ordinary row is not dimmed").toBe(1);
-    expect(seenOpacity(edit), "and a dead action in it is").toBeLessThan(1);
+    expect(seenOpacity(edit.closest("tr")!), "an ordinary row is not faded").toBe(1);
+    expect(seenOpacity(edit), "a dead action is dimmed").toBeLessThan(1);
+    expect(seenOpacity(restore), "and the same amount in a voided row").toBe(seenOpacity(edit));
   });
 
   it("disables the selection's Delete and Edit while a selected entry is on one", async () => {
@@ -714,17 +711,16 @@ describe("restoring an archived account", () => {
     expect(restore).toBeEnabled();
   });
 
-  it("leaves the refused item as dim as the archived card and no dimmer", async () => {
-    // The second place a disabled control sits inside something already dimmed.
-    // An archived card is at 0.65, and a menu item dimmed again inside it is
-    // the same disappearance a voided row's icon was.
+  it("dims the refused item as a dead action is dimmed anywhere, and never the card", async () => {
+    // The second place a disabled control sat inside something faded. An
+    // archived card was at 0.65 and its refused item multiplied below that;
+    // the card is muted now, so the item carries the house dim and nothing
+    // else.
     const restore = await openArchived(MAX_FREE_ACCOUNTS);
     const card = restore.closest("article")!;
     expect(card.className, "the card is the archived one").toContain("archived");
-    expect(seenOpacity(card), "an archived card is dimmed").toBeLessThan(1);
-    expect(seenOpacity(restore), "and its refused item is not dimmed again").toBe(
-      seenOpacity(card),
-    );
+    expect(seenOpacity(card), "an archived card is not faded").toBe(1);
+    expect(seenOpacity(restore), "its refused item carries the house dim").toBe(0.5);
   });
 });
 

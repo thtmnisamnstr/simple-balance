@@ -150,6 +150,22 @@ describe("reviewing two records of one payment", () => {
   });
 
   /**
+   * Which way each moved, in the figure itself. The page asks whether two
+   * records are one payment, and a deposit and a withdrawal of the same amount
+   * read identically unsigned (`web.md` 10.1).
+   */
+  it("signs both sides' amounts", async () => {
+    stub({
+      first: stagedSide,
+      second: { ...committedSide, committed: { ...committedSide.committed, type: "deposit" } },
+    } as StagedDuplicateReview);
+    renderReview();
+    const staged = await screen.findByLabelText("Staged row under review");
+    expect(staged).toHaveTextContent("−$42.50");
+    expect(screen.getByLabelText("Committed transaction")).toHaveTextContent("+$42.50");
+  });
+
+  /**
    * The way out of a duplicate is to drop the copy that has not been recorded
    * yet, so the committed side offers no delete at all rather than one that
    * refuses.

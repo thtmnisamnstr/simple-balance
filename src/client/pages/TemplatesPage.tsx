@@ -12,7 +12,6 @@ import {
   Field,
   Input,
   Modal,
-  Note,
   PageHeader,
   Pagination,
   RowMenu,
@@ -762,7 +761,19 @@ export default function TemplatesPage() {
                   key={field.key}
                   className={action === "leave" ? "bulk-edit-field" : "bulk-edit-field enabled"}
                 >
-                  <Field label={field.label}>
+                  {/* The reason "Set to" is dead goes in the field's hint, so the
+                      select points at it. It was a `Note` after the field,
+                      beside a control that never said why it offered less. */}
+                  <Field
+                    label={field.label}
+                    hint={
+                      blocked
+                        ? field.key === "fromAccountId"
+                          ? "A deposit has no source account, so this cannot be set for everything selected."
+                          : "A withdrawal has no destination account, so this cannot be set for everything selected."
+                        : undefined
+                    }
+                  >
                     <Select
                       className="bulk-edit-action"
                       value={action}
@@ -786,13 +797,6 @@ export default function TemplatesPage() {
                       ) : null}
                     </Select>
                   </Field>
-                  {blocked ? (
-                    <Note>
-                      {field.key === "fromAccountId"
-                        ? "A deposit has no source account, so this cannot be set for everything selected."
-                        : "A withdrawal has no destination account, so this cannot be set for everything selected."}
-                    </Note>
-                  ) : null}
                   {field.key === "type" ? (
                     <Select
                       aria-label="New type"

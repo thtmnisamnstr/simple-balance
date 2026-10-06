@@ -23,14 +23,14 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 263 pass, 77 skip | **2,835 pass, 891 skip** |
-| `npm test`, database set | 340 pass | **3,726 pass** |
+| `npm test`, no database | 263 pass, 77 skip | **2,844 pass, 891 skip** |
+| `npm test`, database set | 340 pass | **3,735 pass** |
 | `npm run test:integration` | 78 pass | 892 pass |
 
 The integration tier reports 892 tests on its own and 891 skips inside a
 database-less `npm test`, and the one-test difference is not an error: one case
 in that tier needs no database and so runs either way. It is counted among the
-2,835 rather than among the skips, which is why the two rows add up to 3,726
+2,844 rather than among the skips, which is why the two rows add up to 3,735
 both times.
 
 The third row is one test larger than the first row's skip count, and the odd
@@ -618,9 +618,9 @@ The guides cite the code three ways:
 
 | Shape | Example |
 | --- | --- |
-| Full path | `` `src/client/forms.tsx:347` `` |
-| Bare filename | `` `forms.tsx:350` `` — resolved by basename |
-| Continuation | `` `:648` `` — inherits the last file the prose named |
+| Full path | `` `src/client/forms.tsx:353` `` |
+| Bare filename | `` `forms.tsx:356` `` — resolved by basename |
+| Continuation | `` `:654` `` — inherits the last file the prose named |
 
 The full-path example used to name line 342, where that file opens a return
 with a bare `<>`. 6.2 calls a citation that has landed on a fragment a cheap

@@ -193,6 +193,7 @@ export default function StagingPage() {
     { set: Boolean(recurrenceId), clear: "show everything rather than one recurrence" },
   ]);
   const payeeListId = useId();
+  const issueIdPrefix = useId();
   const { start, end } = useDateRange();
   const queryClient = useQueryClient();
   const bulkCommitKeys = useRef(new Map<string, string>());
@@ -1316,7 +1317,7 @@ export default function StagingPage() {
                         <Badge tone="green">Ready</Badge>
                       )}
                       {stage.validationIssues.length ? (
-                        <div className="issue-tooltip">
+                        <div className="issue-tooltip" id={`${issueIdPrefix}-${stage.id}`}>
                           <CircleAlert size={13} />
                           {stage.validationIssues[0].message}
                         </div>
@@ -1376,9 +1377,17 @@ export default function StagingPage() {
                       )}
                     </td>
                     <td className="row-actions">
+                      {/* A dead Commit points at the issue that stops it, which
+                          the status cell already shows (`web.md` 12.3). It
+                          was disabled with nothing saying why, while the
+                          register's frozen-row icons beside it said theirs. */}
                       <button
                         aria-label="Commit staged transaction"
                         disabled={Boolean(stage.validationIssues.length)}
+                        title={stage.validationIssues[0]?.message}
+                        aria-describedby={
+                          stage.validationIssues.length ? `${issueIdPrefix}-${stage.id}` : undefined
+                        }
                         onClick={() => {
                           // Only a possible repeat needs asking about.
                           if (isPossibleDuplicate(stage)) {
@@ -1586,6 +1595,11 @@ export default function StagingPage() {
               enabled={bulkEnabled.categoryId}
               disabled={categoryChangeUnavailable}
               onToggle={(on) => setBulkEnabled((current) => ({ ...current, categoryId: on }))}
+              hint={
+                categoryChangeUnavailable
+                  ? "Category cannot be edited across the selection while a split row is in it, because a split already files its money by category."
+                  : undefined
+              }
             >
               <Select
                 aria-label="New category"
@@ -1605,12 +1619,6 @@ export default function StagingPage() {
                   </option>
                 ))}
               </Select>
-              {categoryChangeUnavailable ? (
-                <small>
-                  Category cannot be mass edited when a split row is selected, because a split
-                  already files its money by category.
-                </small>
-              ) : null}
             </BulkEditToggle>
 
             <BulkEditToggle
@@ -1618,6 +1626,13 @@ export default function StagingPage() {
               enabled={bulkEnabled.accountId}
               disabled={accountChangeUnavailable}
               onToggle={(on) => setBulkEnabled((current) => ({ ...current, accountId: on }))}
+              hint={
+                accountChangeUnavailable
+                  ? "Account cannot be edited across the selection while a transfer is in it."
+                  : bulkEnabled.accountId && accountNeedsType
+                    ? "Some selected rows have no type yet. Turn on Change type to set an account on them."
+                    : undefined
+              }
             >
               <Select
                 aria-label="New account"
@@ -1644,14 +1659,6 @@ export default function StagingPage() {
                     </option>
                   ))}
               </Select>
-              {accountChangeUnavailable ? (
-                <small>Account cannot be mass edited when a transfer is selected.</small>
-              ) : bulkEnabled.accountId && accountNeedsType ? (
-                <small>
-                  Some selected rows have no type yet. Turn on Change type to set an account on
-                  them.
-                </small>
-              ) : null}
             </BulkEditToggle>
 
             <BulkEditDescriptionField
@@ -1673,6 +1680,13 @@ export default function StagingPage() {
               enabled={bulkEnabled.type}
               disabled={typeChangeUnavailable}
               onToggle={(on) => setBulkEnabled((current) => ({ ...current, type: on }))}
+              hint={
+                typeChangeUnavailable
+                  ? selectionContainsTransfers
+                    ? "Type cannot be edited across the selection while a transfer is in it."
+                    : "Type cannot be edited across the selection while a split row is in it, because every leg's category was chosen for the direction this entry runs in."
+                  : undefined
+              }
             >
               <Select
                 aria-label="New transaction type"
@@ -1688,13 +1702,6 @@ export default function StagingPage() {
                 <option value="deposit">Deposit</option>
                 <option value="withdrawal">Withdrawal</option>
               </Select>
-              {typeChangeUnavailable ? (
-                <small>
-                  {selectionContainsTransfers
-                    ? "Type cannot be mass edited when a transfer is selected."
-                    : "Type cannot be mass edited when a split row is selected, because every leg's category was chosen for the direction this entry runs in."}
-                </small>
-              ) : null}
             </BulkEditToggle>
           </div>
         </form>

@@ -743,7 +743,7 @@ them cover the whole range:
   Note the last line, which states the bound: "Unbounded on purpose: the keys
   are locale-and-currency pairs and a ledger holds a handful of currencies, so
   there is nothing here to grow."
-- **The trade named, not only the choice.** `src/client/components.tsx:842-856`:
+- **The trade named, not only the choice.** `src/client/components.tsx:868-882`:
   a fixed popover, why absolute fails in a scrolling table card, what fixed
   costs, and then the harder half: "Deliberately not `role="menu"` ... menu
   roles without the keyboard behavior they imply are worse than none."
@@ -848,7 +848,7 @@ What is checked:
 
 | Correspondence | Checked by |
 | --- | --- |
-| Every MCP tool name appears in `docs/mcp.md` | `tests/mcp-parity.test.ts:308-318`, by name rather than by count, "so the failure says which" |
+| Every MCP tool name appears in `docs/mcp.md` | `tests/mcp-parity.test.ts:313-323`, by name rather than by count, "so the failure says which" |
 | Every pinned image tag in the tree matches the release, *and* is a file `set-version` rewrites | `tests/version.test.ts:232-262`, which finds them by sweeping the repository rather than by holding a list — the list had gone stale once, leaving a third file deploying the release it was written during |
 | The product backlog's version matches the manifest | `tests/version.test.ts:321-323` |
 | `docs/deployment.md`'s settings tables against `.env.example` and `deploy/compose/.env.example`, both directions | `tests/env-example.test.ts`, which documents every variable an example names and shows an example of every variable the tables document, and holds its own two exception lists to being genuinely exceptional. Two of the four example files are outside this row: `deploy/compose/single/.env.example` and `deploy/compose/single/.env.postgres.example` arrived with the `single` profile, and no table on the deployment page describes either |
@@ -1062,16 +1062,16 @@ edit.
 
   - `App.tsx:696`, the scope description on the authorization page.
   - `select-options.ts:110`, the timezone label.
-  - `components.tsx:1128`, every page title: `` `${title} — ${APP_NAME}` ``.
-  - `TemplatesPage.tsx:639`, "never — every date is skipped".
+  - `components.tsx:1154`, every page title: `` `${title} — ${APP_NAME}` ``.
+  - `TemplatesPage.tsx:638`, "never — every date is skipped".
   - `AccountsPage.tsx:646-647`, the sentence explaining what a frozen account
-    still does, and `BudgetsPage.tsx:1488`, the note under an average with
+    still does, and `BudgetsPage.tsx:1499`, the note under an average with
     nothing behind it. Both arrived this release.
   - `SettingsPage.tsx:522`, the warning about what cancelling takes with it.
   - `PlanPage.tsx:1944` and `:1956`, the "Annual — $30.00 a year" price
     labels.
-  - The review queue's inline-edit labels at `StagingPage.tsx:1158-1162`, `:1278-1281` and
-    `:1352-1356`, which lead with the visible value and set the instruction off
+  - The review queue's inline-edit labels at `StagingPage.tsx:1159-1163`, `:1279-1282` and
+    `:1353-1357`, which lead with the visible value and set the instruction off
     behind a dash.
 
   The lone "—" in an empty table cell is a placeholder glyph rather than

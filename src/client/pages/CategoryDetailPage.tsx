@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, CalendarCheck, History, Tags } from "lucide-react";
 import { api, queryString, type Category, type Report } from "../api.js";
 import { Alert, Badge, DateRangeBar, MetricTile, PageHeader } from "../components.js";
-import { formatMoney, isNegativeMoney, sumMoney } from "../money.js";
+import { formatMoney, isNegativeMoney, isZeroMoney, sumMoney } from "../money.js";
 import { useDateRange } from "../date-range.js";
 import { Link, useLocation, useParams } from "../router.js";
 import { TransactionBrowser } from "../TransactionBrowser.js";
@@ -27,7 +27,7 @@ function totalsByCurrency(report: Report | undefined, categoryId: string) {
           .map((row) => row.total),
       ),
     }))
-    .filter((entry) => entry.total !== "0");
+    .filter((entry) => !isZeroMoney(entry.total));
 }
 
 export default function CategoryDetailPage() {

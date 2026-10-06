@@ -216,4 +216,41 @@ describe("controls bound to money", () => {
     const bound = new Set(controls.map((control) => boundTo(control.element)));
     expect(SPINNER_IS_RIGHT.filter((entry) => !bound.has(entry.binding))).toEqual([]);
   });
+
+  /**
+   * `web.md` 8.5's other half, Binding on SC 3.3.2: the currency is in the
+   * label. The transaction form wrote "Amount (USD)" and every other money field
+   * wrote "Amount" — templates, recurrences, split legs, the opening balance and
+   * six budget fields, two of them in dialogs that showed the currency nowhere —
+   * so `moneyLabel` is the one way a money field is labelled, and this finds the
+   * label each money-bound control actually gets: its own `aria-label`, or the
+   * `label` of the `Field` it sits in.
+   */
+  const labelOf = (control: Control): string | null => {
+    const file = files.find((one) => one.path === control.file)!;
+    const own = /aria-label=\{([^}]*)\}|aria-label="([^"]*)"/.exec(control.element);
+    if (own) return own[0];
+    const at = file.code
+      .split("\n")
+      .slice(0, control.line - 1)
+      .join("\n").length;
+    const open = file.code.lastIndexOf("<Field", at);
+    if (open === -1 || file.code.lastIndexOf("</Field>", at) > open) return null;
+    const end = tagEnd(file.code, open);
+    return file.code.slice(open, end + 1);
+  };
+
+  it("labels every one of them with its currency", () => {
+    const money = controls.filter((control) => {
+      const binding = boundTo(control.element);
+      return binding !== null && isMoneyBinding(binding);
+    });
+    // The floor is the population above: a label reader that found nothing
+    // would otherwise pass every control.
+    expect(money.filter((control) => labelOf(control) !== null).length).toBe(money.length);
+    const unlabelled = money
+      .filter((control) => !/moneyLabel\(/.test(labelOf(control) ?? ""))
+      .map((control) => `${control.file}:${control.line} binds ${boundTo(control.element)}`);
+    expect(unlabelled).toEqual([]);
+  });
 });

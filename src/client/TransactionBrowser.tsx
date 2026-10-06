@@ -1201,7 +1201,16 @@ export function TransactionBrowser({
                         )}
                       </td>
                       <td>
-                        <Link to="/staged">Review</Link>
+                        {/* With the range this row was found in, as every
+                            sibling link on this row carries it (`web.md`
+                            11.7): bare, it opened a this-month queue where a
+                            row from last month — the one promised — was
+                            hidden. */}
+                        <Link
+                          to={{ pathname: "/staged", search: withoutLedgerText(location.search) }}
+                        >
+                          Review
+                        </Link>
                       </td>
                     </tr>
                   );
@@ -1636,6 +1645,13 @@ export function TransactionBrowser({
               enabled={bulkEnabled.categoryId}
               disabled={categoryChangeUnavailable}
               onToggle={(on) => setBulkEnabled((current) => ({ ...current, categoryId: on }))}
+              hint={
+                categoryChangeUnavailable
+                  ? selectionContainsSplits
+                    ? "Category cannot be edited across the selection while a split transaction is in it, because a split already files its money by category."
+                    : "Category cannot be edited across the selection until every selected row is visible."
+                  : undefined
+              }
             >
               <Select
                 aria-label="New category"
@@ -1655,13 +1671,6 @@ export function TransactionBrowser({
                   </option>
                 ))}
               </Select>
-              {categoryChangeUnavailable ? (
-                <small>
-                  {selectionContainsSplits
-                    ? "Category cannot be mass edited when a split transaction is selected, because a split already files its money by category."
-                    : "Category cannot be mass edited until every selected row is visible."}
-                </small>
-              ) : null}
             </BulkEditToggle>
 
             <BulkEditToggle
@@ -1669,6 +1678,17 @@ export function TransactionBrowser({
               enabled={bulkEnabled.accountId}
               disabled={accountChangeUnavailable}
               onToggle={(on) => setBulkEnabled((current) => ({ ...current, accountId: on }))}
+              hint={
+                bulkEnabled.accountId
+                  ? `Only accounts using ${selectedCurrencies[0]} are available. Amounts and currencies are preserved; no FX conversion is performed.`
+                  : accountChangeUnavailable
+                    ? selectionContainsTransfers
+                      ? "Account cannot be edited across the selection while a transfer is in it."
+                      : explicitSelectionHasMissingRows
+                        ? "Account cannot be edited across the selection until every selected row is visible."
+                        : "Account cannot be edited across a selection in more than one currency."
+                    : undefined
+              }
             >
               <Select
                 aria-label="New account"
@@ -1693,20 +1713,6 @@ export function TransactionBrowser({
                   </option>
                 ))}
               </Select>
-              {bulkEnabled.accountId ? (
-                <small>
-                  Only accounts using {selectedCurrencies[0]} are available. Amounts and currencies
-                  are preserved; no FX conversion is performed.
-                </small>
-              ) : accountChangeUnavailable ? (
-                <small>
-                  {selectionContainsTransfers
-                    ? "Account cannot be mass edited when a transfer is selected."
-                    : explicitSelectionHasMissingRows
-                      ? "Account cannot be mass edited until every selected row is visible."
-                      : "Account cannot be mass edited across multiple currencies."}
-                </small>
-              ) : null}
             </BulkEditToggle>
 
             <BulkEditDescriptionField
@@ -1728,6 +1734,15 @@ export function TransactionBrowser({
               enabled={bulkEnabled.type}
               disabled={typeChangeUnavailable}
               onToggle={(on) => setBulkEnabled((current) => ({ ...current, type: on }))}
+              hint={
+                typeChangeUnavailable
+                  ? selectionContainsTransfers
+                    ? "Type cannot be edited across the selection while a transfer is in it."
+                    : selectionContainsSplits
+                      ? "Type cannot be edited across the selection while a split transaction is in it, because every leg's category was chosen for the direction this entry runs in."
+                      : "Type cannot be edited across the selection until every selected row is visible."
+                  : undefined
+              }
             >
               <Select
                 aria-label="New transaction type"
@@ -1743,15 +1758,6 @@ export function TransactionBrowser({
                 <option value="deposit">Deposit</option>
                 <option value="withdrawal">Withdrawal</option>
               </Select>
-              {typeChangeUnavailable ? (
-                <small>
-                  {selectionContainsTransfers
-                    ? "Type cannot be mass edited when a transfer is selected."
-                    : selectionContainsSplits
-                      ? "Type cannot be mass edited when a split transaction is selected, because every leg's category was chosen for the direction this entry runs in."
-                      : "Type cannot be mass edited until every selected row is visible."}
-                </small>
-              ) : null}
             </BulkEditToggle>
           </div>
 

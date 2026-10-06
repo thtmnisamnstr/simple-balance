@@ -113,6 +113,38 @@ describe("money that is not a ledger amount", () => {
 });
 
 /**
+ * `common.md` §Money: "A comparison is arithmetic."
+ *
+ * Four places in the browser decided a figure was zero by comparing its text —
+ * `=== "0"` and `!== "0"` on a split's remainder and a category's total — and a
+ * fifth decided one was negative by its first character. Each was right only
+ * because whatever produced the string happened to write it canonically; "0.00"
+ * and "-0" are zero too. The helpers in `src/client/money.ts` are the one place
+ * a figure's spelling may be read, because they are what decide it for
+ * everybody else.
+ */
+describe("a comparison of money", () => {
+  it("is arithmetic everywhere in the browser but the helpers that do it", () => {
+    const BY_SPELLING = /[!=]==?\s*"0"|\.startsWith\("-"\)/;
+    const files = sourceFiles("src/client").filter((file) => file.path !== "src/client/money.ts");
+    const helpers = files.reduce(
+      (count, file) =>
+        count + (file.code.match(/\b(isZeroMoney|isNegativeMoney|compareMoney)\(/g) ?? []).length,
+      0,
+    );
+    // The helpers are in use, so this is not passing on a client that stopped
+    // comparing money at all.
+    expect(helpers).toBeGreaterThan(10);
+    const spelled = files.flatMap((file) =>
+      file.code
+        .split("\n")
+        .flatMap((line, index) => (BY_SPELLING.test(line) ? [`${file.path}:${index + 1}`] : [])),
+    );
+    expect(spelled).toEqual([]);
+  });
+});
+
+/**
  * The word a person reads, where the wire value is not it.
  *
  * `tests/plan-labels.test.ts` already holds the plan half: no file spells

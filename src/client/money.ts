@@ -168,8 +168,38 @@ export function amountForInput(amount: string, currency: string) {
   return `${sign}${integer}${kept ? `.${kept}` : ""}`;
 }
 
+/**
+ * A money field's label, carrying the currency whenever the form knows it.
+ *
+ * `web.md` 8.5, Binding on SC 3.3.2: a symbol drawn beside an input is not part
+ * of its label and is not announced, so "Amount" with "$" painted in front of it
+ * tells a screen reader nothing about which money. The transaction form wrote
+ * "Amount (USD)" inline and every other money field in the app wrote "Amount",
+ * including two dialogs that showed the currency nowhere at all. One function,
+ * so the next money field is labelled the same way by default.
+ *
+ * The currency is left out rather than guessed while the form cannot know it —
+ * an account not chosen yet, a template with no account — because a wrong code
+ * in a label is worse than none.
+ */
+export function moneyLabel(base: string, currency?: string | null) {
+  return currency ? `${base} (${currency})` : base;
+}
+
 export function isNegativeMoney(amount: string) {
   return amount.startsWith("-") && !/^-?0(?:\.0+)?$/.test(amount);
+}
+
+/**
+ * Whether a figure is zero, worked out rather than spelled.
+ *
+ * `common.md` rules that a comparison is arithmetic. Four places asked
+ * `=== "0"` or `!== "0"`, which is right only while whatever produced the
+ * string happens to write zero one way — "0.00" and "-0" are zero too. Null is
+ * not zero: it is a figure that could not be read.
+ */
+export function isZeroMoney(amount: string | null) {
+  return amount !== null && compareMoney(amount, "0") === 0;
 }
 
 export function isPositiveMoney(amount: string) {

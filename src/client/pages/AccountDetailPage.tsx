@@ -274,7 +274,9 @@ export default function AccountDetailPage() {
                     <tbody>
                       {register.data.entries.map((entry) => (
                         <tr key={entry.postingId}>
-                          <th scope="row">{formatDate(entry.date)}</th>
+                          <th scope="row" className="nowrap">
+                            {formatDate(entry.date)}
+                          </th>
                           <td>
                             {entry.origin === "transaction" ? (
                               entry.transactionId ? (

@@ -152,20 +152,58 @@ describe("a date on screen", () => {
  *
  * Asked of the markup rather than the stylesheet: a cell is in scope when it
  * hands `formatDate` its own content, and it passes when the cell, or the
- * element holding the date, carries `nowrap`.
+ * element holding the date, carries `nowrap`. A header cell is a cell: the
+ * account register's date is its row header, and the first version of this
+ * read `<td>` alone and passed with that one wrapping.
  */
+/**
+ * Markup with every template literal blanked, nested ones included: a date
+ * inside a sentence the cell says is prose, and prose may wrap.
+ */
+function outsideTemplates(markup: string): string {
+  let out = "";
+  const stack: ("template" | "expression")[] = [];
+  for (let index = 0; index < markup.length; index += 1) {
+    const character = markup[index]!;
+    const top = stack.at(-1);
+    if (top === "template") {
+      if (character === "`") stack.pop();
+      else if (character === "$" && markup[index + 1] === "{") {
+        stack.push("expression");
+        index += 1;
+      }
+      out += " ";
+      continue;
+    }
+    if (top === "expression") {
+      if (character === "`") stack.push("template");
+      else if (character === "{") stack.push("expression");
+      else if (character === "}") stack.pop();
+      out += " ";
+      continue;
+    }
+    if (character === "`") stack.push("template");
+    out += character === "`" ? " " : character;
+  }
+  return out;
+}
+
 describe("a date in a table cell", () => {
   it("does not wrap", async () => {
     const loose: string[] = [];
+    let cells = 0;
     for (const file of await tsFiles(CLIENT)) {
       if (!file.pathname.endsWith(".tsx")) continue;
       const code = await readFile(file, "utf8");
       const name = file.pathname.split("/src/client/")[1];
-      for (const cell of code.matchAll(/<td\b([^>]*)>([\s\S]*?)<\/td>/g)) {
-        const [, attributes, markup] = cell;
+      for (const cell of code.matchAll(/<(td|th)\b([^>]*)>([\s\S]*?)<\/\1>/g)) {
+        const [, , attributes, markup] = cell;
         // A date read aloud by a label is not drawn, so it cannot wrap.
         const body = markup!.replace(/(?:aria-label|title)=\{`[\s\S]*?`\}/g, "");
-        if (!body.includes("formatDate(")) continue;
+        // A date the cell shows, rather than one inside a sentence it says:
+        // "Proposed by Rent for Oct 5, 2026" is prose and may wrap like prose.
+        if (!outsideTemplates(body).includes("formatDate(")) continue;
+        cells += 1;
         const kept =
           /\bnowrap\b/.test(attributes!) ||
           /className="[^"]*\bnowrap\b[^"]*"[^>]*>(?:(?!<\/)[\s\S])*?formatDate\(/.test(body);
@@ -175,6 +213,9 @@ describe("a date in a table cell", () => {
         }
       }
     }
+    // The register, the staged queue, the import preview, Recurring and the
+    // account register at least: a reader that stopped matching passes on none.
+    expect(cells).toBeGreaterThanOrEqual(5);
     expect(loose, 'give the cell, or the element holding the date, className="nowrap"').toEqual([]);
   });
 });

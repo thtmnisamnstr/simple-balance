@@ -727,7 +727,7 @@ panel are given the same number for the same fault.
 Blank lines are skipped before anything is counted, so an interior blank leaves
 the number one low; a trailing blank, which is the common case, comes after
 everything it could shift. Nothing else numbers a row at all: the queue shows no
-position (`src/client/pages/StagingPage.tsx:1037-1086`) and a staged row stores no
+position (`src/client/pages/StagingPage.tsx:1038-1087`) and a staged row stores no
 source row number (`src/server/db/schema.ts:778-890`), so a queue entry is
 traceable to a line only through its `raw_data`.
 

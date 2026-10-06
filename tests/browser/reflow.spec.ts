@@ -77,7 +77,7 @@ async function seed(page: Page) {
 
   await page.goto("/categories");
   await page.getByLabel("Category name").fill(category);
-  await page.getByLabel("Category applies to").selectOption("expense");
+  await page.getByLabel("Applies to").selectOption("expense");
   await page.getByRole("button", { name: "Add category" }).click();
   await expect(page.getByText(category, { exact: false }).first()).toBeVisible();
 
