@@ -97,6 +97,7 @@ import {
 } from "../bulk-edit.js";
 import { useDebounced } from "../debounce.js";
 import { emptyScreen, waysOut, noAccountReason } from "../list-filters.js";
+import { transactionTypeLabels } from "./TemplatesPage.js";
 
 /** The four cells a staged row edits in place. */
 type InlineField = "date" | "payee" | "category" | "amount";
@@ -1230,7 +1231,9 @@ export default function StagingPage() {
                             <strong>{payee}</strong>
                           </button>
                         )}
-                        <small className="table-subtitle">{description || type}</small>
+                        <small className="table-subtitle">
+                          {description || transactionTypeLabels[type] || type}
+                        </small>
                         {stage.recurrenceId ? (
                           <small className="table-subtitle">
                             {`Proposed by ${

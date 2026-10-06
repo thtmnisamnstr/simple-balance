@@ -286,3 +286,18 @@ describe("editing staged fields in place", () => {
     expect(within(dialog).getByRole("button", { name: "Stage transaction" })).toBeInTheDocument();
   });
 });
+
+/**
+ * The type under the payee is the word the register prints, not the wire value.
+ * The queue printed `draft.type` as it came, so a staged row read "withdrawal"
+ * one page over from a register that read "Withdrawal" for the same entry.
+ */
+describe("the type under a staged payee", () => {
+  it("reads as the register reads it", async () => {
+    stubQueue();
+    renderStaging();
+    const trigger = await screen.findByRole("button", { name: /edit the payee of Corner shop$/i });
+    const subtitle = trigger.closest("th, td")!.querySelector(".table-subtitle");
+    expect(subtitle).toHaveTextContent(/^Withdrawal$/);
+  });
+});

@@ -884,6 +884,11 @@ export function SearchBox({
  * travel with the page, so it closes on scroll and resize rather than drifting
  * away from the row it belongs to.
  *
+ * That trade is why it opens upward when there is no room below. Anchored under
+ * a trigger near the bottom of the window, the last items — Restore and Delete
+ * on an account card — sat past the edge, and scrolling to reach them closed
+ * the menu, so they could not be pressed at all.
+ *
  * Deliberately not `role="menu"`. Those roles promise a screen reader arrow-key
  * navigation, and a roving tabindex exists nowhere else in this client. A
  * disclosure that behaves like a disclosure is honest; menu roles without the
@@ -892,7 +897,10 @@ export function SearchBox({
 export function RowMenu({ label, children }: { label: string; children: ReactNode }) {
   const details = useRef<HTMLDetailsElement>(null);
   const summary = useRef<HTMLElement>(null);
-  const [anchor, setAnchor] = useState<{ top: number; right: number } | null>(null);
+  const popover = useRef<HTMLDivElement>(null);
+  const [anchor, setAnchor] = useState<
+    { top: number; right: number } | { bottom: number; right: number } | null
+  >(null);
 
   const close = (returnFocus = false) => {
     if (!details.current?.open) return;
@@ -909,7 +917,15 @@ export function RowMenu({ label, children }: { label: string; children: ReactNod
         return;
       }
       const rect = summary.current.getBoundingClientRect();
-      setAnchor({ top: rect.bottom + 5, right: window.innerWidth - rect.right });
+      const right = window.innerWidth - rect.right;
+      // Open already, so the popover has been laid out and has a height.
+      const height = popover.current?.offsetHeight ?? 0;
+      const roomBelow = window.innerHeight - rect.bottom;
+      setAnchor(
+        height + 5 > roomBelow && rect.top > roomBelow
+          ? { bottom: window.innerHeight - rect.top + 5, right }
+          : { top: rect.bottom + 5, right },
+      );
     };
     element.addEventListener("toggle", onToggle);
     return () => element.removeEventListener("toggle", onToggle);
@@ -951,8 +967,9 @@ export function RowMenu({ label, children }: { label: string; children: ReactNod
           Both rules read it as a mouse-only affordance. */}
       {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
       <div
+        ref={popover}
         className="menu-popover row-menu-popover"
-        style={anchor ? { top: anchor.top, right: anchor.right } : undefined}
+        style={anchor ?? undefined}
         // Choosing something closes the menu. Without this it stays open behind
         // whatever the choice opened, and is still there afterward.
         onClick={() => close()}

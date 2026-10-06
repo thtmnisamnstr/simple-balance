@@ -60,6 +60,49 @@ describe("the overflow menu on a row", () => {
     expect(popover.style.right).not.toBe("");
   });
 
+  /**
+   * The same trade's other edge. A fixed popover closes when the page scrolls,
+   * so one anchored under a trigger near the bottom of the window put its last
+   * items past the edge with no way to reach them: Restore on an archived
+   * account card at the foot of the list could not be pressed.
+   */
+  describe("near the bottom of the window", () => {
+    function placeTrigger(top: number) {
+      const trigger = screen.getByRole("button", { name: "Actions for Market" });
+      vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue({
+        top,
+        bottom: top + 30,
+        left: 900,
+        right: 930,
+        width: 30,
+        height: 30,
+        x: 900,
+        y: top,
+        toJSON: () => ({}),
+      });
+      vi.spyOn(window, "innerHeight", "get").mockReturnValue(860);
+      vi.spyOn(window, "innerWidth", "get").mockReturnValue(1280);
+      vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(150);
+    }
+
+    it("opens upward when the items would run past the edge", () => {
+      renderMenu();
+      placeTrigger(790);
+      const popover = open().querySelector(".row-menu-popover") as HTMLElement;
+      expect(popover.style.top).toBe("");
+      expect(popover.style.bottom).toBe(`${860 - 790 + 5}px`);
+      expect(popover.style.right).toBe(`${1280 - 930}px`);
+    });
+
+    it("opens downward while there is room", () => {
+      renderMenu();
+      placeTrigger(300);
+      const popover = open().querySelector(".row-menu-popover") as HTMLElement;
+      expect(popover.style.top).toBe(`${300 + 30 + 5}px`);
+      expect(popover.style.bottom).toBe("");
+    });
+  });
+
   it("closes when something is chosen", () => {
     const chosen = vi.fn();
     renderMenu(chosen);
