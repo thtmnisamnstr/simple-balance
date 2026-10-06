@@ -181,16 +181,14 @@ describe("a scrolling table", () => {
  * sticks over it.
  */
 describe("focus and the sticky layers", () => {
-  it("shows a focus indicator on every focusable kind", () => {
+  it("shows a focus indicator where the picker's own input cannot", () => {
     const focusRules = parsed.filter((rule) => /:focus(-visible|-within)?\b/.test(rule.selector));
     const covered = focusRules.map((rule) => rule.selector).join(" ");
-    // `summary` is the row menu's trigger, `[tabindex]` is a scrolling table,
-    // and a checkbox used to have nothing but `accent-color`. All three were
-    // focusable with no indicator, which is SC 2.4.7 three times.
-    for (const kind of ["button", "a", "summary", "input", "select", "textarea", "[tabindex]"]) {
-      expect(covered, `${kind} can take focus and shows nothing`).toContain(kind);
-    }
     // The file picker's own input is visually hidden, so the wrapper takes it.
+    // Which focusable kinds the shared ring names is "the shared focus ring"
+    // below, read as entries: this used to check them here as substrings, and
+    // `"a"` and `"input"` appear in nearly any selector, so removing either from
+    // the ring stayed green.
     expect(covered).toContain(".file-drop:focus-within");
   });
 
@@ -552,5 +550,29 @@ describe("a table cell", () => {
     // of buttons is not a numeric column as far as a grep is concerned.
     const align = css.slice(css.indexOf("\n.align-right {"));
     expect(align.slice(0, align.indexOf("}"))).not.toContain("font-variant-numeric");
+  });
+});
+
+/**
+ * `web.md` 13.2, SC 2.4.7, read as tokens rather than as a substring.
+ *
+ * The check above joins every focus selector into one string and asks whether
+ * each kind appears in it, and `"a"` and `"input"` appear in nearly anything —
+ * so deleting `a`, `input` or `summary` from the shared rule stayed green. This
+ * reads the `:is(…)` list of the rule that draws the ring and requires each
+ * kind as a whole entry, and the rule to draw something.
+ */
+describe("the shared focus ring", () => {
+  it("names every focusable kind as an entry of its own, and draws an outline", () => {
+    const ring = parsed.find((rule) => /^:is\([^)]*\):focus-visible\b/.test(rule.selector.trim()));
+    expect(ring, "the shared :is(…):focus-visible rule").toBeDefined();
+    const kinds = /^:is\(([^)]*)\)/
+      .exec(ring!.selector.trim())![1]!
+      .split(",")
+      .map((entry) => entry.trim());
+    for (const kind of ["button", "a", "summary", "input", "select", "textarea", "[tabindex]"]) {
+      expect(kinds, `${kind} can take focus and shows nothing`).toContain(kind);
+    }
+    expect(ring!.body).toMatch(/outline:\s*\d+px solid/);
   });
 });

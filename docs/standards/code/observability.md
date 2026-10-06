@@ -228,7 +228,7 @@ own.
 The shape recurs for any route whose interesting outcomes are finer than its
 status codes.
 
-*Checked by:* `tests/stripe-webhook-route.test.ts:786-818`, which drives all
+*Checked by:* `tests/stripe-webhook-route.test.ts:790-822`, which drives all
 seven branches and asserts the whole outcome map rather than a subset, and
 `tests/observability-guide.test.ts`, which holds the structure the map depends
 on: two increments in the handler however many branches it grows to, one place
@@ -357,7 +357,7 @@ collector's job.
 losing it.** Measured 2026-10-01: 22 lines in `src/server/services/billing.ts`
 and `src/server/stripe.ts` are written as a dotted event key and a field object
 — `log.warn("billing.reconcile.failed", { error: String(error) })`
-(`src/server/services/billing.ts:2052`) is the shape — and between them they
+(`src/server/services/billing.ts:2186`) is the shape — and between them they
 are the entire log output of the subsystem an operator is most likely to be
 reading during an outage. Nothing in either file argues for an exception. So
 this rule describes two thirds of the server while the newest third does the
@@ -437,7 +437,7 @@ seventeen sites.** Measured 2026-10-01: 17 log calls across the same two files
 hand an identifier bound by a `catch` in the same file to `String()` — fifteen
 in `src/server/services/billing.ts` and two in `src/server/stripe.ts` — and
 several of them wrap plain database writes, such as the locked write at
-`src/server/services/billing.ts:2041` and the deferral at `:2075`.
+`src/server/services/billing.ts:2175` and the deferral at `:2209`.
 `String(error)` on a Drizzle error yields its message, which is the statement
 plus every value bound into it: exactly what the narrowing exists to strip, got
 at one remove.
@@ -488,7 +488,7 @@ tick that throws, an OAuth client sweep that fails, the two Stripe checks both
 entrypoints make at boot — the prices (`src/server/stripe.ts:1528`) and what
 the key may read (`:1608-1623`) — and the reconciliation sweep carrying on
 past a subscription Stripe cannot answer about
-(`src/server/services/billing.ts:2052`). Each logs and continues,
+(`src/server/services/billing.ts:2186`). Each logs and continues,
 because the alternative — a `catch` with an empty body — produces a deployment
 that is quietly doing half its job, which is the failure mode the degradation
 was designed to avoid in the first place.

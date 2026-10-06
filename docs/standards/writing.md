@@ -242,7 +242,7 @@ convention expects.
 answer: that the list items stay at the five that earned their shape, and that
 the lines running past 80 columns do not grow past where they already are.
 *Not checked:* that the top heading matches `package.json`. That is a hand step
-in the release recipe at `docs/upgrades.md:1451`, step 4, "Date the
+in the release recipe at `docs/upgrades.md:1478`, step 4, "Date the
 `## Unreleased` heading in `CHANGELOG.md`", and it has already been the subject
 of a commit ("Date 0.1.4 the day it is cut"). Nor is whether an entry describes
 a change somebody would notice, which is the judgement this section is mostly
@@ -348,12 +348,12 @@ publish runs `npm run verify` first, so an unwritten note now stops the release
 rather than reaching an operator mid-upgrade. *Also checked:* the frozen
 migration list, which `tests/migrations.test.ts` holds to what is on disk.
 *Not checked:* the changelog heading, a hand step in the release recipe at
-`docs/upgrades.md:1451`, and which release a migration is attributed to, which
+`docs/upgrades.md:1478`, and which release a migration is attributed to, which
 is prose inside a list a test can only check the membership of.
 
 ## Upgrade notes
 
-**Binding, quoting `AGENTS.md:334-382`, the frozen migration list:** "Every
+**Binding, quoting `AGENTS.md:335-387`, the frozen migration list:** "Every
 migration that has shipped is frozen" and "Never edit or regenerate one:
 someone's database has already run it, and changing it would leave their schema
 and its recorded history disagreeing." What follows is the documentation the
@@ -492,7 +492,7 @@ The reasoning, which is what the next person should argue with:
 So, taking Nygard's Status field and immutability rule without the ceremony:
 
 - **House. A recorded decision names the release it was made in.** The exemplar
-  is `AGENTS.md:334-382`, the frozen migration list, which names every migration
+  is `AGENTS.md:335-387`, the frozen migration list, which names every migration
   and the release it shipped in, and is the most reliable section in the file
   for exactly that reason.
 - **House. A reversal edits the old text to say it is superseded, and says by
@@ -517,7 +517,7 @@ with `docs/guide.md` keeping the explanations.
   "**Statements that file themselves.**", not "CSV importer". The commit that
   set this was "Sell what somebody gets, not how it is built".
 - **One screenshot, with alt text that says what the picture shows** rather than
-  naming the page. `README.md:27` carries 185 characters of it, naming every
+  naming the page. `README.md:38` carries 185 characters of it, naming every
   figure on the page and the fact that currencies are reported separately.
 - **A section per question somebody actually asks**, in this order: what it is,
   everything else it does, run it locally, run the tests, host it, connect an
@@ -526,7 +526,7 @@ with `docs/guide.md` keeping the explanations.
   it said where the section sits, which is the shape of error an ordered list
   invites: it reads as complete and nobody counts it against the file.
 - **The license is stated in the README, not only in `LICENSE`.** For an AGPL
-  project the license is a term of use. `README.md:277-287` names it, links it,
+  project the license is a term of use. `README.md:288-298` names it, links it,
   and explains what section 13 adds, including for versions published under the
   older license.
 - **No badge wall.** There are none today.
@@ -991,7 +991,7 @@ numbers themselves, one mechanism per claim:
 
 **House**, not mechanizable, and the practice that decides whether a citation is
 still worth following in a year. Four citations in this guide alone had drifted
-onto something else entirely: `tests/migrations.test.ts:363` onto a docblock
+onto something else entirely: `tests/migrations.test.ts`:363 onto a docblock
 about a different migration, `docs/upgrades.md`:1227 onto the closing fence of a
 code block, `AGENTS.md`:289-326 onto a range whose second quoted sentence now
 sits thirty-one lines past its end, and `StagingPage.tsx`:1075 onto a row
@@ -1026,7 +1026,7 @@ that moved them "fixed" the history into something false: one landed on prose
 it claims is a closing fence. So a number quoted as it once was is written
 `` `AGENTS.md`:289-326 ``, the line outside the backticks, which no check and
 no repoint pass reads as a pointer — and a citation meant to be followed is
-written as one span, `` `AGENTS.md:294` ``, and is repointed when it drifts.
+written as one span, `` `AGENTS.md:335` ``, and is repointed when it drifts.
 
 *Checked by:* `tests/standards-citations.test.ts`, as far as a test can go: that
 the file exists, that the lines are inside it, that a range does not run
@@ -1060,15 +1060,15 @@ edit.
   than the four sites this bullet used to name, each cited by what it is as well
   as by where it is:
 
-  - `App.tsx:696`, the scope description on the authorization page.
+  - `App.tsx:710`, the scope description on the authorization page.
   - `select-options.ts:110`, the timezone label.
   - `components.tsx:1172`, every page title: `` `${title} — ${APP_NAME}` ``.
-  - `TemplatesPage.tsx:649`, "never — every date is skipped".
+  - `TemplatesPage.tsx:667`, "never — every date is skipped".
   - `AccountsPage.tsx:660-661`, the sentence explaining what a frozen account
-    still does, and `BudgetsPage.tsx:1536`, the note under an average with
+    still does, and `BudgetsPage.tsx:1556`, the note under an average with
     nothing behind it. Both arrived in 0.2.0.
   - `SettingsPage.tsx:523`, the warning about what cancelling takes with it.
-  - `PlanPage.tsx:1944` and `:1956`, the "Annual — $30.00 a year" price
+  - `PlanPage.tsx:1980` and `:2000`, the "Annual — $30.00 a year" price
     labels.
 
   The review queue's inline-edit labels were a ninth, and are off the list: they
@@ -1078,7 +1078,7 @@ edit.
 
   The lone "—" in an empty table cell is a placeholder glyph rather than
   punctuation and is not counted. Two further sites, `SettingsPage.tsx:143` and
-  `ReportsPage.tsx:224-228`, are prose inside JSX and read as copy but are
+  `ReportsPage.tsx:252-256`, are prose inside JSX and read as copy but are
   comments, so they answer to the comment rule rather than to this one.
 
   The inline-edit citation is the one worth dwelling on. It read

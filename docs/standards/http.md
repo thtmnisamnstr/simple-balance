@@ -347,9 +347,9 @@ Unversioned, and each for a reason.
 
 | Route | What it is |
 | --- | --- |
-| `GET /health/live`, `GET /health/ready` | Liveness, and a `select 1` against the database. `503` when the database is unreachable (`src/server/api.ts:432-447`). |
+| `GET /health/live`, `GET /health/ready` | Liveness, and a `select 1` against the database. `503` when the database is unreachable (`src/server/api.ts:431-446`). |
 | `/api/auth/*` | Better Auth, plus this product's own sign-up, consent and MCP token routes. No JSON body under it carries the session token: the `HttpOnly` cookie does, and a script that could read the token from a body could do everything the cookie keeps from it (`withholdSessionTokens`, `src/server/http-security.ts:822`). |
-| `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, `/.well-known/openid-configuration` | RFC 9728 and OAuth discovery, each also served under `/mcp` and `/mcp/` because RFC 9728 puts the resource path after the well-known segment (`src/server/api.ts:1024-1031`). |
+| `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, `/.well-known/openid-configuration` | RFC 9728 and OAuth discovery, each also served under `/mcp` and `/mcp/` because RFC 9728 puts the resource path after the well-known segment (`src/server/api.ts:1024-1043`). |
 | `/mcp`, `/mcp/` | The MCP transport. Governed by [`mcp.md`](mcp.md). |
 | `GET /metrics` | Prometheus text format, and registered only when `METRICS_ENABLED=true`, so a deployment that did not ask for it has no such route rather than a route that refuses. A `METRICS_TOKEN` makes it demand a bearer token. Not proxied by the bundled frontend. |
 | `POST /api/billing/webhook` | Where Stripe reports what happened, and registered only when Stripe is configured, so a deployment that sells nothing has no such route. Outside `/api/v1` because everything under that prefix is guarded by `protectBrowserMutation`, which refuses a mutation carrying no matching `Origin` — and a webhook carries none. Authenticated by Stripe's signature over the raw body rather than by a session. Every deliberate no-op answers 2xx, because a non-2xx makes Stripe retry and delays finalization of every auto-collection invoice on the account for up to 72 hours. |
@@ -559,7 +559,7 @@ left open honestly rather than closed by a test that would pass forever.
   `/csv/stage` and `/mcp`, a selection-derived limit for any route whose last
   segment is `bulk-edit`, `bulk-delete`, `bulk-selection`, `commit` or
   `delete`, and 256 KiB for everything else under `/api/v1`
-  (`src/server/http-security.ts:380-398`, `:985-1001`, `:1069-1077`). A limit is
+  (`src/server/http-security.ts:380-398`, `:400-418`, `:1037-1053`, `:1069-1077`). A limit is
   derived, not guessed: the template mass edit and mass delete were once sized
   as ordinary requests, so a selection their own schemas accepted came back 413.
   Recognizing a bulk route by shape rather than by a hand-kept list is what
@@ -949,7 +949,7 @@ and does not know this product's envelope. **The rule:**
 - **The migration keeps `error` as an extension member** for one deprecation
   window, because the browser client reads `payload.error.code`,
   `payload.error.message` and `payload.error.details`
-  (`src/client/api.ts:125-173`), and so may anybody who built against the API
+  (`src/client/api.ts:126-174`), and so may anybody who built against the API
   before this guide existed. Then it goes at the sunset date.
 
 Until that lands, the honest statement is: **this API does not conform to its own
@@ -1051,8 +1051,9 @@ derives by reading the `(code, status)` pair off every `AppError` and
   comment above it at `src/server/api.ts:413-416` says why the narrowing is
   not done there.
   The narrowing is not this route's: it lives in `log.failure`
-  (`src/server/log.ts:91-101`), so all five paths in this process that can log a
-  database error get it — `src/server/index.ts:118`,
+  (`src/server/log.ts:91-101`), so every call site that logs through it gets it,
+  including the five that log a failure at startup or from the pool —
+  `src/server/index.ts:118`,
   `src/server/scheduler.ts:138`, `src/server/db/migrate.ts:197` and
   `src/server/db/client.ts:33` and `:92`. It was a route-level guard for a
   release, which meant the agent transport logged whole what this one redacted.
@@ -1075,7 +1076,7 @@ is a different protocol's envelope on a route this guide does not govern.
 
 **What the check for the first of those cannot see, and it is the half that
 matters.** It reads `new AppError(` and `new TransportError(` constructions
-(`tests/service-errors.test.ts:150-168`), which is where a *service* names a
+(`tests/service-errors.test.ts:148-165`), which is where a *service* names a
 status. It sees neither of the two places a *transport* does: the
 `errorResponse(context, status, code, …)` call sites in
 `src/server/http-security.ts`, where the status is the second argument, and
@@ -1234,10 +1235,11 @@ That invariant is why this API has both mechanisms, and it is not indecision.
   costs opacity for one release and nothing else. `docs/upgrades.md` schedules
   the removal.
 
-  This does not close the filter-binding gap two bullets up. A cursor still
-  binds its ordering and not the filters it was issued under; signing it first
-  makes that fix additive — a `filters` member inside a payload that is already
-  signed — rather than a second change to the encoding.
+  **Superseded, by the change it anticipated.** This said it did not close the
+  filter-binding gap two bullets up, that a cursor bound its ordering and not
+  its filters, and that signing first would make the fix additive. It did: a
+  cursor now carries a `filters` fingerprint as a member of the signed payload
+  (`src/server/services/cursor.ts:25-41`), which is the bullet two up.
 - **Contested: total counts.** Zalando rule 254 and the Azure guidelines both
   say not to return a count of all matching objects, because counting a complex
   query is a full index scan and because clients integrate against a number that
@@ -1434,9 +1436,9 @@ so a second submit fails rather than duplicating."
   with a different request (`src/server/services/helpers.ts:146-178`). The
   request is canonicalized before hashing, with object keys sorted and `Date`
   instances stringified, so key order cannot change the fingerprint
-  (`src/server/services/helpers.ts:223-262`). Concurrent uses of one key are
+  (`src/server/services/helpers.ts:223-255`). Concurrent uses of one key are
   serialized by a transaction-scoped advisory lock
-  (`src/server/services/helpers.ts:265-277`), which is stronger than Stripe,
+  (`src/server/services/helpers.ts:265-274`), which is stronger than Stripe,
   which errors on a concurrent conflict rather than waiting.
 - **House, a deliberate divergence worth writing down.** Stripe replays
   failures, including 500s. Simple Balance writes the idempotency record inside
@@ -1499,7 +1501,7 @@ so a second submit fails rather than duplicating."
   should not get two rows. `POST /transactions` and `POST /staged-transactions`
   take a key (`src/shared/domain.ts:1239` and `:1283`) and `POST /accounts`,
   `POST /categories`, `POST /recurrences` and `POST /transaction-templates` do
-  not (`src/shared/domain.ts:1077`, `:1117`, `:3339`, `:3266`) — those four are
+  not (`src/shared/domain.ts:1077`, `:1117`, `:3339`, `:3301`) — those four are
   protected by a unique name, which is the `AGENTS.md` carve-out, and the reason
   the gap is narrower than it looks.
   `POST /categories/merge` was protected by nothing while the sister route
@@ -1782,7 +1784,7 @@ test, and a streamed commit has not been watched through the chart's ingress.
   picks between two prebuilt header sets by asking `isStripeSurfacePath`
   (`src/server/api.ts:243-263`). Two other headers are set by hand outside
   `/api/v1` and are documented under CORS: `Access-Control-Allow-Origin` on the
-  JWKS route (`src/server/api.ts:782`) and on discovery (`:999`), and
+  JWKS route (`src/server/api.ts:782`) and on discovery (`:1001`), and
   `Cache-Control` on those two (`:783`, `:1002`) and on `/api/v1` itself
   (`:1458`). The split deployment's nginx repeats them for the files it serves,
   and the two are compared value for value by a test rather than by a reader.
@@ -1812,7 +1814,7 @@ test, and a streamed commit has not been watched through the chart's ingress.
   | --- | --- |
   | The application, with no ads configured — the default, and what this container shipped before billing existed | `style-src`, `script-src` and `connect-src` are each `'self'`; no `frame-src` and no `font-src`, so `default-src 'self'` governs both |
   | The application where AdSense is configured | the same, plus `https:` on `script-src`, `connect-src`, `style-src` and `frame-src`, `'unsafe-eval'` on `script-src`, `'unsafe-inline'` on `style-src`, and a `font-src` of `'self' https: data:` (`src/server/http-security.ts:175-179`) |
-  | `/settings/plan`, where Stripe is configured | Stripe's, Link's and hCaptcha's named hosts — `'self'` beside them on `script-src`, `connect-src` and `style-src`, and `frame-src` carrying the hosts alone, because nothing on this origin is framed (`:78-138`). Never widened for ads |
+  | `/settings/plan`, where Stripe is configured | Stripe's, Link's and hCaptcha's named hosts — `'self'` beside them on `script-src`, `connect-src` and `style-src`, and `frame-src` carrying the hosts alone, because nothing on this origin is framed (`:78-138`, and the `connect-src` hosts at `:181-189`). Never widened for ads |
   | `/settings/plan` while `SB_CSP_REPORT_ONLY` is set | the same policy as above, sent as `Content-Security-Policy-Report-Only` with `report-uri` and `report-to`, and a `Reporting-Endpoints` header naming `/api/csp-report` beside it. Exactly one of the enforcing and report-only headers is ever sent (`:276-286`) |
 
   **`'unsafe-inline'` is absent from `style-src` on the two surfaces this
@@ -1966,7 +1968,7 @@ way.
 - **Binding**, RFC 9728. Protected resource metadata is served at the root and
   at every `/mcp` path spelling, because a client told the resource is
   `<origin>/mcp` looks under the well-known suffix with the resource path
-  appended (`src/server/api.ts:1024-1031`). Answering only at the root left the
+  appended (`src/server/api.ts:1024-1035`). Answering only at the root left the
   single-page app returning HTML with a 200, which a client cannot parse and
   will not retry.
 - **Binding.** The scopes are `ledger:read`, `ledger:stage` and `ledger:write`,
@@ -2028,7 +2030,7 @@ is Better Auth's and is covered by its own tests rather than these.
   client and to nobody over HTTP — not on health, not in a header — so the one
   surface an operator actually polls was the one that could not answer "which
   build is this" during a rolling deploy. Both health routes now carry it
-  (`src/server/api.ts:432-447`), and so do the scheduler's
+  (`src/server/api.ts:431-446`), and so do the scheduler's
   (`src/server/scheduler.ts:29-38`), because that process is deployed
   separately and reading the version off the API's answer would answer about
   the wrong one. Not a header: a header on every response is a cost paid by
@@ -2190,7 +2192,7 @@ than rediscovering the disagreement.
 | A cursor round-trips and is refused under a different ordering | `tests/cursor.test.ts` |
 | The browser's idempotency key is a v4 UUID, long enough for the server's minimum | `tests/idempotency-key.test.ts` |
 | A commit replays rather than duplicating, and a bulk write is atomic | `tests/integration/ledger.integration.test.ts`, `tests/integration/bulk-transactions.integration.test.ts` |
-| A leg write bumps the parent transaction's version | `tests/integration/splits-audit.integration.test.ts:175` |
+| A leg write bumps the parent transaction's version | `tests/integration/splits-audit.integration.test.ts:218` |
 | A stranger's id is a 404 and never a 403 | `tests/integration/tenant-isolation.integration.test.ts` |
 | The Hono security headers and the nginx ones agree, on every surface and in every combination of the three settings | `tests/security-header-parity.test.ts` |
 | A vendor's hosts reach only the surface that needs them, and the rehearsal only the plan tab | `tests/security-header-parity.test.ts`, `tests/csp-report-only.test.ts` |

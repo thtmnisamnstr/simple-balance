@@ -28,12 +28,12 @@ canonicalizer for payload shapes that cannot occur
 count that came back non-numeric after being cast to one in SQL
 (`src/server/services/payees.ts:58` and `src/server/services/categories.ts:469`);
 three for an `insert().returning()` that came back empty, which either throws or
-returns the row (`src/server/services/budgets.ts:568`, `:936` and
+returns the row (`src/server/services/budgets.ts:568`, `:945` and
 `src/server/services/category-groups.ts:132`); and four in billing, each
 doubting something established moments earlier — the route's own registration,
 the actor's user row, a customer row whose insert had just lost a conflict, and
 a subscription Stripe cannot return without a price
-(`src/server/services/billing.ts:679`, `:937`, `:966` and `:1517`). The reason
+(`src/server/services/billing.ts:679`, `:993`, `:1022` and `:1600`). The reason
 each cannot happen is written beside it in the test rather than copied here.
 
 So the rule is not "never throw a bare `Error` here". It is "never throw one for
@@ -217,9 +217,11 @@ Six throw sites carry one today and the shape recurs: the archive restore meets
 the same ceiling from the other side
 (`src/server/services/accounts.ts:1204`), the frozen-account refusal is the same
 argument under a 422 (`src/server/services/accounts.ts:861`), and the two in
-`closeBillingForDeletion` (`src/server/services/billing.ts:1964` and `:1971`)
-send a person to whoever runs the server while naming the cause, and whether
-retrying helps, for a program. Those last two are reached only from the
+`closeBillingForDeletion` (`src/server/services/billing.ts:1998` and `:2005`)
+give a person the move each cause leaves them — whoever runs the server, where
+the keys cannot vouch for Stripe's answer, and a retry in a few minutes, where
+Stripe could not be reached — while naming the cause, and whether retrying
+helps, for a program. Those last two are reached only from the
 session-only deletion path, so nothing renders them today — written that way
 because the browser's sentence would be the wrong one if it ever widens, which
 is cheaper than noticing later. Every refusal whose remedy is browser-only has

@@ -365,7 +365,7 @@ for the warning word on a destructive tool, which is the sentence above read
 back off the surface: it holds both of that sentence's numbers, so a destructive
 tool added without a confirm-or-undo word leaves the first alone, moves the
 second off zero, and fails. *Also checked by:*
-`tests/mcp-measurements.test.ts:368-415`, which reads every `snake_case` word in
+`tests/mcp-measurements.test.ts:368-390`, which reads every `snake_case` word in
 a description as a claim about a tool and fails on one that is not registered.
 Fourteen descriptions point at another tool, and the failure it catches is a
 renamed tool leaving the sentences that named it behind: the agent that follows
@@ -628,7 +628,7 @@ The rules:
 - **Binding.** One envelope, from `common.md`:
   `{ result: <success> | { error: { code, message, details? } } }`, published as
   a two-member `anyOf` by `mcpOutputSchema`
-  (`src/server/mcp-output-schemas.ts:105-110`) and returned as both
+  (`src/server/mcp-output-schemas.ts:105-109`) and returned as both
   `structuredContent` and a JSON text mirror built from one serialization
   (`src/server/mcp.ts:261-268`), which is what the specification
   recommends: a tool returning structured content "SHOULD also return the
@@ -839,7 +839,7 @@ envelope and the worked sentences.
 - **House, and the worked rule's second case, met late.** The frozen-account
   refusal is the most common new refusal on this surface and it broke the rule
   above in the same way `staleVersion` had: browser copy, reaching an agent
-  unchanged. `frozenAccountRefusal` (`src/shared/domain.ts:3944-3953`) ended "so
+  unchanged. `frozenAccountRefusal` (`src/shared/domain.ts:3953-3962`) ended "so
   its entries and details cannot change until you make it one of the active ones
   or upgrade",
   and both of those are moves an agent cannot make — and the first was not a
@@ -1215,6 +1215,10 @@ human witness.
 - **Binding.** `AGENTS.md`: "Three exceptions, all account management rather than
   bookkeeping: deleting an account, setting a sign-in password, and the billing
   routes are reachable from a session and never from an MCP token."
+  `tests/mcp-session-only.test.ts` holds it from the transport: `mcp.ts` may
+  name none of the functions those routes call, and each is still named by
+  `api.ts`, so a rename empties nothing. It replaced a check asserting four tool
+  names were absent, none of which had ever existed.
 - **House.** An exception carries a written reason, not a name on a list. Nine
   browser-only exceptions (`tests/mcp-parity.test.ts:26-45`) and five agent-only
   each carry a paragraph. The count went to nine when billing landed, in the
@@ -1296,7 +1300,7 @@ browser-only reasons; they stay a reviewer's job. The two forbidden capabilities
 are pinned by name at `:325-335`. *Also checked by:* `:882-910` for the field
 level, which reads each listing route's schema and the page's own request object
 and fails a filter the route parses that the page cannot send, with a `compared`
-floor so a reader that stopped matching cannot pass on nothing; and `:870-876`,
+floor so a reader that stopped matching cannot pass on nothing; and `:912-918`,
 which fails a filter named as unoffered without a reason over forty characters,
 exactly as the route exceptions are policed.
 
@@ -1383,7 +1387,7 @@ creating state which expires says so, which is prose in a description.
   issued specifically for them as the intended audience" and "MUST NOT accept or
   transit any other tokens". This deployment binds the audience to its own `/mcp`
   and replaces anything that is not a JWT it signed, in either header shape
-  (`src/server/api.ts:1097-1116`).
+  (`src/server/api.ts:1103-1122`).
 - **House.** `x-mcp-header` mirrors a tool argument into an HTTP header for proxy
   routing, and the specification warns against marking sensitive parameters with
   it. Nothing here needs proxy routing and everything here is somebody's
@@ -1443,7 +1447,12 @@ Two different things, and only one of them is a test.
   than trusting the schema alone." Both MCP test files do this, connecting a real
   client to a real server over `InMemoryTransport` rather than asserting against
   the registry, which is why they catch schema faults a registry inspection
-  cannot show. A new tool is exercised the same way.
+  cannot show. A new tool is exercised the same way, and that is checked:
+  `tests/mcp-exercised.test.ts` lists every registered tool and fails on one no
+  integration test calls by name. Thirty-nine of seventy-seven were called by
+  none when it was written, and
+  `tests/integration/mcp-every-tool.integration.test.ts` calls each of them
+  against seeded data, so no list passes its item schema by being empty.
 - **House.** The structural tests are the floor, not the ceiling. `mcp-parity`
   proves coverage and wiring; `mcp-output` proves every tool publishes a concrete
   schema and that a scopeless token sees nothing.
@@ -1494,7 +1503,7 @@ which is an evaluation rather than a test.
 | `TOOL_SCOPES` still agrees with the three registration blocks | `tests/mcp-measurements.test.ts` |
 | No output schema declares a `userId`, outside a named exception | `tests/mcp-output.test.ts` |
 | Every published copy of a misleading output field carries a description | `tests/mcp-output.test.ts` |
-| A tool named in a description exists | `tests/mcp-measurements.test.ts:368-415`, which reads every `snake_case` word in a description as a claim about a tool |
+| A tool named in a description exists | `tests/mcp-measurements.test.ts:368-390`, which reads every `snake_case` word in a description as a claim about a tool |
 | A tool named in a *field* description exists | `tests/mcp-guide.test.ts`, the same reading one level down, with a word the tool publishes as an enum value read as a value rather than as a tool |
 | A refusal a whole tier of tools can return is named in `instructions` | `tests/mcp-guide.test.ts`, which proves the premise from the services before it checks the sentence |
 | A tool whose first call is a one-way door is annotated destructive, and says so | `tests/active-accounts-mcp.test.ts` |

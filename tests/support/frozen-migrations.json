@@ -1,0 +1,106 @@
+{
+  "0000_initial.sql": {
+    "sha256": "96ca60e23ea8e2202902ff126d62b2401a484ad1628af8c5b5b962d49a9198f9",
+    "when": 1785704823358
+  },
+  "0001_verify_existing_accounts.sql": {
+    "sha256": "956fc9d98270ca7a1c02379fa2f3a81a81b5636eb1a0dd80dee1f572571a98a1",
+    "when": 1785704824358
+  },
+  "0002_account_closing_postings.sql": {
+    "sha256": "6daf7b83eb90db8a4ff286a2d870c8ecdfdb019055a25f49140a274fd69affa2",
+    "when": 1785730300257
+  },
+  "0003_transaction_templates.sql": {
+    "sha256": "d23d2f6fc09196de53c08e86891324b09756de4ae3e823d07e48d82e37b28e06",
+    "when": 1785890520862
+  },
+  "0004_template_provenance.sql": {
+    "sha256": "b81906f72151c6ed3faef2323374c2598436478bda89f6284a3cd1af57ec3f19",
+    "when": 1786050801680
+  },
+  "0005_split_transaction_legs.sql": {
+    "sha256": "e07d5de6235f9fcd1aeb75a3a64c13f47b13bfa042b2e57d7f8c5c7da5f30a95",
+    "when": 1786403464066
+  },
+  "0006_recurring_transactions.sql": {
+    "sha256": "64d390cbcf53ba534ad3a1a7c3bc2ed514580bd9bc7f384b47169f4f88634fc5",
+    "when": 1786418007842
+  },
+  "0007_shared_rate_limit.sql": {
+    "sha256": "0d3568b51b25ad7f16b36c282c9cd75966198c362e603f852ea811a957a9dce9",
+    "when": 1786674647145
+  },
+  "0008_owner_setup_token.sql": {
+    "sha256": "7236583c2b09803406310f20558f795b4a0b0512ade48b3db722d3bb7f2e1fd8",
+    "when": 1787273357566
+  },
+  "0009_scheduled_notifications.sql": {
+    "sha256": "c9635229bd1fbedeed2057df82eb565fe1a54348ed515caaf2b98d51fb4128a2",
+    "when": 1787279879643
+  },
+  "0010_drop_covered_user_indexes.sql": {
+    "sha256": "391410cfe9b8240845eba385377b75200ce695f40d17fbece64251d0105273ee",
+    "when": 1787330105663
+  },
+  "0011_user_theme.sql": {
+    "sha256": "0526be85bacf85e2aa58e63a8810ed73a459b97df953ccd0f1eb3b12d2fa44e9",
+    "when": 1787411980536
+  },
+  "0012_payee_normalized_indexes.sql": {
+    "sha256": "7401b7845f8c08849e4aaa63a205b37d5bf9a402fd1df2deaf17c9e643b7f7f4",
+    "when": 1787418473680
+  },
+  "0013_budget_plans_and_entries.sql": {
+    "sha256": "563e9fe4c2c42aaec0dc9d5b085247ac1ac86509b5603be6c88468fafa30d1c2",
+    "when": 1787469715617
+  },
+  "0014_budget_rollover_and_targets.sql": {
+    "sha256": "b7915e8e6b591a0dd37f3351ab831d0191d015f821d22e71490e5c8872f3b94f",
+    "when": 1787980390509
+  },
+  "0015_budget_amount_rules.sql": {
+    "sha256": "2febaaae5f2ef0741f62068924fb399f19345f5ecc42528b53c45912ca8ac423",
+    "when": 1787982650168
+  },
+  "0016_category_groups.sql": {
+    "sha256": "6486927b00939684dc009a4b1c7899a2811075fdb37d416d06d780c7e4a0d9d3",
+    "when": 1787985545079
+  },
+  "0017_budget_perimeter.sql": {
+    "sha256": "bba299a7fbbc0dc33395d5d7e58e3cf6eccb2542aac93d4cd0a66acabd65e99f",
+    "when": 1787986336689
+  },
+  "0018_incremental_taper.sql": {
+    "sha256": "839546301af7f23063ad524df99ea03ad2782492b032f1805a9cd9896684a5c8",
+    "when": 1787989920060
+  },
+  "0019_budget_target_pair.sql": {
+    "sha256": "07c9a49c5f06a937de72aee539fff9a8d8e587a460d8cab5fa96d0d0eb3f0989",
+    "when": 1787991351831
+  },
+  "0020_reference_indexes.sql": {
+    "sha256": "632866ac990293fe506ee85b56800ce972b3ed2b46360fc3c43c697d19c09ec5",
+    "when": 1788309235579
+  },
+  "0021_idempotency_retention.sql": {
+    "sha256": "474321837341256875d2da1eb3376c9f5d1ac30bd46f07cdfbe5329adfef4161",
+    "when": 1788795379955
+  },
+  "0022_plans_and_billing.sql": {
+    "sha256": "829e24bda7f824a461d09297b984fdf38db7a25c74c55b2c18096d615f7ae0a6",
+    "when": 1789401730314
+  },
+  "0023_citus_distribution.sql": {
+    "sha256": "bb434369ec064e4a520dd5115b3bc292f6643dba9c054c902e608fd5ee027b19",
+    "when": 1790006530314
+  },
+  "0024_active_accounts.sql": {
+    "sha256": "9218a07743e4de15dad1c9e835c04915936f2949d638ae97f4f1727fbaad1996",
+    "when": 1790053428654
+  },
+  "0025_subscription_cancel_at.sql": {
+    "sha256": "5ce394b24581d8ab1bfa80811c2a7922034ad687767eec387cb2d73f226698a7",
+    "when": 1790715215109
+  }
+}

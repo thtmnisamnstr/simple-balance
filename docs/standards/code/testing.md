@@ -5,9 +5,9 @@ keeping.
 
 | Tier | Files | Runs with | Needs |
 | --- | --- | --- | --- |
-| Unit (node) | 202 | `npm test` | nothing |
+| Unit (node) | 207 | `npm test` | nothing |
 | Unit (jsdom) | 63 | `npm test` | nothing |
-| Integration | 78 | `npm test` **or** `npm run test:integration` | PostgreSQL |
+| Integration | 79 | `npm test` **or** `npm run test:integration` | PostgreSQL |
 | Browser | 7 | `npm run test:browser` | PostgreSQL, Chromium |
 
 **`npm test` collects the integration tier too**, which surprises people and is
@@ -23,14 +23,14 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 266 pass, 77 skip | **2,892 pass, 891 skip** |
-| `npm test`, database set | 343 pass | **3,783 pass** |
-| `npm run test:integration` | 78 pass | 892 pass |
+| `npm test`, no database | 271 pass, 78 skip | **2,905 pass, 901 skip** |
+| `npm test`, database set | 349 pass | **3,806 pass** |
+| `npm run test:integration` | 79 pass | 902 pass |
 
-The integration tier reports 892 tests on its own and 891 skips inside a
+The integration tier reports 902 tests on its own and 901 skips inside a
 database-less `npm test`, and the one-test difference is not an error: one case
 in that tier needs no database and so runs either way. It is counted among the
-2,892 rather than among the skips, which is why the two rows add up to 3,783
+2,905 rather than among the skips, which is why the two rows add up to 3,806
 both times.
 
 The third row is one test larger than the first row's skip count, and the odd

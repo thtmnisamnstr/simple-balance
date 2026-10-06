@@ -180,7 +180,7 @@ fixture was wrong and all twelve refusals were passing for the wrong reason.
 subject.
 
 One policy about personal data in log lines, in one process.
-`account-deletion.ts:222-229` logs counts and no address, with the comment
+`account-deletion.ts:226-233` logs counts and no address, with the comment
 "Deliberately without the address: they asked to be gone." `sendMail` follows it:
 every `Message` carries `about`, a fixed phrase naming the kind of message
 (`src/server/mail.ts:97-107`), and that phrase is what the log line carries
@@ -476,7 +476,7 @@ truthiness has no symptom. `RECURRENCE_SCHEDULER` already does it, and
 process starts, serves, and quietly proposes nothing until somebody notices a
 year of missing rent." `RECURRENCE_SCHEDULER=yes` read as falsy is a deployment
 that looks healthy and proposes nothing. `TRUST_PROXY` (`config.ts:271-274`) and
-`SMTP_SSL` (`config.ts:537-540`) follow the same pattern.
+`SMTP_SSL` (`config.ts:558-561`) follow the same pattern.
 
 The same argument applies to any closed set, not only booleans. `NODE_ENV` is
 parsed against three values and refuses a fourth (`config.ts:246-250`), because
@@ -502,7 +502,7 @@ the database or the process.
 
 **House.** A list is comma-separated, each entry trimmed, and empty entries are
 skipped rather than refused. `parseRegistrationRule`
-(`src/server/config.ts:988-1024`) is the model: split, trim, lowercase, drop the
+(`src/server/config.ts:1009-1045`) is the model: split, trim, lowercase, drop the
 blanks, then validate what is left with a message naming the bad entry.
 
 *Checked by:* `tests/config.test.ts`, which asserts that
@@ -608,7 +608,7 @@ contradictory secret file then refuses at startup rather than at the first
 query, which is what the next section asks of everything else.
 
 The same argument decided the one line that looks like it should have been left
-alone. `config.ts:463-471` hands `getPool()` the *development default* for
+alone. `config.ts:484-492` hands `getPool()` the *development default* for
 `DATABASE_URL` and is now guarded so it does that and nothing else, because
 unguarded it would have written a value read from `DATABASE_URL_FILE` straight
 back into the environment the form exists to keep it out of.
@@ -949,7 +949,7 @@ parsers read `.env` in this repository and they disagree about quoting.
 
 | Path | Parser | Rule |
 | --- | --- | --- |
-| `docker run --env-file .env` (`README.md:122`, `docs/deployment.md:730`) | Docker CLI | `NAME=value`, `#` only at line start, values passed as-is. **No interpolation and no quote processing. Do not quote.** Quoting an `SMTP_PASSWORD` here puts the quote marks in the password. |
+| `docker run --env-file .env` (`README.md:133`, `docs/deployment.md:730`) | Docker CLI | `NAME=value`, `#` only at line start, values passed as-is. **No interpolation and no quote processing. Do not quote.** Quoting an `SMTP_PASSWORD` here puts the quote marks in the password. |
 | Compose `.env` and `env_file` (`deploy/compose/compose.distributed.yml`) | Compose | Interpolation applies to unquoted and double-quoted values, `${VAR:-default}` and friends work. **Single-quote a value containing `$`.** |
 
 The intuitive advice, "quote your secrets in `.env`", is wrong on the path this
@@ -981,7 +981,7 @@ exception is now five.** `SB_API_ORIGIN`, `SB_FRONTEND_PORT`,
 the nginx table at `docs/deployment.md:863-872` — belong to the nginx container,
 and no example file configures it: the root file serves the single container,
 which has no nginx in it, and the compose recipe sets each of them on the
-frontend service itself (`deploy/compose/compose.distributed.yml:289-335`),
+frontend service itself (`deploy/compose/compose.distributed.yml:309-333`),
 where a value can carry the reason it is what it is. Their defaults are in the
 image (`deploy/docker/frontend.Dockerfile:49-90`), so a deployment that changes
 none of them has nothing to write down. This is the same shape as
@@ -1099,7 +1099,7 @@ than shipping an image that lies about what it was built on.
 needs and nothing a request does not.
 
 `/health/live` returns 200 unconditionally. `/health/ready` runs `select 1` and
-returns 200 or 503 (`src/server/api.ts:426-441`, and the same pair on the
+returns 200 or 503 (`src/server/api.ts:429-447`, and the same pair on the
 scheduler at `src/server/scheduler.ts:30-38`). Both are registered above every
 auth middleware and neither is authenticated.
 
@@ -1111,7 +1111,10 @@ scheduler.
 
 **Binding.** `AGENTS.md`: "Startup must remain the only production migration path.
 Keep migrations safe under the advisory lock and fail readiness on migration
-failure."
+failure." *Checked by:* `tests/migration-failure-startup.test.ts`, which makes
+`runMigrations` fail and asserts that neither entrypoint calls `serve` or starts
+the scheduler and that both exit non-zero. Every other startup test stands the
+migration in as a success, so the failing half was asserted by nothing.
 
 **House, and this is the interaction most container guides miss: startup, not
 shutdown, is the slow half.** Migrations run at startup under advisory lock
@@ -1129,7 +1132,7 @@ still migrating as unhealthy. Not the shutdown deadline.
 `/health/ready` "says configuration, the database, and the migrations have all
 succeeded, and stays closed until they have", and readiness never knew anything
 about configuration or migrations. Both now say what it does:
-`docs/deployment.md:1027-1032` and `README.md:137-140` describe one statement
+`docs/deployment.md:1027-1032` and `README.md:148-151` describe one statement
 against the database and nothing else, and `src/server/api.ts:433-439` says the
 same beside the route. The difference matters to an operator designing alerting:
 a migration that succeeded on an older image leaves readiness green against a
@@ -1185,7 +1188,7 @@ hardcoding one. All four images do: the three Node images read `PORT`, the
 frontend reads `SB_FRONTEND_PORT`. The frontend also probes `/` rather than
 `/health`, deliberately, because `/health` is proxied to the API and a frontend
 healthcheck should not go red because the API did
-(`deploy/docker/frontend.Dockerfile:114-115`).
+(`deploy/docker/frontend.Dockerfile:118-119`).
 
 *Checked by:* `tests/dockerfile.test.ts` ("uses the configured PORT for its
 readiness healthcheck"). The doc-versus-code readiness claim is checked by
@@ -1462,7 +1465,7 @@ chart sets `terminationGracePeriodSeconds: 30`
 (`deploy/helm/simple-balance/values.yaml:268`).
 
 **Settled.** Both documented `docker run` commands now pass
-`--stop-timeout 30` (`README.md:122-127`, `docs/deployment.md:730-737`). Docker's
+`--stop-timeout 30` (`README.md:133-138`, `docs/deployment.md:730-737`). Docker's
 default is 10 seconds, exactly the drain deadline, so the forced exit and
 SIGKILL used to land in the same instant and the drain never got to finish.
 
@@ -1498,7 +1501,7 @@ deploy the chart, so they inherit the Kubernetes spelling at
 **The one exception, stated because an unstated one reads as an oversight — and
 it is about the Docker entrypoint, not about PostgreSQL.** Two services take it,
 both running the `postgres:18` image under its own entrypoint:
-`deploy/compose/compose.distributed.yml`'s bundled `postgres` (`:191-202`) and
+`deploy/compose/compose.distributed.yml`'s bundled `postgres` (`:214-219`) and
 the `single` profile's database machine,
 `deploy/compose/single/compose.postgres.yml`'s `postgres` (`:248-256`). Both get
 `no-new-privileges` and both keep their capabilities, because that entrypoint

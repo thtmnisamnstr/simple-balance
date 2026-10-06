@@ -43,6 +43,11 @@ its own is caught by the journal and snapshot counts beside it, but a name left
 in `AGENTS.md` after its file, its journal entry and its snapshot have all gone
 passes, so the frozen list can still outlive what it lists. Neither direction
 reads *which* of the names are shipped, which is the half 1.5 answers for.
+`tests/frozen-migrations.test.ts` holds what the names alone could not: each
+frozen file to the SHA-256 of the bytes that shipped and to its journal `when`,
+recorded from the `v0.2.0` tag in `tests/support/frozen-migrations.json`, which
+`cut-release` appends to. Editing a frozen file's body passed every test
+before it.
 
 ### 1.2 A migration has a name, not a number and a slug from a generator
 
@@ -100,14 +105,19 @@ A table added without its cascade makes deletion fail rather than silently
 orphan rows, which is the right failure and still a bug.
 
 One table must **not** cascade, and naming it is part of the rule rather than an
-aside. `billing_webhook_event` (`src/server/db/schema.ts:1638`) carries no
+aside. `billing_webhook_event` (`src/server/db/schema.ts:1643`) carries no
 `user_id` and hangs from nobody: it records which deliveries Stripe has already
 been answered for, which is the deployment's fact rather than any person's.
 Letting it cascade would drop that record with the account and let a retry
 inside Stripe's 72-hour window be handled a second time as new.
 
-*Checked by:* `tests/integration/account-deletion.integration.test.ts` for the
-cascade, and `tests/migrations.test.ts` for the exception, which reads
+*Checked by:* `tests/user-data-cascade.test.ts`, which reads every table the
+schema declares and requires each with a `user_id` to reference `auth_user`
+with `on delete cascade` — the integration test below only caught a missing
+cascade on the thirteen tables its seed writes to — and holds
+`billing_webhook_event` to having no `user_id` at all;
+`tests/integration/account-deletion.integration.test.ts` for the delete itself;
+and `tests/migrations.test.ts` for the exception, which reads
 `0022_plans_and_billing.sql` and asserts that exactly four of the five billing
 tables take `ON DELETE cascade` and that the fifth takes no constraint at all.
 Neither is a check on the next table: the integration test catches a missing
@@ -157,7 +167,7 @@ a category's group. `drizzle/0016_category_groups.sql:26` installs the foreign
 key as `on delete set null`, which on a single PostgreSQL clears the column
 without anybody writing code. Citus refuses `SET NULL` whenever the distribution
 column is part of the constraint — in every spelling, including PostgreSQL 15's
-column list — so `drizzle/0023_citus_distribution.sql:259` reinstalls the same
+column list — so `drizzle/0023_citus_distribution.sql:277` reinstalls the same
 key as `NO ACTION`, under which deleting a group that still holds categories
 fails outright rather than orphaning them. The service clears the column itself
 (`src/server/services/category-groups.ts:286`), and that statement is what makes
@@ -202,7 +212,7 @@ review is what makes it. §5 carries it.
 ### 2.1 Money is `numeric(44, 18)`
 
 **Binding.** `AGENTS.md`. Every amount column, without exception
-(`src/server/db/schema.ts:293`).
+(`src/server/db/schema.ts:292`).
 Drizzle returns `numeric` as a string, which is exactly what the rest of the
 codebase wants, so nothing casts.
 
@@ -266,7 +276,7 @@ customer; `src/server/services/billing.ts:487` reads `billing_customer` by
 `stripe_customer_id` alone to find out whose it is. There is nothing to scope it
 by, because this read is *how* the user is derived. It is safe for one reason,
 and the reason is what a second unscoped read would have to supply too:
-`src/server/db/schema.ts:1449` makes `stripe_customer_id` unique across the
+`src/server/db/schema.ts:1454` makes `stripe_customer_id` unique across the
 table, and the value is issued by Stripe rather than typed by anybody, so the
 row it returns is the only row it could return. A read keyed on something a
 person can choose has no such argument, and everything downstream of this one is
@@ -389,8 +399,9 @@ it, since the suite runs the narrow key and a new site is legal everywhere it is
 exercised.
 
 A grouping that names every column the statement reads leans on nothing and
-needs no owner: `src/server/services/summary.ts:123` groups `c.id, c.name` and
-selects exactly those two. The rule is about the dependency, not about the word.
+needs no owner: `src/server/services/summary.ts:123` groups
+`p.currency, c.id, c.name` and selects nothing outside those three and the
+aggregates over them. The rule is about the dependency, not about the word.
 
 *Checked by:* `tests/database-guide.test.ts`, which reads both spellings and
 reads the select list beside each grouping, so it asks for the owner only where

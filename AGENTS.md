@@ -19,7 +19,8 @@
   reaching a posting, a balance, a report or a stored column. A vendor's price
   is outside it and may never reach one: it arrives from Stripe as an integer
   count of the currency's minor units, is rendered once and never stored, summed
-  or posted, and the plan tab divides it by the scale `Intl` already knows in
+  or posted, and the plan tab divides it by the scale Stripe charged it in —
+  `Intl`'s own, except for four currencies Stripe documents otherwise — in
   order to show it. The boundary belongs here rather than in a guide alone,
   because this is the books rule and an invariant that shipped code contradicts
   stops being believed: without it a reviewer quoting the first sentence either

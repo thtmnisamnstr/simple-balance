@@ -314,10 +314,10 @@ both, a sentence apart: the deletion panel is titled "Delete this account"
 (`src/client/pages/SettingsPage.tsx:450`), meaning the sign-in, and its next
 sentence is "Everything in it goes: accounts, transactions, categories…"
 (`src/client/pages/SettingsPage.tsx:451-453`), meaning the financial ones. The
-confirmation repeats it (`:585`, `:579`). `AGENTS.md` wins over this guide and
+confirmation repeats it (`:580`, `:587`). `AGENTS.md` wins over this guide and
 calls a sign-in an account throughout, as do three places in the product
-(`src/client/App.tsx:395`, `src/client/pages/SettingsPage.tsx:170`,
-`src/client/pages/PlanPage.tsx:1137`), so the old row — "A user. A person has a
+(`src/client/App.tsx:408`, `src/client/pages/SettingsPage.tsx:170`,
+`src/client/pages/PlanPage.tsx:1202`), so the old row — "A user. A person has a
 sign-in, not an account." — was asserting a rule the repository has never
 followed, and the sharp case is the one screen where the ambiguity it was written
 to prevent actually bites. Rewriting the panel is a copy change this guide cannot
@@ -358,7 +358,7 @@ commit subject and a comment: plain, declarative, specific.
   below ten. A count that arrives as a *value* cannot be spelled out by writing
   the sentence differently, so it is spelled out by a map where the sentence
   reads as a sentence — `NUMBER_WORDS` and `GRACE_IN_WORDS`
-  (`src/client/pages/PlanPage.tsx:638-644`) turn `BILLING_GRACE_DAYS` into words
+  (`src/client/pages/PlanPage.tsx:684-698`) turn `BILLING_GRACE_DAYS` into words
   and fall back to digits past the end of the list, which "reads worse and is
   still true" — and left as a digit where it reads as a figure beside others.
   The plan and freezing copy is all of the second kind and none of the first,
@@ -426,9 +426,12 @@ The membership test is the whole of it, and all four clauses have to hold:
 
 One value passes today. Stripe reports a subscription price as an integer count
 of the currency's smallest unit (`src/server/stripe.ts:1262`), the server hands
-it on untouched (`src/server/services/billing.ts:1153`), and `formatPrice`
-(`src/client/pages/PlanPage.tsx:588-608`) divides it by the scale `Intl` already
-knows and formats it in the same breath. The argument is written at the site and
+it on untouched (`src/server/services/billing.ts:1225`), and `formatPrice`
+(`src/client/pages/PlanPage.tsx:627-662`) divides it by the scale Stripe charged
+it in and formats it in the same breath. That scale is the one `Intl` already
+knows for every currency but four — ISK, UGX, HUF and TWD, which Stripe's own
+documentation says it charges in two decimals whatever the currency's own
+subunit — and those four are a table beside it (`STRIPE_CHARGE_DIGITS`). The argument is written at the site and
 ends "Do not copy this into anything that touches a posting", which is the
 sentence to read before deciding a second value qualifies.
 
@@ -438,8 +441,11 @@ it, so that §Money above needed no exception at all. It is wrong twice
 over. It invents a per-currency scale the vendor does not promise: how many
 minor units make a major one is the currency's business, `Intl` already answers
 it, and encoding the answer here would be a table that is correct until a
-deployment sells in a currency nobody tested. And it creates a second place the
-price lives, which is what `src/server/config.ts:329-332` already refuses for
+deployment sells in a currency nobody tested. `STRIPE_CHARGE_DIGITS` is not
+that table: it is four entries long, it records where the vendor's documented
+scale departs from the currency's, and `Intl` still answers for every other
+currency. And it creates a second place the
+price lives, which is what `src/server/config.ts:337-338` already refuses for
 the ids by keeping only the id in configuration. An amount copied out of Stripe
 is the one that does not get charged, because Stripe charges what the price
 object says; the copy can only ever be the number the customer was shown.
@@ -470,7 +476,7 @@ exception. Six closed sets already read against that sentence:
 (`src/client/select-options.ts:113`, which both category pages read),
 `transactionTypeLabels`
 (`src/client/pages/TemplatesPage.tsx:70`), and `ORDINAL_LABELS` and
-`FREQUENCY_LABELS` (`src/client/forms.tsx:2533`, `:2613`) for the two schedule
+`FREQUENCY_LABELS` (`src/client/forms.tsx:2585`, `:2613`) for the two schedule
 pickers. In four of the six the label is a different *word* rather than the same
 word capitalized: `credit_card` reads "Credit card", `plus` reads Premium, `both`
 reads "Income or expense", and the ordinal `-1` reads Last.

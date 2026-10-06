@@ -1477,9 +1477,11 @@ repository closes.
 
 4. Date the `## Unreleased` heading in `CHANGELOG.md`, since nothing does that
    for you and the upgrade notes above send people there to read it.
-5. Add that release's migrations to the frozen list in `AGENTS.md`. Once an
-   image has run one against somebody's data it can never be edited again, and
-   the list is what says so.
+5. Add that release's migrations to the frozen list in `AGENTS.md`, and record
+   each one's SHA-256 and journal `when` in
+   `tests/support/frozen-migrations.json`. Once an image has run one against
+   somebody's data it can never be edited again; the list says so and the
+   hashes are what notice when a body changes anyway.
 6. `npm run verify`, then commit and push on the default branch. The publish
    runs the same suite first, so a failure here is one the release would have
    met anyway.

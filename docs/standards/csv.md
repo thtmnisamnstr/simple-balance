@@ -488,9 +488,11 @@ cross-currency CSV round trips."
 
 *Checked by:* `tests/integration/import-export.integration.test.ts:600` ("marks
 exports explicitly and asks for both accounts of a transfer"), which exports a
-110 EUR-for-100 transfer and reads it back. Only the export half. Nothing
-commits a restored cross-currency transfer into two accounts of different
-currencies and compares the rate, which is the gap section 16 ranks first.
+110 EUR-for-100 transfer and reads it back, and
+`tests/integration/csv-roundtrip-fidelity.integration.test.ts` ("brings a
+cross-currency transfer back with both of its amounts"), which carries a 110
+USD-for-100 EUR transfer through export, staging and commit into another ledger
+and compares both amounts and the implied rate with the original's.
 
 ## 8. What a round trip preserves
 
@@ -680,7 +682,7 @@ is all-or-nothing at its own level:
 - **The file.** `stageCsv` runs in one transaction. It refuses the whole file
   for a file-level fault: over the byte limit, over the row cap, unterminated
   quotes (`MissingQuotes` or `InvalidQuotes`,
-  `src/server/services/import-export.ts:764-776`), an
+  `src/server/services/import-export.ts:768-780`), an
   account the caller does not own, or no mapping for a file we do not recognize.
   It never refuses a file for a bad row.
 - **The batch.** One import is one `import_batch`, and the queue can be
@@ -728,7 +730,7 @@ Blank lines are skipped before anything is counted, so an interior blank leaves
 the number one low; a trailing blank, which is the common case, comes after
 everything it could shift. Nothing else numbers a row at all: the queue shows no
 position (`src/client/pages/StagingPage.tsx:1086-1141`) and a staged row stores no
-source row number (`src/server/db/schema.ts:778-890`), so a queue entry is
+source row number (`src/server/db/schema.ts:783-895`), so a queue entry is
 traceable to a line only through its `raw_data`.
 
 *Checked by:* `tests/domain.test.ts` ("reports the file's own line for a row with
@@ -910,7 +912,7 @@ back is exactly the one that was added.
 designated free-text columns" and "neutralizes the full-width and wide-space
 spellings too", the second written with escapes rather than the characters
 themselves so that what is under test survives a copy and a paste),
-`tests/integration/csv-roundtrip-fidelity.integration.test.ts:164-200`,
+`tests/integration/csv-roundtrip-fidelity.integration.test.ts:164-196`,
 `tests/integration/import-export.integration.test.ts:897` ("round-trips
 formula-like text without exposing formulas or changing data").
 
@@ -992,7 +994,7 @@ Checked:
 | External reference, transfer category, formula-named category, same-ledger reimport | `tests/integration/csv-roundtrip-fidelity.integration.test.ts` |
 | Splits across a round trip, and the always-present column | `tests/integration/splits-roundtrip.integration.test.ts` |
 | Cross-tenant import, idempotent replay, deleted rows never exported | `tests/integration/import-export.integration.test.ts` |
-| Scope deferral on a `ledger:stage` import | `tests/integration/mcp-scope-boundaries.integration.test.ts:113-154` |
+| Scope deferral on a `ledger:stage` import | `tests/integration/mcp-scope-boundaries.integration.test.ts:113-147` |
 | Duplicate guard, staged against staged, and the all-or-nothing commit | `tests/integration/duplicates.integration.test.ts` |
 | The recognized file hides its mapping controls | `tests/import-ui.test.tsx` |
 | A row number is the file's own line, whichever fault it came from | `tests/domain.test.ts` |
@@ -1012,9 +1014,10 @@ Not checked mechanically, in the order they are worth building:
 
 1. **A round-trip property test** over one ledger holding a non-ASCII payee, a
    formula-triggering payee, a mixed-currency transfer and a split. The pieces
-   exist in three files; none of them commits a restored cross-currency transfer
-   and compares the rate, which is the half of the `AGENTS.md` round-trip
-   sentence with no test behind it.
+   exist in four files now, and the half of the `AGENTS.md` round-trip sentence
+   that had no test — committing a restored cross-currency transfer and
+   comparing the rate — is one of them. What is left is the property: one ledger
+   holding all four, carried round together.
 2. **Landed.** The recognition set against removal, out from behind the
    integration gate exactly as this item argued: `tests/csv-guide.test.ts`
    spells the committed set out and holds it to `APP_CSV_COLUMNS` as set

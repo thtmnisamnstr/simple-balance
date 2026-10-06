@@ -84,7 +84,7 @@ what the person typed.
 The other thing that is not a derived value: an answer a handler needs before
 the next render can deliver it. The staged list's inline editors keep
 `inlineInFlight`, `inlineCanceled` and `focusAfterInline` in refs
-(`src/client/pages/StagingPage.tsx:631-642`) even though the first shadows
+(`src/client/pages/StagingPage.tsx:633-644`) even though the first shadows
 `isPending`, because the deciding read happens in the same event burst as the
 write: Enter commits, and the blur that follows a click away runs before the
 render that would have set `isPending`, so the state version double-submits —
@@ -178,8 +178,10 @@ same question two ways.
 
 **One value in this client is money-shaped and outside this rule.** The plan
 tab divides a float to render a price: `formatPrice`
-(`src/client/pages/PlanPage.tsx:588-608`) takes Stripe's integer count of minor
-units and divides by the scale `Intl` already knows. The membership test is
+(`src/client/pages/PlanPage.tsx:627-663`) takes Stripe's integer count of minor
+units and divides by the scale Stripe charged it in, which is the one `Intl`
+already knows for every currency but four Stripe documents otherwise
+(`STRIPE_CHARGE_DIGITS`, beside it). The membership test is
 [`common.md`](../common.md) §Money that is not a ledger amount, which owns the
 carve-out for the whole guide set — all four of its clauses, because a value
 passing three of them is a ledger amount.
@@ -236,9 +238,9 @@ The two deciders live in `src/shared/domain.ts` and are imported by no file in
 what somebody may do, and `frozenAccountIds`, which turns that into a set of
 ids. Both are reachable — the module boundary allows it — and both are named in
 the client only in comments explaining why they are not called
-(`src/client/api.ts:533-537`, `src/client/TransactionBrowser.tsx:437`). What
+(`src/client/api.ts:561-563`, `src/client/TransactionBrowser.tsx:437`). What
 the browser reads instead is the answer: `frozen` on each account
-(`src/client/api.ts:541`), and an ad that exists only because the server sent a
+(`src/client/api.ts:567`), and an ad that exists only because the server sent a
 placement at all (`src/server/api.ts:1582`, `src/client/ads.tsx:7-14`).
 
 **The obvious alternative was to compute it in the browser from the session**,
@@ -293,16 +295,16 @@ them used to be the opposite:
 - `jsx-a11y/label-has-associated-control` still cannot see through it, which is
   why that rule is off. See [`index.md`](index.md).
 
-**In a form that stacks.** Two shapes take a bare control and an `aria-label`
-instead: a filter bar, which `web.md` §7.6 governs, and `.inline-form` — the
-one-row "add a category" (`src/client/pages/CategoriesPage.tsx:487`) and "add a
-group" (`:542`) bars, which are both of them. This sentence named a third, "add
-a payee", which does not exist and never did: the payees page has no form on it
-at all, and a carve-out listing a site that is not there invites the next one
-to be written because the list implied a pattern. In the second shape, a
-stacked label per control would treble the row's height for three words that the
-button beside them already implies, and a field-level error has nowhere to go
-because the refusal comes back as one `Alert` under the row. The carve-out is written here rather
+**In a filter bar.** One shape takes a bare control and an `aria-label` instead:
+a filter bar, which `web.md` §7.6 governs. **`.inline-form` was a second, and
+is superseded in 0.2.1.** The one-row "add a category"
+(`src/client/pages/CategoriesPage.tsx:494`) and "add a group" (`:542`) bars took
+bare controls on the argument that a stacked label per control would treble the
+row's height. They are forms — a submit, a refusal, a required field — and a
+placeholder as the only visible word is a label that vanishes on the first
+keystroke (`web.md` 8.1, SC 3.3.2), so both wrap their controls in `Field` now,
+and the filter bar is the one shape left. The sentence once named a third, "add
+a payee", which never existed. The carve-out is written here rather
 than left implicit because this sentence used to say "every labeled control"
 without qualification, and the one page that obeyed it literally — Templates,
 which wrapped its Type filter in a `Field` — ended up with a filter twenty
@@ -351,8 +353,8 @@ field has to become reachable. A request type in `api.ts` that carries the
 field is not reachability — it makes the field settable by code and by nobody
 at a screen. The control is what closes it, and the shape has recurred three
 times: a body field (`src/client/forms.tsx:2951-2958`), a creation field
-(`src/client/pages/CategoriesPage.tsx:297-300`) and a list filter
-(`src/client/pages/StagingPage.tsx:857-861`), each site carrying the same note
+(`src/client/pages/CategoriesPage.tsx:300-303`) and a list filter
+(`src/client/pages/StagingPage.tsx:873-877`), each site carrying the same note
 about the one before it. Three instances is a pattern rather than a scar: when
 a shared schema gains a field, the form gains a control in the same change.
 

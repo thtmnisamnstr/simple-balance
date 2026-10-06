@@ -273,4 +273,72 @@ integration("what a CSV round trip preserves", () => {
     const transaction = await getTransaction(stranger, transactionId);
     expect(transaction.category?.name).toBe("Savings Sweep");
   });
+
+  /**
+   * `AGENTS.md`: "Preserve audit history, transaction provenance, and
+   * cross-currency CSV round trips." The file carries both sides of a transfer
+   * between currencies — what left one account and what arrived in the other,
+   * each in its own currency, with the rate they imply — and `csv.md` says a
+   * restore keeps them. Nothing committed one: the same-currency transfer above
+   * was the only one a test carried back into the books, so a restore that kept
+   * the source amount and recomputed the other at some rate would have passed.
+   * Per-account FX stores the two amounts and an implied rate only, so the two
+   * amounts are the whole of what has to survive.
+   */
+  it("brings a cross-currency transfer back with both of its amounts", async () => {
+    const euro = await createAccount(actor, {
+      name: "Source Euro",
+      type: "savings",
+      currency: "EUR",
+      openingDate: "2026-01-01",
+      openingBalance: "0",
+    });
+    const original = await createTransaction(
+      actor,
+      {
+        type: "transfer",
+        date: "2026-05-07",
+        payee: "Into euros",
+        description: null,
+        fromAccountId: sourceAccount,
+        toAccountId: euro.id,
+        sourceAmount: "110.00",
+        destinationAmount: "100.00",
+      },
+      nextKey(),
+    );
+    const { csv } = await exportTransactionsCsv(actor, { start: "2026-05-07", end: "2026-05-07" });
+    await restore(csv);
+
+    const row = (await stagedRows(stranger)).find(
+      (one) => (one.draft as { payee?: string }).payee === "Into euros",
+    );
+    const draft = row!.draft as Record<string, unknown>;
+    const { updateStage } = await import("../../src/server/services/staging.js");
+    const targetEuro = await createAccount(stranger, {
+      name: "Target Euro",
+      type: "savings",
+      currency: "EUR",
+      openingDate: "2026-01-01",
+      openingBalance: "0",
+    });
+    const repaired = await updateStage(stranger, row!.id, {
+      draft: { ...draft, fromAccountId: targetAccount, toAccountId: targetEuro.id },
+      expectedVersion: row!.version,
+    });
+    const committed = await commitStages(stranger, {
+      stagedIds: [repaired.id],
+      expectedVersions: { [repaired.id]: repaired.version },
+      idempotencyKey: nextKey(),
+    });
+    const restoredId = (committed as { committed: { transactionId: string }[] }).committed[0]!
+      .transactionId;
+    const restored = await getTransaction(stranger, restoredId);
+    const before = await getTransaction(actor, original.id);
+
+    expect(restored.sourceAmount).toBe(before.sourceAmount);
+    expect(restored.destinationAmount).toBe(before.destinationAmount);
+    expect(restored.effectiveRate).toBe(before.effectiveRate);
+    expect(restored.effectiveRate).not.toBeNull();
+  });
 });

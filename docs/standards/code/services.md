@@ -155,7 +155,7 @@ server to send the count, and a server that sends none gets no sentence.
 
 There is a second shape, for when the browser has no business previewing at all.
 Rather than send the data and a rule for using it, **send nothing and let the
-absence be the answer.** `getAdPlacement` (`src/server/services/billing.ts:2557`)
+absence be the answer.** `getAdPlacement` (`src/server/services/billing.ts:2574`)
 returns the publisher and slot ids, or `null`: a session belonging to somebody
 who should see no advertising simply carries no ad configuration, so the page
 has nothing to render a slot from. `AdSlot` (`src/client/ads.tsx:70`) has no
@@ -784,7 +784,7 @@ sends after `claimDueNotification`'s transaction has moved the watermark and
 committed.
 
 **A follow-up write, and a follow-up read.** `deferSubscriptionRead`
-(`src/server/services/billing.ts:2246`) stamps a failed attempt *after* the
+(`src/server/services/billing.ts:2263`) stamps a failed attempt *after* the
 locked write it follows has let its lock go, "so it can land where the locked
 write above timed out". And `setActiveAccounts` returns `listAccounts(actor)`
 from outside its own transaction, because `listAccounts` reads through the pool

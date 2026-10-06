@@ -282,3 +282,34 @@ describe("contrast, from the tokens", () => {
     expect(hueOnly).toEqual([]);
   });
 });
+
+/**
+ * `web.md` 11.1, SC 1.4.11: a series is a graphical object a reader has to
+ * tell apart from the plot it sits on, so every series token reaches 3:1
+ * against the surface a chart is drawn on, in both themes.
+ *
+ * This file's docstring claimed it and the non-text pairs above held no series
+ * token at all, so a palette change could have taken a line below the floor
+ * with every test green. Read from the palettes rather than listed, so an
+ * eleventh series is measured the day it is added.
+ */
+describe("a chart's series", () => {
+  it("stands 3:1 off the surface it is drawn on, in both themes", () => {
+    const failures: string[] = [];
+    let measured = 0;
+    for (const [name, palette] of [
+      ["light", light],
+      ["dark", dark],
+    ] as const) {
+      const series = Object.keys(palette).filter((token) => /^--series-\d+$/.test(token));
+      expect(series.length, `${name} has its series`).toBeGreaterThanOrEqual(10);
+      for (const token of series) {
+        measured += 1;
+        const value = ratio(palette[token]!, palette["--surface"]!);
+        if (value < 3) failures.push(`${name} ${token} ${value.toFixed(2)}:1`);
+      }
+    }
+    expect(measured).toBeGreaterThanOrEqual(20);
+    expect(failures).toEqual([]);
+  });
+});

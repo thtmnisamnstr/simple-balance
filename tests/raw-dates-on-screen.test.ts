@@ -21,7 +21,7 @@ import { describe, expect, it } from "vitest";
  * **Which fields count as dates is derived from the product rather than listed
  * here** (`web.md` 17.2): a field is date-shaped if the client already passes
  * it to `formatDate`, `formatTimestamp`, `formatTime`, `periodName` or
- * `chartBucketLabel` somewhere. So a new date field joins the population the
+ * `bucketLabel` somewhere. So a new date field joins the population the
  * first time anybody formats one, and a list nobody maintains cannot go stale.
  * The name is filtered for a date-shaped spelling on top of that, because an
  * accessor's last segment inside a formatter call can be `length` or
@@ -34,13 +34,7 @@ import { describe, expect, it } from "vitest";
  */
 const CLIENT = new URL("../src/client/", import.meta.url);
 
-const FORMATTERS = [
-  "formatDate",
-  "formatTimestamp",
-  "formatTime",
-  "periodName",
-  "chartBucketLabel",
-];
+const FORMATTERS = ["formatDate", "formatTimestamp", "formatTime", "periodName", "bucketLabel"];
 /** An identifier path: `period.start`, `forecast.data?.from`. */
 const ACCESS = /[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)+/g;
 /** A name that reads as a date: `date`, `start`, `activeFrom`, `createdAt`. */
