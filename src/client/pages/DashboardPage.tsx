@@ -158,6 +158,9 @@ export default function DashboardPage() {
                   icon={Scale}
                   label="Balance"
                   figure={formatMoney(currency.balance, currency.currency)}
+                  // Below zero is the one state of this figure worth a
+                  // warning, as the net cash flow beside it already says.
+                  negative={isNegativeMoney(currency.balance)}
                 />
                 <MetricTile
                   icon={ArrowDownLeft}
@@ -267,7 +270,10 @@ export default function DashboardPage() {
                                   {item.category}
                                 </Link>
                               ) : (
-                                <span>{item.category}</span>
+                                // Spending filed under no category, in the
+                                // muted type the register and the queue give
+                                // the same word.
+                                <span className="subtle">{item.category}</span>
                               )}
                               <strong>{formatMoney(item.amount, currency.currency)}</strong>
                             </div>

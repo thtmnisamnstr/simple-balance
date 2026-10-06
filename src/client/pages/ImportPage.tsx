@@ -34,6 +34,7 @@ import {
   Button,
   EmptyState,
   Field,
+  Note,
   PageHeader,
   progressLabel,
   ProgressBar,
@@ -329,7 +330,7 @@ export default function ImportPage() {
         <EmptyState
           icon={FileSpreadsheet}
           title="Every account is frozen"
-          body="A CSV needs an account its rows can be posted against, and a frozen account accepts no rows until you make it one of the active ones or upgrade."
+          body="A CSV needs an account its rows can be posted against, and a frozen account accepts no rows. One comes back into use when an account in use is archived or deleted, or if you upgrade."
           action={
             <Link className="button button-primary" to="/accounts">
               Go to Accounts
@@ -496,10 +497,13 @@ export default function ImportPage() {
                           </Select>
                         </Field>
                       </div>
+                      {/* An instruction, not an error: nothing has been submitted,
+                          so it is a note beside the mapping rather than a red
+                          `alert` that interrupted a screen reader the moment a
+                          file was chosen (`web.md` 8.2, 12.4). The buttons that
+                          cannot run yet already carry it as their reason. */}
                       {!hasAmounts ? (
-                        <Alert>
-                          Map a signed amount column or one or both debit/credit columns.
-                        </Alert>
+                        <Note>Map a signed amount column or one or both debit/credit columns.</Note>
                       ) : null}
                     </>
                   )}

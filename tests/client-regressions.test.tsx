@@ -863,8 +863,13 @@ describe("staged queue type filter", () => {
       </QueryClientProvider>,
     );
 
-    // An empty queue nobody has narrowed says so, rather than blaming a filter.
-    expect(await screen.findByText("Nothing staged")).toBeInTheDocument();
+    // An empty queue nobody has narrowed says so, rather than blaming a filter
+    // — and says it of the range in view, because a row dated outside July is
+    // hidden by the range and "Nothing staged" would be false about it.
+    expect(await screen.findByText("Nothing staged in this range")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Widen the date range to see rows dated outside it/),
+    ).toBeInTheDocument();
     expect(requestedTypes.every((type) => type === null)).toBe(true);
 
     fireEvent.change(screen.getByLabelText("Filter by type"), {

@@ -246,6 +246,13 @@ integration("category duplicate detection and merge", () => {
     });
     const archived = await setCategoryArchived(primary, category.id, category.version, true);
     expect(archived.archivedAt).not.toBeNull();
+    // Still in use, and archived already: the refusal says so rather than
+    // advising the archive it has made (`common.md`, "a refusal offers the
+    // move that works").
+    await expect(deleteCategory(primary, category.id, archived.version)).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: expect.stringContaining("archived already"),
+    });
 
     await expect(
       updateTransaction(primary, committed.id, {

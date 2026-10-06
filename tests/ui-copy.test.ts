@@ -446,9 +446,10 @@ describe("a filtered list with nothing in it", () => {
       "the only narrowing is the shared date range",
     // A register for one account over the date range every view carries. 12.1
     // excludes that range deliberately: counting it would report every empty
-    // account as a filtered one. The two screens are told apart by the opening
-    // balance instead, which is the honest test on this list.
-    "src/client/pages/AccountDetailPage.tsx#Nothing posted to this account yet":
+    // account as a filtered one. The screens are told apart by the opening
+    // balance and by whether a range is set at all — the balance alone called
+    // an archived account, closed to zero, one where nothing had ever posted.
+    "src/client/pages/AccountDetailPage.tsx#Nothing posted to this account in this range":
       "the only narrowing is the shared date range",
     // Every plan this ledger holds. The bar above narrows the report below it,
     // not this table.

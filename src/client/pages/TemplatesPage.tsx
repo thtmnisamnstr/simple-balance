@@ -314,8 +314,12 @@ export default function TemplatesPage() {
         ...json({ expectedVersion: template.version }),
         method: "DELETE",
       }),
-    onSuccess: async () => {
+    // The row and the menu that deleted it go together, so focus fell to
+    // `<body>` with nothing on screen saying the delete had happened
+    // (`web.md` 13.3). The page's notice takes focus, as a bulk delete's does.
+    onSuccess: async (_result, template) => {
       clearSelection();
+      setNotice(`Template “${template.name}” deleted.`);
       await queryClient.invalidateQueries({
         queryKey: ["transaction-templates"],
       });
@@ -517,6 +521,7 @@ export default function TemplatesPage() {
                   <th scope="col" className="checkbox-cell">
                     <SelectionCheckbox
                       aria-label="Select all templates on this page"
+                      data-selection-home
                       checked={visible.length > 0 && pageSelected.length === visible.length}
                       indeterminate={
                         pageSelected.length > 0 && pageSelected.length < visible.length

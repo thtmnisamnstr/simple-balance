@@ -123,3 +123,78 @@ describe("every sentence that reports a finished action", () => {
     }
   });
 });
+
+/**
+ * The trigger half, which the answer half above cannot see.
+ *
+ * Deriving the population from the success alerts finds every finished action
+ * that HAS a sentence, so an action with none is invisible to it — and six
+ * deletes were exactly that: a template, a recurrence, a standing budget, a
+ * category group, a connected agent and the other row on the duplicate review
+ * each removed the row and the button that removed it, left focus on
+ * `<body>`, and said nothing. So this starts from the trigger: every mutation
+ * that sends a `DELETE` has to set, on success, a piece of state that some
+ * focus-taking `Alert` in the same file renders.
+ */
+describe("every delete a row confirms", () => {
+  /** The text from `open` to the brace or paren that closes it. */
+  const balanced = (code: string, open: number) => {
+    const opener = code[open]!;
+    const closer = opener === "{" ? "}" : ")";
+    let depth = 0;
+    for (let index = open; index < code.length; index += 1) {
+      if (code[index] === opener) depth += 1;
+      else if (code[index] === closer && --depth === 0) return code.slice(open, index + 1);
+    }
+    return code.slice(open);
+  };
+
+  /**
+   * Named with the reason a sentence is not the answer. Deleting the account
+   * ends the session and leaves the app, so there is no page left to put one
+   * on.
+   */
+  const NO_PAGE_LEFT: Record<string, string> = {
+    "src/client/pages/SettingsPage.tsx#/api/v1/me":
+      "Deleting the account signs the person out and leaves the app; the sentence it would need has nowhere to render.",
+  };
+
+  const deletes = sourceFiles("src/client").flatMap((file) =>
+    [...file.code.matchAll(/useMutation\b[^(]*\(/g)].flatMap((hit) => {
+      const body = balanced(file.code, hit.index + hit[0].length - 1);
+      if (!body.includes('method: "DELETE"')) return [];
+      const path = /api(?:<[^>]*>)?\(\s*[`"]([^`"$]+)/.exec(body)?.[1] ?? "?";
+      const onSuccess = /onSuccess\s*:\s*(?:async\s*)?\(/.exec(body);
+      const handler = onSuccess ? body.slice(onSuccess.index) : "";
+      const setters = [...handler.matchAll(/\bset([A-Z]\w*)\(/g)].map(
+        (setter) => setter[1]!.charAt(0).toLowerCase() + setter[1]!.slice(1),
+      );
+      return [{ key: `${file.path}#${path}`, file, setters }];
+    }),
+  );
+
+  /** Every identifier a focus-taking `Alert` in this file reads in its words. */
+  const focusedWords = (code: string) =>
+    new Set(
+      [...code.matchAll(/<Alert\b[^>]*\btakeFocus\b[^>]*>([\s\S]*?)<\/Alert>/g)].flatMap((alert) =>
+        [...alert[1]!.matchAll(/[A-Za-z_$][\w$]*/g)].map((word) => word[0]),
+      ),
+    );
+
+  it("finds them", () => {
+    expect(deletes.length).toBeGreaterThanOrEqual(8);
+  });
+
+  it("says, where focus lands, that the row has gone", () => {
+    const silent = deletes
+      .filter((one) => !(one.key in NO_PAGE_LEFT))
+      .filter((one) => {
+        const words = focusedWords(one.file.code);
+        return !one.setters.some((state) => words.has(state));
+      })
+      .map((one) => one.key);
+    expect(silent, "set a notice an Alert with takeFocus renders").toEqual([]);
+    const keys = new Set(deletes.map((one) => one.key));
+    expect(Object.keys(NO_PAGE_LEFT).filter((key) => !keys.has(key))).toEqual([]);
+  });
+});

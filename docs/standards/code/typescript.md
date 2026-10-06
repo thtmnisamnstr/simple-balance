@@ -188,7 +188,7 @@ lookup that a database constraint guarantees is honest, and the alternative is a
 branch that cannot be reached and cannot be tested.
 
 The one this section was written about is
-`src/server/services/accounts.ts:572`, building the row an archived account
+`src/server/services/accounts.ts:576`, building the row an archived account
 would have had so the caller sees the shape it expects; the alternative was
 making every field optional for one call site. The other three are a different
 thing wearing the same syntax, and 2.6 is their rule: each is confined to one
@@ -234,7 +234,7 @@ export type CategoryKind = (typeof categoryKinds)[number];
 
 The array is the single source: Zod validates from it, the database enum is
 generated from it (`src/server/db/schema.ts:199`),
-and the UI iterates it (`src/client/pages/CategoriesPage.tsx:135`).
+and the UI iterates it (`src/client/pages/CategoriesPage.tsx:136`).
 Adding a member is one edit, and every one of those follows.
 
 *Checked by:* `npm run typecheck`, for the half of it that is a refusal:
@@ -384,7 +384,7 @@ names it. Both spellings confine the cast to one name, which is what the rule
 asks; neither widens anything else.
 
 That discipline is the rule, and it is what separates these from the fourth —
-`src/server/services/accounts.ts:572`, which assembles an internal row shape and
+`src/server/services/accounts.ts:576`, which assembles an internal row shape and
 which 2.2 already records. A cast confined to one property can be read, checked
 against the vendor's changelog, and deleted when the vendor catches up. A cast
 that asserts a whole shape cannot.

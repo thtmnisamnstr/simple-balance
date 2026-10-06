@@ -112,6 +112,16 @@ and the next `up` makes the key.
   refused a negative before and refuses it the same way, with the same
   sentence, so a client sending what worked yesterday is unaffected; one that
   validates against the schema now refuses a negative before sending it.
+- **A liability at exactly zero is presented as `Amount owed`.**
+  `balancePresentation.label` on a credit card or loan with a zero balance
+  read `Credit balance`; it reads `Amount owed`, with the amount `0`. A
+  positive liability balance is still a credit balance and a negative one is
+  still owed. `balance` itself is unchanged.
+- **Three refusals say something truer.** Deleting an archived account reads
+  "An archived account cannot be deleted. Restore it first." where it said
+  "Unarchive", deleting an in-use category that is already archived no longer
+  advises archiving it, and the frozen-account refusal names an account in use
+  being archived or deleted as the way back. Codes and statuses are unchanged.
 - **Archiving or deleting a frozen account succeeds.** 0.2.0 refused both
   with `422 VALIDATION_ERROR` naming the account, over HTTP and MCP alike; they
   now behave as they do on any account, so a delete still needs nothing on the

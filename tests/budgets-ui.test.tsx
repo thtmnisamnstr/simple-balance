@@ -364,6 +364,9 @@ describe("the budgets page", () => {
     ).closest("tr")!;
     fireEvent.click(within(groceriesRow).getByRole("button", { name: /Just this month/ }));
     const dialog = within(screen.getByRole("dialog", { name: /Groceries, March 2026/ }));
+    // The standing budget's amount, at the currency's decimals rather than as
+    // it arrives: "200" opened as "200", and "12.5" as "12.5".
+    expect(dialog.getByLabelText(/Amount/)).toHaveValue("200.00");
     fireEvent.change(dialog.getByLabelText(/Amount/), {
       target: { value: "300.00" },
     });

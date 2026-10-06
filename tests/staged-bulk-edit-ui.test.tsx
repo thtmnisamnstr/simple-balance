@@ -280,6 +280,11 @@ describe("editing staged rows in bulk", () => {
 
     const apply = within(dialog).getByRole("button", { name: "Apply changes" });
     expect(apply).toBeDisabled();
+    // The cause that applies, not the register's sentence about currencies,
+    // which a staged edit never refuses for.
+    expect(apply).toHaveAccessibleDescription(
+      "Some selected rows have no type yet. Turn on Change type to set an account on them.",
+    );
 
     fireEvent.click(within(dialog).getByText("Change type"));
     fireEvent.change(within(dialog).getByLabelText("New transaction type"), {
@@ -293,6 +298,19 @@ describe("editing staged rows in bulk", () => {
       accountId: checking.id,
       type: "withdrawal",
     });
+  });
+
+  it("asks for an account when the field is on and none is chosen", async () => {
+    stubQueue([withdrawal]);
+    renderStaging();
+    expect(await screen.findByText("Market")).toBeInTheDocument();
+
+    select("Market");
+    const dialog = await openEditor();
+    fireEvent.click(within(dialog).getByText("Change account"));
+    const apply = within(dialog).getByRole("button", { name: "Apply changes" });
+    expect(apply).toBeDisabled();
+    expect(apply).toHaveAccessibleDescription("Choose an account.");
   });
 
   it("refuses to submit nothing", async () => {

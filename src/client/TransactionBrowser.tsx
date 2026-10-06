@@ -582,11 +582,27 @@ export function TransactionBrowser({
         : !enabledRequiredValuesAreValid
           ? "Fill in the fields you switched on."
           : accountChangeBlocked
-            ? "These rows are in more than one currency, so the account cannot change."
+            ? // Each cause its own sentence. One fixed "more than one currency"
+              // was false for a selection holding a transfer, one with rows
+              // off screen, and one in a single currency where the account
+              // simply had not been chosen yet.
+              explicitSelectionHasMissingRows
+              ? "Account cannot be edited across the selection until every selected row is visible."
+              : selectionContainsTransfers
+                ? "Account cannot be edited across the selection while a transfer is in it."
+                : selectedCurrencies.length !== 1
+                  ? "Account cannot be edited across a selection in more than one currency."
+                  : `Choose an account in ${selectedCurrencies[0]}.`
             : categoryChangeBlocked
-              ? "A split cannot be flattened into one category."
+              ? explicitSelectionHasMissingRows
+                ? "Category cannot be edited across the selection until every selected row is visible."
+                : "A split cannot be flattened into one category."
               : typeChangeBlocked
-                ? "A transfer cannot become a deposit or a withdrawal."
+                ? explicitSelectionHasMissingRows
+                  ? "Type cannot be edited across the selection until every selected row is visible."
+                  : selectionContainsTransfers
+                    ? "A transfer cannot become a deposit or a withdrawal."
+                    : "A split cannot change direction, because each leg's category was chosen for the way it runs."
                 : undefined;
   // The selection bar's two buttons, in the same first-unmet order.
   const bulkActionBlockedBecause = !filterSelectionReady
@@ -1092,6 +1108,7 @@ export function TransactionBrowser({
                   <th scope="col" className="checkbox-cell">
                     <SelectionCheckbox
                       aria-label="Select all transactions on this page"
+                      data-selection-home
                       checked={allLoadedSelected}
                       indeterminate={someLoadedSelected && !allLoadedSelected}
                       onChange={(event) => toggleLoadedSelection(event.target.checked)}
@@ -1474,12 +1491,19 @@ export function TransactionBrowser({
           // it hides rows before anybody touches it, so the honest screen is
           // "nothing in this view, and here is the thing that is also hidden"
           // rather than either of the other two sentences.
+          //
+          // "Yet" only when the range hides nothing: a view of July with June
+          // full of transactions said "No transactions yet", which is false.
+          // The range still does not make the view narrowed; it is named as
+          // the way out.
           title={
             narrowed
               ? "No transactions match this view"
               : ways.length
                 ? "No transactions in this view"
-                : "No transactions yet"
+                : start || end
+                  ? "No transactions in this range"
+                  : "No transactions yet"
           }
           body={
             narrowed
@@ -1487,7 +1511,7 @@ export function TransactionBrowser({
                 // the filters that decided this screen, which is the split
                 // `list-filters.ts` exists to keep.
                 waysOut([...ways, "widen the date range"])
-              : `Add a deposit, a withdrawal or a transfer, or import a CSV of what has already happened.${
+              : `${start || end ? "Widen the date range, or add" : "Add"} a deposit, a withdrawal or a transfer, or import a CSV of what has already happened.${
                   ways.length ? ` ${waysOut(ways)}` : ""
                 }`
           }

@@ -143,6 +143,19 @@ tell whoever runs the server if it keeps happening. An agent refused for
 missing a scope is told which scope and to ask the person to reconnect, rather
 than "Forbidden".
 
+**After a delete, the page says so and you keep your place.** Deleting a
+template, a recurrence, a budget, a category group or a connected agent, or
+dropping the other row on the duplicate review, now says what happened and puts
+the keyboard there, where it used to fall back to the top of the page. "Clear
+selection" returns you to the list instead. Empty lists no longer claim there
+is nothing at all when a date range is hiding rows: they say nothing is in the
+range and suggest widening it. A figure that failed to load shows a dash and
+says why, rather than $0.00, and a card paid off to the cent reads "Amount
+owed: $0.00" rather than calling zero a credit. The bulk edit's Apply button
+gives the reason that applies instead of one about currencies, an archived
+account's menu explains why it cannot be deleted, and the advice on a frozen
+account names the move that works.
+
 **The app reads correctly to people who do not see color, use a screen reader
 or zoom in.** A deleted transaction and an archived account card were faded
 until their text was hard to read; they are muted and labelled instead. The

@@ -116,7 +116,7 @@ The departures, all on the read side, all deliberate:
 - **UTF-8, always.** The export is a JavaScript string, served with a
   `charset=utf-8` media type (`CSV_MEDIA_TYPE`, `src/shared/csv.ts:26`). The
   import is a string by the time it reaches us: the browser decodes the file
-  with `file.text()` (`src/client/pages/ImportPage.tsx:196`) and an API or MCP
+  with `file.text()` (`src/client/pages/ImportPage.tsx:197`) and an API or MCP
   caller sends a JSON string, which is UTF-8 by definition. Nothing in this product reads a byte
   stream, so there is no encoding to guess and no `encoding` directive of the
   kind hledger has. **House.**
@@ -199,7 +199,7 @@ a dated filename exists to get right.
 
 Papa Parse guesses the delimiter and the preview reports what it guessed, both
 in the API response (`CsvPreview.delimiter`, `src/shared/csv.ts:195-242`) and on
-screen (`src/client/pages/ImportPage.tsx:377-381`). The import screen says so
+screen (`src/client/pages/ImportPage.tsx:378-382`). The import screen says so
 before a file is chosen: "Comma, semicolon, and tab delimiters are detected
 automatically."
 
@@ -727,7 +727,7 @@ panel are given the same number for the same fault.
 Blank lines are skipped before anything is counted, so an interior blank leaves
 the number one low; a trailing blank, which is the common case, comes after
 everything it could shift. Nothing else numbers a row at all: the queue shows no
-position (`src/client/pages/StagingPage.tsx:1038-1087`) and a staged row stores no
+position (`src/client/pages/StagingPage.tsx:1049-1099`) and a staged row stores no
 source row number (`src/server/db/schema.ts:778-890`), so a queue entry is
 traceable to a line only through its `raw_data`.
 
@@ -923,7 +923,7 @@ be.
 - **No saved, reusable import configuration.** hledger has a rules file, Firefly
   III has a saved configuration, Actual remembers a mapping. Here the browser
   infers a mapping from header aliases each time
-  (`src/client/pages/ImportPage.tsx:76-107`), and `import_batch.mapping` is
+  (`src/client/pages/ImportPage.tsx:77-108`), and `import_batch.mapping` is
   stored for the record rather than for reuse
   (`src/server/services/import-export.ts:900`). The inference is also
   browser-only: an MCP caller composes the mapping itself.

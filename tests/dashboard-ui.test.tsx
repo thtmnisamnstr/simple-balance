@@ -256,12 +256,12 @@ const nothingBudgeted: BudgetReport = {
   ],
 };
 
-function stub(budget: BudgetReport | "error" = report) {
+function stub(budget: BudgetReport | "error" = report, overview: Summary = summary) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input), window.location.origin);
-      if (url.pathname === "/api/v1/summary") return Response.json(summary);
+      if (url.pathname === "/api/v1/summary") return Response.json(overview);
       if (url.pathname === "/api/v1/budget-report") {
         if (budget === "error")
           return Response.json({ error: { message: "nope" } }, { status: 500 });
@@ -316,6 +316,22 @@ afterEach(() => {
  * instead. A reader with budgets set in another month saw no panel and no
  * reason, which reads as the section never having been built.
  */
+/**
+ * The figure tiles: each is named by its label, and a balance below zero says
+ * so the way the net cash flow beside it always did (`web.md` 10.1).
+ */
+describe("the Overview's figures", () => {
+  it("names each tile and marks a balance below zero", async () => {
+    stub(report, {
+      ...summary,
+      currencies: [{ ...summary.currencies[0]!, balance: "-250", netCashFlow: "-250" }],
+    });
+    renderOverview();
+    const balance = await screen.findByRole("article", { name: "Balance" });
+    expect(within(balance).getByText("-$250.00")).toHaveClass("money-negative");
+  });
+});
+
 describe("the Overview's budget panel", () => {
   it("says nothing is budgeted rather than disappearing", async () => {
     stub(nothingBudgeted);

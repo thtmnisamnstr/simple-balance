@@ -24,6 +24,7 @@ import {
   useContext,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -1277,6 +1278,50 @@ export function BulkEditToggle({
 }
 
 /**
+ * Where focus goes when a selection's own controls take the selection away.
+ *
+ * "Clear selection" empties the selection, which unmounts the bar it sits in,
+ * so focus fell to `<body>` on every surface that has one — the register, the
+ * staged queue, templates and both merge panels (`web.md` 13.3) — and the next
+ * Tab started from the top of the page. It goes back to where the selection is
+ * made: the element the page marks `data-selection-home`, its select-all box or
+ * the first row's.
+ *
+ * In a layout effect's cleanup because that runs before the node leaves the
+ * document, the one moment `contains(document.activeElement)` can still tell a
+ * bar that took focus with it from one that went away while focus was
+ * elsewhere. A notice that takes focus afterward — a bulk delete's — runs
+ * later and wins, which is right: it says what happened.
+ */
+export function useFocusHomeOnUnmount<T extends HTMLElement>() {
+  const ref = useRef<T>(null);
+  useLayoutEffect(() => {
+    const node = ref.current;
+    return () => {
+      if (!node?.contains(document.activeElement)) return;
+      document.querySelector<HTMLElement>("[data-selection-home]")?.focus();
+    };
+  }, []);
+  return ref;
+}
+
+/**
+ * The panel a merge is set up in, which appears at two selected rows and goes
+ * when the selection does. A component of its own so its unmount is its own:
+ * the hook above has to run its cleanup before the panel leaves the document,
+ * and a section rendered inline by the page is removed before the page's own
+ * cleanup would run.
+ */
+export function MergePanel({ children }: PropsWithChildren) {
+  const panel = useFocusHomeOnUnmount<HTMLElement>();
+  return (
+    <section className="panel merge-panel" ref={panel}>
+      {children}
+    </section>
+  );
+}
+
+/**
  * The bar that appears when rows are selected: how many, and what may be done
  * to them.
  *
@@ -1300,8 +1345,9 @@ export function SelectionBar({
   notes,
   children,
 }: PropsWithChildren<{ summary: ReactNode; notes?: ReactNode }>) {
+  const bar = useFocusHomeOnUnmount<HTMLDivElement>();
   return (
-    <div className="selection-bar" aria-live="polite">
+    <div className="selection-bar" aria-live="polite" ref={bar}>
       <div>
         <ListChecks size={17} aria-hidden />
         <strong>{summary}</strong>
@@ -1386,13 +1432,19 @@ export function MetricTile({
   negative?: boolean;
   note?: string;
 }) {
+  // Named by its label, so a screen reader moving by landmark or listing
+  // articles hears "Balance" rather than a row of unnamed articles.
+  const labelId = useId();
   return (
-    <article className={`metric-card ${emphasis ? "metric-balance" : ""}`}>
+    <article
+      className={`metric-card ${emphasis ? "metric-balance" : ""}`}
+      aria-labelledby={labelId}
+    >
       <span className={`metric-icon ${tone ?? ""}`}>
         <Icon size={18} />
       </span>
       <div>
-        <span>{label}</span>
+        <span id={labelId}>{label}</span>
         <strong className={negative ? "money-negative" : ""}>{figure}</strong>
         {note ? <small>{note}</small> : null}
       </div>

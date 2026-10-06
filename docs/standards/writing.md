@@ -242,7 +242,7 @@ convention expects.
 answer: that the list items stay at the five that earned their shape, and that
 the lines running past 80 columns do not grow past where they already are.
 *Not checked:* that the top heading matches `package.json`. That is a hand step
-in the release recipe at `docs/upgrades.md:1406`, step 4, "Date the
+in the release recipe at `docs/upgrades.md:1416`, step 4, "Date the
 `## Unreleased` heading in `CHANGELOG.md`", and it has already been the subject
 of a commit ("Date 0.1.4 the day it is cut"). Nor is whether an entry describes
 a change somebody would notice, which is the judgement this section is mostly
@@ -348,7 +348,7 @@ publish runs `npm run verify` first, so an unwritten note now stops the release
 rather than reaching an operator mid-upgrade. *Also checked:* the frozen
 migration list, which `tests/migrations.test.ts` holds to what is on disk.
 *Not checked:* the changelog heading, a hand step in the release recipe at
-`docs/upgrades.md:1406`, and which release a migration is attributed to, which
+`docs/upgrades.md:1416`, and which release a migration is attributed to, which
 is prose inside a list a test can only check the membership of.
 
 ## Upgrade notes
@@ -363,7 +363,7 @@ end of the bullet — it grew, and the number did not.
 
 **House, the shape.** A `## Before you upgrade to X.Y.Z` section, and its first
 sentence tells an operator whether they can stop reading. The 0.1.6 note at
-`docs/upgrades.md:1092-1093` is the model: "Nothing refuses to start that 0.1.5
+`docs/upgrades.md:1102-1103` is the model: "Nothing refuses to start that 0.1.5
 accepted, and nothing about an existing configuration has to change. Five
 things are worth knowing." The 0.1.4 section is the other model, because the
 answer there was different: "0.1.4 refuses to start on three configurations
@@ -743,7 +743,7 @@ them cover the whole range:
   Note the last line, which states the bound: "Unbounded on purpose: the keys
   are locale-and-currency pairs and a ledger holds a handful of currencies, so
   there is nothing here to grow."
-- **The trade named, not only the choice.** `src/client/components.tsx:868-882`:
+- **The trade named, not only the choice.** `src/client/components.tsx:869-883`:
   a fixed popover, why absolute fails in a scrolling table card, what fixed
   costs, and then the harder half: "Deliberately not `role="menu"` ... menu
   roles without the keyboard behavior they imply are worse than none."
@@ -1062,16 +1062,16 @@ edit.
 
   - `App.tsx:696`, the scope description on the authorization page.
   - `select-options.ts:110`, the timezone label.
-  - `components.tsx:1154`, every page title: `` `${title} — ${APP_NAME}` ``.
-  - `TemplatesPage.tsx:638`, "never — every date is skipped".
-  - `AccountsPage.tsx:646-647`, the sentence explaining what a frozen account
-    still does, and `BudgetsPage.tsx:1499`, the note under an average with
+  - `components.tsx:1155`, every page title: `` `${title} — ${APP_NAME}` ``.
+  - `TemplatesPage.tsx:643`, "never — every date is skipped".
+  - `AccountsPage.tsx:657-658`, the sentence explaining what a frozen account
+    still does, and `BudgetsPage.tsx:1509`, the note under an average with
     nothing behind it. Both arrived this release.
   - `SettingsPage.tsx:522`, the warning about what cancelling takes with it.
   - `PlanPage.tsx:1944` and `:1956`, the "Annual — $30.00 a year" price
     labels.
-  - The review queue's inline-edit labels at `StagingPage.tsx:1159-1163`, `:1279-1282` and
-    `:1353-1357`, which lead with the visible value and set the instruction off
+  - The review queue's inline-edit labels at `StagingPage.tsx:1171-1175`, `:1291-1294` and
+    `:1365-1369`, which lead with the visible value and set the instruction off
     behind a dash.
 
   The lone "—" in an empty table cell is a placeholder glyph rather than

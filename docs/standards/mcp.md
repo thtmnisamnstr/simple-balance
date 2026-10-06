@@ -154,7 +154,7 @@ said once; the descriptions section asks each tool to name its own refusals. A
 refusal class that cuts across the tier falls between them, and the
 frozen-account refusal is the worked case.
 
-One guard, `assertAccountsWritable` (`src/server/services/accounts.ts:852-864`),
+One guard, `assertAccountsWritable` (`src/server/services/accounts.ts:856-868`),
 gates about a dozen write paths from four services — `accounts.ts`,
 `transactions.ts`, `categories.ts` and `payees.ts` — so roughly thirty-five
 write tools can return it. Exactly one description mentioned it, and that was
@@ -256,7 +256,7 @@ parts, in order:
 Further rules:
 
 - **House.** A floor of three to four sentences. Measured today: 77
-  descriptions, 31,027 characters, median 323, range 33 to 1,896, and **8 under
+  descriptions, 31,025 characters, median 323, range 33 to 1,896, and **8 under
   100 characters**. The distribution is bimodal, but the terse half does not
   cover the dangerous tools: `commit_staged_transactions` is 431 characters and
   tells the agent to confirm with the person first and what `DUPLICATE` means,
@@ -573,9 +573,9 @@ them more often.
 | no ledger scope | 0 | `tools/list` is not offered at all | 0 |
 | `ledger:read` | 37 | 173,131 | ~43,000 |
 | `ledger:stage` | 42 | 213,652 | ~53,000 |
-| `ledger:write` | 77 | 497,172 | ~124,000 |
+| `ledger:write` | 77 | 497,170 | ~124,000 |
 
-Composition at the write tier: names 1,467, titles 1,884, descriptions 31,027,
+Composition at the write tier: names 1,467, titles 1,884, descriptions 31,025,
 input schemas 217,307, output schemas 228,916. **Descriptions are 6.2% of what
 an agent loads; names, titles and descriptions together are 6.9%.** Output
 schemas are 46.0%.
@@ -840,14 +840,17 @@ envelope and the worked sentences.
 - **House, and the worked rule's second case, met late.** The frozen-account
   refusal is the most common new refusal on this surface and it broke the rule
   above in the same way `staleVersion` had: browser copy, reaching an agent
-  unchanged. `frozenAccountRefusal` (`src/shared/domain.ts:3944-3953`) ends "so
+  unchanged. `frozenAccountRefusal` (`src/shared/domain.ts:3944-3953`) ended "so
   its entries and details cannot change until you make it one of the active ones
   or upgrade",
-  and both of those are moves an agent cannot make. Upgrading is one of the
+  and both of those are moves an agent cannot make — and the first was not a
+  move a person could make either once the one-time choice was made, so the
+  browser's sentence now names the one that works: an account in use archived
+  or deleted, or an upgrade. Upgrading is one of the
   three things reachable only from a session. Making it active is
   `set_active_accounts`, which the choose-once rule refuses once the choice has
   been made, so an agent that tries is refused twice. **It carries an
-  `agentMessage` now** (`src/server/services/accounts.ts:856-862`): same
+  `agentMessage` now** (`src/server/services/accounts.ts:860-866`): same
   diagnosis, and the advice is to work on an account that is not frozen, to read
   the plan and its ceiling from `whoami` and `frozen` from `list_accounts`, and
   to say that no argument it changes will help. The class rule that keeps it
@@ -860,7 +863,7 @@ envelope and the worked sentences.
   `validateDraft` catches a validation error and files it as an issue on the
   staged row, so a frozen account makes a CSV import row *repairable* instead of
   killing the batch it arrived in, and archiving already refuses the same way
-  (`src/server/services/accounts.ts:834-838`). `FORBIDDEN` would read more
+  (`src/server/services/accounts.ts:838-842`). `FORBIDDEN` would read more
   truthfully to an agent and would kill the batch; `CONFLICT` would read as
   something to retry. So the code stays and the sentence compensates, in two
   places: the `agentMessage` above and the instructions paragraph every

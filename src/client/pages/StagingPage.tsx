@@ -432,11 +432,22 @@ export default function StagingPage() {
           : bulkEnabled.payee && !bulkValues.payee.trim()
             ? "Give the payee a name."
             : accountChangeBlocked
-              ? "These rows are in more than one currency, so the account cannot change."
+              ? // Each cause its own sentence. This read "These rows are in more
+                // than one currency", copied from the register, and a staged
+                // edit refuses for none of the register's currency reasons: it
+                // was false on the ordinary path of turning the field on
+                // before choosing an account.
+                accountChangeUnavailable
+                ? "Account cannot be edited across the selection while a transfer is in it."
+                : accountNeedsType
+                  ? "Some selected rows have no type yet. Turn on Change type to set an account on them."
+                  : "Choose an account."
               : categoryChangeBlocked
                 ? "A split cannot be flattened into one category."
                 : typeChangeBlocked
-                  ? "A transfer cannot become a deposit or a withdrawal."
+                  ? selectionContainsTransfers
+                    ? "A transfer cannot become a deposit or a withdrawal."
+                    : "A split cannot change direction, because each leg's category was chosen for the way it runs."
                   : undefined;
 
   const bulkEditMutation = useMutation<
@@ -1061,6 +1072,7 @@ export default function StagingPage() {
                 <th scope="col" className="checkbox-cell">
                   <SelectionCheckbox
                     aria-label="Select all staged transactions on this page"
+                    data-selection-home
                     checked={allSelected}
                     indeterminate={someSelected && !allSelected}
                     onChange={(event) => {
@@ -1457,11 +1469,25 @@ export default function StagingPage() {
           // here with nothing matching is the *common* case rather than an
           // edge. It said "Nothing staged" either way, which tells somebody who
           // has just imported four hundred rows that their import did nothing.
-          title={narrowed ? "Nothing here matches those filters" : "Nothing staged"}
+          //
+          // And "Nothing staged" only when the range hides nothing. The queue
+          // opens on this month, so a row dated earlier was off screen while
+          // the title said the queue was empty — beside a header counting
+          // duplicates across all of it. The range is still not a filter
+          // (`web.md` 12.1); it is named as the way out.
+          title={
+            narrowed
+              ? "Nothing here matches those filters"
+              : start || end
+                ? "Nothing staged in this range"
+                : "Nothing staged"
+          }
           body={
             narrowed
               ? waysOut([...ways, "widen the date range"])
-              : "Imported rows, drafts you save for later, and anything an agent prepares land here."
+              : `${
+                  start || end ? "Widen the date range to see rows dated outside it. " : ""
+                }Imported rows, drafts you save for later, and anything an agent prepares land here.`
           }
         />
       )}

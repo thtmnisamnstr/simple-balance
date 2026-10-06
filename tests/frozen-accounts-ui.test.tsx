@@ -22,6 +22,7 @@ import { BrowserRouter, Route, Routes } from "../src/client/router.js";
 import { TimezoneProvider } from "../src/client/timezone.js";
 import { TransactionBrowser } from "../src/client/TransactionBrowser.js";
 import {
+  ARCHIVED_ACCOUNT_DELETE_REFUSAL,
   type Entitlement,
   frozenAccountRefusal,
   MAX_FREE_ACCOUNTS,
@@ -704,6 +705,20 @@ describe("restoring an archived account", () => {
     expect(refusal.ok).toBe(false);
     expect(restore).toBeDisabled();
     if (!refusal.ok) expect(restore).toHaveAccessibleDescription(refusal.message);
+  });
+
+  /**
+   * The server refuses to delete an archived account and said so only after
+   * the press, with a word — "Unarchive" — that is a button nowhere here. The
+   * item is gray on an archived card and carries the same sentence the server
+   * would have refused with.
+   */
+  it("offers no delete on an archived card, and says to restore it first", async () => {
+    const restore = await openArchived(MAX_FREE_ACCOUNTS - 1);
+    const menu = restore.closest("details")! as HTMLElement;
+    const remove = within(menu).getByRole("button", { name: /Delete if unused/, hidden: true });
+    expect(remove).toBeDisabled();
+    expect(remove).toHaveAccessibleDescription(ARCHIVED_ACCOUNT_DELETE_REFUSAL);
   });
 
   it("is offered while a place is free", async () => {

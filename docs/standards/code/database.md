@@ -367,7 +367,7 @@ somebody gives it a case where the two tables disagree.
 
 PostgreSQL lets a select list name a column that is functionally determined by
 the grouping, and only when the grouping covers the **whole** primary key.
-`src/server/services/accounts.ts:538` groups by `a.user_id, a.id` and selects
+`src/server/services/accounts.ts:542` groups by `a.user_id, a.id` and selects
 `a.*`. Under the key `0023` installs — `(user_id, id)` where the single-node
 schema has `(id)` — a grouping on the id alone determines nothing, and the
 statement fails with `column "a.name" must appear in the GROUP BY clause`.
@@ -375,7 +375,7 @@ Widening the key to carry the owner is what turns a legal query into an error,
 so this is a plain-PostgreSQL rule that happens to be triggered by a migration.
 
 Five sites were found this way and all five name both columns:
-`src/server/services/accounts.ts:538` and `:643`,
+`src/server/services/accounts.ts:542` and `:647`,
 `src/server/services/summary.ts:59`, and the two written in Drizzle's builder,
 `src/server/services/category-groups.ts:74` and
 `src/server/services/import-export.ts:138`.

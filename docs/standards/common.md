@@ -44,7 +44,10 @@ floating-point numbers. Use validated decimal strings and PostgreSQL
   only be invented. Response shapes must have nowhere for such a number to go:
   a per-currency array rather than a total with a currency field beside it.
 - **Zero is a value.** Zero spent, a zero budget, a zero balance and an absent
-  figure are four different things and read differently.
+  figure are four different things and read differently. A figure that did not
+  load is the fourth and never the third: the category detail rendered a failed
+  report as $0.00. And a card paid off to the cent owes nothing, so its balance
+  reads "Amount owed: $0.00" rather than the credit balance it was labelled.
 
 *Checked by:* `tests/client-money.test.ts`, `tests/ledger.test.ts`, and
 `tests/quality-fixes.test.ts`'s "money on the server", which refuses `Number(`
@@ -358,8 +361,8 @@ commit subject and a comment: plain, declarative, specific.
   and the two halves of it currently disagree: the grace period is spelled out
   and the account limit is not. `MAX_FREE_ACCOUNTS` is three, and it renders as
   "up to 3 accounts" (`src/client/pages/PlanPage.tsx:1706`), "Your plan keeps 3
-  accounts usable" (`src/client/pages/AccountsPage.tsx:645`) and "All 3 places
-  are in use" (`src/client/pages/AccountsPage.tsx:686`), the last of which is a
+  accounts usable" (`src/client/pages/AccountsPage.tsx:656`) and "All 3 places
+  are in use" (`src/client/pages/AccountsPage.tsx:697`), the last of which is a
   figure beside a figure and right as a digit. The first two are sentences and
   would read better in words. Say so in a review; do not grep for it, because
   there is nothing to find. Every one of these literals says `${limit}`, and the

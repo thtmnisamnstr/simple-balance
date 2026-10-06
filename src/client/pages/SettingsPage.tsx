@@ -629,6 +629,10 @@ function ConnectedApps() {
   const queryClient = useQueryClient();
   const timezone = useTimezone();
   const revocation = useConfirm<ConnectedApp>();
+  // The sentence focus lands on after a revoke: the agent's row and its button
+  // go with it, so focus fell to `<body>` and nothing said it had worked
+  // (`web.md` 13.3).
+  const [notice, setNotice] = useState("");
   const apps = useQuery({
     queryKey: ["connected-apps"],
     queryFn: () => api<ConnectedApp[]>("/api/v1/connected-apps"),
@@ -646,7 +650,10 @@ function ConnectedApps() {
     // `revokedTokenCount` goes unread: how many tokens an authorization had
     // issued is the server's bookkeeping, and what a person asked is whether
     // the agent is gone, which the list read again here answers.
-    onSuccess: async () => {
+    onMutate: () => setNotice(""),
+    onSuccess: async (_result, clientId) => {
+      const name = apps.data?.find((app) => app.clientId === clientId)?.name ?? "The agent";
+      setNotice(`“${name}” can no longer reach this ledger.`);
       await queryClient.invalidateQueries({ queryKey: ["connected-apps"] });
     },
   });
@@ -664,6 +671,11 @@ function ConnectedApps() {
       </header>
 
       {revokeMutation.error ? <Alert>{revokeMutation.error.message}</Alert> : null}
+      {notice ? (
+        <Alert kind="success" takeFocus>
+          {notice}
+        </Alert>
+      ) : null}
 
       {/* One chain, not three sibling expressions. 12.1's four states are
           exclusive, and written as siblings the error rendered BESIDE the
@@ -673,7 +685,7 @@ function ConnectedApps() {
           keyed on the second, so a query that had not started yet showed the
           empty state instead of the skeleton. */}
       {apps.isPending ? (
-        <Skeleton height={64} label="Loading connected apps…" />
+        <Skeleton height={64} label="Loading connected agents…" />
       ) : apps.isError ? (
         <Alert>{apps.error.message}</Alert>
       ) : apps.data.length === 0 ? (
@@ -714,9 +726,12 @@ function ConnectedApps() {
                   : ""}
               </Note>
             </div>
+            {/* Named for its agent: a list of these read "Revoke, Revoke,
+                Revoke" to anybody moving through the page by its buttons. */}
             <Button
               type="button"
               variant="danger"
+              aria-label={`Revoke ${app.name}`}
               loading={revokeMutation.isPending && revokeMutation.variables === app.clientId}
               onClick={() => revocation.ask(app, () => revokeMutation.mutate(app.clientId))}
             >

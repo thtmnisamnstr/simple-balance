@@ -92,8 +92,8 @@ function stub(registerPayload: AccountRegister | "error" = register) {
   );
 }
 
-function renderPage() {
-  window.history.replaceState(null, "", `/accounts/${accountId}`);
+function renderPage(search = "") {
+  window.history.replaceState(null, "", `/accounts/${accountId}${search}`);
   return render(
     <QueryClientProvider
       client={
@@ -241,9 +241,30 @@ describe("an account's register", () => {
     expect(screen.getByText(/widen the dates/i)).toBeInTheDocument();
   });
 
-  it("says nothing has posted yet when the account was empty before the range too", async () => {
+  /**
+   * An empty register with nothing before it is "nothing yet" only when the
+   * range hides nothing. A zero opening balance does not mean no postings: an
+   * archived account closes to zero, a card paid off sits at zero, and a
+   * posting after the range is in no opening balance at all — so a bounded
+   * range says what it can know.
+   */
+  it("says nothing has posted in this range when a range is set", async () => {
     stub({ ...register, entries: [], openingBalance: "0", closingBalance: "0" });
     renderPage();
+    await screen.findByRole("heading", { name: "Register" });
+    fireEvent.click(screen.getByRole("button", { name: "Show register" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Nothing posted to this account in this range" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Nothing posted to this account yet" }),
+    ).toBeNull();
+  });
+
+  it("says nothing has posted yet when the range hides nothing", async () => {
+    stub({ ...register, entries: [], openingBalance: "0", closingBalance: "0" });
+    renderPage("?preset=all-time");
     await screen.findByRole("heading", { name: "Register" });
     fireEvent.click(screen.getByRole("button", { name: "Show register" }));
 

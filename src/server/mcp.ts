@@ -1685,7 +1685,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Delete unused account",
         description:
-          "Permanently delete an account, only when it is not archived and has no history or staged rows. Unarchive it first if it is archived. There is no undo, so confirm it with the person first.",
+          "Permanently delete an account, only when it is not archived and has no history or staged rows. Restore it first if it is archived. There is no undo, so confirm it with the person first.",
         inputSchema: toolInput({
           id: recordIdSchema,
           expectedVersion: expectedVersionSchema,

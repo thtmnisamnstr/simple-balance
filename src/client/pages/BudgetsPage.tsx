@@ -324,7 +324,12 @@ export default function BudgetsPage({ session }: { session: Session }) {
         ...json({ expectedVersion: plan.version }),
         method: "DELETE",
       }),
-    onSuccess: () => {
+    // The row and its trash icon go together, so focus fell to `<body>` and
+    // nothing said the budget had gone — `common.md`'s own worked example is
+    // "Delete budget", then "Budget deleted", and the second half was never
+    // shown (`web.md` 13.3).
+    onSuccess: (_result, plan) => {
+      setRowOutcome(`Budget for ${plan.targetName} deleted. The books are exactly as they were.`);
       setError("");
       invalidate();
     },
@@ -402,7 +407,10 @@ export default function BudgetsPage({ session }: { session: Session }) {
       periodStart: period.periodStart,
       existing,
     });
-    setOverrideAmount(existing?.amount ?? limit ?? "");
+    // At the currency's decimals, as every edit field opens a stored amount
+    // (`web.md` 10.2): both arrive canonical, so $12.50 opened as "12.5".
+    const seed = existing?.amount ?? limit;
+    setOverrideAmount(seed ? amountForInput(seed, period.currency) : "");
   };
 
   // A budget can only ever be compared against spending in a currency this
@@ -1319,7 +1327,9 @@ export default function BudgetsPage({ session }: { session: Session }) {
                                 {row.category}
                               </Link>
                             ) : (
-                              row.category
+                              // Spending filed under no category, muted as the
+                              // register and the queue show the same word.
+                              <span className="subtle">{row.category}</span>
                             )}{" "}
                             {row.source === "entry" ? (
                               <Badge tone="neutral">This {unitNoun[periodUnit]} only</Badge>

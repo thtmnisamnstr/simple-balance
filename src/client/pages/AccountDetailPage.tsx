@@ -22,6 +22,7 @@ import {
 } from "../components.js";
 import { compareMoney, formatDate, formatMoney, isNegativeMoney } from "../money.js";
 import { useDateRange } from "../date-range.js";
+import { liabilityAccountTypes } from "../../shared/domain.js";
 import { TransactionBrowser } from "../TransactionBrowser.js";
 
 /**
@@ -192,6 +193,14 @@ export default function AccountDetailPage() {
               figure={
                 value ? formatMoney(value.balancePresentation.amount, account.data.currency) : "—"
               }
+              // Marked as the Accounts card marks the same figure: an asset
+              // below zero is overdrawn, and a liability's figure is already
+              // presented as the amount owed, which is not a warning.
+              negative={
+                Boolean(value) &&
+                !liabilityAccountTypes.has(account.data.type) &&
+                isNegativeMoney(value!.balance)
+              }
               note={`${prefix}${asOf}`}
             />
           );
@@ -331,20 +340,29 @@ export default function AccountDetailPage() {
                 // postings in this range" told somebody looking at a brand-new
                 // account to adjust a range that was never the problem.
                 //
-                // The opening balance is what tells them apart. It is what the
+                // The opening balance tells part of them apart: it is what the
                 // account held before this range began, so a non-zero one means
-                // the postings exist and are simply outside the window.
+                // the postings exist and are outside the window. A zero one
+                // does not mean there are none — an archived account closes to
+                // zero, a card paid off sits at zero, and anything after the
+                // range is not in the opening balance at all — so "yet" is
+                // said only of a range that hides nothing, and a bounded empty
+                // range says what it can know.
                 <EmptyState
                   icon={Landmark}
                   title={
-                    compareMoney(register.data.openingBalance, "0") === 0
-                      ? "Nothing posted to this account yet"
-                      : "No postings in this range"
+                    compareMoney(register.data.openingBalance, "0") !== 0
+                      ? "No postings in this range"
+                      : start || end
+                        ? "Nothing posted to this account in this range"
+                        : "Nothing posted to this account yet"
                   }
                   body={
-                    compareMoney(register.data.openingBalance, "0") === 0
-                      ? "Every deposit, withdrawal and transfer that touches this account shows up here, oldest first."
-                      : "This account was not empty before this range began, so widen the dates to find what it holds."
+                    compareMoney(register.data.openingBalance, "0") !== 0
+                      ? "This account was not empty before this range began, so widen the dates to find what it holds."
+                      : start || end
+                        ? "Every deposit, withdrawal and transfer that touches this account shows up here, oldest first. Widen the dates to look outside this range."
+                        : "Every deposit, withdrawal and transfer that touches this account shows up here, oldest first."
                   }
                 />
               )}

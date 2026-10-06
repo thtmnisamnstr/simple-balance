@@ -96,8 +96,8 @@ function stub({ accountsFail = false } = {}) {
   return transactionQueries;
 }
 
-function renderRegister() {
-  window.history.replaceState(null, "", "/transactions?preset=all-time");
+function renderRegister(search = "?preset=all-time") {
+  window.history.replaceState(null, "", `/transactions${search}`);
   return render(
     <QueryClientProvider client={queryClient()}>
       <TimezoneProvider timezone="UTC">
@@ -139,6 +139,23 @@ describe("the register's empty screen", () => {
     // the screen is the constructive one.
     expect(await screen.findByText("No transactions yet")).toBeInTheDocument();
     expect(screen.queryByText(/turn on Show deleted/i)).toBeNull();
+  });
+
+  /**
+   * "Yet" is a claim about the whole ledger, and a bounded range cannot make
+   * it: a view of July said "No transactions yet" with June full. The range is
+   * still not a filter (`web.md` 12.1) — the screen is the constructive one,
+   * about the range, with widening it named first.
+   */
+  it("says nothing in this range, rather than nothing yet, while a range is set", async () => {
+    stub();
+    renderRegister("?preset=custom&start=2026-07-01&end=2026-07-31");
+
+    expect(await screen.findByText("No transactions in this view")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Show deleted"));
+    expect(await screen.findByText("No transactions in this range")).toBeInTheDocument();
+    expect(screen.getByText(/^Widen the date range, or add/)).toBeInTheDocument();
+    expect(screen.queryByText("No transactions yet")).toBeNull();
   });
 
   it("keeps it a way out rather than a reason to say nothing matches", async () => {

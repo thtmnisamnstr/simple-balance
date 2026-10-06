@@ -81,6 +81,11 @@ export default function DuplicateReviewPage() {
    */
   const [handled, setHandled] = useState<{ from: string; to: string | "done" } | null>(null);
   const advanceTo = handled && handled.from === id ? handled.to : null;
+  // The review a drop of the OTHER row happened on. That drop stays on the
+  // page and swaps the pair for "Nothing repeats this anymore", and the panel
+  // whose button did it is the one that went, so focus fell to `<body>` and
+  // the change was announced to nobody (`web.md` 13.3).
+  const [droppedOtherOn, setDroppedOtherOn] = useState<string | null>(null);
 
   const review = useQuery({
     queryKey: ["staged", id, "duplicate"],
@@ -116,6 +121,8 @@ export default function DuplicateReviewPage() {
           from: id,
           to: at(position + 1) ?? at(position - 1) ?? "done",
         });
+      } else if (id) {
+        setDroppedOtherOn(id);
       }
       await Promise.all([
         queryClient.invalidateQueries({
@@ -273,25 +280,32 @@ export default function DuplicateReviewPage() {
           <Skeleton height={320} />
         </div>
       ) : !review.data ? null : !review.data.second ? (
-        <EmptyState
-          icon={CheckCheck}
-          title="Nothing repeats this anymore"
-          body="Whatever it looked like a copy of has been changed, committed or dropped. This row is on its own now."
-          action={
-            // On to the next one where there is one: this row needs nothing
-            // further, and stopping here would end the run over a row that has
-            // already been settled.
-            at(position + 1) ? (
-              <Link className="button button-primary" to={at(position + 1)!}>
-                Next duplicate <ChevronRight size={15} />
-              </Link>
-            ) : (
-              <Link className="button button-primary" to="/staged">
-                Back to the queue
-              </Link>
-            )
-          }
-        />
+        <>
+          {droppedOtherOn === id ? (
+            <Alert kind="success" takeFocus>
+              The other row was dropped, so nothing repeats this one anymore.
+            </Alert>
+          ) : null}
+          <EmptyState
+            icon={CheckCheck}
+            title="Nothing repeats this anymore"
+            body="Whatever it looked like a copy of has been changed, committed or dropped. This row is on its own now."
+            action={
+              // On to the next one where there is one: this row needs nothing
+              // further, and stopping here would end the run over a row that has
+              // already been settled.
+              at(position + 1) ? (
+                <Link className="button button-primary" to={at(position + 1)!}>
+                  Next duplicate <ChevronRight size={15} />
+                </Link>
+              ) : (
+                <Link className="button button-primary" to="/staged">
+                  Back to the queue
+                </Link>
+              )
+            }
+          />
+        </>
       ) : (
         <div className="duplicate-review">
           {[review.data.first, review.data.second].map((side, index) => {

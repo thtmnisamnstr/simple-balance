@@ -53,6 +53,9 @@ const COMPOSED: Record<string, { readonly because: string; readonly carries?: st
   "side.message": { because: "`resolveEntrySide` returns fixed sentences with no number in them." },
   PLAN_ENDING_REFUSAL: { because: "A constant sentence." },
   PLAN_GRANTED_REFUSAL: { because: "A constant sentence." },
+  ARCHIVED_ACCOUNT_DELETE_REFUSAL: {
+    because: "A constant sentence, shared with the menu item it grays out.",
+  },
 };
 
 /**

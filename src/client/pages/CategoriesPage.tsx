@@ -31,6 +31,7 @@ import {
   EmptyState,
   Field,
   Input,
+  MergePanel,
   Modal,
   PageHeader,
   RowMenu,
@@ -218,6 +219,9 @@ export default function CategoriesPage() {
   });
 
   const [groupResetNonce, setGroupResetNonce] = useState(0);
+  // What the last group action did, beside the groups rather than beside the
+  // categories, because a group's delete takes its own row and focus with it.
+  const [groupNotice, setGroupNotice] = useState("");
   const groupMutation = useMutation({
     mutationFn: async (
       input:
@@ -253,8 +257,18 @@ export default function CategoriesPage() {
         method: "DELETE",
       });
     },
-    onSuccess: async () => {
-      setGroupName("");
+    onMutate: () => setGroupNotice(""),
+    onSuccess: async (_result, input) => {
+      // Only a create clears the add form: a rename or a policy change elsewhere
+      // on the page used to wipe a group name half typed into it.
+      if (input.action === "create") setGroupName("");
+      // A delete takes its row and the button that did it, so focus fell to
+      // `<body>` with nothing saying the group had gone (`web.md` 13.3).
+      if (input.action === "delete") {
+        setGroupNotice(
+          `Group “${input.group.name}” deleted. Its categories are still here, now in no group.`,
+        );
+      }
       // Both, because a group's categories are shown with it and deleting a
       // group leaves them behind without one.
       await queryClient.invalidateQueries({ queryKey: ["category-groups"] });
@@ -556,6 +570,11 @@ export default function CategoriesPage() {
           </Button>
         </form>
         {groupMutation.error ? <Alert>{groupMutation.error.message}</Alert> : null}
+        {groupNotice ? (
+          <Alert kind="success" takeFocus>
+            {groupNotice}
+          </Alert>
+        ) : null}
         {/* Three states, not one. A failed read used to render the same "No
             groups yet." as an empty ledger, while every group picker on the
             page silently offered nothing but "No group" — which reads exactly
@@ -602,9 +621,20 @@ export default function CategoriesPage() {
                         key={`${group.id}:${group.version}:${groupResetNonce}`}
                         aria-label={`Name of ${group.name}`}
                         defaultValue={group.name}
+                        onKeyDown={(event) => {
+                          // Escape puts the stored name back and Enter commits,
+                          // the two keys every other click-to-edit cell honors
+                          // (`web.md` 8.10).
+                          if (event.key === "Escape") event.currentTarget.value = group.name;
+                          if (event.key === "Enter") event.currentTarget.blur();
+                        }}
                         onBlur={(event) => {
                           const next = event.target.value.trim();
-                          if (next !== "" && next !== group.name) {
+                          // A name cleared and left is put back rather than left
+                          // blank on screen: nothing is sent for it, so a blank
+                          // field was showing a group the server still names.
+                          if (next === "") event.target.value = group.name;
+                          else if (next !== group.name) {
                             groupMutation.mutate({ action: "update", group, name: next });
                           }
                         }}
@@ -703,7 +733,7 @@ export default function CategoriesPage() {
       </div>
 
       {selectedCategories.length >= 2 ? (
-        <section className="panel merge-panel">
+        <MergePanel>
           <div>
             <strong>Merge {selectedCategories.length} selected categories</strong>
             <small>Transactions and staged rows will move to the category you keep.</small>
@@ -749,7 +779,7 @@ export default function CategoriesPage() {
             Clear selection
           </Button>
           {mergeMutation.error ? <Alert>{mergeMutation.error.message}</Alert> : null}
-        </section>
+        </MergePanel>
       ) : null}
       {mergeOutcome ? (
         <Alert kind="success" takeFocus>
@@ -781,12 +811,13 @@ export default function CategoriesPage() {
 
       {filtered.length ? (
         <div className="record-list record-list-card">
-          {filtered.map((category) => (
+          {filtered.map((category, index) => (
             <div className="record-row" key={category.id}>
               <div className="record-name">
                 <input
                   type="checkbox"
                   aria-label={`Select ${category.name} for merging`}
+                  data-selection-home={index === 0 || undefined}
                   checked={selectedIds.has(category.id)}
                   onChange={(event) => {
                     const next = new Set(selectedIds);

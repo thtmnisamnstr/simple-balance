@@ -69,7 +69,7 @@ not found, not as forbidden."
 [`common.md`](common.md#errors) settles the rule. What HTTP adds is the
 transport argument: 403 would confirm the row exists, so
 `GET /api/v1/accounts/{id}` for a stranger's account is a 404 with the same body
-as an id that was never issued (`src/server/services/accounts.ts:592`). This is
+as an id that was never issued (`src/server/services/accounts.ts:596`). This is
 deliberate, it is not a missing feature, and it applies to every resource.
 
 *Checked by:* `tests/integration/tenant-isolation.integration.test.ts:169-207`
@@ -543,7 +543,7 @@ left open honestly rather than closed by a test that would pass forever.
   (`src/server/http-security.ts:500-512`). The consequence is real and the
   browser client lives with it: revoking an agent is a `DELETE` that sends `{}`
   purely so it can declare a content type
-  (`src/client/pages/SettingsPage.tsx:636-645`).
+  (`src/client/pages/SettingsPage.tsx:640-649`).
   *Checked by:* `tests/api-security.test.ts:64-88`, both halves, the refusal and
   the bodyless request that gets through the gate.
 - **House.** A malformed or absent JSON body is a 400 with a message saying so,
@@ -1379,7 +1379,7 @@ a misspelled `sort` key still answers 200 with page one in the default order.
   **Two updates outside the ledger already take one**, which is why the claim is
   scoped rather than general. `PUT /api/v1/billing/subscription` and
   `PUT …/subscription/cancellation` each carry an `idempotencyKey`
-  (`src/shared/domain.ts:3979-3991`), as the billing section above states. They
+  (`src/shared/domain.ts:3988-4000`), as the billing section above states. They
   are the proof the shape works on an update and not an exception to the rule:
   each spends money at a third party, where a lost response and a retry is a
   second charge rather than a second refetch. What the ledger updates are
@@ -1531,7 +1531,7 @@ and `tests/integration/ledger.integration.test.ts:199` ("commits deposits
 idempotently and produces native balances") plus
 `tests/integration/bulk-transactions.integration.test.ts:106` ("soft-deletes a
 selection atomically and idempotently") for replay, and
-`tests/integration/categories.integration.test.ts:657` ("returns the first
+`tests/integration/categories.integration.test.ts:664` ("returns the first
 answer when the same merge is asked for twice") for the merge key this section
 argued for, including the reused-key refusal. That every create and commit route
 declares a key, and that `idempotencyKeySchema`'s own bounds hold, is
@@ -1591,7 +1591,7 @@ edit, a mass delete, a commit, and a CSV import."
   told to read the row again and retry sends the same payload back. Both
   services now refuse it by name with the offending id in the details
   (`src/server/services/staging.ts:1071-1089`), the way `mergeCategories`
-  (`src/server/services/categories.ts:916-922`) already did with the identical
+  (`src/server/services/categories.ts:923-929`) already did with the identical
   encoding, and a repeated id is refused as a duplicate rather than reported as
   a missing row. A superset map is still accepted: naming a version the caller
   did not select harms nothing, and refusing it would break a working request to

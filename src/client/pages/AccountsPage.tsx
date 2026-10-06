@@ -19,6 +19,7 @@ import {
   type AccountType,
   accountAllowance,
   activeChoicePending,
+  ARCHIVED_ACCOUNT_DELETE_REFUSAL,
   frozenAccountRefusal,
   MAX_FREE_ACCOUNTS,
   restoreAllowance,
@@ -296,6 +297,9 @@ export default function AccountsPage({ session }: { session: Session }) {
                   : null;
                 const frozenId = `${reasonId}-frozen-${account.id}`;
                 const describedBy = frozenReason ? frozenId : undefined;
+                // The server refuses to delete an archived account, so the item
+                // says so before it is pressed rather than after a refusal.
+                const archivedId = `${reasonId}-archived-${account.id}`;
                 return (
                   <article
                     className={`account-card ${account.archivedAt ? "archived" : ""}`}
@@ -363,6 +367,8 @@ export default function AccountsPage({ session }: { session: Session }) {
                           ) : null}
                           <button
                             className="danger"
+                            disabled={Boolean(account.archivedAt)}
+                            aria-describedby={account.archivedAt ? archivedId : undefined}
                             onClick={() => {
                               removal.ask(account, () =>
                                 mutation.mutate({ account, action: "delete" }),
@@ -371,6 +377,11 @@ export default function AccountsPage({ session }: { session: Session }) {
                           >
                             <Trash2 size={15} /> Delete if unused
                           </button>
+                          {account.archivedAt ? (
+                            <small className="button-reason menu-reason" id={archivedId}>
+                              {ARCHIVED_ACCOUNT_DELETE_REFUSAL}
+                            </small>
+                          ) : null}
                         </RowMenu>
                       </div>
                     </header>

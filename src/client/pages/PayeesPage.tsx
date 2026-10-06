@@ -16,6 +16,7 @@ import {
   compareForSort,
   ConfirmDialog,
   EmptyState,
+  MergePanel,
   PageHeader,
   SearchBox,
   Select,
@@ -191,7 +192,7 @@ export default function PayeesPage() {
       </div>
 
       {selectedPayees.length >= 2 ? (
-        <section className="panel merge-panel">
+        <MergePanel>
           <div>
             <strong>Merge {selectedPayees.length} selected payees</strong>
             <small>Committed transactions and staged rows will use the payee you keep.</small>
@@ -231,7 +232,7 @@ export default function PayeesPage() {
             Clear selection
           </Button>
           {mergeMutation.error ? <Alert>{mergeMutation.error.message}</Alert> : null}
-        </section>
+        </MergePanel>
       ) : null}
       {mergeOutcome ? (
         <Alert kind="success" takeFocus>
@@ -243,12 +244,13 @@ export default function PayeesPage() {
       {duplicates.error ? <Alert>{duplicates.error.message}</Alert> : null}
       {filtered.length ? (
         <div className="record-list record-list-card">
-          {filtered.map((payee) => (
+          {filtered.map((payee, index) => (
             <div className="record-row" key={payee.name}>
               <div className="record-name">
                 <input
                   type="checkbox"
                   aria-label={`Select ${payee.name} for merging`}
+                  data-selection-home={index === 0 || undefined}
                   checked={participants.has(payee.name)}
                   onChange={(event) => {
                     const next = new Set(participants);

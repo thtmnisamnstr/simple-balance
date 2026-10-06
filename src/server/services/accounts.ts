@@ -10,6 +10,7 @@ import {
   type Entitlement,
   type FreezableAccount,
   frozenAccountIds,
+  ARCHIVED_ACCOUNT_DELETE_REFUSAL,
   frozenAccountRefusal,
   restoreAllowance,
 } from "../../shared/domain.js";
@@ -443,10 +444,13 @@ export function presentAccountBalance(type: AccountType, balance: string) {
   const signedBalance = canonicalDecimal(balance);
   const value = decimal(signedBalance);
   const isLiability = liabilityAccountTypes.has(type as UserAccountType);
+  // A liability at zero owes nothing, and "Amount owed: $0.00" says so. It was
+  // labelled a credit balance, which a card paid off to the cent is not:
+  // `common.md`, "Zero is a value", and the word for it is the plain one.
   return {
     balance: signedBalance,
     balancePresentation:
-      isLiability && value.isNegative()
+      isLiability && (value.isNegative() || value.isZero())
         ? { label: "Amount owed", amount: canonicalDecimal(value.abs()) }
         : isLiability
           ? { label: "Credit balance", amount: signedBalance }
@@ -1266,7 +1270,9 @@ export async function deleteAccount(
     // No freeze check, for the reason `setAccountArchived` gives: a frozen
     // account held no place, so deleting it frees none for anything else.
     if (before.archivedAt) {
-      throw conflict("Archived accounts cannot be deleted. Unarchive this account first.");
+      // "Restore", the word the Accounts page uses for it. This said
+      // "Unarchive", which is a button nowhere in the product.
+      throw conflict(ARCHIVED_ACCOUNT_DELETE_REFUSAL);
     }
 
     const [{ count: transactionCount }] = await tx

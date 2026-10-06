@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Pencil, Plus, Repeat, Trash2 } from "lucide-react";
+import { Pencil, Plus, Repeat, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
   api,
@@ -47,6 +47,10 @@ export default function RecurrencesPage() {
     direction: "asc",
   });
   const [creating, setCreating] = useState(false);
+  // What the last row action did. A delete takes its own row and the menu that
+  // started it, so focus fell to `<body>` and nothing said it had worked
+  // (`web.md` 13.3); this is the sentence focus lands on instead.
+  const [notice, setNotice] = useState("");
   const [editing, setEditing] = useState<Recurrence | null>(null);
   const removal = useConfirm<Recurrence>();
 
@@ -69,7 +73,10 @@ export default function RecurrencesPage() {
         ...json({ expectedVersion: recurrence.version }),
         method: "DELETE",
       }),
-    onSuccess: async () => {
+    onSuccess: async (_result, recurrence) => {
+      setNotice(
+        `Recurrence “${recurrence.name}” deleted. Rows it already proposed are left as they are.`,
+      );
       await queryClient.invalidateQueries({ queryKey: ["recurrences"] });
       await queryClient.invalidateQueries({ queryKey: ["staged"] });
     },
@@ -148,9 +155,17 @@ export default function RecurrencesPage() {
       />
 
       {actionError ? <Alert>{actionError.message}</Alert> : null}
+      {notice ? (
+        <Alert kind="success" takeFocus>
+          {notice}
+        </Alert>
+      ) : null}
+      {/* A standing condition, not something that just happened, so a status
+          rather than an `alert` that interrupted a screen reader on every visit
+          (`web.md` 12.4) — and one icon, the Alert's own, where a second
+          triangle sat beside it. */}
       {overdue ? (
-        <Alert kind="error">
-          <AlertTriangle size={16} aria-hidden />{" "}
+        <Alert kind="info">
           {`${overdue} recurrence${overdue === 1 ? " is" : "s are"} past due with nothing proposed. Whatever runs the schedule has not run recently.`}
         </Alert>
       ) : null}

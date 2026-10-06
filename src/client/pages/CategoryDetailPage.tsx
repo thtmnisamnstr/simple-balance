@@ -134,13 +134,17 @@ export default function CategoryDetailPage() {
      category that spans two needs the code or the two tiles are a riddle. */
   const currencies = [...new Set([...ranged, ...ever].map((entry) => entry.currency))];
   const suffix = (currency: string) => (currencies.length > 1 ? ` (${currency})` : "");
+  // A figure that did not load is not zero (`common.md`, "Zero is a value"):
+  // a failed read rendered $0.00 here, which is a claim about the ledger the
+  // page had no grounds for. A dash, beside the alert saying why — the same
+  // "—" the tiles show while loading, rather than a second placeholder.
   const figure = (
     entries: readonly { currency: string; total: string }[],
     currency: string,
-    pending: boolean,
+    unknown: boolean,
   ) => {
     const found = entries.find((entry) => entry.currency === currency);
-    if (!found) return pending ? "…" : formatMoney("0", currency);
+    if (!found) return unknown ? "—" : formatMoney("0", currency);
     return formatMoney(found.total, currency);
   };
 
@@ -148,6 +152,9 @@ export default function CategoryDetailPage() {
     <>
       {header}
       {inRange.error ? <Alert>{inRange.error.message}</Alert> : null}
+      {/* The all-time read can fail on its own, and its tile showed $0.00 with
+          nothing saying so. */}
+      {allTime.error ? <Alert>{allTime.error.message}</Alert> : null}
       <DateRangeBar />
       {currencies.length ? (
         <section className="metric-grid" aria-label="What this category holds">
@@ -156,7 +163,7 @@ export default function CategoryDetailPage() {
               key={`range-${currency}`}
               icon={CalendarCheck}
               label={`In this range${suffix(currency)}`}
-              figure={figure(ranged, currency, inRange.isPending)}
+              figure={figure(ranged, currency, inRange.isPending || inRange.isError)}
               negative={isNegativeMoney(
                 ranged.find((entry) => entry.currency === currency)?.total ?? "0",
               )}
@@ -168,7 +175,7 @@ export default function CategoryDetailPage() {
               key={`ever-${currency}`}
               icon={History}
               label={`All time${suffix(currency)}`}
-              figure={figure(ever, currency, allTime.isPending)}
+              figure={figure(ever, currency, allTime.isPending || allTime.isError)}
               negative={isNegativeMoney(
                 ever.find((entry) => entry.currency === currency)?.total ?? "0",
               )}

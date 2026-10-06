@@ -3922,6 +3922,15 @@ export function restoreAllowance(
 }
 
 /**
+ * Why an archived account cannot be deleted, said once for the server that
+ * refuses it and the menu item that is gray because of it. Two copies of one
+ * refusal is how a browser and its server end up disagreeing about the move;
+ * this one said "Unarchive", a button nowhere in the product.
+ */
+export const ARCHIVED_ACCOUNT_DELETE_REFUSAL =
+  "An archived account cannot be deleted. Restore it first.";
+
+/**
  * What a frozen account says when somebody tries to change it.
  *
  * One sentence, shared, because `docs/standards/code/errors.md` 4 asks that a
@@ -3948,7 +3957,7 @@ export function frozenAccountRefusal(limit: number, name?: string) {
   const subject = name ? `"${name}" is frozen.` : "This account is frozen.";
   return (
     `${subject} A free plan keeps ${limit} accounts active and the rest readable, ` +
-    "so its entries and details cannot change until you make it one of the active ones or upgrade."
+    "so its entries and details cannot change. It comes back into use when an account in use is archived or deleted, or if you upgrade."
   );
 }
 

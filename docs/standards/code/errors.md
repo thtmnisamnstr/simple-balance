@@ -203,20 +203,20 @@ about how many arguments the refusal carries.
 
 The two callers show the rule running in both directions, which is what makes it
 a rule rather than a workaround for billing. The account allowance
-(`src/server/services/accounts.ts:727`) tells a browser to upgrade under
+(`src/server/services/accounts.ts:731`) tells a browser to upgrade under
 Settings, and tells an agent that only the person who owns the ledger can raise
 the limit: billing is session-only by `AGENTS.md`, so an agent told to upgrade
 is told to do something it holds no credential for, which is the same fault as
 telling it to reload. The active-account chooser
-(`src/server/services/accounts.ts:963`) goes the other way. This is a call an
+(`src/server/services/accounts.ts:967`) goes the other way. This is a call an
 agent *can* make, so its sentence names the call, says what a valid one looks
 like, and — where nothing is frozen — says that no list at all is valid, so the
 agent stops trying different ones instead of guessing.
 
 Six throw sites carry one today and the shape recurs: the archive restore meets
 the same ceiling from the other side
-(`src/server/services/accounts.ts:1200`), the frozen-account refusal is the same
-argument under a 422 (`src/server/services/accounts.ts:857`), and the two in
+(`src/server/services/accounts.ts:1204`), the frozen-account refusal is the same
+argument under a 422 (`src/server/services/accounts.ts:861`), and the two in
 `closeBillingForDeletion` (`src/server/services/billing.ts:1947` and `:1954`)
 send a person to whoever runs the server while naming the cause, and whether
 retrying helps, for a program. Those last two are reached only from the
@@ -337,8 +337,8 @@ has to be told *when* to blame it: a plan already held and a plan set to end
 are disabled on their own account, so the tab offers the grant's sentence only
 where `planChangeTakesEffect` says the press would have spent money, which is
 the same line the route draws with `sellsSomething`.
-`frozenAccountRefusal` (`src/shared/domain.ts:3944`) is thrown by
-`assertAccountsWritable` (`src/server/services/accounts.ts:852`) and is the
+`frozenAccountRefusal` (`src/shared/domain.ts:3953`) is thrown by
+`assertAccountsWritable` (`src/server/services/accounts.ts:856`) and is the
 reason an account card's **Edit**, **Archive** and **Delete** now carry, and a
 transaction row's **Edit**, **Delete** and **Restore** with them.
 

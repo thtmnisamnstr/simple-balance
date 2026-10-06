@@ -789,12 +789,19 @@ export async function deleteCategory(
     const { transactionCount, stagedCount, recurrenceCount, templateCount } =
       await countCategoryUses(tx, actor, id);
     if (transactionCount || stagedCount || recurrenceCount || templateCount) {
-      throw conflict("This category is in use. Archive it instead of deleting it.", {
-        transactionCount,
-        stagedTransactionCount: stagedCount,
-        recurrenceCount,
-        templateCount,
-      });
+      // The advice depends on where the category already is: "archive it
+      // instead" was returned for an archived one too, a move it had made.
+      throw conflict(
+        before.archivedAt
+          ? "This category is still in use, so it cannot be deleted. It is archived already, which keeps it out of every picker."
+          : "This category is in use. Archive it instead of deleting it.",
+        {
+          transactionCount,
+          stagedTransactionCount: stagedCount,
+          recurrenceCount,
+          templateCount,
+        },
+      );
     }
     const deleted = await tx
       .delete(categories)
