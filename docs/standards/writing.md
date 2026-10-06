@@ -321,6 +321,19 @@ a release and the thing being removed has been deprecated in the field — which
 is what `Sunset` dates and `docs/upgrades.md` are for. What is not fine is
 arriving with it.
 
+**0.2.1 is an approved exception, and it is named here so that it does not
+become a precedent by accident.** It ships four narrowings in a patch release,
+none deprecated first: a save that changes nothing no longer bumps `version`; a
+second account whose name differs from another only in case or spacing is
+refused; a recurring transfer naming one account on both sides is refused; and
+the auth routes' JSON no longer carries the session token. Each closes
+something the product should never have allowed, and none touches what a ledger
+already holds. The owner approved them as an exception to the rule above rather
+than a change to it, so the rule stands for every release after this one: a
+narrowing that is not named here as approved is a break.
+`docs/upgrades.md` §Before you upgrade to 0.2.1 tells a client what to do about
+each.
+
 **What would make it 1.0.0 is not decided.** Recorded as an open question rather
 than answered with something invented here.
 

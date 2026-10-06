@@ -23,10 +23,10 @@ itself got wrong — a transfer that proposed a row nothing could commit, two
 accounts a person could not tell apart in a picker, a version change nobody
 made that made every other open copy stale, and a credential `HttpOnly` exists
 to keep from page script. Nothing a ledger already holds is touched by any of
-them. They ship in a patch release all the same, and that was decided rather
-than overlooked: `writing.md` §Versioning counts each as a break, and the
-release is 0.2.1 because each corrects something that should never have been
-possible, rather than taking away something a client was meant to have.
+them. They ship in a patch release as an approved exception to `writing.md`
+§Versioning, whose rule still counts each as a break and is not changed by
+this: each corrects something that should never have been possible, rather than
+taking away something a client was meant to have.
 
 **`oci-single` waits for its settings vault to be reachable before making the
 key in it.** OCI reports a new vault active minutes before it publishes the
