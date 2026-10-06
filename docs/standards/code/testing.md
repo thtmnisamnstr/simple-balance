@@ -5,7 +5,7 @@ keeping.
 
 | Tier | Files | Runs with | Needs |
 | --- | --- | --- | --- |
-| Unit (node) | 207 | `npm test` | nothing |
+| Unit (node) | 208 | `npm test` | nothing |
 | Unit (jsdom) | 63 | `npm test` | nothing |
 | Integration | 79 | `npm test` **or** `npm run test:integration` | PostgreSQL |
 | Browser | 7 | `npm run test:browser` | PostgreSQL, Chromium |
@@ -23,14 +23,14 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 271 pass, 78 skip | **2,905 pass, 901 skip** |
-| `npm test`, database set | 349 pass | **3,806 pass** |
+| `npm test`, no database | 272 pass, 78 skip | **2,930 pass, 901 skip** |
+| `npm test`, database set | 350 pass | **3,831 pass** |
 | `npm run test:integration` | 79 pass | 902 pass |
 
 The integration tier reports 902 tests on its own and 901 skips inside a
 database-less `npm test`, and the one-test difference is not an error: one case
 in that tier needs no database and so runs either way. It is counted among the
-2,905 rather than among the skips, which is why the two rows add up to 3,806
+2,930 rather than among the skips, which is why the two rows add up to 3,831
 both times.
 
 The third row is one test larger than the first row's skip count, and the odd
@@ -369,6 +369,20 @@ a file — is what was already being done. It asks the person adding a file to
 remember a test they have never read, which is the kind of discipline that works
 until the day it matters.
 
+**The 0.2.1 sweep found nine more, every one of them passing over less than it
+claimed.** The browser tier's reflow and target-size specs visited thirteen and
+three of the twenty-six URLs the router declares, and read the router now. The
+parity check compared seven of forty write tools and now takes every tool
+`tools/list` does not annotate read-only. The radio-group check missed the
+Settings page's group; the page-header check read twelve of twenty-one
+headers; the money-control check found fourteen of sixteen controls; the
+cluster encryption check read one of three programs; the startup read of the
+bounded limits named six of seven; the closed-set settings table held two of
+the four booleans `getConfig` reads; and the page-level blocks missed five.
+Each now derives its population from the source it is about, and three of them
+were hiding real defects: two money fields labeled by hand, two StorageClasses
+that state no encryption, and a limit nothing read at startup.
+
 *Checked by:* nothing mechanical, and the honest reason is that "this array is a
 population rather than an exception" is a judgement a test cannot make. What can
 be said is that all three sweeps now discover *and* count, each proved by
@@ -379,8 +393,8 @@ There is no general check of the population half either, and the reason is worth
 stating rather than leaving as an absence. Every sweep that discovers one does
 assert it today, in one of two shapes: a floor with a named member where the
 tree is expected to grow, and an exact list where it is not —
-`tests/transport-database-access.test.ts:77` names the two transports outright,
-and `tests/forecast-boundary.test.ts:45` names everything allowed to import the
+`tests/transport-database-access.test.ts:132` names the two transports outright,
+and `tests/forecast-boundary.test.ts:48` names everything allowed to import the
 forecast. A grep that knew only the first shape would call both of those silent,
 and a rule that fires on a correct test is a rule people turn off. Which shape a
 sweep should use is the same judgement as population-versus-exception, one step
@@ -590,7 +604,7 @@ imports and when, and that is not a property of its text.
 | `tests/mcp-measurements.test.ts` | Every number `mcp.md` quotes, against the live tool list. Four had drifted when it was written. |
 | `tests/mcp-instructions.test.ts` | The server instructions carry each rule an agent otherwise learns by being refused. |
 | `tests/table-overflow.test.ts` | Every table has a caption and every header cell a `scope`, alongside the scroll containment it started with. |
-| `tests/transport-database-access.test.ts` | `services.md` 1.2, by the thing that goes wrong when it is broken: a query in `api.ts` or `mcp.ts` that is not one of the five carrying a written reason, and a reason still listed after the line it explains has gone. |
+| `tests/transport-database-access.test.ts` | `services.md` 1.2, by the thing that goes wrong when it is broken: a query in `api.ts` or `mcp.ts`, on any receiver, that is not one of the seven lines carrying a written reason, and a reason still listed after the line it explains has gone. |
 | `tests/migrations.test.ts` | The migration list in `AGENTS.md` matches the directory, both directions. |
 | `tests/mcp-parity.test.ts` | Route parity between the two transports, both directions. |
 

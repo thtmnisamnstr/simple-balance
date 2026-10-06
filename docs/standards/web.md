@@ -1594,7 +1594,8 @@ non-numeric entry) are secondary and point the same way.
 **Scope this exactly.** A blanket ban on `type="number"` in the client would
 fail on correct code: `src/client/forms.tsx:1379` and `:3215` use it for the
 template reminder's interval and the recurrence's, both with `min` and `max`,
-and each is an integer count where a spinner is arguably right. The rule is: no `type="number"` on a field bound to a
+and the budget form gives it to the averaging rule's window of periods through
+a spread of props; each is an integer count where a spinner is arguably right. The rule is: no `type="number"` on a field bound to a
 decimal-string money value.
 
 **Binding, SC 3.3.2 Labels or Instructions, level A.** The criterion asks that
@@ -1613,16 +1614,22 @@ money-bound control's label, its own `aria-label` or its `Field`'s, comes from
 `moneyLabel`, and the `type="number"` half.
 The population is every money-bound control in `src/client` rather than every
 `type="number"`, which is the scoping §17.2 item 4 said this check would need or
-"it fails on the recurrence interval and gets deleted on first contact". The two
-integer counts that legitimately spin — the recurrence interval and the reminder
-interval — are registered by the value they bind rather than by line number,
-because both have moved since this section first cited them. The tag walk is
+"it fails on the recurrence interval and gets deleted on first contact". The
+three integer counts that legitimately spin — the recurrence interval, the
+reminder interval and the averaging window — are registered by the value they
+bind rather than by line number, because the first two have moved since this
+section first cited them. The third was found when the population stopped being
+found by name: a control is money if the value it binds, what its `onChange`
+writes, its input mode, its pattern or its label says so, and that wider read
+also found the queue's click-to-edit amount naming its currency by hand and the
+template mass edit's amount naming none, both through `moneyLabel` now. The tag walk is
 brace- and quote-aware, so a prop sitting after a multi-line `onChange` arrow is
 still read; a self-test pins fifteen such elements, because the first version of
 it stopped at the opening tag's first `>` and reported the product clean.
 
-The currency-in-the-label half stays review. Whether "Amount (USD)" names the
-currency the field is actually bound to is a reading of the form, not a shape.
+Whether the label goes through `moneyLabel` is checked; whether "Amount (USD)"
+names the currency the field is actually bound to stays review, because that is
+a reading of the form rather than a shape.
 
 ### 8.6 Autocomplete and redundant entry
 
@@ -1989,7 +1996,7 @@ The mixed state is already handled. `SelectionCheckbox`
 (`src/client/components.tsx:196-211`) takes an `indeterminate` prop and writes it
 onto the DOM node in an effect, because React does not expose it, and all three
 select-all checkboxes pass it: `TransactionBrowser.tsx:1114`,
-`TemplatesPage.tsx:525`, `StagingPage.tsx:1088`.
+`TemplatesPage.tsx:538`, `StagingPage.tsx:1088`.
 
 *Checked by:* `tests/bulk-row-cap.test.ts` and the server-side selection tests
 cover the contract. The two sentences are review.
@@ -2042,9 +2049,9 @@ puts both in the menu and shows no icon at all.
 The register is the full shape — Edit and Delete as icons, then a menu holding
 Clone, Save as template and Save as recurring
 (`src/client/TransactionBrowser.tsx:1410-1472`) — and the staged queue is the
-same with Commit in front (`src/client/pages/StagingPage.tsx:1420-1471`).
+same with Commit in front (`src/client/pages/StagingPage.tsx:1416-1467`).
 Templates and Recurring have exactly two and put both in the menu
-(`TemplatesPage.tsx:675-688`, `RecurrencesPage.tsx:338-351`). Nine
+(`TemplatesPage.tsx:688-701`, `RecurrencesPage.tsx:338-351`). Nine
 `.row-actions` and seven `RowMenu`s across the client say the same thing.
 
 **Categories was a third shape and that is what this rule is for**: three bare
@@ -3060,7 +3067,7 @@ The rules, in the order they matter:
   that guessed would guess wrong in the direction that matters: telling somebody
   their four thousand rows did not post when they did.
 - **The threshold at which a bar earns its row of layout is
-  `PROGRESS_STREAM_MIN_ROWS`** (`src/shared/domain.ts:1320`), not a literal in a
+  `PROGRESS_STREAM_MIN_ROWS`** (`src/shared/domain.ts:1359`), not a literal in a
   page. Fifty is a judgement rather than a boundary in nature — below it the work
   is over before a bar could be read, and a bar that flashes is worse than none.
   It sits under the cap `AGENTS.md` fixes: "Ten thousand rows is the cap, and it
@@ -3673,7 +3680,7 @@ is which.
 | `tests/loading-paragraph.test.ts` | No loading paragraph outside the four registered by file and sentence, and those four announce themselves (12.2, 17.2 item 6) |
 | `tests/table-row-headers.test.ts` | A table that heads one of its row branches heads all of them, asked of every `<tbody>` in the client — the shape a scope check cannot see, because the offending cell is not a `<th>` at all (9.2) |
 | `tests/table-column-headers.test.ts` | Every column header of every `thead` is `scope="col"` and no body or footer cell is; `SortableHeader` is registered as the one copy twenty-five of the product's headers share, and is refused inside a `tbody` (9.2, 17.2 item 5) |
-| `tests/money-field-controls.test.ts` | No `type="number"` on a control bound to a decimal-string money value, over a population of money-bound controls rather than of number inputs, with the two integer counts registered by what they bind (8.5, 17.2 item 4) |
+| `tests/money-field-controls.test.ts` | No `type="number"` on a control bound to a decimal-string money value, every money control a decimal text input labeled through `moneyLabel`, over a population found five ways — the value it binds, what its `onChange` writes, a decimal input mode, an eighteen-place pattern, a `moneyLabel` label — rather than by name, with the three integer counts registered by what they bind (8.5, 17.2 item 4). Widening it found the queue's click-to-edit amount naming its currency by hand and the template mass edit's amount naming none |
 | `tests/count-link-range.test.ts` | A link whose text interpolates a count, landing on a page that mounts a range bar, pins a preset unless its own page has a bar to forward; which pages are ranged is read off the `<Route>` table and one hop into each page component (11.7) |
 | `tests/api-fields-rendered.test.ts` | Every field `src/client/api.ts` declares — in its type bodies and in the six shared Zod shapes it re-exports — is mentioned somewhere in the client or is argued in a comment naming it (11.9) |
 | `tests/merge-outcome-from-result.test.tsx` | Both merge panels report the server's answer rather than their own request, answered with a result whose target name and counts differ from what was asked for (11.9) |
@@ -3683,8 +3690,8 @@ is which.
 | `tests/chart-alternatives.test.tsx` | Every chart component call site has a real table beside it, with an `.sr-only` caption and scoped headers in a real render; a series keeps its color when the visible set shrinks (11.4, 11.6) |
 | `tests/raw-dates-on-screen.test.ts` | No date-shaped field reaches JSX text, an `aria-label` or a `title` without a formatter; which names are date-shaped is derived from the fields the client already formats, so no list goes stale (10.4) |
 | `tests/client-inline-edit-names.test.ts` | Every click-to-edit trigger's accessible name leads with its visible value, read through a brace-aware tag walk that follows one hop into a named `const` (8.10 rule 6) |
-| `tests/browser/reflow.spec.ts` | No route's document scrolls sideways, at each breakpoint, each breakpoint minus one, the middle of each gap and 320px — the band above 780px included, where the sidebar takes 248px and a check at phone and desktop widths sees nothing (15) |
-| `tests/browser/target-size.spec.ts` | Every interactive target on three screens measured at desktop width and at 390px, against both branches of SC 2.5.8 — 24 by 24 outright, else centers 24 pixels apart (13.4, 13.5) |
+| `tests/browser/reflow.spec.ts` | No route's document scrolls sideways, at each breakpoint, each breakpoint minus one, the middle of each gap and 320px — the band above 780px included, where the sidebar takes 248px and a check at phone and desktop widths sees nothing. "Every route" is the router's own table, read by `tests/browser/support/routes.ts` with ids its seed created and the report kinds `reportNames` lists — twenty-six URLs where a hand-kept list held thirteen and missed the plan tab, the duplicate review, a payee's entries and five of six reports (15) |
+| `tests/browser/target-size.spec.ts` | Every interactive target on every route the client's router declares — twenty-six URLs, read from `src/client/App.tsx` by `tests/browser/support/routes.ts` rather than listed — measured at desktop width and at 390px, against both branches of SC 2.5.8 — 24 by 24 outright, else centers 24 pixels apart (13.4, 13.5) |
 | `tests/recurrence-dates.test.ts`, `tests/locale-detection.test.ts` | The date and locale arithmetic every rendered date rests on (10.4) |
 | `tests/page-stack.test.ts` (continued) | A page-prefixed class is used on its own page, or is one of the registered components — in both spellings, and with the English singular, because stripping a trailing `s` made `categories` into `categorie` and examined no `.category-` class at all; every full-height rule measures `dvh`; every table cell gets tabular figures, and `.align-right` means alignment alone (6.3, 9.3, 15) |
 | `tests/pagination-focus.test.tsx` | A page turn gives focus back to the control that was pressed, or to the page number now current when that control has gone disabled (13.3) |

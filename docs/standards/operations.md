@@ -124,7 +124,10 @@ and a self-hosted ledger sending a handful of reminders is not one. What RFC
 8058 is *for* is met another way, below.
 
 *Checked by:* `tests/mail-headers.test.ts`, one assertion over `sendMail`, which
-is where the header is set for every message rather than in each builder.
+is where the header is set for every message rather than in each builder. It
+asserts the header set exactly, so it holds the `List-Unsubscribe` rule above
+too: it matched a subset, and either list header could have been added with it
+green.
 
 ### Subject lines
 
@@ -203,7 +206,7 @@ relay's own sentence and may quote the address inside it; that is the relay
 talking, and an operator who cannot read it has to reproduce the failure by
 hand. A Drizzle error is narrowed for a harder reason, and it is narrowed in one
 place rather than at each transport: see §Logging below, which owns
-`log.failure` (`src/server/log.ts:75-101`). `src/server/api.ts:413-417` is the
+`log.failure` (`src/server/log.ts:75-101`). `src/server/api.ts:414-418` is the
 HTTP transport handing it over, with the comment saying why it stopped doing the
 narrowing itself.
 
@@ -809,13 +812,12 @@ startup rather than at the call site. `configuredCsvMaxRows()` used to run insid
 an import (`src/server/services/import-export.ts:754`) and the recurrence limits
 inside a tick, so a message about either arrived hours later in a log nobody was
 reading, or on a deployment that never imported a CSV, not at all.
-`assertConfiguredLimits()` (`src/server/config-limits.ts:225-232`) reads all six
+`assertConfiguredLimits()` (`src/server/config-limits.ts:225-237`) reads all seven
 and `getConfig()` calls it (`src/server/config.ts:229-241`), which every
 entrypoint runs before it serves anything.
 
-**There is a seventh bounded integer and it is still read at its call site**,
-which makes it the live instance of the defect the two paragraphs above are
-about. `IDEMPOTENCY_RETENTION_HOURS` is parsed by
+**The seventh bounded integer was read at its call site until 0.2.1**, which
+made it the live instance of the defect the two paragraphs above are about. `IDEMPOTENCY_RETENTION_HOURS` is parsed by
 `configuredIdempotencyRetentionHours` (`src/server/config-limits.ts:134-154`), a
 deliberate sibling of the shared reader rather than a flag on it, because zero
 is a real answer here — the honest spelling of "do not prune" — where on a cap
@@ -825,17 +827,19 @@ line in `assertConfiguredLimits()`: the value is read inside a scheduler tick
 (`src/server/services/helpers.ts:473`), so a typo in it warns on a timer rather
 than in front of whoever just deployed — and on a deployment that leaves
 retention off, which is the default, the warning says the value is having no
-effect in a log line nobody correlates with the deploy. It is a row of the
-backlog below rather than a sentence here, because this guide's rule and the
-code disagree and the guide does not get to pick.
+effect in a log line nobody correlates with the deploy. `assertConfiguredLimits()`
+calls it now, beside the other six, and the check below no longer trusts a list
+to say which readers there are.
 
 *Checked by:* `tests/config.test.ts` ("warns and falls back when %s is not a
 whole number in range", over all six that `assertConfiguredLimits` reads,
 through `getConfig()` rather than through the parser) and
 `tests/config-limits.test.ts` for the parser: "accepts positive bounded integer
 overrides", "leaves an unset limit on its default", and a case per variable
-naming the one that was wrong. The seventh has parser coverage there and no
-startup coverage anywhere, which is exactly what the gap above predicts.
+naming the one that was wrong, the seventh among them. Which readers startup
+calls is held by "reads every limit the module exports, not the ones somebody
+listed": the population is every exported `configured…` function rather than a
+table, because a table is how the seventh went unread.
 
 ### Documenting a variable
 
@@ -863,8 +867,8 @@ terms this rule asks for: what a wrong value does, which way the fallback goes,
 and why it goes that way rather than the other — *off* rather than a window,
 since a typo must never start pruning. Worth copying wherever a bound and a
 sentinel share a variable. The same document is honest about the one thing this
-guide records as a gap: `:94` says *six* are read at startup, and does not
-claim the seventh among them.
+guide recorded as a gap: `:94` said *six* were read at startup and did not
+claim the seventh, until the seventh was; it says seven now.
 
 *Not checked mechanically.* A test can assert that every variable has a row; it
 cannot assert that the row answers the seventh question.
@@ -1099,7 +1103,7 @@ than shipping an image that lies about what it was built on.
 needs and nothing a request does not.
 
 `/health/live` returns 200 unconditionally. `/health/ready` runs `select 1` and
-returns 200 or 503 (`src/server/api.ts:429-447`, and the same pair on the
+returns 200 or 503 (`src/server/api.ts:430-448`, and the same pair on the
 scheduler at `src/server/scheduler.ts:30-38`). Both are registered above every
 auth middleware and neither is authenticated.
 
@@ -1122,7 +1126,7 @@ shutdown, is the slow half.** Migrations run at startup under advisory lock
 (`src/server/index.ts:28,78`; `src/server/scheduler.ts:73,101`), so readiness
 cannot open before they finish. The 0.1.5 notes record that the payee index
 "takes a moment to build while the container starts, before it opens readiness"
-(`docs/upgrades.md:1241-1243`). So the generous number is `--start-period`:
+(`docs/upgrades.md:1249-1251`). So the generous number is `--start-period`:
 300s in all three Node images, the same budget the compose recipe's
 `start_period` and the chart's startup probe give the same work, and the three
 are held to each other. It was 20s in the images, which reported a first start
@@ -1133,7 +1137,7 @@ still migrating as unhealthy. Not the shutdown deadline.
 succeeded, and stays closed until they have", and readiness never knew anything
 about configuration or migrations. Both now say what it does:
 `docs/deployment.md:1027-1032` and `README.md:148-151` describe one statement
-against the database and nothing else, and `src/server/api.ts:433-439` says the
+against the database and nothing else, and `src/server/api.ts:434-440` says the
 same beside the route. The difference matters to an operator designing alerting:
 a migration that succeeded on an older image leaves readiness green against a
 schema this build does not expect.
@@ -1351,7 +1355,7 @@ carry the id and not the payee, the search term or the bound parameter.
 
 **House, and off unless asked for.** `GET /metrics` answers in the Prometheus
 text format, on the port everything else is served on, and only when
-`METRICS_ENABLED=true` (`src/server/api.ts:340-342`). Registered rather
+`METRICS_ENABLED=true` (`src/server/api.ts:341-343`). Registered rather
 than refused: a deployment that never asked has no such route, which is the same
 answer the MCP surface gives for a tool outside a token's scope.
 
@@ -1368,7 +1372,7 @@ neither half can report alone.** `billing_webhook_deliveries_total` is the API's
 and only the API's — five of the webhook route's exits reply
 `200 {"received":true}`, so `http_requests_total` cannot tell a delivery that
 granted or revoked an entitlement from one that was acknowledged and ignored
-(`src/server/api.ts:1179`, `:1193`). `billing_sweeps_total` is the scheduler's,
+(`src/server/api.ts:1180`, `:1194`). `billing_sweeps_total` is the scheduler's,
 and it is the twelve-hourly catch-up for the same subscriptions
 (`src/server/recurrence-scheduler.ts:195-204`). An operator scraping one half
 can be told that the webhook has been failing for hours, or that the sweep keeps
@@ -1398,8 +1402,11 @@ the half that carries ticks, proposals and mail.
 carries somebody's identity: not a user id, not an email, not an account name,
 not an amount. A metric is read by whoever can reach the endpoint, which is not
 the person whose ledger it counts, and every query in `src/server/services` is
-scoped by actor for exactly that reason. `tests/metrics.test.ts` holds the list
-of label names that would break it.
+scoped by actor for exactly that reason. `tests/observability-guide.test.ts`
+holds every published label to a list of bounded vocabularies, so a label nobody
+has argued for fails by name. `tests/metrics.test.ts` held a list of label names
+that would break it, read from a field `getMetricsAsJSON` never returns, so it
+could not fail; it is gone.
 
 The same rule keeps the cardinality bounded, which is the same defect wearing a
 cost rather than a privacy label. A path with an id in it is counted under the
@@ -1439,8 +1446,9 @@ that table states: "revisit it in the release after this one" falls due the
 moment 0.2.0 ships and nothing records it falling due, which is the shape of
 promise this guide has already had to go back and clean up twice.
 
-*Checked by:* `tests/metrics.test.ts` for the labels, the route pattern, the
-token and the absence of the route when it was not asked for;
+*Checked by:* `tests/observability-guide.test.ts` for the labels;
+`tests/metrics.test.ts` for the route pattern, the token and the absence of the
+route when it was not asked for;
 `tests/dockerfile.test.ts` for the frontend not proxying it and for the runtime
 manifest carrying `prom-client`.
 
@@ -1700,6 +1708,20 @@ and a property can be tested. Before this, two uncommented lines of
 `encrypted: true` in one program were the repository's entire at-rest story.
 *Checked by:* `tests/single-encryption.test.ts`,
 `tests/cluster-pulumi-database.test.ts`.
+
+**Two StorageClasses do not say it, and that is open.** The cluster check read
+only the AWS program until it derived its population from every program that
+builds a Kubernetes provider, and then found the GCP and OCI classes stating no
+encryption: `pd-balanced` with no encryption parameter, and OCI's block volume
+class with an attachment type and a performance setting and nothing else. Both
+programs' comments say the provider encrypts every volume with a key it manages,
+and the only encryption parameter either one mentions is for a customer key,
+which both decline. So the property this rule asks for may have no spelling on
+those two providers short of a customer key. Whether to take one, or to record
+these two as a named exception with that argument, is the owner's decision; a
+StorageClass's parameters cannot be changed in place, so either fix replaces the
+class on an existing cluster. Until then the test holds them in a register of
+reported violations, so a third program cannot join them unnoticed.
 
 **Encryption in transit, proved from the server's side.** The generated URL is
 `sslmode=verify-full`; its `sslrootcert` is a path something actually mounts;
@@ -2081,9 +2103,9 @@ Not checked mechanically, ranked by how cheap the check would be:
    injection: `tests/subject-header-injection.test.ts`, over both the create and
    the update schema of each of the two named records. Kept here with its number
    because the items around it are cited by position.
-2. `IDEMPOTENCY_RETENTION_HOURS` is read at startup like the other six bounded
-   integers. The parser is covered; `assertConfiguredLimits()` does not call it,
-   so this is a backlog row below rather than a check somebody forgot to write.
+2. **Landed in 0.2.1.** `IDEMPOTENCY_RETENTION_HOURS` is read at startup like
+   the other six bounded integers, and `tests/config-limits.test.ts` takes the
+   population from the module's exports.
 
 Items 1 and 3 were the defaults and the failed send, and both are in the table
 above. The failed send is the one worth recording: its code half was already
@@ -2137,5 +2159,4 @@ nobody owns until it is written down with a date on it.
 | --- | --- | --- |
 | The `_FILE` secret form is unreachable through the orchestrated paths this guide argues from | `deploy/helm/simple-balance/templates/server-deployment.yaml:72-85`, `deploy/compose/compose.distributed.yml:50`, `:71` | The chart *can* mount a Secret and chooses not to for these nine names: both workloads already project `ca.crt` out of the database Secret by key and mount it, so the mechanism exists and is pointed at a different file, while the application's own credentials still arrive through `envFrom`. Both compose files write `DATABASE_URL` inline and make `AUTH_SECRET` a required interpolation. The application supports the form everywhere and a `docker run` reaches it with a bind mount, so this is the chart and the compose files rather than the resolver. A `secretFiles` values block projecting the named secrets the way `database-ca` already is, and setting each `NAME_FILE` to where it landed, plus a commented `secrets:` stanza, are what would close it. It narrowed rather than widened in 0.2.0: the `vps` profile that took the same shortcut was deleted, and the `single` profile's machines fold `env.db` and `secrets.env` into `.env` on every start, which is a file on disk doing the job `_FILE` would |
 | `METRICS_TOKEN_FILE` has no consumer-side proof | `src/server/config-files.ts:28-38` | Eight of the nine `_FILE` names are read back through the consumer that has to end up holding the value, both Stripe secrets included. That one rests on the resolver's registry alone, so a name added there and never wired to the scrape endpoint would look identical |
-| `IDEMPOTENCY_RETENTION_HOURS` is the one bounded integer still read at its call site | `src/server/config-limits.ts:225-232`, read at `src/server/recurrence-scheduler.ts:171` and `src/server/services/helpers.ts:473` | §Validating at startup argues that all of them are read at startup so a wrong value is in front of whoever just deployed, and `assertConfiguredLimits()` reads six. The parser is right — zero is a real answer here, which is why it is a sibling of `boundedEnvironmentInteger` rather than a seventh call to it — so closing this is one line in that function and a seventh case in the `getConfig()` test beside the other six |
 | `prom-client` is deprecated by rename | `package.json` | §Metrics declines `@prometheus-io/client` for a stated reason — four releases, the newest a day old, against the version the ecosystem runs — and that reason expires with time rather than with a decision. **Due at the 0.2.1 cut, which is the release after 0.2.0.** The move is an import rename if the API held, and finding out costs one branch. It is here rather than in that section because "revisit it next release" falls due the moment this one ships and nothing else records it |

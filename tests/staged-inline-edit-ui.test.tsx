@@ -195,7 +195,7 @@ describe("editing staged fields in place", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /edit the amount of Corner shop$/i }),
     );
-    const editor = screen.getByLabelText("Amount of Corner shop in USD");
+    const editor = screen.getByLabelText("Amount of Corner shop (USD)");
     expect(editor).toHaveValue("10.00");
     fireEvent.change(editor, { target: { value: "12.50" } });
     fireEvent.blur(editor);

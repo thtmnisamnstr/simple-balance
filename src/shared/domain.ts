@@ -363,6 +363,28 @@ const freeText = <T extends z.ZodString>(schema: T) =>
   );
 
 /**
+ * The sentences a free-text field refuses with, written rather than left to
+ * Zod. `docs/standards/code/errors.md` 3.3: the client shows a schema's own
+ * message in preference to the envelope, so whatever is here is what a person
+ * reads — and the default was "Too small: expected string to have >=1
+ * characters", reached by typing a space where a category name goes, since
+ * every one of these is trimmed before it is measured.
+ */
+const enter = (what: string) => ({ error: () => `Enter ${what}` });
+const atMost = (what: string, max: number) => ({
+  error: () => `${what} must be ${max.toLocaleString("en-US")} characters or fewer`,
+});
+/**
+ * A template mass edit's patch: a key left out keeps the field, `null` clears
+ * it, and an empty string is refused rather than read as either (`AGENTS.md`).
+ * The browser never sends one, so the refusal is for an agent and says the move.
+ */
+const clearWithNull = {
+  error: () =>
+    "Send null to clear this field; an empty value is refused rather than read as a clear",
+};
+
+/**
  * The most category legs one entry may be split into. A split is the whole of
  * the counter-account side of the entry rewritten as several postings, so the
  * cost of a large one is paid on every read of that entry, not just on the
@@ -397,7 +419,9 @@ const transactionLegSchema = z
       .describe(
         "Which category this leg's share files under. It wins over this leg's categoryName, and the legs answer the direction question together, so an income category on one leg beside an expense category on another is refused.",
       ),
-    categoryName: oneLine(z.string().trim().min(1).max(120))
+    categoryName: oneLine(
+      z.string().trim().min(1, enter("a category name")).max(120, atMost("A category name", 120)),
+    )
       .optional()
       .nullable()
       .describe(
@@ -411,7 +435,7 @@ const transactionLegSchema = z
         "Which kind to create this leg's category as when its categoryName names one that does not exist yet, on the same terms as the entry-level categoryKind. Each leg carries its own answer because one split can name two new categories whose kinds differ — a CSV import decides each from every row in the file. Ignored when the category already exists or this leg's categoryId is set.",
       ),
     amount: positiveDecimalStringSchema,
-    note: freeText(z.string().trim().max(240))
+    note: freeText(z.string().trim().max(240, atMost("A note", 240)))
       .optional()
       .nullable()
       .describe(
@@ -504,10 +528,12 @@ function checkTransactionLegs(
  * which its occurrence supplies, and without the provenance fields it refuses.
  */
 const transactionShapeCommon = {
-  payee: oneLine(z.string().trim().min(1, "Payee is required").max(160)).describe(
+  payee: oneLine(
+    z.string().trim().min(1, "Payee is required").max(160, atMost("A payee", 160)),
+  ).describe(
     "Who the money went to or came from. Case and spacing are canonicalized to the spelling already in use; any other variation starts a second payee somebody has to merge later. It is part of the duplicate check.",
   ),
-  description: freeText(z.string().trim().max(240))
+  description: freeText(z.string().trim().max(240, atMost("A description", 240)))
     .optional()
     .nullable()
     .transform((value) => value || null)
@@ -526,7 +552,9 @@ const transactionShapeCommon = {
   // follows, so typing "groceries" where "Groceries" exists files the entry
   // under the category already there rather than starting a second spelling of
   // it. Ignored when categoryId is given, since an id is already an answer.
-  categoryName: oneLine(z.string().trim().min(1).max(120))
+  categoryName: oneLine(
+    z.string().trim().min(1, enter("a category name")).max(120, atMost("A category name", 120)),
+  )
     .optional()
     .nullable()
     .describe(
@@ -553,7 +581,7 @@ const transactionShapeCommon = {
       'Which kind to create the category as when categoryName names one that does not exist yet. Left out, a deposit creates an income category and a withdrawal an expense one. Set it to "expense" on a deposit to record a refund into a spending category that is new, which is otherwise impossible to express. Ignored when the category already exists or when categoryId is set.',
     ),
   legs: legsField,
-  notes: freeText(z.string().trim().max(4_000))
+  notes: freeText(z.string().trim().max(4_000, atMost("Notes", 4_000)))
     .optional()
     .nullable()
     .describe(
@@ -565,7 +593,7 @@ const transactionCommon = {
   date: isoDateSchema.describe(
     "The day the money moved, in this person's own timezone. Dated after today, it counts toward no balance until the day arrives.",
   ),
-  externalId: oneLine(z.string().trim().max(200))
+  externalId: oneLine(z.string().trim().max(200, atMost("An external reference", 200)))
     .optional()
     .nullable()
     .describe(
@@ -793,13 +821,15 @@ const transactionTemplateLegSchema = z
     categoryId: blankToAbsent(uuid()).describe(
       "Which existing category this share of the split goes to. One that no longer resolves is cleared with a notice when the template is used, so the leg reads as unfinished rather than showing an empty picker holding a dead id.",
     ),
-    categoryName: blankToAbsent(oneLine(z.string().trim().max(120))).describe(
+    categoryName: blankToAbsent(
+      oneLine(z.string().trim().max(120, atMost("A category name", 120))),
+    ).describe(
       "Names this leg's category rather than picking one, matched ignoring case when somebody uses the template and created then if nothing matches. Ignored when this leg's categoryId is set.",
     ),
     amount: blankToAbsent(positiveDecimalStringSchema).describe(
       "This leg's share of the total, always positive. It may be left out, which a transaction's leg may not: a template can remember how the money is usually divided and leave the figures to the person, and the shares need only add up on submit.",
     ),
-    note: blankToAbsent(freeText(z.string().trim().max(240))).describe(
+    note: blankToAbsent(freeText(z.string().trim().max(240, atMost("A note", 240)))).describe(
       "A word about this share alone, distinct from the entry's own description and notes, which cover the whole transaction. Left out, the leg is prefilled without one.",
     ),
   })
@@ -832,7 +862,7 @@ export const transactionTemplateDraftSchema = z
       "Which kind of entry the form starts on. Left out, the template says nothing about direction and the person chooses each time, which is what a template about a payee rather than a movement wants; a stored type also decides which account side is worth keeping.",
     ),
     date: blankToAbsent(isoDateSchema),
-    payee: blankToAbsent(oneLine(z.string().trim().max(160))).describe(
+    payee: blankToAbsent(oneLine(z.string().trim().max(160, atMost("A payee", 160)))).describe(
       "Who entries made from this are with, prefilled. Left out, the form keeps whatever is in the field already, so omit it deliberately for a template standing for a kind of spending rather than one store.",
     ),
     fromAccountId: blankToAbsent(uuid()).describe(
@@ -850,16 +880,20 @@ export const transactionTemplateDraftSchema = z
     categoryId: blankToAbsent(uuid()).describe(
       "Files every entry started from this under a category that already exists. Refused alongside legs, and an id that no longer resolves is cleared with a notice when somebody uses the template rather than prefilled invisibly.",
     ),
-    categoryName: blankToAbsent(oneLine(z.string().trim().max(120))).describe(
+    categoryName: blankToAbsent(
+      oneLine(z.string().trim().max(120, atMost("A category name", 120))),
+    ).describe(
       "Names the category rather than picking one, so a template can point at a category this ledger does not have yet: it is matched, ignoring case, only when somebody uses the template, and created then if nothing matches. Ignored when categoryId is set, and refused alongside legs.",
     ),
     legs: emptyListToAbsent(templateLegsField).describe(
       "Divides the counter-account side across several categories instead of a single categoryId or categoryName, which are refused alongside it, as is a split on a transfer. Unlike a transaction's legs these need not add up: amounts may be blank, and the division is checked only on submit.",
     ),
-    description: blankToAbsent(freeText(z.string().trim().max(240))).describe(
+    description: blankToAbsent(
+      freeText(z.string().trim().max(240, atMost("A description", 240))),
+    ).describe(
       "The one-line description to prefill. Left out, the field is left as the form found it rather than blanked, so a template silent about the description will not wipe one off an entry being edited.",
     ),
-    notes: blankToAbsent(freeText(z.string().trim().max(4_000))).describe(
+    notes: blankToAbsent(freeText(z.string().trim().max(4_000, atMost("Notes", 4_000)))).describe(
       "The longer note to prefill, for something every entry made from this carries. Left out, the field keeps whatever the form already had, which is what you want when the note differs every time.",
     ),
   })
@@ -929,7 +963,7 @@ export const transactionTemplateBulkPatchSchema = z
       .describe(
         "The date every selected template fills into the form, stored as typed and never moved on, so a fixed date quietly backdates every entry made from it months later. Null clears it, so the form starts on the day it is used.",
       ),
-    payee: oneLine(z.string().trim().min(1).max(160))
+    payee: oneLine(z.string().trim().min(1, clearWithNull).max(160, atMost("A payee", 160)))
       .nullable()
       .optional()
       .describe(
@@ -965,7 +999,9 @@ export const transactionTemplateBulkPatchSchema = z
       .describe(
         "The category every selected template files under, or null to leave the choice to whoever uses it. Sent alongside legs it is dropped silently rather than refused, and it is refused outright when a selected template is already split.",
       ),
-    categoryName: oneLine(z.string().trim().min(1).max(120))
+    categoryName: oneLine(
+      z.string().trim().min(1, clearWithNull).max(120, atMost("A category name", 120)),
+    )
       .nullable()
       .optional()
       .describe(
@@ -979,13 +1015,15 @@ export const transactionTemplateBulkPatchSchema = z
       .describe(
         "The split every selected template opens with, replaced as a whole list rather than added to. It clears any single category on those templates without saying so, null removes the split, and it is refused on a transfer template.",
       ),
-    description: freeText(z.string().trim().min(1).max(240))
+    description: freeText(
+      z.string().trim().min(1, clearWithNull).max(240, atMost("A description", 240)),
+    )
       .nullable()
       .optional()
       .describe(
         "The description every selected template fills into the form, or null to leave it blank. An empty string is refused rather than read as a clear, and it replaces rather than appends.",
       ),
-    notes: freeText(z.string().trim().min(1).max(4_000))
+    notes: freeText(z.string().trim().min(1, clearWithNull).max(4_000, atMost("Notes", 4_000)))
       .nullable()
       .optional()
       .describe(
@@ -1075,9 +1113,9 @@ export const activeAccountsSchema = z.object({
 });
 
 export const accountCreateSchema = z.object({
-  name: oneLine(z.string().trim().min(1).max(120)).describe(
-    "What you call this account. Unique among your accounts.",
-  ),
+  name: oneLine(
+    z.string().trim().min(1, enter("an account name")).max(120, atMost("An account name", 120)),
+  ).describe("What you call this account. Unique among your accounts."),
   type: z
     .enum(userAccountTypes)
     .describe(
@@ -1090,13 +1128,13 @@ export const accountCreateSchema = z.object({
   openingBalance: decimalStringSchema.describe(
     'What the account held on its opening date, as a signed decimal string. Positive for money you hold. NEGATIVE for money you owe, so a credit card with 500 outstanding opens at "-500". Use "0" to start from nothing.',
   ),
-  institution: oneLine(z.string().trim().max(160))
+  institution: oneLine(z.string().trim().max(160, atMost("An institution", 160)))
     .optional()
     .nullable()
     .describe(
       "The bank or provider this account is held with. A label for the person; nothing is derived from it.",
     ),
-  notes: freeText(z.string().trim().max(2_000))
+  notes: freeText(z.string().trim().max(2_000, atMost("Notes", 2_000)))
     .optional()
     .nullable()
     .describe(
@@ -1115,7 +1153,9 @@ export const accountUpdateSchema = accountCreateSchema
   .extend({ expectedVersion: expectedVersionSchema });
 
 export const categoryCreateSchema = z.object({
-  name: oneLine(z.string().trim().min(1).max(120)).describe(
+  name: oneLine(
+    z.string().trim().min(1, enter("a category name")).max(120, atMost("A category name", 120)),
+  ).describe(
     "What to call it. Matched against existing categories ignoring case and surrounding space, so a second spelling of one that exists is refused rather than created.",
   ),
   kind: z
@@ -1177,13 +1217,12 @@ export const categoryMergeSchema = z.object({
 // Payees are intentionally derived from transaction text rather than stored in
 // a separate table. Source names preserve their exact spelling so variants
 // that differ only by case or whitespace can still be selected and merged.
-export const payeeNameSchema = oneLine(z.string().min(1).max(160)).refine(
-  (value) => value.trim().length > 0,
-  "Payee is required",
-);
+export const payeeNameSchema = oneLine(
+  z.string().min(1, enter("a payee")).max(160, atMost("A payee", 160)),
+).refine((value) => value.trim().length > 0, "Payee is required");
 
 export const payeeListQuerySchema = z.object({
-  search: oneLine(z.string().trim().max(160))
+  search: oneLine(z.string().trim().max(160, atMost("A search", 160)))
     .optional()
     .describe("Match on the payee's name, ignoring case and surrounding space."),
 });
@@ -1485,7 +1524,9 @@ export type BudgetGroupPolicy = (typeof budgetGroupPolicies)[number];
  */
 export const categoryGroupCreateSchema = z
   .object({
-    name: oneLine(z.string().trim().min(1).max(80)).describe(
+    name: oneLine(
+      z.string().trim().min(1, enter("a group name")).max(80, atMost("A group name", 80)),
+    ).describe(
       "What the group is called, as somebody would write it. Compared without case or spacing, so two spellings of one name are one group.",
     ),
     policy: z
@@ -1498,7 +1539,9 @@ export const categoryGroupCreateSchema = z
 
 export const categoryGroupUpdateSchema = z
   .object({
-    name: oneLine(z.string().trim().min(1).max(80))
+    name: oneLine(
+      z.string().trim().min(1, enter("a group name")).max(80, atMost("A group name", 80)),
+    )
       .optional()
       .describe("A new name. Left alone if absent."),
     policy: z
@@ -2108,7 +2151,7 @@ export const listQuerySchema = dateRangeSchema.extend({
     .describe(
       "Only rows started from this template. Provenance only; a deleted template leaves its rows alone.",
     ),
-  payee: oneLine(z.string().trim().min(1).max(160))
+  payee: oneLine(z.string().trim().min(1, enter("a payee")).max(160, atMost("A payee", 160)))
     .optional()
     .describe("Only rows whose payee matches, ignoring case and surrounding space."),
   type: z
@@ -2120,7 +2163,7 @@ export const listQuerySchema = dateRangeSchema.extend({
     .describe(
       "Only rows that touch this currency on either side, so a conversion matches under both the currency it left and the one it arrived in.",
     ),
-  search: oneLine(z.string().trim().max(200))
+  search: oneLine(z.string().trim().max(200, atMost("A search", 200)))
     .optional()
     .describe(
       "Free text matched against the payee, the description and the notes, ignoring case. It narrows the rows; it is not a filter on one named field.",
@@ -2267,7 +2310,7 @@ const bulkTransactionPatchSchema = z
       .describe(
         "Moves every selected entry to this date. The correction is appended at the new date rather than written over the old postings, so any balance read between the two changes. A date after today counts toward no balance or cash flow until it arrives.",
       ),
-    payee: oneLine(z.string().trim().min(1, "Payee is required").max(160))
+    payee: oneLine(z.string().trim().min(1, "Payee is required").max(160, atMost("A payee", 160)))
       .optional()
       .describe(
         'Renames the payee on every selected row to this one, canonicalized against the spellings you already use, so "walmart" files under "Walmart". Not a search and replace: rows that had different payees all end up with this one.',
@@ -2283,14 +2326,14 @@ const bulkTransactionPatchSchema = z
       .describe(
         "Moves every selected entry to this account, on the side its type reads: destination for a deposit, source for a withdrawal. A selection holding a transfer is refused, and so is an account in another currency, since a bulk edit never re-denominates money.",
       ),
-    description: freeText(z.string().trim().max(240))
+    description: freeText(z.string().trim().max(240, atMost("A description", 240)))
       .nullable()
       .optional()
       .transform((value) => (value === "" ? null : value))
       .describe(
         "Replaces the description on every selected row; null, or an empty string, clears it. It overwrites rather than appends, so whatever each row said is gone. Leave the key out to keep what is there.",
       ),
-    notes: freeText(z.string().trim().max(4_000))
+    notes: freeText(z.string().trim().max(4_000, atMost("Notes", 4_000)))
       .nullable()
       .optional()
       .transform((value) => (value === "" ? null : value))
@@ -2561,7 +2604,7 @@ const bulkStagePatchSchema = z
       .describe(
         "Sets the draft date on every selected row. Nothing posts, so no balance moves; this is the date the row carries when it is committed, and one dated ahead of today counts toward nothing until that day.",
       ),
-    payee: oneLine(z.string().trim().min(1, "Payee is required").max(160))
+    payee: oneLine(z.string().trim().min(1, "Payee is required").max(160, atMost("A payee", 160)))
       .optional()
       .describe(
         'Renames the payee on every selected row to this one, canonicalized against the spellings you already use, so "walmart" files under "Walmart". Not a search and replace: rows that had different payees all end up with this one.',
@@ -2577,14 +2620,14 @@ const bulkStagePatchSchema = z
       .describe(
         "Sets the account on every selected draft, on the side its type reads. A selection holding a transfer is refused, and so is a row that does not yet say which way the money went unless you set type in the same patch.",
       ),
-    description: freeText(z.string().trim().max(240))
+    description: freeText(z.string().trim().max(240, atMost("A description", 240)))
       .nullable()
       .optional()
       .transform((value) => (value === "" ? null : value))
       .describe(
         "Replaces the description on every selected row; null, or an empty string, clears it. It overwrites rather than appends, so whatever each row said is gone. Leave the key out to keep what is there.",
       ),
-    notes: freeText(z.string().trim().max(4_000))
+    notes: freeText(z.string().trim().max(4_000, atMost("Notes", 4_000)))
       .nullable()
       .optional()
       .transform((value) => (value === "" ? null : value))
@@ -2793,7 +2836,9 @@ const recurrenceLegSchema = z
       .describe(
         "Which category this leg's share files under. It wins over this leg's categoryName, and the legs answer the direction question together, so an income category on one leg beside an expense category on another is refused.",
       ),
-    categoryName: oneLine(z.string().trim().min(1).max(120))
+    categoryName: oneLine(
+      z.string().trim().min(1, enter("a category name")).max(120, atMost("A category name", 120)),
+    )
       .optional()
       .describe(
         'A category by name rather than by id for this leg, for example "Groceries", matched and created on the same terms as the entry-level categoryName. Ignored when this leg\'s categoryId is set.',
@@ -2801,7 +2846,7 @@ const recurrenceLegSchema = z
     amount: positiveDecimalStringSchema.describe(
       "This leg's share of the total. Every occurrence proposes the same division, so the legs have to add up to the amount rather than being adjusted per row.",
     ),
-    note: freeText(z.string().trim().max(240))
+    note: freeText(z.string().trim().max(240, atMost("A note", 240)))
       .optional()
       .describe(
         "What this share of the entry was for, when the category alone does not say it. Nothing reads it back: search does not match it and nothing groups by it, so a distinction you want to report on belongs in a category.",
@@ -3299,7 +3344,9 @@ export const templateNotificationSchema = z
 export type TemplateNotification = z.infer<typeof templateNotificationSchema>;
 
 export const transactionTemplateCreateSchema = z.object({
-  name: oneLine(z.string().trim().min(1).max(120)).describe(
+  name: oneLine(
+    z.string().trim().min(1, enter("a template name")).max(120, atMost("A template name", 120)),
+  ).describe(
     "What to call this template, so a person can pick it out later. Not shown on the entries made from it.",
   ),
   draft: transactionTemplateDraftSchema.describe(
@@ -3338,7 +3385,13 @@ const recurrenceNotifySchema = z
 
 export const recurrenceCreateSchema = z
   .object({
-    name: oneLine(z.string().trim().min(1).max(120)).describe(
+    name: oneLine(
+      z
+        .string()
+        .trim()
+        .min(1, enter("a name for the recurring transaction"))
+        .max(120, atMost("A name", 120)),
+    ).describe(
       "What to call this recurrence, so a person can pick it out of a list later. Not shown on the entries it proposes.",
     ),
     shape: recurrenceShapeInputSchema.describe(
@@ -3353,7 +3406,13 @@ export const recurrenceCreateSchema = z
 
 export const recurrenceUpdateSchema = z
   .object({
-    name: oneLine(z.string().trim().min(1).max(120))
+    name: oneLine(
+      z
+        .string()
+        .trim()
+        .min(1, enter("a name for the recurring transaction"))
+        .max(120, atMost("A name", 120)),
+    )
       .optional()
       .describe(
         "What to call this recurrence, so a person can pick it out of a list later. Not shown on the entries it proposes.",

@@ -152,7 +152,10 @@ formatted anywhere.
 naming the losing spelling and refusing it. `tests/american-wording.test.ts`
 holds the British idioms a word map cannot see — "tick the box", "fortnight",
 "straight away", "afterwards" and the rest it lists — across `src`,
-`index.html`, and the product kit's seed and scripts, comments included. A
+`index.html`, and the product kit's seed and scripts, comments included, and
+the spellings the sweep's own word map missed: "neighbour", "labelled" and
+"towards" were still in comments and a refusal, and "colour", "favour",
+"cancelled", "whilst" and "amongst" are refused beside them. A
 naming registry would need to know what a concept is, so the rest is review.
 
 **Where the rule overreaches its mechanism.** The bullet says "the whole
@@ -260,9 +263,15 @@ first: `AppError` takes `ServiceErrorCode` and `errorResponse` takes
 `TransportErrorCode`, and `apiErrorCodes` is the sum of those two lists, so a
 code outside the enumeration is not a value either constructor accepts.
 `tests/service-errors.test.ts` holds the second, which is the only way past
-them — "builds an error body in the two places that are allowed to" refuses any
-other module writing `error: { code: "…" }` by hand, which is how a sixth
-transport code reached the wire once before. A typed constructor nothing can
+them — "builds an error body in the two places that are allowed to" refuses
+`error: { code: … }` written anywhere but three named constructs in those two
+files, `errorEnvelope` and `transportError` in `api.ts` and `errorResponse` in
+`http-security.ts`, each held to the number of bodies it builds. It used to
+excuse both files whole, and a sweep that narrowed it found three refusals in
+`api.ts` built inline — the session gate's 401, which goes through
+`transportError` now like the file's two other "Sign in is required" refusals,
+and two catch-all 404s, which throw `notFound`. That is how a
+sixth transport code reached the wire once before. A typed constructor nothing can
 bypass is a contract; one anything can bypass is what somebody remembered.
 [`http.md`](http.md) §Errors carries the enumeration itself and the argument
 for splitting it in two.
@@ -297,7 +306,7 @@ table's sense, and whether the "Not" column is honest, stays review.
 | **Recurring transaction** | A saved shape and a schedule that proposes a staged row on its due date. `recurrence` on the wire and in tool names, and the same two words on every screen, in every tool title and in the reminder mail. Like a staged transaction, it is named for what it makes rather than for being one. | Something that posts. A *recurrence* in a heading or a button: the Recurring page said that while every page pointing at it said this. |
 | **Template** | A saved shape with no schedule. | A recurring transaction. |
 | **Plan** | What a sign-in is entitled to and billed for: free or paid. `plus` on the wire, **Premium** on screen. | A budget plan, which is always written out in full. |
-| **Entitlement** | What a plan permits, worked out from the plan and the moment rather than stored (`resolveEntitlement`, `src/shared/domain.ts:3518`). | A plan. An entitlement follows from one and changes with nobody present, which is why no column holds it. |
+| **Entitlement** | What a plan permits, worked out from the plan and the moment rather than stored (`resolveEntitlement`, `src/shared/domain.ts:3577`). | A plan. An entitlement follows from one and changes with nobody present, which is why no column holds it. |
 | **Frozen** | A live account a plan's limit leaves closed to every change to what it holds: fully readable, counted in every balance, summary and report, and still free to be archived, or deleted while nothing is on it. | Archived. An archived account already refuses writes, is outside the limit, and uses up no place. |
 | **Place** | One of the accounts a plan keeps usable; the product's word for the slot. | An account. A place opens up only when an account in use is archived or deleted. |
 
@@ -472,10 +481,10 @@ exception to.
 **House.** §Naming says a name is the same word on every surface, and names no
 exception. Six closed sets already read against that sentence:
 `accountTypeLabels` (`src/shared/domain.ts:53`), `PLAN_LABELS`
-(`src/shared/domain.ts:3432`), `categoryKindLabels`
+(`src/shared/domain.ts:3491`), `categoryKindLabels`
 (`src/client/select-options.ts:113`, which both category pages read),
 `transactionTypeLabels`
-(`src/client/pages/TemplatesPage.tsx:70`), and `ORDINAL_LABELS` and
+(`src/client/pages/TemplatesPage.tsx:77`), and `ORDINAL_LABELS` and
 `FREQUENCY_LABELS` (`src/client/forms.tsx:2585`, `:2613`) for the two schedule
 pickers. In four of the six the label is a different *word* rather than the same
 word capitalized: `credit_card` reads "Credit card", `plus` reads Premium, `both`
@@ -510,9 +519,10 @@ the defect `AGENTS.md` records one level down from a route-by-route parity
 check: a field only an agent ever reads is invisible to a comparison of route
 lists, and `categoryKind` was exactly that for a release.
 
-*Checked by:* `tests/plan-labels.test.ts`, which refuses any file spelling the
-label by hand and derives the renamed set from `PLAN_LABELS` rather than listing
-it, and `tests/common-guide.test.ts`, which holds the map in `src/shared` and
+*Checked by:* `tests/plan-labels.test.ts`, which refuses the old capitalized
+wire value anywhere and a renamed label anywhere but its own entry in the map —
+it refused only the first, so "Premium" written into a sentence passed — and
+derives the renamed set from `PLAN_LABELS` rather than listing it, and `tests/common-guide.test.ts`, which holds the map in `src/shared` and
 refuses a second copy of it. Not checked: that a tool returning a wire value
 tells its reader what a person sees. The gap above is that rule unenforced, and
 a mechanism for it would have to know which output fields are closed sets, which

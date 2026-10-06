@@ -1,13 +1,7 @@
 #!/usr/bin/env node
 
 import { constants } from "node:fs";
-import {
-  lstat,
-  mkdir,
-  open,
-  realpath,
-  unlink,
-} from "node:fs/promises";
+import { lstat, mkdir, open, realpath, unlink } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
@@ -21,9 +15,7 @@ const trustedDir = process.env.RALPH_TRUSTED_DIR
 
 const workspacePrdPath = path.join(root, "tasks/product.prd.json");
 const workspaceSchemaPath = path.join(root, "tasks/product.prd.schema.json");
-const statePrdPath = trustedDir
-  ? path.join(trustedDir, "product.prd.json")
-  : workspacePrdPath;
+const statePrdPath = trustedDir ? path.join(trustedDir, "product.prd.json") : workspacePrdPath;
 const stateSchemaPath = trustedDir
   ? path.join(trustedDir, "product.prd.schema.json")
   : workspaceSchemaPath;
@@ -33,9 +25,7 @@ const guardrailsPath = path.join(root, "scripts/ralph/guardrails.md");
 const promptTemplatePath = path.join(root, "scripts/ralph/iteration-prompt.md");
 const agentPath = path.join(root, "AGENTS.md");
 const runPath = path.join(root, ".ralph");
-const completionPendingPath = trustedDir
-  ? path.join(trustedDir, "pending-completion.json")
-  : null;
+const completionPendingPath = trustedDir ? path.join(trustedDir, "pending-completion.json") : null;
 
 const storyIdPattern = /^SB-[0-9]{3}$/;
 const supportedSchemaKeywords = new Set([
@@ -52,9 +42,7 @@ function isContained(base, target) {
   const relative = path.relative(base, target);
   return (
     relative === "" ||
-    (!path.isAbsolute(relative) &&
-      relative !== ".." &&
-      !relative.startsWith(`..${path.sep}`))
+    (!path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`))
   );
 }
 
@@ -118,10 +106,7 @@ async function validateOpenFile(handle, resolved, base) {
   ) {
     throw new Error(`${resolved} changed during safe file access`);
   }
-  if (
-    canonicalParent !== path.dirname(resolved) ||
-    !isContained(base, canonicalParent)
-  ) {
+  if (canonicalParent !== path.dirname(resolved) || !isContained(base, canonicalParent)) {
     throw new Error(`${resolved} resolves outside its trusted root`);
   }
 }
@@ -155,9 +140,7 @@ async function safeWriteFile(file, content, base) {
 
   const handle = await open(
     resolved,
-    constants.O_WRONLY |
-      constants.O_CREAT |
-      constants.O_NOFOLLOW,
+    constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW,
     0o600,
   );
   try {
@@ -267,26 +250,18 @@ function validatePrdSemantics(document) {
     const dependencies = new Set();
     for (const dependency of story.dependsOn) {
       if (!storyIdPattern.test(dependency) || !ids.has(dependency)) {
-        failSchema(
-          `$.stories[${index}].dependsOn`,
-          `unknown story dependency ${dependency}`,
-        );
+        failSchema(`$.stories[${index}].dependsOn`, `unknown story dependency ${dependency}`);
       }
       if (dependency === story.id) {
         failSchema(`$.stories[${index}].dependsOn`, "a story cannot depend on itself");
       }
       if (dependencies.has(dependency)) {
-        failSchema(
-          `$.stories[${index}].dependsOn`,
-          `duplicate story dependency ${dependency}`,
-        );
+        failSchema(`$.stories[${index}].dependsOn`, `duplicate story dependency ${dependency}`);
       }
       dependencies.add(dependency);
     }
   }
-  const storiesById = new Map(
-    document.stories.map((story) => [story.id, story]),
-  );
+  const storiesById = new Map(document.stories.map((story) => [story.id, story]));
   const visiting = new Set();
   const visited = new Set();
   function visit(storyId) {
@@ -462,19 +437,13 @@ async function prepareComplete(storyId, finalPath) {
     "Completion output",
   );
   validateCompletion(completion, storyId);
-  const [
-    previousWorkspacePrdText,
-    previousWorkspaceSchemaText,
-    previousProgressText,
-  ] = await Promise.all([
-    safeReadFile(workspacePrdPath, root),
-    safeReadFile(workspaceSchemaPath, root),
-    safeReadFile(progressPath, root),
-  ]);
-  if (
-    previousWorkspacePrdText !== documentText ||
-    previousWorkspaceSchemaText !== schemaText
-  ) {
+  const [previousWorkspacePrdText, previousWorkspaceSchemaText, previousProgressText] =
+    await Promise.all([
+      safeReadFile(workspacePrdPath, root),
+      safeReadFile(workspaceSchemaPath, root),
+      safeReadFile(progressPath, root),
+    ]);
+  if (previousWorkspacePrdText !== documentText || previousWorkspaceSchemaText !== schemaText) {
     throw new Error("Workspace manifest changed after trusted restoration");
   }
   story.completed = true;
@@ -508,17 +477,12 @@ async function finalizeComplete(storyId) {
   if (pending.storyId !== storyId) {
     throw new Error(`Pending completion belongs to ${pending.storyId}`);
   }
-  const completedDocument = parseJson(
-    pending.completedDocumentText,
-    "Completed PRD",
-  );
+  const completedDocument = parseJson(pending.completedDocumentText, "Completed PRD");
   const schema = parseJson(pending.schemaText, "PRD schema");
   validateSchemaDefinition(schema);
   validateAgainstSchema(completedDocument, schema);
   validatePrdSemantics(completedDocument);
-  const story = completedDocument.stories.find(
-    (candidate) => candidate.id === storyId,
-  );
+  const story = completedDocument.stories.find((candidate) => candidate.id === storyId);
   if (!story?.completed) {
     throw new Error(`Pending completion does not complete ${storyId}`);
   }
@@ -544,16 +508,8 @@ async function rollbackComplete(storyId) {
   if (pending.storyId !== storyId) {
     throw new Error(`Pending completion belongs to ${pending.storyId}`);
   }
-  await safeWriteFile(
-    workspacePrdPath,
-    pending.previousWorkspacePrdText,
-    root,
-  );
-  await safeWriteFile(
-    workspaceSchemaPath,
-    pending.previousWorkspaceSchemaText,
-    root,
-  );
+  await safeWriteFile(workspacePrdPath, pending.previousWorkspacePrdText, root);
+  await safeWriteFile(workspaceSchemaPath, pending.previousWorkspaceSchemaText, root);
   await safeWriteFile(progressPath, pending.previousProgressText, root);
   await safeDeleteFile(completionPendingPath, trustedDir);
 }
@@ -582,8 +538,7 @@ try {
     await finalizeComplete(args[0]);
   } else if (command === "rollback-complete") {
     await rollbackComplete(args[0]);
-  }
-  else if (command === "fail") await fail(args[0], args.slice(1).join(" "));
+  } else if (command === "fail") await fail(args[0], args.slice(1).join(" "));
   else throw new Error(`Unknown runner command: ${command}`);
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);

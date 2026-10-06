@@ -133,6 +133,7 @@ import {
 import {
   AppError,
   conflict,
+  notFound,
   TransportError,
   validationError,
   INTERNAL_ERROR_MESSAGE,
@@ -1493,7 +1494,10 @@ app.use("/api/v1/*", async (c, next) => {
     ) {
       return c.json(null);
     }
-    return c.json({ error: { code: "UNAUTHORIZED", message: "Sign in is required" } }, 401);
+    // Through `transportError`, as this file's two other "Sign in is required"
+    // refusals are: one shape for one refusal, and a construct the error-body
+    // check counts, where an envelope spelled inline was neither.
+    return c.json(transportError("UNAUTHORIZED", "Sign in is required"), 401);
   }
   c.set("authUser", identity.user);
   c.set("sessionCreatedAt", new Date(identity.session.createdAt));
@@ -2057,18 +2061,18 @@ app.get("/api/v1/audit-events", async (c) =>
 // error rather than the 404 it asked for, and a person debugging a URL sees a
 // working page. The same path with a non-GET method already answered 404, so the
 // prefix disagreed with itself.
-app.all("/api/v1/*", (c) =>
-  c.json({ error: { code: "NOT_FOUND", message: "No such endpoint" } }, 404),
-);
+app.all("/api/v1/*", () => {
+  throw notFound("No such endpoint");
+});
 
 // The same reasoning for the one prefix that lives outside `/api/v1`. Without
 // it a webhook aimed at a misspelled path — or at a deployment that has no
 // Stripe configured, where the endpoint genuinely does not exist — gets the
 // single-page shell and a 200, which Stripe records as delivered. A missed
 // delivery that Stripe believes arrived is the shape nothing ever retries.
-app.all("/api/billing/*", (c) =>
-  c.json({ error: { code: "NOT_FOUND", message: "No such endpoint" } }, 404),
-);
+app.all("/api/billing/*", () => {
+  throw notFound("No such endpoint");
+});
 
 // Only when there is a bundle to serve. The decomposed deployment builds an
 // API image with no client in it and puts nginx in front, and serveStatic warns

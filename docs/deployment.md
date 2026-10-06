@@ -91,7 +91,7 @@ setting somebody may want to state rather than only inherit. So zero is accepted
 in silence, and anything unreadable warns and keeps everything — falling back to
 *off* rather than to a window, since the other direction would prune on a typo.
 
-All six are read at startup, before anything is served, so the warning is in
+All seven are read at startup, before anything is served, so the warning is in
 front of whoever just deployed rather than in a log nobody opens until the day
 it matters. They used to be read at the moment they were wanted, which is a
 combination with no symptom at all: `CSV_MAX_ROWS=1O000`, typed with a letter O,

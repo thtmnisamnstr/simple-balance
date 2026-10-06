@@ -2,8 +2,11 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
+import { programCode, resourceCallsCode } from "./support/pulumi-source.js";
+import { repoFiles } from "./support/source.js";
+
 /**
- * The two cluster programs and the module they share, read as text.
+ * The cluster programs and the module they share, read as text.
  *
  * They cannot be imported: that needs `@pulumi/pulumi` from
  * `deploy/pulumi/node_modules`, which the job running this suite does not
@@ -22,6 +25,54 @@ const readProgram = (file: string) => readFileSync(path.join(root, "deploy/pulum
 const common = readProgram("common/index.ts");
 const aws = readProgram("aws/index.ts");
 const gcp = readProgram("gcp/index.ts");
+
+/**
+ * Every program that drives a Kubernetes cluster, found by what makes it one:
+ * it constructs a `k8s.Provider`.
+ *
+ * `aws` and `gcp` above stay named for the facts that belong to one cloud —
+ * an addon, a datapath — and the claims about every cluster program are made
+ * over this instead. They used to be made over those two, so the OCI program
+ * was never asked whether its StorageClass says its volumes are encrypted,
+ * keeps them on a released claim, or hands its name to the chart; a fourth
+ * cloud would have been asked nothing either.
+ */
+const clusterPrograms = repoFiles((file) => /^deploy\/pulumi\/[^/]+\/index\.ts$/.test(file))
+  .filter((file) => programCode(file.text).includes("new k8s.Provider("))
+  .map((file) => ({
+    path: file.path,
+    text: file.text,
+    storageClasses: resourceCallsCode(file.text, "k8s.storage.v1.StorageClass"),
+  }));
+
+/**
+ * Cluster programs whose StorageClass states no encryption at rest, each a
+ * real violation found by the sweep and reported for fixing, with what the
+ * class says instead.
+ *
+ * `AGENTS.md` asks every volume that holds data to say it is encrypted even
+ * where the provider encrypts by default, and `operations.md` puts that
+ * property on the StorageClass. Both programs here rely on the default and
+ * say so only in a comment, which `pulumi preview` does not show and this
+ * test cannot hold. Neither driver's parameters, as the programs describe
+ * them, has a switch for the provider's own key — only a customer key, which
+ * both refuse on purpose — so the fix is a decision for the rule as much as
+ * for the programs, and it is not this file's to make.
+ */
+const UNSTATED_ENCRYPTION = new Map([
+  [
+    "deploy/pulumi/gcp/index.ts",
+    'Real violation found by the sweep, reported for fixing: `pd.csi.storage.gke.io` with `parameters: { type: "pd-balanced" }` and nothing else; the comment above it says Google encrypts every persistent disk and declines `disk-encryption-kms-key`',
+  ],
+  [
+    "deploy/pulumi/oci/index.ts",
+    'Real violation found by the sweep, reported for fixing: `blockvolume.csi.oraclecloud.com` with `parameters: { attachmentType: "paravirtualized", vpusPerGB: "10" }` and nothing else; the comment above it says Oracle encrypts every block volume and declines a `kmsKeyId`',
+  ],
+]);
+
+/** The `parameters` object a StorageClass hands its driver, or nothing. */
+const parametersOf = (storageClass: string) =>
+  /parameters:\s*\{([^}]*)\}/.exec(storageClass)?.[1] ?? "";
 
 /** A program with its comment lines taken out, for what it does rather than says. */
 const withoutComments = (program: string) =>
@@ -115,19 +166,55 @@ describe("what the chart is told", () => {
   });
 
   it("names a storage class rather than taking the cluster's default", () => {
-    // Neither cloud's default StorageClass says `encrypted`, and it is the one
+    // No cloud's default StorageClass says `encrypted`, and it is the one
     // place at-rest encryption for the ledger is actually decided.
     expect(code).toContain("persistence: { storageClass: args.databaseStorageClass }");
-    expect(withoutComments(aws)).toContain(
-      "databaseStorageClass: databaseStorageClass.metadata.name,",
-    );
-    expect(withoutComments(gcp)).toContain(
-      "databaseStorageClass: databaseStorageClass.metadata.name,",
-    );
+    for (const program of clusterPrograms) {
+      expect(program.storageClasses, `${program.path} declares one class`).toHaveLength(1);
+      // OCI hands it over only with an in-cluster database, and the other two
+      // unconditionally; either way it is the class this program made.
+      expect(programCode(program.text), program.path).toMatch(
+        /databaseStorageClass: [^,\n]*databaseStorageClass\.metadata\.name/,
+      );
+    }
   });
 });
 
 describe("encryption at rest, written down rather than assumed", () => {
+  /**
+   * Found what it was meant to find, because an empty population passes every
+   * claim made over it: three clouds today, AWS among them.
+   */
+  it("finds every cluster program", () => {
+    expect(clusterPrograms.length).toBeGreaterThanOrEqual(3);
+    expect(clusterPrograms.map((program) => program.path)).toContain("deploy/pulumi/aws/index.ts");
+  });
+
+  /**
+   * The rule itself, over every cluster program rather than the one where it
+   * was first written. The old check asserted `encrypted: "true"` on AWS and
+   * asked GCP only that it held no customer key, and never read OCI at all,
+   * so two of three StorageClasses stated nothing about encryption with every
+   * test green.
+   */
+  it("says on every StorageClass that its volumes are encrypted", () => {
+    const silent = clusterPrograms
+      .filter((program) =>
+        program.storageClasses.every(
+          (storageClass) => !/\bencrypt\w*\s*:\s*"true"/i.test(parametersOf(storageClass)),
+        ),
+      )
+      .map((program) => program.path);
+    expect(
+      silent.filter((program) => !UNSTATED_ENCRYPTION.has(program)),
+      "set the driver's encryption parameter, or register the program with what it says instead",
+    ).toEqual([]);
+    expect(
+      [...UNSTATED_ENCRYPTION.keys()].filter((program) => !silent.includes(program)),
+      "these state encryption now, or are no longer cluster programs — take them out of the register",
+    ).toEqual([]);
+  });
+
   it("AWS cuts the ledger's volumes encrypted, which is not an account default", () => {
     // EBS encryption-by-default is an account-level setting that is off on a
     // fresh account, so this property is the whole guarantee.
@@ -158,20 +245,25 @@ describe("encryption at rest, written down rather than assumed", () => {
   it("does not reach for a customer key on the volumes themselves", () => {
     // A key policy to get wrong, a monthly charge, and a documented way to lock
     // a deployment permanently out of its own ledger volume. The provider's key
-    // is the right default for a profile one person can run.
-    expect(withoutComments(aws)).not.toContain("kmsKeyId");
-    expect(withoutComments(gcp)).not.toContain("disk-encryption-kms-key");
+    // is the right default for a profile one person can run. Every driver's
+    // spelling has `kms` in it — `kmsKeyId`, `disk-encryption-kms-key`,
+    // `kms-key-id` — and it is asked of the class, not the program, because a
+    // key for the cluster's Secrets is a different decision.
+    for (const program of clusterPrograms) {
+      for (const storageClass of program.storageClasses) {
+        expect(storageClass, program.path).not.toMatch(/kms/i);
+      }
+    }
   });
 
   it("keeps a released claim from taking the ledger's volume with it", () => {
-    for (const [name, program] of [
-      ["aws", aws],
-      ["gcp", gcp],
-    ] as const) {
-      expect(withoutComments(program), name).toContain('reclaimPolicy: "Retain"');
-      // A volume lives in one zone and the pod that needs it has to be
-      // scheduled there, so the scheduler chooses first and the volume follows.
-      expect(withoutComments(program), name).toContain('volumeBindingMode: "WaitForFirstConsumer"');
+    for (const program of clusterPrograms) {
+      for (const storageClass of program.storageClasses) {
+        expect(storageClass, program.path).toContain('reclaimPolicy: "Retain"');
+        // A volume lives in one zone and the pod that needs it has to be
+        // scheduled there, so the scheduler chooses first and the volume follows.
+        expect(storageClass, program.path).toContain('volumeBindingMode: "WaitForFirstConsumer"');
+      }
     }
   });
 });

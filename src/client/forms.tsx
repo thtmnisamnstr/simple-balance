@@ -1876,7 +1876,7 @@ export function TransactionForm({
    * the same set the submit handler sends: a split sends its legs and drops
    * the single picker, and one that is not a split does the reverse. Reading
    * both at once let a name left behind in the single picker by switching to a
-   * split still count towards the preview below.
+   * split still count toward the preview below.
    */
   const namedCategories = splitting
     ? legs.map((leg) => ({ id: leg.categoryId, name: leg.categoryName }))

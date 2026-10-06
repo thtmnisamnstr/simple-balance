@@ -1461,7 +1461,7 @@ input[type="radio"] {
 }
 
 /* `align-items: start` for the reason written out at `.settings-column`: a
-   tall card cannot push a short one's neighbour down to meet it. This was the
+   tall card cannot push a short one's neighbor down to meet it. This was the
    one two-column page grid that stretched instead, so the Accounts panel grew
    to the height of Spending by category and ended in blank card. */
 .dashboard-detail-grid {
@@ -3653,7 +3653,7 @@ input[type="radio"] {
 }
 
 /* The question a radio row answers, set like a field's label because that is
-   what it is: the visible name the group is labelled by. */
+   what it is: the visible name the group is labeled by. */
 .radio-question {
   display: block;
   margin-top: 8px;

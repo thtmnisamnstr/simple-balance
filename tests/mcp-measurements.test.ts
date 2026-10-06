@@ -570,17 +570,26 @@ describe("what mcp.md says it measured", () => {
    * A version is the other way a tool earns the annotation, so a mutating tool
    * carrying `expectedVersion` instead is counted as covered rather than as a
    * defect. Both are named in the guide's own sentence.
+   *
+   * **What it could not see:** a tool with an `input` field was covered
+   * whatever that field held. The exemption was for the version an update
+   * carries inside `input` — `update_account` and every update shaped like it
+   * take `{ id, input: { …, expectedVersion } }` — and it accepted the field rather
+   * than the version in it, so an update whose `input` carried no version and
+   * which took no key passed. It reads the version where an update keeps it
+   * now, one level down and nowhere deeper.
    */
   it("counts mutating tools and the idempotency keys they carry", () => {
-    const properties = (tool: (typeof tools)[number]) =>
-      (tool.inputSchema as { properties?: Record<string, unknown> })?.properties ?? {};
+    type Properties = Record<string, { properties?: Record<string, unknown> } | undefined>;
+    const properties = (tool: (typeof tools)[number]): Properties =>
+      (tool.inputSchema as { properties?: Properties })?.properties ?? {};
     const mutating = tools.filter((tool) => !tool.annotations?.["readOnlyHint"]);
     const withKey = mutating.filter((tool) => properties(tool)["idempotencyKey"] !== undefined);
     /**
      * The one tool whose `idempotentHint` is true for a different reason.
      *
      * Every other mutating tool is idempotent because a key or a version
-     * makes a replay recognisable. `set_active_accounts` is idempotent
+     * makes a replay recognizable. `set_active_accounts` is idempotent
      * because the request states the whole of what it sets: sending the same
      * list twice leaves exactly the state the first call left, which is what
      * makes a PUT a PUT. A key here would be ceremony that changes nothing,
@@ -596,7 +605,7 @@ describe("what mcp.md says it measured", () => {
         properties(tool)["idempotencyKey"] === undefined &&
         properties(tool)["expectedVersion"] === undefined &&
         properties(tool)["expectedVersions"] === undefined &&
-        properties(tool)["input"] === undefined,
+        properties(tool)["input"]?.properties?.["expectedVersion"] === undefined,
     );
     expect(mutating.length).toBe(
       claimed(/Measured: (\d+)\s+mutating tools, \d+ with `idempotencyKey`/),

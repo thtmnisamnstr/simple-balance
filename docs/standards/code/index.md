@@ -212,7 +212,7 @@ One `eslint` rule is off. **`no-control-regex`** flags a regular expression that
 matches control characters, and all four sites here exist *to reject* them: two
 sanitize user input (`src/shared/domain.ts:350-351`), one is the CSV-injection
 defense (`src/shared/csv.ts:513`), and one scrubs a CSP report before it reaches
-the log (`src/server/api.ts:1268`), where the body is attacker-controlled and a
+the log (`src/server/api.ts:1269`), where the body is attacker-controlled and a
 newline would let one report write several log lines with a forged error among
 them. The rule exists to catch a control character written by accident; every
 one of these was written on purpose, and the code that strips control characters
@@ -287,13 +287,14 @@ reads all of them while the formatter has never been pointed at one. The two
 `*Checked by:*` footers above say `npm run lint` and `npm run format:check`
 in the same breath, which reads as one toolchain over one tree.
 
-**It is a live divergence rather than a latent one.** Five of those files fail a
-format check today: `scripts/capacity/load.mjs`, `scripts/capacity/schedule.mjs`,
-`scripts/ralph/git-guard.mjs`, `scripts/ralph/runner.mjs`, and
-`scripts/set-version.mjs` — the tool the release procedure runs first
-(`docs/upgrades.md:1424`). The infrastructure half is the reason nothing has
-broken: all thirteen Pulumi modules happen to be clean, so the gap has stayed
-invisible while `npm run verify` went on passing. `typescript.md` §3.5 records
+**It was a live divergence rather than a latent one, until 0.2.1.** Five of
+those files failed a format check — `scripts/capacity/load.mjs`,
+`scripts/capacity/schedule.mjs`, `scripts/ralph/git-guard.mjs`,
+`scripts/ralph/runner.mjs`, and `scripts/set-version.mjs`, the tool the release
+procedure runs first (`docs/upgrades.md:1432`) — while all thirteen Pulumi
+modules happened to be clean, so the gap stayed invisible while
+`npm run verify` went on passing. The five are formatted now, and the test
+below holds every file the command does not reach to the formatter anyway. `typescript.md` §3.5 records
 the same gap from the other end, in the row of its comparison table that reads
 `oxfmt` / yes / **no**.
 
@@ -304,14 +305,17 @@ the run dies with `Syntax error: unexpected indicator` and exits 2 before
 checking anything. So widening this is a real decision with two forms — name the
 TypeScript and JavaScript explicitly, or grow `.oxfmtrc.json`'s ignore list to
 cover the templates — and not a one-word fix. Until one is taken, the honest
-statement is that the formatter covers `src`, `tests` and the root configs, and
-that the five files above are unformatted on purpose only in the sense that
-nobody has formatted them.
+statement is that `npm run format` covers `src`, `tests` and the root configs,
+and that everything outside them is held to it by a test rather than by the
+command.
 
 *Checked by:* `tests/code-index-guide.test.ts`, which reads the scope out of the
 `format` command itself and holds every count in this section to what that
 leaves out — including the direction, so widening the command fails the test
-until this section stops describing a gap that has closed. It also runs oxfmt
+until this section stops describing a gap that has closed — and runs
+`oxfmt --check` over every TypeScript and JavaScript file outside it, `.d.mts`
+declarations included. It used to pin the five failing files by name, so
+formatting them failed it and a sixth only had to be listed. It also runs oxfmt
 over the chart templates, because the paragraph above is the whole argument for
 why widening is not free, and a tool that learned to skip them would retire it.
 

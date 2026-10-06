@@ -58,7 +58,7 @@ import {
   TransferCategory,
   useConfirm,
 } from "../components.js";
-import { formatDate, formatMoney, formatTimestamp, movementSign } from "../money.js";
+import { formatDate, formatMoney, formatTimestamp, moneyLabel, movementSign } from "../money.js";
 import { useTimezone } from "../timezone.js";
 import {
   CategoryPicker,
@@ -1367,11 +1367,7 @@ export default function StagingPage() {
                           <Input
                             inputMode="decimal"
                             autoFocus
-                            aria-label={
-                              summary.currency
-                                ? `Amount of ${payee} in ${summary.currency}`
-                                : `Amount of ${payee}`
-                            }
+                            aria-label={moneyLabel(`Amount of ${payee}`, summary.currency)}
                             pattern="(0|[1-9][0-9]{0,25})(\.[0-9]{1,18})?"
                             value={inline!.value}
                             onChange={(event) =>

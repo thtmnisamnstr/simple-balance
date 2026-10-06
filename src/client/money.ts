@@ -189,7 +189,7 @@ export function amountForInput(amount: string, currency: string) {
  * tells a screen reader nothing about which money. The transaction form wrote
  * "Amount (USD)" inline and every other money field in the app wrote "Amount",
  * including two dialogs that showed the currency nowhere at all. One function,
- * so the next money field is labelled the same way by default.
+ * so the next money field is labeled the same way by default.
  *
  * The currency is left out rather than guessed while the form cannot know it —
  * an account not chosen yet, a template with no account — because a wrong code

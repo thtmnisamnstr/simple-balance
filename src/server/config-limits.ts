@@ -229,4 +229,9 @@ export function assertConfiguredLimits() {
   configuredRecurrenceTickSeconds();
   configuredRecurrenceCatchUpLimit();
   configuredRecurrenceClaimLimit();
+  // The seventh, and the one most likely to be found late: the sweep that reads
+  // it rides the scheduler's tick, so a typo was reported in the scheduler's
+  // log after its first tick, or never, on a deployment whose scheduler runs
+  // somewhere nobody reads. It warns like the rest and never refuses.
+  configuredIdempotencyRetentionHours();
 }

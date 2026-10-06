@@ -12,7 +12,7 @@ importer all have opinions about.
 
 Everything is grounded in three places: `src/shared/csv.ts`, which both the
 browser preview and the server use, `src/server/services/import-export.ts`,
-which reads and writes files, and `src/server/api.ts:1987-2024`, which is the
+which reads and writes files, and `src/server/api.ts:1991-2028`, which is the
 transport: preview, stage, the batch list and export. That range named the
 progress-frame helpers and the commit route for a release, two screens above
 the routes this file is about. It is the failure
@@ -189,7 +189,7 @@ was responsible for — and the defect is in this guide, not in the code.
 
 **Settled.** The download filename is dated in the person's own timezone,
 through `todayIn(timezone)` like every other "today" in this product
-(`src/server/api.ts:2012-2024`). It used to read the server clock, so somebody
+(`src/server/api.ts:2016-2028`). It used to read the server clock, so somebody
 at UTC+13 downloading at 09:00 got yesterday's date on the file — the one thing
 a dated filename exists to get right.
 
@@ -638,7 +638,7 @@ Three mechanisms, and they are deliberately not the same strictness:
    (`stagedDuplicateKey`, `src/server/services/transactions.ts:2706-2754`).
 2. **The advisory badge.** The queue also looks for a committed transaction of
    the same type, account and amount within `LIKELY_DUPLICATE_DAYS`, which is
-   three (`src/shared/domain.ts:1416`, `src/server/services/staging.ts:592-668`).
+   three (`src/shared/domain.ts:1455`, `src/server/services/staging.ts:592-668`).
    The payee is ignored outright and the date gets three days of latitude, on
    purpose: the bank posts when it settles rather than when the card was swiped,
    and it names the merchant its own way. This decides nothing. It opens a
@@ -793,7 +793,7 @@ import that stages more than one action can clear is a cap doing damage."
 
 `DEFAULT_CSV_MAX_ROWS` is `MAX_BULK_SELECTION_ENTRIES`, by construction rather
 than by coincidence (`src/server/config-limits.ts:14`,
-`src/shared/domain.ts:1305`). `CSV_MAX_ROWS` may lower it; raising it past the
+`src/shared/domain.ts:1344`). `CSV_MAX_ROWS` may lower it; raising it past the
 bulk cap only moves the refusal further along, so the configuration ceiling is
 the same number.
 

@@ -445,7 +445,7 @@ export function presentAccountBalance(type: AccountType, balance: string) {
   const value = decimal(signedBalance);
   const isLiability = liabilityAccountTypes.has(type as UserAccountType);
   // A liability at zero owes nothing, and "Amount owed: $0.00" says so. It was
-  // labelled a credit balance, which a card paid off to the cent is not:
+  // labeled a credit balance, which a card paid off to the cent is not:
   // `common.md`, "Zero is a value", and the word for it is the plain one.
   return {
     balance: signedBalance,

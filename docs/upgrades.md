@@ -37,7 +37,9 @@ waits up to fifteen minutes, and says so if that runs out; the vault is kept,
 and the next `up` makes the key.
 
 **What an operator sees differently.** Nothing that started on 0.2.0 stops
-starting, and three things it accepted silently are now said in the log: a
+starting, and four things are said in the log that were not, or not then: an
+`IDEMPOTENCY_RETENTION_HOURS` that is not a whole number in range, at startup
+rather than at the scheduler's first sweep; a
 `SETUP_TOKEN` shorter than sixteen characters on an instance already claimed,
 where it is never read; an `SMTP_PORT` that is not a port, which still refuses
 but now names the variable; and, in the split frontend image, an
@@ -151,6 +153,12 @@ rather than unhealthy; the compose recipe and the chart already allowed 300.
   other write to a frozen account is refused exactly as before, with a sentence
   that now says its entries and details cannot change rather than that nothing
   can.
+- **A free-text field's refusal is a sentence.** An empty or over-long name,
+  payee, description, note or search was refused with Zod's own wording, "Too
+  small: expected string to have >=1 characters"; it reads "Enter a category
+  name" or "A payee must be 160 characters or fewer" now, and a template mass
+  edit's empty string says that `null` is the clear. The code, the status and
+  the field path are unchanged; only `message` is.
 - **Thirteen refusals that said a thing "is unavailable" say what happened.**
   An account, category, template, staged row or split row that could not be
   used now reads as archived or not found, with the move that works — "The

@@ -1,5 +1,5 @@
 import { globSync, readFileSync } from "node:fs";
-import { sourceFiles } from "./support/source.js";
+import { sourceFiles, type SourceFile } from "./support/source.js";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -325,25 +325,406 @@ describe("what the product says", () => {
    * Two pages had `eyebrow="Accounts" title="Accounts"`, which is a line of
    * uppercase text above a heading saying the same word — decoration that reads
    * as structure, and a second thing for a screen reader to announce.
+   *
+   * The first version matched `eyebrow="…"` with `title="…"` on the very next
+   * line, so it read twelve of the twenty-one headers. It could not see an
+   * eyebrow written as an expression, one written after its title, a title
+   * looked up from a table, or the detail pages whose eyebrow waits for the
+   * record to load — and those are exactly the headers where the two props are
+   * decided apart, which is how a repeat gets written without anybody seeing
+   * both words at once. So this walks every `<PageHeader>`, and every heading a
+   * page hands one down through, reads each prop into the ways it can come out,
+   * and compares every eyebrow with every title that can be on screen beside it.
    */
   it("never repeats a page title in its own eyebrow", () => {
+    const headings = pageHeadings();
+    const elements = headings.filter((heading) => heading.from === "element");
+    const read = headings.filter((heading) => heading.unread === null);
+    // Discovery first, so a matcher that stopped matching cannot pass as a
+    // clean sweep: every element, and the forwarded heading the register below
+    // says is read in its element's place.
+    expect(elements.length).toBeGreaterThanOrEqual(21);
+    expect(read.filter((heading) => heading.from === "element").length).toBeGreaterThanOrEqual(20);
+    expect(
+      read.some(
+        (heading) =>
+          heading.from === "object" &&
+          heading.where.startsWith("src/client/pages/TransactionsPage"),
+      ),
+      "the transactions page's forwarded heading",
+    ).toBe(true);
+    // A title is required, so one that came back missing is a walk that lost
+    // its place in the element rather than a page without one.
+    expect(
+      headings.filter((heading) => heading.title === null).map((heading) => heading.where),
+    ).toEqual([]);
+    // Both directions at once: nothing unread outside the register, and no
+    // register entry left behind by a header that has since become readable.
+    expect(
+      headings
+        .filter((heading) => heading.unread !== null)
+        .map((heading) => heading.where.split(":")[0])
+        .sort(),
+    ).toEqual(UNREAD_HEADINGS.map((entry) => entry.file).sort());
+
     const repeats: string[] = [];
     let pairs = 0;
-    for (const path of globSync("src/client/**/*.tsx")) {
-      const source = readFileSync(path, "utf8");
-      for (const match of source.matchAll(/eyebrow="([^"]+)"\s*\n\s*title="([^"]+)"/g)) {
-        pairs += 1;
-        // Contained, not only equal: "Import" above "Import a CSV" is the same
-        // word said twice, a line apart, and equality let it through.
-        const title = ` ${match[2]!.toLowerCase()} `;
-        if (title.includes(` ${match[1]!.toLowerCase()} `))
-          repeats.push(`${path}: "${match[1]}" over "${match[2]}"`);
+    for (const heading of read) {
+      for (const eyebrow of heading.eyebrow ?? []) {
+        for (const title of heading.title ?? []) {
+          if (eyebrow.outcome.kind !== "copy" || title.outcome.kind !== "copy") continue;
+          if (exclusive(eyebrow.guards, title.guards)) continue;
+          pairs += 1;
+          // Contained, not only equal: "Import" above "Import a CSV" is the same
+          // word said twice, a line apart, and equality let it through.
+          if (saysAgain(eyebrow.outcome.parts, title.outcome.parts))
+            repeats.push(
+              `${heading.where}: "${spelled(eyebrow.outcome.parts)}" over "${spelled(title.outcome.parts)}"`,
+            );
+        }
       }
     }
-    expect(pairs).toBeGreaterThan(8);
+    expect(pairs).toBeGreaterThanOrEqual(20);
     expect(repeats).toEqual([]);
   });
 });
+
+/**
+ * Page headers this cannot read, by file, each with the reason.
+ *
+ * Only a prop with no copy in it at all counts as unread. A prop with a literal
+ * anywhere is read, and its other half is a record's own name — the account
+ * detail page's title is the account's name once it loads — which is something
+ * a person typed rather than something the product says, so there is no rule
+ * here for it to break.
+ */
+const UNREAD_HEADINGS: { file: string; why: string }[] = [
+  {
+    file: "src/client/TransactionBrowser.tsx",
+    why: 'it renders whatever `heading` its page hands it, and each `kind: "page"` heading is read at that page instead',
+  },
+];
+
+/**
+ * One way a prop can come out: words the product wrote, with a gap wherever a
+ * template interpolates; nothing at all; or a value only known at runtime.
+ */
+type Outcome =
+  | { kind: "copy"; parts: (string | null)[] }
+  | { kind: "none" }
+  | { kind: "runtime"; expression: string };
+/** The condition an outcome sits behind: `subject` truthy, or not. */
+type Guard = { subject: string; holds: boolean };
+type Branch = { outcome: Outcome; guards: Guard[] };
+
+type Heading = {
+  /** `file:line`. */
+  where: string;
+  /** A `<PageHeader>` element, or a `heading={{ kind: "page" }}` passed down to one. */
+  from: "element" | "object";
+  eyebrow: Branch[] | null;
+  title: Branch[] | null;
+  /** Why the heading could not be read, or null when it was. */
+  unread: string | null;
+};
+
+/**
+ * Every page heading in the client, read.
+ *
+ * Two sources, because there are two ways to give `PageHeader` its words. Most
+ * pages write the element; the transactions list hands an object to
+ * `TransactionBrowser`, which writes the element with `heading.eyebrow` and
+ * `heading.title` and so has no words of its own to check.
+ */
+function pageHeadings(): Heading[] {
+  const found: Heading[] = [];
+  for (const file of sourceFiles("src/client")) {
+    const lineOf = (index: number) => file.code.slice(0, index).split("\n").length;
+    for (const match of file.code.matchAll(/<PageHeader(?=[\s/>])/g)) {
+      const end = topLevel(file.code, match.index + 1, (index) => file.code[index] === ">");
+      if (end === -1) continue;
+      const { props, spread } = propsOf(file.code.slice(match.index, end + 1));
+      found.push(heading(file, `${file.path}:${lineOf(match.index)}`, "element", props, spread));
+    }
+    for (const match of file.code.matchAll(/\bheading=\{\{/g)) {
+      const open = match.index + match[0].length - 1;
+      const props = entriesOf(file.code.slice(open + 1, closing(file.code, open)));
+      if (props.get("kind") !== '"page"') continue;
+      found.push(heading(file, `${file.path}:${lineOf(match.index)}`, "object", props, false));
+    }
+  }
+  return found;
+}
+
+function heading(
+  file: SourceFile,
+  where: string,
+  from: Heading["from"],
+  props: Map<string, string>,
+  spread: boolean,
+): Heading {
+  const read = (name: string) => {
+    const given = props.get(name);
+    return given === undefined ? null : outcomes(given, file, []);
+  };
+  const eyebrow = read("eyebrow");
+  const title = read("title");
+  const opaque = (branches: Branch[] | null) =>
+    branches !== null && branches.every((branch) => branch.outcome.kind === "runtime");
+  // A spread could carry either prop, and a forwarded value carries nothing
+  // this file can see: both are the honest "cannot read", which the register
+  // has to name.
+  const unread = spread
+    ? "its props are spread"
+    : opaque(eyebrow) || opaque(title)
+      ? `eyebrow ${props.get("eyebrow") ?? "absent"}, title ${props.get("title") ?? "absent"}`
+      : null;
+  return { where, from, eyebrow, title, unread };
+}
+
+/**
+ * The ways one prop's expression can come out, each with the conditions it
+ * sits behind.
+ *
+ * A ternary and `??` / `||` are what the client writes, and a lookup in a table
+ * of strings — `TITLES[report]` — is read through to the table, so every title
+ * the reports page can show is compared with its eyebrow. Anything else is a
+ * runtime value. The conditions are kept because the detail pages depend on
+ * them: their eyebrow is `account.data ? "Account" : undefined` and their title
+ * is `account.data?.name ?? "Account"`, so the one word is in both props and is
+ * never on screen twice, and a check that forgot the conditions would call
+ * that a repeat.
+ */
+function outcomes(source: string, file: SourceFile, guards: Guard[]): Branch[] {
+  const text = unwrapped(source.trim());
+  const isTernary = (index: number) =>
+    text[index] === "?" &&
+    text[index + 1] !== "?" &&
+    text[index + 1] !== "." &&
+    text[index - 1] !== "?";
+  const question = topLevel(text, 0, isTernary);
+  if (question !== -1) {
+    let nested = 0;
+    const colon = topLevel(text, question + 1, (index) => {
+      if (isTernary(index)) nested += 1;
+      else if (text[index] === ":") {
+        if (nested === 0) return true;
+        nested -= 1;
+      }
+      return false;
+    });
+    const subject = squashed(text.slice(0, question));
+    return [
+      ...outcomes(text.slice(question + 1, colon), file, [...guards, { subject, holds: true }]),
+      ...outcomes(text.slice(colon + 1), file, [...guards, { subject, holds: false }]),
+    ];
+  }
+  const either = topLevel(text, 0, (index) => /^(\?\?|\|\|)/.test(text.slice(index, index + 2)));
+  if (either !== -1) {
+    const subject = squashed(text.slice(0, either));
+    return [
+      ...outcomes(text.slice(0, either), file, [...guards, { subject, holds: true }]),
+      ...outcomes(text.slice(either + 2), file, [...guards, { subject, holds: false }]),
+    ];
+  }
+  if ((text.startsWith('"') || text.startsWith("'")) && pastQuote(text, 0) === text.length)
+    return text.length > 2
+      ? [{ outcome: { kind: "copy", parts: [text.slice(1, -1)] }, guards }]
+      : [{ outcome: { kind: "none" }, guards }];
+  if (text.startsWith("`") && pastTemplate(text, 0) === text.length)
+    return [{ outcome: { kind: "copy", parts: templateParts(text) }, guards }];
+  if (text === "undefined" || text === "null") return [{ outcome: { kind: "none" }, guards }];
+  const lookup = /^([A-Za-z_$][\w$]*)\[[^\]]+\]$/.exec(text);
+  // Found by its own `const`, type annotation and all; `topLevelDeclarations`
+  // does not see `const TITLES: Record<ReportName, string> = {`.
+  const table = lookup
+    ? new RegExp(String.raw`^(?:export\s+)?const\s+${lookup[1]}\b[^=\n]*=\s*\{`, "m").exec(
+        file.code,
+      )
+    : null;
+  if (table) {
+    const open = table.index + table[0].length - 1;
+    const values = [...entriesOf(file.code.slice(open + 1, closing(file.code, open))).values()];
+    const read = values.flatMap((value) => outcomes(value, file, guards));
+    if (read.length && read.every((branch) => branch.outcome.kind === "copy")) return read;
+  }
+  return [{ outcome: { kind: "runtime", expression: text }, guards }];
+}
+
+/**
+ * Whether two sets of conditions cannot hold at once: the same subject asked
+ * both ways. An optional chain off a subject is taken as the same subject —
+ * `account.data?.name` is absent exactly when `account.data` is — because the
+ * name it reads is a required field, which is the type's business to hold and
+ * not this check's.
+ */
+function exclusive(left: Guard[], right: Guard[]) {
+  const same = (one: string, other: string) =>
+    one === other || one.startsWith(`${other}?.`) || other.startsWith(`${one}?.`);
+  return left.some((one) =>
+    right.some((other) => one.holds !== other.holds && same(one.subject, other.subject)),
+  );
+}
+
+/**
+ * The rule itself, over words with gaps in them. The eyebrow is a whole word or
+ * run of words inside the title, ignoring case; a gap in the eyebrow matches
+ * any words, and a gap in the title matches nothing, since what fills it is not
+ * known here.
+ */
+function saysAgain(eyebrow: (string | null)[], title: (string | null)[]) {
+  const pattern = eyebrow
+    .map((part) => (part === null ? ".+?" : part.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")))
+    .join("");
+  const words = title.map((part) => part ?? "\u0000").join("");
+  return new RegExp(`(?<![\\p{L}\\p{N}])${pattern}(?![\\p{L}\\p{N}])`, "iu").test(words);
+}
+
+const spelled = (parts: (string | null)[]) => parts.map((part) => part ?? "${…}").join("");
+const squashed = (text: string) => text.replaceAll(/\s+/g, "");
+
+/** An expression with the parentheses that wrap the whole of it taken off. */
+function unwrapped(text: string): string {
+  let inner = text;
+  while (inner.startsWith("(") && closing(inner, 0) === inner.length - 1)
+    inner = inner.slice(1, -1).trim();
+  return inner;
+}
+
+/** A template literal's fixed text, with null wherever a `${…}` sits. */
+function templateParts(text: string): (string | null)[] {
+  const parts: (string | null)[] = [];
+  let chunk = "";
+  for (let index = 1; index < text.length - 1; index += 1) {
+    if (text[index] === "\\") {
+      index += 1;
+      chunk += text[index] ?? "";
+    } else if (text[index] === "$" && text[index + 1] === "{") {
+      parts.push(chunk, null);
+      chunk = "";
+      const close = closing(text, index + 1);
+      if (close === -1) break;
+      index = close;
+    } else {
+      chunk += text[index];
+    }
+  }
+  parts.push(chunk);
+  return parts.filter((part) => part !== "");
+}
+
+/**
+ * An element's props by name: the expression inside each `{…}`, or the quoted
+ * string with its quotes kept, so `outcomes` reads both spellings the same way.
+ * A `{...spread}` cannot be read and is reported rather than skipped.
+ */
+function propsOf(element: string) {
+  const props = new Map<string, string>();
+  let spread = false;
+  let index = /^<[\w.]+/.exec(element)?.[0].length ?? element.length;
+  while (index < element.length) {
+    const character = element[index]!;
+    if (/\s/.test(character)) {
+      index += 1;
+      continue;
+    }
+    if (character === "{") {
+      spread = true;
+      const close = closing(element, index);
+      if (close === -1) break;
+      index = close + 1;
+      continue;
+    }
+    const name = /^[\w-]+/.exec(element.slice(index))?.[0];
+    if (!name) break;
+    index += name.length;
+    if (element[index] !== "=") {
+      props.set(name, "true");
+      continue;
+    }
+    index += 1;
+    const end = element[index] === "{" ? closing(element, index) + 1 : pastQuote(element, index);
+    if (end <= index) break;
+    const value = element.slice(index, end);
+    props.set(name, value.startsWith("{") ? value.slice(1, -1).trim() : value);
+    index = end;
+  }
+  return { props, spread };
+}
+
+/** An object literal's entries by key, from the text between its braces. */
+function entriesOf(body: string) {
+  const entries = new Map<string, string>();
+  let start = 0;
+  while (start < body.length) {
+    const comma = topLevel(body, start, (index) => body[index] === ",");
+    const end = comma === -1 ? body.length : comma;
+    const entry = body.slice(start, end);
+    const colon = topLevel(entry, 0, (index) => entry[index] === ":");
+    if (colon !== -1) entries.set(entry.slice(0, colon).trim(), entry.slice(colon + 1).trim());
+    start = end + 1;
+  }
+  return entries;
+}
+
+/**
+ * The first index from `from` that `stop` accepts while outside every bracket,
+ * string and template literal, or -1.
+ *
+ * Brace depth is the whole reason this exists: a header's `actions` holds
+ * arrow functions and whole elements, and its `eyebrow` can hold a template
+ * whose `${…}` has its own parentheses, so neither the first `>` nor the first
+ * `}` after a prop is the one that ends it. `stop` sees a closing bracket
+ * before it is counted, which is how `closing` finds the one it wants.
+ */
+function topLevel(text: string, from: number, stop: (index: number) => boolean): number {
+  let depth = 0;
+  let index = from;
+  while (index < text.length) {
+    const character = text[index]!;
+    if (character === '"' || character === "'") {
+      index = pastQuote(text, index);
+      continue;
+    }
+    if (character === "`") {
+      index = pastTemplate(text, index);
+      continue;
+    }
+    if (depth === 0 && stop(index)) return index;
+    if ("([{".includes(character)) depth += 1;
+    else if (")]}".includes(character)) depth -= 1;
+    index += 1;
+  }
+  return -1;
+}
+
+/** The bracket that closes the one at `open`, or -1. */
+const closing = (text: string, open: number) =>
+  topLevel(text, open + 1, (index) => ")]}".includes(text[index]!));
+
+/** Just past the quoted string that opens at `start`; a line ends one left open. */
+function pastQuote(text: string, start: number): number {
+  for (let index = start + 1; index < text.length; index += 1) {
+    if (text[index] === "\\") index += 1;
+    else if (text[index] === text[start]) return index + 1;
+    else if (text[index] === "\n") return index;
+  }
+  return text.length;
+}
+
+/** Just past the template literal that opens at `start`, `${…}` and all. */
+function pastTemplate(text: string, start: number): number {
+  for (let index = start + 1; index < text.length; index += 1) {
+    if (text[index] === "\\") index += 1;
+    else if (text[index] === "`") return index + 1;
+    else if (text[index] === "$" && text[index + 1] === "{") {
+      const close = closing(text, index + 1);
+      if (close === -1) return text.length;
+      index = close;
+    }
+  }
+  return text.length;
+}
 
 /**
  * The two shapes of "there is nothing here", which had come apart.

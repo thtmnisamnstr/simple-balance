@@ -242,7 +242,7 @@ convention expects.
 answer: that the list items stay at the five that earned their shape, and that
 the lines running past 80 columns do not grow past where they already are.
 *Not checked:* that the top heading matches `package.json`. That is a hand step
-in the release recipe at `docs/upgrades.md:1478`, step 4, "Date the
+in the release recipe at `docs/upgrades.md:1486`, step 4, "Date the
 `## Unreleased` heading in `CHANGELOG.md`", and it has already been the subject
 of a commit ("Date 0.1.4 the day it is cut"). Nor is whether an entry describes
 a change somebody would notice, which is the judgement this section is mostly
@@ -348,7 +348,7 @@ publish runs `npm run verify` first, so an unwritten note now stops the release
 rather than reaching an operator mid-upgrade. *Also checked:* the frozen
 migration list, which `tests/migrations.test.ts` holds to what is on disk.
 *Not checked:* the changelog heading, a hand step in the release recipe at
-`docs/upgrades.md:1478`, and which release a migration is attributed to, which
+`docs/upgrades.md:1486`, and which release a migration is attributed to, which
 is prose inside a list a test can only check the membership of.
 
 ## Upgrade notes
@@ -363,7 +363,7 @@ end of the bullet — it grew, and the number did not.
 
 **House, the shape.** A `## Before you upgrade to X.Y.Z` section, and its first
 sentence tells an operator whether they can stop reading. The 0.1.6 note at
-`docs/upgrades.md:1137-1138` is the model: "Nothing refuses to start that 0.1.5
+`docs/upgrades.md:1145-1146` is the model: "Nothing refuses to start that 0.1.5
 accepted, and nothing about an existing configuration has to change. Five
 things are worth knowing." The 0.1.4 section is the other model, because the
 answer there was different: "0.1.4 refuses to start on three configurations
@@ -747,7 +747,7 @@ them cover the whole range:
   costs, and then the harder half: "Deliberately not `role="menu"` ... menu
   roles without the keyboard behavior they imply are worse than none."
 - **The invariant with the consequence of breaking it.**
-  `src/shared/domain.ts:2419-2421`: "`.strict()` is the load-bearing part: a
+  `src/shared/domain.ts:2462-2464`: "`.strict()` is the load-bearing part: a
   filter this cannot honor is an error rather than a key quietly dropped,
   because a selection resolves twice and an ignored filter makes the count and
   the fingerprint agree about the wrong set."
@@ -1063,7 +1063,7 @@ edit.
   - `App.tsx:710`, the scope description on the authorization page.
   - `select-options.ts:110`, the timezone label.
   - `components.tsx:1172`, every page title: `` `${title} — ${APP_NAME}` ``.
-  - `TemplatesPage.tsx:667`, "never — every date is skipped".
+  - `TemplatesPage.tsx:680`, "never — every date is skipped".
   - `AccountsPage.tsx:660-661`, the sentence explaining what a frozen account
     still does, and `BudgetsPage.tsx:1556`, the note under an average with
     nothing behind it. Both arrived in 0.2.0.

@@ -174,7 +174,7 @@ export default function DuplicateReviewPage() {
         {/* 13.3's shape, on the branch that ends every run: the Drop button is
             inside the panel this replaces, so confirming unmounts the element
             the dialog's `close()` would have returned focus to and it falls to
-            `<body>`. The neighbour case needs nothing — `<Navigate>` changes
+            `<body>`. The neighbor case needs nothing — `<Navigate>` changes
             the pathname and the shell moves focus to `<main>` — so only the
             queue of one was bare, which is the common ending rather than an
             edge. `EmptyState` cannot take focus and `Note` is a plain `<p>`,

@@ -245,7 +245,7 @@ parts, in order:
 4. **The refusals, named.** A transfer cannot be split. A daily schedule of one
    or two days cannot use a business-day policy. An entry-level category, by id
    or by name, cannot be sent alongside `legs`: `checkLegs`
-   (`src/shared/domain.ts:465-472`) refuses it with "Send either a category or
+   (`src/shared/domain.ts:489-496`) refuses it with "Send either a category or
    legs, not both".
 5. **What a person must be asked first, and what cannot be undone.** A
    description tells an agent what it cannot perceive. The model sentence on the
@@ -438,8 +438,8 @@ unrepresentable, so the model's own sampling cannot produce it.
 - **Ids are `format: "uuid"`.** See the budget section for why the pattern
   beside the format is a defect rather than a second safeguard.
 - **A name beside an id, where the server can resolve it.** `categoryName`
-  (`src/shared/domain.ts:523-534` for the entry-level field,
-  `:400-405` for the leg-level one, which defers to it) lets an agent send the
+  (`src/shared/domain.ts:555-563` for the entry-level field,
+  `:422-429` for the leg-level one, which defers to it) lets an agent send the
   human word: it is "matched case-insensitively against your existing categories
   and created only if it is genuinely new", and `categoryId` wins if both are
   sent. It is on 7 tools. The creation half is why `stage_csv` reports the
@@ -515,10 +515,10 @@ unrepresentable, so the model's own sampling cannot produce it.
   `preview_bulk_transaction_selection`, `bulk_edit_transactions` and
   `bulk_delete_transactions`. **Done**, and in one edit rather than five:
   `listQuerySchema.currency` now carries a filter sentence of its own
-  (`src/shared/domain.ts:2118-2122`), and the other four derive from it through
+  (`src/shared/domain.ts:2161-2165`), and the other four derive from it through
   `bulkTransactionFilterSchema`, which keeps the field and drops only paging and
-  ordering (`:2139-2141`). **Five, and exactly five.** A sixth position was
-  claimed here for a while, on `stageListQuerySchema` at `:2396-2397` — and
+  ordering (`:2182-2184`). **Five, and exactly five.** A sixth position was
+  claimed here for a while, on `stageListQuerySchema` at `:2439-2440` — and
   those two lines are the `.omit()` that *removes* `currency`, because a draft
   carries no currency of its own. The claim was the opposite of what the code
   does, which is the worse kind of wrong in a sentence whose job is to say how
@@ -804,7 +804,7 @@ envelope and the worked sentences.
   `tests/mcp-output.test.ts` pins the shape of that refusal and holds
   `docs/mcp.md` to naming it.
 - **House.** The code list is closed and published. `serviceErrorCodes`
-  (`src/shared/domain.ts:2662-2672`) is a `const` array rather than a bare
+  (`src/shared/domain.ts:2705-2715`) is a `const` array rather than a bare
   TypeScript union precisely so `toolErrorSchema` can publish it as an enum
   (`src/server/mcp-output-schemas.ts:97-103`): a closed list exists so a caller
   can branch — `STALE_VERSION` means read it again, `DUPLICATE` may mean it
@@ -839,7 +839,7 @@ envelope and the worked sentences.
 - **House, and the worked rule's second case, met late.** The frozen-account
   refusal is the most common new refusal on this surface and it broke the rule
   above in the same way `staleVersion` had: browser copy, reaching an agent
-  unchanged. `frozenAccountRefusal` (`src/shared/domain.ts:3953-3962`) ended "so
+  unchanged. `frozenAccountRefusal` (`src/shared/domain.ts:4012-4021`) ended "so
   its entries and details cannot change until you make it one of the active ones
   or upgrade",
   and both of those are moves an agent cannot make — and the first was not a
@@ -1099,7 +1099,7 @@ it means choosing which half to defer to anyway.
   Mistakes list names "Publishing all possible scopes in `scopes_supported`".
   The two documents answer two different questions and give the same answer to
   both: all seven. The authorization-server one is right to
-  (`src/server/api.ts:987-995`, served at `:1014`), because RFC 8414's field is
+  (`src/server/api.ts:988-996`, served at `:1015`), because RFC 8414's field is
   what the server accepts and Better Auth's accept-list at `/authorize` is the
   union of its four defaults with our three
   (`node_modules/better-auth/dist/plugins/oidc-provider/authorize.mjs:23-33`).
@@ -1107,7 +1107,7 @@ it means choosing which half to defer to anyway.
   because it is what a client builds its scope request from — the SDK joins
   `scopes_supported` verbatim, ahead of the client's own configured scope, in
   `client/auth.js`'s `resolvedScope` — and it publishes that same array
-  (`src/server/api.ts:996`, served at `:1021`). Four citations in this paragraph
+  (`src/server/api.ts:997`, served at `:1022`). Four citations in this paragraph
   had drifted and two of them landed on the other document's array, which in the
   one paragraph that exists to keep the two straight is worse than no citation.
   **It was narrowed to `openid profile email offline_access ledger:read`
@@ -1126,7 +1126,7 @@ it means choosing which half to defer to anyway.
   ships, both of them worked out by the draft that was taken out and kept here
   so the next attempt does not have to find them again. It has to reach every
   path the document is reachable from, including
-  `/api/auth/.well-known/oauth-protected-resource` (`src/server/api.ts:957`),
+  `/api/auth/.well-known/oauth-protected-resource` (`src/server/api.ts:958`),
   which is where `withMcpAuth`'s own 401 sends a
   client on first contact, since narrowing only the RFC 9728 paths would leave
   the advertisement everybody reads untouched and the one nobody reads correct.
@@ -1245,14 +1245,17 @@ human witness.
   does not offer carrying a written reason the way a route exception does. That
   closes the defect `AGENTS.md` names: `categoryKind` was documented for the MCP
   and missing from the form, and `?type=transfer` worked for an agent while
-  nothing in the browser could ask for its transfers. **Eight write surfaces
-  are compared now and the rest are not**, which is the number to keep honest,
-  because it was one for most of 0.2.0. Seven of them are
-  `tests/mcp-parity.test.ts`'s `WRITTEN_FORMS` register — `bulk_edit_transactions`,
-  `bulk_edit_staged_transactions`, `stage_csv`,
-  `bulk_edit_transaction_templates`, `set_budget_entry`, `create_budget_plan` and
-  `update_budget_plan`, 67 fields compared against the form that sends them,
-  with every field a form does not offer carrying a written reason. Three of
+  nothing in the browser could ask for its transfers. **Every write tool but
+  one is compared now**, which is the number to keep honest, because it was one
+  for most of 0.2.0 and seven for the rest of it. `tests/mcp-parity.test.ts`
+  takes its population from `tools/list` — every tool not annotated read-only,
+  forty today — and compares each against what `src/client` sends to its route:
+  thirty-nine tools and 166 fields across 42 forms. `revoke_connected_agent` is
+  the one not compared, since its only field is the path. A field the browser
+  deliberately does not send carries a written reason in `WRITTEN_FORMS` —
+  `dryRun` on three bulk tools, `rawData` on a created staged row — and every
+  other field must be sent somewhere. When it was a hand-kept register of seven,
+  it compared 67 fields. Three of
   those reasons were "declared rather than argued" — a template mass edit's
   description and notes, and a standing budget's funding order — and a fourth,
   that overriding a group is overriding its categories, was false for a group
@@ -1263,8 +1266,7 @@ human witness.
   it is a proposal of, and against the keys the review queue writes onto one —
   which is how `categoryName`, `categoryKind` and `templateId` were found
   travelling through the `.catchall` and published nowhere: the same defect
-  `AGENTS.md` names, pointing from the browser at the agent. Every write
-  tool outside those eight is still unchecked at the field level, and only three
+  `AGENTS.md` names, pointing from the browser at the agent. Only three
   listings are pinned to the schema their service parses. It proves nothing at all
   about whether an agent can use the surface. No published guidance recommends
   interface-parity testing for an MCP server; as far as this project's research
@@ -1287,20 +1289,20 @@ human witness.
 (every route reachable through a named tool) and `:282-311`, which extracts which
 service each route and each tool calls and compares them, with a `compared` floor
 at `:308` guarding the regex from silently matching nothing. Backward at
-`:650-685`, which matches each route's whole path against `src/client`, each
+`:682-698`, which matches each route's whole path against `src/client`, each
 parameter standing in for a template hole rather than only the prefix before the
 first one: `/api/v1/accounts` is satisfied the moment anything fetches an
 account, which left every parameterized sub-route beneath it unchecked and a
 page free to stop calling one. It reads the method too, from the call the path
 sits in, and the path's end, so neither a `PUT` to the same URL nor a fetch of a
 longer path beneath it satisfies a `GET`. Exceptions are policed at `:270-274`, which fails
-an exception naming a route that no longer exists, and at `:687-691`, which
+an exception naming a route that no longer exists, and at `:700-704`, which
 fails any agent-only reason under forty characters. Nothing measures the
 browser-only reasons; they stay a reviewer's job. The two forbidden capabilities
-are pinned by name at `:325-335`. *Also checked by:* `:882-910` for the field
+are pinned by name at `:325-335`. *Also checked by:* `:922-950` for the field
 level, which reads each listing route's schema and the page's own request object
 and fails a filter the route parses that the page cannot send, with a `compared`
-floor so a reader that stopped matching cannot pass on nothing; and `:912-918`,
+floor so a reader that stopped matching cannot pass on nothing; and `:952-958`,
 which fails a filter named as unoffered without a reason over forty characters,
 exactly as the route exceptions are policed.
 
@@ -1346,7 +1348,7 @@ exactly as the route exceptions are policed.
   and a staged create is not.
 
 *Checked by:* the idempotency and version behavior at the service layer, and
-`tests/mcp-measurements.test.ts:574-611` on this surface, which is what keeps
+`tests/mcp-measurements.test.ts:582-620` on this surface, which is what keeps
 `idempotentHint` from becoming a lie: it counts the mutating tools from the
 annotations and the keys from the schemas, so a tool added without one moves one
 number and not the other rather than moving both and agreeing with itself, and
@@ -1387,7 +1389,7 @@ creating state which expires says so, which is prose in a description.
   issued specifically for them as the intended audience" and "MUST NOT accept or
   transit any other tokens". This deployment binds the audience to its own `/mcp`
   and replaces anything that is not a JWT it signed, in either header shape
-  (`src/server/api.ts:1103-1122`).
+  (`src/server/api.ts:1104-1123`).
 - **House.** `x-mcp-header` mirrors a tool argument into an HTTP header for proxy
   routing, and the specification warns against marking sensitive parameters with
   it. Nothing here needs proxy routing and everything here is somebody's
@@ -1485,8 +1487,8 @@ which is an evaluation rather than a test.
 | --- | --- |
 | Every `/api/v1` route is reachable through a named tool, or is a named exception with a reason | `tests/mcp-parity.test.ts:251-266` |
 | A tool reaches the same service as its route | `tests/mcp-parity.test.ts:282-311` |
-| No route exists that no page calls, without a named exception | `tests/mcp-parity.test.ts:650-685` |
-| A listing page sends every filter its route parses, or names the one it does not with a reason | `tests/mcp-parity.test.ts:882-918`, for the register and the staged queue |
+| No route exists that no page calls, without a named exception | `tests/mcp-parity.test.ts:682-698` |
+| A listing page sends every filter its route parses, or names the one it does not with a reason | `tests/mcp-parity.test.ts:922-958`, for the register and the staged queue |
 | Deleting an account and setting a password are absent from the tool list | `tests/mcp-parity.test.ts:325-335` |
 | Every registered tool is named in `docs/mcp.md` | `tests/mcp-parity.test.ts:318-323` |
 | A read-only token sees nothing that declares itself a write | `tests/mcp-parity.test.ts:344-352` |
@@ -1509,7 +1511,7 @@ which is an evaluation rather than a test.
 | A tool whose first call is a one-way door is annotated destructive, and says so | `tests/active-accounts-mcp.test.ts` |
 | A tool that cannot be undone says so, and a recoverable one says how to get back | `tests/mcp-measurements.test.ts` |
 | One spelling per concept across every description | `tests/mcp-measurements.test.ts` |
-| A mutating tool takes an idempotency key | `tests/mcp-measurements.test.ts:574-611` |
+| A mutating tool takes an idempotency key | `tests/mcp-measurements.test.ts:582-620` |
 | `readOnlyHint` is true only where nothing the handler calls writes, and a read-only token sees nothing else | `tests/mcp-parity.test.ts:344-352` and `:369-397`, both substantive directions |
 | A tool annotated `readOnlyHint: true` is registered behind a write scope | `tests/mcp-protocol-surface.test.ts`, off `TOOL_SCOPES`. Empty today: all 37 read-only tools are in the read block. It would waste a tier's tool list rather than lie about one, which is why it is the residue rather than the rule — and why the failure that matters is the agent's: a `ledger:read` token asking for a report it is entitled to is told the tool is absent, and `instructions` gives it nothing else to go on |
 | Tool order is deterministic | `tests/mcp-protocol-surface.test.ts`, which pins the whole 77-name order and that each tier's list is that order filtered. Registration order is the de facto order and is met by construction; what the check buys is that a silent reorder costs a prompt-cache miss on 486,889 characters and is indistinguishable in a diff from a tool being added |
@@ -1522,8 +1524,8 @@ which is an evaluation rather than a test.
 | A tool whose input schema asks for an `expectedVersion` anywhere is annotated destructive, because a version is asked for only where there is a row to replace | `tests/mcp-destructive-annotations.test.ts`, over a real connection so it reads what an agent is told in `tools/list` rather than what the registration source says. It carries an anti-vacuity guard naming four tools and requiring more than twenty hits, and it caught `set_budget_entry` calling itself additive while overwriting a budget figure |
 | No money argument is declared as a `number` or an `integer`, anywhere in any input schema | `tests/mcp-money-arguments.test.ts`, carrying the introducing property name down through `items`, `anyOf`, `oneOf` and `allOf`, with one register entry — `stage_csv.mapping`, which names column headings rather than values |
 | Every key a staged draft really carries is declared with a description, rather than riding the catchall | `tests/staged-draft-contract.test.ts`, deriving the population from `transactionDraftSchema` and from the keys `StagingPage` writes. It found `categoryName`, `categoryKind` and then `templateId` undeclared, which is `AGENTS.md`'s parity rule one level down and invisible to any route-by-route comparison |
-| Every field a write tool parses is offered somewhere in the browser, or is named with the reason it is not | `tests/mcp-parity.test.ts`, `WRITTEN_FORMS` — six tool/form pairs and 52 fields, against a floor of twenty compared. The other write tools are **not** compared, which is the residue this row exists to name |
-| No `registerResource` and no `registerPrompt` in `src/server` | `tests/mcp-protocol-surface.test.ts`, with a reader guard that `registerTool` *is* found, so a scan that stopped matching fails rather than reporting the surface clean |
+| Every field a write tool parses is offered somewhere in the browser, or is named with the reason it is not | `tests/mcp-parity.test.ts` — every tool `tools/list` does not annotate read-only, thirty-nine compared and 166 fields against a floor of 150, with `revoke_connected_agent` excused because its only field is the path. It was a hand-kept register of six tool/form pairs until it was derived |
+| No registration in `src/server` but `registerTool` — no resource, no prompt, no raw request handler, and not the older `tool(…)` that skips the wrapper timing and counting every call | `tests/mcp-protocol-surface.test.ts`, which reads the registration methods off the installed SDK's own type declarations rather than naming two, and holds the `registerTool` calls to exactly the tools a full-scope token is offered |
 | Every output field carries a description | **Not checked**, and deliberately not a rule. The misleading ones are checked by name above. |
 | Whether a description teaches | **Review only,** and the evaluation above is the nearest thing to a check. |
 

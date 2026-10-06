@@ -1541,7 +1541,7 @@ function transactionFilterConditions(actor: Actor, query: BulkTransactionFilter)
   if (query.type) conditions.push(eq(transactions.type, query.type));
   if (query.categoryId) {
     // An exists rather than a join, so a receipt split two ways across the same
-    // category is still one row in the list and counts once towards a mass
+    // category is still one row in the list and counts once toward a mass
     // edit's expected count.
     conditions.push(
       or(

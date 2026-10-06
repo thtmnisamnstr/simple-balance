@@ -293,17 +293,35 @@ describe("a wire value and the word a person reads", () => {
  * answered by rewording a correct comment.
  */
 describe("the em dash", () => {
+  const named = /<h[1-6]\b|<th\b|aria-label=|confirmLabel=|\blabel:\s*"/;
+  const dashedLabels = (code: string) =>
+    code
+      .split("\n")
+      .flatMap((line, index) => (line.includes("—") && named.test(line) ? [index + 1] : []));
+
   it("stays out of a heading, a table header and a label", () => {
-    const named = /<h[1-6]\b|<th\b|aria-label=|confirmLabel=|\blabel:\s*"/;
-    const offenders: string[] = [];
-    for (const file of sourceFiles("src")) {
-      file.code.split("\n").forEach((line, index) => {
-        if (line.includes("—") && named.test(line)) {
-          offenders.push(`${file.path}:${index + 1}`);
-        }
-      });
-    }
+    const offenders = sourceFiles("src").flatMap((file) =>
+      dashedLabels(file.code).map((line) => `${file.path}:${line}`),
+    );
     expect(offenders, "a dash here stands in for deciding what it says").toEqual([]);
+  });
+
+  /**
+   * The canary. A clean tree is the expected answer above, so a pattern that
+   * had stopped matching anything would look exactly like one, and this check
+   * had no way to tell the two apart. Each shape it claims to read is written
+   * here once with a dash in it and must be found; a plain sentence must not.
+   */
+  it("finds a dash in each shape it claims to read", () => {
+    const synthetic = [
+      "<h2>Budgets — this month</h2>",
+      '<th scope="col">Amount — USD</th>',
+      'aria-label="Edit — Groceries"',
+      'confirmLabel="Delete — budget"',
+      'label: "Monthly — $3.00",',
+      "<p>A sentence may use one — like this.</p>",
+    ].join("\n");
+    expect(dashedLabels(synthetic)).toEqual([1, 2, 3, 4, 5]);
   });
 });
 

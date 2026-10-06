@@ -965,3 +965,31 @@ describe("what a deployment sells and shows", () => {
     expect(() => getConfig()).toThrow(/TERMS_OF_USE_URL must be https/);
   });
 });
+
+/**
+ * `operations.md` §Types: a boolean or a closed set refuses an unrecognized
+ * value and names the variable. The tables above list the settings by hand,
+ * and two of the four booleans `getConfig` reads were missing from them for a
+ * release while the guide's summary row cited them as covered. So the
+ * population is the source's own refusals — every "X must be …" sentence in
+ * `src/server/config.ts` — and each has to be asserted by some test.
+ */
+describe("a setting that takes a closed set", () => {
+  it("has its refusal asserted somewhere, for every one config.ts declares", async () => {
+    const { globSync, readFileSync } = await import("node:fs");
+    const config = readFileSync("src/server/config.ts", "utf8");
+    const names = [
+      ...config.matchAll(
+        /["`]([A-Z][A-Z0-9_]+) must be (?:true or false|one of|debug|production)/g,
+      ),
+    ].map((match) => match[1]!);
+    expect(names.length).toBeGreaterThanOrEqual(10);
+    const tests = globSync("tests/**/*.test.ts")
+      .map((file) => readFileSync(file, "utf8"))
+      .join("\n");
+    const unasserted = [...new Set(names)].filter(
+      (name) => !new RegExp(`${name} must be`).test(tests),
+    );
+    expect(unasserted, "assert the refusal, naming the variable").toEqual([]);
+  });
+});

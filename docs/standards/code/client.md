@@ -241,7 +241,7 @@ the client only in comments explaining why they are not called
 (`src/client/api.ts:561-563`, `src/client/TransactionBrowser.tsx:437`). What
 the browser reads instead is the answer: `frozen` on each account
 (`src/client/api.ts:567`), and an ad that exists only because the server sent a
-placement at all (`src/server/api.ts:1582`, `src/client/ads.tsx:7-14`).
+placement at all (`src/server/api.ts:1586`, `src/client/ads.tsx:7-14`).
 
 **The obvious alternative was to compute it in the browser from the session**,
 which is one import and looks like 2.2 being obeyed. It is wrong three times

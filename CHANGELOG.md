@@ -194,6 +194,15 @@ types read "Credit card" rather than "Credit Card". And a refusal that said a
 thing "is unavailable" now says whether it was archived or not found, and what
 to do about it.
 
+**A field left empty or written too long says what to write.** Typing a space
+where a category name goes said "Too small: expected string to have >=1
+characters". Every free-text field now refuses in words — "Enter a category
+name", "An account name must be 120 characters or fewer" — in the browser and
+for an agent alike. The amount in the review queue's quick edit and the new
+amount in a template mass edit say their currency like every other amount
+field, and a typo in `IDEMPOTENCY_RETENTION_HOURS` is reported when the server
+starts rather than on the scheduler's first sweep.
+
 **What an agent could do, a person can now do too.** Six things were
 reachable only through the MCP: overriding one month of a group's own budget,
 reading the activity history past its latest hundred entries, seeing the row a

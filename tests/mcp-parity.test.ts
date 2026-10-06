@@ -578,39 +578,7 @@ function callMethods(client: string, pattern: RegExp): Set<string> {
   const methods = new Set<string>();
   const global = new RegExp(pattern.source, "g");
   for (const match of client.matchAll(global)) {
-    // Back to the `(` that opens the call holding this URL, then forward to the
-    // `)` that closes it, skipping over strings and template holes both ways
-    // is not needed backwards: the URL is the call's first argument.
-    const open = client.lastIndexOf("(", match.index);
-    let depth = 0;
-    let end = open;
-    const stack: string[] = [];
-    for (let index = open; index < client.length; index++) {
-      const character = client[index]!;
-      const top = stack.at(-1);
-      if (top === '"' || top === "'") {
-        if (character === "\\") index++;
-        else if (character === top) stack.pop();
-        continue;
-      }
-      if (top === "`") {
-        if (character === "\\") index++;
-        else if (character === "`") stack.pop();
-        else if (character === "$" && client[index + 1] === "{") {
-          stack.push("{");
-          index++;
-        }
-        continue;
-      }
-      if (character === '"' || character === "'" || character === "`") stack.push(character);
-      else if (character === "{") stack.push("{");
-      else if (character === "}") stack.pop();
-      else if (character === "(") depth++;
-      else if (character === ")" && --depth === 0) {
-        end = index;
-        break;
-      }
-    }
+    const { open, end } = enclosingCall(client, match.index);
     let call = client.slice(open, end + 1);
     // A request built beforehand and passed by name — the import page builds
     // one body for its plain call and its streamed one — is read where it was
@@ -624,6 +592,70 @@ function callMethods(client: string, pattern: RegExp): Set<string> {
     methods.add(method ? method[1]! : /\bjson\(/.test(call) ? "POST" : "GET");
   }
   return methods;
+}
+
+/** Where the call holding the URL at `at` opens, and the `)` that closes it. */
+function enclosingCall(client: string, at: number): { open: number; end: number } {
+  // Back to the `(` that opens the call holding this URL, then forward to the
+  // `)` that closes it, skipping over strings and template holes both ways
+  // is not needed backwards: the URL is the call's first argument.
+  const open = client.lastIndexOf("(", at);
+  let depth = 0;
+  let end = open;
+  const stack: string[] = [];
+  for (let index = open; index < client.length; index++) {
+    const character = client[index]!;
+    const top = stack.at(-1);
+    if (top === '"' || top === "'") {
+      if (character === "\\") index++;
+      else if (character === top) stack.pop();
+      continue;
+    }
+    if (top === "`") {
+      if (character === "\\") index++;
+      else if (character === "`") stack.pop();
+      else if (character === "$" && client[index + 1] === "{") {
+        stack.push("{");
+        index++;
+      }
+      continue;
+    }
+    if (character === '"' || character === "'" || character === "`") stack.push(character);
+    else if (character === "{") stack.push("{");
+    else if (character === "}") stack.pop();
+    else if (character === "(") depth++;
+    else if (character === ")" && --depth === 0) {
+      end = index;
+      break;
+    }
+  }
+  return { open, end };
+}
+
+/**
+ * The whole path a route is called by, with each parameter standing in for a
+ * template hole.
+ *
+ * The backward check once asked whether the prefix before the first parameter
+ * appeared anywhere in the client, which is true of `/api/v1/accounts` the
+ * moment anything fetches an account — so every parameterized sub-route was
+ * unchecked, and a page could stop calling one without it noticing.
+ */
+function routePathPattern(path: string): RegExp {
+  return new RegExp(
+    path
+      .split("/")
+      .map((segment) =>
+        segment.startsWith(":")
+          ? "\\$\\{[^}`]*\\}"
+          : segment.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+      )
+      .join("/") +
+      // The path ends here — at the string's end, a query, or a template hole
+      // that writes one: `/staged-transactions/${id}` is not called by a
+      // page that fetches `/staged-transactions/${id}/duplicate`.
+      "(?=[`\"'?$])",
+  );
 }
 
 async function clientSource() {
@@ -654,26 +686,7 @@ describe("what the browser can reach compared with an agent", () => {
     const unreachable: string[] = [];
     for (const route of routes) {
       if (route in AGENT_ONLY) continue;
-      const path = route.slice(route.indexOf(" ") + 1);
-      // The whole path, with each parameter standing in for a template hole.
-      // This asked whether the prefix before the first parameter appeared
-      // anywhere in the client, which is true of `/api/v1/accounts` the moment
-      // anything fetches an account — so every parameterized sub-route was
-      // unchecked, and a page could stop calling one without this noticing.
-      const pattern = new RegExp(
-        path
-          .split("/")
-          .map((segment) =>
-            segment.startsWith(":")
-              ? "\\$\\{[^}`]*\\}"
-              : segment.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-          )
-          .join("/") +
-          // The path ends here — at the string's end, a query, or a template hole
-          // that writes one: `/staged-transactions/${id}` is not called by a
-          // page that fetches `/staged-transactions/${id}/duplicate`.
-          "(?=[`\"'?$])",
-      );
+      const pattern = routePathPattern(route.slice(route.indexOf(" ") + 1));
       const method = route.slice(0, route.indexOf(" "));
       if (!pattern.test(client)) {
         unreachable.push(`${route} — no call in src/client`);
@@ -780,40 +793,64 @@ describe("what the browser can reach compared with an agent", () => {
    *   declaration containing one is re-anchored to it; a filter object has no
    *   such call and is read where it stands.
    */
-  function requestFields(file: SourceFile, name: string, seen = new Set<string>()): Set<string> {
-    if (seen.has(name)) return new Set();
-    seen.add(name);
-    const opener = new RegExp(`\\bconst ${name}\\b[^=\\n]*=[^={[\\n]*([{[])`).exec(file.code);
-    if (!opener) throw new Error(`${file.path} has no literal named ${name}`);
+  function requestFields(file: SourceFile, name: string): Set<string> {
+    const start = literalNamed(file, name);
+    if (start === undefined) throw new Error(`${file.path} has no literal named ${name}`);
+    return literalFields(file, start, new Set());
+  }
 
-    /** The balanced region that opens at `from`, which is a `{` or a `[`. */
-    const balanced = (from: number) => {
-      let depth = 1;
-      let end = from + 1;
-      while (end < file.code.length && depth > 0) {
-        const character = file.code[end]!;
-        if ("{[(".includes(character)) depth += 1;
-        else if ("}])".includes(character)) depth -= 1;
-        end += 1;
-      }
-      return file.code.slice(from + 1, end - 1);
-    };
-
-    const start = opener.index + opener[0].length - 1;
-    let open = opener[1]!;
-    let body = balanced(start);
-    const request = body.indexOf("json(");
-    if (request !== -1) {
-      const argument = body.indexOf("{", request);
-      if (argument === -1) throw new Error(`${file.path}: ${name} calls json() on no object`);
-      // `balanced` indexes the whole file, so the offset has to be the one the
-      // body was cut from rather than the one inside it.
-      body = balanced(start + 1 + argument);
-      open = "{";
+  /** The balanced region that opens at `from`, which is a `{` or a `[`. */
+  function balanced(file: SourceFile, from: number): string {
+    let depth = 1;
+    let end = from + 1;
+    while (end < file.code.length && depth > 0) {
+      const character = file.code[end]!;
+      if ("{[(".includes(character)) depth += 1;
+      else if ("}])".includes(character)) depth -= 1;
+      end += 1;
     }
+    return file.code.slice(from + 1, end - 1);
+  }
+
+  /**
+   * Where the literal a name is bound to opens, as `requestFields` reads it: a
+   * declaration containing a `json(…)` call is re-anchored to that call's
+   * argument.
+   *
+   * The nearest declaration before `before` where there is one, and the first
+   * in the file otherwise. Nearest, because a spread names whatever is in scope
+   * where it is written: `forms.tsx` declares `const body` for templates and
+   * again for recurrences, and `StagingPage.tsx` `const payload` for the
+   * selection's commit and again for one row's — the first in the file is the
+   * wrong one half the time.
+   */
+  function literalNamed(file: SourceFile, name: string, before?: number): number | undefined {
+    const openers = [
+      ...file.code.matchAll(new RegExp(`\\bconst ${name}\\b[^=\\n]*=[^={[\\n]*([{[])`, "g")),
+    ];
+    const opener =
+      openers.filter((match) => before !== undefined && match.index < before).at(-1) ?? openers[0];
+    if (!opener) return undefined;
+    const start = opener.index + opener[0].length - 1;
+    const body = balanced(file, start);
+    const request = body.indexOf("json(");
+    if (request === -1) return start;
+    const argument = body.indexOf("{", request);
+    if (argument === -1) throw new Error(`${file.path}: ${name} calls json() on no object`);
+    // `balanced` indexes the whole file, so the offset has to be the one the
+    // body was cut from rather than the one inside it.
+    return start + 1 + argument;
+  }
+
+  /** The fields of the literal that opens at `start`, following what it spreads. */
+  function literalFields(file: SourceFile, start: number, seen: Set<number>): Set<string> {
+    if (seen.has(start)) return new Set();
+    seen.add(start);
+    const open = file.code[start]!;
+    const body = balanced(file, start);
 
     const fields = new Set<string>();
-    const take = (chunk: string) => {
+    const take = (chunk: string, at: number) => {
       const trimmed = chunk.trim();
       if (open === "[") {
         // A field list is either names or `{ key: "name" }` rows; both say the
@@ -825,7 +862,10 @@ describe("what the browser can reach compared with an agent", () => {
       }
       const spread = /^\.\.\.([A-Za-z_$][\w$]*)\s*$/.exec(trimmed);
       if (spread) {
-        for (const field of requestFields(file, spread[1]!, seen)) fields.add(field);
+        const spreads = literalNamed(file, spread[1]!, at);
+        if (spreads === undefined)
+          throw new Error(`${file.path} has no literal named ${spread[1]}`);
+        for (const field of literalFields(file, spreads, seen)) fields.add(field);
         return;
       }
       // `...(condition ? { expectedVersion } : {})` is a field the form really
@@ -871,11 +911,11 @@ describe("what the browser can reach compared with an agent", () => {
       if ("{[(".includes(character)) nesting += 1;
       else if ("}])".includes(character)) nesting -= 1;
       else if (character === "," && nesting === 0) {
-        take(body.slice(from, index));
+        take(body.slice(from, index), start + 1 + from);
         from = index + 1;
       }
     }
-    take(body.slice(from));
+    take(body.slice(from), start + 1 + from);
     return fields;
   }
 
@@ -944,15 +984,21 @@ describe("what the browser can reach compared with an agent", () => {
     readonly what: string;
     readonly tool: string;
     /**
-     * Where in the published schema the fields are. Empty is the top level; a
-     * mass edit keeps them under `patch`, and reading the top level there would
-     * compare `selection` and `dryRun` and call it a match.
+     * Where in the published schema the fields are. Left out, it is `input`
+     * where the tool declares one — an update keeps the record's fields there
+     * and its id beside them, and the route takes them as its whole body — and
+     * the top level otherwise. A mass edit names `patch`, because reading the
+     * top level there would compare `selection` and `dryRun` and call it a
+     * match.
      */
-    readonly at: readonly string[];
-    /** The file that owns the form, repository-relative. */
-    readonly file: string;
-    /** The named request object, or field list, the form writes through. */
-    readonly writes: string;
+    readonly at?: readonly string[];
+    /**
+     * A panel that declares the fields it offers as a named list, and the file
+     * that owns it, repository-relative. Left out, the form is whatever
+     * `src/client` sends the tool's own route, found by the route.
+     */
+    readonly file?: string;
+    readonly writes?: string;
     /**
      * Fields the form deliberately does not offer, each with the sentence it
      * has to be arguable in, exactly as `unoffered` works for a filter above.
@@ -967,6 +1013,17 @@ describe("what the browser can reach compared with an agent", () => {
    */
   const ADDRESSING = new Set(["id", "idempotencyKey"]);
 
+  /**
+   * `mcp.md` §The agent surface never runs ahead of the browser argues this
+   * once for every bulk tool, so it is written once here.
+   */
+  const DRY_RUN =
+    "The browser holds the rows it is about to write, or previews a filtered set with the selection route, and shows the count before it writes. The rehearsal exists for a caller with no screen to show one on.";
+
+  /**
+   * The forms that need saying something about. Every other write tool is
+   * compared without an entry, against what `src/client` sends its route.
+   */
   const WRITTEN_FORMS: readonly WrittenForm[] = [
     {
       what: "the register's mass edit",
@@ -985,14 +1042,6 @@ describe("what the browser can reach compared with an agent", () => {
       unoffered: {},
     },
     {
-      what: "the import",
-      tool: "stage_csv",
-      at: [],
-      file: "src/client/pages/ImportPage.tsx",
-      writes: "request",
-      unoffered: {},
-    },
-    {
       what: "the template mass edit",
       tool: "bulk_edit_transaction_templates",
       at: ["patch"],
@@ -1008,27 +1057,31 @@ describe("what the browser can reach compared with an agent", () => {
       },
     },
     {
-      what: "a period's budget override",
-      tool: "set_budget_entry",
-      at: [],
-      file: "src/client/pages/BudgetsPage.tsx",
-      writes: "setEntry",
-      unoffered: {},
+      what: "the template mass edit's request",
+      tool: "bulk_edit_transaction_templates",
+      unoffered: { dryRun: DRY_RUN },
     },
     {
-      what: "setting a standing budget",
-      tool: "create_budget_plan",
-      at: [],
-      file: "src/client/pages/BudgetsPage.tsx",
-      writes: "createPlan",
-      unoffered: {},
+      what: "deleting templates in bulk",
+      tool: "bulk_delete_transaction_templates",
+      unoffered: { dryRun: DRY_RUN },
+    },
+    {
+      what: "deleting staged rows",
+      tool: "delete_staged_transactions",
+      unoffered: { dryRun: DRY_RUN },
+    },
+    {
+      what: "staging an entry by hand",
+      tool: "create_staged_transaction",
+      unoffered: {
+        rawData:
+          "The row an agent read its proposal from. A person entering one has no other row it came from; what was missing was showing it, and the staged row's form now shows it as it arrived.",
+      },
     },
     {
       what: "editing a standing budget",
       tool: "update_budget_plan",
-      at: [],
-      file: "src/client/pages/BudgetsPage.tsx",
-      writes: "editPlan",
       unoffered: {
         activeFrom:
           "A carry is folded at read time rather than stored, so moving a plan's start date re-folds every period it has ever reported. The dialog adjusts a budget that is running; a budget that starts somewhere else is a different budget, made new.",
@@ -1046,17 +1099,151 @@ describe("what the browser can reach compared with an agent", () => {
     },
   ];
 
+  /**
+   * Write tools with nothing to compare, each with the reason. A population
+   * member the rule excuses, so it is named and argued rather than simply
+   * missing (`testing.md` 2.6).
+   */
+  const NOT_COMPARED: Readonly<Record<string, string>> = {
+    revoke_connected_agent:
+      "Its one field, clientId, names which agent, and the browser puts that in the path as it puts every record's id there. Settings sends the route an empty body, so there is no field on either side to compare.",
+  };
+
+  /**
+   * Every field `src/client` sends a route, read off each call to it, and how
+   * many calls there were.
+   *
+   * Found by the route rather than named, so a write tool needs no entry to be
+   * compared: its route is the one `COVERED_BY` gives it, and every call to
+   * that path with that method is a form that writes it. Unioned across the
+   * calls, because the rule is that a field is offered somewhere —
+   * `set_preferences` is written by Settings, by the theme switch and by a
+   * first visit's guess, and each sends a different part of it.
+   */
+  function sentTo(files: readonly SourceFile[], route: string) {
+    const method = route.slice(0, route.indexOf(" "));
+    const pattern = new RegExp(routePathPattern(route.slice(route.indexOf(" ") + 1)).source, "g");
+    const fields = new Set<string>();
+    let calls = 0;
+    for (const file of files) {
+      for (const match of file.code.matchAll(pattern)) {
+        const { open, end } = enclosingCall(file.code, match.index);
+        const call = file.code.slice(open, end + 1);
+        const body = requestBody(file, open, call);
+        const sends = /method:\s*"([A-Z]+)"/.exec(call)?.[1] ?? (body ? "POST" : "GET");
+        if (sends !== method) continue;
+        calls += 1;
+        for (const field of body ?? []) fields.add(field);
+      }
+    }
+    return { calls, fields };
+  }
+
+  /**
+   * What one call sends: the argument of the `json(…)` it makes, or of the
+   * one that built a request it is handed by name — the import and the staged
+   * commit each build one request for a plain call and a streamed one.
+   */
+  function requestBody(file: SourceFile, open: number, call: string): Set<string> | undefined {
+    const direct = call.indexOf("json(");
+    if (direct !== -1) return argumentFields(file, open + direct + "json(".length);
+    const named = /,\s*([A-Za-z_$][\w$]*)\s*[,)]/.exec(call)?.[1];
+    if (!named) return undefined;
+    const built = [...file.code.matchAll(new RegExp(`\\bconst ${named}\\s*=\\s*json\\(`, "g"))]
+      .filter((match) => match.index < open)
+      .at(-1);
+    return built ? argumentFields(file, built.index + built[0].length) : undefined;
+  }
+
+  /**
+   * The fields of the argument starting at `index`: a literal read where it
+   * stands, or a name read where it is bound.
+   *
+   * A name is bound either by a `const` holding a literal, or as the
+   * variables of the mutation whose `mutationFn` takes it — which are read at
+   * every `.mutate({…})` that supplies them, because that is where the
+   * register's bulk delete writes its request. Whichever binding is nearer the
+   * use is the one in scope: the staged queue's mass edit takes `request` as a
+   * parameter a hundred lines below a `const request` that belongs to the
+   * commit.
+   */
+  function argumentFields(file: SourceFile, index: number): Set<string> | undefined {
+    const rest = file.code.slice(index);
+    const literal = /^\s*[{[]/.exec(rest);
+    if (literal) return literalFields(file, index + literal[0].length - 1, new Set());
+    const name = /^\s*([A-Za-z_$][\w$]*)\s*\)/.exec(rest)?.[1];
+    if (!name) return undefined;
+    const before = file.code.slice(0, index);
+    const nearest = (pattern: RegExp) => [...before.matchAll(pattern)].at(-1)?.index ?? -1;
+    const declared = nearest(new RegExp(`\\bconst ${name}\\b`, "g"));
+    const parameter = nearest(new RegExp(`\\(\\s*${name}\\s*(?::[^()]*)?\\)\\s*=>`, "g"));
+    if (declared > parameter) {
+      const start = literalNamed(file, name, index);
+      return start === undefined ? undefined : literalFields(file, start, new Set());
+    }
+    const mutation = [...before.matchAll(/\bconst (\w+)\s*=\s*useMutation\b/g)].at(-1)?.[1];
+    if (parameter === -1 || !mutation) return undefined;
+    const fields = new Set<string>();
+    for (const call of file.code.matchAll(
+      new RegExp(`\\b${mutation}\\.mutate(?:Async)?\\(\\s*\\{`, "g"),
+    )) {
+      for (const field of literalFields(file, call.index + call[0].length - 1, new Set())) {
+        fields.add(field);
+      }
+    }
+    return fields;
+  }
+
+  /**
+   * Which tools this compares: every tool that writes, found over a real
+   * connection by the annotation each declares about itself.
+   *
+   * **What the old check could not see:** it compared the seven tools a list
+   * named — three mass edits, the import and three budget forms — and the
+   * other thirty-three write tools against nothing, and a write tool added
+   * tomorrow would have joined them without a word. A list of what to compare
+   * is a claim about what exists, made once (`testing.md` 2.6). The population
+   * is the tool list now, each member is compared against what the browser
+   * sends the route `COVERED_BY` gives it, and the only list left is of the
+   * tools that are not compared, each with its reason.
+   *
+   * One level deep, as it always was: `draft`, `shape` and `selection` are
+   * compared as fields a form sends, not opened. What a staged draft carries
+   * is `tests/staged-draft-contract.test.ts`'s to hold.
+   */
   it("offers somewhere in the browser every field a tool writes", async () => {
     const tools = await toolsWithAnnotations(everyScope);
-    const files = new Map(sourceFiles("src/client").map((file) => [file.path, file]));
+    const client = sourceFiles("src/client");
+    const files = new Map(client.map((file) => [file.path, file]));
+    const writing = tools.filter((tool) => tool.annotations?.readOnlyHint !== true);
+    // The population before anything is claimed about it: an annotation this
+    // stopped reading would leave the loop below comparing nothing at all.
+    expect(writing.map((tool) => tool.name)).toContain("create_transaction");
+    expect(writing.length).toBeGreaterThanOrEqual(30);
+
+    const routesOf = (tool: string) =>
+      Object.keys(COVERED_BY).filter((route) => COVERED_BY[route] === tool);
+    const forms: WrittenForm[] = [
+      ...WRITTEN_FORMS,
+      ...writing
+        .filter((tool) => !(tool.name in NOT_COMPARED))
+        .filter((tool) => !WRITTEN_FORMS.some((form) => form.tool === tool.name && !form.writes))
+        .map((tool) => ({
+          what: `what src/client sends ${routesOf(tool.name).join(" or ") || "its route"}`,
+          tool: tool.name,
+          unoffered: {},
+        })),
+    ];
 
     const unreachable: string[] = [];
     let compared = 0;
-    for (const form of WRITTEN_FORMS) {
+    for (const form of forms) {
       const tool = tools.find((entry) => entry.name === form.tool);
       if (!tool) throw new Error(`${form.tool} is not registered; ${form.what} needs a new entry`);
       let node = tool.inputSchema as Record<string, unknown> | undefined;
-      for (const step of form.at) {
+      const top = (node?.["properties"] ?? {}) as Record<string, unknown>;
+      const at = form.at ?? ("input" in top ? ["input"] : []);
+      for (const step of at) {
         const properties = node?.["properties"] as Record<string, unknown> | undefined;
         node = properties?.[step] as Record<string, unknown> | undefined;
       }
@@ -1068,12 +1255,25 @@ describe("what the browser can reach compared with an agent", () => {
       // checks fails.
       expect(
         declares.length,
-        `${form.tool} declares nothing at ${form.at.join(".") || "the top"}`,
-      ).toBeGreaterThan(3);
+        `${form.tool} declares nothing at ${at.join(".") || "the top"}`,
+      ).toBeGreaterThan(0);
 
-      const file = files.get(form.file);
-      if (!file) throw new Error(`${form.file} has moved; ${form.what} needs a new entry here`);
-      const offered = requestFields(file, form.writes);
+      let offered: Set<string>;
+      if (form.writes !== undefined) {
+        const file = form.file === undefined ? undefined : files.get(form.file);
+        if (!file) throw new Error(`${form.file} has moved; ${form.what} needs a new entry here`);
+        offered = requestFields(file, form.writes);
+      } else {
+        const routes = routesOf(form.tool);
+        const sent = routes.map((route) => sentTo(client, route));
+        if (sent.every((one) => one.calls === 0)) {
+          unreachable.push(
+            `${form.tool} writes through ${routes.join(" and ") || "no route COVERED_BY names"}, and nothing in src/client sends it there`,
+          );
+          continue;
+        }
+        offered = new Set(sent.flatMap((one) => [...one.fields]));
+      }
       for (const field of declares) {
         compared += 1;
         if (offered.has(field) || field in form.unoffered) continue;
@@ -1084,7 +1284,34 @@ describe("what the browser can reach compared with an agent", () => {
     }
 
     expect(unreachable).toEqual([]);
-    expect(compared).toBeGreaterThanOrEqual(20);
+    // Under today's 166, so a field retired on purpose fails nowhere but in
+    // the form that stopped sending it.
+    expect(compared).toBeGreaterThanOrEqual(150);
+  });
+
+  /**
+   * The registers' own policing. An entry names a tool that writes, so a tool
+   * renamed or made read-only cannot leave an entry comparing nothing; a tool
+   * excused from comparison is not also compared; and every excuse is long
+   * enough to be one, exactly as the route exceptions are held.
+   */
+  it("names only write tools, and gives every tool it does not compare a reason", async () => {
+    const writing = new Set(
+      (await toolsWithAnnotations(everyScope))
+        .filter((tool) => tool.annotations?.readOnlyHint !== true)
+        .map((tool) => tool.name),
+    );
+    for (const form of WRITTEN_FORMS) {
+      expect(writing.has(form.tool), `${form.tool} is not a registered write tool`).toBe(true);
+    }
+    for (const [tool, reason] of Object.entries(NOT_COMPARED)) {
+      expect(writing.has(tool), `${tool} is not a registered write tool`).toBe(true);
+      expect(
+        WRITTEN_FORMS.some((form) => form.tool === tool),
+        `${tool} is both compared and excused`,
+      ).toBe(false);
+      expect(reason.length, tool).toBeGreaterThan(40);
+    }
   });
 
   it("gives every field a form does not offer a reason", () => {

@@ -121,13 +121,17 @@ This is why `tests/mcp-parity.test.ts` can compare the two transports service by
 service at all — there is something to compare because neither transport holds
 logic of its own.
 
-Five lines in the two transports do reach the database, and none of them is
-bookkeeping: the readiness probe's `select 1`, the first-account claim's
-advisory lock — which `AGENTS.md` requires to be taken outside the application
-pool — two reads of Better Auth's own tables behind the consent screen, which is
+Seven lines in the two transports do reach the database, and they are five
+things, none of them bookkeeping: the readiness probe's `select 1`, the
+first-account claim's advisory lock — which `AGENTS.md` requires to be taken
+outside the application pool, and which takes two statements on its own client
+— two reads of Better Auth's own tables behind the consent screen, which is
 reachable from a session and has no MCP counterpart, and the transaction an MCP
 tool call is made idempotent inside. Each is named in the test below with its
-reason, so a sixth has to be argued for rather than merely added.
+reason, so another has to be argued for rather than merely added. The test
+counted five lines because its patterns could not see a query run through a
+transaction handle or on a client by another name; it reads any builder on any
+receiver now, which is how the lock's two statements were found.
 
 *Checked by:* `tests/transport-database-access.test.ts`. It cannot ask the
 question this rule asks — would both surfaces need this line? — so it asks the
@@ -331,9 +335,11 @@ changes, reports those rows' versions unmoved, and counts only the changed ones
 in `updatedCount`. Checked by
 `tests/integration/unchanged-edits.integration.test.ts`, which saves every
 record a form edits without changing it, and by `tests/unchanged-writes.test.ts`,
-which finds every exported service function that bumps a version and requires
-it to compare first or be named with the reason its writes always change
-something — a merge, and the queue's delete and commit.
+which finds every exported service function that bumps a version — any
+`version: … + 1`, where it used to know six operands by name and so never saw
+`existing.version + 1` — and requires it to compare first or be named with the
+reason its writes always change something: a merge, and the queue's delete and
+commit.
 
 *Checked by:* `tests/integration/mcp-tools.integration.test.ts`, "tells an agent
 to read the row again, and hands it the version to use", which sends a version
@@ -648,7 +654,7 @@ at a moment no code observes, and a deployment that stops selling answers
 written on the way down would go on saying what it said then, and that last case
 would lock paying customers out of their own books. `ledger_account.active` is
 the person's choice and nothing else; `frozenAccountIds`
-(`src/shared/domain.ts:3654`) combines it with the entitlement at read time.
+(`src/shared/domain.ts:3713`) combines it with the entitlement at read time.
 
 The obvious alternative is to resolve the entitlement once at the edge — in the
 route, or in a middleware — and pass the answer down. It is wrong for the reason
@@ -888,9 +894,13 @@ is the same string for the same value.
 `parseFloat(` reaching a value whose name is money. Refusing the conversion
 outright would be the wrong rule and the first run said so: every site in the
 services is a count — periods, entries, staged rows — and a count is a number.
-So it is the vocabulary that decides, which means somebody adding a money word
-to the codebase has to add it to the list, and that is the honest limit of what
-a source read can settle here.
+So it is the vocabulary that decides, read word by word through camelCase and
+underscores so `sourceAmount` and `opening_balance` are money as well as
+`amount` — it matched whole names, and missed every compound — and the
+contract's own fields are derived rather than listed: every field
+`src/shared/domain.ts` builds from `DECIMAL_DIGITS`, which is how `rolloverCap`
+is money with no money word in it. A money word nobody has used yet still has
+to be added to the list, and that is the honest limit of a source read.
 
 ## 4. Naming a category, and why it is in this guide
 

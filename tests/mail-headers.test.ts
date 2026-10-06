@@ -44,6 +44,9 @@ describe("outgoing mail", () => {
 
     expect(delivered).toBe(true);
     expect(sent).toHaveLength(1);
-    expect(sent[0]!["headers"]).toMatchObject({ "Auto-Submitted": "auto-generated" });
+    // Exactly this, not "at least this". `operations.md` also rules out
+    // `List-Unsubscribe` and `List-Unsubscribe-Post`, and a subset match let
+    // either be added with this test green.
+    expect(sent[0]!["headers"]).toEqual({ "Auto-Submitted": "auto-generated" });
   });
 });

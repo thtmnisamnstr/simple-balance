@@ -75,7 +75,7 @@ erases just as well.
 
 **Contested.** The flag is good advice in general and wrong here. All three
 sites it flags are Hono middleware
-(`src/server/api.ts:1480`, `src/server/http-security.ts:484` and `:942`),
+(`src/server/api.ts:1481`, `src/server/http-security.ts:484` and `:942`),
 where a `MiddlewareHandler` returns a `Response` to answer the request or
 nothing at all to let the next handler run. "Returns on some paths and not
 others" is the contract, not a mistake.
@@ -234,7 +234,7 @@ export type CategoryKind = (typeof categoryKinds)[number];
 
 The array is the single source: Zod validates from it, the database enum is
 generated from it (`src/server/db/schema.ts:199`),
-and the UI iterates it (`src/client/pages/CategoriesPage.tsx:138`).
+and the UI iterates it (`src/client/pages/CategoriesPage.tsx:137`).
 Adding a member is one edit, and every one of those follows.
 
 *Checked by:* `npm run typecheck`, for the half of it that is a refusal:
@@ -308,7 +308,7 @@ export const budgetPeriodUnits = [
 ] as const satisfies readonly ReportBucket[];
 ```
 
-(`src/shared/domain.ts:1445`.)
+(`src/shared/domain.ts:1484`.)
 
 `as const` keeps the four literals; `satisfies` checks that every one of them is
 a bucket the report engine can group by. Annotating the constant
@@ -320,7 +320,7 @@ either of the other two that the rule working was a deviation from it. Both pass
 the test the `securityHeaderOptions` paragraph below sets, and one of them is
 load-bearing by `AGENTS.md`:
 
-- `PLAN_LABELS` (`src/shared/domain.ts:3432-3435`) is, in `AGENTS.md`'s words,
+- `PLAN_LABELS` (`src/shared/domain.ts:3491-3494`) is, in `AGENTS.md`'s words,
   "the one place a plan's name is written". `satisfies Record<Plan, string>` is
   what makes a plan added without a label fail to compile; `as const` is what
   keeps `PLAN_LABELS.plus` the literal `"Premium"` rather than `string`, which
@@ -351,7 +351,7 @@ totalled: a fourth arriving does not falsify a sentence here.
 ### 2.5 Discriminated unions carry the discriminant in the name
 
 **House.** A transaction draft is a union on `type`, and each member declares it
-as a literal (`src/shared/domain.ts:587`). Every
+as a literal (`src/shared/domain.ts:615`). Every
 function that takes one either handles all three or narrows first. This is why
 `noFallthroughCasesInSwitch` was free: there was nothing to find.
 
@@ -554,7 +554,7 @@ for keeping them:
 | Typecheck | `npm run typecheck`, two projects | `npm run typecheck` inside `deploy/pulumi`, five projects |
 | In `npm run verify` | yes | no — a separate CI job (`.github/workflows/verify.yml:441-445`) |
 | `oxlint` | yes | yes, same config |
-| `oxfmt` | yes | **no**: `npm run format` is `oxfmt src tests *.ts` (`package.json:28`) |
+| `oxfmt` | yes | not by the command — `npm run format` is `oxfmt src tests *.ts` (`package.json:28`) — but by `tests/code-index-guide.test.ts`, which holds every file the command misses to `oxfmt --check` |
 
 The compiler version is the one that cannot be negotiated. TypeScript 7 removed
 `moduleResolution: node`, and says so rather than degrading —

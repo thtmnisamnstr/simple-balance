@@ -24,8 +24,12 @@ const ALWAYS_A_CHANGE: Record<string, string> = {
   commitStages: "turns queued rows into transactions, which changes their status",
 };
 
-const BUMP =
-  /version:\s*(?:expectedVersion|before\.version|changes\.expectedVersion|parsed\.expectedVersion|row\.version|entry\.row\.version)\s*\+|version:\s*sql`\$\{\w+\.version\} \+ 1`/;
+/**
+ * Any `version: <something> + 1`, and the SQL spelling. It named the six
+ * operands it had met, so `existing.version + 1` — four writes in the category
+ * and import services — bumped a version and was never asked to compare.
+ */
+const BUMP = /version:\s*[A-Za-z_$][\w$.]*\s*\+\s*1\b|version:\s*sql`\$\{[\w.]+\.version\} \+ 1`/;
 const COMPARES =
   /changesNothing\(|\(before\.(?:archivedAt|deletedAt) !== null\) ===|deletedAt === null\)|JSON\.stringify\(before\) !== JSON\.stringify/i;
 

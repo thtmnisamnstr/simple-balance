@@ -85,12 +85,7 @@ for (const dockerfile of [
   "deploy/docker/frontend.Dockerfile",
   "deploy/docker/scheduler.Dockerfile",
 ]) {
-  rewriteLine(
-    dockerfile,
-    /^ARG APP_VERSION=.*$/m,
-    `ARG APP_VERSION=${version}`,
-    "ARG APP_VERSION",
-  );
+  rewriteLine(dockerfile, /^ARG APP_VERSION=.*$/m, `ARG APP_VERSION=${version}`, "ARG APP_VERSION");
 }
 
 // The chart's appVersion is what its values use as the default image tag, so a

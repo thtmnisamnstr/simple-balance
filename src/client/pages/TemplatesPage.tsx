@@ -26,7 +26,14 @@ import {
   Textarea,
   useConfirm,
 } from "../components.js";
-import { formatDate, formatTime, compareMoney, formatMoney, movementSign } from "../money.js";
+import {
+  formatDate,
+  formatTime,
+  compareMoney,
+  formatMoney,
+  moneyLabel,
+  movementSign,
+} from "../money.js";
 import { TemplateForm } from "../forms.js";
 import { Link, useLocation } from "../router.js";
 import { allTimeSearch } from "../date-range.js";
@@ -330,6 +337,12 @@ export default function TemplatesPage() {
     },
   });
 
+  // The one currency every selected template's account shares, which is the
+  // only one the mass edit's "New amount" can honestly name. A mixed selection
+  // names none rather than guessing, the way a row with no account does.
+  const selectedCurrencies = new Set(selectedTemplates.map((template) => currencyFor(template)));
+  const selectionCurrency =
+    selectedCurrencies.size === 1 ? ([...selectedCurrencies][0] ?? undefined) : undefined;
   const selectedTypes = new Set(
     selectedTemplates.map((template) =>
       actions.type === "set" ? values.type : template.draft.type,
@@ -872,7 +885,11 @@ export default function TemplatesPage() {
                     />
                   ) : (
                     <Input
-                      aria-label={`New ${field.label.toLowerCase()}`}
+                      aria-label={
+                        field.key === "amount"
+                          ? moneyLabel("New amount", selectionCurrency)
+                          : `New ${field.label.toLowerCase()}`
+                      }
                       inputMode={field.key === "amount" ? "decimal" : undefined}
                       value={values[field.key]}
                       disabled={action !== "set"}

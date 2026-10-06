@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   assertConfiguredLimits,
@@ -121,6 +122,7 @@ describe("the startup check over every bounded limit", () => {
     ["RECURRENCE_TICK_SECONDS", "5 minutes"],
     ["RECURRENCE_CATCH_UP_LIMIT", "-1"],
     ["RECURRENCE_CLAIM_LIMIT", "99999"],
+    ["IDEMPOTENCY_RETENTION_HOURS", "a week"],
   ])("names a bad %s at startup, and starts anyway", async (name, value) => {
     vi.resetModules();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -129,6 +131,21 @@ describe("the startup check over every bounded limit", () => {
     expect(() => limits.assertConfiguredLimits()).not.toThrow();
     expect(warn).toHaveBeenCalledWith(expect.stringContaining(name));
     warn.mockRestore();
+  });
+
+  /**
+   * The table above is a list, and a list is what let the seventh reader go
+   * unread at startup: the retention window was added with its own reader and
+   * nobody added it to the check. So the population is the module's exports —
+   * every `configured…` function — and the check is that startup calls each.
+   */
+  it("reads every limit the module exports, not the ones somebody listed", async () => {
+    const limits = await import("../src/server/config-limits.js");
+    const readers = Object.keys(limits).filter((name) => /^configured[A-Z]/.test(name));
+    expect(readers.length).toBeGreaterThanOrEqual(7);
+    const source = readFileSync("src/server/config-limits.ts", "utf8");
+    const body = /export function assertConfiguredLimits\(\) \{([\s\S]*?)\n\}/.exec(source)![1]!;
+    expect(readers.filter((name) => !body.includes(`${name}()`))).toEqual([]);
   });
 });
 

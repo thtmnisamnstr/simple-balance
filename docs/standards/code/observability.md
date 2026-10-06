@@ -50,19 +50,20 @@ falls over on a ledger somebody actually uses.
 
 *Checked by:* `tests/observability-guide.test.ts`, which moves every metric on
 the registry once and then reads the label names off the published values,
-against a list of names that would break this. The list itself is
-`tests/metrics.test.ts:23-41`. §1.8 is why the labels are read off the values
-and not where `tests/metrics.test.ts:43-53` reads them, which is a field the
-metrics library does not return.
+against an allow-list of bounded vocabularies, each with the reason its values
+cannot be somebody's data (`tests/observability-guide.test.ts:41-52`). It was a
+deny-list of fourteen names that would break this, so a spelling nobody had
+thought of passed. §1.8 is why the labels are read off the values and not off
+`labelNames`, which is a field the metrics library does not return.
 
 ### 1.3 A route label is the pattern, never the path
 
 **Binding.** `/api/v1/accounts/:id` is one series; `/api/v1/accounts/<uuid>` is
-one per account. `routeLabel` (`src/server/api.ts:331-338`) reads Hono's matched
+one per account. `routeLabel` (`src/server/api.ts:332-339`) reads Hono's matched
 pattern, and resolves the two different things that both arrive as `/*`: a
 request answered by middleware mounted above the routes — which is where a 413
 from the body limit lands — is labeled by its prefix from a fixed list
-(`:329`), and a path that matched nothing at all is one literal, because a
+(`:330`), and a path that matched nothing at all is one literal, because a
 mistyped URL is exactly where unbounded labels come from.
 
 *Checked by:* `tests/metrics.test.ts`, which asks for `/api/v1/accounts/<uuid>`
@@ -73,7 +74,7 @@ paths and insists both land under one name.
 
 **House.** Every counter increments whether or not `METRICS_ENABLED` is set.
 What the setting decides is whether `GET /metrics` is registered at all
-(`src/server/api.ts:342`) — registered rather than refusing, so a deployment
+(`src/server/api.ts:343`) — registered rather than refusing, so a deployment
 that never asked has no such route.
 
 The measurement behind that: a labeled increment costs about 130ns and does
@@ -134,7 +135,7 @@ produce refusals, is where the label itself is checked.
 
 **House.** Seventy-seven tools are timed and counted by wrapping `registerTool`
 once (`src/server/mcp.ts:626`), and every HTTP request by one middleware
-mounted above everything, including the guards (`src/server/api.ts:280`). Both
+mounted above everything, including the guards (`src/server/api.ts:281`). Both
 are chosen so a tool or a route added tomorrow is instrumented by existing
 rather than by somebody remembering.
 
@@ -167,8 +168,8 @@ and `aggregator`, and no declared label names at all. A check written over
 `metric.labelNames` therefore reads an absent field for every metric and is
 indistinguishable from a check that passes on everything: register a counter
 labeled `email`, `user_id` and `amount`, increment it, and all three appear in
-the scrape while that reading reports nothing. `tests/metrics.test.ts:43-53` is
-that reading, and it has been green since it was written.
+the scrape while that reading reports nothing. `tests/metrics.test.ts` held
+that reading, green from the day it was written until 0.2.1 removed it.
 
 The labels are on the values. So is the registry's default label, and only
 there: `setDefaultLabels` (`src/server/metrics.ts:45`) does not widen any
@@ -188,8 +189,11 @@ changes the shape of that JSON, which is why the check asserts the key set it
 was handed rather than trusting the field it wants to be there.
 
 *Checked by:* `tests/observability-guide.test.ts`, which reads the labels off
-the published values for every metric; proves the reading by registering a
-counter with three identifying labels and catching it; asserts that
+the published values for every metric and holds each to an allow-list of
+bounded vocabularies, every entry with the reason its values cannot be
+somebody's data — it was a deny-list of fourteen exact names, so `account_name`
+or `memo` would have passed it; proves the reading by registering a counter with
+three identifying labels and catching it; asserts that
 `getMetricsAsJSON` returns exactly those five keys and no `labelNames`; and
 asserts that `component` is on every metric's values and in no metric's
 declaration.
@@ -197,12 +201,12 @@ declaration.
 ### 1.9 A route with more exits than status codes counts through one function
 
 **House, and mechanizable.** The Stripe webhook has one way out, and the
-docstring above it says why (`src/server/api.ts:1162-1177`). Counted
+docstring above it says why (`src/server/api.ts:1163-1178`). Counted
 2026-10-01: seven of its exits answer the same `200 {"received":true}` under
 six outcome names, so `http_requests_total` — method, route, status — cannot
 tell a delivery that granted an entitlement from one that was acknowledged and
 ignored, and five of the seven write nothing to the log either. `answered`
-(`:1178`) takes the branch's name, increments
+(`:1179`) takes the branch's name, increments
 `billing_webhook_deliveries_total` and writes the body, so counting each
 delivery exactly once is structural: there is no other way to return a 2xx.
 
@@ -222,7 +226,7 @@ unauthenticated caller supplies: a single exit is what makes the set
 enumerable, and the outcome is the branch's own name rather than the event
 type, which is Stripe's vocabulary and grows whenever Stripe ships an event.
 One exit sits outside the funnel and says so — the signature refusal
-(`src/server/api.ts:1193`), which is the only answer carrying a status of its
+(`src/server/api.ts:1194`), which is the only answer carrying a status of its
 own.
 
 The shape recurs for any route whose interesting outcomes are finer than its
@@ -379,7 +383,7 @@ The five sites that show what the rule costs, each with the thing it
 deliberately leaves out:
 
 - **A request** logs the method, the path and the status
-  (`src/server/api.ts:305`) and never the query string, because a filter carries
+  (`src/server/api.ts:306`) and never the query string, because a filter carries
   payees and search terms.
 - **An MCP tool call** logs the tool name and the outcome
   (`src/server/mcp.ts:653`) and never the arguments, which are somebody's ledger
@@ -573,13 +577,11 @@ the page rather than by anything failing.
   without somebody deciding to, and cannot be fixed without this section being
   rewritten.
 
-- **A metric's labels, read from the declaration (§1.8).**
-  `tests/metrics.test.ts:43-53` still reads `labelNames` off
-  `getMetricsAsJSON()`, which never returns it. It is green, and it would stay
-  green on a counter labeled with an email address — the one failure mode an
-  `AGENTS.md` invariant is standing behind. The working reading is in
-  `tests/observability-guide.test.ts`; rewriting or deleting the vacuous one is
-  the next edit to that file, which this pass did not own.
+- **A metric's labels, read from the declaration (§1.8). Closed in 0.2.1.**
+  `tests/metrics.test.ts` read `labelNames` off `getMetricsAsJSON()`, which
+  never returns it, so it was green over a counter labeled with an email
+  address. It is deleted, and the working reading in
+  `tests/observability-guide.test.ts` holds labels to an allow-list.
 
 - **The redaction that runs before the gate (§2.2), and the second pool (§3).**
   `log.fromLibrary` redacts a whole object graph and then calls the gated
@@ -592,7 +594,7 @@ the page rather than by anything failing.
   so the next person meets them as decisions rather than as surprises.
 
 - **Two stale counts in the code §1.9 argues from.** The webhook's own
-  docstring (`src/server/api.ts:1162-1177`) says five exits answer
+  docstring (`src/server/api.ts:1163-1178`) says five exits answer
   `200 {"received":true}` and four of them write nothing to the log, and
   `src/server/metrics.ts:220` repeats the five. Counted 2026-10-01 they are
   seven and five: the `setup_intent.succeeded` branch arrived after both
