@@ -742,7 +742,7 @@ them cover the whole range:
   Note the last line, which states the bound: "Unbounded on purpose: the keys
   are locale-and-currency pairs and a ledger holds a handful of currencies, so
   there is nothing here to grow."
-- **The trade named, not only the choice.** `src/client/components.tsx:877-891`:
+- **The trade named, not only the choice.** `src/client/components.tsx:877-896`:
   a fixed popover, why absolute fails in a scrolling table card, what fixed
   costs, and then the harder half: "Deliberately not `role="menu"` ... menu
   roles without the keyboard behavior they imply are worse than none."
@@ -1062,7 +1062,7 @@ edit.
 
   - `App.tsx:710`, the scope description on the authorization page.
   - `select-options.ts:110`, the timezone label.
-  - `components.tsx:1172`, every page title: `` `${title} — ${APP_NAME}` ``.
+  - `components.tsx:1189`, every page title: `` `${title} — ${APP_NAME}` ``.
   - `TemplatesPage.tsx:680`, "never — every date is skipped".
   - `AccountsPage.tsx:660-661`, the sentence explaining what a frozen account
     still does, and `BudgetsPage.tsx:1556`, the note under an average with

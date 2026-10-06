@@ -190,9 +190,17 @@ Recurring frame their list like Transactions and Staged, and the pager under a
 list no longer scrolls sideways with its columns. Choosing Balance or a count in
 a sort menu starts with the largest. The staged queue's import filter shows when
 each file arrived, so two `checking.csv` imports can be told apart. Account
-types read "Credit card" rather than "Credit Card". And a refusal that said a
+types read "Credit card" rather than "Credit Card", and the staged queue says
+"Withdrawal" under a payee, as the transaction list does, rather than
+"withdrawal". And a refusal that said a
 thing "is unavailable" now says whether it was archived or not found, and what
 to do about it.
+
+**A row's menu can be used at the bottom of the window.** The menu behind a
+row's "…" button always opened downward and closes when the page scrolls, so on
+a row or card near the foot of the window its last items sat off-screen with no
+way to reach them — Restore and Delete on an archived account at the end of the
+Accounts page among them. It now opens upward when there is no room below.
 
 **A field left empty or written too long says what to write.** Typing a space
 where a category name goes said "Too small: expected string to have >=1

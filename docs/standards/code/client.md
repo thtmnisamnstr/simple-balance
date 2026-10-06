@@ -84,7 +84,7 @@ what the person typed.
 The other thing that is not a derived value: an answer a handler needs before
 the next render can deliver it. The staged list's inline editors keep
 `inlineInFlight`, `inlineCanceled` and `focusAfterInline` in refs
-(`src/client/pages/StagingPage.tsx:633-644`) even though the first shadows
+(`src/client/pages/StagingPage.tsx:634-645`) even though the first shadows
 `isPending`, because the deciding read happens in the same event burst as the
 write: Enter commits, and the blur that follows a click away runs before the
 render that would have set `isPending`, so the state version double-submits —
@@ -94,7 +94,7 @@ does, it is state hiding in a ref, which is the same bug from the other side. Do
 not "fix" these to `isPending` — that is the obvious edit and the wrong one, and
 the comments at the three sites say so.
 
-That citation named `:622-633` for a release, which is the two `useState` calls
+That citation named `:623-634` for a release, which is the two `useState` calls
 immediately above — the opposite of what the sentence says, in the sentence
 that says it. `tests/standards-citations.test.ts` cannot catch that kind, because
 the lines it pointed at exist and have something on them. The habit that avoids
@@ -354,7 +354,7 @@ field is not reachability — it makes the field settable by code and by nobody
 at a screen. The control is what closes it, and the shape has recurred three
 times: a body field (`src/client/forms.tsx:2951-2958`), a creation field
 (`src/client/pages/CategoriesPage.tsx:300-303`) and a list filter
-(`src/client/pages/StagingPage.tsx:873-877`), each site carrying the same note
+(`src/client/pages/StagingPage.tsx:874-878`), each site carrying the same note
 about the one before it. Three instances is a pattern rather than a scar: when
 a shared schema gains a field, the form gains a control in the same change.
 

@@ -360,7 +360,7 @@ commit subject and a comment: plain, declarative, specific.
   a glyph rather than punctuation.
 - **Numbers a person reads are formatted.** Money through `formatMoney`, dates
   through `formatDate`, and a count shown as a figure through `formatCount`
-  (`src/client/components.tsx:1388`), which groups its thousands. It was the
+  (`src/client/components.tsx:1405`), which groups its thousands. It was the
   selection bars' helper and only they asked it, so the bar read "4,318" while
   the dialog it opened, the notice after it, the pages under the list and an
   import's result counts all read "4318". A count written as a literal in a sentence is spelled out

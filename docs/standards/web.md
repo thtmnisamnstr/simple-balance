@@ -74,7 +74,7 @@ be the same in two places.** A color qualifies because a theme must answer for
 it twice. A spacing step qualifies because a gap that is 11px on one card and
 12px on the next is not a decision, it is two accidents. A one-off geometry
 value does not qualify: nine of the ten inline `style` props in the client
-(`charts.tsx:273`, `charts.tsx:322`, `components.tsx:955`, `components.tsx:1407`,
+(`charts.tsx:273`, `charts.tsx:322`, `components.tsx:972`, `components.tsx:1424`,
 `BudgetsPage.tsx:1412`, `DashboardPage.tsx:283`, `DashboardPage.tsx:424`,
 `DashboardPage.tsx:484`, `DashboardPage.tsx:530`) are runtime geometry — a bar's
 width, a chart's offset — and are correct as they are.
@@ -1758,7 +1758,7 @@ same query passes in a browser — which is why the browser tier owns that check
 comments that first specified it.** The queue is where imports get repaired,
 and repairing a date or a payee through the full modal is four clicks for a
 one-word change, so a row's date, payee, category and amount cells open an
-editor in place (`src/client/pages/StagingPage.tsx:615-625`). The pattern has
+editor in place (`src/client/pages/StagingPage.tsx:616-626`). The pattern has
 six rules, and each exists because the obvious alternative shipped a bug or an
 inconsistency during review:
 
@@ -1777,12 +1777,12 @@ inconsistency during review:
    category editors are datalist-backed, and picking from a datalist lands on
    Enter too — committing on the keydown raced the picked value and created a
    category named by the half-typed prefix — so there blur is the only commit
-   gesture (`StagingPage.tsx:1279-1299`). This is the second exception 8.2
+   gesture (`StagingPage.tsx:1282-1302`). This is the second exception 8.2
    records: a cell with no submit button makes blur the submit.
 4. **Emptying a date or an amount reads as abandoning the edit, not as a
-   request to erase the field** (`StagingPage.tsx:706-712`). The modal is where
+   request to erase the field** (`StagingPage.tsx:707-713`). The modal is where
    a deliberate clear belongs, beside everything else the emptiness affects.
-5. **A same-value blur writes nothing** (`StagingPage.tsx:733-748`): no version
+5. **A same-value blur writes nothing** (`StagingPage.tsx:734-749`): no version
    bump, no invalidated bulk-selection fingerprint, no audit entry saying an
    edit happened.
 6. **The trigger's accessible name leads with its visible text** — `30 Jul
@@ -1791,7 +1791,7 @@ inconsistency during review:
    visible text of these triggers is the value itself.
 
 Closing an editor puts focus back on the trigger it replaced
-(`StagingPage.tsx:641-650`); commit, refusal and Escape all remove the focused
+(`StagingPage.tsx:642-651`); commit, refusal and Escape all remove the focused
 element, and without the handoff a keyboard user lands on `<body>`. Event-order
 guards around commit and cancel are refs, not state, for the reason
 `code/client.md` §1.3 records: the blur that follows Enter or Escape runs
@@ -1819,7 +1819,7 @@ future field: identity and provenance never travel, values always do.
 
 The same reasoning holds one level down in the queue's inline category editor,
 which drops a stored `categoryKind` when the category is re-chosen
-(`StagingPage.tsx:723-731`): the stored kind was somebody's answer about the
+(`StagingPage.tsx:724-732`): the stored kind was somebody's answer about the
 old name, and riding along it would file a brand-new category on a side nobody
 chose.
 
@@ -1840,7 +1840,7 @@ This product stays a table. A grid means writing arrow-key focus management
 across thousands of rows to shorten a tab sequence nobody has complained about,
 and there is no roving tabindex anywhere else in the client, which is the same
 reason `RowMenu` deliberately refuses `role="menu"`
-(`src/client/components.tsx:887-890`). A transactions row carries a checkbox
+(`src/client/components.tsx:892-895`). A transactions row carries a checkbox
 and a row menu; a review-queue row now carries up to ten stops — the checkbox,
 four click-to-edit triggers (8.10), sometimes a duplicate link, three icon
 buttons and the menu — so the tab-sequence cost the APG worries about is real
@@ -1996,7 +1996,7 @@ The mixed state is already handled. `SelectionCheckbox`
 (`src/client/components.tsx:196-211`) takes an `indeterminate` prop and writes it
 onto the DOM node in an effect, because React does not expose it, and all three
 select-all checkboxes pass it: `TransactionBrowser.tsx:1114`,
-`TemplatesPage.tsx:538`, `StagingPage.tsx:1088`.
+`TemplatesPage.tsx:538`, `StagingPage.tsx:1089`.
 
 *Checked by:* `tests/bulk-row-cap.test.ts` and the server-side selection tests
 cover the contract. The two sentences are review.
@@ -2049,7 +2049,7 @@ puts both in the menu and shows no icon at all.
 The register is the full shape — Edit and Delete as icons, then a menu holding
 Clone, Save as template and Save as recurring
 (`src/client/TransactionBrowser.tsx:1410-1472`) — and the staged queue is the
-same with Commit in front (`src/client/pages/StagingPage.tsx:1416-1467`).
+same with Commit in front (`src/client/pages/StagingPage.tsx:1419-1470`).
 Templates and Recurring have exactly two and put both in the menu
 (`TemplatesPage.tsx:688-701`, `RecurrencesPage.tsx:338-351`). Nine
 `.row-actions` and seven `RowMenu`s across the client say the same thing.
@@ -2085,8 +2085,16 @@ already renders, and the sentence takes focus. That is 13.3 rather than a rule
 of its own, and it is named here because the row menu is where it keeps
 happening.
 
-*Checked by:* `tests/row-menu.test.tsx` for the menu's dismissal and focus
-return, `tests/success-alert-focus.test.ts` for the sentence taking focus, and
+**The menu opens where its items can be pressed.** It is fixed rather than
+absolute so a scrolling table cannot clip it, and the price of fixed is that it
+closes when the page scrolls. So a menu that always opened downward put its last
+items past the foot of the window on a row near it, and scrolling to them closed
+it: Restore and Delete on an archived account at the end of Accounts could not
+be reached. It opens upward when its items do not fit below
+(`src/client/components.tsx:887-890`, `:919-928`).
+
+*Checked by:* `tests/row-menu.test.tsx` for the menu's dismissal, focus return
+and which way it opens, `tests/success-alert-focus.test.ts` for the sentence taking focus, and
 `tests/ui-copy.test.ts` for the name: a literal `aria-label` or menu `label`
 inside a `.row-actions` cell is refused, because a name that carries its row is
 computed.
@@ -2782,7 +2790,7 @@ whether it was pending — Delete selected showed a spinner for the whole of a
 commit, on the button that destroys rows. Where one mutation serves several
 buttons, each asks *which* action is running
 (`loading={pending && variables === "delete"}`,
-`src/client/pages/StagingPage.tsx:1005`) and the others are held, which is the
+`src/client/pages/StagingPage.tsx:1006`) and the others are held, which is the
 pair the census below exempts.
 
 *Checked by:* `tests/browser/selection-bar.spec.ts`, which presses Commit with
@@ -2954,10 +2962,10 @@ confirmations and progress, and reaches for `role="alert"` only for something
 time-sensitive that interrupts.
 
 Announcement is already handled: `Alert` sets `role={kind === "error" ? "alert"
-: "status"}` (`src/client/components.tsx:1582`), so a success alert is a polite
+: "status"}` (`src/client/components.tsx:1599`), so a success alert is a polite
 live region and an error alert interrupts. The two real defects are elsewhere.
 There are two separate `aria-live="polite"` regions in the client
-(`components.tsx:280`, `:1367`), so a page can carry three polite regions at
+(`components.tsx:280`, `:1384`), so a page can carry three polite regions at
 once and nothing decides which speaks first. It was four in three files until
 the selection bar became `SelectionBar`: the register and the templates list
 each carried a hand-written copy, and the staged queue's bar — the one list
@@ -3139,7 +3147,7 @@ focus indicator.
 
 **The code covered two element types out of the set**, and three of the gaps
 were live SC 2.4.7 failures. `summary` is the `RowMenu` trigger
-(`components.tsx:945`) and fell to the user agent default; checkboxes and radios
+(`components.tsx:961`) and fell to the user agent default; checkboxes and radios
 got only `accent-color`; and `.file-drop`'s `<input>` is visually hidden, so
 tabbing to the CSV file picker showed nothing at all.
 
@@ -3262,7 +3270,7 @@ and starting again.
 
 Modals were already correct: a native `<dialog>` driven by `showModal()` and
 `close()`, labeled by `aria-labelledby` from a `useId()`, with `onCancel`
-intercepted (`components.tsx:966-1016`), and with the form body mounted only while
+intercepted (`components.tsx:983-1033`), and with the form body mounted only while
 the dialog is open so closing discards what was half-typed.
 
 *Checked by:* `tests/shell-focus.test.tsx` for all four. Its population used to
@@ -3668,7 +3676,7 @@ is which.
 | `tests/nav-order.test.ts` | The sidebar order, and that every item names a route the app serves, both directions |
 | `tests/theme-boot.test.ts` | `public/theme-boot.js` and `applyTheme` give the same answers |
 | `tests/client-money.test.ts` | The money arithmetic every figure on screen is computed from |
-| `tests/row-menu.test.tsx` | The row menu's dismissal and focus return (13.3) |
+| `tests/row-menu.test.tsx` | The row menu's dismissal and focus return (13.3), and which way it opens (9.8) |
 | `tests/bulk-row-cap.test.ts` | The ten thousand row cap behind the selection contract (9.5) |
 | `tests/page-stack.test.ts` | The page's rhythm comes from `.content` and no page-level block carries a vertical margin or a negative one; no filter bar wraps a control in `Field`; every one of the fourteen scrolling table containers is a named, focusable region; the focus-indicator selectors cover every focusable element type and `.file-drop` carries `:focus-within`; every sticky or fixed region is paired with a container declaring `scroll-padding` (7.4, 7.5, 7.6, 9.5, 9.6, 13.2) |
 | `tests/theme-tokens.test.ts` (chart palette) | `.chart-bar` declares a stroke, and not `none`, so two adjacent bars at 1.05:1 have an edge; nine of the ten line series carry a distinct dash rhythm and every dashed series' legend swatch carries the same one (11.2, 11.3) |
