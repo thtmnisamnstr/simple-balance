@@ -130,7 +130,7 @@ line.** What PostgreSQL wants resident is the indexes, because that is what a
 list ordered by any column it displays is made of. At the capacity target the
 two large tables' indexes alone come to:
 
-```
+```text
 posting             66,100,078 rows x 162.1 B =  10.72 GB
 ledger_transaction  30,000,000 rows x 293.6 B =   8.81 GB
                                                  --------
@@ -266,7 +266,7 @@ have almost nothing in common.
 
 **The database node**, which holds `PGDATA` and nothing else:
 
-```
+```text
 disk = (ledger × 1.20 + ledger × 0.15 + 2 × max_wal_size) ÷ 0.95 ÷ 0.80
 ```
 
@@ -293,7 +293,7 @@ disk = (ledger × 1.20 + ledger × 0.15 + 2 × max_wal_size) ÷ 0.95 ÷ 0.80
 **The application node**, which holds the dumps, the generated secret and the
 database's CA certificate:
 
-```
+```text
 disk = ((backupKeep + 1) × 0.145 × ledger + 1 GiB) ÷ 0.95 ÷ 0.80
 ```
 

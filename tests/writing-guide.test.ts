@@ -200,6 +200,8 @@ describe("what writing.md says there are", () => {
       12: "twelve",
       13: "thirteen",
       14: "fourteen",
+      15: "fifteen",
+      16: "sixteen",
     };
     // The roll-up is the one place a reader goes to ask "is any of this
     // checked", so a test that exists and is missing from it reads as a test
@@ -383,5 +385,61 @@ describe("the changelog, against the two rules writing.md states about it", () =
       changelog.filter((line) => line.length > 80).length,
       "hard-wrap at 80, and bring the existing overruns back rather than adding to them",
     ).toBeLessThanOrEqual(108);
+  });
+});
+
+/**
+ * §Format: "Fenced code blocks always carry a language tag, including `text`
+ * for things that are not code." Seventeen did not — five in the standards
+ * guides themselves, the rest in the deployment documents — and nothing read
+ * a fence at all. Every tracked Markdown file, because the rule is about what
+ * a reader's renderer does with an unlabeled block, which is the same wherever
+ * it sits.
+ */
+describe("a fenced block", () => {
+  it("says what language it is in, in every document", () => {
+    // `outputs/` is gitignored scratch research, nobody's published document.
+    const files = repoFiles((file) => file.endsWith(".md") && !file.startsWith("outputs/"));
+    expect(files.length).toBeGreaterThan(40);
+    const bare: string[] = [];
+    let fences = 0;
+    for (const { path: file, text } of files) {
+      let inside = false;
+      text.split("\n").forEach((line, index) => {
+        const fence = /^\s*(`{3,}|~{3,})(.*)$/.exec(line);
+        if (!fence) return;
+        if (inside) {
+          inside = false;
+          return;
+        }
+        inside = true;
+        fences += 1;
+        if (!fence[2]!.trim()) bare.push(`${file}:${index + 1}`);
+      });
+    }
+    expect(fences).toBeGreaterThan(100);
+    expect(bare, "tag it, with text for anything that is not code").toEqual([]);
+  });
+
+  /**
+   * One blank line between blocks, outside a fence. Two render the same and
+   * diff as a change, and the unreleased changelog carried one where an entry
+   * had been moved — the kind of seam a reader of the source trips on and a
+   * reader of the page never sees.
+   */
+  it("is separated from the next block by one blank line, not two", () => {
+    const doubled: string[] = [];
+    for (const { path: file, text } of repoFiles(
+      (candidate) => candidate.endsWith(".md") && !candidate.startsWith("outputs/"),
+    )) {
+      let inside = false;
+      const lines = text.split("\n");
+      lines.forEach((line, index) => {
+        if (/^\s*(`{3,}|~{3,})/.test(line)) inside = !inside;
+        if (!inside && index > 0 && line === "" && lines[index - 1] === "")
+          doubled.push(`${file}:${index + 1}`);
+      });
+    }
+    expect(doubled).toEqual([]);
   });
 });

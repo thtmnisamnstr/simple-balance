@@ -547,3 +547,41 @@ describe("the database image", () => {
     );
   });
 });
+
+/**
+ * `operations.md` §Health: startup, not shutdown, is the slow half, because the
+ * first start against an empty database runs every migration before readiness
+ * opens. Three places budget for that and are kept in step: the Node images'
+ * `--start-period`, the compose recipe's `start_period`, and the chart's
+ * startup probe. The images said 20s while the other two said 300s, so plain
+ * Docker reported a first start still migrating as unhealthy.
+ */
+describe("how long a first start may take", () => {
+  const seconds = (text: string) => Number(/(\d+)s/.exec(text)![1]);
+
+  it("is the same budget in the images, the compose recipe and the chart", () => {
+    const images = [
+      "Dockerfile",
+      "deploy/docker/server.Dockerfile",
+      "deploy/docker/scheduler.Dockerfile",
+    ]
+      .map((file) => readFileSync(file, "utf8"))
+      .map((text) => seconds(/--start-period=(\d+s)/.exec(text)![1]!));
+    const compose = [
+      ...readFileSync("deploy/compose/compose.distributed.yml", "utf8").matchAll(
+        /start_period: (\d+s)/g,
+      ),
+    ].map((match) => seconds(match[1]!));
+    const values = readFileSync("deploy/helm/simple-balance/values.yaml", "utf8");
+    const chart = [
+      ...values.matchAll(
+        /startupProbe:\n\s+enabled: true\n\s+periodSeconds: (\d+)\n\s+timeoutSeconds: \d+\n\s+failureThreshold: (\d+)/g,
+      ),
+    ].map((match) => Number(match[1]) * Number(match[2]));
+
+    expect(images).toEqual([300, 300, 300]);
+    // The two Node services in the recipe; the frontend's 10s has no migration.
+    expect(compose.filter((value) => value !== 10)).toEqual([300, 300]);
+    expect(chart).toEqual([300, 300]);
+  });
+});

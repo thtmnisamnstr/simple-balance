@@ -32,22 +32,12 @@ const commentAbove = (file: string, name: string) => {
 describe("what an example file leaves switched on", () => {
   it("assigns nothing in the single-container example but the settings a deployment always has", () => {
     expect(assignedIn(".env.example").sort()).toEqual(
-      [
-        "APP_BASE_URL",
-        "AUTH_MODE",
-        "AUTH_SECRET",
-        "CSV_MAX_BYTES",
-        "CSV_MAX_ROWS",
-        "DATABASE_POOL_SIZE",
-        "DATABASE_URL",
-        "LOG_LEVEL",
-        "PORT",
-        "RECURRENCE_CATCH_UP_LIMIT",
-        "RECURRENCE_CLAIM_LIMIT",
-        "RECURRENCE_SCHEDULER",
-        "RECURRENCE_TICK_SECONDS",
-        "TRUST_PROXY",
-      ].sort(),
+      // The compose example's four and the URL compose derives for itself. Nine
+      // optional settings used to sit here live at their defaults — PORT, the
+      // CSV and pool limits, TRUST_PROXY and the four scheduler knobs — which
+      // is nine settings an operator reads as already decided, and the shape
+      // this test's own file argues against.
+      ["APP_BASE_URL", "AUTH_MODE", "AUTH_SECRET", "DATABASE_URL", "LOG_LEVEL"].sort(),
     );
   });
 

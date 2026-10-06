@@ -49,7 +49,7 @@ RFC 4180 is Informational and says of itself that "there is no formal
 specification in existence, which allows for a wide variety of interpretations
 of CSV files". Its grammar is short enough to settle the arguments outright:
 
-```
+```abnf
 file    = [header CRLF] record *(CRLF record) [CRLF]
 record  = field *(COMMA field)
 field   = (escaped / non-escaped)
@@ -790,7 +790,7 @@ number everywhere: a mass edit, a mass delete, a commit, and a CSV import. An
 import that stages more than one action can clear is a cap doing damage."
 
 `DEFAULT_CSV_MAX_ROWS` is `MAX_BULK_SELECTION_ENTRIES`, by construction rather
-than by coincidence (`src/server/config-limits.ts:13`,
+than by coincidence (`src/server/config-limits.ts:14`,
 `src/shared/domain.ts:1305`). `CSV_MAX_ROWS` may lower it; raising it past the
 bulk cap only moves the refusal further along, so the configuration ceiling is
 the same number.

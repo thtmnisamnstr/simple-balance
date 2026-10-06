@@ -5,13 +5,24 @@ keep, so upgrading is swapping it for a newer one.
 
 ## Before you upgrade to 0.2.1
 
-This note is written as work lands rather than when the release is cut.
-
 **Nothing to do by hand.** No migration, no new setting, and nothing an
 existing configuration has to change. A stack that is already up plans no
-change. What follows is what moves under a client, all of it found by a full
-smoke test of a 0.2.0 deployment, and none of it removes a route, a tool or a
-CSV column.
+change. What follows is what moves under a client, found by a full smoke test
+of a 0.2.0 deployment and a sweep of every surface against the guides. No
+route, tool or CSV column is removed.
+
+**Four of the changes narrow what a client could do, which `writing.md`
+§Versioning counts as a break**, and they are named here rather than left to
+the list: a recurring transfer naming one account on both sides is refused; a
+second account whose name differs from another only in case is refused; a save
+that changes nothing no longer bumps `version`; and the auth routes' JSON no
+longer carries the session token. Each refused or exposed something the product
+itself got wrong — a transfer that proposed a row nothing could commit, two
+accounts a person could not tell apart in a picker, a version change nobody
+made that made every other open copy stale, and a credential `HttpOnly` exists
+to keep from page script. Nothing a ledger already holds is touched by any of
+them. Whether a narrowing for those reasons belongs in a patch release is the
+question `writing.md` leaves open, and it is answered before this is cut.
 
 **`oci-single` waits for its settings vault to be reachable before making the
 key in it.** OCI reports a new vault active minutes before it publishes the
@@ -24,6 +35,17 @@ The program now asks OCI's own nameservers until the hostname exists, so the
 first lookup the provider makes succeeds and nothing has a "no" to remember. It
 waits up to fifteen minutes, and says so if that runs out; the vault is kept,
 and the next `up` makes the key.
+
+**What an operator sees differently.** Nothing that started on 0.2.0 stops
+starting, and three things it accepted silently are now said in the log: a
+`SETUP_TOKEN` shorter than sixteen characters on an instance already claimed,
+where it is never read; an `SMTP_PORT` that is not a port, which still refuses
+but now names the variable; and, in the split frontend image, an
+`SB_BILLING_CONFIGURED`, `SB_ADS_CONFIGURED` or `SB_CSP_REPORT_ONLY` that is
+neither `true` nor `false`, which is still read as off, as it always was. The
+three Node images allow 300 seconds before a failing healthcheck counts, where
+they allowed 20, so a first start that is still migrating reports as starting
+rather than unhealthy; the compose recipe and the chart already allowed 300.
 
 **What a client sees differently.**
 
@@ -129,6 +151,19 @@ and the next `up` makes the key.
   other write to a frozen account is refused exactly as before, with a sentence
   that now says its entries and details cannot change rather than that nothing
   can.
+- **Thirteen refusals that said a thing "is unavailable" say what happened.**
+  An account, category, template, staged row or split row that could not be
+  used now reads as archived or not found, with the move that works — "The
+  account the money comes from is archived or was not found. Choose another
+  account." — over HTTP and MCP alike. Another person's record reads exactly
+  as a missing one does. Codes and statuses are unchanged.
+
+### What to check afterwards
+
+`/health/ready`, as with any upgrade; nothing at startup is new, so a clean
+start is the whole check. A client that matched a refusal's message text rather
+than its `code` should read the two lists above, because several messages are
+reworded and every code is the one it was.
 
 ## Before you upgrade to 0.2.0
 

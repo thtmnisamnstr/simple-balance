@@ -274,7 +274,7 @@ What that means depends on whether the publisher id is the same in both places:
 - **A different id or a different seller on the subdomain** — and only then —
   the root file needs a referral line:
 
-  ```
+  ```text
   subdomain=balance.example.com
   ```
 

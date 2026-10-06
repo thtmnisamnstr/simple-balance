@@ -82,7 +82,7 @@ Except where a line says otherwise, this applies to all four.
   single container, on the same tags, so the programs pull them rather than
   build them:
 
-  ```
+  ```text
   ghcr.io/thtmnisamnstr/simple-balance-server:0.2.0
   ghcr.io/thtmnisamnstr/simple-balance-frontend:0.2.0
   ghcr.io/thtmnisamnstr/simple-balance-scheduler:0.2.0
@@ -195,7 +195,7 @@ Except where a line says otherwise, this applies to all four.
   policies — the last three because the program keeps the stack's settings in
   a Vault of its own and grants the application machine, alone, read on them:
 
-  ```
+  ```text
   Allow group <group> to manage virtual-network-family in compartment <compartment>
   Allow group <group> to manage instance-family in compartment <compartment>
   Allow group <group> to manage volume-family in compartment <compartment>
@@ -225,7 +225,7 @@ Except where a line says otherwise, this applies to all four.
 
 ## Layout
 
-```
+```text
 deploy/pulumi/
   package.json          one set of dependencies for every project
   tsconfig.json         the base every project extends
@@ -809,7 +809,7 @@ The program builds the second machine, generates the role's password, issues the
 certificate, and writes the connection string into
 `/opt/simple-balance/env.db` at `0600` on the application node:
 
-```
+```text
 postgresql://simple_balance:<password>@<internal DNS name>:5432/simple_balance?sslmode=verify-full&sslrootcert=/var/lib/simple-balance/tls/db-ca.pem
 ```
 
@@ -1270,7 +1270,7 @@ Every API and scheduler replica holds `databasePoolSize` connections and takes
 one more while it starts. The frontend is nginx and holds none. So the number
 that has to fit is
 
-```
+```text
 (serverMaxReplicas + schedulerMaxReplicas) x (databasePoolSize + 1)
 ```
 

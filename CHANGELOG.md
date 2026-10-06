@@ -104,18 +104,18 @@ landed on the overview with no word of what had gone wrong, and a report name
 nobody knows showed net worth under the wrong address. The first now gets a page
 that says what happened, and the second goes to Reports.
 
-**A design review across every page, at five widths.** Staged, with a
-duplicate waiting, was wider than an 820px window and broke its duplicates
-button over two lines on a phone; header actions now drop to a row of their own
-instead. Dates in the staged queue, the import preview and Recurring's next
-column broke onto three lines in a narrow table, and now stay whole. An account
-opened for editing showed its starting amount to eighteen decimal places, and a
-transaction or budget dropped its cents to "12.5"; every amount field now starts
-at the currency's own decimals. When the accounts list failed to load, the add
-buttons said to create an account first; they now say the accounts did not
-load. The duplicate review no longer opens with the cursor in its second form,
-a badge's icon no longer touches its words, and a staged row missing a field
-names the field to fill in rather than repeating a type error.
+**Pages fit their window, and numbers start at their currency's decimals.**
+Staged, with a duplicate waiting, was wider than an 820px window and broke its
+duplicates button over two lines on a phone; header actions now drop to a row of
+their own instead. Dates in the staged queue, the import preview and Recurring's
+next column broke onto three lines in a narrow table, and now stay whole. An
+account opened for editing showed its starting amount to eighteen decimal
+places, and a transaction or budget dropped its cents to "12.5"; every amount
+field now starts at the currency's own decimals. When the accounts list failed
+to load, the add buttons said to create an account first; they now say the
+accounts did not load. The duplicate review no longer opens with the cursor in
+its second form, a badge's icon no longer touches its words, and a staged row
+missing a field names the field to fill in rather than repeating a type error.
 
 **Two edits at once no longer deadlock.** Editing an entry or a staged row so it
 no longer names a category, while another write named a category on a
@@ -255,7 +255,6 @@ the ledger; the plan tab mentioned frozen accounts when none were frozen; Google
 sign-in asked for each of its three scopes twice; a signed-out visit logged a
 failed request in the browser on every load; and `/robots.txt` answered with the
 app's own page, which a crawler reads as having no rules.
-
 
 **The first `pulumi up` of a new `oci-single` stack no longer fails at the
 settings key.** OCI reports a new vault active minutes before the vault's own
@@ -1607,7 +1606,6 @@ view forwards it.
 written.** Every command in it named no compose file, in a directory that holds
 more than one, so the first failed and left an empty dump behind; the last
 brought the old images back up. It names the file once and builds the release.
-
 
 **Turning AdSense on no longer stops a compose deployment from starting.** No
 compose shape passed `PRIVACY_POLICY_URL` to the application, and the server

@@ -211,7 +211,7 @@ for the reason 1.5 already gives one level down — a count somebody has to
 remember is the count missing from the branch added next release. On this route
 the missing branch is also invisible, because its status matches six others.
 The cost of having no such counter at all is already written down:
-`docs/deployment.md:250` sends anybody asking whether the subscription path
+`docs/deployment.md:252` sends anybody asking whether the subscription path
 worked to `simple_balance_billing_sweeps_total`, which is the twelve-hourly
 catch-up and reports a webhook that has been failing for hours as healthy right
 up to the tick that repairs it.
@@ -357,7 +357,7 @@ collector's job.
 losing it.** Measured 2026-10-01: 22 lines in `src/server/services/billing.ts`
 and `src/server/stripe.ts` are written as a dotted event key and a field object
 — `log.warn("billing.reconcile.failed", { error: String(error) })`
-(`src/server/services/billing.ts:2035`) is the shape — and between them they
+(`src/server/services/billing.ts:2052`) is the shape — and between them they
 are the entire log output of the subsystem an operator is most likely to be
 reading during an outage. Nothing in either file argues for an exception. So
 this rule describes two thirds of the server while the newest third does the
@@ -437,7 +437,7 @@ seventeen sites.** Measured 2026-10-01: 17 log calls across the same two files
 hand an identifier bound by a `catch` in the same file to `String()` — fifteen
 in `src/server/services/billing.ts` and two in `src/server/stripe.ts` — and
 several of them wrap plain database writes, such as the locked write at
-`src/server/services/billing.ts:2024` and the deferral at `:2058`.
+`src/server/services/billing.ts:2041` and the deferral at `:2075`.
 `String(error)` on a Drizzle error yields its message, which is the statement
 plus every value bound into it: exactly what the narrowing exists to strip, got
 at one remove.
@@ -477,8 +477,8 @@ something it should not is still review.
 **House.** A condition read on a schedule warns on the first read and not again.
 `configuredRecurrenceTickSeconds` runs on every scheduler tick, so a
 misconfigured `RECURRENCE_TICK_SECONDS` would otherwise fill a log with one
-mistake (`src/server/config-limits.ts:74`, and `warnOnce` at
-`src/server/config-files.ts:79`).
+mistake (`src/server/config-limits.ts:75`, and `warnOnce` at
+`src/server/config-files.ts:59`).
 
 ### 2.6 A recovered failure is logged, never swallowed
 
@@ -488,7 +488,7 @@ tick that throws, an OAuth client sweep that fails, the two Stripe checks both
 entrypoints make at boot — the prices (`src/server/stripe.ts:1528`) and what
 the key may read (`:1608-1623`) — and the reconciliation sweep carrying on
 past a subscription Stripe cannot answer about
-(`src/server/services/billing.ts:2035`). Each logs and continues,
+(`src/server/services/billing.ts:2052`). Each logs and continues,
 because the alternative — a `catch` with an empty body — produces a deployment
 that is quietly doing half its job, which is the failure mode the degradation
 was designed to avoid in the first place.

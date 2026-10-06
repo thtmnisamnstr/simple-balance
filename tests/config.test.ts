@@ -59,6 +59,10 @@ const keys = [
   "TERMS_OF_USE_URL",
   "STRIPE_SECRET_KEY_FILE",
   "STRIPE_WEBHOOK_SECRET_FILE",
+  // The two booleans the strictness table below names, so a value one case
+  // sets is put back before the next.
+  "METRICS_ENABLED",
+  "SB_CSP_REPORT_ONLY",
 ] as const;
 const original = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
 
@@ -163,6 +167,10 @@ describe("authentication configuration", () => {
   it.each([
     ["RECURRENCE_SCHEDULER", "yes", /RECURRENCE_SCHEDULER must be true or false/],
     ["TRUST_PROXY", "yes", /TRUST_PROXY must be true or false/],
+    // The other two booleans `getConfig` reads, which the guide's summary row
+    // covered by citing this table while the table held two of the four.
+    ["METRICS_ENABLED", "on", /METRICS_ENABLED must be true or false/],
+    ["SB_CSP_REPORT_ONLY", "yes", /SB_CSP_REPORT_ONLY must be true or false/],
     ["LOG_LEVEL", "loud", /LOG_LEVEL must be debug, info, warn or error/],
     ["AUTH_MODE", "sso", /AUTH_MODE must be one of/],
     ["NODE_ENV", "Prod", /NODE_ENV must be production, development or test/],
@@ -619,6 +627,36 @@ describe("a secret held in a file", () => {
     const { getOwnerSetupToken } = await import("../src/server/setup-token.js");
 
     await expect(getOwnerSetupToken()).rejects.toThrow(/at least 16 characters/);
+  });
+
+  /**
+   * The refusal above happens only where the code is read, which is an
+   * unclaimed production instance. A claimed one, and the scheduler, read it
+   * never, and `docs/deployment.md` said a short one "refuses to start" — so a
+   * short value sat in configuration looking accepted. It is said at every
+   * start now, and still not refused, because claimed instances run with one.
+   */
+  it("warns about a short setup code at every start, and starts", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    setEnvironment({ ...production, SETUP_TOKEN: "short" });
+    vi.resetModules();
+    const { getConfig } = await import("../src/server/config.js");
+
+    expect(() => getConfig()).not.toThrow();
+    expect(warn.mock.calls.flat().join("\n")).toMatch(/SETUP_TOKEN has fewer than 16 characters/);
+    warn.mockRestore();
+  });
+
+  it("says nothing about a setup code long enough, or none at all", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    for (const token of [undefined, "a-setup-code-of-sixteen-or-more"]) {
+      setEnvironment({ ...production, ...(token ? { SETUP_TOKEN: token } : {}) });
+      vi.resetModules();
+      const { getConfig } = await import("../src/server/config.js");
+      getConfig();
+    }
+    expect(warn.mock.calls.flat().join("\n")).not.toMatch(/SETUP_TOKEN/);
+    warn.mockRestore();
   });
 });
 

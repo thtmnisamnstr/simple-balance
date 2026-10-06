@@ -1656,7 +1656,7 @@ edit, a mass delete, a commit, and a CSV import."
   **The one operation that outgrows this is CSV export**, which buffers up to
   100,000 transactions in memory (`src/server/services/import-export.ts:999`)
   against very carefully specified request limits. The bound it needed is now
-  stated and enforced: `CSV_EXPORT_MAX_ROWS` (`src/server/config-limits.ts:30`)
+  stated and enforced: `CSV_EXPORT_MAX_ROWS` (`src/server/config-limits.ts:31`)
   refuses a larger export with the remedy named — narrow the date range and
   export one range at a time (`src/server/services/transactions.ts:1434-1440`).
   [`csv.md`](csv.md) records the decision as settled, and

@@ -1,0 +1,55 @@
+#!/bin/sh
+# Reads the three on/off switches the template matches in a `map`, and says so
+# when one holds something the map cannot match.
+#
+# The image installs this as /docker-entrypoint.d/17-sb-switches.envsh, sourced
+# by the entrypoint before 20-envsubst-on-templates.sh exactly as
+# 18-sb-real-ip.envsh is; that script's header says why sourced rather than
+# run. SB_BILLING_CONFIGURED, SB_ADS_CONFIGURED and SB_CSP_REPORT_ONLY reach the
+# template unchanged and are matched against the literal string "true", so
+# `yes`, `1` and `TRUE` all meant off with nothing in the log — while the server
+# refuses SB_CSP_REPORT_ONLY=yes outright and reads TRUE as on, so the two
+# halves of one deployment could disagree about one switch and neither said so.
+#
+# It warns rather than refuses, and it keeps the outcome. 0.2.0 started on any
+# of these values and served the off position, so a container that started
+# yesterday starts today and serves the same headers; what is new is the line
+# saying the value was not one this reads. Refusing is a later release's job,
+# after the warning has been in the field. Empty is off and says nothing, as an
+# empty SB_ switch is everywhere else in this image.
+#
+# Sourced under whatever options the scripts before it left, so every
+# expansion has a default, and everything but the three exports is unset
+# before it returns.
+
+sb_switches_me=17-sb-switches.envsh
+
+sb_switch() {
+  # $1 is the name, $2 its value. Prints the value the template will see.
+  case ${2:-} in
+    true | false) printf '%s' "$2" ;;
+    '') printf 'false' ;;
+    *)
+      case $(printf '%s' "$2" | tr '[:upper:]' '[:lower:]') in
+        true | false)
+          printf '%s: WARNING: %s is "%s", which this image reads as false; it takes' \
+            "$sb_switches_me" "$1" "$2" >&2
+          printf ' true or false in lowercase. Write it lowercase to mean it.\n' >&2
+          ;;
+        *)
+          printf '%s: WARNING: %s is "%s", which this image reads as false; it takes' \
+            "$sb_switches_me" "$1" "$2" >&2
+          printf ' true or false.\n' >&2
+          ;;
+      esac
+      printf 'false'
+      ;;
+  esac
+}
+
+SB_BILLING_CONFIGURED=$(sb_switch SB_BILLING_CONFIGURED "${SB_BILLING_CONFIGURED:-}")
+SB_ADS_CONFIGURED=$(sb_switch SB_ADS_CONFIGURED "${SB_ADS_CONFIGURED:-}")
+SB_CSP_REPORT_ONLY=$(sb_switch SB_CSP_REPORT_ONLY "${SB_CSP_REPORT_ONLY:-}")
+export SB_BILLING_CONFIGURED SB_ADS_CONFIGURED SB_CSP_REPORT_ONLY
+unset sb_switches_me
+unset -f sb_switch

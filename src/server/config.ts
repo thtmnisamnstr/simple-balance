@@ -405,6 +405,22 @@ export function getConfig(): AppConfig {
         "other page still enforces. Turn it off once you have read the reports.",
     );
   }
+  // The length rule is enforced where the code is used, which is a production
+  // instance nobody has claimed yet: `getOwnerSetupToken` refuses there, and
+  // that is the only moment a short code could be guessed into an account.
+  // Everywhere else — a claimed instance, the scheduler — it was read by
+  // nothing and said nothing, so a short value sat in the configuration
+  // looking accepted until the day somebody restored to an empty database.
+  // Said here instead of refused, because claimed instances already run with
+  // one and a code nobody reads is not worth stopping a ledger for.
+  const setupToken = readSecret("SETUP_TOKEN")?.trim();
+  if (setupToken && setupToken.length < 16 && isProduction) {
+    console.warn(
+      "SETUP_TOKEN has fewer than 16 characters. It is only read while no account " +
+        "exists, and then it refuses to start; set a longer one, or remove it and " +
+        "a code is generated and printed when one is needed.",
+    );
+  }
   if (metricsEnabled && !values.METRICS_TOKEN && isProduction) {
     console.warn(
       "METRICS_ENABLED is true and METRICS_TOKEN is not set, so /metrics answers " +
@@ -543,11 +559,15 @@ export function parseMailSettings(env: {
     .enum(booleanSettings, { error: () => "SMTP_SSL must be true or false" })
     .transform((value) => value === "true")
     .parse((env.SMTP_SSL ?? "false").toLowerCase());
+  // Named, as PORT's is. Bare, a typo stopped the server with "expected
+  // number, received NaN" and an empty path, which says what went wrong and
+  // not where. The values accepted are the ones accepted before.
+  const smtpPortRule = "SMTP_PORT must be a whole number between 1 and 65535";
   const port = z.coerce
-    .number()
-    .int()
-    .min(1)
-    .max(65535)
+    .number({ error: () => smtpPortRule })
+    .int({ error: () => smtpPortRule })
+    .min(1, { error: () => smtpPortRule })
+    .max(65535, { error: () => smtpPortRule })
     .parse(env.SMTP_PORT ?? (ssl ? 465 : 587));
 
   if (!mailAddress.test(from)) {

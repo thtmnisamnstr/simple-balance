@@ -410,7 +410,16 @@
   promise to this deployment, it is invisible in a plan while a property is not,
   and a property can be tested. None of this is enforced in `src/`: a URL that
   was accepted stays accepted, warned about rather than refused, per the rule
-  above.
+  above. TLS is insisted on wherever the connection crosses a machine; a
+  connection that never leaves one is not that case. **One provisioned database
+  is outside the rest of it, by name:** `deploy/compose/compose.distributed.yml`
+  bundles a PostgreSQL so a trial on one machine is one command, and it runs as
+  the image's superuser over the image's own `host` lines. It publishes no
+  port, its only network is the compose project's own, and the file's header
+  says to point `DATABASE_URL` at a real server and delete the service when the
+  trial ends. It stays as it is because fixing it in place is not upgrade-safe:
+  `initdb` never runs again on an existing volume, so a new role would exist
+  only for trials started after the change.
 - No metric label carries somebody's identity: not a user id, an email, an
   account name or an amount. A metric is read by whoever can reach the scrape
   endpoint, which is not the person whose ledger it counts, and the same rule

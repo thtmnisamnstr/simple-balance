@@ -3,7 +3,7 @@
 The one convention in this repository that is genuinely unusual, and the reason
 it pays.
 
-**26.5% of the non-blank lines in `src` are comments** — 16,625 of 62,688. That
+**26.5% of the non-blank lines in `src` are comments** — 16,645 of 62,727. That
 is far above what most codebases carry and far above what most style guides
 recommend. It is deliberate, and this guide exists so that nobody "tidies" it
 away and so that the density is spent on the right things.
@@ -110,7 +110,7 @@ twelve times, `jsx-a11y/no-static-element-interactions` twice, and
 `jsx-a11y/click-events-have-key-events` once. Every one of the fourteen carries
 a paragraph arguing why the rule is wrong about that line:
 
-```
+```ts
 // The handler and the interactive role arrive together, both gated on the
 // same `allowNone`, so the element carrying a key handler is always a
 // radiogroup. The rule reads the two attributes separately and cannot see

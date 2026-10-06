@@ -217,7 +217,7 @@ Six throw sites carry one today and the shape recurs: the archive restore meets
 the same ceiling from the other side
 (`src/server/services/accounts.ts:1204`), the frozen-account refusal is the same
 argument under a 422 (`src/server/services/accounts.ts:861`), and the two in
-`closeBillingForDeletion` (`src/server/services/billing.ts:1947` and `:1954`)
+`closeBillingForDeletion` (`src/server/services/billing.ts:1964` and `:1971`)
 send a person to whoever runs the server while naming the cause, and whether
 retrying helps, for a program. Those last two are reached only from the
 session-only deletion path, so nothing renders them today — written that way

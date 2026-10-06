@@ -369,7 +369,7 @@ image declares a default for: `SB_FRONTEND_PORT`, `SB_API_ORIGIN`,
 `SB_MAX_UPLOAD_SIZE`, `SB_BILLING_CONFIGURED`, `SB_CSP_REPORT_ONLY`,
 `SB_ADS_CONFIGURED`, `SB_TRUSTED_PROXY_CIDR` and `SB_REAL_IP_RECURSIVE`
 (`deploy/docker/frontend.Dockerfile:49-90`, documented at
-`docs/deployment.md:863-870`). It was three for two releases and the rule held
+`docs/deployment.md:865-872`). It was three for two releases and the rule held
 through five more arriving, which is the evidence the rule is worth something.
 `AUTH_MODE` and `TRUST_PROXY` are generic enough to collide with a sidecar or a
 base image.
@@ -395,15 +395,15 @@ the value is ours rather than theirs. The test is ownership, not familiarity:
 a question only this product asks.
 
 *Checked by:* `tests/deploy-settings-naming.test.ts`. A grep would have to know
-which names belong to a vendor — so the grep does not know and the three
-registers do: a platform convention, a vendor's own spelling, and the frozen
-inventions that predate the rule. Each entry is keyed by name and carries its
-reason, so a name on none of the three fails by name and extending a list is a
-decision somebody writes down. This release invented nine unprefixed names and
-the open question below named three of them; six would otherwise have frozen
-unexamined.
+which names belong to a vendor — so the grep does not know and the four
+registers do: a platform convention, a vendor's own spelling, the inventions
+frozen in 0.1.x, and the inventions frozen in 0.2.0. Each entry is keyed by name
+and carries its reason, so a name on none of them fails by name. Neither frozen
+register takes a new entry: a name invented from 0.2.1 on is prefixed `SB_`.
 
-**Open, and the owner's to close before 0.2.0 ships.** `PRIVACY_POLICY_URL`,
+**Superseded in 0.2.0, by the release shipping: this was open, and the owner's
+to close before 0.2.0 shipped.** It is kept as it was written because the
+reasoning is the record of why the exceptions below exist. `PRIVACY_POLICY_URL`,
 `TERMS_OF_USE_URL` and `SITE_ADDRESS` break the rule above. All three are this
 product's own inventions, none is a platform's convention or a vendor's
 identifier, and all three arrived unprefixed in 0.2.0: the first with the ads
@@ -446,14 +446,24 @@ with the first, beside a real `SB_TERMS_OF_USE_URL`, gets a sign-up form that
 links no terms and no word about why, which is the failure with no symptom this
 whole section is arranged against.
 
-**0.2.0 shipped all three unprefixed, so the second way is the one taken.**
-`PRIVACY_POLICY_URL`, `TERMS_OF_USE_URL` and `SITE_ADDRESS` are the named
-exceptions to the `SB_` rule, and renaming any of them now is a deprecation
-with both spellings accepted for a release, not an edit.
+**0.2.0 shipped all three unprefixed, so the second way is the one taken —
+and it shipped sixteen more the question above never named.** The open
+question named three; 0.2.0 invented nineteen. The other sixteen are seven of
+the `single` profile's and the trial recipe's own — `ACME_EMAIL`,
+`ACME_EMAIL_OPTION`, `ADSENSE_CONSENT_MANAGED`, `APP_BIND_ADDRESS`, `APP_PORT`,
+`CADDY_IMAGE` and `MAX_BODY_SIZE` — and nine `POSTGRES_*` names this repository
+invented inside PostgreSQL's namespace: `POSTGRES_APP_PASSWORD`, the six tuning
+names `compose.postgres.yml` interpolates into `-c` flags, `POSTGRES_IMAGE` and
+`POSTGRES_DATA_MOUNT`. All nineteen are frozen in 0.2.0 as the exceptions to the
+`SB_` rule, each with its reason in the register, and renaming any of them is
+now a deprecation with both spellings accepted for a release, not an edit.
+`ADSENSE_CONSENT_MANAGED` and `APP_BIND_ADDRESS` are the two a fresh start would
+have prefixed — the first is a question only this product asks, sitting in a
+vendor's namespace, and the second makes one machine spell two of its own
+addresses two ways — and both are recorded as that, not as right.
 
-*Checked by:* `tests/deploy-settings-naming.test.ts`, which is where the three
-names above are currently registered as frozen-pending-this-decision. Whichever
-way it goes, the register entry is the record of it.
+*Checked by:* `tests/deploy-settings-naming.test.ts`, whose 0.2.0 register is
+pinned by membership to exactly these nineteen.
 
 ### Types
 
@@ -466,12 +476,25 @@ truthiness has no symptom. `RECURRENCE_SCHEDULER` already does it, and
 process starts, serves, and quietly proposes nothing until somebody notices a
 year of missing rent." `RECURRENCE_SCHEDULER=yes` read as falsy is a deployment
 that looks healthy and proposes nothing. `TRUST_PROXY` (`config.ts:271-274`) and
-`SMTP_SSL` (`config.ts:521-524`) follow the same pattern.
+`SMTP_SSL` (`config.ts:537-540`) follow the same pattern.
 
 The same argument applies to any closed set, not only booleans. `NODE_ENV` is
 parsed against three values and refuses a fourth (`config.ts:246-250`), because
 `NODE_ENV=Production` compared against the string `production` had no symptom
 either: no setup code, no rate limiting, no secure cookies.
+
+**The frontend image's three switches are the exception that is on its way
+in.** `SB_BILLING_CONFIGURED`, `SB_ADS_CONFIGURED` and `SB_CSP_REPORT_ONLY`
+reach nginx's `map` and are matched against the literal `true`, so `yes`, `1`
+and `TRUE` all served the off position with nothing in the log — while the
+server reads `SB_CSP_REPORT_ONLY` case-insensitively and refuses `yes`, so two
+halves of one deployment could disagree about one switch and neither say so.
+`deploy/docker/nginx-switches.envsh` now reads them before the template is
+rendered and **warns, naming the variable, while keeping the off position**
+those values always had: 0.2.0 started on them, so refusing would stop a
+container that ran yesterday. Refusing is a later release's change, after the
+warning has been in the field. `SB_REAL_IP_RECURSIVE`, in the same image,
+already refuses, because it arrived refusing and so had nothing to keep.
 
 **House.** An integer is bounded, and both the bound and its reason are
 documented. Every ceiling in `config-limits.ts` exists to stop something filling
@@ -479,13 +502,15 @@ the database or the process.
 
 **House.** A list is comma-separated, each entry trimmed, and empty entries are
 skipped rather than refused. `parseRegistrationRule`
-(`src/server/config.ts:968-1004`) is the model: split, trim, lowercase, drop the
+(`src/server/config.ts:988-1024`) is the model: split, trim, lowercase, drop the
 blanks, then validate what is left with a message naming the bad entry.
 
-*Checked by:* `tests/config.test.ts:163-184`, which asserts that
-`RECURRENCE_SCHEDULER=yes`, `TRUST_PROXY=yes`, `LOG_LEVEL=loud`, `AUTH_MODE=sso`
-and `NODE_ENV=Prod` each throw with the variable named.
-`tests/mail-settings.test.ts` covers `SMTP_SSL`.
+*Checked by:* `tests/config.test.ts`, which asserts that
+`RECURRENCE_SCHEDULER=yes`, `TRUST_PROXY=yes`, `METRICS_ENABLED=on`,
+`SB_CSP_REPORT_ONLY=yes`, `LOG_LEVEL=loud`, `AUTH_MODE=sso` and `NODE_ENV=Prod`
+each throw with the variable named; `tests/mail-settings.test.ts` covers
+`SMTP_SSL` and `SMTP_PORT`; and `tests/frontend-switches.test.ts` holds the
+frontend's three to warning by name and keeping the off position.
 
 ### Secrets and settings
 
@@ -583,7 +608,7 @@ contradictory secret file then refuses at startup rather than at the first
 query, which is what the next section asks of everything else.
 
 The same argument decided the one line that looks like it should have been left
-alone. `config.ts:447-455` hands `getPool()` the *development default* for
+alone. `config.ts:463-471` hands `getPool()` the *development default* for
 `DATABASE_URL` and is now guarded so it does that and nothing else, because
 unguarded it would have written a value read from `DATABASE_URL_FILE` straight
 back into the environment the form exists to keep it out of.
@@ -627,7 +652,7 @@ false one, and it is worth naming why it mattered: it read as an unsolved
 problem when the solution is two files along, which is the sort of sentence that
 gets a capability rewritten from scratch beside the one already there.
 
-*Checked by:* `tests/config.test.ts:381-623`, over eight of the nine by the
+*Checked by:* `tests/config.test.ts:389-661`, over eight of the nine by the
 consumer that has to end up holding the value, including that a resolved
 `DATABASE_URL` reaches `directConnectionString` without reaching `process.env`,
 and that it does so in a process that never calls `getConfig` at all.
@@ -644,7 +669,7 @@ with `openssl rand -base64 32`." Length alone cannot tell a real secret from a
 documented one. This is the twelve-factor litmus test enforced rather than
 stated, and it is the pattern to copy the next time a placeholder ships.
 
-*Checked by:* `tests/config.test.ts:317-331` ("refuses the published placeholder
+*Checked by:* `tests/config.test.ts:325-339` ("refuses the published placeholder
 secret %s in production"), over two of the three entries in the set. *Not
 checked:* that the set covers whatever `.env.example` currently carries, which is
 the half that has to be extended by hand every time the example file changes.
@@ -765,7 +790,7 @@ default whenever the value was not a safe integer in range, so `CSV_MAX_ROWS`,
 `RECURRENCE_CLAIM_LIMIT` all fell back silently while `DATABASE_POOL_SIZE` threw.
 The five were made to do what the one did, and then all six were made to warn
 instead, which is where they are now
-(`src/server/config-limits.ts:40-84`).
+(`src/server/config-limits.ts:41-85`).
 
 **The reversal is the interesting half, and it is not a retreat from the rule.**
 A release upgrades cleanly from the one before it, which `AGENTS.md` states as a
@@ -784,14 +809,14 @@ startup rather than at the call site. `configuredCsvMaxRows()` used to run insid
 an import (`src/server/services/import-export.ts:754`) and the recurrence limits
 inside a tick, so a message about either arrived hours later in a log nobody was
 reading, or on a deployment that never imported a CSV, not at all.
-`assertConfiguredLimits()` (`src/server/config-limits.ts:224-231`) reads all six
+`assertConfiguredLimits()` (`src/server/config-limits.ts:225-232`) reads all six
 and `getConfig()` calls it (`src/server/config.ts:229-241`), which every
 entrypoint runs before it serves anything.
 
 **There is a seventh bounded integer and it is still read at its call site**,
 which makes it the live instance of the defect the two paragraphs above are
 about. `IDEMPOTENCY_RETENTION_HOURS` is parsed by
-`configuredIdempotencyRetentionHours` (`src/server/config-limits.ts:133-153`), a
+`configuredIdempotencyRetentionHours` (`src/server/config-limits.ts:134-154`), a
 deliberate sibling of the shared reader rather than a flag on it, because zero
 is a real answer here — the honest spelling of "do not prune" — where on a cap
 it would be a broken deployment. The sibling is right. What is missing is the
@@ -910,7 +935,7 @@ name in the message.
 
 The root file is the model for all five. `AUTH_SECRET=` is empty with
 `openssl rand -base64 32` above it (`.env.example:33-38`),
-`RECURRENCE_SCHEDULER` carries its own silence warning (`.env.example:253-263`),
+`RECURRENCE_SCHEDULER` carries its own silence warning (`.env.example:254-264`),
 and the mail block is commented out as a group (`.env.example:83-106`).
 
 It also does one thing beyond the rule, worth generalizing: it warns about
@@ -924,7 +949,7 @@ parsers read `.env` in this repository and they disagree about quoting.
 
 | Path | Parser | Rule |
 | --- | --- | --- |
-| `docker run --env-file .env` (`README.md:122`, `docs/deployment.md:728`) | Docker CLI | `NAME=value`, `#` only at line start, values passed as-is. **No interpolation and no quote processing. Do not quote.** Quoting an `SMTP_PASSWORD` here puts the quote marks in the password. |
+| `docker run --env-file .env` (`README.md:122`, `docs/deployment.md:730`) | Docker CLI | `NAME=value`, `#` only at line start, values passed as-is. **No interpolation and no quote processing. Do not quote.** Quoting an `SMTP_PASSWORD` here puts the quote marks in the password. |
 | Compose `.env` and `env_file` (`deploy/compose/compose.distributed.yml`) | Compose | Interpolation applies to unquoted and double-quoted values, `${VAR:-default}` and friends work. **Single-quote a value containing `$`.** |
 
 The intuitive advice, "quote your secrets in `.env`", is wrong on the path this
@@ -946,14 +971,14 @@ is believed.
 **Settled, and six variables had drifted.** Three were in the root example and
 in no table, because prose was doing the work a table row does: `NODE_ENV` and
 the two Google settings, which are now rows of their own
-(`docs/deployment.md:40`, `:133-134`). Prose is where the reasoning goes and a
+(`docs/deployment.md:40`, `:135-136`). Prose is where the reasoning goes and a
 table is what somebody scans for a name, so a variable mentioned only in a
 sentence is one an operator searching the tables concludes does not exist.
 
 **The other three were a named exception rather than an omission, and the
 exception is now five.** `SB_API_ORIGIN`, `SB_FRONTEND_PORT`,
 `SB_MAX_UPLOAD_SIZE`, `SB_BILLING_CONFIGURED` and `SB_ADS_CONFIGURED` — rows of
-the nginx table at `docs/deployment.md:861-870` — belong to the nginx container,
+the nginx table at `docs/deployment.md:863-872` — belong to the nginx container,
 and no example file configures it: the root file serves the single container,
 which has no nginx in it, and the compose recipe sets each of them on the
 frontend service itself (`deploy/compose/compose.distributed.yml:289-335`),
@@ -1078,7 +1103,7 @@ returns 200 or 503 (`src/server/api.ts:426-441`, and the same pair on the
 scheduler at `src/server/scheduler.ts:30-38`). Both are registered above every
 auth middleware and neither is authenticated.
 
-The rule that generalizes best is already written in `docs/deployment.md:1034`: "A
+The rule that generalizes best is already written in `docs/deployment.md:1036`: "A
 process with the scheduler switched off is not an unhealthy one." A readiness
 check that fails because an optional subsystem is off takes a working server out
 of rotation. Readiness must not consult mail, and it must not consult the
@@ -1094,15 +1119,17 @@ shutdown, is the slow half.** Migrations run at startup under advisory lock
 (`src/server/index.ts:28,78`; `src/server/scheduler.ts:73,101`), so readiness
 cannot open before they finish. The 0.1.5 notes record that the payee index
 "takes a moment to build while the container starts, before it opens readiness"
-(`docs/upgrades.md:1179-1181`). So the generous number is `--start-period`,
-currently 20s (`Dockerfile:58`), plus a Kubernetes startup probe. Not the
-shutdown deadline.
+(`docs/upgrades.md:1241-1243`). So the generous number is `--start-period`:
+300s in all three Node images, the same budget the compose recipe's
+`start_period` and the chart's startup probe give the same work, and the three
+are held to each other. It was 20s in the images, which reported a first start
+still migrating as unhealthy. Not the shutdown deadline.
 
 **Settled, and the second half declined.** Both documents used to say
 `/health/ready` "says configuration, the database, and the migrations have all
 succeeded, and stays closed until they have", and readiness never knew anything
 about configuration or migrations. Both now say what it does:
-`docs/deployment.md:1025-1030` and `README.md:137-140` describe one statement
+`docs/deployment.md:1027-1032` and `README.md:137-140` describe one statement
 against the database and nothing else, and `src/server/api.ts:433-439` says the
 same beside the route. The difference matters to an operator designing alerting:
 a migration that succeeded on an older image leaves readiness green against a
@@ -1183,7 +1210,7 @@ measurably the wrong check: Patroni opens 5432 as soon as the postmaster is up,
 seconds before it registers the worker groups, so the probe passed and migration
 `0023` ran into a coordinator with no workers. The cluster said so exactly:
 
-```
+```text
 error: replication_factor (1) exceeds number of worker nodes (0)
 SQL statement "SELECT create_distributed_table('user_preferences', 'user_id')"
 ```
@@ -1435,7 +1462,7 @@ chart sets `terminationGracePeriodSeconds: 30`
 (`deploy/helm/simple-balance/values.yaml:268`).
 
 **Settled.** Both documented `docker run` commands now pass
-`--stop-timeout 30` (`README.md:122-127`, `docs/deployment.md:728-735`). Docker's
+`--stop-timeout 30` (`README.md:122-127`, `docs/deployment.md:730-737`). Docker's
 default is 10 seconds, exactly the drain deadline, so the forced exit and
 SIGKILL used to land in the same instant and the drain never got to finish.
 
@@ -1448,7 +1475,9 @@ between the deadline and any grace period is checked by nothing.
 **House (OWASP Docker Security Cheat Sheet, rules 2, 3, 4 and 8).** Non-root
 user, read-only root filesystem, all capabilities dropped, no new privileges.
 
-All four are everywhere now, and three of them always were. `USER node` in the
+All four are on every Simple Balance container now, and three of them always
+were; the two services that run somebody else's image and keep part of it back
+are named below, each with its reason. `USER node` in the
 Node images and `USER 101` in the frontend (`Dockerfile:56`,
 `deploy/docker/frontend.Dockerfile:46`). The documented run command passes
 `--read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m`. The chart sets
@@ -1516,6 +1545,19 @@ seconds. The capabilities the entrypoint keeps are reachable only by something
 that is already on that machine, which is a different and much smaller claim
 than "this is not production".
 
+**The second exception is Caddy, and it was not recorded until a sweep found
+it.** The `single` profile's TLS overlay, `deploy/compose/single/compose.caddy.yml`,
+runs the official Caddy image, which runs as root, with no `read_only` and with
+`NET_BIND_SERVICE` added back after `cap_drop: [ALL]`. It binds 80 and 443,
+which is the one privileged thing it does, so it keeps that capability and
+nothing else, and takes `no-new-privileges`, which costs it nothing. It is the
+one service on the machine the internet reaches, which is why the shape is held
+exactly rather than described. A read-only root filesystem is the half left
+open: Caddy writes its certificates to the two mounted volumes and nothing else
+should need writing, but nobody has run it that way, and a TLS proxy that fails
+to renew a certificate in two months is not a change to make on a guess. It
+goes in behind a test that renews against a staging CA.
+
 **House.** Every install in an image resolves from a committed lockfile, and the
 runtime stage carries production dependencies only.
 
@@ -1525,7 +1567,8 @@ builds"), for the Alpine patch ordering relative to `USER node`, and for the
 frontend's step up to root and back down to 101. `tests/deployment-docs.test.ts`
 greps the documented run command for all five flags and reads the compose file
 for both settings on the three application services, naming the postgres
-exception when it fails. **The documented run command is the security surface
+exception when it fails, and holds Caddy to `cap_drop: [ALL]`,
+`no-new-privileges` and exactly one capability added back. **The documented run command is the security surface
 most people copy**, which is why it is the thing under test rather than the thing
 described.
 
@@ -1906,7 +1949,7 @@ No telemetry, no update check, no CDN, no font host. `src/server` contains no
 
 **The browser is counted separately, and since advertising landed it has to
 be.** On a deployment that configures no AdSense ids — the default, and every
-deployment upgrading into this release — the bundle is served under
+deployment that upgraded into 0.2.0 from a release before it — the bundle is served under
 `default-src 'self'` and the browser reaches nothing but this origin. On one
 that does, it reaches Google: the ad script, the ad frames, the consent
 message's own styles and fonts, and measurement beacons, to hosts Google
@@ -1973,9 +2016,10 @@ working. That is why the freeze on the unprefixed names above is a real cost
 rather than a shrug, and it is the whole reason this guide takes a position on
 naming at all.
 
-*Checked by:* `tests/version.test.ts`, which pins every one of the twenty
-locations `npm run set-version` writes, and also checks that the script mentions
-each path, so a location the script forgets fails the suite. Nothing checks that
+*Checked by:* `tests/version.test.ts`, which pins every location `npm run
+set-version` writes — found rather than listed, so the count is left out here
+for the reason `writing.md` §Versioning gives — and also checks that the script
+mentions each path, so a location the script forgets fails the suite. Nothing checks that
 a renamed variable moved the version.
 
 ---
@@ -1984,10 +2028,10 @@ a renamed variable moved the version.
 
 | Rule | Check |
 | --- | --- |
-| Booleans and closed sets refuse an unrecognized value, naming the variable | `tests/config.test.ts:163-184` |
+| Booleans and closed sets refuse an unrecognized value, naming the variable: all four booleans `getConfig` reads and its three closed sets, and `SMTP_SSL` and `SMTP_PORT` beside the mail settings | `tests/config.test.ts`, `tests/mail-settings.test.ts` |
 | `APP_BASE_URL` is an exact origin, HTTPS off loopback | `tests/config.test.ts` |
 | A non-production process with a real `APP_BASE_URL` refuses to start | `tests/config.test.ts` |
-| A bounded integer outside its range refuses at startup, naming the variable | `tests/config-limits.test.ts`, `tests/config.test.ts` |
+| A bounded integer outside its range warns at startup, naming the variable, and runs at its default | `tests/config-limits.test.ts`, `tests/config.test.ts` |
 | Half a mail configuration refuses; ports, address forms, credentials pair | `tests/mail-settings.test.ts` |
 | A password is never sent to a relay that refuses to encrypt | `tests/mail-settings.test.ts` |
 | Healthcheck reads `PORT` | `tests/dockerfile.test.ts` |
@@ -1996,8 +2040,8 @@ a renamed variable moved the version.
 | Lockfile-only installs, production-only runtime, both lockfiles resolve alike | `tests/dockerfile.test.ts` |
 | Entrypoints name files the compiler emits; nginx proxies every API prefix | `tests/dockerfile.test.ts` |
 | Drain once, force-exit on deadline, force-exit on a second signal | `tests/server-lifecycle.test.ts` |
-| The version reaches all twenty places | `tests/version.test.ts` |
-| The published placeholder secrets are refused in production | `tests/config.test.ts:317-331` |
+| The version reaches every place it is written, found rather than listed | `tests/version.test.ts` |
+| The published placeholder secrets are refused in production | `tests/config.test.ts:325-339` |
 | The template reminder's subject is exactly `Reminder: <name>` | `tests/integration/notifications.integration.test.ts:216` |
 | Every message declares itself auto-generated | `tests/mail-headers.test.ts` |
 | A subject leads with its fixed part, and a long name is cut by code point | `tests/mail-subjects.test.ts` |
@@ -2005,13 +2049,15 @@ a renamed variable moved the version.
 | A failed scheduled send names the notification row: both senders set `about` to an id, after the spread, and the id reaches the log line | `tests/operations-defaults-and-send-failures.test.ts` |
 | `config.ts` defaults and the deployment table agree, every literal default in the table either read back from the running configuration or argued to be nginx's | `tests/operations-defaults-and-send-failures.test.ts` |
 | A name that reaches a mail subject cannot carry a line break, a control character or a DEL, over the create and the update schema of both records, with a positive control so the refusals cannot pass vacuously | `tests/subject-header-injection.test.ts` |
-| Every unprefixed setting name in the four example files, the compose files, the Caddyfile and `config*.ts` is accounted for by name — a platform convention, a vendor's spelling, frozen by having been released, the open rename question, or the arguable edge — and no grant outlives the variable it names | `tests/deploy-settings-naming.test.ts` |
+| Every unprefixed setting name in the four example files, the compose files, the Caddyfile and `config*.ts` is accounted for by name — a platform convention, a vendor's spelling, or frozen in 0.1.x or in 0.2.0, the last pinned to its nineteen — and no grant outlives the variable it names | `tests/deploy-settings-naming.test.ts` |
 | Only secrets and always-set variables are assigned in either example file; the quoting warning sits beside each `SMTP_PASSWORD` | `tests/env-example.test.ts` |
 | The example files and the deployment tables name the same variables, both directions, exceptions listed | `tests/env-example.test.ts` |
 | The deliverability section exists, the README and `.env.example` point at it, and it cites no RFC | `tests/deployment-docs.test.ts` |
 | The documented `docker run` carries all five hardening flags; the compose services carry both settings | `tests/deployment-docs.test.ts` |
 | Nine labels on all four images, `base.name` and `base.digest` matching each file's own runtime `FROM`, and no stage built on a tag that can move | `tests/dockerfile.test.ts` |
 | The scheduler checks its mail transport at startup and closes it on shutdown | `tests/scheduler-startup.test.ts` |
+| No metric label carries an identity, a path is counted under its route pattern, and `/metrics` is absent unless asked for and refuses without its token | `tests/metrics.test.ts` |
+| Every line goes through the `LOG_LEVEL` gate outside the configuration layer, an error is never silenced, and a caught error that is dropped says why | `tests/log-level.test.ts` |
 | Encryption at rest is set explicitly on every volume the single-machine programs build, and on the cluster's StorageClass | `tests/single-encryption.test.ts`, `tests/cluster-pulumi-database.test.ts` |
 | Encryption in transit to the database: the generated URL is `verify-full`, its `sslrootcert` is a path something actually mounts, and every `pg_hba` line crossing a machine is `hostssl` | `tests/single-database-tls.test.ts`, `tests/compose-database-node.test.ts`, `tests/helm-database-tls.test.ts` |
 | Which ports each program opens, by source, exhaustively — nothing on the database node from `0.0.0.0/0`, nothing anywhere on 3000 | `tests/single-ingress.test.ts` |
@@ -2088,6 +2134,5 @@ nobody owns until it is written down with a date on it.
 | --- | --- | --- |
 | The `_FILE` secret form is unreachable through the orchestrated paths this guide argues from | `deploy/helm/simple-balance/templates/server-deployment.yaml:72-85`, `deploy/compose/compose.distributed.yml:50`, `:71` | The chart *can* mount a Secret and chooses not to for these nine names: both workloads already project `ca.crt` out of the database Secret by key and mount it, so the mechanism exists and is pointed at a different file, while the application's own credentials still arrive through `envFrom`. Both compose files write `DATABASE_URL` inline and make `AUTH_SECRET` a required interpolation. The application supports the form everywhere and a `docker run` reaches it with a bind mount, so this is the chart and the compose files rather than the resolver. A `secretFiles` values block projecting the named secrets the way `database-ca` already is, and setting each `NAME_FILE` to where it landed, plus a commented `secrets:` stanza, are what would close it. It narrowed rather than widened in 0.2.0: the `vps` profile that took the same shortcut was deleted, and the `single` profile's machines fold `env.db` and `secrets.env` into `.env` on every start, which is a file on disk doing the job `_FILE` would |
 | `METRICS_TOKEN_FILE` has no consumer-side proof | `src/server/config-files.ts:28-38` | Eight of the nine `_FILE` names are read back through the consumer that has to end up holding the value, both Stripe secrets included. That one rests on the resolver's registry alone, so a name added there and never wired to the scrape endpoint would look identical |
-| `IDEMPOTENCY_RETENTION_HOURS` is the one bounded integer still read at its call site | `src/server/config-limits.ts:224-231`, read at `src/server/recurrence-scheduler.ts:171` and `src/server/services/helpers.ts:473` | §Validating at startup argues that all of them are read at startup so a wrong value is in front of whoever just deployed, and `assertConfiguredLimits()` reads six. The parser is right — zero is a real answer here, which is why it is a sibling of `boundedEnvironmentInteger` rather than a seventh call to it — so closing this is one line in that function and a seventh case in the `getConfig()` test beside the other six |
-| `PRIVACY_POLICY_URL`, `TERMS_OF_USE_URL` and `SITE_ADDRESS` are unprefixed names this product invented | `src/server/config.ts` (`parseLegalDocuments`), `deploy/compose/single/Caddyfile:33` | §Naming freezes the existing unprefixed names and applies the rule to new ones; these three are new, unreleased and unprefixed, so they are a decision rather than an exception. **Due before 0.2.0 ships**, because whichever way it goes freezes then — a rename afterwards is a breaking change for every operator. The section states the two ways out and what each costs |
-| `prom-client` is deprecated by rename | `package.json` | §Metrics declines `@prometheus-io/client` for a stated reason — four releases, the newest a day old, against the version the ecosystem runs — and that reason expires with time rather than with a decision. **Due in the release after 0.2.0.** The move is an import rename if the API held, and finding out costs one branch. It is here rather than in that section because "revisit it next release" falls due the moment this one ships and nothing else records it |
+| `IDEMPOTENCY_RETENTION_HOURS` is the one bounded integer still read at its call site | `src/server/config-limits.ts:225-232`, read at `src/server/recurrence-scheduler.ts:171` and `src/server/services/helpers.ts:473` | §Validating at startup argues that all of them are read at startup so a wrong value is in front of whoever just deployed, and `assertConfiguredLimits()` reads six. The parser is right — zero is a real answer here, which is why it is a sibling of `boundedEnvironmentInteger` rather than a seventh call to it — so closing this is one line in that function and a seventh case in the `getConfig()` test beside the other six |
+| `prom-client` is deprecated by rename | `package.json` | §Metrics declines `@prometheus-io/client` for a stated reason — four releases, the newest a day old, against the version the ecosystem runs — and that reason expires with time rather than with a decision. **Due at the 0.2.1 cut, which is the release after 0.2.0.** The move is an import rename if the API held, and finding out costs one branch. It is here rather than in that section because "revisit it next release" falls due the moment this one ships and nothing else records it |

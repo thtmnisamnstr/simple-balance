@@ -184,7 +184,6 @@ no argument gets past it, and to naming the two tools that answer "why". A
 guard that shrinks back to one service fails it too, which is the rule asking
 to be argued again rather than quietly standing.
 
-
 ## Naming
 
 - **Binding.** A tool name is drawn from `A-Z a-z 0-9 _ - .`, is 1 to 128
@@ -1025,7 +1024,6 @@ in a single release.
 description to saying the choice cannot be traded, to asking for confirmation
 first, and to saying it is refused while nothing is frozen — so an agent does
 not go on sending lists the server has to refuse.
-
 
 ## Scope, and why this surface will not consolidate
 

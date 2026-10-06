@@ -61,6 +61,10 @@ COPY --chown=node:node drizzle ./drizzle
 COPY --chown=node:node LICENSE ./
 USER node
 EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+# 300s to start, the budget the compose recipe's start_period and the chart's
+# startupProbe give the same work: the first start against an empty database
+# runs every migration before readiness opens. 20s reported a healthy first
+# start as unhealthy, and anything that acts on that restarts it mid-migration.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=300s --retries=3 \
   CMD ["node", "-e", "const port=process.env.PORT||'3000';fetch('http://127.0.0.1:'+port+'/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
 CMD ["node", "dist/server/server/index.js"]

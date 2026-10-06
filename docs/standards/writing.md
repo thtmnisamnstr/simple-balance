@@ -50,7 +50,7 @@ a reader can find the right document is that none of them overlap.
 The other half of that rule used to be "the corpus is small enough to list on
 one screen", and it was doing more work than it looked like: the table was short
 enough to scan, so nobody could extend the tree without noticing it. The corpus
-is no longer that size. This release added nine documents to `docs/`, a fourth
+is no longer that size. 0.2.0 added nine documents to `docs/`, a fourth
 deployment recipe, a harness README and the product kit, and the table noticed
 none of them — it sat unchanged through all of it while claiming to be the whole
 corpus. A table that claims completeness and is not complete is worse than one
@@ -208,7 +208,7 @@ convention expects.
   fixes, and what it costs. This rule used to be quotable as "zero list items in
   3,508 lines", and that sentence is what made it stick; it is no longer true,
   and how it stopped being true is worth keeping. There are five list items in
-  the file, all five in one entry on this release: the five decisions that make
+  the file, all five in the 0.2.0 entry: the five decisions that make
   a hook deleting database cluster state safe, each with its own
   counter-argument, which run together into mush as a paragraph. That is the one
   shape a list earns — a set of parallel decisions a reader has to take one at a
@@ -225,7 +225,7 @@ convention expects.
   change with no user-visible effect that an operator or a contributor would
   still want to find. Across the dated sections: six Added, six Changed, seven
   Fixed, one Security, one Internal. Counting `## Unreleased` as well gives
-  eight Fixed. The 0.1.0 entry predates the convention and uses its own
+  seven Changed and eight Fixed. The 0.1.0 entry predates the convention and uses its own
   headings; leave it.
 - **A change a person would notice gets an entry.** "Notice" means one of four
   things: behavior on a screen, a value on the wire in any of the three
@@ -242,7 +242,7 @@ convention expects.
 answer: that the list items stay at the five that earned their shape, and that
 the lines running past 80 columns do not grow past where they already are.
 *Not checked:* that the top heading matches `package.json`. That is a hand step
-in the release recipe at `docs/upgrades.md:1416`, step 4, "Date the
+in the release recipe at `docs/upgrades.md:1451`, step 4, "Date the
 `## Unreleased` heading in `CHANGELOG.md`", and it has already been the subject
 of a commit ("Date 0.1.4 the day it is cut"). Nor is whether an entry describes
 a change somebody would notice, which is the judgement this section is mostly
@@ -294,7 +294,7 @@ client that worked against it still works.
 
 That is stricter than this guide used to be, and stricter than Semantic
 Versioning asks for a zero major. It is the rule because the alternative was
-tried: three changes in this release each refused a configuration the release
+tried: three changes in 0.1.4 each refused a configuration the release
 before it accepted, each was documented in advance with the fix beside it, and
 each was still a person's ledger failing to start over a setting that had been
 fine yesterday. A documented break is a break somebody reads about *after* the
@@ -348,7 +348,7 @@ publish runs `npm run verify` first, so an unwritten note now stops the release
 rather than reaching an operator mid-upgrade. *Also checked:* the frozen
 migration list, which `tests/migrations.test.ts` holds to what is on disk.
 *Not checked:* the changelog heading, a hand step in the release recipe at
-`docs/upgrades.md:1416`, and which release a migration is attributed to, which
+`docs/upgrades.md:1451`, and which release a migration is attributed to, which
 is prose inside a list a test can only check the membership of.
 
 ## Upgrade notes
@@ -363,7 +363,7 @@ end of the bullet — it grew, and the number did not.
 
 **House, the shape.** A `## Before you upgrade to X.Y.Z` section, and its first
 sentence tells an operator whether they can stop reading. The 0.1.6 note at
-`docs/upgrades.md:1102-1103` is the model: "Nothing refuses to start that 0.1.5
+`docs/upgrades.md:1137-1138` is the model: "Nothing refuses to start that 0.1.5
 accepted, and nothing about an existing configuration has to change. Five
 things are worth knowing." The 0.1.4 section is the other model, because the
 answer there was different: "0.1.4 refuses to start on three configurations
@@ -388,9 +388,8 @@ constant default and therefore rewrites no table, and the test at
 `tests/migrations.test.ts:413` is called "adds the theme without rewriting a
 row". Nine assertions of that kind sit in that file now, plus three on the one
 migration that decides at runtime whether to run at all, and between them they
-cover 0005 through 0011 and 0022 through 0025 — the shipped set, and the four
-this release has yet to freeze, which is exactly the set it has to make promises
-about. A note that
+cover 0005 through 0011 and 0022 through 0025, every migration an upgrade note
+has made a promise about. A note that
 makes a promise about somebody's data and has no test behind it has been wrong
 before: the 0.1.5 contrast note quoted a number that was not the old value, and
 the change it described as an improvement was a small regression.
@@ -583,7 +582,7 @@ Not Conventional Commits, and not close. Across 387 subjects: zero carry a
 and eight carry a pull request number. Five merge commits exist. Those last two
 counts used to read "all of them on dependabot branches" and "all dependabot",
 and both are now false by exactly one, because a feature branch was hand-merged
-on this release: `Merge pull request #46 from thtmnisamnstr/frozen-accounts` is
+during 0.2.0: `Merge pull request #46 from thtmnisamnstr/frozen-accounts` is
 the single commit that breaks both claims, and it is the same commit twice.
 Three subjects begin lowercase, and all three predate the convention.
 
@@ -841,8 +840,8 @@ has shipped defects twice.
 
 **House. A change that alters behavior a document describes changes that
 document in the same commit.** `AGENTS.md`'s definition of done covers the code
-half. The documentation half is habit, and habit is why nine of these are
-checked and four are not.
+half. The documentation half is habit, and habit is why ten of these are
+checked and three are not.
 
 What is checked:
 
@@ -857,6 +856,7 @@ What is checked:
 | The `docker run` command in `README.md` and `docs/deployment.md` carries its hardening flags | `tests/deployment-docs.test.ts`, which requires `--read-only`, the `noexec,nosuid` tmpfs, `--stop-timeout 30`, `--cap-drop=ALL` and `--security-opt=no-new-privileges` in both, and hardens every service in the compose recipe the same way |
 | The README tells somebody who found a hole where to report it, and does not answer the contributing question with the invariants file | `tests/docs-conventions.test.ts` |
 | The roadmap says how every shipped item was met | `tests/docs-conventions.test.ts` |
+| `docs/deployment.md`'s stated defaults against `config.ts` | `tests/operations-defaults-and-send-failures.test.ts`, which reads sixteen literal defaults back off the running configuration with nothing set and holds its register to the table in both directions; it was on the list below, as "the likelier drift of the two", until it was written |
 
 The example-file row was on the list below until it was written. It moved
 because the hand-kept version had already drifted six variables in both
@@ -933,7 +933,7 @@ token change invalidates half of them while moving no layout at all. §The
 product kit is a document with a machine for a reader has the rest, and
 `tests/writing-guide.test.ts` holds the count.
 
-*Checked by:* the nine rows above, and nothing else.
+*Checked by:* the ten rows above, and nothing else.
 
 ### A measured number carries a test or a date
 
@@ -1042,7 +1042,7 @@ review is for.
 Recorded rather than resolved, because each needs a decision rather than an
 edit.
 
-- **Em dashes.** `common.md` says "No em dashes. They are a house preference and
+- **Em dashes.** `common.md` said "No em dashes. They are a house preference and
   the codebase is consistent about it." The corpus is not, and the gap is now
   the whole argument. Counted 2026-10-01: 294 in `CHANGELOG.md`, 63 in
   `docs/roadmap.md`, 604 across the commit bodies reachable from `HEAD`, and 905
@@ -1066,7 +1066,7 @@ edit.
   - `TemplatesPage.tsx:649`, "never — every date is skipped".
   - `AccountsPage.tsx:660-661`, the sentence explaining what a frozen account
     still does, and `BudgetsPage.tsx:1536`, the note under an average with
-    nothing behind it. Both arrived this release.
+    nothing behind it. Both arrived in 0.2.0.
   - `SettingsPage.tsx:523`, the warning about what cancelling takes with it.
   - `PlanPage.tsx:1944` and `:1956`, the "Annual — $30.00 a year" price
     labels.
@@ -1088,13 +1088,14 @@ edit.
   catches a citation landing on a closing brace. §Cite by name, then by line is
   the practice that would have saved it.
 
-  The rule as written is therefore nearly true of browser copy and plainly false
-  of documents, commit bodies and comments. `common.md` owns the sentence and
-  this guide cannot narrow it, so the choice is the owner's: scope the rule to
-  copy, or accept an edit across six files and every future commit body. Until
-  then, new prose written under this guide takes the rule as written, and
-  `tests/writing-guide.test.ts` holds the list above to the browser copy, so a
-  tenth file is a decision rather than a drift.
+  The rule as it was written was therefore nearly true of browser copy and
+  plainly false of documents, commit bodies and comments. `common.md` owned the
+  sentence and this guide could not narrow it, so the choice went to the owner,
+  and `common.md` §Prose has made it: the rule is scoped to a control's own
+  words — a heading, a label, a button, an accessible name — and is ordinary
+  punctuation everywhere else, including in this guide, a commit body and a
+  comment. `tests/writing-guide.test.ts` holds the list above to the browser
+  copy, so a ninth file is a decision rather than a drift.
 - **The frozen migration list has two homes.** `AGENTS.md` names every
   migration in prose and `tests/migrations.test.ts` pins the first five by name.
   The two are now held together, because that test reads `AGENTS.md` and fails
@@ -1126,7 +1127,7 @@ edit.
 
 ## What is checked, and what is not
 
-Everything in this guide is review except what twelve test files cover. The list
+Everything in this guide is review except what fifteen test files cover. The list
 said six for a release, and what it left out was the half that reads worst: the
 test holding **this guide's own evidence** was not on it, which left the
 impression that the citations here answer to nothing.
@@ -1153,8 +1154,9 @@ impression that the citations here answer to nothing.
 - `tests/writing-guide.test.ts` — the claims here that the tree can answer: the
   document table against the corpus both ways, the skill count, the guide count,
   the screenshots, the roadmap's tally of marked items, the two ends of the
-  comment-density range, the em dashes in browser copy, and two ceilings on
-  `CHANGELOG.md`.
+  comment-density range, the em dashes in browser copy, two ceilings on
+  `CHANGELOG.md`, and a language tag on every fenced block in every document,
+  where seventeen had none.
 - `tests/skills.test.ts` — the six skills, against `AGENTS.md` and against this
   guide's table.
 - `tests/comment-density.test.ts` — the density rule, three ways.
@@ -1162,6 +1164,12 @@ impression that the citations here answer to nothing.
   files, and its test counts against each other.
 - `tests/deploy-readme-links.test.ts` — every relative link in every document
   under `deploy/`, after two that had never worked.
+- `tests/operations-defaults-and-send-failures.test.ts` — the deployment
+  tables' stated defaults, read back off the running configuration.
+- `tests/product-facts.test.ts` — `docs/product/facts.json`'s derived half
+  against the source it is read out of, compared rather than regenerated.
+- `tests/product-kit.test.ts` — the rest of the kit the marketing site reads:
+  the feature list's shape and every screen in both themes.
 
 That is the honest count, and it is the highest ratio in this set, because a
 document's defects are almost all defects of truth rather than of form. The
