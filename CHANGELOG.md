@@ -27,6 +27,15 @@ agent alike. Neither gives anything a place, because a frozen account never
 held one, and an archived account still needs a free place to come back, so the
 limit is exactly where it was. Its entries and details stay closed to change.
 
+**Oracle's `small` database node has 8 GB.** Oracle halved its Always Free
+Ampere allowance on June 15, 2026, to 2 OCPUs and 12 GB, so a `small` pair's
+four cores are about two past it, about $14 a month, whatever this release does.
+The memory the allowance still covers now goes to the database node, which takes
+the ledger PostgreSQL holds entirely in cache from 2.8M transactions to 6.3M at
+no cost, and its PostgreSQL settings move with it. AWS is unchanged. `pulumi up`
+resizes a running stack's database machine in place, which restarts it, and
+`docs/upgrades.md` has the settings for a machine built before this.
+
 ### Fixed
 
 **Saving something without changing it no longer makes every other copy of it

@@ -80,7 +80,7 @@ different shapes now, because `docs/deployment-sizing.md` sizes them apart:
 
 **Every Oracle figure on this page is list price first and the credited figure
 second, in that order, and the same rule governs both tables below.** Oracle's
-Always Free allowance — 3,000 OCPU-hours, 18,000 GB-hours of memory and 200 GB
+Always Free allowance — 1,500 OCPU-hours, 9,000 GB-hours of memory and 200 GB
 of block storage a month — is applied as a *credit against usage* rather than as
 a separate free stack, so a row that overruns it pays only for the overrun. That
 distinction is worth four times the money at `medium`, which is why it is stated
@@ -90,9 +90,9 @@ arithmetic and not this page's.
 
 | | AWS | Oracle Cloud |
 | --- | --- | --- |
-| `small` | `t4g.medium` + `t4g.medium`, 90 GiB of disk, NAT — **about $96** | two `VM.Standard.A1.Flex` 2/4 + 100 GB each — about $43, or **$0** against Always Free, exactly at the ceiling |
-| `medium` | `t4g.medium` + `m7g.xlarge`, 250 GiB, NAT — **about $204** | 2/4 with 160 GB and 4/16 with 150 GB — about $74, or **about $17** against Always Free |
-| `large` | `t4g.large` + `m7g.2xlarge`, 680 GiB, NAT — **about $382** | 2/8 with 390 GB and 8/32 with 350 GB — about $136, or **about $74** against Always Free |
+| `small` | `t4g.medium` + `t4g.medium`, 90 GiB of disk, NAT — **about $96** | `VM.Standard.A1.Flex` 2/4 and 2/8, with 100 GB each — about $47, or **about $14** against Always Free, all of it cores |
+| `medium` | `t4g.medium` + `m7g.xlarge`, 250 GiB, NAT — **about $204** | 2/4 with 160 GB and 4/16 with 150 GB — about $74, or **about $40** against Always Free |
+| `large` | `t4g.large` + `m7g.2xlarge`, 680 GiB, NAT — **about $382** | 2/8 with 390 GB and 8/32 with 350 GB — about $136, or **about $102** against Always Free |
 
 **`medium` and `large` are about 30% cheaper on AWS than they were, and carry
 nearly twice the disk at `medium` and nearly three times at `large`**, and none
@@ -151,29 +151,37 @@ and on Oracle Cloud that is the only disk that moves at all below 50 GB.
 
 ### Oracle's Always Free tier, and its two catches
 
-Oracle gives every tenancy 4 Ampere OCPUs, 24 GB of memory, 200 GB of block
-storage and 10 TB of egress a month, indefinitely and without a card charge.
-OCI's managed database does not fit in it, and neither does a NAT gateway need
-to: OCI charges nothing for one.
+Oracle gives every tenancy 1,500 Ampere OCPU-hours and 9,000 GB-hours of memory
+a month, which Oracle calls 2 OCPUs and 12 GB, beside 200 GB of block storage
+and 10 TB of egress, indefinitely and without a card charge. OCI's managed
+database does not fit in it, and neither does a NAT gateway need to: OCI
+charges nothing for one.
 
-**The arithmetic at `small` lands on the allowance exactly, and it is worth
-doing rather than trusting.** Two `small` machines are 2 OCPUs and 4 GB each:
-**4 OCPUs of the 4** and 8 GB of the 24. Storage is a 50 GB boot volume and a
-50 GB data volume on each machine, because OCI's minimum raises `small`'s 20 GiB
-and 30 GiB data disks alike: **50 + 50 + 50 + 50 = 200 GB of the 200**. Nothing
-is left over. So there is no room for a `medium` on either side, no room for a
-`databaseSize` above `small`, and no room for a second Simple Balance stack in
-the same tenancy.
+**The allowance is Oracle's to change, and it has.** Until June 15, 2026 it was
+3,000 OCPU-hours and 18,000 GB-hours, 4 OCPUs and 24 GB, and `small` landed on
+it to the byte. Oracle halved it without announcing it, so a stack that cost
+nothing on the 14th was billed for two cores on the 15th. Read the figures
+below as what Oracle's own page said when this was written.
 
-**`medium` is billed, and the application node is no longer why.** It asks for
-2 OCPUs on one machine and 4 on the other — six of the four allowed — so 1,380
-of its 4,380 OCPU-hours are billed, at $13.80. Its memory is not: 20 GB across
-the two machines is 14,600 GB-hours of the 18,000 allowed, and the allowance is
-spent on hours rather than on shapes. Its 310 GB of disk overruns the 200 by
-110 GB, at $2.81. That is the **about $17** in the table, against a list price
-of $74 — and it is the arithmetic worth doing before dismissing the step up from
-`small`. It is also a third less than it was: the application node used to ask
-for a second 4 OCPUs and 16 GB it had no use for.
+**The arithmetic at `small`, and it is worth doing rather than trusting.** The
+application node is 2 OCPUs and 4 GB. On Oracle the database node is 2 OCPUs
+and 8 GB, because `oci-single` gives it the memory the allowance still covers
+([`docs/deployment-sizing.md`](deployment-sizing.md#small-on-oracle-cloud)):
+**12 GB of the 12**, 8,760 GB-hours of the 9,000. Storage is a 50 GB boot
+volume and a 50 GB data volume on each machine, because OCI's minimum raises
+`small`'s 20 GiB and 30 GiB data disks alike: **50 + 50 + 50 + 50 = 200 GB of
+the 200**. The cores are what overruns it: four of them are 2,920 OCPU-hours,
+and the 1,420 past the 1,500 are $14.20 a month. Nothing else is left over, so
+there is no room for a `databaseSize` above `small` without paying for it, and
+no room for a second Simple Balance stack in the same tenancy.
+
+**`medium` is billed on all three.** It asks for 2 OCPUs on one machine and 4
+on the other, so 2,880 of its 4,380 OCPU-hours are billed, at $28.80. Its 20 GB
+across the two machines is 14,600 GB-hours against 9,000 allowed, and the 5,600
+past it are $8.40; the allowance is spent on hours rather than on shapes. Its
+310 GB of disk overruns the 200 by 110 GB, at $2.81. That is the **about $40**
+in the table, against a list price of $74 — and it is the arithmetic worth doing
+before dismissing the step up from `small`.
 
 **Where the free tier is worth chasing is `databaseNode: false`.** One machine
 at 2 OCPUs and 4 GB is inside the allowance at `small` and at `medium` alike,
@@ -476,7 +484,8 @@ either key:
 - **`protectionMode` on an Oracle key defaults to HSM**, which is the billed
   mode, and Oracle says it cannot be changed after the key is created. A key
   made without `--protection-mode SOFTWARE` is billed for as long as it exists,
-  and on a `small` stack that is the first thing to take the Always Free row off
+  and on a stack the allowance otherwise covers — one machine with
+  `databaseNode: false` — it is the first thing to take the Always Free row off
   $0.
 - **A `VIRTUAL_PRIVATE` vault is billed by the hour** and includes a thousand
   key versions. That is two orders of magnitude more vault than this profile
@@ -547,7 +556,7 @@ other people.
 
 | | Roughly | What you get |
 | --- | --- | --- |
-| This profile, `small`, on Oracle | $0 | Two machines and a PostgreSQL 18 you run, with your own data in it |
+| This profile, `small`, on Oracle | $14 | Two machines and a PostgreSQL 18 you run, with your own data in it; the memory and disk are inside Always Free and two of the four cores are not |
 | This profile, `small`, on AWS | $96 | The same, in an account you probably already have |
 | This profile, `small`, on AWS, `databaseEgress: ssm` | $75 | The same without the NAT gateway, with the Session Manager shell kept by two interface endpoints and no SSH key needed. A US region; [more elsewhere](#what-ssm-costs-where-you-actually-run-it) |
 | This profile, `small`, on AWS, `databaseEgress: ipv6` | $60 | The same without the NAT gateway either, reached by SSH from the application node rather than by Session Manager |

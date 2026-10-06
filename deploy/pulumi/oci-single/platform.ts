@@ -363,9 +363,9 @@ export function requireUsableKmsKey(keyId: string, facts: OciKeyFacts): string {
  *
  * `protectionMode` defaults to HSM when a key is created without naming one, it
  * cannot be changed afterwards, and HSM key versions are billed per version
- * where software ones are free. The `small` pair on this cloud is otherwise
- * $0 — exactly at the Always Free ceiling — so this is the first thing in the
- * profile that can take it off $0, and it does it silently and permanently.
+ * where software ones are free. A stack the allowance otherwise covers — one
+ * machine, with `databaseNode: false` — is $0, so this is the first thing in
+ * the profile that can take it off $0, and does it silently and permanently.
  * A warning rather than a refusal: an operator may want HSM, and a program that
  * refused it would be making somebody's compliance decision for them.
  */

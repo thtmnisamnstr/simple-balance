@@ -7,7 +7,8 @@ keep, so upgrading is swapping it for a newer one.
 
 **Nothing to do by hand.** No migration, no new setting, and nothing an
 existing configuration has to change. A stack that is already up plans no
-change. What follows is what moves under a client, found by a full smoke test
+change, except an `oci-single` stack whose database node is `small`, below.
+What follows is what moves under a client, found by a full smoke test
 of a 0.2.0 deployment and a sweep of every surface against the guides. No
 route, tool or CSV column is removed.
 
@@ -21,8 +22,10 @@ itself got wrong — a transfer that proposed a row nothing could commit, two
 accounts a person could not tell apart in a picker, a version change nobody
 made that made every other open copy stale, and a credential `HttpOnly` exists
 to keep from page script. Nothing a ledger already holds is touched by any of
-them. Whether a narrowing for those reasons belongs in a patch release is the
-question `writing.md` leaves open, and it is answered before this is cut.
+them. They ship in a patch release all the same, and that was decided rather
+than overlooked: `writing.md` §Versioning counts each as a break, and the
+release is 0.2.1 because each corrects something that should never have been
+possible, rather than taking away something a client was meant to have.
 
 **`oci-single` waits for its settings vault to be reachable before making the
 key in it.** OCI reports a new vault active minutes before it publishes the
@@ -35,6 +38,35 @@ The program now asks OCI's own nameservers until the hostname exists, so the
 first lookup the provider makes succeeds and nothing has a "no" to remember. It
 waits up to fifteen minutes, and says so if that runs out; the vault is kept,
 and the next `up` makes the key.
+
+**`oci-single` gives a `small` database node 8 GB, and that is one change a
+running stack plans.** Oracle halved its Always Free Ampere allowance on June
+15, 2026, to 1,500 OCPU-hours and 9,000 GB-hours a month — 2 OCPUs and 12 GB —
+so the `small` pair's four cores are about two past it whatever this release
+does, and its 8 GB of memory was two thirds of what is now free. The database
+node takes the other 4 GB, because there that memory is free and becomes index
+cache ([`deployment-sizing.md`](deployment-sizing.md#small-on-oracle-cloud)).
+`pulumi up` resizes the machine in place, which OCI does by restarting it, so
+the ledger is unreachable for the minute or two that takes; neither volume is
+touched. Run it at a quiet moment. A stack whose database node is `medium` or
+`large` plans nothing, and neither does AWS.
+
+The PostgreSQL settings that go with 8 GB reach a machine built before this
+only by hand, because `oci-single` never applies a machine's user data twice.
+Left alone, the server runs with 4 GB's settings in 8 GB of memory, which is
+correct and slower than it needs to be. On the database node, set these three
+lines in `/opt/simple-balance/env.base` and restart the unit, which rebuilds the
+environment from that file:
+
+```sh
+POSTGRES_SHARED_BUFFERS=2GB
+POSTGRES_EFFECTIVE_CACHE_SIZE=5632MB
+POSTGRES_MAINTENANCE_WORK_MEM=512MB
+```
+
+```sh
+sudo systemctl restart simple-balance
+```
 
 **What an operator sees differently.** Nothing that started on 0.2.0 stops
 starting, and four things are said in the log that were not, or not then: an
@@ -172,6 +204,16 @@ rather than unhealthy; the compose recipe and the chart already allowed 300.
 start is the whole check. A client that matched a refusal's message text rather
 than its `code` should read the two lists above, because several messages are
 reworded and every code is the one it was.
+
+On an `oci-single` stack at `small`, `pulumi stack output databaseMachine`
+should say 8 GB once `pulumi up` has finished. On the database node, reached as
+[`deploy/pulumi/README.md`](../deploy/pulumi/README.md) describes, this says
+2GB once the settings above are in:
+
+```sh
+sudo docker compose -f /opt/simple-balance/compose.postgres.yml exec postgres \
+  psql -U postgres -c 'show shared_buffers'
+```
 
 ## Before you upgrade to 0.2.0
 

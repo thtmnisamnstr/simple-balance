@@ -44,13 +44,17 @@ import {
  * `simple-balance:databaseNode: false` is how to go back to bringing your own.
  *
  * Why this provider at all: Ampere A1 is the cheapest way to run this shape by
- * a wide margin, and Oracle's Always Free allowance covers a `small` pair
- * outright — but only just, and the arithmetic is worth having in front of you.
- * The allowance is 4 OCPUs and 24 GB of A1 across a tenancy and 200 GB of block
- * storage. Two `small` machines are 4 OCPUs and 8 GB, and their four volumes —
- * two 50 GB boot disks and two data volumes raised to OCI's 50 GB floor — are
- * exactly 200 GB. So `small` fits to the byte, `medium` does not fit at all,
- * and there is no room for a second Simple Balance stack in the same tenancy.
+ * a wide margin, and Oracle's Always Free allowance covers most of a `small`
+ * pair, and the arithmetic is worth having in front of you. Since June 15, 2026
+ * the allowance is 1,500 OCPU-hours and 9,000 GB-hours of A1 a month across a
+ * tenancy, which Oracle calls 2 OCPUs and 12 GB, and 200 GB of block storage.
+ * Two `small` machines here are 4 OCPUs and 12 GB, because this program gives
+ * the database node the 8 GB the allowance still has room for
+ * (`OCI_DATABASE_SIZES`), and their four volumes — two 50 GB boot disks and two
+ * data volumes raised to OCI's 50 GB floor — are exactly 200 GB. So the memory
+ * and the disk are free to the byte and about two of the four cores are billed,
+ * which is about $14 a month; `medium` overruns all three, and there is no room
+ * for a second Simple Balance stack in the same tenancy.
  * `docs/deployment-costs.md` has the comparison and its caveats, of which the
  * important one is that free A1 capacity is frequently unavailable.
  */
@@ -69,8 +73,15 @@ requireSshPublicKey(settings.sshPublicKey);
  * `simple-balance:secrets` and firstboot waits for it. That is the escape hatch for somebody who already
  * keeps a PostgreSQL — an OCI Database with PostgreSQL, say, which is billed
  * and sits outside the allowance above.
+ *
+ * Read once here with Oracle's own database half laid over the row, so the
+ * machine, its PostgreSQL settings and the exported description all come from
+ * the one object and cannot disagree about how big the database node is.
  */
-const database = settings.database;
+const database = settings.database && {
+  ...settings.database,
+  size: { ...settings.database.size, ...single.OCI_DATABASE_SIZES[settings.database.sizeName] },
+};
 
 // Read from the key the default provider is configured from, so the region
 // checked and exported is the one every resource below is built in. Checked
