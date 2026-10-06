@@ -143,6 +143,19 @@ export function formatMoney(amount: string, currency: string, locales?: string |
 }
 
 /**
+ * A figure as money where the currency is known, and as the bare figure where
+ * it is not.
+ *
+ * `formatMoney` with an empty currency falls through to `${amount} ${currency}`
+ * and draws "45.00 " with a trailing space, which is what the Recurring list
+ * showed for a recurring transaction whose account had been deleted. The form
+ * had this answer already and kept it to itself.
+ */
+export function shownMoney(amount: string, currency: string | null | undefined) {
+  return currency ? formatMoney(amount, currency) : amount;
+}
+
+/**
  * A stored amount as an input should start out: the currency's own decimal
  * places, like `formatMoney`, but as a plain decimal the input reads back —
  * no symbol, no grouping, ASCII digits, and the sign kept.

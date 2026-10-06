@@ -6,10 +6,10 @@ import { todayIn } from "../../src/shared/recurrence-dates.js";
  * width, on any page.
  *
  * **This is the check the defect it was written for went through.** The
- * stylesheet's own note above `.date-bar` describes the failure exactly — "between
+ * stylesheet's own note above `.option-bar` describes the failure exactly — "between
  * roughly 560px and 900px the four `.category-toolbar` pages held a bar that
  * could neither shrink nor wrap" — and the remedy, `flex-wrap: wrap`, reached
- * `.filter-bar` at base and `.date-bar` only inside the 560px block. So Budgets'
+ * `.filter-bar` at base and `.option-bar` only inside the 560px block. So Budgets'
  * view bar and Reports' options bar went on overflowing `.content` in exactly
  * the band the note names, for as long as nobody opened the page at 820px. The
  * document was 958px wide inside a 900px viewport.
@@ -76,9 +76,14 @@ async function seed(page: Page) {
   await expect(page.getByText(account, { exact: false }).first()).toBeVisible();
 
   await page.goto("/categories");
-  await page.getByLabel("Category name").fill(category);
-  await page.getByLabel("Applies to").selectOption("expense");
-  await page.getByRole("button", { name: "Add category" }).click();
+  // The add form, by its button: the Edit category dialog asks "Applies to"
+  // too, and a closed `<dialog>` is still in the document.
+  const addForm = page
+    .locator("form")
+    .filter({ has: page.getByRole("button", { name: "Add category" }) });
+  await addForm.getByLabel("Category name").fill(category);
+  await addForm.getByLabel("Applies to").selectOption("expense");
+  await addForm.getByRole("button", { name: "Add category" }).click();
   await expect(page.getByText(category, { exact: false }).first()).toBeVisible();
 
   await page.goto("/transactions");

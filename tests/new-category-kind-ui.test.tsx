@@ -273,7 +273,7 @@ describe("choosing what a new category is, on a recurrence", () => {
     });
     fireEvent.change(picker(), { target: { value: "Utilities" } });
     fireEvent.click(screen.getByLabelText("A refund of money you spent"));
-    fireEvent.click(screen.getByRole("button", { name: /Create recurrence/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Create recurring transaction/ }));
 
     await waitFor(() => expect(bodies).toHaveLength(1));
     expect(bodies[0]).toMatchObject({ shape: { categoryKind: "expense" } });

@@ -743,7 +743,7 @@ them cover the whole range:
   Note the last line, which states the bound: "Unbounded on purpose: the keys
   are locale-and-currency pairs and a ledger holds a handful of currencies, so
   there is nothing here to grow."
-- **The trade named, not only the choice.** `src/client/components.tsx:869-883`:
+- **The trade named, not only the choice.** `src/client/components.tsx:877-891`:
   a fixed popover, why absolute fails in a scrolling table card, what fixed
   costs, and then the harder half: "Deliberately not `role="menu"` ... menu
   roles without the keyboard behavior they imply are worse than none."
@@ -1056,26 +1056,28 @@ edit.
   own, which is why they are dated rather than merely quoted — see §A measured
   number carries a test or a date.
 
-  In browser copy the rule holds almost everywhere, across nine files rather
+  In browser copy the rule holds almost everywhere, across eight files rather
   than the four sites this bullet used to name, each cited by what it is as well
   as by where it is:
 
   - `App.tsx:696`, the scope description on the authorization page.
   - `select-options.ts:110`, the timezone label.
-  - `components.tsx:1155`, every page title: `` `${title} — ${APP_NAME}` ``.
-  - `TemplatesPage.tsx:643`, "never — every date is skipped".
-  - `AccountsPage.tsx:657-658`, the sentence explaining what a frozen account
-    still does, and `BudgetsPage.tsx:1509`, the note under an average with
+  - `components.tsx:1172`, every page title: `` `${title} — ${APP_NAME}` ``.
+  - `TemplatesPage.tsx:649`, "never — every date is skipped".
+  - `AccountsPage.tsx:660-661`, the sentence explaining what a frozen account
+    still does, and `BudgetsPage.tsx:1536`, the note under an average with
     nothing behind it. Both arrived this release.
-  - `SettingsPage.tsx:522`, the warning about what cancelling takes with it.
+  - `SettingsPage.tsx:523`, the warning about what cancelling takes with it.
   - `PlanPage.tsx:1944` and `:1956`, the "Annual — $30.00 a year" price
     labels.
-  - The review queue's inline-edit labels at `StagingPage.tsx:1171-1175`, `:1291-1294` and
-    `:1365-1369`, which lead with the visible value and set the instruction off
-    behind a dash.
+
+  The review queue's inline-edit labels were a ninth, and are off the list: they
+  were accessible names, where `common.md` refuses a dash outright, and the
+  payee one had been written as a `const` beside its row to keep the dash off
+  the line the label check reads. They join their halves with a comma now.
 
   The lone "—" in an empty table cell is a placeholder glyph rather than
-  punctuation and is not counted. Two further sites, `SettingsPage.tsx:142` and
+  punctuation and is not counted. Two further sites, `SettingsPage.tsx:143` and
   `ReportsPage.tsx:224-228`, are prose inside JSX and read as copy but are
   comments, so they answer to the comment rule rather than to this one.
 

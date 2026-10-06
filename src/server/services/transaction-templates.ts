@@ -418,9 +418,12 @@ async function lockSelectedTemplates(
   const byId = new Map(rows.map((row) => [row.id, row]));
   const missing = ids.filter((id) => !byId.has(id));
   if (missing.length) {
-    throw notFound("Some of those templates are unavailable", {
-      templateIds: missing,
-    });
+    throw notFound(
+      "Some of those templates were not found; they may have been deleted. Reload the list and try again.",
+      {
+        templateIds: missing,
+      },
+    );
   }
   const stale = selection.items.filter(
     (item) => byId.get(item.id)!.version !== item.expectedVersion,

@@ -719,7 +719,7 @@ export function OAuthConsent() {
                 variant="secondary"
                 onClick={() => decide(false)}
               >
-                Deny
+                Deny access
               </Button>
               <Button
                 disabled={deciding !== null}

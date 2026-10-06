@@ -16,6 +16,7 @@ import {
   compareForSort,
   ConfirmDialog,
   EmptyState,
+  formatCount,
   Modal,
   PageHeader,
   RowMenu,
@@ -26,7 +27,7 @@ import {
   type SortState,
   useConfirm,
 } from "../components.js";
-import { compareMoney, formatDate, formatMoney, movementSign } from "../money.js";
+import { compareMoney, formatDate, movementSign, shownMoney } from "../money.js";
 import { RecurrenceForm, scheduleSentence } from "../forms.js";
 import { Link } from "../router.js";
 import { transactionTypeLabels } from "./TemplatesPage.js";
@@ -75,7 +76,7 @@ export default function RecurrencesPage() {
       }),
     onSuccess: async (_result, recurrence) => {
       setNotice(
-        `Recurrence “${recurrence.name}” deleted. Rows it already proposed are left as they are.`,
+        `Recurring transaction “${recurrence.name}” deleted. Rows it already proposed are left as they are.`,
       );
       await queryClient.invalidateQueries({ queryKey: ["recurrences"] });
       await queryClient.invalidateQueries({ queryKey: ["staged"] });
@@ -149,7 +150,7 @@ export default function RecurrencesPage() {
         description="Rules that add a row to Staged transactions on a schedule. Nothing is posted until you commit it."
         actions={
           <Button type="button" onClick={() => setCreating(true)}>
-            <Plus size={16} /> New recurrence
+            <Plus size={16} /> New recurring transaction
           </Button>
         }
       />
@@ -166,13 +167,13 @@ export default function RecurrencesPage() {
           triangle sat beside it. */}
       {overdue ? (
         <Alert kind="info">
-          {`${overdue} recurrence${overdue === 1 ? " is" : "s are"} past due with nothing proposed. Whatever runs the schedule has not run recently.`}
+          {`${formatCount(overdue)} recurring transaction${overdue === 1 ? " is" : "s are"} past due with nothing proposed. Whatever runs the schedule has not run recently.`}
         </Alert>
       ) : null}
 
       <div className="filter-bar">
         <SearchBox
-          label="Search recurrences"
+          label="Search recurring transactions"
           placeholder="Search name or payee"
           value={search}
           onChange={setSearch}
@@ -182,10 +183,10 @@ export default function RecurrencesPage() {
           value={typeFilter}
           onChange={(event) => setTypeFilter(event.target.value)}
         >
-          <option value="">Every type</option>
-          <option value="deposit">Deposit</option>
-          <option value="withdrawal">Withdrawal</option>
-          <option value="transfer">Transfer</option>
+          <option value="">All types</option>
+          <option value="deposit">Deposits</option>
+          <option value="withdrawal">Withdrawals</option>
+          <option value="transfer">Transfers</option>
         </Select>
       </div>
 
@@ -195,11 +196,15 @@ export default function RecurrencesPage() {
       {readError ? (
         <Alert>{readError.message}</Alert>
       ) : recurrences.isPending || accounts.isPending ? (
-        <Skeleton height={120} label="Loading recurrences…" />
+        <Skeleton height={120} label="Loading recurring transactions…" />
       ) : visible.length === 0 ? (
         <EmptyState
           icon={Repeat}
-          title={recurrences.data?.items.length ? "No recurrences match" : "No recurrences yet"}
+          title={
+            recurrences.data?.items.length
+              ? "No recurring transactions match"
+              : "No recurring transactions yet"
+          }
           body={
             recurrences.data?.items.length
               ? // As on Templates: the Type select is the other way this list
@@ -209,7 +214,7 @@ export default function RecurrencesPage() {
           }
         />
       ) : (
-        <section className="panel">
+        <div className="table-card">
           <div
             className="table-wrap"
             tabIndex={0}
@@ -267,14 +272,14 @@ export default function RecurrencesPage() {
                       {recurrence.shape.amount ? (
                         <>
                           {movementSign(recurrence.shape.type).sign}
-                          {formatMoney(recurrence.shape.amount, currencyFor(recurrence) ?? "")}
+                          {shownMoney(recurrence.shape.amount, currencyFor(recurrence))}
                         </>
                       ) : (
                         <span className="template-blank">each time</span>
                       )}
                     </td>
                     <td>
-                      <div className="transaction-payee">
+                      <div className="cell-with-badge">
                         <span className="nowrap">
                           {formatDate(recurrence.nextOccurrence.occurrenceDate)}
                         </span>
@@ -304,14 +309,14 @@ export default function RecurrencesPage() {
                           }}
                           aria-label={`Rows waiting from ${recurrence.name}`}
                         >
-                          {recurrence.proposedCount}
+                          {formatCount(recurrence.proposedCount)}
                         </Link>
                       ) : (
                         0
                       )}
                       {recurrence.committedCount ? (
                         <span className="table-subtitle">
-                          {`${recurrence.committedCount} committed`}
+                          {`${formatCount(recurrence.committedCount)} committed`}
                         </span>
                       ) : null}
                       {/* Thrown-away proposals are the difference between "it
@@ -319,7 +324,7 @@ export default function RecurrencesPage() {
                           and without this count the two were the same row. */}
                       {recurrence.discardedCount ? (
                         <span className="table-subtitle">
-                          {`${recurrence.discardedCount} discarded`}
+                          {`${formatCount(recurrence.discardedCount)} discarded`}
                         </span>
                       ) : null}
                     </td>
@@ -349,12 +354,12 @@ export default function RecurrencesPage() {
               </tbody>
             </table>
           </div>
-        </section>
+        </div>
       )}
 
       <Modal
         open={creating}
-        title="New recurrence"
+        title="New recurring transaction"
         description="It adds a row to Staged transactions on each due date. Nothing is posted until you commit it."
         onClose={() => setCreating(false)}
       >
@@ -369,7 +374,7 @@ export default function RecurrencesPage() {
 
       <Modal
         open={editing !== null}
-        title="Edit recurrence"
+        title="Edit recurring transaction"
         description="Changing the schedule changes what is proposed next. Rows already in the queue are left alone."
         onClose={() => setEditing(null)}
       >
@@ -385,8 +390,8 @@ export default function RecurrencesPage() {
 
       <ConfirmDialog
         open={removal.open}
-        title="Delete this recurrence?"
-        confirmLabel="Delete"
+        title="Delete this recurring transaction?"
+        confirmLabel="Delete recurring transaction"
         description={
           removal.value
             ? `“${removal.value.name}” stops proposing. Rows it has already put in the queue, and anything committed from them, are left exactly as they are.`

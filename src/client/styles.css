@@ -937,14 +937,17 @@ a {
    is 130px, so between roughly 560px and 900px the four `.category-toolbar`
    pages held a bar that could neither shrink nor wrap. 7.6 settled what a
    filter bar HOLDS and nothing said what it IS. */
-.date-bar,
+.option-bar,
 .filter-bar {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-.date-bar {
+/* A bar of options above what they change: the shared date range, Budgets'
+   view and projection choices, Reports' grouping. It was `.date-bar`, and
+   three of its four bars hold no dates. */
+.option-bar {
   width: fit-content;
   padding: 8px 10px;
   border: 1px solid var(--line);
@@ -953,7 +956,7 @@ a {
   /* The same wrap `.filter-bar` got, for the same reason, on the sibling that
      did not get it. The note above describes a bar that between 560px and
      900px "could neither shrink nor wrap"; the remedy reached `.filter-bar`
-     at base and `.date-bar` only inside the 560px block, so Budgets'
+     at base and `.option-bar` only inside the 560px block, so Budgets'
      four-control view bar and Reports' options bar went on overflowing
      `.content` exactly where the note says. Measured at 620, 820 and 900px:
      /budgets was 958px wide inside a 900px viewport. SC 1.4.10. */
@@ -962,13 +965,13 @@ a {
 
 /* The two dates and their joining word, kept together so the bar wraps around
    the group rather than through it. */
-.date-bar-range {
+.option-bar-range {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-.date-bar-title {
+.option-bar-title {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -978,7 +981,7 @@ a {
   font-weight: 620;
 }
 
-.date-bar .input {
+.option-bar .input {
   min-height: 33px;
   padding-top: 5px;
   padding-bottom: 5px;
@@ -1245,9 +1248,11 @@ input[type="radio"] {
 .badge-amber { color: var(--amber); background: var(--amber-soft); }
 .badge-blue { color: var(--blue); background: var(--blue-soft); }
 
-/* A payee or a category with a badge beside it. Without this the badge is a
-   block sibling and drops onto its own line, doubling the row's height. */
-.transaction-payee {
+/* A cell's text with a badge beside it: a payee, an account, a category, a
+   date. Without this the badge is a block sibling and drops onto its own line,
+   doubling the row's height. It was `.transaction-payee`, and six of its eight
+   uses were not a payee. */
+.cell-with-badge {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -1675,7 +1680,9 @@ input[type="radio"] {
   padding: 15px 16px 0;
 }
 
-.account-icon {
+/* The glyph tile beside a listed record: an account's card, a category's row,
+   a payee's row. It was `.account-icon` and drew all three. */
+.record-icon {
   display: grid;
   width: 36px;
   height: 36px;
@@ -1897,7 +1904,7 @@ input[type="radio"] {
 }
 
 /* Fixed rather than absolute, so a row menu is not clipped by the horizontal
-   scroll on .table-card. The offsets come from the trigger's position at the
+   scroll on a table's .table-wrap, or by the .table-card around it. The offsets come from the trigger's position at the
    moment it opens. */
 .row-menu-popover {
   position: fixed;
@@ -2066,15 +2073,26 @@ input[type="radio"] {
   min-width: 0;
 }
 
+/* A list's card: the frame around its table and the pager under it. The table
+   scrolls in a `.table-wrap` inside, so the pager stays put when the columns
+   scroll, and the card clips the header's fill to its own corners. It scrolled
+   itself until the pager was found scrolling sideways with the columns. */
 .table-card {
-  overflow-x: auto;
+  overflow: hidden;
   border-radius: 12px;
 }
 
-/* For a table already inside a panel. `.table-card` carries a card's own
-   border, background and shadow, so using it here draws a second card around
-   the first; leaving the wrapper unstyled lets a table wider than the panel
-   spill past its edge with no way to reach the far columns. */
+/* The card clips, so a focus ring drawn outside the scroller would be cut off
+   on all four sides. Inside it, the ring is whole. */
+.table-card > .table-wrap:focus-visible {
+  outline-offset: -3px;
+}
+
+/* The scroller around a wide table, inside a panel or inside a .table-card.
+   It carries no chrome of its own: a card's border, background and shadow here
+   would draw a second card around the first, and leaving the wrapper unstyled
+   lets a table wider than its frame spill past the edge with no way to reach
+   the far columns. */
 .table-wrap {
   overflow-x: auto;
 }
@@ -3043,7 +3061,7 @@ input[type="radio"] {
   cursor: pointer;
 }
 
-.record-name .account-icon {
+.record-name .record-icon {
   width: 31px;
   height: 31px;
 }
@@ -4394,17 +4412,17 @@ polyline.chart-line {
     align-items: flex-start;
     gap: 6px;
   }
-  .date-bar {
+  .option-bar {
     width: 100%;
     flex-wrap: wrap;
   }
-  .date-bar-title {
+  .option-bar-title {
     width: 100%;
   }
-  .date-bar .select-wrap {
+  .option-bar .select-wrap {
     flex: 1;
   }
-  .date-bar .input[type="date"] {
+  .option-bar .input[type="date"] {
     width: 135px;
   }
   /* The group takes the line and the two dates share it, rather than holding
@@ -4412,7 +4430,7 @@ polyline.chart-line {
      rigid, made the group 328px wide inside a 320px viewport — a reflow failure
      (SC 1.4.10) in place of a cosmetic one. `min-width: 0` on both, because a
      flex item will not shrink below its intrinsic width without it. */
-  .date-bar-range {
+  .option-bar-range {
     flex: 1 1 100%;
     min-width: 0;
   }
@@ -4430,7 +4448,7 @@ polyline.chart-line {
     flex: none;
     margin-top: 2px;
   }
-  .date-bar-range .input[type="date"] {
+  .option-bar-range .input[type="date"] {
     flex: 1 1 0;
     width: auto;
     min-width: 0;

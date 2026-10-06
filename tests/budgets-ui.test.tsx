@@ -362,7 +362,11 @@ describe("the budgets page", () => {
         name: /Groceries/,
       })
     ).closest("tr")!;
-    fireEvent.click(within(groceriesRow).getByRole("button", { name: /Just this month/ }));
+    fireEvent.click(
+      within(groceriesRow).getByRole("button", {
+        name: "Set the amount for Groceries in March 2026",
+      }),
+    );
     const dialog = within(screen.getByRole("dialog", { name: /Groceries, March 2026/ }));
     // The standing budget's amount, at the currency's decimals rather than as
     // it arrives: "200" opened as "200", and "12.5" as "12.5".
@@ -442,7 +446,9 @@ describe("the budgets page", () => {
     const household = (await screen.findByRole("rowheader", { name: /Household/ })).closest("tr")!;
     const leisure = screen.getByRole("rowheader", { name: /Leisure/ }).closest("tr")!;
     expect(within(leisure).queryByRole("button")).toBeNull();
-    fireEvent.click(within(household).getByRole("button", { name: /Just this month/ }));
+    fireEvent.click(
+      within(household).getByRole("button", { name: "Set the amount for Household in March 2026" }),
+    );
     const dialog = within(screen.getByRole("dialog", { name: /Household, March 2026/ }));
     fireEvent.change(dialog.getByLabelText(/Amount/), { target: { value: "950.00" } });
     fireEvent.click(dialog.getByRole("button", { name: "Save override" }));
@@ -542,7 +548,9 @@ describe("the budgets page", () => {
     });
     const rentRow = within(reportTable).getByRole("rowheader", { name: /Rent/ }).closest("tr")!;
     // The row already carries an override, so the action says so.
-    fireEvent.click(within(rentRow).getByRole("button", { name: /Change this month/ }));
+    fireEvent.click(
+      within(rentRow).getByRole("button", { name: "Change the amount for Rent in March 2026" }),
+    );
     fireEvent.click(
       within(screen.getByRole("dialog", { name: /Rent, March 2026/ })).getByRole("button", {
         name: /Use the standing budget/,

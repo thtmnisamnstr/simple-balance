@@ -379,9 +379,11 @@ describe("entries on a frozen account, in the transaction list", () => {
     mountList([ON_FROZEN, ON_LIVE]);
     const frozen = await rowOf("Frozen market");
     // After the accounts list has arrived, which is what says the row is frozen.
-    await waitFor(() => expect(frozen.getByRole("button", { name: "Edit" })).toBeDisabled());
-    for (const name of ["Edit", "Delete"]) {
-      const button = frozen.getByRole("button", { name });
+    await waitFor(() => expect(frozen.getByRole("button", { name: /^Edit / })).toBeDisabled());
+    // Named for their row, as the row menu beside them is: fifty identical
+    // "Edit"s in a screen reader's list of buttons was the register's shape.
+    for (const verb of ["Edit", "Delete"]) {
+      const button = frozen.getByRole("button", { name: `${verb} Frozen market` });
       expect(button).toBeDisabled();
       expect(button).toHaveAccessibleDescription(reason);
     }
@@ -389,8 +391,8 @@ describe("entries on a frozen account, in the transaction list", () => {
 
     // Beside it, an entry on an account in use keeps both, with nothing to explain.
     const live = await rowOf("Live market");
-    for (const name of ["Edit", "Delete"]) {
-      const button = live.getByRole("button", { name });
+    for (const verb of ["Edit", "Delete"]) {
+      const button = live.getByRole("button", { name: `${verb} Live market` });
       expect(button).toBeEnabled();
       expect(button).not.toHaveAccessibleDescription();
     }
@@ -400,15 +402,15 @@ describe("entries on a frozen account, in the transaction list", () => {
   it("disables them when the frozen account is the other side of a transfer", async () => {
     mountList([TOP_UP]);
     const row = await rowOf("Top up");
-    await waitFor(() => expect(row.getByRole("button", { name: "Delete" })).toBeDisabled());
-    expect(row.getByRole("button", { name: "Edit" })).toHaveAccessibleDescription(reason);
+    await waitFor(() => expect(row.getByRole("button", { name: /^Delete / })).toBeDisabled());
+    expect(row.getByRole("button", { name: /^Edit / })).toHaveAccessibleDescription(reason);
   });
 
   it("disables Restore on a deleted one, because restoring posts to it too", async () => {
     mountList([VOIDED]);
     const row = await rowOf("Old refund");
-    await waitFor(() => expect(row.getByRole("button", { name: "Restore" })).toBeDisabled());
-    expect(row.getByRole("button", { name: "Restore" })).toHaveAccessibleDescription(reason);
+    await waitFor(() => expect(row.getByRole("button", { name: /^Restore / })).toBeDisabled());
+    expect(row.getByRole("button", { name: /^Restore / })).toHaveAccessibleDescription(reason);
   });
 
   it("dims that Restore as a dead action is dimmed anywhere, and never the row", async () => {
@@ -418,12 +420,12 @@ describe("entries on a frozen account, in the transaction list", () => {
     // faded, so its dead action is exactly as dim as one in an ordinary row.
     mountList([VOIDED, ON_FROZEN]);
     const voided = await rowOf("Old refund");
-    const restore = voided.getByRole("button", { name: "Restore" });
+    const restore = voided.getByRole("button", { name: /^Restore / });
     await waitFor(() => expect(restore).toBeDisabled());
     expect(seenOpacity(restore.closest("tr")!), "a voided row is not faded").toBe(1);
 
     const ordinary = await rowOf("Frozen market");
-    const edit = ordinary.getByRole("button", { name: "Edit" });
+    const edit = ordinary.getByRole("button", { name: /^Edit / });
     expect(edit).toBeDisabled();
     expect(seenOpacity(edit.closest("tr")!), "an ordinary row is not faded").toBe(1);
     expect(seenOpacity(edit), "a dead action is dimmed").toBeLessThan(1);
@@ -433,7 +435,7 @@ describe("entries on a frozen account, in the transaction list", () => {
   it("disables the selection's Delete and Edit while a selected entry is on one", async () => {
     mountList([ON_FROZEN, ON_LIVE]);
     const live = await rowOf("Live market");
-    await waitFor(() => expect(live.getByRole("button", { name: "Edit" })).toBeEnabled());
+    await waitFor(() => expect(live.getByRole("button", { name: /^Edit / })).toBeEnabled());
     fireEvent.click(live.getByRole("checkbox"));
     expect(screen.getByRole("button", { name: "Delete selected" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Edit selected" })).toBeEnabled();
@@ -500,7 +502,7 @@ describe("entries on a frozen account, in the transaction list", () => {
     // so both buttons went live beside a row still ticked and badged Frozen.
     const bulkCalls = mountPages(byPage, 5);
     const live = await rowOf("Live market");
-    await waitFor(() => expect(live.getByRole("button", { name: "Edit" })).toBeEnabled());
+    await waitFor(() => expect(live.getByRole("button", { name: /^Edit / })).toBeEnabled());
     fireEvent.click(live.getByRole("checkbox"));
     expectBulkOffered();
     fireEvent.click(screen.getByRole("button", { name: "Select all 5 matching" }));
@@ -520,7 +522,7 @@ describe("entries on a frozen account, in the transaction list", () => {
     // the whole request; the check read only the rows on screen and forgot it.
     mountPages(byPage, 3);
     const frozen = await rowOf("Frozen market");
-    await waitFor(() => expect(frozen.getByRole("button", { name: "Edit" })).toBeDisabled());
+    await waitFor(() => expect(frozen.getByRole("button", { name: /^Edit / })).toBeDisabled());
     fireEvent.click(frozen.getByRole("checkbox"));
     fireEvent.click((await rowOf("Live market")).getByRole("checkbox"));
     expectBulkBlocked();
@@ -542,7 +544,7 @@ describe("entries on a frozen account, in the transaction list", () => {
   it("remembers a frozen row a filter selection showed on a page it has left", async () => {
     mountPages(byPage, 3);
     const live = await rowOf("Live market");
-    await waitFor(() => expect(live.getByRole("button", { name: "Edit" })).toBeEnabled());
+    await waitFor(() => expect(live.getByRole("button", { name: /^Edit / })).toBeEnabled());
     fireEvent.click(live.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "Select all 3 matching" }));
     await screen.findByText("3 transactions matching this view selected");
@@ -560,7 +562,7 @@ describe("entries on a frozen account, in the transaction list", () => {
       3,
     );
     const live = await rowOf("Live market");
-    await waitFor(() => expect(live.getByRole("button", { name: "Edit" })).toBeEnabled());
+    await waitFor(() => expect(live.getByRole("button", { name: /^Edit / })).toBeEnabled());
     fireEvent.click(live.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "Select all 3 matching" }));
     await screen.findByText("3 transactions matching this view selected");
@@ -578,7 +580,7 @@ describe("entries on a frozen account, in the transaction list", () => {
       3,
     );
     await waitFor(async () =>
-      expect((await rowOf("Frozen market")).getByRole("button", { name: "Edit" })).toBeDisabled(),
+      expect((await rowOf("Frozen market")).getByRole("button", { name: /^Edit / })).toBeDisabled(),
     );
     fireEvent.click(screen.getByRole("button", { name: /^Payee/ }));
     await rowOf("Page two market");
@@ -599,10 +601,10 @@ describe("entries on a frozen account, in the transaction list", () => {
         : undefined,
     );
     const live = await rowOf("Live market");
-    await waitFor(() => expect(live.getByRole("button", { name: "Delete" })).toBeEnabled());
-    fireEvent.click(live.getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(live.getByRole("button", { name: /^Delete / })).toBeEnabled());
+    fireEvent.click(live.getByRole("button", { name: /^Delete / }));
     const dialog = screen.getByRole("dialog", { name: "Delete this transaction?" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete transaction" }));
     expect(await screen.findByText(`“Live market” was not deleted. ${refusal}`)).toBeVisible();
   });
 });

@@ -283,7 +283,11 @@ test.describe("the selection bar", () => {
       .check();
     const bar = page.locator(".selection-bar");
     await bar.getByRole("button", { name: /^Select all .* matching$/ }).click();
-    await expect(bar.getByText(/^All .* matching staged transactions selected$/)).toBeVisible();
+    // Explicit however it was made, so it is "N of N matching" and never the
+    // filtered "All N matching" (`web.md` 9.5).
+    await expect(
+      bar.getByText(/^([\d,]+) of \1 matching staged transactions selected$/),
+    ).toBeVisible();
   });
 
   test.afterAll(async () => {

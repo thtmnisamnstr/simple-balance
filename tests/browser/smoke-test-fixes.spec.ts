@@ -96,8 +96,11 @@ test("a single delete says what it did and takes focus", async () => {
   await withdrawal("Focus Delete", "3.00");
   await page.goto("/transactions");
   const row = page.getByRole("row", { name: /Focus Delete/ });
-  await row.getByRole("button", { name: "Delete", exact: true }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "Delete", exact: true }).click();
+  await row.getByRole("button", { name: "Delete Focus Delete", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Delete transaction", exact: true })
+    .click();
   await expect(alertSaying(/Deleted “Focus Delete”/)).toBeFocused();
 });
 
@@ -213,7 +216,10 @@ test("a refused delete says so where focus is, naming what was refused", async (
   });
   await page.goto("/categories");
   await page.getByRole("button", { name: "Delete unused Focus In Use" }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "Delete", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Delete category", exact: true })
+    .click();
   const refusal = alertSaying(/“Focus In Use” was not deleted/);
   await expect(refusal).toBeFocused();
   await expect(refusal).toBeInViewport();

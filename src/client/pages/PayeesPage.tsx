@@ -16,6 +16,7 @@ import {
   compareForSort,
   ConfirmDialog,
   EmptyState,
+  formatCount,
   MergePanel,
   PageHeader,
   SearchBox,
@@ -30,9 +31,9 @@ import { emptyScreen, waysOut } from "../list-filters.js";
 
 const payeeSortFields = [
   { field: "name", label: "Name" },
-  { field: "committed", label: "Committed" },
-  { field: "staged", label: "Staged" },
-  { field: "total", label: "Total transactions" },
+  { field: "committed", label: "Committed", lean: "descending" },
+  { field: "staged", label: "Staged", lean: "descending" },
+  { field: "total", label: "Total transactions", lean: "descending" },
 ] as const;
 type PayeeSortField = (typeof payeeSortFields)[number]["field"];
 
@@ -100,7 +101,7 @@ export default function PayeesPage() {
       setMergeOutcome(
         `${folded} ${folded === 1 ? "spelling" : "spellings"} folded into “${
           result.targetPayee
-        }”. ${moved} committed ${moved === 1 ? "entry" : "entries"} and ${staged} staged ${
+        }”. ${formatCount(moved)} committed ${moved === 1 ? "entry" : "entries"} and ${formatCount(staged)} staged ${
           staged === 1 ? "row" : "rows"
         } now name it.`,
       );
@@ -194,7 +195,7 @@ export default function PayeesPage() {
       {selectedPayees.length >= 2 ? (
         <MergePanel>
           <div>
-            <strong>Merge {selectedPayees.length} selected payees</strong>
+            <strong>Merge {formatCount(selectedPayees.length)} selected payees</strong>
             <small>Committed transactions and staged rows will use the payee you keep.</small>
           </div>
           <Select
@@ -263,7 +264,7 @@ export default function PayeesPage() {
                     setParticipants(next);
                   }}
                 />
-                <span className="account-icon">
+                <span className="record-icon">
                   <UserRound size={16} />
                 </span>
                 <span>
@@ -278,13 +279,14 @@ export default function PayeesPage() {
                     </Link>
                   </strong>
                   <small>
-                    {payee.transactionCount} committed · {payee.stagedTransactionCount} staged
+                    {formatCount(payee.transactionCount)} committed ·{" "}
+                    {formatCount(payee.stagedTransactionCount)} staged
                   </small>
                 </span>
               </div>
               <div>
                 <Badge tone="blue">
-                  {payee.totalCount} transaction{payee.totalCount === 1 ? "" : "s"}
+                  {formatCount(payee.totalCount)} transaction{payee.totalCount === 1 ? "" : "s"}
                 </Badge>
               </div>
               <div className="row-actions">
@@ -333,7 +335,7 @@ export default function PayeesPage() {
             ? `Every transaction and staged row naming the others is rewritten to “${merge.value}”. The change is recorded in the activity log but cannot be undone in one step.`
             : undefined
         }
-        confirmLabel="Merge"
+        confirmLabel="Merge payees"
         onConfirm={merge.confirm}
         onCancel={merge.cancel}
       />

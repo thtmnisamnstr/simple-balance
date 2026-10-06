@@ -67,9 +67,16 @@ function literals(source: string) {
  * value failed a check they cannot see instead of what to type. The CSV
  * importer said "Amount has invalid decimal or thousands separators" on the
  * preview screen, which is a sentence about a parser.
+ *
+ * "Simply", "just" and "seamlessly" are `common.md`'s three: words that say a
+ * thing is easy instead of saying what it does. "Just now" is a time, not one
+ * of them. One shipped as a confirmation telling somebody that deleting a
+ * budget meant the page "simply stops comparing against it", on a line this
+ * scan cannot read — a sentence that wraps inside JSX — so the list catches
+ * the next one written on one line and review catches the rest.
  */
 const BANNED =
-  /\b(please|sorry|valid|invalid|oops|forbidden|illegal|you forgot|unexpected|an error occurred)\b/i;
+  /\b(please|sorry|valid|invalid|oops|forbidden|illegal|you forgot|unexpected|an error occurred|simply|just(?! now)|seamlessly)\b/i;
 
 /**
  * Machine words that are spelled like banned ones, named individually.
@@ -134,7 +141,12 @@ describe("what the product says", () => {
       const source = readFileSync(path, "utf8");
       // `<Button …>` through to its closing tag, with only text between: a
       // child that is an expression or an element is a computed label.
-      for (const match of source.matchAll(/<Button[^>]*>([^<>{}]+)<\/Button>/g)) {
+      // Brace pairs stepped over whole: `[^>]*` stopped at the `>` of an
+      // arrow-function `onClick` and never reached the label of any button
+      // written with one.
+      for (const match of source.matchAll(
+        /<Button\b(?:[^>{}]|\{[^{}]*\})*>([^<>{}]+)<\/Button>/g,
+      )) {
         const label = match[1]!.replaceAll(/\s+/g, " ").trim();
         if (label === "") continue;
         checked += 1;
@@ -147,12 +159,110 @@ describe("what the product says", () => {
         wrong.push(`${path}: "${label}"`);
       }
     }
-    // Twenty of roughly a hundred `<Button>` uses have a literal child; the
+    // Thirty-nine of ninety-seven `<Button>` uses have a literal child; the
     // rest compute their label from state and need rendering to read. That is
     // the scope, and it is the scope because the failure this catches — a bare
     // verb — is one somebody types as a literal.
-    expect(checked).toBeGreaterThan(15);
+    expect(checked).toBeGreaterThan(35);
     expect(wrong, "a bare verb is only Done, Close, Cancel or OK").toEqual([]);
+  });
+
+  /**
+   * `web.md` 6.1: Cancel is a ghost button wherever it is, so the action beside
+   * it is the one that stands out. The two bulk-edit dialogs drew theirs as
+   * secondary — an outlined button of the same weight as the action — while
+   * every other dialog in the product drew it ghost.
+   */
+  it("draws every Cancel the same way", () => {
+    const drawn: string[] = [];
+    let cancels = 0;
+    for (const file of sourceFiles("src/client")) {
+      // A prop in braces may hold the `>` of an arrow function, so a brace pair
+      // is stepped over whole rather than read up to its first `>`.
+      for (const match of file.code.matchAll(
+        /<Button\b((?:[^>{}]|\{[^{}]*\})*)>\s*Cancel\s*<\/Button>/g,
+      )) {
+        cancels += 1;
+        if (!/variant="ghost"/.test(match[1]!))
+          drawn.push(`${file.path}:${file.code.slice(0, match.index).split("\n").length}`);
+      }
+    }
+    expect(cancels).toBeGreaterThanOrEqual(9);
+    expect(drawn, "Cancel is ghost").toEqual([]);
+  });
+
+  /**
+   * A confirmation's button names what it acts on, and its color says which
+   * way the action goes.
+   *
+   * The check above reads `<Button>` children and never saw a `confirmLabel`,
+   * so `ConfirmDialog`'s default of "Delete" went to nine dialogs and a bare
+   * "Archive", "Restore", "Merge", "Revoke" and "Commit" went to six more —
+   * against `common.md`'s own worked example, "Delete budget". And the color
+   * was decided by default rather than by the action: red on "Restore" and on
+   * "Commit", which put something in place and destroy nothing.
+   *
+   * The verb decides the color, so every verb is in one list or the other, and
+   * a dialog with a verb in neither fails until somebody says which it is.
+   */
+  it("names the object of every confirmation, in red only when something goes", () => {
+    const TAKES_AWAY = new Set(["Delete", "Archive", "Merge", "Revoke"]);
+    const PUTS_IN_PLACE = new Set(["Restore", "Commit", "Switch"]);
+    const wrong: string[] = [];
+    let dialogs = 0;
+    for (const file of sourceFiles("src/client")) {
+      for (const match of file.code.matchAll(/<ConfirmDialog\b([\s\S]*?)\/>/g)) {
+        dialogs += 1;
+        const at = `${file.path}:${file.code.slice(0, match.index).split("\n").length}`;
+        const label = /confirmLabel="([^"]+)"/.exec(match[1]!)?.[1];
+        if (!label) {
+          wrong.push(`${at} has no literal confirmLabel`);
+          continue;
+        }
+        const [verb] = label.split(" ");
+        if (!/^[A-Z][a-z]+ \S/.test(label)) wrong.push(`${at} "${label}" names no object`);
+        const primary = /confirmVariant="primary"/.test(match[1]!);
+        if (TAKES_AWAY.has(verb!) && primary) wrong.push(`${at} "${label}" takes away, in primary`);
+        else if (PUTS_IN_PLACE.has(verb!) && !primary)
+          wrong.push(`${at} "${label}" puts in place, in red`);
+        else if (!TAKES_AWAY.has(verb!) && !PUTS_IN_PLACE.has(verb!))
+          wrong.push(`${at} "${label}": say which way ${verb} goes`);
+      }
+    }
+    expect(dialogs).toBeGreaterThan(15);
+    expect(wrong).toEqual([]);
+  });
+
+  /**
+   * `web.md` 9.8: the name a screen reader needs is in the `aria-label`, and it
+   * carries the row.
+   *
+   * The register said "Edit", "Delete" and "Restore" and the staged queue
+   * "Commit staged transaction", once per row, so a screen reader's list of
+   * buttons was fifty identical entries — while Categories and Budgets beside
+   * them said "Edit Groceries". A name that carries the row is computed, so a
+   * literal one inside a row's actions is the defect.
+   */
+  it("names every row action for its row", () => {
+    const literal: string[] = [];
+    let cells = 0;
+    for (const file of sourceFiles("src/client")) {
+      const lines = file.code.split("\n");
+      lines.forEach((line, index) => {
+        const open = /^(\s*)<(td|div) className="row-actions">/.exec(line);
+        if (!open) return;
+        cells += 1;
+        const close = lines.findIndex(
+          (later, at) => at > index && later.startsWith(`${open[1]}</${open[2]}>`),
+        );
+        lines.slice(index, close).forEach((inside, offset) => {
+          if (/\b(?:aria-label|label)="[^"]*"/.test(inside))
+            literal.push(`${file.path}:${index + offset + 1} ${inside.trim()}`);
+        });
+      });
+    }
+    expect(cells).toBeGreaterThanOrEqual(9);
+    expect(literal, "an action in a row says which row").toEqual([]);
   });
 
   /**
@@ -188,6 +298,28 @@ describe("what the product says", () => {
   });
 
   /**
+   * `web.md` 8.3: a form's refusal comes first, before the fields it is about.
+   * The three bulk edits are one control on three screens, and the register's
+   * put its refusal under a column of fields at the bottom of a dialog that
+   * scrolls, where the other two put theirs at the top.
+   */
+  it("puts a bulk edit's refusal above its fields", () => {
+    const below: string[] = [];
+    let forms = 0;
+    for (const file of sourceFiles("src/client")) {
+      for (const form of file.code.matchAll(/className="bulk-edit-form"[\s\S]*?<\/form>/g)) {
+        forms += 1;
+        const refusal = form[0].search(/\{\w+\.error \?/);
+        const fields = form[0].indexOf('className="bulk-edit-fields"');
+        if (refusal < 0 || fields < 0 || refusal > fields)
+          below.push(`${file.path}:${file.code.slice(0, form.index).split("\n").length}`);
+      }
+    }
+    expect(forms).toBe(3);
+    expect(below, "the refusal goes above the fields").toEqual([]);
+  });
+
+  /**
    * An eyebrow names a section and never repeats the title.
    *
    * Two pages had `eyebrow="Accounts" title="Accounts"`, which is a line of
@@ -196,12 +328,19 @@ describe("what the product says", () => {
    */
   it("never repeats a page title in its own eyebrow", () => {
     const repeats: string[] = [];
+    let pairs = 0;
     for (const path of globSync("src/client/**/*.tsx")) {
       const source = readFileSync(path, "utf8");
       for (const match of source.matchAll(/eyebrow="([^"]+)"\s*\n\s*title="([^"]+)"/g)) {
-        if (match[1] === match[2]) repeats.push(`${path}: "${match[1]}"`);
+        pairs += 1;
+        // Contained, not only equal: "Import" above "Import a CSV" is the same
+        // word said twice, a line apart, and equality let it through.
+        const title = ` ${match[2]!.toLowerCase()} `;
+        if (title.includes(` ${match[1]!.toLowerCase()} `))
+          repeats.push(`${path}: "${match[1]}" over "${match[2]}"`);
       }
     }
+    expect(pairs).toBeGreaterThan(8);
     expect(repeats).toEqual([]);
   });
 });

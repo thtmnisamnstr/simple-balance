@@ -114,7 +114,7 @@ function captureRequests(bodies: Record<string, unknown>[]) {
 }
 
 const legAmount = (index: number) =>
-  screen.getByLabelText(new RegExp(`^Amount for split ${index}( \\(|$)`)) as HTMLInputElement;
+  screen.getByLabelText(new RegExp(`^Amount for category ${index}( \\(|$)`)) as HTMLInputElement;
 
 afterEach(() => {
   cleanup();
@@ -125,7 +125,7 @@ describe("splitting a transaction in the form", () => {
   it("opens with a single category and no split rows", () => {
     renderForm();
     expect(screen.getByText("Split across categories")).toBeInTheDocument();
-    expect(screen.queryByLabelText(/^Amount for split 1( \(|$)/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Amount for category 1( \(|$)/)).not.toBeInTheDocument();
   });
 
   /**
@@ -193,9 +193,9 @@ describe("splitting a transaction in the form", () => {
     });
     fireEvent.change(screen.getByLabelText("Amount (USD)"), { target: { value: "100" } });
     fireEvent.click(screen.getByText("Split across categories"));
-    fireEvent.click(screen.getByLabelText("Remove split 2"));
+    fireEvent.click(screen.getByLabelText("Remove category 2"));
 
-    expect(screen.queryByLabelText(/^Amount for split 1( \(|$)/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Amount for category 1( \(|$)/)).not.toBeInTheDocument();
     expect(screen.getByText("Split across categories")).toBeInTheDocument();
     expect((screen.getByPlaceholderText("Type to search or add") as HTMLInputElement).value).toBe(
       "Food",
@@ -217,7 +217,7 @@ describe("splitting a transaction in the form", () => {
     fireEvent.change(legAmount(1), { target: { value: "60" } });
     fireEvent.change(pickers()[1]!, { target: { value: "Household" } });
     fireEvent.change(legAmount(2), { target: { value: "40" } });
-    fireEvent.change(screen.getByLabelText("Note for split 1"), {
+    fireEvent.change(screen.getByLabelText("Note for category 1"), {
       target: { value: "Groceries" },
     });
 

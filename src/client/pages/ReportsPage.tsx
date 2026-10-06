@@ -217,13 +217,13 @@ export default function ReportsPage() {
           one control every page shares was the one in a different place. */}
       <DateRangeBar />
 
-      <div className="date-bar" role="group" aria-label="Report options">
-        {/* The only `.date-bar` in the app without one, so an unlabelled
+      <div className="option-bar" role="group" aria-label="Report options">
+        {/* The only `.option-bar` in the app without one, so an unlabelled
             dropdown sat directly under a bar that announces itself with a
             glyph and the word "Viewing". The group's own name is different
             from the visible word, as it is on the other two: `aria-label`
             replaces content, so a title repeating it would be read twice. */}
-        <div className="date-bar-title">
+        <div className="option-bar-title">
           <SlidersHorizontal size={17} />
           <span>Options</span>
         </div>

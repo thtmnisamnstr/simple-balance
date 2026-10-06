@@ -113,7 +113,7 @@ describe("accounts grouped by type", () => {
       "Cash",
       "Checking",
       "Savings",
-      "Credit Card",
+      "Credit card",
       "Loan",
       "Investment",
     ]);
@@ -134,7 +134,7 @@ describe("accounts grouped by type", () => {
       "Cash",
       "Checking",
       "Savings",
-      "Credit Card",
+      "Credit card",
       "Loan",
       "Investment",
     ]);

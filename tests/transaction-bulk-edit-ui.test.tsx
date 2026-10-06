@@ -453,7 +453,7 @@ describe("transaction mass selection", () => {
     const confirmation = await screen.findByRole("dialog", {
       name: /Delete these transactions/,
     });
-    fireEvent.click(within(confirmation).getByRole("button", { name: "Delete" }));
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Delete transactions" }));
 
     await waitFor(() => expect(deleteBodies).toHaveLength(1));
     const body = deleteBodies[0]!;

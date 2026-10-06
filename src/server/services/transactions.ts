@@ -213,7 +213,9 @@ async function getOwnedAccounts(
     rows.length !== new Set(ids).size ||
     rows.some((row) => row.archivedAt !== null && !allowedArchivedIds.has(row.id))
   ) {
-    throw validationError("One or more accounts are unavailable");
+    throw validationError(
+      "One or more of those accounts is archived or was not found. Choose an account you are using.",
+    );
   }
   // Separately, and with its own sentence: "unavailable" is what an account
   // somebody else owns says, and a frozen account is one of theirs that they
@@ -467,7 +469,11 @@ export function buildPreparedTransaction(
 
   if (draft.type === "deposit") {
     const destination = accountMap.get(draft.toAccountId);
-    if (!destination) throw validationError("Destination account is unavailable");
+    if (!destination) {
+      throw validationError(
+        "The account the money goes to is archived or was not found. Choose another account.",
+      );
+    }
     assertLegsCoverTotal(draft, draft.amount);
     return {
       transaction: {
@@ -502,7 +508,11 @@ export function buildPreparedTransaction(
 
   if (draft.type === "withdrawal") {
     const source = accountMap.get(draft.fromAccountId);
-    if (!source) throw validationError("Source account is unavailable");
+    if (!source) {
+      throw validationError(
+        "The account the money comes from is archived or was not found. Choose another account.",
+      );
+    }
     assertLegsCoverTotal(draft, draft.amount);
     return {
       transaction: {
@@ -533,7 +543,11 @@ export function buildPreparedTransaction(
   }
   const source = accountMap.get(draft.fromAccountId);
   const destination = accountMap.get(draft.toAccountId);
-  if (!source || !destination) throw validationError("Transfer account is unavailable");
+  if (!source || !destination) {
+    throw validationError(
+      "One of the transfer's accounts is archived or was not found. Choose another account.",
+    );
+  }
   if (source.currency !== destination.currency && !draft.destinationAmount) {
     throw validationError("Destination amount is required when transfer currencies differ", {
       field: "destinationAmount",
@@ -701,7 +715,11 @@ async function resyncLegs(
   const ids: (string | null)[] = [];
   for (const [ordinal, leg] of desired.entries()) {
     const current = leg.id ? byId.get(leg.id) : undefined;
-    if (leg.id && !current) throw validationError("Leg is unavailable");
+    if (leg.id && !current) {
+      throw validationError(
+        "One of these split rows no longer belongs to this transaction. Open it again and retry.",
+      );
+    }
     if (current) {
       named.add(current.id);
       await tx
@@ -1014,7 +1032,9 @@ export async function prepareTransaction(
       !category ||
       (category.archivedAt !== null && !options.allowedArchivedCategoryIds?.has(category.id))
     ) {
-      throw validationError("Category is unavailable");
+      throw validationError(
+        "That category is archived or was not found. Choose another, or restore it first.",
+      );
     }
     namedKinds.add(category.kind);
   }
@@ -1069,7 +1089,7 @@ export async function prepareTransaction(
             )
             .limit(1)
         ).length > 0;
-    if (!owned) throw validationError("Template is unavailable");
+    if (!owned) throw validationError("The template this entry was made from was not found.");
   }
 
   return assertBalanced(
@@ -1835,7 +1855,9 @@ async function selectBulkSnapshot(
     .where(and(eq(transactions.userId, actor.userId), inArray(transactions.id, ids)))
     .orderBy(transactions.id);
   if (rows.length !== ids.length) {
-    throw notFound("One or more transactions are unavailable");
+    throw notFound(
+      "One or more of those transactions were not found; they may have been deleted. Reload the list and try again.",
+    );
   }
   const expectedVersions = new Map(selection.items.map((item) => [item.id, item.expectedVersion]));
   const staleItems = rows

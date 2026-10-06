@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
-import { SortableHeader, type SortState } from "../src/client/components.js";
+import { SortableHeader, SortMenu, type SortState } from "../src/client/components.js";
 import { sourceFiles } from "./support/source.js";
 
 /**
@@ -154,5 +154,52 @@ describe("one sorted header at a time", () => {
       view.unmount();
       cleanup();
     }
+  });
+});
+
+/**
+ * 9.4's lean, in the control that is not a table. `SortMenu` kept whatever
+ * direction the last field had, so choosing Balance on Accounts or Committed
+ * on Categories and Payees after Name started smallest-first, while the same
+ * kind of column under a `SortableHeader` starts largest-first.
+ */
+describe("choosing a field from the sort menu", () => {
+  const FIELDS = [
+    { field: "name", label: "Name" },
+    { field: "balance", label: "Balance", lean: "descending" },
+  ] as const;
+
+  function Harness({ start }: { start: SortState<"name" | "balance"> }) {
+    const [sort, setSort] = useState(start);
+    return (
+      <>
+        <SortMenu fields={FIELDS} sort={sort} onSort={setSort} />
+        <output>{`${sort.field} ${sort.direction}`}</output>
+      </>
+    );
+  }
+
+  it("starts each field at its own lean rather than the last field's direction", () => {
+    render(<Harness start={{ field: "name", direction: "asc" }} />);
+    fireEvent.change(screen.getByLabelText("Sort by"), { target: { value: "balance" } });
+    expect(screen.getByRole("status").textContent).toBe("balance desc");
+    fireEvent.change(screen.getByLabelText("Sort by"), { target: { value: "name" } });
+    expect(screen.getByRole("status").textContent).toBe("name asc");
+    cleanup();
+  });
+
+  it("gives every count and money field on the three menus a descending lean", () => {
+    const menus = client.filter((file) => /SortFields = \[/.test(file.code));
+    expect(menus.map((file) => file.path).sort()).toEqual([
+      "src/client/pages/AccountsPage.tsx",
+      "src/client/pages/CategoriesPage.tsx",
+      "src/client/pages/PayeesPage.tsx",
+    ]);
+    const unleaned = menus.flatMap((file) =>
+      [...file.code.matchAll(/\{ field: "(balance|committed|staged|total)"[^}]*\}/g)]
+        .filter((entry) => !entry[0].includes('lean: "descending"'))
+        .map((entry) => `${file.path} ${entry[1]}`),
+    );
+    expect(unleaned).toEqual([]);
   });
 });

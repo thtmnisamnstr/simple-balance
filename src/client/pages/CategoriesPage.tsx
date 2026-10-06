@@ -30,6 +30,7 @@ import {
   ConfirmDialog,
   EmptyState,
   Field,
+  formatCount,
   Input,
   MergePanel,
   Modal,
@@ -51,9 +52,9 @@ const categorySortFields = [
   { field: "name", label: "Name" },
   { field: "kind", label: "Kind" },
   { field: "status", label: "Status" },
-  { field: "committed", label: "Committed" },
-  { field: "staged", label: "Staged" },
-  { field: "total", label: "Total transactions" },
+  { field: "committed", label: "Committed", lean: "descending" },
+  { field: "staged", label: "Staged", lean: "descending" },
+  { field: "total", label: "Total transactions", lean: "descending" },
 ] as const;
 type CategorySortField = (typeof categorySortFields)[number]["field"];
 
@@ -414,7 +415,7 @@ export default function CategoriesPage() {
       setMergeOutcome(
         `${folded} ${folded === 1 ? "category" : "categories"} folded into “${
           result.targetCategory.name
-        }”. ${moved} committed ${moved === 1 ? "entry" : "entries"} and ${staged} staged ${
+        }”. ${formatCount(moved)} committed ${moved === 1 ? "entry" : "entries"} and ${formatCount(staged)} staged ${
           staged === 1 ? "row" : "rows"
         } now name it.`,
       );
@@ -656,7 +657,7 @@ export default function CategoriesPage() {
                         <option value="sum_of_children">Adds up its categories' budgets</option>
                       </Select>
                     </td>
-                    <td className="align-right">{group.categoryCount}</td>
+                    <td className="align-right">{formatCount(group.categoryCount)}</td>
                     {/* A trash icon in `.row-actions`, like every other
                         per-row delete in the product. It was a full-width ghost
                         button reading "Delete Fixed costs" in a row whose first
@@ -735,7 +736,7 @@ export default function CategoriesPage() {
       {selectedCategories.length >= 2 ? (
         <MergePanel>
           <div>
-            <strong>Merge {selectedCategories.length} selected categories</strong>
+            <strong>Merge {formatCount(selectedCategories.length)} selected categories</strong>
             <small>Transactions and staged rows will move to the category you keep.</small>
           </div>
           <Select
@@ -829,7 +830,7 @@ export default function CategoriesPage() {
                     }
                   }}
                 />
-                <span className="account-icon">
+                <span className="record-icon">
                   <Tags size={16} />
                 </span>
                 <span>
@@ -844,8 +845,8 @@ export default function CategoriesPage() {
                     </Link>
                   </strong>
                   <small>
-                    {kindLabels[category.kind]} · {category.transactionCount} committed ·{" "}
-                    {category.stagedTransactionCount} staged
+                    {kindLabels[category.kind]} · {formatCount(category.transactionCount)} committed
+                    · {formatCount(category.stagedTransactionCount)} staged
                   </small>
                 </span>
                 {/* Here rather than in the badge cell below, which
@@ -862,7 +863,7 @@ export default function CategoriesPage() {
                   {kindLabels[category.kind]}
                 </Badge>
                 <Badge tone="blue">
-                  {category.totalCount} transaction
+                  {formatCount(category.totalCount)} transaction
                   {category.totalCount === 1 ? "" : "s"}
                 </Badge>
               </div>
@@ -979,13 +980,14 @@ export default function CategoriesPage() {
             ? `Every transaction and staged row filed under the others moves to “${merge.value}”, and the others are removed. This cannot be undone.`
             : undefined
         }
-        confirmLabel="Merge"
+        confirmLabel="Merge categories"
         onConfirm={merge.confirm}
         onCancel={merge.cancel}
       />
 
       <ConfirmDialog
         open={removal.open}
+        confirmLabel="Delete category"
         title="Delete this category?"
         description={
           removal.value

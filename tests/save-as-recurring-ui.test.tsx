@@ -266,7 +266,7 @@ describe("saving a transaction as a recurring transaction", () => {
     fireEvent.change(dialog.getByLabelText(/^Name/), {
       target: { value: "Weekly shop" },
     });
-    fireEvent.click(dialog.getByRole("button", { name: "Create recurrence" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Create recurring transaction" }));
 
     await waitFor(() => expect(writes).toHaveLength(1));
     expect(writes[0]!.path).toBe("/api/v1/recurrences");
@@ -334,7 +334,7 @@ describe("saving a transaction as a recurring transaction", () => {
     fireEvent.change(dialog.getByLabelText(/^Name/), {
       target: { value: "Euro sweep" },
     });
-    fireEvent.click(dialog.getByRole("button", { name: "Create recurrence" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Create recurring transaction" }));
 
     await waitFor(() => expect(writes).toHaveLength(1));
     expect(writes[0]!.body).toMatchObject({
@@ -354,7 +354,7 @@ describe("saving a transaction as a recurring transaction", () => {
     const dialog = await openRecurrenceEditor("Monthly sweep");
     fireEvent.change(dialog.getByLabelText(/^Name/), { target: { value: "Euro sweep" } });
     fireEvent.change(dialog.getByLabelText(/^Amount received/), { target: { value: "460.00" } });
-    fireEvent.click(dialog.getByRole("button", { name: "Create recurrence" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Create recurring transaction" }));
 
     await waitFor(() => expect(writes).toHaveLength(1));
     expect(writes[0]!.body.shape).toMatchObject({ destinationAmount: "460.00" });
@@ -374,7 +374,7 @@ describe("saving a transaction as a recurring transaction", () => {
     fireEvent.change(dialog.getByLabelText(/^Name/), {
       target: { value: "Euro sweep" },
     });
-    fireEvent.click(dialog.getByRole("button", { name: "Create recurrence" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Create recurring transaction" }));
 
     await waitFor(() => expect(writes).toHaveLength(1));
     expect(writes[0]!.body).toMatchObject({
@@ -433,7 +433,7 @@ describe("saving a transaction as a recurring transaction", () => {
     fireEvent.change(dialog.getByLabelText(/^Name/), {
       target: { value: "Old shop" },
     });
-    fireEvent.click(dialog.getByRole("button", { name: "Create recurrence" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Create recurring transaction" }));
 
     await waitFor(() => expect(writes).toHaveLength(1));
     expect(writes[0]!.body.shape).not.toHaveProperty("categoryId");
@@ -444,7 +444,9 @@ describe("saving a transaction as a recurring transaction", () => {
     stubLedger();
     renderAt("/transactions?start=2026-01-01&end=2026-12-31&preset=custom", "transactions");
     const dialog = await openRecurrenceEditor("Market");
-    expect(dialog.getByRole("button", { name: "Create recurrence" })).toBeInTheDocument();
+    expect(
+      dialog.getByRole("button", { name: "Create recurring transaction" }),
+    ).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Save as template" })).not.toBeInTheDocument();
   });
 });
@@ -463,7 +465,7 @@ describe("saving a staged row as a recurring transaction", () => {
     fireEvent.change(dialog.getByLabelText(/^Name/), {
       target: { value: "Electricity" },
     });
-    fireEvent.click(dialog.getByRole("button", { name: "Create recurrence" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Create recurring transaction" }));
 
     await waitFor(() => expect(writes).toHaveLength(1));
     expect(writes[0]!.body).toMatchObject({

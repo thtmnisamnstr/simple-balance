@@ -48,7 +48,7 @@ import {
   Select,
   SelectionBar,
   SelectionCheckbox,
-  selectionCount,
+  formatCount,
   Skeleton,
   SortableHeader,
   type SortState,
@@ -646,7 +646,7 @@ export function TransactionBrowser({
       clearTransactionSelection();
       setBulkNotice({
         kind: "success",
-        message: `Deleted ${result.updatedCount} transaction${
+        message: `Deleted ${formatCount(result.updatedCount)} transaction${
           result.updatedCount === 1 ? "" : "s"
         }.`,
       });
@@ -688,7 +688,7 @@ export function TransactionBrowser({
       // the list again below, which carries every new version.
       setBulkNotice({
         kind: "success",
-        message: `${result.updatedCount} transaction${result.updatedCount === 1 ? "" : "s"} updated.`,
+        message: `${formatCount(result.updatedCount)} transaction${result.updatedCount === 1 ? "" : "s"} updated.`,
       });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["transactions"] }),
@@ -959,23 +959,23 @@ export function TransactionBrowser({
               ? filterSelectionPreview.isPending || filterSelectionPreview.isFetching
                 ? "Counting transactions matching this view…"
                 : filterSelectionPreview.data
-                  ? `${selectionCount(filterSelectionPreview.data.count)} transaction${
+                  ? `${formatCount(filterSelectionPreview.data.count)} transaction${
                       filterSelectionPreview.data.count === 1 ? "" : "s"
                     } matching this view selected`
                   : "Unable to count matching transactions"
-              : `${selectionCount(explicitSelectedCount)} transaction${
+              : `${formatCount(explicitSelectedCount)} transaction${
                   explicitSelectedCount === 1 ? "" : "s"
                 } selected`
           }
           notes={
             <>
               {selection.mode === "filter" && selection.excludedIds.size ? (
-                <span>{selectionCount(selection.excludedIds.size)} excluded</span>
+                <span>{formatCount(selection.excludedIds.size)} excluded</span>
               ) : null}
               {selection.mode === "filter" && filterSelectionPreview.data?.deletedCount ? (
                 <span>
-                  {selectionCount(filterSelectionPreview.data.activeCount)} active ·{" "}
-                  {selectionCount(filterSelectionPreview.data.deletedCount)} deleted
+                  {formatCount(filterSelectionPreview.data.activeCount)} active ·{" "}
+                  {formatCount(filterSelectionPreview.data.deletedCount)} deleted
                 </span>
               ) : null}
             </>
@@ -995,7 +995,7 @@ export function TransactionBrowser({
                   }));
                 }}
               >
-                {`Select all ${selectionCount(totalMatching)} matching`}
+                {`Select all ${formatCount(totalMatching)} matching`}
               </Button>
             ) : null}
             {selection.mode === "filter" ? (
@@ -1100,80 +1100,91 @@ export function TransactionBrowser({
         ))}
       {items.length || stagedRows.length ? (
         <>
-          <div className="table-card" tabIndex={0} role="region" aria-label="Transactions">
-            <table className="data-table">
-              <caption className="sr-only">Transactions</caption>
-              <thead>
-                <tr>
-                  <th scope="col" className="checkbox-cell">
-                    <SelectionCheckbox
-                      aria-label="Select all transactions on this page"
-                      data-selection-home
-                      checked={allLoadedSelected}
-                      indeterminate={someLoadedSelected && !allLoadedSelected}
-                      onChange={(event) => toggleLoadedSelection(event.target.checked)}
+          {/* The card is the frame and the `.table-wrap` inside it scrolls, so
+              the pager under the table stays where it is when the columns
+              scroll — it scrolled sideways with them while it sat inside the
+              scroller, and Templates and Recurring framed theirs a third way
+              (web.md 7.2). */}
+          <div className="table-card">
+            <div className="table-wrap" tabIndex={0} role="region" aria-label="Transactions">
+              <table className="data-table">
+                <caption className="sr-only">Transactions</caption>
+                <thead>
+                  <tr>
+                    <th scope="col" className="checkbox-cell">
+                      <SelectionCheckbox
+                        aria-label="Select all transactions on this page"
+                        data-selection-home
+                        checked={allLoadedSelected}
+                        indeterminate={someLoadedSelected && !allLoadedSelected}
+                        onChange={(event) => toggleLoadedSelection(event.target.checked)}
+                      />
+                    </th>
+                    <SortableHeader
+                      field="date"
+                      label="Date"
+                      lean="descending"
+                      sort={sort}
+                      onSort={applySort}
                     />
-                  </th>
-                  <SortableHeader
-                    field="date"
-                    label="Date"
-                    lean="descending"
-                    sort={sort}
-                    onSort={applySort}
-                  />
-                  <SortableHeader field="payee" label="Payee" sort={sort} onSort={applySort} />
-                  <SortableHeader field="account" label="Account" sort={sort} onSort={applySort} />
-                  <SortableHeader
-                    field="category"
-                    label="Category"
-                    sort={sort}
-                    onSort={applySort}
-                  />
-                  <SortableHeader
-                    field="amount"
-                    label="Amount"
-                    lean="descending"
-                    className="align-right"
-                    sort={sort}
-                    onSort={applySort}
-                  />
-                  <th scope="col">
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {stagedRows.map((stage) => {
-                  const draft = stage.draft;
-                  const stagedPayee =
-                    typeof draft.payee === "string" && draft.payee.trim()
-                      ? draft.payee
-                      : "Incomplete row";
-                  const stagedDate = typeof draft.date === "string" ? draft.date : null;
-                  // The same summary the staged queue itself shows, so a
-                  // transfer reports an amount here rather than nothing and the
-                  // figure is formatted like every other on the page.
-                  const stagedSummary = summarizeStagedDraft(stage.draft, accounts.data ?? []);
-                  const stagedMovement = movementSign(stagedSummary.type ?? undefined);
-                  // A draft names its category by id when it has one and by name
-                  // when the import proposed one that does not exist yet, and a
-                  // split holds them on its legs. The queue reads all three; this
-                  // page wrote a literal dash and showed none of them.
-                  const stagedLegList = stagedLegs(draft.legs);
-                  const stagedCategoryId = stagedLegList.length
-                    ? (largestStagedLeg(stagedLegList)?.categoryId ?? "")
-                    : stagedString(draft.categoryId);
-                  const stagedCategory =
-                    (categories.data ?? []).find((one) => one.id === stagedCategoryId)?.name ??
-                    stagedString(draft.categoryName).trim();
-                  return (
-                    <tr key={`staged-${stage.id}`} className="row-staged">
-                      <td className="checkbox-cell">
-                        {/* Staged rows cannot join a committed bulk edit. */}
-                        <span className="sr-only">Not selectable</span>
-                      </td>
-                      <td className="nowrap">{stagedDate ? formatDate(stagedDate) : "—"}</td>
-                      {/* The same cell the committed rows below open with, and
+                    <SortableHeader field="payee" label="Payee" sort={sort} onSort={applySort} />
+                    <SortableHeader
+                      field="account"
+                      label="Account"
+                      sort={sort}
+                      onSort={applySort}
+                    />
+                    <SortableHeader
+                      field="category"
+                      label="Category"
+                      sort={sort}
+                      onSort={applySort}
+                    />
+                    <SortableHeader
+                      field="amount"
+                      label="Amount"
+                      lean="descending"
+                      className="align-right"
+                      sort={sort}
+                      onSort={applySort}
+                    />
+                    <th scope="col">
+                      <span className="sr-only">Actions</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stagedRows.map((stage) => {
+                    const draft = stage.draft;
+                    const stagedPayee =
+                      typeof draft.payee === "string" && draft.payee.trim()
+                        ? draft.payee
+                        : "Incomplete row";
+                    const stagedDate = typeof draft.date === "string" ? draft.date : null;
+                    // The same summary the staged queue itself shows, so a
+                    // transfer reports an amount here rather than nothing and the
+                    // figure is formatted like every other on the page.
+                    const stagedSummary = summarizeStagedDraft(stage.draft, accounts.data ?? []);
+                    const stagedMovement = movementSign(stagedSummary.type ?? undefined);
+                    // A draft names its category by id when it has one and by name
+                    // when the import proposed one that does not exist yet, and a
+                    // split holds them on its legs. The queue reads all three; this
+                    // page wrote a literal dash and showed none of them.
+                    const stagedLegList = stagedLegs(draft.legs);
+                    const stagedCategoryId = stagedLegList.length
+                      ? (largestStagedLeg(stagedLegList)?.categoryId ?? "")
+                      : stagedString(draft.categoryId);
+                    const stagedCategory =
+                      (categories.data ?? []).find((one) => one.id === stagedCategoryId)?.name ??
+                      stagedString(draft.categoryName).trim();
+                    return (
+                      <tr key={`staged-${stage.id}`} className="row-staged">
+                        <td className="checkbox-cell">
+                          {/* Staged rows cannot join a committed bulk edit. */}
+                          <span className="sr-only">Not selectable</span>
+                        </td>
+                        <td className="nowrap">{stagedDate ? formatDate(stagedDate) : "—"}</td>
+                        {/* The same cell the committed rows below open with, and
                           for the same reason (9.2): the payee is what names a
                           row here, so it is the row header in both branches of
                           this one `tbody`. It was a bare `td` while the
@@ -1183,282 +1194,288 @@ export function TransactionBrowser({
                           on exactly the rows somebody opened the page to
                           repair. `.data-table th[scope="row"]` takes the body
                           cell's treatment, so nothing about the look moves. */}
-                      <th scope="row">
-                        <div className="transaction-payee">
-                          <span>{stagedPayee}</span>
-                          <Badge tone="amber">Staged</Badge>
-                        </div>
-                      </th>
-                      <td>{stagedSummary.account}</td>
-                      {/* The draft's own category, not a literal dash. This cell
+                        <th scope="row">
+                          <div className="cell-with-badge">
+                            <span>{stagedPayee}</span>
+                            <Badge tone="amber">Staged</Badge>
+                          </div>
+                        </th>
+                        <td>{stagedSummary.account}</td>
+                        {/* The draft's own category, not a literal dash. This cell
                           wrote one as cell text rather than as a fallback, so a
                           staged row read as having no category on this page while
                           the review queue showed the one it has. */}
-                      <td>
-                        {stagedCategory ? (
-                          stagedCategory
-                        ) : (
-                          <span className="subtle">Uncategorized</span>
-                        )}
-                      </td>
-                      {/* The same cell the committed rows below use. This one
+                        <td>
+                          {stagedCategory ? (
+                            stagedCategory
+                          ) : (
+                            <span className="subtle">Uncategorized</span>
+                          )}
+                        </td>
+                        {/* The same cell the committed rows below use. This one
                           had the alignment and none of the other three parts —
                           no sign, no direction color, no `money` weight — so a
                           staged withdrawal read as a plain number directly
                           above a committed one reading −$45.00 in red, in one
                           column of one table. */}
-                      <td className={`align-right money ${stagedMovement.className}`}>
-                        {stagedSummary.amount && stagedSummary.currency ? (
-                          <>
-                            {stagedMovement.sign}
-                            {formatMoney(stagedSummary.amount, stagedSummary.currency)}
-                          </>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                      <td>
-                        {/* With the range this row was found in, as every
+                        <td className={`align-right money ${stagedMovement.className}`}>
+                          {stagedSummary.amount && stagedSummary.currency ? (
+                            <>
+                              {stagedMovement.sign}
+                              {formatMoney(stagedSummary.amount, stagedSummary.currency)}
+                            </>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td>
+                          {/* With the range this row was found in, as every
                             sibling link on this row carries it (`web.md`
                             11.7): bare, it opened a this-month queue where a
                             row from last month — the one promised — was
                             hidden. */}
-                        <Link
-                          to={{ pathname: "/staged", search: withoutLedgerText(location.search) }}
-                        >
-                          Review
-                        </Link>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {items.map((transaction) => {
-                  const meta = typeMeta[transaction.type];
-                  const Icon = meta.icon;
-                  const isInboundTransfer =
-                    transaction.type === "transfer" &&
-                    Boolean(fixedAccountId) &&
-                    transaction.destinationAccountId === fixedAccountId;
-                  // On a category page the row has to show what that category
-                  // was given, not what the whole receipt came to, or the page
-                  // stops adding up to the figure the dashboard reports for it.
-                  const categoryShare = fixedCategoryId
-                    ? transaction.legs
-                        .filter((leg) => leg.categoryId === fixedCategoryId)
-                        .map((leg) => leg.amount)
-                    : [];
-                  const amount = categoryShare.length
-                    ? sumMoney(categoryShare)
-                    : transaction.type === "deposit" || isInboundTransfer
-                      ? transaction.destinationAmount!
-                      : transaction.sourceAmount!;
-                  const currency =
-                    transaction.type === "deposit" || isInboundTransfer
-                      ? transaction.destinationCurrency!
-                      : transaction.sourceCurrency!;
-                  // One helper, so the review queue, the templates and the
-                  // recurrences sign a movement the same way this register
-                  // does. They used to show no sign at all.
-                  const { sign, className: moneyClass } = movementSign(
-                    transaction.type,
-                    transaction.type === "transfer" && fixedAccountId
-                      ? isInboundTransfer
-                      : undefined,
-                  );
-                  const accountLabel =
-                    transaction.type === "transfer"
-                      ? `${transaction.sourceAccount?.name} → ${transaction.destinationAccount?.name}`
-                      : (transaction.sourceAccount?.name ?? transaction.destinationAccount?.name);
-                  const transactionSelected = isSelected(transaction.id);
-                  // Edit, Delete and Restore each write to every account the
-                  // entry names, so a frozen one disables all three. The icons
-                  // have no room for a sentence under them: the reason is a
-                  // description each points at, a tooltip for a pointer, and
-                  // the Frozen badge in the Account column for everyone else.
-                  const frozenAccount = frozenAccountOf(transaction);
-                  const rowReason = frozenAccount ? frozenReason(frozenAccount) : undefined;
-                  const rowReasonId = `${frozenRowReasonId}-${transaction.id}`;
-                  const rowBlock = {
-                    disabled: Boolean(rowReason),
-                    title: rowReason,
-                    "aria-describedby": rowReason ? rowReasonId : undefined,
-                  };
-                  return (
-                    <tr
-                      key={transaction.id}
-                      className={[
-                        transaction.deletedAt ? "row-deleted" : "",
-                        transactionSelected ? "row-selected" : "",
-                      ]
-                        .filter(Boolean)
-                        .join(" ")}
-                    >
-                      <td className="checkbox-cell">
-                        <input
-                          type="checkbox"
-                          aria-label={`Select transaction ${transaction.payee}, ${formatDate(
-                            transaction.date,
-                          )}, ${accountLabel ?? "Unknown account"}, ${transaction.id.slice(0, 8)}`}
-                          checked={transactionSelected}
-                          onChange={(event) =>
-                            toggleTransactionSelection(transaction, event.target.checked)
-                          }
-                        />
-                      </td>
-                      <td className="nowrap">{formatDate(transaction.date)}</td>
-                      <th scope="row">
-                        <div className="transaction-cell">
-                          <span className={`transaction-icon ${transaction.type}`}>
-                            <Icon size={16} />
-                          </span>
-                          <div>
-                            <strong>
-                              <Link
-                                to={{
-                                  pathname: "/payees/transactions",
-                                  search: payeeDetailSearch(location.search, transaction.payee),
-                                }}
-                              >
-                                {transaction.payee}
-                              </Link>
-                            </strong>
-                            <span>{transaction.description || meta.label}</span>
-                          </div>
-                          {/* In words as well as struck through: a line through
+                          <Link
+                            to={{ pathname: "/staged", search: withoutLedgerText(location.search) }}
+                          >
+                            Review
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {items.map((transaction) => {
+                    const meta = typeMeta[transaction.type];
+                    const Icon = meta.icon;
+                    const isInboundTransfer =
+                      transaction.type === "transfer" &&
+                      Boolean(fixedAccountId) &&
+                      transaction.destinationAccountId === fixedAccountId;
+                    // On a category page the row has to show what that category
+                    // was given, not what the whole receipt came to, or the page
+                    // stops adding up to the figure the dashboard reports for it.
+                    const categoryShare = fixedCategoryId
+                      ? transaction.legs
+                          .filter((leg) => leg.categoryId === fixedCategoryId)
+                          .map((leg) => leg.amount)
+                      : [];
+                    const amount = categoryShare.length
+                      ? sumMoney(categoryShare)
+                      : transaction.type === "deposit" || isInboundTransfer
+                        ? transaction.destinationAmount!
+                        : transaction.sourceAmount!;
+                    const currency =
+                      transaction.type === "deposit" || isInboundTransfer
+                        ? transaction.destinationCurrency!
+                        : transaction.sourceCurrency!;
+                    // One helper, so the review queue, the templates and the
+                    // recurrences sign a movement the same way this register
+                    // does. They used to show no sign at all.
+                    const { sign, className: moneyClass } = movementSign(
+                      transaction.type,
+                      transaction.type === "transfer" && fixedAccountId
+                        ? isInboundTransfer
+                        : undefined,
+                    );
+                    const accountLabel =
+                      transaction.type === "transfer"
+                        ? `${transaction.sourceAccount?.name} → ${transaction.destinationAccount?.name}`
+                        : (transaction.sourceAccount?.name ?? transaction.destinationAccount?.name);
+                    const transactionSelected = isSelected(transaction.id);
+                    // Edit, Delete and Restore each write to every account the
+                    // entry names, so a frozen one disables all three. The icons
+                    // have no room for a sentence under them: the reason is a
+                    // description each points at, a tooltip for a pointer, and
+                    // the Frozen badge in the Account column for everyone else.
+                    const frozenAccount = frozenAccountOf(transaction);
+                    const rowReason = frozenAccount ? frozenReason(frozenAccount) : undefined;
+                    const rowReasonId = `${frozenRowReasonId}-${transaction.id}`;
+                    const rowBlock = {
+                      disabled: Boolean(rowReason),
+                      title: rowReason,
+                      "aria-describedby": rowReason ? rowReasonId : undefined,
+                    };
+                    return (
+                      <tr
+                        key={transaction.id}
+                        className={[
+                          transaction.deletedAt ? "row-deleted" : "",
+                          transactionSelected ? "row-selected" : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
+                      >
+                        <td className="checkbox-cell">
+                          <input
+                            type="checkbox"
+                            aria-label={`Select transaction ${transaction.payee}, ${formatDate(
+                              transaction.date,
+                            )}, ${accountLabel ?? "Unknown account"}, ${transaction.id.slice(0, 8)}`}
+                            checked={transactionSelected}
+                            onChange={(event) =>
+                              toggleTransactionSelection(transaction, event.target.checked)
+                            }
+                          />
+                        </td>
+                        <td className="nowrap">{formatDate(transaction.date)}</td>
+                        <th scope="row">
+                          <div className="transaction-cell">
+                            <span className={`transaction-icon ${transaction.type}`}>
+                              <Icon size={16} />
+                            </span>
+                            <div>
+                              <strong>
+                                <Link
+                                  to={{
+                                    pathname: "/payees/transactions",
+                                    search: payeeDetailSearch(location.search, transaction.payee),
+                                  }}
+                                >
+                                  {transaction.payee}
+                                </Link>
+                              </strong>
+                              <span>{transaction.description || meta.label}</span>
+                            </div>
+                            {/* In words as well as struck through: a line through
                               the text is a style, and a screen reader read a
                               deleted entry exactly like a live one. */}
-                          {transaction.deletedAt ? <Badge>Deleted</Badge> : null}
-                        </div>
-                      </th>
-                      <td>
-                        {frozenAccount ? (
-                          <div className="transaction-payee">
-                            <span>{accountLabel}</span>
-                            <Badge tone="amber">Frozen</Badge>
+                            {transaction.deletedAt ? <Badge>Deleted</Badge> : null}
                           </div>
-                        ) : (
-                          accountLabel
-                        )}
-                      </td>
-                      <td>
-                        {transaction.legs.length ? (
-                          // The largest share names the row, with a badge for
-                          // the rest: a stacked list has nowhere to go in a
-                          // table already inside a horizontal scroller.
-                          <div className="transaction-payee">
-                            {largestLeg(transaction.legs)?.category ? (
-                              <Link
-                                to={{
-                                  pathname: `/categories/${largestLeg(transaction.legs)!.category!.id}`,
-                                  search: withoutLedgerText(location.search),
-                                }}
-                              >
-                                {largestLeg(transaction.legs)!.category!.name}
-                              </Link>
-                            ) : (
-                              <span className="subtle">Uncategorized</span>
-                            )}
-                            <Badge tone="blue">Split · {transaction.legs.length}</Badge>
-                          </div>
-                        ) : transaction.type === "transfer" ? (
-                          // A transfer moves money between two of your own
-                          // accounts and files under no category by design, so
-                          // "Uncategorized" read as something left undone. The
-                          // staged queue already says it this way.
-                          <TransferCategory />
-                        ) : transaction.category ? (
-                          <Link
-                            to={{
-                              pathname: `/categories/${transaction.category.id}`,
-                              search: withoutLedgerText(location.search),
-                            }}
-                          >
-                            {transaction.category.name}
-                          </Link>
-                        ) : (
-                          <span className="subtle">Uncategorized</span>
-                        )}
-                      </td>
-                      <td className={`align-right money ${moneyClass}`}>
-                        {sign}
-                        {formatMoney(amount, currency)}
-                        {!fixedAccountId &&
-                        transaction.type === "transfer" &&
-                        transaction.sourceCurrency !== transaction.destinationCurrency ? (
-                          <small>
-                            →{" "}
-                            {formatMoney(
-                              transaction.destinationAmount!,
-                              transaction.destinationCurrency!,
-                            )}
-                          </small>
-                        ) : null}
-                      </td>
-                      <td className="row-actions">
-                        {rowReason ? (
-                          <span className="sr-only" id={rowReasonId}>
-                            {rowReason}
-                          </span>
-                        ) : null}
-                        {transaction.deletedAt ? (
-                          <button
-                            aria-label="Restore"
-                            {...rowBlock}
-                            onClick={() =>
-                              deleteMutation.mutate({
-                                transaction,
-                                deleted: false,
-                              })
-                            }
-                          >
-                            <RotateCcw size={16} />
-                          </button>
-                        ) : (
-                          <>
-                            <button
-                              aria-label="Edit"
-                              {...rowBlock}
-                              onClick={() => setEditing(transaction)}
+                        </th>
+                        <td>
+                          {frozenAccount ? (
+                            <div className="cell-with-badge">
+                              <span>{accountLabel}</span>
+                              <Badge tone="amber">Frozen</Badge>
+                            </div>
+                          ) : (
+                            accountLabel
+                          )}
+                        </td>
+                        <td>
+                          {transaction.legs.length ? (
+                            // The largest share names the row, with a badge for
+                            // the rest: a stacked list has nowhere to go in a
+                            // table already inside a horizontal scroller.
+                            <div className="cell-with-badge">
+                              {largestLeg(transaction.legs)?.category ? (
+                                <Link
+                                  to={{
+                                    pathname: `/categories/${largestLeg(transaction.legs)!.category!.id}`,
+                                    search: withoutLedgerText(location.search),
+                                  }}
+                                >
+                                  {largestLeg(transaction.legs)!.category!.name}
+                                </Link>
+                              ) : (
+                                <span className="subtle">Uncategorized</span>
+                              )}
+                              <Badge tone="blue">
+                                Split · {formatCount(transaction.legs.length)}
+                              </Badge>
+                            </div>
+                          ) : transaction.type === "transfer" ? (
+                            // A transfer moves money between two of your own
+                            // accounts and files under no category by design, so
+                            // "Uncategorized" read as something left undone. The
+                            // staged queue already says it this way.
+                            <TransferCategory />
+                          ) : transaction.category ? (
+                            <Link
+                              to={{
+                                pathname: `/categories/${transaction.category.id}`,
+                                search: withoutLedgerText(location.search),
+                              }}
                             >
-                              <Pencil size={16} />
-                            </button>
+                              {transaction.category.name}
+                            </Link>
+                          ) : (
+                            <span className="subtle">Uncategorized</span>
+                          )}
+                        </td>
+                        <td className={`align-right money ${moneyClass}`}>
+                          {sign}
+                          {formatMoney(amount, currency)}
+                          {!fixedAccountId &&
+                          transaction.type === "transfer" &&
+                          transaction.sourceCurrency !== transaction.destinationCurrency ? (
+                            <small>
+                              →{" "}
+                              {formatMoney(
+                                transaction.destinationAmount!,
+                                transaction.destinationCurrency!,
+                              )}
+                            </small>
+                          ) : null}
+                        </td>
+                        <td className="row-actions">
+                          {rowReason ? (
+                            <span className="sr-only" id={rowReasonId}>
+                              {rowReason}
+                            </span>
+                          ) : null}
+                          {transaction.deletedAt ? (
+                            // Each names its row, as the menu beside it does: a
+                            // screen reader's list of buttons read fifty
+                            // identical "Edit"s (web.md 9.8).
                             <button
-                              aria-label="Delete"
+                              aria-label={`Restore ${transaction.payee}`}
                               {...rowBlock}
                               onClick={() =>
-                                rowDeletion.ask(transaction, () =>
-                                  deleteMutation.mutate({
-                                    transaction,
-                                    deleted: true,
-                                  }),
-                                )
+                                deleteMutation.mutate({
+                                  transaction,
+                                  deleted: false,
+                                })
                               }
                             >
-                              <Trash2 size={16} />
+                              <RotateCcw size={16} />
                             </button>
-                            <RowMenu label={`Actions for ${transaction.payee}`}>
-                              {/* To the QUEUE, not the books: the copy lands
+                          ) : (
+                            <>
+                              <button
+                                aria-label={`Edit ${transaction.payee}`}
+                                {...rowBlock}
+                                onClick={() => setEditing(transaction)}
+                              >
+                                <Pencil size={16} />
+                              </button>
+                              <button
+                                aria-label={`Delete ${transaction.payee}`}
+                                {...rowBlock}
+                                onClick={() =>
+                                  rowDeletion.ask(transaction, () =>
+                                    deleteMutation.mutate({
+                                      transaction,
+                                      deleted: true,
+                                    }),
+                                  )
+                                }
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                              <RowMenu label={`Actions for ${transaction.payee}`}>
+                                {/* To the QUEUE, not the books: the copy lands
                                   on Staged prefilled, where it can be looked
                                   at before it counts, exactly like anything
                                   else that proposes a row. */}
-                              <button onClick={() => setCloning(transaction)}>
-                                <Copy size={15} /> Clone transaction
-                              </button>
-                              <button onClick={() => setSavingTemplate(transaction)}>
-                                <LayoutTemplate size={15} /> Save as template
-                              </button>
-                              <button onClick={() => setSavingRecurrence(transaction)}>
-                                <Repeat size={15} /> Save as recurring transaction
-                              </button>
-                            </RowMenu>
-                          </>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                                <button onClick={() => setCloning(transaction)}>
+                                  <Copy size={15} /> Clone transaction
+                                </button>
+                                <button onClick={() => setSavingTemplate(transaction)}>
+                                  <LayoutTemplate size={15} /> Save as template
+                                </button>
+                                <button onClick={() => setSavingRecurrence(transaction)}>
+                                  <Repeat size={15} /> Save as recurring transaction
+                                </button>
+                              </RowMenu>
+                            </>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
             <Pagination
               page={transactions.data?.page ?? page}
               pageSize={transactions.data?.pageSize ?? items.length}
@@ -1595,7 +1612,7 @@ export function TransactionBrowser({
           <>
             <Button
               type="button"
-              variant="secondary"
+              variant="ghost"
               onClick={closeBulkEditor}
               disabled={bulkMutation.isPending}
             >
@@ -1615,14 +1632,49 @@ export function TransactionBrowser({
       >
         <form id="transaction-bulk-edit-form" className="bulk-edit-form" onSubmit={submitBulkEdit}>
           <p className="bulk-edit-selection-summary">
+            {/* While the count is still arriving it says so: "0 transactions
+                matching this view will be edited" was a sentence about a
+                number nobody had worked out yet. */}
             {selection.mode === "filter"
-              ? `${filterSelectionPreview.data?.count ?? 0} transaction${
-                  filterSelectionPreview.data?.count === 1 ? "" : "s"
-                } matching this view will be edited.`
-              : `${explicitSelectedCount} selected transaction${
+              ? filterSelectionPreview.data
+                ? `${formatCount(filterSelectionPreview.data.count)} transaction${
+                    filterSelectionPreview.data.count === 1 ? "" : "s"
+                  } matching this view will be edited.`
+                : "Counting the transactions matching this view…"
+              : `${formatCount(explicitSelectedCount)} selected transaction${
                   explicitSelectedCount === 1 ? "" : "s"
                 } will be edited.`}
           </p>
+
+          {/* At the top, where the staged and template bulk edits put theirs
+              and where 8.3 puts a summary: at the bottom it sat below a column
+              of fields, out of sight in a dialog that scrolls. */}
+          {bulkMutation.error ? (
+            <Alert>
+              {bulkMutation.error instanceof ApiClientError &&
+              bulkMutation.error.code === "STALE_VERSION" &&
+              selection.mode === "filter"
+                ? "The matching transaction set changed. Review the refreshed selection count, then apply the edit again."
+                : bulkMutation.error.message}
+              {bulkMutation.error instanceof ApiClientError &&
+              bulkMutation.error.code === "DUPLICATE" &&
+              bulkMutation.variables &&
+              !bulkMutation.variables.allowDuplicates ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() =>
+                    bulkMutation.mutate({
+                      ...bulkMutation.variables!,
+                      allowDuplicates: true,
+                    })
+                  }
+                >
+                  Apply anyway
+                </Button>
+              ) : null}
+            </Alert>
+          ) : null}
 
           {selectionMayIncludeDeleted ? (
             <Alert kind="info">
@@ -1633,7 +1685,7 @@ export function TransactionBrowser({
 
           {selectionContainsTransfers ? (
             <Alert kind="info">
-              This selection contains {selectedTransferCount} transfer
+              This selection contains {formatCount(selectedTransferCount)} transfer
               {selectedTransferCount === 1 ? "" : "s"}. You can change common details, but Account
               and Type are unavailable for transfers.
             </Alert>
@@ -1791,37 +1843,11 @@ export function TransactionBrowser({
               of them never performs an FX conversion.
             </Alert>
           ) : null}
-
-          {bulkMutation.error ? (
-            <Alert>
-              {bulkMutation.error instanceof ApiClientError &&
-              bulkMutation.error.code === "STALE_VERSION" &&
-              selection.mode === "filter"
-                ? "The matching transaction set changed. Review the refreshed selection count, then apply the edit again."
-                : bulkMutation.error.message}
-              {bulkMutation.error instanceof ApiClientError &&
-              bulkMutation.error.code === "DUPLICATE" &&
-              bulkMutation.variables &&
-              !bulkMutation.variables.allowDuplicates ? (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() =>
-                    bulkMutation.mutate({
-                      ...bulkMutation.variables!,
-                      allowDuplicates: true,
-                    })
-                  }
-                >
-                  Apply anyway
-                </Button>
-              ) : null}
-            </Alert>
-          ) : null}
         </form>
       </Modal>
       <ConfirmDialog
         open={rowDeletion.open}
+        confirmLabel="Delete transaction"
         title="Delete this transaction?"
         description={
           rowDeletion.value
@@ -1834,10 +1860,11 @@ export function TransactionBrowser({
 
       <ConfirmDialog
         open={deletion.open}
+        confirmLabel="Delete transactions"
         title="Delete these transactions?"
         description={
           deletion.value
-            ? `${deletion.value} transaction${deletion.value === 1 ? "" : "s"} will stop counting toward balances and reports. Nothing is erased: turn on “Show deleted” to find and restore them.`
+            ? `${formatCount(deletion.value)} transaction${deletion.value === 1 ? "" : "s"} will stop counting toward balances and reports. Nothing is erased: turn on “Show deleted” to find and restore them.`
             : undefined
         }
         onConfirm={deletion.confirm}

@@ -592,7 +592,7 @@ integration("saving a transaction as a template", () => {
           },
           "count-foreign-template",
         ),
-      ).rejects.toThrow(/Template is unavailable/);
+      ).rejects.toThrow(/template this entry was made from was not found/);
     });
   });
 

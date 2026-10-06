@@ -184,15 +184,15 @@ describe("a field around a composite", () => {
   it("is a labeled group rather than a label", () => {
     render(
       <Field label="Category" as="group">
-        <Input aria-label="Category for split 1" defaultValue="" />
-        <Input aria-label="Category for split 2" defaultValue="" />
+        <Input aria-label="Category 1" defaultValue="" />
+        <Input aria-label="Category 2" defaultValue="" />
       </Field>,
     );
     const group = screen.getByRole("group", { name: "Category" });
     expect(group.tagName.toLowerCase()).toBe("div");
     // And it hands out no id, because there is no one control to point at: each
     // control inside names itself.
-    for (const name of ["Category for split 1", "Category for split 2"]) {
+    for (const name of ["Category 1", "Category 2"]) {
       const control = screen.getByLabelText(name, { selector: "input" });
       expect(control.id).toBe("");
       expect(control.getAttribute("aria-describedby")).toBeNull();
@@ -204,13 +204,13 @@ describe("a field around a composite", () => {
     // Three call sites wrap `CategoryLegs`, and all three are groups.
     // The opening tag spans lines once it names the request paths it claims.
     expect([
-      ...forms.matchAll(/<Field\s+label="Category"\s+hint="Optional"\s+as="group"[\s>]/g),
+      ...forms.matchAll(/<Field\s+label="Category"\s+optional\s+as="group"[\s>]/g),
     ]).toHaveLength(3);
     // Both shapes of the composite name their picker: one when unsplit, one per
     // leg once split. The `ariaLabel` prop existed for a release with nothing
     // passing it, which is the state this is here to prevent returning to.
     expect(forms).toContain('ariaLabel="Category"');
-    expect(forms).toContain("ariaLabel={`Category for split ${index + 1}`}");
+    expect(forms).toContain("ariaLabel={`Category ${index + 1}`}");
   });
 });
 

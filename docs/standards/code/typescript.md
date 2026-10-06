@@ -234,7 +234,7 @@ export type CategoryKind = (typeof categoryKinds)[number];
 
 The array is the single source: Zod validates from it, the database enum is
 generated from it (`src/server/db/schema.ts:199`),
-and the UI iterates it (`src/client/pages/CategoriesPage.tsx:136`).
+and the UI iterates it (`src/client/pages/CategoriesPage.tsx:137`).
 Adding a member is one edit, and every one of those follows.
 
 *Checked by:* `npm run typecheck`, for the half of it that is a refusal:
@@ -485,8 +485,8 @@ floating-point numbers."
 
 The server uses `decimal.js` through one wrapper
 (`src/server/services/helpers.ts:22`).
-The client uses scaled `bigint` (`src/client/money.ts:216`,
-`src/client/money.ts:231`),
+The client uses scaled `bigint` (`src/client/money.ts:229`,
+`src/client/money.ts:244`),
 because the browser bundle should not carry a decimal library to render a table.
 
 Two implementations of one rule is a risk worth naming: they must agree. What
@@ -614,7 +614,7 @@ updateTransaction(actor, id, input, transaction?)
 setTransactionDeleted(actor, id, expectedVersion, deleted, allowDuplicate?, transaction?)
 ```
 
-(`src/server/services/transactions.ts:1116`, `:2336` and `:2436`.)
+(`src/server/services/transactions.ts:1136`, `:2358` and `:2458`.)
 
 Note that `updateTransaction` takes `input: unknown` and parses it, rather than
 a typed object: the version and the draft arrive together inside it. An update

@@ -45,7 +45,7 @@ const selectorsOf = (selector: string) => selector.split(",").map((one) => one.t
  */
 const PAGE_LEVEL = [
   ".page-header",
-  ".date-bar",
+  ".option-bar",
   ".filter-bar",
   ".report-tabs",
   ".panel",
@@ -152,8 +152,11 @@ describe("a scrolling table", () => {
       // other table here — six columns of arbitrary CSV headers in a 300px
       // aside — and was the one scrolling container in the client a keyboard
       // could not reach, because the pattern only knew two class names.
+      // `.table-card` left the alternation when it stopped scrolling: it is
+      // the frame around a list's table and pager now, and the `.table-wrap`
+      // inside it is the scroller that takes the tab stop.
       for (const match of source.matchAll(
-        /<div\s[^>]*?className="(?:table-(?:card|wrap)|preview-table-wrap)"[^>]*>/g,
+        /<div\s[^>]*?className="(?:table-wrap|preview-table-wrap)"[^>]*>/g,
       )) {
         checked += 1;
         const tag = match[0];
@@ -367,15 +370,22 @@ describe("a page-scoped class", () => {
    * This is a register rather than a rule, because the distinction the rule
    * draws — is this class named for a *page* or for a *component that happens
    * to share the page's word* — is a judgement no pattern makes. `.settings-note`
-   * was named for a page and used on eight files; `.account-icon` is named for
-   * an account and appears wherever an account does. Nothing structural tells
-   * them apart: `.settings-note` was used on its own page too.
+   * was named for a page and used on eight files; `.transaction-cell` is named
+   * for the register and appears wherever the register does. Nothing structural
+   * tells them apart: `.settings-note` was used on its own page too.
+   *
+   * And a reason here has to be true. Two were not: `.account-icon` was "an
+   * account's colored glyph, wherever an account is listed" and drew the
+   * category and payee glyphs too, and `.transaction-payee` was "the same
+   * register" and wrapped an account, a category, a next date and a reminder.
+   * Both were renamed for what they do — `.record-icon` and `.cell-with-badge`
+   * — which is the answer to a false reason, and neither is a page's word, so
+   * neither needs a line here.
    *
    * The value is that a *new* off-page use has to be classified here, which is
    * the reading `.settings-note` never got in 26 uses across four releases.
    */
   const COMPONENTS = new Map([
-    ["account-icon", "An account's colored glyph, wherever an account is listed"],
     ["budget-display", "The budget section the dashboard and the budgets page share"],
     ["budget-report", "Same section, same reason"],
     ["budget-progress", "The bar inside it"],
@@ -394,7 +404,6 @@ describe("a page-scoped class", () => {
     ["recurrence-preview-label", "Same preview"],
     ["transaction-cell", "A cell in the transaction register, wherever the register appears"],
     ["transaction-icon", "Same register"],
-    ["transaction-payee", "Same register, and the staged queue shows the same shape"],
     [
       "category-picker",
       "The half-typed-category control, in every form that files an entry (6.1 lists it)",
@@ -483,6 +492,12 @@ describe("a page-scoped class", () => {
       .join("\n");
     const stale = [...COMPONENTS.keys()].filter((name) => !everything.includes(name));
     expect(stale, "these are excused and unused").toEqual([]);
+    // And 6.3 states its size, which said twenty-one through ten additions.
+    const WORDS: Record<number, string> = { 29: "twenty-nine", 30: "thirty", 31: "thirty-one" };
+    const guide = readFileSync("docs/standards/web.md", "utf8").replaceAll(/\s+/g, " ");
+    expect(guide).toContain(
+      `register of the ${WORDS[COMPONENTS.size] ?? COMPONENTS.size} that are components`,
+    );
   });
 });
 

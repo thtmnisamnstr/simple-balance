@@ -1110,7 +1110,9 @@ export async function deleteStages(actor: Actor, input: unknown, transaction?: D
       .orderBy(stagedTransactions.id)
       .for("update");
     if (rows.length !== parsed.stagedIds.length) {
-      throw notFound("One or more staged transactions are unavailable");
+      throw notFound(
+        "One or more of those staged rows were not found; they may have been committed or deleted. Reload the queue and try again.",
+      );
     }
     for (const row of rows) {
       if (parsed.expectedVersions[row.id] !== row.version) {
@@ -1215,7 +1217,9 @@ export async function commitStages(
         ),
       );
     if (rows.length !== parsed.stagedIds.length) {
-      throw notFound("One or more staged transactions are unavailable");
+      throw notFound(
+        "One or more of those staged rows were not found; they may have been committed or deleted. Reload the queue and try again.",
+      );
     }
     await lockStagedDraftReferences(
       tx,
@@ -1553,7 +1557,9 @@ export async function bulkEditStages(
     const verifySelection = (rows: (typeof stagedTransactions.$inferSelect)[]) => {
       if (selection.mode === "ids") {
         if (rows.length !== selection.items.length) {
-          throw notFound("One or more staged transactions are unavailable");
+          throw notFound(
+            "One or more of those staged rows were not found; they may have been committed or deleted. Reload the queue and try again.",
+          );
         }
         const expected = new Map(selection.items.map((item) => [item.id, item.expectedVersion]));
         for (const row of rows) {

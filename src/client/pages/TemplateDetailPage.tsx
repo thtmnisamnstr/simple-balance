@@ -41,7 +41,18 @@ export default function TemplateDetailPage() {
         description="Transactions started from this template."
         actions={
           template.data?.draft.type ? (
-            <Badge tone={template.data.draft.type === "deposit" ? "green" : "red"}>
+            // Each type in the color the register draws it: a transfer between
+            // somebody's own accounts is blue there, and the two-way choice
+            // this was gave it withdrawal red (web.md 2.4).
+            <Badge
+              tone={
+                template.data.draft.type === "deposit"
+                  ? "green"
+                  : template.data.draft.type === "transfer"
+                    ? "blue"
+                    : "red"
+              }
+            >
               <LayoutTemplate size={14} /> {transactionTypeLabels[template.data.draft.type]}
             </Badge>
           ) : null

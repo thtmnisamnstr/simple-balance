@@ -108,7 +108,7 @@ describe("payee browsing and merging", () => {
     fireEvent.click(
       within(await screen.findByRole("dialog", { name: /Merge these payees/ })).getByRole(
         "button",
-        { name: "Merge" },
+        { name: "Merge payees" },
       ),
     );
 

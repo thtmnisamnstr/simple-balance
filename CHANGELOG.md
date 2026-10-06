@@ -172,6 +172,28 @@ row's Review link keeps the date range it was found in; a staged row that
 cannot be committed says why; and the account-deletion email field can be
 filled in by your browser.
 
+**One word for one thing, and the same look for the same thing.** The duplicate
+review said "drop" where the queue says "delete" for the same action; a split's
+rows were read out as "split 2" rather than "category 2"; the template bulk edit
+said "source" and "destination" where the form says "from" and "to"; and the
+Recurring page said "recurrence" where every page pointing at it says
+"recurring transaction". Each now uses the one word. Every confirmation button
+names what it acts on — "Delete template", not "Delete" — and the ones that put
+something back rather than take it away, restoring an account and committing a
+row flagged as a possible duplicate, are no longer red. Row buttons in the
+transaction list and the staged queue name their row for a screen reader, as
+Categories and Budgets already did, and Budgets' "Just this month" is a named
+icon like every other row action. Counts group their thousands everywhere, not
+only in the selection bar. A transfer template's badge is blue, as transfers
+are everywhere else. Every Cancel is the same quiet button. Templates and
+Recurring frame their list like Transactions and Staged, and the pager under a
+list no longer scrolls sideways with its columns. Choosing Balance or a count in
+a sort menu starts with the largest. The staged queue's import filter shows when
+each file arrived, so two `checking.csv` imports can be told apart. Account
+types read "Credit card" rather than "Credit Card". And a refusal that said a
+thing "is unavailable" now says whether it was archived or not found, and what
+to do about it.
+
 **What an agent could do, a person can now do too.** Six things were
 reachable only through the MCP: overriding one month of a group's own budget,
 reading the activity history past its latest hundred entries, seeing the row a

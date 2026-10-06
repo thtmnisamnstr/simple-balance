@@ -34,6 +34,7 @@ import {
   Button,
   EmptyState,
   Field,
+  formatCount,
   Note,
   PageHeader,
   progressLabel,
@@ -308,7 +309,7 @@ export default function ImportPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Import"
+        eyebrow="Review queue"
         title="Import a CSV"
         description={
           appExport
@@ -378,7 +379,7 @@ export default function ImportPage() {
                     <p>
                       Detected{" "}
                       <strong>{preview.delimiter === "\t" ? "tab" : preview.delimiter}</strong>{" "}
-                      delimiter and {preview.headers.length} columns.
+                      delimiter and {formatCount(preview.headers.length)} columns.
                     </p>
                   </div>
                 </div>
@@ -566,9 +567,9 @@ export default function ImportPage() {
                 {result && (result.importBatchId || !stale) ? (
                   <>
                     <Alert kind={result.invalidCount ? "info" : "success"}>
-                      <strong>{result.validCount}</strong> ready and{" "}
-                      <strong>{result.invalidCount}</strong> needing attention out of{" "}
-                      {result.rowCount} rows.
+                      <strong>{formatCount(result.validCount)}</strong> ready and{" "}
+                      <strong>{formatCount(result.invalidCount)}</strong> needing attention out of{" "}
+                      {formatCount(result.rowCount)} rows.
                       {result.importBatchId ? (
                         <>
                           {" "}
@@ -588,7 +589,7 @@ export default function ImportPage() {
                               }),
                             }}
                           >
-                            Review these {result.rowCount} rows
+                            Review these {formatCount(result.rowCount)} rows
                           </Link>
                           .
                         </>
@@ -645,10 +646,11 @@ export default function ImportPage() {
                 // Says what is on screen rather than what came back: twelve rows
                 // are rendered out of a sample of twenty-five out of the file.
                 <Badge tone="blue">
-                  {Math.min(interpreted.sample.length, PREVIEW_ROWS)} of {interpreted.rowCount} rows
+                  {Math.min(interpreted.sample.length, PREVIEW_ROWS)} of{" "}
+                  {formatCount(interpreted.rowCount)} rows
                 </Badge>
               ) : preview ? (
-                <Badge tone="blue">{preview.rows.length} sampled</Badge>
+                <Badge tone="blue">{formatCount(preview.rows.length)} sampled</Badge>
               ) : null}
             </header>
             {/* Both preview tables are reachable, like every other scrolling
@@ -707,11 +709,11 @@ export default function ImportPage() {
                           <td>{summary.account}</td>
                           <td>
                             {legs.length ? (
-                              <div className="transaction-payee">
+                              <div className="cell-with-badge">
                                 <span>
                                   {categoryLabel(largest?.categoryId, largest?.categoryName)}
                                 </span>
-                                <Badge tone="blue">Split · {legs.length}</Badge>
+                                <Badge tone="blue">Split · {formatCount(legs.length)}</Badge>
                               </div>
                             ) : (
                               categoryLabel(
@@ -786,7 +788,7 @@ export default function ImportPage() {
                     </tbody>
                   </table>
                 </div>
-                <p className="field-hint">Run a dry run to see how these rows will be read.</p>
+                <Note>Run a dry run to see how these rows will be read.</Note>
               </>
             ) : (
               <EmptyState

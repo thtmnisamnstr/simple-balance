@@ -18,6 +18,7 @@ import {
   Button,
   ConfirmDialog,
   EmptyState,
+  formatCount,
   Note,
   PageHeader,
   Skeleton,
@@ -179,7 +180,7 @@ export default function DuplicateReviewPage() {
             edge. `EmptyState` cannot take focus and `Note` is a plain `<p>`,
             so this is also the only thing here a screen reader announces. */}
         <Alert kind="success" takeFocus>
-          The row was dropped. Nothing left in the queue looks like a copy of anything else.
+          The row was deleted. Nothing left in the queue looks like a copy of anything else.
         </Alert>
         {caughtUp}
       </>
@@ -228,10 +229,12 @@ export default function DuplicateReviewPage() {
     <>
       <PageHeader
         eyebrow={
-          position >= 0 && total ? `Possible duplicate ${position + 1} of ${total}` : "Review queue"
+          position >= 0 && total
+            ? `Possible duplicate ${formatCount(position + 1)} of ${formatCount(total)}`
+            : "Review queue"
         }
         title="Two records of one payment"
-        description="Correct either side and save it, or drop the copy that should not be there. Only a staged row can be dropped: a committed transaction is already in the books."
+        description="Correct either side and save it, or delete the copy that should not be there. Only a staged row can be deleted here: a committed transaction is already in the books."
         actions={
           /* A fragment and not a wrapper element, which is what this was. The
              responsive rule that gives a phone full-width header buttons is
@@ -283,13 +286,13 @@ export default function DuplicateReviewPage() {
         <>
           {droppedOtherOn === id ? (
             <Alert kind="success" takeFocus>
-              The other row was dropped, so nothing repeats this one anymore.
+              The other row was deleted, so nothing repeats this one anymore.
             </Alert>
           ) : null}
           <EmptyState
             icon={CheckCheck}
             title="Nothing repeats this anymore"
-            body="Whatever it looked like a copy of has been changed, committed or dropped. This row is on its own now."
+            body="Whatever it looked like a copy of has been changed, committed or deleted. This row is on its own now."
             action={
               // On to the next one where there is one: this row needs nothing
               // further, and stopping here would end the run over a row that has
@@ -370,11 +373,11 @@ export default function DuplicateReviewPage() {
                       onClick={() => drop.ask(staged.id, () => deletion.mutate(side))}
                     >
                       <Trash2 size={15} />
-                      Drop this staged row
+                      Delete this staged row
                     </Button>
                   ) : (
                     <Note>
-                      Committed transactions are not dropped from here. If this is the copy to
+                      Committed transactions are not deleted from here. If this is the copy to
                       remove, delete it from the transactions list.
                     </Note>
                   )}
@@ -387,9 +390,9 @@ export default function DuplicateReviewPage() {
 
       <ConfirmDialog
         open={drop.open}
-        title="Drop this staged row?"
+        title="Delete this staged row?"
         description="It leaves the queue and posts nothing. The other record stays as it is."
-        confirmLabel="Drop it"
+        confirmLabel="Delete staged row"
         onConfirm={drop.confirm}
         onCancel={drop.cancel}
       />

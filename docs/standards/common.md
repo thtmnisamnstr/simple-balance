@@ -294,8 +294,8 @@ table's sense, and whether the "Not" column is honest, stays review.
 | **Budget plan** | A standing amount for one category or one group, never both, per period, over a window of periods. | A posting. Nothing in budgeting writes one. |
 | **Budget entry** | An amount for one period, overriding the plan for that period alone. | A plan for one period. |
 | **Forecast** | A projection of what the books would hold if the future arrived as scheduled. | A balance. Money dated in the future has not moved. |
-| **Recurrence** | A saved shape and a schedule that proposes a staged row on its due date. | Something that posts. |
-| **Template** | A saved shape with no schedule. | A recurrence. |
+| **Recurring transaction** | A saved shape and a schedule that proposes a staged row on its due date. `recurrence` on the wire and in tool names, and the same two words on every screen, in every tool title and in the reminder mail. Like a staged transaction, it is named for what it makes rather than for being one. | Something that posts. A *recurrence* in a heading or a button: the Recurring page said that while every page pointing at it said this. |
+| **Template** | A saved shape with no schedule. | A recurring transaction. |
 | **Plan** | What a sign-in is entitled to and billed for: free or paid. `plus` on the wire, **Premium** on screen. | A budget plan, which is always written out in full. |
 | **Entitlement** | What a plan permits, worked out from the plan and the moment rather than stored (`resolveEntitlement`, `src/shared/domain.ts:3518`). | A plan. An entitlement follows from one and changes with nobody present, which is why no column holds it. |
 | **Frozen** | A live account a plan's limit leaves closed to every change to what it holds: fully readable, counted in every balance, summary and report, and still free to be archived, or deleted while nothing is on it. | Archived. An archived account already refuses writes, is outside the limit, and uses up no place. |
@@ -311,12 +311,12 @@ spelling guard was already having to reason about one of them from a comment
 **The one collision, recorded rather than resolved.** The Account row above gives
 the word two senses and asks that one sentence never use both. One screen uses
 both, a sentence apart: the deletion panel is titled "Delete this account"
-(`src/client/pages/SettingsPage.tsx:449`), meaning the sign-in, and its next
+(`src/client/pages/SettingsPage.tsx:450`), meaning the sign-in, and its next
 sentence is "Everything in it goes: accounts, transactions, categories…"
-(`src/client/pages/SettingsPage.tsx:450-452`), meaning the financial ones. The
-confirmation repeats it (`:584`, `:578`). `AGENTS.md` wins over this guide and
+(`src/client/pages/SettingsPage.tsx:451-453`), meaning the financial ones. The
+confirmation repeats it (`:585`, `:579`). `AGENTS.md` wins over this guide and
 calls a sign-in an account throughout, as do three places in the product
-(`src/client/App.tsx:395`, `src/client/pages/SettingsPage.tsx:169`,
+(`src/client/App.tsx:395`, `src/client/pages/SettingsPage.tsx:170`,
 `src/client/pages/PlanPage.tsx:1137`), so the old row — "A user. A person has a
 sign-in, not an account." — was asserting a rule the repository has never
 followed, and the sharp case is the one screen where the ambiguity it was written
@@ -350,7 +350,11 @@ commit subject and a comment: plain, declarative, specific.
   `Europe/London — GMT (+00:00)`, and it fills an empty table cell, where it is
   a glyph rather than punctuation.
 - **Numbers a person reads are formatted.** Money through `formatMoney`, dates
-  through `formatDate`. A count written as a literal in a sentence is spelled out
+  through `formatDate`, and a count shown as a figure through `formatCount`
+  (`src/client/components.tsx:1388`), which groups its thousands. It was the
+  selection bars' helper and only they asked it, so the bar read "4,318" while
+  the dialog it opened, the notice after it, the pages under the list and an
+  import's result counts all read "4318". A count written as a literal in a sentence is spelled out
   below ten. A count that arrives as a *value* cannot be spelled out by writing
   the sentence differently, so it is spelled out by a map where the sentence
   reads as a sentence — `NUMBER_WORDS` and `GRACE_IN_WORDS`
@@ -361,8 +365,8 @@ commit subject and a comment: plain, declarative, specific.
   and the two halves of it currently disagree: the grace period is spelled out
   and the account limit is not. `MAX_FREE_ACCOUNTS` is three, and it renders as
   "up to 3 accounts" (`src/client/pages/PlanPage.tsx:1706`), "Your plan keeps 3
-  accounts usable" (`src/client/pages/AccountsPage.tsx:656`) and "All 3 places
-  are in use" (`src/client/pages/AccountsPage.tsx:697`), the last of which is a
+  accounts usable" (`src/client/pages/AccountsPage.tsx:659`) and "All 3 places
+  are in use" (`src/client/pages/AccountsPage.tsx:700`), the last of which is a
   figure beside a figure and right as a digit. The first two are sentences and
   would read better in words. Say so in a review; do not grep for it, because
   there is nothing to find. Every one of these literals says `${limit}`, and the
@@ -389,7 +393,9 @@ periodically loses.
 
 *Checked by:* `tests/ui-copy.test.ts` for the worked sentences and the banned
 words, and `tests/common-guide.test.ts` for the em dash in a heading, a table
-header or a label. What that last one cannot see is a `<Button>` whose words sit
+header or a label, and for a count shown in JSX or a template literal without
+`formatCount` — named by its shape, a path ending in `Count`, `length` or one of
+four bare names, with a register for the one that never reaches four digits. What that last one cannot see is a `<Button>` whose words sit
 on the next line, which is most of them, so it catches the regression in the
 shape it has taken and not in every shape it could. The rest of this section is
 review, and it is the one place that is honestly fine as review, because the
@@ -464,9 +470,9 @@ exception. Six closed sets already read against that sentence:
 (`src/client/select-options.ts:113`, which both category pages read),
 `transactionTypeLabels`
 (`src/client/pages/TemplatesPage.tsx:70`), and `ORDINAL_LABELS` and
-`FREQUENCY_LABELS` (`src/client/forms.tsx:2537`, `:2617`) for the two schedule
+`FREQUENCY_LABELS` (`src/client/forms.tsx:2533`, `:2613`) for the two schedule
 pickers. In four of the six the label is a different *word* rather than the same
-word capitalized: `credit_card` reads Credit Card, `plus` reads Premium, `both`
+word capitalized: `credit_card` reads "Credit card", `plus` reads Premium, `both`
 reads "Income or expense", and the ordinal `-1` reads Last.
 
 The exception, and what it costs:
@@ -474,7 +480,7 @@ The exception, and what it costs:
 - **The wire value is frozen contract and lowercase.** `credit_card`, `plus`,
   `both`, `last_day`. It appears in a request body, a column, a CSV cell and a
   tool argument, and `plan === "plus"` stays legal everywhere.
-- **The label is prose and may change.** Credit Card, Premium, "Income or
+- **The label is prose and may change.** "Credit card", Premium, "Income or
   expense". Changing one breaks nothing and needs no deprecation.
 - **The map is written once, where every surface that renders the word can
   reach it.** `PLAN_LABELS` is in `src/shared` for that reason: the same word

@@ -19,7 +19,7 @@ import {
   Select,
   SelectionBar,
   SelectionCheckbox,
-  selectionCount,
+  formatCount,
   Skeleton,
   SortableHeader,
   type SortState,
@@ -56,8 +56,8 @@ type TemplateSortField =
 const BULK_FIELDS = [
   { key: "type", label: "Type", clearable: false },
   { key: "payee", label: "Payee", clearable: true },
-  { key: "fromAccountId", label: "Source account", clearable: true },
-  { key: "toAccountId", label: "Destination account", clearable: true },
+  { key: "fromAccountId", label: "From account", clearable: true },
+  { key: "toAccountId", label: "To account", clearable: true },
   { key: "amount", label: "Amount", clearable: true },
   { key: "categoryId", label: "Category", clearable: true },
   { key: "description", label: "Description", clearable: true },
@@ -292,7 +292,9 @@ export default function TemplatesPage() {
         }),
       ),
     onSuccess: (result) =>
-      afterBulk(`${result.changedCount} template${result.changedCount === 1 ? "" : "s"} changed.`),
+      afterBulk(
+        `${formatCount(result.changedCount)} template${result.changedCount === 1 ? "" : "s"} changed.`,
+      ),
   });
 
   const bulkDelete = useMutation({
@@ -305,7 +307,9 @@ export default function TemplatesPage() {
         }),
       ),
     onSuccess: (result) =>
-      afterBulk(`${result.changedCount} template${result.changedCount === 1 ? "" : "s"} deleted.`),
+      afterBulk(
+        `${formatCount(result.changedCount)} template${result.changedCount === 1 ? "" : "s"} deleted.`,
+      ),
   });
 
   const deletion = useMutation({
@@ -448,22 +452,22 @@ export default function TemplatesPage() {
             clearSelection();
           }}
         >
-          <option value="">Every type</option>
-          <option value="deposit">Deposit</option>
-          <option value="withdrawal">Withdrawal</option>
-          <option value="transfer">Transfer</option>
+          <option value="">All types</option>
+          <option value="deposit">Deposits</option>
+          <option value="withdrawal">Withdrawals</option>
+          <option value="transfer">Transfers</option>
         </Select>
       </div>
 
       {selectedIds.length ? (
         <SelectionBar
-          summary={`${selectionCount(selectedIds.length)} template${
+          summary={`${formatCount(selectedIds.length)} template${
             selectedIds.length === 1 ? "" : "s"
           } selected`}
         >
           {selectedIds.length < filtered.length ? (
             <Button type="button" variant="secondary" onClick={selectAllMatching}>
-              {`Select all ${selectionCount(filtered.length)} matching`}
+              {`Select all ${formatCount(filtered.length)} matching`}
             </Button>
           ) : null}
           <Button
@@ -512,7 +516,7 @@ export default function TemplatesPage() {
           }
         />
       ) : (
-        <section className="panel">
+        <div className="table-card">
           <div className="table-wrap" tabIndex={0} role="region" aria-label="Transaction templates">
             <table className="data-table">
               <caption className="sr-only">Transaction templates</caption>
@@ -591,9 +595,11 @@ export default function TemplatesPage() {
                       <td>{account ? account : <span className="template-blank">blank</span>}</td>
                       <td>
                         {template.draft.legs?.length ? (
-                          <div className="transaction-payee">
+                          <div className="cell-with-badge">
                             <span>{categoryLabel(categories.data, template) ?? "Unavailable"}</span>
-                            <Badge tone="blue">Split · {template.draft.legs.length}</Badge>
+                            <Badge tone="blue">
+                              Split · {formatCount(template.draft.legs.length)}
+                            </Badge>
                           </div>
                         ) : template.draft.categoryId ? (
                           (category ?? "Unavailable")
@@ -641,13 +647,13 @@ export default function TemplatesPage() {
                         </Link>
                         {template.stagedTransactionCount ? (
                           <span className="table-subtitle">
-                            {`${template.transactionCount ?? 0} committed · ${template.stagedTransactionCount} pending`}
+                            {`${formatCount(template.transactionCount ?? 0)} committed · ${formatCount(template.stagedTransactionCount)} staged`}
                           </span>
                         ) : null}
                       </td>
                       <td>
                         {template.notification ? (
-                          <div className="transaction-payee">
+                          <div className="cell-with-badge">
                             <Badge tone={template.notification.repeats ? "blue" : undefined}>
                               {template.notification.repeats ? "Repeating" : "Once"}
                             </Badge>
@@ -694,7 +700,7 @@ export default function TemplatesPage() {
             onPageChange={setPage}
             itemLabel="templates"
           />
-        </section>
+        </div>
       )}
 
       <Modal
@@ -734,7 +740,7 @@ export default function TemplatesPage() {
 
       <Modal
         open={bulkEditing}
-        title={`Edit ${selectedIds.length} template${selectedIds.length === 1 ? "" : "s"}`}
+        title={`Edit ${formatCount(selectedIds.length)} template${selectedIds.length === 1 ? "" : "s"}`}
         description="A field left alone keeps what each template already holds."
         onClose={() => setBulkEditing(false)}
         footer={
@@ -749,7 +755,7 @@ export default function TemplatesPage() {
               loading={bulkEdit.isPending}
               disabledReason="Change at least one field above."
             >
-              Save changes
+              Apply changes
             </Button>
           </>
         }
@@ -888,6 +894,7 @@ export default function TemplatesPage() {
 
       <ConfirmDialog
         open={removal.open}
+        confirmLabel="Delete template"
         title="Delete this template?"
         description={
           removal.value
@@ -900,7 +907,8 @@ export default function TemplatesPage() {
 
       <ConfirmDialog
         open={bulkRemoval.open}
-        title={`Delete ${bulkRemoval.value ?? 0} template${bulkRemoval.value === 1 ? "" : "s"}?`}
+        confirmLabel="Delete templates"
+        title={`Delete ${formatCount(bulkRemoval.value ?? 0)} template${bulkRemoval.value === 1 ? "" : "s"}?`}
         description="They are removed together. Transactions already made from them are untouched."
         onCancel={bulkRemoval.cancel}
         onConfirm={bulkRemoval.confirm}

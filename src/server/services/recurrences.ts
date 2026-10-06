@@ -117,12 +117,12 @@ async function recurrenceReferenceIssues(
       if (!account) {
         issues.push({
           field: side.field,
-          message: "This recurrence names an account that no longer exists",
+          message: "This recurring transaction names an account that no longer exists",
         });
       } else if (account.archivedAt) {
         issues.push({
           field: side.field,
-          message: "This recurrence names an archived account",
+          message: "This recurring transaction names an archived account",
         });
       }
     }
@@ -154,12 +154,12 @@ async function recurrenceReferenceIssues(
       if (!category) {
         issues.push({
           field: one.field,
-          message: "This recurrence names a category that no longer exists",
+          message: "This recurring transaction names a category that no longer exists",
         });
       } else if (category.archivedAt) {
         issues.push({
           field: one.field,
-          message: "This recurrence names an archived category",
+          message: "This recurring transaction names an archived category",
         });
       }
     }
@@ -187,7 +187,7 @@ function draftFor(shape: RecurrenceShape, postedDate: string) {
 
 const MISSING_AMOUNT_ISSUE: ValidationIssue = {
   field: "amount",
-  message: "This recurrence does not set an amount. Fill one in before committing.",
+  message: "This recurring transaction does not set an amount. Fill one in before committing.",
 };
 
 export type RecurrenceTickOutcome =

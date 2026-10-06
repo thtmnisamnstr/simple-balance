@@ -14,6 +14,7 @@ import {
   ConfirmDialog,
   EmptyState,
   Field,
+  formatCount,
   Input,
   Note,
   PageHeader,
@@ -590,7 +591,9 @@ export function DeleteAccount({ session }: { session: Session }) {
               }`
             : "Everything in this ledger will be removed now. There is no copy and no undo."
         }
-        confirmLabel="Delete everything"
+        // "your account", which is the glossary's qualifier for the sign-in:
+        // the Accounts page's "Delete account" means a bank account.
+        confirmLabel="Delete your account"
         onConfirm={() => {
           setConfirmDelete(false);
           deletion.mutate();
@@ -722,7 +725,7 @@ function ConnectedApps() {
                   ? ` · approval runs out ${when(app.expiresAt, timezone)}`
                   : ""}
                 {app.activeTokenCount > 0
-                  ? ` · ${app.activeTokenCount} active token${app.activeTokenCount === 1 ? "" : "s"}`
+                  ? ` · ${formatCount(app.activeTokenCount)} active token${app.activeTokenCount === 1 ? "" : "s"}`
                   : ""}
               </Note>
             </div>
@@ -749,7 +752,7 @@ function ConnectedApps() {
             ? `“${revocation.value.name}” loses access immediately, including any token it is already holding, and it cannot renew. Your ledger is not changed and anything it already recorded stays. To let it back in, authorize it again from the agent itself.`
             : undefined
         }
-        confirmLabel="Revoke"
+        confirmLabel="Revoke access"
         onConfirm={revocation.confirm}
         onCancel={revocation.cancel}
       />

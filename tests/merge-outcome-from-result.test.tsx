@@ -130,13 +130,13 @@ describe("what a merge says it did", () => {
     fireEvent.click(
       within(await screen.findByRole("dialog", { name: /Merge these categories/ })).getByRole(
         "button",
-        { name: "Merge" },
+        { name: "Merge categories" },
       ),
     );
 
     const notice = await screen.findByText(/folded into/);
     expect(notice).toHaveTextContent("1 category folded into “Food”");
-    expect(notice).toHaveTextContent("1284 committed entries");
+    expect(notice).toHaveTextContent("1,284 committed entries");
     expect(notice).toHaveTextContent("40 staged rows");
   });
 
@@ -183,7 +183,7 @@ describe("what a merge says it did", () => {
     fireEvent.click(
       within(await screen.findByRole("dialog", { name: /Merge these payees/ })).getByRole(
         "button",
-        { name: "Merge" },
+        { name: "Merge payees" },
       ),
     );
 

@@ -221,7 +221,7 @@ integration("one tenant cannot reach another", () => {
         idempotencyKey: "tenant-bulk-edit",
         dryRun: false,
       }),
-    ).rejects.toThrow(/one or more transactions are unavailable/i);
+    ).rejects.toThrow(/one or more of those transactions were not found/i);
 
     await expect(
       bulkDeleteTransactions(mallory, {
@@ -232,7 +232,7 @@ integration("one tenant cannot reach another", () => {
         idempotencyKey: "tenant-bulk-delete",
         dryRun: false,
       }),
-    ).rejects.toThrow(/one or more transactions are unavailable/i);
+    ).rejects.toThrow(/one or more of those transactions were not found/i);
   });
 
   it("leaves the first tenant's books exactly as they were", async () => {

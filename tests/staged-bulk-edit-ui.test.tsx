@@ -366,7 +366,7 @@ describe("editing staged rows in bulk", () => {
         "2 staged rows updated. 1 ready to commit, 1 still needing attention.",
       ),
     ).toBeInTheDocument();
-    expect(screen.queryByText("2 selected")).not.toBeInTheDocument();
+    expect(screen.queryByText("2 staged transactions selected")).not.toBeInTheDocument();
   });
 
   // A row that moved underneath makes the whole request stale. Leaving the
@@ -399,6 +399,6 @@ describe("editing staged rows in bulk", () => {
         "A selected row changed. Review the refreshed queue and select the rows again.",
       ),
     ).toBeInTheDocument();
-    expect(screen.queryByText("1 selected")).not.toBeInTheDocument();
+    expect(screen.queryByText("1 staged transaction selected")).not.toBeInTheDocument();
   });
 });

@@ -814,7 +814,9 @@ export async function stageCsv(
       .where(and(eq(ledgerAccounts.userId, actor.userId), isNull(ledgerAccounts.systemKind)));
     const allowedAccountIds = new Set(accountRows.map((account) => account.id));
     if (!allowedAccountIds.has(parsed.defaultAccountId)) {
-      throw validationError("Default account is unavailable");
+      throw validationError(
+        "The account chosen for this file was not found. Choose one of your accounts.",
+      );
     }
 
     const appExport = isAppExportCsv(parsedCsv.meta.fields ?? []);

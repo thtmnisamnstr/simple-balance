@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, Repeat, Target, Trash2, TrendingUp } from "lucide-react";
+import { CalendarCog, Pencil, Repeat, Target, Trash2, TrendingUp } from "lucide-react";
 import { useState } from "react";
 import {
   api,
@@ -27,6 +27,7 @@ import {
   Modal,
   Note,
   PageHeader,
+  RequiredNote,
   Select,
   Skeleton,
   useConfirm,
@@ -57,6 +58,18 @@ const periodUnits: { value: BudgetPeriodUnitName; label: string }[] = [
   { value: "quarter", label: "Quarterly" },
   { value: "year", label: "Yearly" },
 ];
+
+/**
+ * The name of the button that sets one period's amount, which says the row and
+ * the period because the icon says neither.
+ *
+ * It was a text button reading "Just this month" — no verb, a "just", and the
+ * same words on every row, so a screen reader's list of buttons was forty
+ * identical entries — in a table whose standing budgets above it already used
+ * icons named for their row (`web.md` 9.8).
+ */
+const overrideLabel = (overridden: boolean, name: string, period: string) =>
+  `${overridden ? "Change" : "Set"} the amount for ${name} in ${period}`;
 
 export default function BudgetsPage({ session }: { session: Session }) {
   const queryClient = useQueryClient();
@@ -454,8 +467,8 @@ export default function BudgetsPage({ session }: { session: Session }) {
       {/* The group and the control inside it must not share a name: two things
           answering to "Budget period" is ambiguous to anything navigating by
           accessible name, and a browser test found it by matching both. */}
-      <div className="date-bar" role="group" aria-label="Budget view">
-        <div className="date-bar-title">
+      <div className="option-bar" role="group" aria-label="Budget view">
+        <div className="option-bar-title">
           <Target size={17} />
           <span>Budgeting by</span>
         </div>
@@ -520,6 +533,9 @@ export default function BudgetsPage({ session }: { session: Session }) {
             createPlan.mutate();
           }}
         >
+          {/* `web.md` 8.4: three fields here say they are optional, and what an
+              unmarked one means is said once, as on every other form. */}
+          <RequiredNote />
           <Field label="Category or group">
             <Select required value={target} onChange={(event) => setTarget(event.target.value)}>
               <option value="">Choose what to budget</option>
@@ -669,7 +685,11 @@ export default function BudgetsPage({ session }: { session: Session }) {
             Carry what is left over into the next {unitNoun[periodUnit]}
           </label>
           {rollover ? (
-            <Field label={moneyLabel("Most to carry", currency)} optional>
+            <Field
+              label={moneyLabel("Most to carry", currency)}
+              optional
+              hint="Leave blank for no limit."
+            >
               <Input
                 inputMode="decimal"
                 value={rolloverCap}
@@ -872,6 +892,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
           }}
         >
           {error ? <Alert kind="error">{error}</Alert> : null}
+          <RequiredNote />
           {editing &&
           editing.amountRule !== "fixed" &&
           editing.amountRule !== "incremental" &&
@@ -954,7 +975,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
         onCancel={remove.cancel}
       >
         It wrote nothing to the books, so deleting it changes no balance and no report. This page
-        simply stops comparing against it.
+        stops comparing against it.
       </ConfirmDialog>
 
       {(entries.data ?? []).length > 0 ? (
@@ -1233,13 +1254,18 @@ export default function BudgetsPage({ session }: { session: Session }) {
                               ? "—"
                               : formatMoney(group.remaining, period.currency)}
                           </td>
-                          <td className="align-right">
+                          <td className="row-actions">
                             {/* Only a group with a budget of its own has an
                                 amount to override; one that adds up its
                                 categories is overridden through them. */}
                             {group.policy === "sum_of_children" ? null : (
-                              <Button
-                                variant="ghost"
+                              <button
+                                type="button"
+                                aria-label={overrideLabel(
+                                  group.source === "entry",
+                                  group.name,
+                                  periodName(periodUnit, period.periodStart),
+                                )}
                                 onClick={() =>
                                   openOverride(
                                     { groupId: group.groupId },
@@ -1249,10 +1275,8 @@ export default function BudgetsPage({ session }: { session: Session }) {
                                   )
                                 }
                               >
-                                {group.source === "entry"
-                                  ? "Change this " + unitNoun[periodUnit]
-                                  : "Just this " + unitNoun[periodUnit]}
-                              </Button>
+                                <CalendarCog size={16} />
+                              </button>
                             )}
                           </td>
                         </tr>
@@ -1393,10 +1417,15 @@ export default function BudgetsPage({ session }: { session: Session }) {
                               )}
                             </div>
                           </td>
-                          <td className="align-right">
+                          <td className="row-actions">
                             {row.categoryId === null ? null : (
-                              <Button
-                                variant="ghost"
+                              <button
+                                type="button"
+                                aria-label={overrideLabel(
+                                  row.source === "entry",
+                                  row.category,
+                                  periodName(periodUnit, period.periodStart),
+                                )}
                                 onClick={() =>
                                   openOverride(
                                     { categoryId: row.categoryId! },
@@ -1406,10 +1435,8 @@ export default function BudgetsPage({ session }: { session: Session }) {
                                   )
                                 }
                               >
-                                {row.source === "entry"
-                                  ? "Change this " + unitNoun[periodUnit]
-                                  : "Just this " + unitNoun[periodUnit]}
-                              </Button>
+                                <CalendarCog size={16} />
+                              </button>
                             )}
                           </td>
                         </tr>
@@ -1453,8 +1480,8 @@ export default function BudgetsPage({ session }: { session: Session }) {
         {/* Bare controls with their own labels, like every other view control in
             the app. A `Field` stacks a label above and made this bar half again
             as tall as the one at the top of the page — §7.6. */}
-        <div className="date-bar" role="group" aria-label="Projection options">
-          <div className="date-bar-title">
+        <div className="option-bar" role="group" aria-label="Projection options">
+          <div className="option-bar-title">
             <span>{unitNounPlural[periodUnit]} ahead</span>
           </div>
           <Select
@@ -1468,7 +1495,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
               </option>
             ))}
           </Select>
-          <div className="date-bar-title">
+          <div className="option-bar-title">
             <span>Counting</span>
           </div>
           <Select
@@ -1488,7 +1515,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
               one section up for `groupId`. */}
           {forecastBasis === "recurring_and_history" ? (
             <>
-              <div className="date-bar-title">
+              <div className="option-bar-title">
                 <span>Averaged over</span>
               </div>
               <Select

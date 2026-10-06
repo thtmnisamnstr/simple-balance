@@ -97,7 +97,7 @@ describe("category merging", () => {
     fireEvent.click(
       within(await screen.findByRole("dialog", { name: /Merge these categories/ })).getByRole(
         "button",
-        { name: "Merge" },
+        { name: "Merge categories" },
       ),
     );
 

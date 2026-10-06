@@ -19,7 +19,7 @@ stale one.
 
 The exception is a form editing something loaded: the query result seeds the
 initial state and then the state is the truth until the save. That is a
-deliberate copy with a defined end, and `src/client/forms.tsx:1792` is the site
+deliberate copy with a defined end, and `src/client/forms.tsx:1787` is the site
 that cites this sentence for it.
 
 *Checked by:* nothing, and §4 says why — the two shapes are the same three
@@ -65,7 +65,7 @@ invalidation written by hand, and no test will remind you.
 **Binding, mostly.** If it can be worked out from what is already in state, work
 it out during render. `splitting`, `showsCategoryPicker`, `splitSettled` and
 `entrySide` in `TransactionForm` are all plain `const`s
-(`src/client/forms.tsx:1861-1875` and `:1931`), and every one of them would be
+(`src/client/forms.tsx:1856-1870` and `:1926`), and every one of them would be
 a synchronization bug as state.
 
 `react/set-state-in-effect` found thirteen sites and every one has been
@@ -84,7 +84,7 @@ what the person typed.
 The other thing that is not a derived value: an answer a handler needs before
 the next render can deliver it. The staged list's inline editors keep
 `inlineInFlight`, `inlineCanceled` and `focusAfterInline` in refs
-(`src/client/pages/StagingPage.tsx:629-640`) even though the first shadows
+(`src/client/pages/StagingPage.tsx:631-642`) even though the first shadows
 `isPending`, because the deciding read happens in the same event burst as the
 write: Enter commits, and the blur that follows a click away runs before the
 render that would have set `isPending`, so the state version double-submits —
@@ -94,7 +94,7 @@ does, it is state hiding in a ref, which is the same bug from the other side. Do
 not "fix" these to `isPending` — that is the obvious edit and the wrong one, and
 the comments at the three sites say so.
 
-That citation named `:620-631` for a release, which is the two `useState` calls
+That citation named `:622-633` for a release, which is the two `useState` calls
 immediately above — the opposite of what the sentence says, in the sentence
 that says it. `tests/standards-citations.test.ts` cannot catch that kind, because
 the lines it pointed at exist and have something on them. The habit that avoids
@@ -137,7 +137,7 @@ it. `react/use-memo` wants a dependency list of simple expressions, and the
 reminder preview's was `JSON.stringify(parsedReminder?.data ?? null)` — a memo
 keyed on a value rebuilt every render, stringified so it would compare equal at
 a cost larger than the five dates it was saving. It is computed during render
-now (`src/client/forms.tsx:1123-1129`), which is the same fix as 1.3's and why
+now (`src/client/forms.tsx:1118-1124`), which is the same fix as 1.3's and why
 the rule sits in this section rather than in one of its own: both findings were
 a dependency array admitting that the thing above it was not worth memoizing.
 The obvious alternative was to key the memo on the raw fields instead, which
@@ -160,7 +160,7 @@ to exactly one group and that two forms on one page stay separate.
 ### 2.1 The client has its own exact money, and uses it for decisions
 
 **Binding.** `src/client/money.ts` works in scaled `bigint`, through
-`moneyUnits` (`src/client/money.ts:216`). Use
+`moneyUnits` (`src/client/money.ts:229`). Use
 `compareMoney`, `isNegativeMoney` and `sumMoney` for anything that decides
 something.
 
@@ -267,13 +267,13 @@ exist in `src/shared/domain.ts` so a rename cannot void the check quietly.
 ### 3.1 `Field` wraps every labeled control in a form
 
 **House.** Layout, label, hint, error **and the word "optional"** in one place
-(`src/client/components.tsx:623`). The fourth is the newest and the one this
+(`src/client/components.tsx:631`). The fourth is the newest and the one this
 enumeration left out for a release, which matters because of the direction a
 reader acts in: somebody marking a field optional from a list of three writes
 the word into the label, and a name computed from `<label for>` is the label's
 entire text, so "(optional)" becomes part of the control's accessible **name**
 — the defect the `optional` prop was added to remove
-(`src/client/components.tsx:643-654`). `web.md` §8.4 owns the scheme, the
+(`src/client/components.tsx:651-662`). `web.md` §8.4 owns the scheme, the
 census and the WCAG argument; what belongs here is that the slot is a prop and
 never a per-page decision. Three consequences worth knowing, and the first of
 them used to be the opposite:
@@ -295,8 +295,8 @@ them used to be the opposite:
 
 **In a form that stacks.** Two shapes take a bare control and an `aria-label`
 instead: a filter bar, which `web.md` §7.6 governs, and `.inline-form` — the
-one-row "add a category" (`src/client/pages/CategoriesPage.tsx:486`) and "add a
-group" (`:541`) bars, which are both of them. This sentence named a third, "add
+one-row "add a category" (`src/client/pages/CategoriesPage.tsx:487`) and "add a
+group" (`:542`) bars, which are both of them. This sentence named a third, "add
 a payee", which does not exist and never did: the payees page has no form on it
 at all, and a carve-out listing a site that is not there invites the next one
 to be written because the list implied a pattern. In the second shape, a
@@ -350,9 +350,9 @@ What is left for this guide is the code-side half: where in `src/client` the
 field has to become reachable. A request type in `api.ts` that carries the
 field is not reachability — it makes the field settable by code and by nobody
 at a screen. The control is what closes it, and the shape has recurred three
-times: a body field (`src/client/forms.tsx:2955-2962`), a creation field
-(`src/client/pages/CategoriesPage.tsx:296-299`) and a list filter
-(`src/client/pages/StagingPage.tsx:855-859`), each site carrying the same note
+times: a body field (`src/client/forms.tsx:2951-2958`), a creation field
+(`src/client/pages/CategoriesPage.tsx:297-300`) and a list filter
+(`src/client/pages/StagingPage.tsx:857-861`), each site carrying the same note
 about the one before it. Three instances is a pattern rather than a scar: when
 a shared schema gains a field, the form gains a control in the same change.
 

@@ -971,11 +971,17 @@ describe("staged queue pagination", () => {
 
     expect(await screen.findByText("First page")).toBeInTheDocument();
     expect(screen.queryByText("Second page")).not.toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "first.csv (1)" })).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: "second.csv (1)" })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("option", { name: /^first\.csv · Jul 30, 2026, .+ · 1 of 1 rows staged$/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: /^second\.csv · .+ · 1 of 1 rows staged$/ }),
+    ).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Load older batches" }));
-    expect(await screen.findByRole("option", { name: "second.csv (1)" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("option", { name: /^second\.csv · .+ · 1 of 1 rows staged$/ }),
+    ).toBeInTheDocument();
     expect(requestedBatchCursors.filter((cursor) => cursor === "older-batch")).toHaveLength(1);
 
     fireEvent.click(screen.getByRole("button", { name: "Page 2" }));
@@ -988,7 +994,7 @@ describe("staged queue pagination", () => {
         name: "Select all staged transactions on this page",
       }),
     );
-    expect(screen.getByText("1 selected")).toBeInTheDocument();
+    expect(screen.getByText("1 staged transaction selected")).toBeInTheDocument();
   });
 
   /**
@@ -1030,7 +1036,7 @@ describe("staged queue pagination", () => {
         </TimezoneProvider>
       </QueryClientProvider>,
     );
-    const commit = await screen.findByRole("button", { name: "Commit staged transaction" });
+    const commit = await screen.findByRole("button", { name: /^Commit (?!selected)/ });
     expect(commit).toBeDisabled();
     expect(commit).toHaveAccessibleDescription("Choose the account the money comes from");
   });
@@ -1101,7 +1107,7 @@ describe("staged queue pagination", () => {
     );
     const page = within(container);
     const commitButton = await page.findByRole("button", {
-      name: "Commit staged transaction",
+      name: /^Commit (?!selected)/,
     });
     fireEvent.click(commitButton);
     // The sentence alone, with nothing appended. A refusal earns "Nothing was

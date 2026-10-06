@@ -107,6 +107,12 @@ export function SortableHeader<Field extends string>({
 /**
  * The same ordering control for lists that are not tables and so have no
  * headings to click.
+ *
+ * Each field carries the `lean` a `SortableHeader` would, and choosing a field
+ * starts it there. It used to keep whatever direction the last field had, so
+ * Balance on Accounts and Committed on Categories and Payees started
+ * smallest-first while the same kind of column in a table started largest-first
+ * (`web.md` 9.4).
  */
 export function SortMenu<Field extends string>({
   fields,
@@ -114,7 +120,7 @@ export function SortMenu<Field extends string>({
   onSort,
   label = "Sort by",
 }: {
-  fields: readonly { field: Field; label: string }[];
+  fields: readonly { field: Field; label: string; lean?: SortLean }[];
   sort: SortState<Field>;
   onSort: (next: SortState<Field>) => void;
   label?: string;
@@ -127,9 +133,11 @@ export function SortMenu<Field extends string>({
       <Select
         id={id}
         value={sort.field}
-        onChange={(event) =>
-          onSort({ field: event.target.value as Field, direction: sort.direction })
-        }
+        onChange={(event) => {
+          const chosen = fields.find((entry) => entry.field === event.target.value);
+          if (!chosen) return;
+          onSort({ field: chosen.field, direction: chosen.lean === "descending" ? "desc" : "asc" });
+        }}
       >
         {fields.map((entry) => (
           <option key={entry.field} value={entry.field}>
@@ -270,7 +278,7 @@ export function Pagination({
   return (
     <nav ref={bar} className="pagination" aria-label={`${itemLabel} pages`}>
       <p className="pagination-summary" aria-live="polite">
-        {`Showing ${first}–${last} of ${totalCount} ${itemLabel}`}
+        {`Showing ${formatCount(first)}–${formatCount(last)} of ${formatCount(totalCount)} ${itemLabel}`}
       </p>
       {totalPages > 1 ? (
         <div className="pagination-pages">
@@ -1018,7 +1026,7 @@ export function ConfirmDialog({
   open,
   title,
   description,
-  confirmLabel = "Delete",
+  confirmLabel,
   confirmVariant = "danger",
   onConfirm,
   onCancel,
@@ -1027,8 +1035,17 @@ export function ConfirmDialog({
   open: boolean;
   title: string;
   description?: string;
-  confirmLabel?: string;
-  /** `primary` for a confirmation that buys something rather than destroys it. */
+  /**
+   * The verb and what it acts on, "Delete budget" rather than "Delete". It had
+   * a default of "Delete", and nine of twenty dialogs took it, so the label was
+   * the one sentence in the dialog that did not say what was about to go.
+   */
+  confirmLabel: string;
+  /**
+   * `primary` when the confirmed action puts something in place rather than
+   * taking something away: restoring, committing, paying. Red on "Restore
+   * account" said the opposite of what the button does.
+   */
   confirmVariant?: "danger" | "primary";
   onConfirm: () => void;
   onCancel: () => void;
@@ -1088,8 +1105,8 @@ const presets: { value: DatePreset; label: string }[] = [
 export function DateRangeBar() {
   const { start, end, preset, setPreset, setRange } = useDateRange();
   return (
-    <div className="date-bar" role="group" aria-label="Visible date range">
-      <div className="date-bar-title">
+    <div className="option-bar" role="group" aria-label="Visible date range">
+      <div className="option-bar-title">
         <CalendarDays size={17} />
         <span>Viewing</span>
       </div>
@@ -1108,7 +1125,7 @@ export function DateRangeBar() {
           wraps around them rather than through them. Unwrapped, the 560px step
           broke after "to" and left it stranded at the end of a line with its
           date on the next. */}
-      <div className="date-bar-range">
+      <div className="option-bar-range">
         <Input
           aria-label="Start date"
           type="date"
@@ -1337,7 +1354,7 @@ export function MergePanel({ children }: PropsWithChildren) {
  * One element, one `aria-live`, one icon, one actions group, one 560px step.
  * The count sentence stays a prop because the three say genuinely different
  * things — a filtered selection is still being counted while a template
- * selection is not — but `selectionCount` is here so the thousands separator
+ * selection is not — but `formatCount` is here so the thousands separator
  * is one decision rather than three.
  */
 export function SelectionBar({
@@ -1359,14 +1376,16 @@ export function SelectionBar({
 }
 
 /**
- * A selection count, with its thousands grouped.
+ * A count a person reads, with its thousands grouped.
  *
  * Ten thousand is the cap on every bulk operation in the product
  * (`AGENTS.md`), and four digits with no separator is where a count starts
- * being misread — so the one queue that already grouped was right and the two
- * that can reach the same cap were not.
+ * being misread. It was `selectionCount` and only the selection bars asked it,
+ * so the bar read "4,318" while the dialog it opened read "4318 … will be
+ * edited", the notice after it "Deleted 4318", and the pages under the list
+ * "of 12345". Every count in a sentence goes through it now.
  */
-export const selectionCount = (count: number) => count.toLocaleString();
+export const formatCount = (count: number) => count.toLocaleString();
 
 /**
  * Stands in for content while it loads. Without it the empty state shows first,

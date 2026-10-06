@@ -543,7 +543,7 @@ left open honestly rather than closed by a test that would pass forever.
   (`src/server/http-security.ts:500-512`). The consequence is real and the
   browser client lives with it: revoking an agent is a `DELETE` that sends `{}`
   purely so it can declare a content type
-  (`src/client/pages/SettingsPage.tsx:640-649`).
+  (`src/client/pages/SettingsPage.tsx:643-652`).
   *Checked by:* `tests/api-security.test.ts:64-88`, both halves, the refusal and
   the bodyless request that gets through the gate.
 - **House.** A malformed or absent JSON body is a 400 with a message saying so,
@@ -1130,7 +1130,7 @@ That invariant is why this API has both mechanisms, and it is not indecision.
   ordering a keyset cannot resume, such as one that sorts by a name reached from
   another table (`src/server/services/sorting.ts:4-11`).
 - **House.** When both `cursor` and `page` are sent, the cursor wins and `page`
-  is reported as 1 (`src/server/services/transactions.ts:1463-1465`).
+  is reported as 1 (`src/server/services/transactions.ts:1483-1485`).
 - **House, following AIP-158.** `nextCursor: null` is the end signal, and the
   only one. The Azure guidelines forbid exactly that spelling; AIP-158 permits
   it. Keep the null, because the field's presence is contractual: Zod output
@@ -1249,7 +1249,7 @@ That invariant is why this API has both mechanisms, and it is not indecision.
   exists to be cheap.
   **The code disagrees with that bound today**, on both cursor lists.
   `listTransactions` runs its `count()` unconditionally, before it looks at
-  whether a cursor was sent (`src/server/services/transactions.ts:1456-1461`),
+  whether a cursor was sent (`src/server/services/transactions.ts:1476-1481`),
   and `listStages` does the same (`src/server/services/staging.ts:806-811`),
   so a cursor page pays for a full count it does not use. The fix is not simply
   to skip it: `totalCount` is a field every client of those two lists reads,
@@ -1531,7 +1531,7 @@ and `tests/integration/ledger.integration.test.ts:199` ("commits deposits
 idempotently and produces native balances") plus
 `tests/integration/bulk-transactions.integration.test.ts:106` ("soft-deletes a
 selection atomically and idempotently") for replay, and
-`tests/integration/categories.integration.test.ts:664` ("returns the first
+`tests/integration/categories.integration.test.ts:669` ("returns the first
 answer when the same merge is asked for twice") for the merge key this section
 argued for, including the reused-key refusal. That every create and commit route
 declares a key, and that `idempotencyKeySchema`'s own bounds hold, is
@@ -1579,7 +1579,7 @@ edit, a mass delete, a commit, and a CSV import."
   map rather than a list of pairs. That is the older spelling and it stays.
   Moving it changes the wire on the one route that puts money in the books, and
   the request shape is what the recorded idempotency payload is hashed from
-  (`src/server/services/staging.ts:1189-1194`), so a commit retried across the
+  (`src/server/services/staging.ts:1191-1196`), so a commit retried across the
   deploy would come back `CONFLICT` instead of replaying — a self-inflicted
   failure on the write that can least afford one, in exchange for no behavior a
   caller can observe. A missing map entry already refused rather than wrote.
@@ -1654,11 +1654,11 @@ edit, a mass delete, a commit, and a CSV import."
   the work so it finishes inside a request: ten thousand rows everywhere, with
   the body limit derived from that cap rather than guessed.
   **The one operation that outgrows this is CSV export**, which buffers up to
-  100,000 transactions in memory (`src/server/services/import-export.ts:997`)
+  100,000 transactions in memory (`src/server/services/import-export.ts:999`)
   against very carefully specified request limits. The bound it needed is now
   stated and enforced: `CSV_EXPORT_MAX_ROWS` (`src/server/config-limits.ts:30`)
   refuses a larger export with the remedy named — narrow the date range and
-  export one range at a time (`src/server/services/transactions.ts:1414-1420`).
+  export one range at a time (`src/server/services/transactions.ts:1434-1440`).
   [`csv.md`](csv.md) records the decision as settled, and
   `tests/bulk-row-cap.test.ts` holds both refusals to their message.
   **Reporting progress does not reopen this.** Two of these bounded writes now

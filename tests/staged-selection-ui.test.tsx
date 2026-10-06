@@ -181,7 +181,7 @@ describe("staged transaction selection", () => {
     expect(pageCheckbox().indeterminate).toBe(false);
 
     fireEvent.click(rowCheckbox("Visible one"));
-    expect(screen.getByText("1 selected")).toBeInTheDocument();
+    expect(screen.getByText("1 staged transaction selected")).toBeInTheDocument();
     expect(pageCheckbox().checked).toBe(false);
     expect(pageCheckbox().indeterminate).toBe(true);
 
@@ -197,7 +197,7 @@ describe("staged transaction selection", () => {
 
     fireEvent.click(pageCheckbox());
 
-    expect(screen.getByText("2 selected")).toBeInTheDocument();
+    expect(screen.getByText("2 staged transactions selected")).toBeInTheDocument();
     expect(screen.queryByText("Offscreen")).not.toBeInTheDocument();
     expect(stageCursors.filter((requested) => requested === "2")).toHaveLength(0);
   });
@@ -224,7 +224,7 @@ describe("staged transaction selection", () => {
     fireEvent.click(selectAllMatching()!);
 
     expect(
-      await screen.findByText("All 3 matching staged transactions selected"),
+      await screen.findByText("3 of 3 matching staged transactions selected"),
     ).toBeInTheDocument();
     // The page on screen never moves, so the offscreen row stays offscreen.
     expect(screen.queryByText("Offscreen")).not.toBeInTheDocument();
@@ -239,13 +239,13 @@ describe("staged transaction selection", () => {
     expect(await screen.findByText("Visible one")).toBeInTheDocument();
 
     fireEvent.click(pageCheckbox());
-    expect(screen.getByText("2 selected")).toBeInTheDocument();
+    expect(screen.getByText("2 staged transactions selected")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Page 2" }));
     expect(await screen.findByText("Offscreen")).toBeInTheDocument();
 
     // The two rows from page one are still selected even though they are gone.
-    expect(screen.getByText("2 selected")).toBeInTheDocument();
+    expect(screen.getByText("2 staged transactions selected")).toBeInTheDocument();
     expect(pageCheckbox().checked).toBe(false);
     expect(pageCheckbox().indeterminate).toBe(false);
   });
@@ -256,11 +256,11 @@ describe("staged transaction selection", () => {
     expect(await screen.findByText("Visible one")).toBeInTheDocument();
 
     fireEvent.click(pageCheckbox());
-    expect(screen.getByText("2 selected")).toBeInTheDocument();
+    expect(screen.getByText("2 staged transactions selected")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Clear selection" }));
 
-    expect(screen.queryByText("2 selected")).not.toBeInTheDocument();
+    expect(screen.queryByText("2 staged transactions selected")).not.toBeInTheDocument();
     expect(pageCheckbox().checked).toBe(false);
     expect(pageCheckbox().indeterminate).toBe(false);
   });

@@ -302,7 +302,12 @@ integration("category duplicate detection and merge", () => {
       idempotencyKey: "archived-category-invalid-stage",
     });
     expect(invalidStage.validationIssues).toEqual(
-      expect.arrayContaining([expect.objectContaining({ message: "Category is unavailable" })]),
+      expect.arrayContaining([
+        expect.objectContaining({
+          message:
+            "That category is archived or was not found. Choose another, or restore it first.",
+        }),
+      ]),
     );
     await expect(
       commitStages(primary, {

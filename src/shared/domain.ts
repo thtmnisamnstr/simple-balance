@@ -53,13 +53,13 @@ export type SystemAccountKind = (typeof systemAccountKinds)[number];
 export const accountTypeLabels: Record<UserAccountType, string> = {
   checking: "Checking",
   savings: "Savings",
-  credit_card: "Credit Card",
+  credit_card: "Credit card",
   cash: "Cash",
-  crypto_wallet: "Crypto Wallet",
+  crypto_wallet: "Crypto wallet",
   loan: "Loan",
   investment: "Investment",
-  other_asset: "Other Asset",
-  other_liability: "Other Liability",
+  other_asset: "Other asset",
+  other_liability: "Other liability",
 };
 
 /**
@@ -2205,7 +2205,7 @@ const bulkTransactionFilterSelectionSchema = z
       .string()
       .regex(/^[0-9a-f]{64}$/)
       .describe(
-        "The fingerprint the preview returned for this exact set, covering every row's id and version rather than just the count. Checked when the selection is read and again under lock, so a row changed in between fails the whole call.",
+        "The fingerprint the preview returned for this exact set, covering every row's id and version rather than the count alone. Checked when the selection is read and again under lock, so a row changed in between fails the whole call.",
       ),
   })
   .strict()
@@ -2495,7 +2495,7 @@ const bulkStageFilterSelectionSchema = z
       .string()
       .regex(/^[0-9a-f]{64}$/)
       .describe(
-        "The fingerprint the preview returned for this exact set, covering every row's id and version rather than just the count. Checked when the selection is read and again under lock, so a row changed in between fails the whole call.",
+        "The fingerprint the preview returned for this exact set, covering every row's id and version rather than the count alone. Checked when the selection is read and again under lock, so a row changed in between fails the whole call.",
       ),
   })
   .strict()
@@ -2847,7 +2847,7 @@ function checkRecurrenceShape(
     context.addIssue({
       code: "custom",
       path: ["amount"],
-      message: "A split recurrence needs an amount for its legs to divide",
+      message: "A split recurring transaction needs an amount for its legs to divide",
     });
     return;
   }
@@ -2875,7 +2875,7 @@ function checkRecurrenceShape(
         code: "custom",
         path: ["legs"],
         message:
-          "A split's legs must add up to the recurrence's amount. Every occurrence it proposes carries the same division, so one that does not balance can never be committed.",
+          "A split's legs must add up to the recurring transaction's amount. Every occurrence it proposes carries the same division, so one that does not balance can never be committed.",
       });
     }
   }
@@ -3017,7 +3017,7 @@ const recurrencePositionSchema = z
       .min(0)
       .max(6)
       .describe(
-        "Which day of the week the ordinal counts, 0 for Sunday to 6 for Saturday. An off-by-one is not refused, it just moves every occurrence a day, so check the nextOccurrenceDate a read reports before leaving it.",
+        "Which day of the week the ordinal counts, 0 for Sunday to 6 for Saturday. An off-by-one is not refused, it moves every occurrence a day, so check the nextOccurrenceDate a read reports before leaving it.",
       ),
   })
   .strict()

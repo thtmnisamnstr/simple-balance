@@ -508,7 +508,7 @@ unrepresentable, so the model's own sampling cannot produce it.
   is in use", which is what somebody opening an account needs and is not what
   the parameter does on a listing. `currency` filters entries rather than
   accounts: it matches a row either of whose sides carries that code
-  (`src/server/services/transactions.ts:1553-1560`), so a conversion comes back
+  (`src/server/services/transactions.ts:1573-1580`), so a conversion comes back
   under both of its currencies and a filtered page is not a page in one
   currency, which is the thing an agent totaling it has to know. It used to
   read that way at five published positions — on `list_transactions` and
@@ -572,11 +572,11 @@ them more often.
 | --- | --- | --- | --- |
 | no ledger scope | 0 | `tools/list` is not offered at all | 0 |
 | `ledger:read` | 37 | 173,131 | ~43,000 |
-| `ledger:stage` | 42 | 213,652 | ~53,000 |
-| `ledger:write` | 77 | 497,170 | ~124,000 |
+| `ledger:stage` | 42 | 213,653 | ~53,000 |
+| `ledger:write` | 77 | 497,153 | ~124,000 |
 
 Composition at the write tier: names 1,467, titles 1,884, descriptions 31,025,
-input schemas 217,307, output schemas 228,916. **Descriptions are 6.2% of what
+input schemas 217,290, output schemas 228,916. **Descriptions are 6.2% of what
 an agent loads; names, titles and descriptions together are 6.9%.** Output
 schemas are 46.0%.
 
@@ -757,7 +757,7 @@ already existed.
   `list_staged_transactions`, `list_import_batches`, `list_audit_events`.
 - **House.** `nextCursor: null` means two things, end of list and ordering not
   keyset-resumable, and the envelope says which: `cursorAvailable` is on every
-  page of both listings (`src/server/services/transactions.ts:1508`), and
+  page of both listings (`src/server/services/transactions.ts:1528`), and
   `nextCursor`'s own description says that null means either "last page" or
   "this ordering cannot be resumed" and points at the flag. Before it, an agent
   walking a ledger under `sort: "account"` got one page, a null cursor, and no

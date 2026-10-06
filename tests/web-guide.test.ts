@@ -322,18 +322,29 @@ describe("web.md's client censuses", () => {
       `\`required\` is set on controls ${required} times`,
     );
 
-    // 8.4's scheme marks the optional fields, and there are now two ways to do
-    // it: the hint written at the call site, and `Field`'s own prop. One census
-    // covers both, because a reader counting only hints would conclude the three
-    // on Budgets are unmarked.
+    // 8.4's scheme marks the optional fields, and `Field`'s prop is the one way
+    // to do it. Thirteen wrote "Optional" into the hint by hand beside seven
+    // through the prop, and the two rendered differently — "Optional" against
+    // "Optional." — on forms a person moves between, so writing the word by
+    // hand is refused rather than counted.
     const hinted = occurrences(/hint="Optional/g);
     const propped = occurrences(/<Field[^>]*?\soptional(?=[\s>])/g);
-    expect(flat, `${hinted + propped} fields are marked optional`).toContain(
-      `**${word(hinted + propped)} fields are marked optional**`,
-    );
-    expect(flat, `${propped} through the prop`).toContain(`${word(propped)} through the prop`);
-    expect(flat, `${hinted} writing the hint by hand`).toContain(
-      `${word(hinted)} writing the hint by hand`,
+    expect(hinted, "pass Field's optional prop rather than writing the word").toBe(0);
+
+    // And marking the optional ones means nothing unless the form says what an
+    // unmarked one is. The budget form marked three fields optional and never
+    // said it, while the account, transaction, template and recurrence forms did.
+    const unexplained: string[] = [];
+    for (const file of client()) {
+      for (const form of file.code.matchAll(/<(form|Form)\b[\s\S]*?<\/\1>/g)) {
+        if (!/<Field[^>]*?\soptional(?=[\s>])/.test(form[0])) continue;
+        if (/<RequiredNote\b/.test(form[0])) continue;
+        unexplained.push(`${file.path}:${file.code.slice(0, form.index).split("\n").length}`);
+      }
+    }
+    expect(unexplained, "a form with an optional field carries RequiredNote").toEqual([]);
+    expect(flat, `${propped} fields are marked optional`).toContain(
+      `**${word(propped)} fields are marked optional**, all through the prop`,
     );
 
     // The definition and its own recursive call are not call sites: 9.3 is about

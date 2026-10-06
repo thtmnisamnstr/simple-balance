@@ -26,6 +26,7 @@ import {
   Button,
   DateRangeBar,
   EmptyState,
+  formatCount,
   MetricTile,
   Modal,
   Note,
@@ -149,7 +150,8 @@ export default function DashboardPage() {
                   <h2>{formatMoney(currency.balance, currency.currency)} total</h2>
                 </div>
                 <span className="subtle">
-                  {currency.accounts.length} account{currency.accounts.length === 1 ? "" : "s"}
+                  {formatCount(currency.accounts.length)} account
+                  {currency.accounts.length === 1 ? "" : "s"}
                 </span>
               </div>
               <div className="metric-grid">

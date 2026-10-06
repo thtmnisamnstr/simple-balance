@@ -66,13 +66,13 @@ import {
   amountForInput,
   compareMoney,
   formatDate,
-  formatMoney,
   formatTime,
   isNegativeMoney,
   isPositiveMoney,
   isZeroMoney,
   moneyLabel,
   moneyRemainder,
+  shownMoney,
 } from "./money.js";
 import {
   draftForTransactionForm,
@@ -281,14 +281,14 @@ export function AccountForm({
           />
         </Field>
       </div>
-      <Field label="Institution" hint="Optional" name="institution">
+      <Field label="Institution" optional name="institution">
         <Input
           value={institution}
           onChange={(event) => setInstitution(event.target.value)}
           placeholder="Your bank or card issuer"
         />
       </Field>
-      <Field label="Notes" hint="Optional" name="notes">
+      <Field label="Notes" optional name="notes">
         <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} />
       </Field>
       <label className="check-label">
@@ -708,11 +708,6 @@ export function CategoryPicker({
   );
 }
 
-/** A figure as money where the currency is known, and as the bare figure until it is. */
-function shownMoney(amount: string, currency: string | undefined) {
-  return currency ? formatMoney(amount, currency) : amount;
-}
-
 /**
  * The category side of the form: one picker, or one row per share of a split.
  *
@@ -823,7 +818,7 @@ function CategoryLegs({
             categories={categories}
             categoryId={leg.categoryId}
             categoryName={leg.categoryName}
-            ariaLabel={`Category for split ${index + 1}`}
+            ariaLabel={`Category ${index + 1}`}
             onChange={(nextId, nextName) =>
               replace(index, { categoryId: nextId, categoryName: nextName })
             }
@@ -834,7 +829,7 @@ function CategoryLegs({
             onChange={(event) => replace(index, { amount: event.target.value })}
             placeholder="0.00"
             pattern="(0|[1-9][0-9]{0,25})(\.[0-9]{1,18})?"
-            aria-label={moneyLabel(`Amount for split ${index + 1}`, currency)}
+            aria-label={moneyLabel(`Amount for category ${index + 1}`, currency)}
             // The line saying what is left to assign is about every amount
             // here, and was pointed at by none of them.
             aria-describedby={remainderId}
@@ -843,12 +838,12 @@ function CategoryLegs({
             value={leg.note}
             onChange={(event) => replace(index, { note: event.target.value })}
             placeholder="Note"
-            aria-label={`Note for split ${index + 1}`}
+            aria-label={`Note for category ${index + 1}`}
           />
           <button
             type="button"
             className="link-button"
-            aria-label={`Remove split ${index + 1}`}
+            aria-label={`Remove category ${index + 1}`}
             onClick={() => {
               const rest = legs.filter((_, at) => at !== index);
               if (rest.length >= 2) {
@@ -1287,7 +1282,7 @@ export function TemplateForm({
       {type === "transfer" ? null : (
         <Field
           label="Category"
-          hint="Optional"
+          optional
           as="group"
           name={["draft.categoryId", "draft.categoryName", "draft.legs"]}
         >
@@ -1306,14 +1301,14 @@ export function TemplateForm({
           />
         </Field>
       )}
-      <Field label="Description" hint="Optional" name="draft.description">
+      <Field label="Description" optional name="draft.description">
         <Input
           value={description}
           onChange={(event) => setDescription(event.target.value)}
           placeholder="Additional details"
         />
       </Field>
-      <Field label="Notes" hint="Optional" name="draft.notes">
+      <Field label="Notes" optional name="draft.notes">
         <Textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} />
       </Field>
 
@@ -2287,7 +2282,8 @@ export function TransactionForm({
       {templates.data?.length ? (
         <Field
           label="Start from a template"
-          hint="Optional. Anything you change here stays here; the template is not touched."
+          optional
+          hint="Anything you change here stays here; the template is not touched."
         >
           <Select
             value={selectedTemplateId}
@@ -2412,7 +2408,7 @@ export function TransactionForm({
         ) : null}
       </div>
       <div className="two-columns">
-        <Field label="Description" hint="Optional" name="draft.description">
+        <Field label="Description" optional name="draft.description">
           <Input
             value={description ?? ""}
             onChange={(event) => setDescription(event.target.value)}
@@ -2423,7 +2419,7 @@ export function TransactionForm({
       {type === "transfer" ? null : (
         <Field
           label="Category"
-          hint="Optional"
+          optional
           as="group"
           // The browser's preview of the server's category rule, on the field
           // it is about. It was an alert at the foot of the form, so the
@@ -2486,7 +2482,7 @@ export function TransactionForm({
           ) : null}
         </Field>
       )}
-      <Field label="Notes" hint="Optional" name="draft.notes">
+      <Field label="Notes" optional name="draft.notes">
         <Textarea rows={3} value={notes ?? ""} onChange={(event) => setNotes(event.target.value)} />
       </Field>
       {staged ? <ArrivedAs rawData={staged.rawData} /> : null}
@@ -3115,7 +3111,8 @@ export function RecurrenceForm({
           <Field
             name="shape.destinationAmount"
             label={moneyLabel("Amount received", receivingAccount?.currency)}
-            hint="Optional. Leave blank unless the rate is agreed in advance."
+            optional
+            hint="Leave blank unless the rate is agreed in advance."
           >
             <Input
               inputMode="decimal"
@@ -3131,7 +3128,7 @@ export function RecurrenceForm({
       {type === "transfer" ? null : (
         <Field
           label="Category"
-          hint="Optional"
+          optional
           as="group"
           // The browser's preview of the server's category rule, on the field
           // it is about. It was an alert at the foot of the form, so the
@@ -3356,14 +3353,14 @@ export function RecurrenceForm({
         ) : null}
       </fieldset>
 
-      <Field label="Description" hint="Optional" name="shape.description">
+      <Field label="Description" optional name="shape.description">
         <Input
           value={description}
           onChange={(event) => setDescription(event.target.value)}
           placeholder="Additional details"
         />
       </Field>
-      <Field label="Notes" hint="Optional" name="shape.notes">
+      <Field label="Notes" optional name="shape.notes">
         <Textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} />
       </Field>
 
@@ -3415,7 +3412,7 @@ export function RecurrenceForm({
             // form asks for them: a person reads down the form and wants to
             // know what to do next, not everything still outstanding.
             !name.trim()
-              ? "Give the recurrence a name."
+              ? "Give the recurring transaction a name."
               : !payee.trim()
                 ? "Enter a payee."
                 : !accountReady || !transferReady
@@ -3428,7 +3425,7 @@ export function RecurrenceForm({
           }
           disabled={!ready}
         >
-          {recurrence ? "Save recurrence" : "Create recurrence"}
+          {recurrence ? "Save recurring transaction" : "Create recurring transaction"}
         </Button>
       </div>
     </Form>

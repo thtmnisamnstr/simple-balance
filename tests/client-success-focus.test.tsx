@@ -258,13 +258,13 @@ describe("the duplicate queue, whose last drop removes the page it was on", () =
     );
     await screen.findByLabelText("Staged row under review");
 
-    fireEvent.click(screen.getByRole("button", { name: /drop this staged row/i }));
-    fireEvent.click(await screen.findByRole("button", { name: "Drop it" }));
+    fireEvent.click(screen.getByRole("button", { name: /delete this staged row/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete staged row" }));
 
     // The screen that says the run is over is still there; what was missing was
     // anywhere for the person who pressed Drop to be standing.
     expect(await screen.findByText(/no duplicates left to review/i)).toBeInTheDocument();
-    const sentence = screen.getByText(/The row was dropped/);
+    const sentence = screen.getByText(/The row was deleted/);
     expect(document.activeElement).toBe(focusedStatus(sentence));
   });
 });

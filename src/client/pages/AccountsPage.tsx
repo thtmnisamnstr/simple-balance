@@ -32,6 +32,7 @@ import {
   compareForSort,
   ConfirmDialog,
   EmptyState,
+  formatCount,
   Modal,
   Note,
   PageHeader,
@@ -57,7 +58,7 @@ const iconFor = (type: AccountType) => {
 const accountSortFields = [
   { field: "name", label: "Name" },
   { field: "currency", label: "Currency" },
-  { field: "balance", label: "Balance" },
+  { field: "balance", label: "Balance", lean: "descending" },
   { field: "status", label: "Status" },
 ] as const;
 type AccountSortField = (typeof accountSortFields)[number]["field"];
@@ -275,7 +276,7 @@ export default function AccountsPage({ session }: { session: Session }) {
             <h2 className="account-type-heading">
               {group.label}
               <span className="subtle">
-                {`${group.accounts.length} account${group.accounts.length === 1 ? "" : "s"}`}
+                {`${formatCount(group.accounts.length)} account${group.accounts.length === 1 ? "" : "s"}`}
               </span>
             </h2>
             <div className="account-card-grid">
@@ -306,7 +307,7 @@ export default function AccountsPage({ session }: { session: Session }) {
                     key={account.id}
                   >
                     <header>
-                      <span className="account-icon">
+                      <span className="record-icon">
                         <Icon size={20} />
                       </span>
                       <div className="account-card-actions">
@@ -483,7 +484,7 @@ export default function AccountsPage({ session }: { session: Session }) {
             ? `${formatMoney(closing.value.balance, closing.value.currency)} is posted out of “${closing.value.name}” to Opening Balances, so the account ends at zero and that amount stops counting toward your totals. The books stay balanced and its history stays readable. Restoring the account posts the balance back.`
             : undefined
         }
-        confirmLabel="Archive"
+        confirmLabel="Archive account"
         onConfirm={closing.confirm}
         onCancel={closing.cancel}
       />
@@ -496,13 +497,15 @@ export default function AccountsPage({ session }: { session: Session }) {
             ? `Whatever “${restoring.value.name}” held when it was archived is posted back from Opening Balances, and starts counting toward your totals again. Its history was readable all along; this changes the money, not the record.`
             : undefined
         }
-        confirmLabel="Restore"
+        confirmLabel="Restore account"
+        confirmVariant="primary"
         onConfirm={restoring.confirm}
         onCancel={restoring.cancel}
       />
 
       <ConfirmDialog
         open={removal.open}
+        confirmLabel="Delete account"
         title="Delete this account?"
         description={
           removal.value
