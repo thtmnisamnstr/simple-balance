@@ -1,6 +1,6 @@
 {
   "$comment": "Written by scripts/product-kit/build.mjs. Every screen in the application, in both themes, at 1600px.",
-  "capturedAt": "2026-10-02",
+  "capturedAt": "2026-10-06",
   "appVersion": "0.2.0",
   "appUrl": "http://localhost:5173",
   "viewport": "1440x900 at 2x, shipped at 1600px",
@@ -37,37 +37,37 @@
       "file": "activity-dark.webp",
       "route": "/activity",
       "theme": "dark",
-      "kb": 45
+      "kb": 47
     },
     {
       "file": "activity-light.webp",
       "route": "/activity",
       "theme": "light",
-      "kb": 45
+      "kb": 47
     },
     {
       "file": "budgets-dark.webp",
       "route": "/budgets",
       "theme": "dark",
-      "kb": 58
+      "kb": 62
     },
     {
       "file": "budgets-light.webp",
       "route": "/budgets",
       "theme": "light",
-      "kb": 58
+      "kb": 62
     },
     {
       "file": "categories-dark.webp",
       "route": "/categories",
       "theme": "dark",
-      "kb": 52
+      "kb": 53
     },
     {
       "file": "categories-light.webp",
       "route": "/categories",
       "theme": "light",
-      "kb": 52
+      "kb": 53
     },
     {
       "file": "dashboard-dark.webp",
@@ -79,7 +79,7 @@
       "file": "dashboard-light.webp",
       "route": "/",
       "theme": "light",
-      "kb": 45
+      "kb": 44
     },
     {
       "file": "import-dark.webp",
@@ -121,19 +121,19 @@
       "file": "reports-dark.webp",
       "route": "/reports",
       "theme": "dark",
-      "kb": 47
+      "kb": 46
     },
     {
       "file": "reports-light.webp",
       "route": "/reports",
       "theme": "light",
-      "kb": 47
+      "kb": 46
     },
     {
       "file": "settings-dark.webp",
       "route": "/settings",
       "theme": "dark",
-      "kb": 68
+      "kb": 67
     },
     {
       "file": "settings-light.webp",
@@ -145,7 +145,7 @@
       "file": "settings-plan-dark.webp",
       "route": "/settings/plan",
       "theme": "dark",
-      "kb": 73
+      "kb": 72
     },
     {
       "file": "settings-plan-light.webp",
@@ -157,31 +157,31 @@
       "file": "staged-dark.webp",
       "route": "/staged",
       "theme": "dark",
-      "kb": 36
+      "kb": 51
     },
     {
       "file": "staged-light.webp",
       "route": "/staged",
       "theme": "light",
-      "kb": 35
+      "kb": 51
     },
     {
       "file": "templates-dark.webp",
       "route": "/templates",
       "theme": "dark",
-      "kb": 28
+      "kb": 27
     },
     {
       "file": "templates-light.webp",
       "route": "/templates",
       "theme": "light",
-      "kb": 28
+      "kb": 27
     },
     {
       "file": "transactions-dark.webp",
       "route": "/transactions",
       "theme": "dark",
-      "kb": 63
+      "kb": 64
     },
     {
       "file": "transactions-light.webp",

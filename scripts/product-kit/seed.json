@@ -55,5 +55,11 @@
     { "day": 20, "type": "withdrawal", "from": "Everyday Checking", "amount": "128.45", "payee": "Greenline Market", "description": "Weekly groceries", "category": "Groceries" },
     { "day": 22, "type": "withdrawal", "from": "Travel Card", "amount": "26.00", "payee": "Northside Cinema", "description": "Tickets", "category": "Dining out" },
     { "day": 25, "type": "withdrawal", "from": "Everyday Checking", "amount": "145.70", "payee": "Greenline Market", "description": "Weekly groceries", "category": "Groceries" }
+  ],
+  "staged": [
+    { "day": 3, "type": "withdrawal", "from": "Everyday Checking", "amount": "64.18", "payee": "Corner Market", "description": "Card purchase", "category": "Groceries" },
+    { "day": 4, "type": "withdrawal", "from": "Travel Card", "amount": "23.50", "payee": "Cityline Transit", "description": "Monthly pass top-up", "category": "Transportation" },
+    { "day": 4, "type": "deposit",    "to": "Everyday Checking", "amount": "19.99", "payee": "Streamly", "description": "Refund for a duplicate charge", "category": "Subscriptions" },
+    { "day": 5, "type": "withdrawal", "from": "Everyday Checking", "amount": "42.00", "payee": "Paper & Ink", "description": "Card purchase" }
   ]
 }

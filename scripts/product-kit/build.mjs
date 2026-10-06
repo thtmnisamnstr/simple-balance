@@ -259,6 +259,39 @@ async function main() {
   );
   console.log(`budgets: ${budgets}/${seed.budgets.length}`);
 
+  // A few rows waiting in the review queue, as an import leaves them. Without
+  // them the queue photographed as its empty state, and the marketing site
+  // published a picture of the screen with nothing on it. This month's only,
+  // keyed like the entries so a re-run replays them, and one is a refund into a
+  // spending category, which is what the queue's inline category handles.
+  const staged = await page.evaluate(
+    async (list) => {
+      let ok = 0;
+      for (const { key, draft } of list) {
+        const res = await fetch("/api/v1/staged-transactions", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ draft, idempotencyKey: key }),
+        });
+        if (res.ok || res.status === 409) ok += 1;
+      }
+      return ok;
+    },
+    (seed.staged ?? []).map((row, index) => ({
+      key: `staged-${entryKey(today, 0, index)}`,
+      draft: {
+        date: dayOfMonth(0, row.day),
+        payee: row.payee,
+        description: row.description,
+        ...(row.category ? { categoryId: ids.categories[row.category] } : {}),
+        ...(row.type === "deposit"
+          ? { type: "deposit", toAccountId: ids.accounts[row.to], amount: row.amount }
+          : { type: "withdrawal", fromAccountId: ids.accounts[row.from], amount: row.amount }),
+      },
+    })),
+  );
+  console.log(`staged: ${staged}/${(seed.staged ?? []).length}`);
+
   // ---- photograph every screen ------------------------------------------
   await page.goto(BASE);
   await nav.waitFor();
