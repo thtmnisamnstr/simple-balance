@@ -6,9 +6,11 @@ import { describe, expect, it } from "vitest";
 /**
  * `operations.md` §Types: an on/off switch accepts true and false and says
  * something about anything else. The frontend image's three switches reached
- * nginx's `map` unread and were matched against the literal "true", so "yes",
- * "1" and "TRUE" all meant off with nothing in the log, while the server reads
- * the same SB_CSP_REPORT_ONLY case-insensitively and refuses "yes".
+ * nginx's `map` unread, and a map compares strings without regard to case, so
+ * "TRUE" and "True" were on while "yes", "1" and "on" meant off with nothing in
+ * the log; the server reads the same SB_CSP_REPORT_ONLY case-insensitively and
+ * refuses "yes". The case was checked against the image's own nginx rather
+ * than assumed, after a first draft of the script assumed the opposite.
  *
  * Sourced the way the entrypoint sources it, under `set -eu`, with what a child
  * process then receives read back — the same harness
@@ -45,19 +47,23 @@ describe("the frontend's on/off switches", () => {
     expect(source({})).toMatchObject({ status: 0, billing: "false", stderr: "" });
   });
 
-  it.each(["yes", "1", "on", "TRUE"])(
-    "keeps %s off, as 0.2.0 served it, and says so by name",
-    (value) => {
-      const result = source({ SB_ADS_CONFIGURED: value });
-      expect(result.status).toBe(0);
-      expect(result.ads).toBe("false");
-      expect(result.stderr).toContain(`SB_ADS_CONFIGURED is "${value}"`);
-      expect(result.stderr).toContain("reads as false");
-    },
-  );
+  it.each(["yes", "1", "on"])("keeps %s off, as 0.2.0 served it, and says so by name", (value) => {
+    const result = source({ SB_ADS_CONFIGURED: value });
+    expect(result.status).toBe(0);
+    expect(result.ads).toBe("false");
+    expect(result.stderr).toContain(`SB_ADS_CONFIGURED is "${value}"`);
+    expect(result.stderr).toContain("reads as false");
+  });
 
-  it("tells somebody who wrote TRUE what to change", () => {
-    expect(source({ SB_CSP_REPORT_ONLY: "TRUE" }).stderr).toContain("lowercase");
+  // The map matched these as "true", so 0.2.0 served them on; turning them off
+  // would take Stripe off the plan tab of a deployment that had it.
+  it.each([
+    ["TRUE", "true"],
+    ["True", "true"],
+    ["FALSE", "false"],
+  ])("keeps %s as nginx read it, lowercased, and says nothing", (value, expected) => {
+    const result = source({ SB_BILLING_CONFIGURED: value });
+    expect(result).toMatchObject({ status: 0, billing: expected, stderr: "" });
   });
 
   it("leaves nothing of its own in the shell that sourced it", () => {

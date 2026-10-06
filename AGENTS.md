@@ -229,7 +229,10 @@
   it writes, and refuses rather than skips a row it cannot give one account to.
 - A transaction's `templateId` is provenance and carries no foreign key, so a
   deleted template leaves the transactions made from it untouched. Ownership is
-  checked on write, since nothing else constrains it.
+  checked when an id is written, since nothing else constrains it, and not
+  again on an edit that keeps the id the entry already has: a template deleted
+  since is exactly the case the missing key is for, and re-checking it made such
+  an entry impossible to edit, restore or include in a mass edit.
 - A template mass edit names explicit rows with expected versions and has no
   filtered selection, because the list is capped and the browser holds all of
   it. A patch key left out leaves the field alone, a value sets it, and `null`
@@ -454,7 +457,7 @@ disagreement rather than quietly losing it.
 Two habits from those guides are worth knowing before the first edit, because
 both look like mistakes:
 
-- **Comments are dense on purpose** — 26.5% of non-blank lines in `src`. They
+- **Comments are dense on purpose** — 26.6% of non-blank lines in `src`. They
   carry why the obvious alternative is wrong. Do not tidy them away.
   (`docs/standards/code/comments.md`.)
 - **Some loops must not be parallelized.** Legs resolve one at a time so two

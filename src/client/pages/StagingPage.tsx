@@ -791,6 +791,10 @@ export default function StagingPage() {
         }),
       });
     },
+    // Cleared as each press starts: an import is a run of rows from one payee,
+    // and "Amazon committed." a second time is a sentence an alert already
+    // showing it neither announces again nor gives focus to.
+    onMutate: () => setRowOutcome(null),
     onSuccess: async (_result, { stage, action }) => {
       /*
        * 13.3, and the shape `web.md` 9.8 names: committing a row runs straight
@@ -1610,7 +1614,9 @@ export default function StagingPage() {
             } will be edited.`}
           </p>
 
-          {bulkEditMutation.error ? <Alert>{bulkEditMutation.error.message}</Alert> : null}
+          {bulkEditMutation.error ? (
+            <Alert takeFocus>{bulkEditMutation.error.message}</Alert>
+          ) : null}
 
           {selectionContainsTransfers ? (
             <Alert kind="info">

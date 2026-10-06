@@ -1215,7 +1215,14 @@ export async function commitStages(
           inArray(stagedTransactions.id, parsed.stagedIds),
           eq(stagedTransactions.status, "staged"),
         ),
-      );
+      )
+      // Each row is written in this order, which is the order its row lock is
+      // taken in. A delete locks the same rows sorted by id, so in whatever
+      // order the table answered, a commit and a delete over the same rows
+      // could each hold one the other wanted and deadlock, the loser getting a
+      // 500 where it would otherwise have found the rows gone. The reply is put
+      // back in the request's order below, because a client may read it so.
+      .orderBy(stagedTransactions.id);
     if (rows.length !== parsed.stagedIds.length) {
       throw notFound(
         "One or more of those staged rows were not found; they may have been committed or deleted. Reload the queue and try again.",
@@ -1338,6 +1345,10 @@ export async function commitStages(
       committed.push({ stagedId: row.id, transactionId: transaction.id });
       report({ phase: "posting", done: committed.length, total: validated.length });
     }
+    // Written in id order, for the lock order above, and answered in the order
+    // the request named the rows, which is the order this reply always had.
+    const requested = new Map(parsed.stagedIds.map((stagedId, index) => [stagedId, index]));
+    committed.sort((a, b) => requested.get(a.stagedId)! - requested.get(b.stagedId)!);
     const response = { committed };
     await setIdempotent(
       tx,

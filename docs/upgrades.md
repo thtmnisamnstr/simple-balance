@@ -38,7 +38,12 @@ more, because the router and macOS had each remembered the "no such host".
 The program now asks OCI's own nameservers until the hostname exists, so the
 first lookup the provider makes succeeds and nothing has a "no" to remember. It
 waits up to fifteen minutes, and says so if that runs out; the vault is kept,
-and the next `up` makes the key.
+and the next `up` makes the key. The question is asked on every `up`, not only
+the first, and only an answer from those nameservers counts as "not yet": a
+network that lets nothing reach port 53 but its own resolver — many corporate
+networks and VPNs — times out instead, and the program then goes ahead as 0.2.0
+did rather than waiting out the fifteen minutes on a stack whose key has existed
+for months.
 
 **`oci-single` gives a `small` database node 8 GB, and that is one change a
 running stack plans.** Oracle halved its Always Free Ampere allowance on June
@@ -47,10 +52,20 @@ so the `small` pair's four cores are about two past it whatever this release
 does, and its 8 GB of memory was two thirds of what is now free. The database
 node takes the other 4 GB, because there that memory is free and becomes index
 cache ([`deployment-sizing.md`](deployment-sizing.md#small-on-oracle-cloud)).
-`pulumi up` resizes the machine in place, which OCI does by restarting it, so
-the ledger is unreachable for the minute or two that takes; neither volume is
-touched. Run it at a quiet moment. A stack whose database node is `medium` or
-`large` plans nothing, and neither does AWS.
+Free in the tenancy's home region with the allowance otherwise unused, which is
+the case this profile is built for; anywhere else the extra 4 GB is billed, at
+about $4.38 a month. `pulumi up` resizes the machine in place, which OCI does by
+restarting it, so the ledger is unreachable for the minute or two that takes;
+neither volume is touched. Run it at a quiet moment. A stack whose database
+node is `medium` or `large` plans nothing, and neither does AWS.
+
+A resize asks Oracle for more memory, and on Always Free it can meet the
+`Out of host capacity` that a first launch often does. The update then fails,
+and so does every `up` at that step until there is room. Check in the console
+that the database machine is running before anything else — start it there if
+it is not; its disks are untouched either way — and try the resize again later.
+Meanwhile `pulumi up --exclude '<the database instance's URN>'` applies
+everything else, and `pulumi stack --show-urns` lists the URN.
 
 The PostgreSQL settings that go with 8 GB reach a machine built before this
 only by hand, because `oci-single` never applies a machine's user data twice.
@@ -90,13 +105,24 @@ rather than at the scheduler's first sweep; a
 where it is never read; an `SMTP_PORT` that is not a port, which still refuses
 but now names the variable; and, in the split frontend image, an
 `SB_BILLING_CONFIGURED`, `SB_ADS_CONFIGURED` or `SB_CSP_REPORT_ONLY` that is
-neither `true` nor `false`, which is still read as off, as it always was. The
+neither `true` nor `false` in any capitalization, which is still read as off,
+as it always was — and `TRUE` or `True`, which nginx always read as on, still
+are, passed through lowercased with nothing in the log. The
 three Node images allow 300 seconds before a failing healthcheck counts, where
 they allowed 20, so a first start that is still migrating reports as starting
 rather than unhealthy; the compose recipe and the chart already allowed 300.
 
 **What a client sees differently.**
 
+- **Paging the activity history no longer skips entries.** Every audit entry
+  one transaction writes shares an instant, and the page marker carried it only
+  to the millisecond, so a page boundary inside an import skipped the rest of
+  it. `list_audit_events` and `GET /api/v1/audit-events` now issue a marker
+  that carries the microsecond, and the import-batch list does the same. A
+  marker is opaque and one 0.2.0 issued is still accepted.
+- **An edit that keeps an entry's `templateId` is accepted after the template
+  has been deleted.** It was refused as a template not found, on every save,
+  restore and mass edit of such an entry. A different id is still checked.
 - **An unchanged save returns the version it was sent.** Saving a
   transaction, account, category, group, budget, template, recurrence or staged
   row without changing anything now writes nothing — no new version, no audit

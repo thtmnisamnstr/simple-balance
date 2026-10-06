@@ -80,6 +80,10 @@ export default function BudgetsPage({ session }: { session: Session }) {
   const [notice, setNotice] = useState("");
   /** What a row action in the single-periods table did, said where focus reaches it. */
   const [rowOutcome, setRowOutcome] = useState("");
+  // A row's refusal, named and beside the row outcome rather than in the "Set a
+  // budget" panel, which is where the shared `error` renders and which the
+  // press did not come from.
+  const [rowRefusal, setRowRefusal] = useState("");
   // Defaults to counting it, matching the server: a budget's limit was never
   // scoped to an account, so money spent on a card since closed is money the
   // budget covered.
@@ -314,6 +318,13 @@ export default function BudgetsPage({ session }: { session: Session }) {
         ...json({ expectedVersion: entry.version }),
         method: "DELETE",
       }),
+    // The last outcome is about the last press: left up, it sat beside the next
+    // one's refusal, and a repeat of the same sentence was neither announced
+    // nor given focus by an alert already showing it.
+    onMutate: () => {
+      setRowOutcome("");
+      setRowRefusal("");
+    },
     onSuccess: (_result, entry) => {
       /*
        * 13.3, and the shape `web.md` 9.8 names. Removing an override takes its
@@ -328,7 +339,12 @@ export default function BudgetsPage({ session }: { session: Session }) {
       setOverride(null);
       invalidate();
     },
-    onError: (cause: Error) => setError(cause.message),
+    // Pressed inside the override dialog, the refusal belongs in the dialog,
+    // which is still open; pressed on a row, it belongs beside the rows.
+    onError: (cause: Error, entry) =>
+      override
+        ? setError(cause.message)
+        : setRowRefusal(`Override for ${entry.targetName} was not removed. ${cause.message}`),
   });
 
   const deletePlan = useMutation({
@@ -341,12 +357,17 @@ export default function BudgetsPage({ session }: { session: Session }) {
     // nothing said the budget had gone — `common.md`'s own worked example is
     // "Delete budget", then "Budget deleted", and the second half was never
     // shown (`web.md` 13.3).
+    onMutate: () => {
+      setRowOutcome("");
+      setRowRefusal("");
+    },
     onSuccess: (_result, plan) => {
       setRowOutcome(`Budget for ${plan.targetName} deleted. The books are exactly as they were.`);
       setError("");
       invalidate();
     },
-    onError: (cause: Error) => setError(cause.message),
+    onError: (cause: Error, plan) =>
+      setRowRefusal(`Budget for ${plan.targetName} was not deleted. ${cause.message}`),
   });
 
   // Only categories that can carry spending. An income category has nothing for
@@ -511,6 +532,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
         </label>
       </div>
 
+      {rowRefusal ? <Alert takeFocus>{rowRefusal}</Alert> : null}
       {rowOutcome ? (
         <Alert kind="success" takeFocus>
           {rowOutcome}

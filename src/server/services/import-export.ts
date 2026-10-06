@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import Papa from "papaparse";
-import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   categoryCreateSchema,
@@ -53,7 +53,7 @@ import {
   setIdempotent,
   writeAudit,
 } from "./helpers.js";
-import { cursorInstant, decodeCursor, encodeCursor } from "./cursor.js";
+import { cursorInstant, decodeCursor, encodeCursor, instantMarker } from "./cursor.js";
 import { cleanHumanName, normalizeHumanName } from "../../shared/names.js";
 import type { ProgressEvent } from "../../shared/progress.js";
 import { payeeSummaries, preferredPayee, seedCanonicalPayeeCache } from "./payees.js";
@@ -107,12 +107,12 @@ export async function listActiveImportBatches(
     // here and to `encodeCursor` below, or the walk resumes into a different
     // collection — which is the defect that member exists to prevent.
     const cursor = decodeCursor(query.cursor, { key: "created", direction: "desc" });
-    const createdAt = cursorInstant(cursor);
+    // To the microsecond and as a row comparison, for the reasons
+    // `listAuditEvents` gives: a millisecond marker skips rows that share the
+    // boundary's millisecond, and the OR form cannot start an index scan.
+    cursorInstant(cursor);
     conditions.push(
-      or(
-        lt(importBatches.createdAt, createdAt),
-        and(eq(importBatches.createdAt, createdAt), lt(importBatches.id, cursor.id)),
-      )!,
+      sql`(${importBatches.createdAt}, ${importBatches.id}) < (${cursor.sort}::timestamptz, ${cursor.id}::uuid)`,
     );
   }
 
@@ -122,6 +122,7 @@ export async function listActiveImportBatches(
       fileName: importBatches.fileName,
       rowCount: importBatches.rowCount,
       createdAt: importBatches.createdAt,
+      cursorSort: instantMarker(importBatches.createdAt),
       stagedCount: sql<number>`count(${stagedTransactions.id})::int`,
     })
     .from(importBatches)
@@ -141,7 +142,7 @@ export async function listActiveImportBatches(
   const hasMore = rows.length > query.limit;
   const pageRows = rows.slice(0, query.limit);
   return {
-    items: pageRows.map((row) => ({
+    items: pageRows.map(({ cursorSort: _cursorSort, ...row }) => ({
       ...row,
       stagedCount: Number(row.stagedCount),
       createdAt: row.createdAt.toISOString(),
@@ -150,7 +151,7 @@ export async function listActiveImportBatches(
       ? encodeCursor({
           key: "created",
           direction: "desc",
-          sort: pageRows.at(-1)!.createdAt.toISOString(),
+          sort: pageRows.at(-1)!.cursorSort,
           id: pageRows.at(-1)!.id,
         })
       : null,

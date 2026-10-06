@@ -81,6 +81,26 @@ integration("a recurring refund in the forecast", () => {
       amount: "20.00",
       categoryId: dining.id,
     });
+    // By name rather than by id, which is how the browser saves a recurrence
+    // naming a category that does not exist yet and how an agent may name any.
+    // The first fix read ids alone, so both of these went on being projected as
+    // income: one names a category still to be created, as a refund; the other
+    // names an existing spending category in other capitals.
+    await recur("Card cashback", {
+      type: "deposit",
+      toAccountId: account.id,
+      payee: "Card issuer",
+      amount: "15.00",
+      categoryName: "Card rewards",
+      categoryKind: "expense",
+    });
+    await recur("Bistro rebate", {
+      type: "deposit",
+      toAccountId: account.id,
+      payee: "Bistro",
+      amount: "5.00",
+      categoryName: "dining OUT",
+    });
   }, 120_000);
 
   afterAll(async () => {
@@ -93,7 +113,7 @@ integration("a recurring refund in the forecast", () => {
     const period = usd.periods.find((one) => one.periodStart === nextMonth)!;
     expect(period).toBeDefined();
     expect(period.expectedIncome).toBe("970");
-    expect(period.expectedSpending).toBe("30");
+    expect(period.expectedSpending).toBe("10");
     expect(forecast.unprojectable).toEqual([]);
   });
 });

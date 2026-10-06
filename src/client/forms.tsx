@@ -75,6 +75,7 @@ import {
   shownMoney,
 } from "./money.js";
 import {
+  asCategoryKind,
   draftForTransactionForm,
   type RecurrenceShapeSeed,
   type TransactionFormLeg,
@@ -1738,7 +1739,9 @@ export function TransactionForm({
    * existed but could not create one, so a refund into a brand new spending
    * category was the one entry the MCP could record and this form could not.
    */
-  const [categoryKind, setCategoryKind] = useState<CategoryKind | "">("");
+  const [categoryKind, setCategoryKind] = useState<CategoryKind | "">(() =>
+    asCategoryKind(initial?.categoryKind),
+  );
   const categoryKindGroup = useId();
   const [repeatNotice, setRepeatNotice] = useState("");
 
@@ -1815,7 +1818,12 @@ export function TransactionForm({
   // does not carry to another: "a refund of money you spent" is not on offer
   // for a withdrawal, and leaving the state set would go on sending expense on
   // an entry whose form never said so.
+  const kindType = useRef(type);
   useEffect(() => {
+    // A change, and not the first run: on mount it wiped the answer a stored
+    // draft was opened with.
+    if (kindType.current === type) return;
+    kindType.current = type;
     // Every route into a new type resets it - the picker, a template being
     // applied, the reset after saving another - so this belongs on the change
     // rather than in the one handler somebody would remember to update. The
@@ -2153,13 +2161,19 @@ export function TransactionForm({
         ...(categoryKind && newCategoryNames.length > 0 ? { categoryKind } : {}),
         ...(splitting
           ? {
-              legs: legs.map((leg) => ({
-                ...(leg.id ? { id: leg.id } : {}),
-                categoryId: leg.categoryId || null,
-                categoryName: leg.categoryId ? null : leg.categoryName.trim() || null,
-                amount: leg.amount,
-                note: leg.note.trim() || null,
-              })),
+              legs: legs.map((leg) => {
+                // The leg's own answer, carried back for a name still waiting
+                // to be created, so an edit does not turn it into the entry's.
+                const kind = leg.categoryId ? "" : asCategoryKind(leg.categoryKind);
+                return {
+                  ...(leg.id ? { id: leg.id } : {}),
+                  categoryId: leg.categoryId || null,
+                  categoryName: leg.categoryId ? null : leg.categoryName.trim() || null,
+                  ...(kind ? { categoryKind: kind } : {}),
+                  amount: leg.amount,
+                  note: leg.note.trim() || null,
+                };
+              }),
             }
           : {}),
         notes: notes || null,
@@ -2728,7 +2742,13 @@ export function RecurrenceForm({
     (shape && "destinationAmount" in shape ? (shape.destinationAmount ?? "") : "") || "",
   );
   const [categoryId, setCategoryId] = useState(shape?.categoryId ?? "");
-  const [categoryKind, setCategoryKind] = useState<CategoryKind | "">("");
+  // Seeded from the stored shape, for the reason the transaction form gives:
+  // saving an edit replaces the shape whole, so an answer not read back here was
+  // an answer the next proposal did not carry, and a recurring refund was
+  // proposed as income.
+  const [categoryKind, setCategoryKind] = useState<CategoryKind | "">(() =>
+    asCategoryKind(shape && "categoryKind" in shape ? shape.categoryKind : undefined),
+  );
   const categoryKindGroup = useId();
   // A stored shape may name its category rather than cite one, the way a CSV
   // import or an agent leaves it. Seeding from the id alone dropped the name on
@@ -2747,6 +2767,7 @@ export function RecurrenceForm({
         categories.find((category) => category.id === leg.categoryId)?.name ??
         leg.categoryName ??
         "",
+      categoryKind: asCategoryKind("categoryKind" in leg ? leg.categoryKind : undefined),
       amount: leg.amount ?? "",
       note: leg.note ?? "",
     })),
@@ -2893,13 +2914,18 @@ export function RecurrenceForm({
             : {}),
           ...(kept.length >= 2
             ? {
-                legs: kept.map((leg) => ({
-                  ...(leg.categoryId
-                    ? { categoryId: leg.categoryId }
-                    : { categoryName: trimmed(leg.categoryName) }),
-                  amount: trimmed(leg.amount),
-                  ...(trimmed(leg.note) ? { note: trimmed(leg.note) } : {}),
-                })),
+                legs: kept.map((leg) => {
+                  const kind = leg.categoryId ? "" : asCategoryKind(leg.categoryKind);
+                  return {
+                    ...(leg.categoryId
+                      ? { categoryId: leg.categoryId }
+                      : { categoryName: trimmed(leg.categoryName) }),
+                    // Each leg's own answer, as the transaction form carries it.
+                    ...(kind ? { categoryKind: kind } : {}),
+                    amount: trimmed(leg.amount),
+                    ...(trimmed(leg.note) ? { note: trimmed(leg.note) } : {}),
+                  };
+                }),
               }
             : categoryId
               ? { categoryId }

@@ -74,6 +74,10 @@ export default function RecurrencesPage() {
         ...json({ expectedVersion: recurrence.version }),
         method: "DELETE",
       }),
+    // The last notice is about the last press, as on Accounts: left up, it sat
+    // beside the next delete's refusal and the page read as reporting on one
+    // recurring transaction twice.
+    onMutate: () => setNotice(""),
     onSuccess: async (_result, recurrence) => {
       setNotice(
         `Recurring transaction “${recurrence.name}” deleted. Rows it already proposed are left as they are.`,
@@ -155,7 +159,14 @@ export default function RecurrencesPage() {
         }
       />
 
-      {actionError ? <Alert>{actionError.message}</Alert> : null}
+      {/* Named, and taking focus: the press came from a row menu that has
+          closed, and the confirmation before it has closed too, so focus had
+          nowhere to land and the refusal did not say which row it meant. */}
+      {actionError && deletion.variables ? (
+        <Alert takeFocus>
+          {`“${deletion.variables.name}” was not deleted. ${actionError.message}`}
+        </Alert>
+      ) : null}
       {notice ? (
         <Alert kind="success" takeFocus>
           {notice}

@@ -26,14 +26,14 @@ correct. They come in four shapes: three `TypeError`s in the idempotency
 canonicalizer for payload shapes that cannot occur
 (`src/server/services/helpers.ts:230`, `:246` and `:252`); two for a reference
 count that came back non-numeric after being cast to one in SQL
-(`src/server/services/payees.ts:58` and `src/server/services/categories.ts:469`);
+(`src/server/services/payees.ts:58` and `src/server/services/categories.ts:472`);
 three for an `insert().returning()` that came back empty, which either throws or
 returns the row (`src/server/services/budgets.ts:568`, `:945` and
 `src/server/services/category-groups.ts:132`); and four in billing, each
 doubting something established moments earlier — the route's own registration,
 the actor's user row, a customer row whose insert had just lost a conflict, and
 a subscription Stripe cannot return without a price
-(`src/server/services/billing.ts:679`, `:993`, `:1022` and `:1600`). The reason
+(`src/server/services/billing.ts:679`, `:993`, `:1022` and `:1601`). The reason
 each cannot happen is written beside it in the test rather than copied here.
 
 So the rule is not "never throw a bare `Error` here". It is "never throw one for
@@ -225,7 +225,7 @@ Six throw sites carry one today and the shape recurs: the archive restore meets
 the same ceiling from the other side
 (`src/server/services/accounts.ts:1204`), the frozen-account refusal is the same
 argument under a 422 (`src/server/services/accounts.ts:861`), and the two in
-`closeBillingForDeletion` (`src/server/services/billing.ts:1998` and `:2005`)
+`closeBillingForDeletion` (`src/server/services/billing.ts:2006` and `:2013`)
 give a person the move each cause leaves them — whoever runs the server, where
 the keys cannot vouch for Stripe's answer, and a retry in a few minutes, where
 Stripe could not be reached — while naming the cause, and whether retrying

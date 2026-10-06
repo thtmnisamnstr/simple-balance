@@ -1,6 +1,7 @@
 import { and, eq, getTableColumns, inArray, sql } from "drizzle-orm";
 import type { Actor } from "../../shared/domain.js";
 import {
+  draftAccountFields,
   MAX_TRANSACTION_TEMPLATES,
   transactionTemplateBulkDeleteSchema,
   transactionTemplateBulkEditSchema,
@@ -11,6 +12,7 @@ import {
   type TransactionTemplateBulkPatch,
   type TransactionTemplateBulkResult,
   type TransactionTemplateBulkSelection,
+  type DraftAccountField,
   type TemplateNotification,
   type TransactionTemplateDraft,
 } from "../../shared/domain.js";
@@ -31,6 +33,7 @@ import {
 } from "./notifications.js";
 import {
   getIdempotent,
+  lockAccountReferences,
   lockCategoryNamespace,
   lockIdempotencyKey,
   lockTransactionTemplateNamespace,
@@ -68,6 +71,13 @@ async function assertNameAvailable(
       duplicateTemplateId: existing.id,
     });
   }
+}
+
+/** The accounts a draft names, for the reference lock that comes before the rest. */
+function draftAccountIds(draft: Pick<TransactionTemplateDraft, DraftAccountField>) {
+  return draftAccountFields
+    .map((field) => draft[field])
+    .filter((value): value is string => Boolean(value));
 }
 
 /**
@@ -734,6 +744,12 @@ export async function createTransactionTemplate(
     // counts zero template references while this transaction sits between its
     // ownership check and its insert, and the template lands naming a dead
     // category — the exact state deleteCategory's guard exists to prevent.
+    //
+    // And the accounts before both, which is the first step of the order
+    // helpers.ts mandates and the lock `deleteAccount` counts references
+    // under: without it an account deleted while this was being created left a
+    // template naming an account that is gone.
+    await lockAccountReferences(tx, actor, draftAccountIds(parsed.draft));
     if (parsed.draft.categoryId || parsed.draft.legs?.some((leg) => leg.categoryId)) {
       await lockCategoryNamespace(tx, actor);
     }
@@ -780,6 +796,7 @@ export async function updateTransactionTemplate(
   const { expectedVersion, ...changes } = parsed;
   return withTransaction(transaction, async (tx) => {
     // Same order as the create, for the same race.
+    if (changes.draft) await lockAccountReferences(tx, actor, draftAccountIds(changes.draft));
     if (changes.draft?.categoryId || changes.draft?.legs?.some((leg) => leg.categoryId)) {
       await lockCategoryNamespace(tx, actor);
     }

@@ -114,9 +114,9 @@ export function parseExportedLegs(value: string | undefined) {
  * the import page cannot disagree about the set; each was spelled four or five
  * times before, one of them a literal `z.enum` in a service.
  */
-export const csvDateFormats = ["YMD", "MDY", "DMY"] as const;
+const csvDateFormats = ["YMD", "MDY", "DMY"] as const;
 export type CsvDateFormat = (typeof csvDateFormats)[number];
-export const csvDecimalSeparators = [".", ","] as const;
+const csvDecimalSeparators = [".", ","] as const;
 export type CsvDecimalSeparator = (typeof csvDecimalSeparators)[number];
 
 /**

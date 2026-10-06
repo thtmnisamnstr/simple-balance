@@ -83,7 +83,7 @@ second, in that order, and the same rule governs both tables below.** Oracle's
 Always Free allowance — 1,500 OCPU-hours, 9,000 GB-hours of memory and 200 GB
 of block storage a month — is applied as a *credit against usage* rather than as
 a separate free stack, so a row that overruns it pays only for the overrun. That
-distinction is worth four times the money at `medium`, which is why it is stated
+distinction is worth nearly twice the money at `medium`, which is why it is stated
 here rather than three paragraphs down. Check any of it in Oracle's own
 estimator before relying on it: how a partly-free stack prices is Oracle's
 arithmetic and not this page's.

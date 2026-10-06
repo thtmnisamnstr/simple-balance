@@ -4,6 +4,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { renamedRoutes } from "./support/routes.js";
 import { createMcpServer } from "../src/server/mcp.js";
+import { csvMappingSchema } from "../src/shared/csv.js";
 import { listQuerySchema, stageListQuerySchema } from "../src/shared/domain.js";
 import {
   blankComments,
@@ -1048,12 +1049,12 @@ describe("what the browser can reach compared with an agent", () => {
       file: "src/client/pages/TemplatesPage.tsx",
       writes: "BULK_FIELDS",
       unoffered: {
-        date: "A template's date is a prefill stored as typed and never moved on, which the tool's own description warns quietly backdates every entry made from it months later. One date across a selection is that mistake multiplied by the size of the selection, so it stays a decision made one template at a time.",
+        date: "Left out of the panel on purpose: a template's date is a prefill stored as typed and never moved on, which the tool's own description warns quietly backdates every entry made from it, and one date across a selection multiplies that. The tool still offers it, so the two surfaces disagree, and that is recorded in docs/acceptance.md rather than resolved here: taking it from the tool would narrow a capability, which needs a deprecation first (writing.md §Versioning).",
         destinationAmount:
-          "Read only on a cross-currency transfer, where it is the figure arriving in the other currency. A selection can hold several destination currencies, so one value would be right for at most one row, and the panel cannot tell which rows are cross-currency without reading both accounts of each.",
-        legs: "A split. Setting one division of money across many templates is the mirror of flattening a split into one category in bulk, which AGENTS.md forbids on transactions for the same reason: the division is per row, and no single value stands for all of them.",
+          "Not offered yet, and the earlier reason for it was false: the panel does hold every account and draft and could offer it when the selection shares one currency pair. An outstanding gap, recorded in docs/acceptance.md.",
+        legs: "Left out of the panel on purpose, as one division of money across many templates is the mirror of flattening a split into one category in bulk. The tool still offers it; the disagreement is recorded in docs/acceptance.md for the reason the date's entry gives.",
         categoryName:
-          "Naming a category that may not exist creates one, which is a change to the ledger's own records and needs ledger:write wherever it is reached from. This panel picks from the categories it has already loaded; a new one is made where the form can ask which kind it is.",
+          "Not offered yet. The patch stores a name as typed and creates nothing — a category is made only when an entry is — so the earlier reason, that offering it would create one, was false. The panel picks from the categories it has loaded and has no free-text option; an outstanding gap, recorded in docs/acceptance.md.",
       },
     },
     {
@@ -1086,15 +1087,15 @@ describe("what the browser can reach compared with an agent", () => {
         activeFrom:
           "A carry is folded at read time rather than stored, so moving a plan's start date re-folds every period it has ever reported. The dialog adjusts a budget that is running; a budget that starts somewhere else is a different budget, made new.",
         targetAmount:
-          "`amount_rule` is derived from the row rather than asked for, so this field IS the choice of a sinking fund. Setting it here would change what kind of budget the plan is from a dialog whose other controls assume it has not changed — the dialog instead says what the rule works out and offers no amount.",
+          "Setting or clearing it changes what kind of budget the plan is, which the dialog does not do and should not. Retuning it within a sinking fund keeps the kind, and the service accepts that in place; the dialog has no control for it yet. An outstanding gap, recorded in docs/acceptance.md.",
         targetDate:
-          "The other half of the sinking fund, and the same argument: the pair is what makes the plan one, so editing either through this dialog would change the plan's kind rather than its figures.",
+          "The other half of the sinking fund, on the same terms: setting or clearing it changes the kind, retuning it does not, and the dialog has no control for retuning it yet. Recorded in docs/acceptance.md.",
         lookbackPeriods:
-          "The parameter is the choice for a trailing average, so this is the plan's kind again rather than a figure on it. The dialog reports what such a plan works out instead of offering a number to type.",
+          "Setting or clearing it changes the plan's kind; changing a lookback from three periods to six does not, and the dialog has no control for it — it offers the plan's amount, which a trailing average works out for itself. Recorded in docs/acceptance.md.",
         percentOfPrevious:
-          "The same for an incremental plan: the percentage is what makes it incremental, so changing it here would change the kind of budget rather than its amount.",
+          "The same for an incremental plan: the step is retunable in place by the service and not by the dialog yet. Recorded in docs/acceptance.md.",
         percentOfIncome:
-          "And the same for a percent-of-income plan, whose sentence in the dialog says there is nothing here to type precisely because the parameter is the method.",
+          "And the same for a percent-of-income plan: the share is retunable in place by the service and not by the dialog yet. Recorded in docs/acceptance.md.",
       },
     },
   ];
@@ -1320,5 +1321,24 @@ describe("what the browser can reach compared with an agent", () => {
         expect(reason.length, `${form.tool} ${field}`).toBeGreaterThan(40);
       }
     }
+  });
+});
+
+/**
+ * `stage_csv`'s mapping, one level down. The comparison above sees `mapping` as
+ * one field the import page sends, so a column only an agent could map was
+ * invisible to it — the bank reference was exactly that until 0.2.1: guessed
+ * from four headings, sent, and never offered, so a person could neither pick
+ * another column nor undo a wrong guess.
+ */
+describe("the import mapping, column by column", () => {
+  it("offers every column the schema accepts", async () => {
+    const page = await readFile(
+      new URL("../src/client/pages/ImportPage.tsx", import.meta.url),
+      "utf8",
+    );
+    const columns = Object.keys(csvMappingSchema.shape);
+    expect(columns.length).toBeGreaterThan(5);
+    expect(columns.filter((column) => !page.includes(`value={mapping.${column}}`))).toEqual([]);
   });
 });

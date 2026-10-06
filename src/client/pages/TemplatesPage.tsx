@@ -153,6 +153,8 @@ export default function TemplatesPage() {
   const [editing, setEditing] = useState<TransactionTemplate | null>(null);
   const [creating, setCreating] = useState(false);
   const [bulkEditing, setBulkEditing] = useState(false);
+  // A value the panel refuses before sending, in the panel's own words.
+  const [bulkProblem, setBulkProblem] = useState("");
   const [notice, setNotice] = useState("");
   const [actions, setActions] = useState<Record<BulkField, BulkAction>>({
     type: "leave",
@@ -298,6 +300,7 @@ export default function TemplatesPage() {
           idempotencyKey: newIdempotencyKey(),
         }),
       ),
+    onMutate: () => setNotice(""),
     onSuccess: (result) =>
       afterBulk(
         `${formatCount(result.changedCount)} template${result.changedCount === 1 ? "" : "s"} changed.`,
@@ -313,6 +316,7 @@ export default function TemplatesPage() {
           idempotencyKey: newIdempotencyKey(),
         }),
       ),
+    onMutate: () => setNotice(""),
     onSuccess: (result) =>
       afterBulk(
         `${formatCount(result.changedCount)} template${result.changedCount === 1 ? "" : "s"} deleted.`,
@@ -328,6 +332,9 @@ export default function TemplatesPage() {
     // The row and the menu that deleted it go together, so focus fell to
     // `<body>` with nothing on screen saying the delete had happened
     // (`web.md` 13.3). The page's notice takes focus, as a bulk delete's does.
+    // And it is cleared when the next press starts, because it is about the
+    // last one: left up, it sat beside the next delete's refusal.
+    onMutate: () => setNotice(""),
     onSuccess: async (_result, template) => {
       clearSelection();
       setNotice(`Template “${template.name}” deleted.`);
@@ -352,6 +359,7 @@ export default function TemplatesPage() {
     [...selectedTypes].some((type) => type && !accountAllowed(field, type));
 
   const resetBulkForm = () => {
+    setBulkProblem("");
     setActions({
       type: "leave",
       payee: "leave",
@@ -391,11 +399,27 @@ export default function TemplatesPage() {
 
   const submitBulkEdit = (event: FormEvent) => {
     event.preventDefault();
+    setBulkProblem("");
     const patch: Record<string, unknown> = {};
     for (const field of BULK_FIELDS) {
       const action = actions[field.key];
       if (action === "leave") continue;
-      patch[field.key] = action === "clear" ? null : values[field.key];
+      if (action === "clear") {
+        patch[field.key] = null;
+        continue;
+      }
+      // Trimmed, and refused here when nothing is left. Spaces get past
+      // `required`, and the server refuses an empty value with a sentence
+      // written for an agent — send null to clear — which names nothing on
+      // this panel. Clear is the control that means it.
+      const value = values[field.key].trim();
+      if (!value) {
+        setBulkProblem(
+          `Enter the new ${field.label.toLowerCase()}, or choose Clear to leave it blank.`,
+        );
+        return;
+      }
+      patch[field.key] = value;
     }
     if (!Object.keys(patch).length) return;
     bulkEdit.mutate(patch as TransactionTemplateBulkPatch);
@@ -432,7 +456,16 @@ export default function TemplatesPage() {
         }
       />
 
-      {actionError ? <Alert>{actionError.message}</Alert> : null}
+      {/* Named where it came from one row, and taking focus either way: the
+          press came from a menu or a bar that has gone, and the confirmation
+          before it has closed. */}
+      {actionError ? (
+        <Alert takeFocus>
+          {deletion.error && deletion.variables
+            ? `“${deletion.variables.name}” was not deleted. ${deletion.error.message}`
+            : actionError.message}
+        </Alert>
+      ) : null}
       {notice ? (
         <Alert kind="success" takeFocus>
           {notice}
@@ -774,7 +807,8 @@ export default function TemplatesPage() {
         }
       >
         <form id="template-bulk-edit-form" className="bulk-edit-form" onSubmit={submitBulkEdit}>
-          {bulkEdit.error ? <Alert>{bulkEdit.error.message}</Alert> : null}
+          {bulkProblem ? <Alert takeFocus>{bulkProblem}</Alert> : null}
+          {bulkEdit.error ? <Alert takeFocus>{bulkEdit.error.message}</Alert> : null}
           <div className="bulk-edit-fields">
             {BULK_FIELDS.map((field) => {
               const action = actions[field.key];

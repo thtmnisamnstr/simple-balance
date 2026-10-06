@@ -22,6 +22,7 @@ import {
 } from "../../src/server/mcp-token.js";
 import { createAccount, listAccounts } from "../../src/server/services/accounts.js";
 import { listAuditEvents } from "../../src/server/services/audit.js";
+import { writeAuditMany } from "../../src/server/services/helpers.js";
 import {
   auditEventResultSchema,
   cursorPageResultSchema,
@@ -560,5 +561,59 @@ integration("PostgreSQL ledger integration", () => {
       email: "first-integration@example.com",
     });
     expect(Number(verifiedIdToken.payload.auth_time)).toBeLessThan(10_000_000_000);
+  });
+});
+
+/**
+ * The activity history, a page at a time, across the events one transaction
+ * wrote.
+ *
+ * Every audit row takes PostgreSQL's `now()`, which is the same instant for the
+ * whole transaction that wrote it, and a CSV import or a mass edit writes one
+ * per row. The cursor carried that instant to the millisecond, as a JavaScript
+ * date does, and the column holds it to the microsecond, so the next page asked
+ * for rows earlier than a moment every row of the group was later than: a page
+ * boundary inside an import skipped the rest of the import. "Show older
+ * activity" made that walk something a person does.
+ */
+const auditDatabase = scratchDatabase("audit_paging");
+const pager: Actor = { userId: "audit-pager", source: "web" };
+
+integration("the activity history, paged", () => {
+  beforeAll(async () => {
+    await auditDatabase.create();
+    await getDb().insert(user).values({
+      id: pager.userId,
+      name: "Pager",
+      email: "pager@example.com",
+      emailVerified: true,
+    });
+    await getDb().transaction((tx) =>
+      writeAuditMany(
+        tx,
+        pager,
+        Array.from({ length: 5 }, () => ({
+          entityType: "staged_transaction",
+          entityId: crypto.randomUUID(),
+          operation: "create_from_csv",
+        })),
+      ),
+    );
+  }, 120_000);
+
+  afterAll(async () => {
+    await auditDatabase.drop();
+  });
+
+  it("reaches every event one transaction wrote", async () => {
+    const seen = new Set<string>();
+    let cursor: string | undefined;
+    for (let page = 0; page < 10; page += 1) {
+      const result = await listAuditEvents(pager, { limit: 2, ...(cursor ? { cursor } : {}) });
+      for (const item of result.items) seen.add(item.id);
+      if (!result.nextCursor) break;
+      cursor = result.nextCursor;
+    }
+    expect(seen.size).toBe(5);
   });
 });

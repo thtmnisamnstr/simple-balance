@@ -23,15 +23,15 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 273 pass, 78 skip | **2,939 pass, 903 skip** |
-| `npm test`, database set | 351 pass | **3,842 pass** |
-| `npm run test:integration` | 80 pass | 906 pass |
+| `npm test`, no database | 273 pass, 78 skip | **2,966 pass, 907 skip** |
+| `npm test`, database set | 351 pass | **3,873 pass** |
+| `npm run test:integration` | 80 pass | 910 pass |
 
-The integration tier reports 906 tests on its own and 903 skips inside a
+The integration tier reports 910 tests on its own and 907 skips inside a
 database-less `npm test`, and the three-test difference is not an error: three
 cases in that tier need no database and so run either way. They are counted
-among the 2,939 rather than among the skips, which is why the two rows add up
-to 3,842 both times.
+among the 2,966 rather than among the skips, which is why the two rows add up
+to 3,873 both times.
 
 The third row is three tests larger than the first row's skip count, and the
 odd ones out are worth knowing. `bulk-transactions-mcp.integration.test.ts` has
@@ -42,7 +42,7 @@ question about the router rather than about a ledger. All three run on every
 `npm test`, database or not, and that file therefore counts as passing rather
 than skipped in the first row.
 
-The first row is what CI and `npm run verify` see, and 2,939 is the number that
+The first row is what CI and `npm run verify` see, and 2,966 is the number that
 actually gates a change by default. The second is what a developer with a local
 PostgreSQL sees, and it is strictly better. Reporting the second as though it
 were the first overstates what the gate covers, which is a mistake worth naming
@@ -636,9 +636,9 @@ The guides cite the code three ways:
 
 | Shape | Example |
 | --- | --- |
-| Full path | `` `src/client/forms.tsx:353` `` |
-| Bare filename | `` `forms.tsx:356` `` — resolved by basename |
-| Continuation | `` `:654` `` — inherits the last file the prose named |
+| Full path | `` `src/client/forms.tsx:354` `` |
+| Bare filename | `` `forms.tsx:357` `` — resolved by basename |
+| Continuation | `` `:655` `` — inherits the last file the prose named |
 
 The full-path example used to name line 342, where that file opens a return
 with a bare `<>`. 6.2 calls a citation that has landed on a fragment a cheap

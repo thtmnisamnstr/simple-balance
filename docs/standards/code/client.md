@@ -19,7 +19,7 @@ stale one.
 
 The exception is a form editing something loaded: the query result seeds the
 initial state and then the state is the truth until the save. That is a
-deliberate copy with a defined end, and `src/client/forms.tsx:1787` is the site
+deliberate copy with a defined end, and `src/client/forms.tsx:1790` is the site
 that cites this sentence for it.
 
 *Checked by:* nothing, and §4 says why — the two shapes are the same three
@@ -65,7 +65,7 @@ invalidation written by hand, and no test will remind you.
 **Binding, mostly.** If it can be worked out from what is already in state, work
 it out during render. `splitting`, `showsCategoryPicker`, `splitSettled` and
 `entrySide` in `TransactionForm` are all plain `const`s
-(`src/client/forms.tsx:1856-1870` and `:1926`), and every one of them would be
+(`src/client/forms.tsx:1864-1878` and `:1934`), and every one of them would be
 a synchronization bug as state.
 
 `react/set-state-in-effect` found thirteen sites and every one has been
@@ -137,7 +137,7 @@ it. `react/use-memo` wants a dependency list of simple expressions, and the
 reminder preview's was `JSON.stringify(parsedReminder?.data ?? null)` — a memo
 keyed on a value rebuilt every render, stringified so it would compare equal at
 a cost larger than the five dates it was saving. It is computed during render
-now (`src/client/forms.tsx:1118-1124`), which is the same fix as 1.3's and why
+now (`src/client/forms.tsx:1119-1125`), which is the same fix as 1.3's and why
 the rule sits in this section rather than in one of its own: both findings were
 a dependency array admitting that the thing above it was not worth memoizing.
 The obvious alternative was to key the memo on the raw fields instead, which
@@ -238,7 +238,7 @@ The two deciders live in `src/shared/domain.ts` and are imported by no file in
 what somebody may do, and `frozenAccountIds`, which turns that into a set of
 ids. Both are reachable — the module boundary allows it — and both are named in
 the client only in comments explaining why they are not called
-(`src/client/api.ts:561-563`, `src/client/TransactionBrowser.tsx:437`). What
+(`src/client/api.ts:561-563`, `src/client/TransactionBrowser.tsx:441`). What
 the browser reads instead is the answer: `frozen` on each account
 (`src/client/api.ts:567`), and an ad that exists only because the server sent a
 placement at all (`src/server/api.ts:1586`, `src/client/ads.tsx:7-14`).
@@ -269,13 +269,13 @@ exist in `src/shared/domain.ts` so a rename cannot void the check quietly.
 ### 3.1 `Field` wraps every labeled control in a form
 
 **House.** Layout, label, hint, error **and the word "optional"** in one place
-(`src/client/components.tsx:631`). The fourth is the newest and the one this
+(`src/client/components.tsx:633`). The fourth is the newest and the one this
 enumeration left out for a release, which matters because of the direction a
 reader acts in: somebody marking a field optional from a list of three writes
 the word into the label, and a name computed from `<label for>` is the label's
 entire text, so "(optional)" becomes part of the control's accessible **name**
 — the defect the `optional` prop was added to remove
-(`src/client/components.tsx:651-662`). `web.md` §8.4 owns the scheme, the
+(`src/client/components.tsx:653-664`). `web.md` §8.4 owns the scheme, the
 census and the WCAG argument; what belongs here is that the slot is a prop and
 never a per-page decision. Three consequences worth knowing, and the first of
 them used to be the opposite:
@@ -352,9 +352,9 @@ What is left for this guide is the code-side half: where in `src/client` the
 field has to become reachable. A request type in `api.ts` that carries the
 field is not reachability — it makes the field settable by code and by nobody
 at a screen. The control is what closes it, and the shape has recurred three
-times: a body field (`src/client/forms.tsx:2951-2958`), a creation field
+times: a body field (`src/client/forms.tsx:2977-2984`), a creation field
 (`src/client/pages/CategoriesPage.tsx:300-303`) and a list filter
-(`src/client/pages/StagingPage.tsx:874-878`), each site carrying the same note
+(`src/client/pages/StagingPage.tsx:878-882`), each site carrying the same note
 about the one before it. Three instances is a pattern rather than a scar: when
 a shared schema gains a field, the form gains a control in the same change.
 

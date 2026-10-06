@@ -378,6 +378,10 @@ export function TransactionBrowser({
           allowDuplicate,
         }),
       }),
+    // The last notice is about the last press. Left up, deleting a second entry
+    // with the same payee and date produced the same sentence, which an alert
+    // already on screen neither announces again nor moves focus to.
+    onMutate: () => setBulkNotice(null),
     onSuccess: async (_, { transaction, deleted }) => {
       // The button pressed goes with the row it was on, or turns into the
       // opposite one, so focus fell to <body> with nothing on screen saying the
@@ -642,6 +646,7 @@ export function TransactionBrowser({
       api<TransactionBulkEditResult>("/api/v1/transactions/bulk-delete", {
         ...json(request),
       }),
+    onMutate: () => setBulkNotice(null),
     onSuccess: async (result) => {
       clearTransactionSelection();
       setBulkNotice({
@@ -679,6 +684,7 @@ export function TransactionBrowser({
       api<TransactionBulkEditResult>("/api/v1/transactions/bulk-edit", {
         ...json(request),
       }),
+    onMutate: () => setBulkNotice(null),
     onSuccess: async (result) => {
       setBulkEditing(false);
       setBulkIdempotencyKey(null);
@@ -1648,9 +1654,12 @@ export function TransactionBrowser({
 
           {/* At the top, where the staged and template bulk edits put theirs
               and where 8.3 puts a summary: at the bottom it sat below a column
-              of fields, out of sight in a dialog that scrolls. */}
+              of fields, out of sight in a dialog that scrolls. And taking
+              focus, as 8.3's summary does, because Apply is at the foot of
+              that same scroll: moved up without it, the sentence was out of
+              sight of the button that produced it. */}
           {bulkMutation.error ? (
-            <Alert>
+            <Alert takeFocus>
               {bulkMutation.error instanceof ApiClientError &&
               bulkMutation.error.code === "STALE_VERSION" &&
               selection.mode === "filter"

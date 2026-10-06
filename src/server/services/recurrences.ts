@@ -1,6 +1,7 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Actor, RecurrenceShape, ValidationIssue } from "../../shared/domain.js";
 import {
+  draftAccountFields,
   MAX_RECURRENCES,
   recurrenceCreateSchema,
   recurrenceScheduleSchema,
@@ -32,6 +33,7 @@ import { normalizeHumanName } from "../../shared/names.js";
 import { conflict, duplicate, notFound, staleVersion } from "./errors.js";
 import { notifyRecurrenceProposed } from "./notifications.js";
 import {
+  lockAccountReferences,
   lockCategoryNamespace,
   lockRecurrenceNamespace,
   patchChangesNothing,
@@ -456,14 +458,19 @@ async function assertNameAvailable(
   }
 }
 
+/** The accounts a shape names, for the reference lock that comes before the rest. */
+function shapeAccountIds(shape: RecurrenceShape) {
+  return draftAccountFields
+    .map((field) => (shape as Record<string, unknown>)[field])
+    .filter((id): id is string => typeof id === "string");
+}
+
 /**
  * A recurrence may keep an account that was archived after it was made, but it
  * may never be created naming one that is not this person's.
  */
 async function assertReferencesAreOwned(tx: DbTransaction, actor: Actor, shape: RecurrenceShape) {
-  const accountIds = (["fromAccountId", "toAccountId"] as const)
-    .map((field) => (shape as Record<string, unknown>)[field])
-    .filter((id): id is string => typeof id === "string");
+  const accountIds = shapeAccountIds(shape);
   if (accountIds.length) {
     const owned = await tx
       .select({ id: ledgerAccounts.id })
@@ -531,7 +538,11 @@ export async function createRecurrence(actor: Actor, input: unknown, transaction
     // way every names-a-category write extends it. Without this, a category
     // delete racing this create counts zero recurrence references while this
     // transaction sits between its ownership check and its insert, and the
-    // recurrence lands naming a dead category.
+    // recurrence lands naming a dead category. The accounts come before it,
+    // for the same race against `deleteAccount`, which counts references under
+    // that lock; without it an account could be deleted while a recurrence
+    // naming it was being created, and every occurrence after was flagged.
+    await lockAccountReferences(tx, actor, shapeAccountIds(parsed.shape));
     if (parsed.shape.categoryId || parsed.shape.legs?.some((leg) => leg.categoryId)) {
       await lockCategoryNamespace(tx, actor);
     }
@@ -582,7 +593,8 @@ export async function updateRecurrence(
   const changes = recurrenceUpdateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
     // Same order as the create, for the same race. A patch with no shape
-    // names no category and needs no category lock.
+    // names no account or category and needs neither lock.
+    if (changes.shape) await lockAccountReferences(tx, actor, shapeAccountIds(changes.shape));
     if (changes.shape?.categoryId || changes.shape?.legs?.some((leg) => leg.categoryId)) {
       await lockCategoryNamespace(tx, actor);
     }

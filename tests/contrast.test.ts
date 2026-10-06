@@ -313,3 +313,19 @@ describe("a chart's series", () => {
     expect(failures).toEqual([]);
   });
 });
+
+/**
+ * `web.md` 2.3, SC 1.4.1 again, for a link rather than a state. Links carry no
+ * underline by default and take the house green, so inside an error alert a
+ * link was green on red — 1.07:1 in lightness — and an error summary's link
+ * lines were the plain lines beside them for anybody who cannot tell the hues
+ * apart.
+ */
+describe("a link inside an alert", () => {
+  it("is underlined and takes the alert's own color", () => {
+    const rule = blocks(css).find((block) => block.selector.trim() === ".alert a");
+    expect(rule, ".alert a").toBeDefined();
+    expect(rule!.body).toMatch(/text-decoration:\s*underline/);
+    expect(rule!.body).toMatch(/color:\s*inherit/);
+  });
+});

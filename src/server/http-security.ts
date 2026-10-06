@@ -808,10 +808,18 @@ export function hardenAuthCookies(baseUrl: string): MiddlewareHandler {
  * Better Auth hands the same value back in JSON anyway: `get-session` carries
  * it as `session.token`, `list-sessions` as `token` on every session, and
  * sign-in, sign-up and change-password as a top-level `token`. Any script that
- * can call `fetch` on this origin could read a seven-day credential out of
- * those and take it elsewhere. The content security policy allows scripts
- * from any HTTPS origin while advertising is on, so "any script" is not a
- * hypothetical worth waving away.
+ * can call `fetch` on this origin could read it out of those and take it
+ * elsewhere. The content security policy allows scripts from any HTTPS origin
+ * while advertising is on, so "any script" is not a hypothetical worth waving
+ * away.
+ *
+ * Defense in depth rather than a door that was open, and said so because an
+ * earlier draft of this note called it a seven-day credential. It is not one
+ * on its own: the cookie carries the token and a signature made with the
+ * server's secret, and no bearer plugin is on to accept the bare value. But it
+ * is the session's identity, it is what `revoke-session` takes, and a plugin
+ * added later that accepted it would turn every one of these bodies into a
+ * credential without anybody touching this file.
  *
  * Nothing here reads one. The browser authenticates with the cookie alone and
  * an MCP client with its own bearer token, which is a different field on a

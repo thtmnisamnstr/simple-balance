@@ -179,7 +179,7 @@ function refusalFrom(payload: unknown, fallbackMessage: string, status?: number)
  * An `ApiClientError` kept the whole set; anything else — a network failure, a
  * thrown string — has one sentence and no `details` to have carried more.
  */
-export const errorMessages = (error: unknown): string[] =>
+const errorMessages = (error: unknown): string[] =>
   error instanceof ApiClientError ? error.messages : error instanceof Error ? [error.message] : [];
 
 /**

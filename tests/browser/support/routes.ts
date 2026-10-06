@@ -24,7 +24,7 @@ import { blankComments, repoRoot } from "../../support/source.js";
  * page: a new detail route fails both specs until a seed makes something for
  * it to show.
  */
-export function routePatterns(): string[] {
+function routePatterns(): string[] {
   const app = blankComments(readFileSync(path.join(repoRoot, "src/client/App.tsx"), "utf8"));
   // `\s+` rather than a space: `/settings/plan` wraps its props onto the next
   // line, which a one-line pattern read as a route that did not exist.
@@ -36,7 +36,7 @@ export function routePatterns(): string[] {
  *
  * Kept short on purpose, because every entry is a place neither spec looks.
  */
-export const NOT_A_PAGE = new Map([
+const NOT_A_PAGE = new Map([
   ["*", 'The catch-all renders `<Navigate to="/">`, so what it shows is `/`, visited already'],
 ]);
 

@@ -19,7 +19,9 @@ import {
 } from "../../src/server/services/transaction-templates.js";
 import { createStage, listStages } from "../../src/server/services/staging.js";
 import {
+  bulkEditTransactions,
   createTransaction,
+  getTransaction,
   setTransactionDeleted,
   updateTransaction,
 } from "../../src/server/services/transactions.js";
@@ -333,6 +335,70 @@ integration("saving a transaction as a template", () => {
       deleted: true,
     });
     await expect(getTransactionTemplate(owner, created.id)).rejects.toThrow(/not found/i);
+  });
+
+  /**
+   * A template id is provenance with no foreign key, so deleting the template
+   * leaves it on the entries made from it — and every edit then re-checked it,
+   * found nothing, and refused. The browser sends the stored id back on every
+   * save and offers no way to clear it, so such an entry could not be edited,
+   * restored or included in a mass edit at all.
+   */
+  it("leaves an entry from a deleted template editable", async () => {
+    const template = await createTransactionTemplate(owner, {
+      name: "Retired template",
+      draft: withdrawal({ payee: "Bakery", fromAccountId: checkingId }),
+    });
+    const entry = await createTransaction(
+      owner,
+      {
+        type: "withdrawal",
+        date: "2026-03-02",
+        payee: "Bakery",
+        description: null,
+        fromAccountId: checkingId,
+        amount: "6.00",
+        templateId: template.id,
+      },
+      "retired-template-entry",
+    );
+    await deleteTransactionTemplate(owner, template.id, template.version);
+
+    const draft = {
+      type: "withdrawal" as const,
+      date: "2026-03-02",
+      payee: "Corner bakery",
+      description: null,
+      fromAccountId: checkingId,
+      amount: "6.00",
+      templateId: template.id,
+    };
+    const edited = await updateTransaction(owner, entry.id, {
+      draft,
+      expectedVersion: entry.version,
+    });
+    expect(edited.templateId).toBe(template.id);
+
+    const moved = await bulkEditTransactions(owner, {
+      selection: { mode: "ids", items: [{ id: entry.id, expectedVersion: edited.version }] },
+      patch: { date: "2026-03-03" },
+      idempotencyKey: "retired-template-bulk",
+      dryRun: false,
+    });
+    expect(moved.updatedCount).toBe(1);
+
+    const current = await getTransaction(owner, entry.id);
+    const voided = await setTransactionDeleted(owner, entry.id, current.version, true);
+    const restored = await setTransactionDeleted(owner, entry.id, voided.version, false);
+    expect(restored.deletedAt).toBeNull();
+
+    // A different id is still checked: only the one already there is kept.
+    await expect(
+      updateTransaction(owner, entry.id, {
+        draft: { ...draft, templateId: crypto.randomUUID() },
+        expectedVersion: restored.version,
+      }),
+    ).rejects.toThrow(/template this entry was made from was not found/);
   });
 
   it("cannot see, edit, or delete another tenant's template", async () => {

@@ -602,6 +602,14 @@ describe("the watermark a schedule seeks from", () => {
  */
 const BOUNDS_CANDIDATES = [
   {
+    file: "src/server/services/cursor.ts",
+    snippet: "to_char(${column} at time zone 'UTC'",
+    because:
+      "A page marker: a stored instant written out in UTC to the microsecond and compared " +
+      "with the same column as an instant. It decides nobody's day or time, and UTC is " +
+      "the only zone in which the text and the instant agree whatever the session's is.",
+  },
+  {
     file: "src/server/services/recurrences.ts",
     snippet: "r.next_occurrence_date <= ((now() at time zone 'UTC')::date + 1)",
     because:

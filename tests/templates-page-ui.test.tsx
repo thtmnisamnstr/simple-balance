@@ -289,6 +289,32 @@ describe("the templates screen", () => {
     });
   });
 
+  // Spaces get past `required`, and the server refuses an empty value in words
+  // written for an agent — "send null to clear" — which name nothing on this
+  // panel. So the panel trims, and says it in its own words when nothing is left.
+  it("trims what it sends, and refuses a value of nothing but spaces in its own words", async () => {
+    const posts = stubApi([rent, coffee]);
+    await renderPage([rent, coffee]);
+
+    fireEvent.click(screen.getByLabelText("Select Rent"));
+    fireEvent.click(screen.getByLabelText("Select Coffee"));
+    fireEvent.click(screen.getByRole("button", { name: /Edit selected/ }));
+    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "set" } });
+    fireEvent.change(screen.getByLabelText("New description"), { target: { value: "   " } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply changes" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Enter the new description, or choose Clear to leave it blank.",
+    );
+    expect(posts).toHaveLength(0);
+
+    fireEvent.change(screen.getByLabelText("New description"), {
+      target: { value: "  Monthly  " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply changes" }));
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect((posts[0]!.body as { patch: unknown }).patch).toEqual({ description: "Monthly" });
+  });
+
   it("will not offer a source account when a deposit is selected", async () => {
     stubApi([rent, salary]);
     await renderPage([rent, salary]);

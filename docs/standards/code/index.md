@@ -225,11 +225,11 @@ codebase rather than about accessibility:
 
 | Rule | Why off |
 | --- | --- |
-| `jsx-a11y/label-has-associated-control` | Cannot see through `Field`, which wraps every control (`src/client/components.tsx:631`). Every site it flagged was correctly labeled. |
+| `jsx-a11y/label-has-associated-control` | Cannot see through `Field`, which wraps every control (`src/client/components.tsx:633`). Every site it flagged was correctly labeled. |
 | `jsx-a11y/control-has-associated-label` | Same, and it also flags `<option>` inside `<datalist>`, which needs no label. |
-| `jsx-a11y/prefer-tag-over-role` | Twenty-nine sites in five shapes, and the two this row named are six of them: five `<svg role="img">`, which is the recommended way to expose an SVG, and one `<summary role="button">` whose comment already explains itself (`src/client/components.tsx:961`). Of the rest, five `role="status"` sit on a loading line and four `role="group"` on a date bar — and **fourteen `role="region"`, the largest shape by far, are the named scroll region the narrowed rule one table down exists for.** That is the case this row has to answer and never did: there is no tag to prefer. `web.md` §9.6 requires `tabIndex={0}`, `role="region"` and a name on anything that scrolls sideways, so for half these sites the rule is asking for an element HTML does not have. |
+| `jsx-a11y/prefer-tag-over-role` | Twenty-nine sites in five shapes, and the two this row named are six of them: five `<svg role="img">`, which is the recommended way to expose an SVG, and one `<summary role="button">` whose comment already explains itself (`src/client/components.tsx:983`). Of the rest, five `role="status"` sit on a loading line and four `role="group"` on a date bar — and **fourteen `role="region"`, the largest shape by far, are the named scroll region the narrowed rule one table down exists for.** That is the case this row has to answer and never did: there is no tag to prefer. `web.md` §9.6 requires `tabIndex={0}`, `role="region"` and a name on anything that scrolls sideways, so for half these sites the rule is asking for an element HTML does not have. |
 | `jsx-a11y/anchor-has-content` | Content arrives through `children`, which it cannot follow. |
-| `jsx-a11y/no-autofocus` | **Contested.** jsx-a11y bans it; WCAG does not. This product autofocuses two things: the first field of a form somebody deliberately opened, and the inline editor a click on a staged-list cell just summoned. Eleven sites, all one of those two shapes — four inline editors on the staging page and seven form fields, two of which are the pass-through props that carry the flag into the payee and category pickers (`src/client/forms.tsx:363`, `:683`) rather than fresh decisions. In both shapes focus lands where the person's own gesture was already headed. The one page that lays forms out rather than opening one — the duplicate review, a transaction form on each side — passes `autoFocus={false}` to both: nobody opened them, and each claiming focus left the cursor in whichever rendered last, halfway down the page. |
+| `jsx-a11y/no-autofocus` | **Contested.** jsx-a11y bans it; WCAG does not. This product autofocuses two things: the first field of a form somebody deliberately opened, and the inline editor a click on a staged-list cell just summoned. Eleven sites, all one of those two shapes — four inline editors on the staging page and seven form fields, two of which are the pass-through props that carry the flag into the payee and category pickers (`src/client/forms.tsx:364`, `:684`) rather than fresh decisions. In both shapes focus lands where the person's own gesture was already headed. The one page that lays forms out rather than opening one — the duplicate review, a transaction form on each side — passes `autoFocus={false}` to both: nobody opened them, and each claiming focus left the cursor in whichever rendered last, halfway down the page. |
 
 One is denied but reconfigured rather than silenced, and it is here because a
 rule that is *narrowed* is the same kind of decision as one turned off:
@@ -240,8 +240,8 @@ rule that is *narrowed* is the same kind of decision as one turned off:
 
 Two more are denied but disabled at two individual sites, each carrying its
 reason in the code: `jsx-a11y/no-static-element-interactions` at
-`src/client/forms.tsx:575`, and both that and `click-events-have-key-events` at
-`src/client/components.tsx:968`. Both are elements catching events that bubble
+`src/client/forms.tsx:576`, and both that and `click-events-have-key-events` at
+`src/client/components.tsx:990`. Both are elements catching events that bubble
 from real controls inside them.
 
 *Checked by:* `npm run lint`, in `npm run verify`, for the rules themselves;
@@ -291,7 +291,7 @@ in the same breath, which reads as one toolchain over one tree.
 those files failed a format check — `scripts/capacity/load.mjs`,
 `scripts/capacity/schedule.mjs`, `scripts/ralph/git-guard.mjs`,
 `scripts/ralph/runner.mjs`, and `scripts/set-version.mjs`, the tool the release
-procedure runs first (`docs/upgrades.md:1488`) — while all thirteen Pulumi
+procedure runs first (`docs/upgrades.md:1514`) — while all thirteen Pulumi
 modules happened to be clean, so the gap stayed invisible while
 `npm run verify` went on passing. The five are formatted now, and the test
 below holds every file the command does not reach to the formatter anyway. `typescript.md` §3.5 records

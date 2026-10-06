@@ -936,3 +936,26 @@ describe("counting a call to Stripe", () => {
     ]);
   });
 });
+
+/**
+ * Confirming a replacement card holds the billing lock and a pooled connection
+ * while it pays what is owed, which it has to. The price check under that lock
+ * also reaches Stripe whenever its cache has gone stale, which it does not have
+ * to: so it is warmed before the transaction opens, and the only calls the lock
+ * is held across are the two that find and pay the invoice.
+ */
+describe("confirming a replacement card", () => {
+  it("checks the prices before it takes the billing lock", async () => {
+    const source = await readFile(
+      path.resolve(import.meta.dirname, "../src/server/services/billing.ts"),
+      "utf8",
+    );
+    const start = source.indexOf("export async function confirmPaymentSetup(");
+    const body = source.slice(start, source.indexOf("\n}\n", start));
+    const warmed = body.indexOf("await saleRefusal();");
+    const locked = body.indexOf("await getDb().transaction(");
+    expect(warmed, "warmed").toBeGreaterThan(-1);
+    expect(locked, "the locked transaction").toBeGreaterThan(-1);
+    expect(warmed).toBeLessThan(locked);
+  });
+});

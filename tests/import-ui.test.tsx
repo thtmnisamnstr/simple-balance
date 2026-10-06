@@ -440,3 +440,47 @@ describe("the interpreted preview", () => {
     expect(screen.getByText(/Only the first rows of the file are read/)).toBeInTheDocument();
   });
 });
+
+/**
+ * The bank's reference column, which the page used to guess from four headings
+ * and send without ever showing. A reference under any other heading could not
+ * be chosen, and a wrong guess could not be undone, though an agent's mapping
+ * could do both — and a column that repeats makes every row after the first look
+ * like one already imported.
+ */
+describe("the bank reference column", () => {
+  const csv = ["date,payee,amount,Ref No", "2026-07-31,ACME Market,-12.34,A1"].join("\n");
+  const preview: CsvPreview = {
+    delimiter: ",",
+    headers: ["date", "payee", "amount", "Ref No"],
+    rows: [{ date: "2026-07-31", payee: "ACME Market", amount: "-12.34", "Ref No": "A1" }],
+    errors: [],
+  };
+
+  it("can be chosen under a heading nothing guesses, and is sent", async () => {
+    const bodies = stubApi(preview);
+    await chooseFile(csv, "bank.csv");
+    const reference = await screen.findByLabelText("Bank reference");
+    expect(reference).toHaveValue("");
+    fireEvent.change(reference, { target: { value: "Ref No" } });
+    fireEvent.click(screen.getByRole("button", { name: "Dry run" }));
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]).toMatchObject({ mapping: { externalId: "Ref No" } });
+  });
+
+  it("can be unmapped when the guess was wrong", async () => {
+    const guessed = ["date,payee,amount,reference", "2026-07-31,ACME Market,-12.34,1"].join("\n");
+    const bodies = stubApi({
+      ...preview,
+      headers: ["date", "payee", "amount", "reference"],
+      rows: [{ date: "2026-07-31", payee: "ACME Market", amount: "-12.34", reference: "1" }],
+    });
+    await chooseFile(guessed, "bank.csv");
+    const reference = await screen.findByLabelText("Bank reference");
+    expect(reference).toHaveValue("reference");
+    fireEvent.change(reference, { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Dry run" }));
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect((bodies[0]!.mapping as Record<string, unknown>).externalId ?? "").toBe("");
+  });
+});

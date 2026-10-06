@@ -15,12 +15,14 @@ import {
   X,
 } from "lucide-react";
 import {
+  type CSSProperties,
   type ComponentType,
   type InputHTMLAttributes,
   type PropsWithChildren,
   type ReactNode,
   createContext,
   forwardRef,
+  isValidElement,
   useContext,
   useEffect,
   useId,
@@ -874,6 +876,9 @@ export function SearchBox({
   );
 }
 
+/** The space between a row menu's trigger and its popover, and the popover and the edge. */
+const MENU_GAP = 5;
+
 /**
  * The overflow menu on a row, as a native disclosure.
  *
@@ -887,7 +892,12 @@ export function SearchBox({
  * That trade is why it opens upward when there is no room below. Anchored under
  * a trigger near the bottom of the window, the last items — Restore and Delete
  * on an account card — sat past the edge, and scrolling to reach them closed
- * the menu, so they could not be pressed at all.
+ * the menu, so they could not be pressed at all. And it is why, when neither
+ * side has room, it opens toward the larger and scrolls inside itself rather
+ * than running off either edge: on a short window, which is what zooming makes,
+ * a frozen card's menu with its reasons is taller than the room on both sides.
+ * Below 780px the room above ends at the sticky header, which is drawn over
+ * the popover, not at the top of the window.
  *
  * Deliberately not `role="menu"`. Those roles promise a screen reader arrow-key
  * navigation, and a roving tabindex exists nowhere else in this client. A
@@ -898,9 +908,7 @@ export function RowMenu({ label, children }: { label: string; children: ReactNod
   const details = useRef<HTMLDetailsElement>(null);
   const summary = useRef<HTMLElement>(null);
   const popover = useRef<HTMLDivElement>(null);
-  const [anchor, setAnchor] = useState<
-    { top: number; right: number } | { bottom: number; right: number } | null
-  >(null);
+  const [anchor, setAnchor] = useState<CSSProperties | null>(null);
 
   const close = (returnFocus = false) => {
     if (!details.current?.open) return;
@@ -917,15 +925,24 @@ export function RowMenu({ label, children }: { label: string; children: ReactNod
         return;
       }
       const rect = summary.current.getBoundingClientRect();
-      const right = window.innerWidth - rect.right;
       // Open already, so the popover has been laid out and has a height.
       const height = popover.current?.offsetHeight ?? 0;
-      const roomBelow = window.innerHeight - rect.bottom;
-      setAnchor(
-        height + 5 > roomBelow && rect.top > roomBelow
-          ? { bottom: window.innerHeight - rect.top + 5, right }
-          : { top: rect.bottom + 5, right },
-      );
+      const header = document.querySelector(".mobile-header");
+      const ceiling =
+        header && getComputedStyle(header).display !== "none"
+          ? Math.max(0, header.getBoundingClientRect().bottom)
+          : 0;
+      const roomBelow = window.innerHeight - rect.bottom - 2 * MENU_GAP;
+      const roomAbove = rect.top - ceiling - 2 * MENU_GAP;
+      const below = height <= roomBelow || roomBelow >= roomAbove;
+      const room = Math.max(0, below ? roomBelow : roomAbove);
+      setAnchor({
+        ...(below
+          ? { top: rect.bottom + MENU_GAP }
+          : { bottom: window.innerHeight - rect.top + MENU_GAP }),
+        right: window.innerWidth - rect.right,
+        ...(height > room ? { maxHeight: room, overflowY: "auto" } : {}),
+      });
     };
     element.addEventListener("toggle", onToggle);
     return () => element.removeEventListener("toggle", onToggle);
@@ -939,7 +956,12 @@ export function RowMenu({ label, children }: { label: string; children: ReactNod
     const onPointerDown = (event: Event) => {
       if (!details.current?.contains(event.target as Node)) close();
     };
-    const onReflow = () => close();
+    // Except a scroll inside the popover, which is how a menu taller than the
+    // room it was given is read to its end.
+    const onReflow = (event: Event) => {
+      if (event.target instanceof Node && popover.current?.contains(event.target)) return;
+      close();
+    };
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("pointerdown", onPointerDown);
     // Capturing, so a scroll inside the table is caught as well as the page's.
@@ -1549,6 +1571,23 @@ export function EmptyState({
   );
 }
 
+/**
+ * The words an alert's children render, for deciding when it says something new.
+ *
+ * An alert built from more than one child — a sentence, the server's refusal and
+ * a "Restore anyway" button — is a new array on every render, so an effect keyed
+ * on `children` ran on every render, and an alert that takes focus took it on
+ * every keystroke in the search box above the list it sat on. Its text is the
+ * same between those renders, and the text is what a person reads.
+ */
+function textOf(node: ReactNode): string {
+  if (node === null || node === undefined || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(textOf).join("");
+  if (isValidElement<{ children?: ReactNode }>(node)) return textOf(node.props.children);
+  return "";
+}
+
 export function Alert({
   kind = "error",
   takeFocus = false,
@@ -1556,6 +1595,7 @@ export function Alert({
 }: PropsWithChildren<{ kind?: "error" | "success" | "info"; takeFocus?: boolean }>) {
   const Icon = kind === "success" ? CheckCircle2 : AlertCircle;
   const box = useRef<HTMLDivElement>(null);
+  const text = textOf(children);
   /**
    * Where focus goes when the control that started the work has gone.
    *
@@ -1591,7 +1631,7 @@ export function Alert({
     const refocus = () => box.current?.focus();
     open.addEventListener("close", refocus, { once: true });
     return () => open.removeEventListener("close", refocus);
-  }, [takeFocus, children]);
+  }, [takeFocus, text]);
   return (
     <div
       ref={box}

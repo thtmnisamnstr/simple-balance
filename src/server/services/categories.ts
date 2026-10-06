@@ -71,7 +71,10 @@ function categoryKindForDraft(draft: TransactionDraft): CategoryKind {
 }
 
 /** Live categories first, then a stable order, so a match never depends on row order. */
-export function preferredCategory(left: CategoryRow, right: CategoryRow) {
+export function preferredCategory(
+  left: Pick<CategoryRow, "archivedAt" | "name" | "id">,
+  right: Pick<CategoryRow, "archivedAt" | "name" | "id">,
+) {
   if (Boolean(left.archivedAt) !== Boolean(right.archivedAt)) {
     return left.archivedAt ? 1 : -1;
   }

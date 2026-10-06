@@ -360,7 +360,7 @@ commit subject and a comment: plain, declarative, specific.
   a glyph rather than punctuation.
 - **Numbers a person reads are formatted.** Money through `formatMoney`, dates
   through `formatDate`, and a count shown as a figure through `formatCount`
-  (`src/client/components.tsx:1405`), which groups its thousands. It was the
+  (`src/client/components.tsx:1427`), which groups its thousands. It was the
   selection bars' helper and only they asked it, so the bar read "4,318" while
   the dialog it opened, the notice after it, the pages under the list and an
   import's result counts all read "4318". A count written as a literal in a sentence is spelled out
@@ -485,7 +485,7 @@ exception. Six closed sets already read against that sentence:
 (`src/client/select-options.ts:113`, which both category pages read),
 `transactionTypeLabels`
 (`src/client/pages/TemplatesPage.tsx:77`), and `ORDINAL_LABELS` and
-`FREQUENCY_LABELS` (`src/client/forms.tsx:2585`, `:2613`) for the two schedule
+`FREQUENCY_LABELS` (`src/client/forms.tsx:2599`, `:2627`) for the two schedule
 pickers. In four of the six the label is a different *word* rather than the same
 word capitalized: `credit_card` reads "Credit card", `plus` reads Premium, `both`
 reads "Income or expense", and the ordinal `-1` reads Last.

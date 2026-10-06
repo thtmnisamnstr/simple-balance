@@ -94,7 +94,7 @@ and never on a path that did not do the work:
   the counter did not move.
 - An idempotent replay is not a second write. Five counters double-counted one
   until each mutation started signaling replay out of its transaction callback
-  (`src/server/services/transactions.ts:1148`, `:1159`, `:1185`), and the
+  (`src/server/services/transactions.ts:1158`, `:1169`, `:1195`), and the
   visible cost was a client retrying a four-thousand-row edit reporting eight
   thousand rows changed. The retry is a fact about the client, and it has its
   own counter.
@@ -361,7 +361,7 @@ collector's job.
 losing it.** Measured 2026-10-01: 22 lines in `src/server/services/billing.ts`
 and `src/server/stripe.ts` are written as a dotted event key and a field object
 — `log.warn("billing.reconcile.failed", { error: String(error) })`
-(`src/server/services/billing.ts:2186`) is the shape — and between them they
+(`src/server/services/billing.ts:2194`) is the shape — and between them they
 are the entire log output of the subsystem an operator is most likely to be
 reading during an outage. Nothing in either file argues for an exception. So
 this rule describes two thirds of the server while the newest third does the
@@ -441,7 +441,7 @@ seventeen sites.** Measured 2026-10-01: 17 log calls across the same two files
 hand an identifier bound by a `catch` in the same file to `String()` — fifteen
 in `src/server/services/billing.ts` and two in `src/server/stripe.ts` — and
 several of them wrap plain database writes, such as the locked write at
-`src/server/services/billing.ts:2175` and the deferral at `:2209`.
+`src/server/services/billing.ts:2183` and the deferral at `:2217`.
 `String(error)` on a Drizzle error yields its message, which is the statement
 plus every value bound into it: exactly what the narrowing exists to strip, got
 at one remove.
@@ -492,14 +492,14 @@ tick that throws, an OAuth client sweep that fails, the two Stripe checks both
 entrypoints make at boot — the prices (`src/server/stripe.ts:1528`) and what
 the key may read (`:1608-1623`) — and the reconciliation sweep carrying on
 past a subscription Stripe cannot answer about
-(`src/server/services/billing.ts:2186`). Each logs and continues,
+(`src/server/services/billing.ts:2194`). Each logs and continues,
 because the alternative — a `catch` with an empty body — produces a deployment
 that is quietly doing half its job, which is the failure mode the degradation
 was designed to avoid in the first place.
 
 An empty `catch` is for a case where nothing went wrong, and it says which in a
 comment. There are two in `src/server`, both canceling a request body the peer
-may have closed already (`src/server/http-security.ts:471` and `:1007`), and both
+may have closed already (`src/server/http-security.ts:471` and `:1015`), and both
 carry that sentence.
 
 *Checked by:* `tests/log-level.test.ts`, which finds every `catch` whose body is

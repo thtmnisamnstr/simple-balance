@@ -110,19 +110,21 @@ function inferMapping(headers: string[]): Partial<CsvMapping> {
 
 function MappingField({
   label,
+  hint,
   value,
   headers,
   required,
   onChange,
 }: {
   label: string;
+  hint?: string;
   value?: string;
   headers: string[];
   required?: boolean;
   onChange: (value: string) => void;
 }) {
   return (
-    <Field label={label}>
+    <Field label={label} hint={hint}>
       <Select
         required={required}
         value={value ?? ""}
@@ -497,6 +499,21 @@ export default function ImportPage() {
                             <option value=",">1.234,56</option>
                           </Select>
                         </Field>
+                      </div>
+                      {/* Guessed from four headings and sent, and until 0.2.1 never
+                          shown: a reference column under any other heading could
+                          not be chosen, and a wrong guess could not be undone,
+                          which an agent's mapping could do both of. */}
+                      <div className="two-columns">
+                        <MappingField
+                          label="Bank reference"
+                          hint="The column your bank identifies each transaction by, which stops the same statement being imported twice. Leave it Not mapped if that column repeats from row to row."
+                          headers={preview.headers}
+                          value={mapping.externalId}
+                          onChange={(externalId) =>
+                            setMapping((value) => ({ ...value, externalId }))
+                          }
+                        />
                       </div>
                       {/* An instruction, not an error: nothing has been submitted,
                           so it is a note beside the mapping rather than a red

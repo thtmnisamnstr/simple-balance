@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import type { ListedVolume } from "../deploy/pulumi/oci-single/platform.js";
 import {
+  authoritativeNameExists,
   requireDataVolumeDomain,
   requireRegion,
   waitForDnsName,
+  type AuthoritativeDns,
 } from "../deploy/pulumi/oci-single/platform.js";
 import {
   OCI_SINGLE,
@@ -263,5 +265,74 @@ describe("the settings key, made in a vault whose endpoint is not in DNS yet", (
     expect(key).toContain(
       "await waitForDnsName(new URL(endpoint).hostname, authoritativeNameExists());",
     );
+  });
+});
+
+/**
+ * The vault's endpoint, asked of Oracle's own nameservers on every `pulumi up`.
+ *
+ * Only an answer is a "not yet". Many networks let nothing reach port 53 but
+ * their own resolver, and there every question timed out, was read as "not
+ * yet", and an `up` that changed nothing waited fifteen minutes and failed
+ * where 0.2.0 had succeeded. A question that cannot be asked now proceeds, as
+ * 0.2.0 did.
+ */
+describe("asking Oracle's nameservers whether the vault's endpoint exists", () => {
+  const coded = (code: string) => Object.assign(new Error(code), { code });
+  function dns({
+    cname,
+    a,
+    ns = ["ns1.example.test"],
+  }: {
+    cname: () => Promise<string[]>;
+    a: () => Promise<string[]>;
+    ns?: string[] | null;
+  }): () => Promise<AuthoritativeDns> {
+    class Resolver {
+      setServers() {}
+      resolveCname = cname;
+      resolve4 = a;
+    }
+    return async () =>
+      ({
+        Resolver,
+        resolveNs: async () => {
+          if (!ns) throw coded("ENOTFOUND");
+          return ns;
+        },
+        resolve4: async () => ["192.0.2.53"],
+      }) as unknown as AuthoritativeDns;
+  }
+  const host = "abc-management.kms.us-ashburn-1.oraclecloud.com";
+
+  it("says not yet when a nameserver answers that there is no such name", async () => {
+    const exists = authoritativeNameExists(
+      dns({ cname: () => Promise.reject(coded("ENOTFOUND")), a: async () => [] }),
+    );
+    expect(await exists(host)).toBe(false);
+  });
+
+  it("finds a name that is an A record rather than a CNAME", async () => {
+    const exists = authoritativeNameExists(
+      dns({ cname: () => Promise.reject(coded("ENODATA")), a: async () => ["192.0.2.1"] }),
+    );
+    expect(await exists(host)).toBe(true);
+  });
+
+  it.each(["ETIMEOUT", "EREFUSED", "ECONNREFUSED"])(
+    "proceeds, as 0.2.0 did, when the question cannot be asked (%s)",
+    async (code) => {
+      const exists = authoritativeNameExists(
+        dns({ cname: () => Promise.reject(coded(code)), a: () => Promise.reject(coded(code)) }),
+      );
+      expect(await exists(host)).toBe(true);
+    },
+  );
+
+  it("proceeds when no zone's nameservers can be found at all", async () => {
+    const exists = authoritativeNameExists(
+      dns({ cname: async () => [], a: async () => [], ns: null }),
+    );
+    expect(await exists(host)).toBe(true);
   });
 });

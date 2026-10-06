@@ -211,3 +211,58 @@ describe("a service helper", () => {
     ).toEqual([]);
   });
 });
+
+/**
+ * Voiding and restoring an entry take their locks in the order every other
+ * ledger write does: account references, then the category and payee
+ * namespaces, then the duplicate fingerprint, then the row.
+ *
+ * Restoring took the duplicate lock and wrote the row first and reached the
+ * namespaces only inside `prepareTransaction`, the reverse of a mass edit or a
+ * payee merge already holding a namespace and waiting on that row — a deadlock
+ * PostgreSQL broke by failing one of them as a 500. And voiding took no account
+ * lock at all, so it could race archiving the same account, and the archived
+ * account was left holding the voided amount. Read from the source, because the
+ * duplicate lock is one inline statement no recorder can see.
+ */
+describe("voiding or restoring an entry", () => {
+  const source = sourceFiles("src/server/services").find(
+    (file) => file.path === "src/server/services/transactions.ts",
+  )!.code;
+  const start = source.indexOf("export async function setTransactionDeleted(");
+  const body = source.slice(start, source.indexOf("\nexport ", start + 1));
+
+  it("locks the accounts it moves money on, in both directions, before anything else", () => {
+    const accounts = body.indexOf("await lockAccountReferences(tx, actor, entryAccountIds);");
+    expect(accounts, "the account lock").toBeGreaterThan(-1);
+    expect(accounts).toBeLessThan(body.indexOf("if (!deleted) {"));
+    expect(accounts).toBeLessThan(body.indexOf("assertDuplicateAllowed("));
+    expect(accounts).toBeLessThan(body.indexOf(".update(transactions)"));
+  });
+
+  it("takes the payee namespace before the duplicate fingerprint and the row", () => {
+    const payee = body.indexOf("await lockPayeeNamespace(tx, actor);");
+    expect(payee, "the payee lock").toBeGreaterThan(-1);
+    expect(payee).toBeLessThan(body.indexOf("assertDuplicateAllowed("));
+    expect(payee).toBeLessThan(body.indexOf(".update(transactions)"));
+  });
+});
+
+/**
+ * A commit writes its staged rows in id order, which is the order a delete
+ * locks them in. It read them in whatever order the table answered and wrote
+ * them one by one, so a commit and a delete over the same rows could each hold
+ * a row the other wanted.
+ */
+describe("committing staged rows", () => {
+  it("reads them in the order a delete locks them", () => {
+    const source = sourceFiles("src/server/services").find(
+      (file) => file.path === "src/server/services/staging.ts",
+    )!.code;
+    const start = source.indexOf("export async function commitStages(");
+    const body = source.slice(start, source.indexOf("\nexport ", start + 1));
+    const ordered = body.indexOf(".orderBy(stagedTransactions.id)");
+    expect(ordered, "ordered by id").toBeGreaterThan(-1);
+    expect(ordered).toBeLessThan(body.indexOf(".update(stagedTransactions)"));
+  });
+});

@@ -1226,6 +1226,17 @@ input[type="radio"] {
   padding-left: 18px;
 }
 
+/* A link inside an alert is told from the sentences beside it by its underline
+   and not by its color. The house green on the error alert's red is 1.07:1 in
+   lightness, so for somebody who cannot tell those two hues apart an error
+   summary's link lines read as plain lines (SC 1.4.1), and on a success alert
+   green is the alert's own color. Links carry no underline anywhere by default,
+   so this has to say so. */
+.alert a {
+  color: inherit;
+  text-decoration: underline;
+}
+
 .badge {
   display: inline-flex;
   width: fit-content;

@@ -30,6 +30,7 @@ describe("malformed staged draft presentation", () => {
       payee: "",
       categoryId: "",
       categoryName: "",
+      categoryKind: "",
       notes: "",
       fromAccountId: "",
       toAccountId: "",

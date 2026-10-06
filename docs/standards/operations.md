@@ -488,14 +488,17 @@ either: no setup code, no rate limiting, no secure cookies.
 
 **The frontend image's three switches are the exception that is on its way
 in.** `SB_BILLING_CONFIGURED`, `SB_ADS_CONFIGURED` and `SB_CSP_REPORT_ONLY`
-reach nginx's `map` and are matched against the literal `true`, so `yes`, `1`
-and `TRUE` all served the off position with nothing in the log — while the
-server reads `SB_CSP_REPORT_ONLY` case-insensitively and refuses `yes`, so two
-halves of one deployment could disagree about one switch and neither say so.
-`deploy/docker/nginx-switches.envsh` now reads them before the template is
-rendered and **warns, naming the variable, while keeping the off position**
-those values always had: 0.2.0 started on them, so refusing would stop a
-container that ran yesterday. Refusing is a later release's change, after the
+reach nginx's `map` and are matched against `true`, which a map does without
+regard to case: `TRUE` was on, and `yes`, `1` and `on` served the off position
+with nothing in the log — while the server refuses `SB_CSP_REPORT_ONLY=yes`, so
+two halves of one deployment could disagree about one switch and neither say
+so. `deploy/docker/nginx-switches.envsh` now reads them before the template is
+rendered and **keeps what nginx made of each**: any case of true or false passes
+through lowercased and quietly, and anything else stays off and **warns, naming
+the variable**: 0.2.0 started on them, so refusing would stop a container that
+ran yesterday. A first draft read `TRUE` as off, which was checked against the
+image's own nginx only afterwards and would have taken the plan tab's Stripe
+policy off a deployment that had it. Refusing is a later release's change, after the
 warning has been in the field. `SB_REAL_IP_RECURSIVE`, in the same image,
 already refuses, because it arrived refusing and so had nothing to keep.
 
@@ -809,7 +812,7 @@ it was given, the range it had to be in, and the number in force instead — and
 is printed once per name at startup, in front of whoever just deployed. What was
 kept from the first pass is the part that mattered most: all six are read at
 startup rather than at the call site. `configuredCsvMaxRows()` used to run inside
-an import (`src/server/services/import-export.ts:754`) and the recurrence limits
+an import (`src/server/services/import-export.ts:755`) and the recurrence limits
 inside a tick, so a message about either arrived hours later in a log nobody was
 reading, or on a deployment that never imported a CSV, not at all.
 `assertConfiguredLimits()` (`src/server/config-limits.ts:225-237`) reads all seven
@@ -1126,7 +1129,7 @@ shutdown, is the slow half.** Migrations run at startup under advisory lock
 (`src/server/index.ts:28,78`; `src/server/scheduler.ts:73,101`), so readiness
 cannot open before they finish. The 0.1.5 notes record that the payee index
 "takes a moment to build while the container starts, before it opens readiness"
-(`docs/upgrades.md:1305-1307`). So the generous number is `--start-period`:
+(`docs/upgrades.md:1331-1333`). So the generous number is `--start-period`:
 300s in all three Node images, the same budget the compose recipe's
 `start_period` and the chart's startup probe give the same work, and the three
 are held to each other. It was 20s in the images, which reported a first start

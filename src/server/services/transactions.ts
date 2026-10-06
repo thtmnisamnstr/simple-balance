@@ -262,6 +262,16 @@ type PrepareTransactionOptions = {
    * written; whoever commits the row opens the real one.
    */
   systemAccounts?: "ensure" | "lookup";
+  /**
+   * The template id the entry being edited already carries.
+   *
+   * Ownership was checked when it was first written, and the id carries no
+   * foreign key, so deleting the template leaves it in place by design. Checked
+   * again on every edit, it made an entry from a deleted template impossible to
+   * edit, restore, or take part in a mass edit — the browser sends the stored id
+   * back and has no way to clear it — over an id nobody was changing.
+   */
+  storedTemplateId?: string | null;
 };
 
 /**
@@ -1074,7 +1084,7 @@ export async function prepareTransaction(
 
   // A template id carries no foreign key, so ownership is checked here. Without
   // it an entry could name somebody else's template and be counted against it.
-  if (draft.templateId) {
+  if (draft.templateId && draft.templateId !== options.storedTemplateId) {
     const owned = options.references
       ? options.references.templateIds.has(draft.templateId)
       : (
@@ -2080,6 +2090,7 @@ export async function bulkEditTransactions(
       );
       const prepared = await prepareTransaction(tx, actor, draft, {
         references,
+        storedTemplateId: before.templateId,
         allowedArchivedAccountIds: existingAccountIds,
         // A category archived since the entry was written still has to be
         // allowed through, or a mass date change fails on a split whose
@@ -2452,6 +2463,7 @@ export async function updateTransaction(
     const prepared = await prepareTransaction(tx, actor, resolvedDraft, {
       allowedArchivedAccountIds,
       allowedArchivedCategoryIds,
+      storedTemplateId: before.templateId,
     });
     if (changesNothing(before, beforeLegs ?? [], prepared)) {
       wrote = false;
@@ -2536,12 +2548,26 @@ export async function setTransactionDeleted(
     // Both directions move money: voiding posts the reversal, restoring posts
     // it back. The accounts come from the stored row, because the request
     // carries an id and a version and nothing else.
-    assertAccountsWritable(
-      await accountFreeze(tx, actor),
-      [before.sourceAccountId, before.destinationAccountId].filter(
-        (accountId): accountId is string => accountId !== null,
-      ),
+    const entryAccountIds = [before.sourceAccountId, before.destinationAccountId].filter(
+      (accountId): accountId is string => accountId !== null,
     );
+    // Namespaces first and rows second, the order every other ledger write
+    // takes. Restoring took the duplicate lock and wrote the row before
+    // `prepareTransaction` took the account, category and payee locks — the
+    // reverse of a mass edit or a payee merge holding those and waiting on this
+    // row, which deadlocked and answered a 500. And voiding took no account lock
+    // at all, so it could race archiving the same account: each committed
+    // without seeing the other's postings, and the archived account was left
+    // holding the voided amount until the next start reconciled it.
+    await lockAccountReferences(tx, actor, entryAccountIds);
+    if (!deleted) {
+      const storedLegs = (await legsByTransaction(tx, actor, [id])).get(id) ?? [];
+      if (before.categoryId || storedLegs.some((leg) => leg.categoryId)) {
+        await lockCategoryNamespace(tx, actor);
+      }
+      await lockPayeeNamespace(tx, actor);
+    }
+    assertAccountsWritable(await accountFreeze(tx, actor), entryAccountIds);
     if (!deleted && before.deletedAt) {
       await assertDuplicateAllowed(tx, actor, transactionToDraft(before), allowDuplicate, id);
     }
@@ -2569,6 +2595,7 @@ export async function setTransactionDeleted(
     let restored: (typeof postings.$inferInsert)[] = [];
     if (!deleted) {
       const prepared = await prepareTransaction(tx, actor, transactionToDraft(updated, legs), {
+        storedTemplateId: updated.templateId,
         allowedArchivedAccountIds: new Set(
           [updated.sourceAccountId, updated.destinationAccountId].filter(
             (accountId): accountId is string => accountId !== null,

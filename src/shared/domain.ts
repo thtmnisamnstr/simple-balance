@@ -123,7 +123,7 @@ export type CategoryKind = (typeof categoryKinds)[number];
 export const transactionTypes = ["deposit", "withdrawal", "transfer"] as const;
 
 /** The two types that file under a category: a transfer has no category side. */
-export const entryTypes = ["deposit", "withdrawal"] as const;
+const entryTypes = ["deposit", "withdrawal"] as const;
 export type EntryType = (typeof entryTypes)[number];
 
 /** The two fields a draft names an account in, one per side of the movement. */
@@ -3443,11 +3443,11 @@ export const plans = ["free", "plus"] as const;
 export type Plan = (typeof plans)[number];
 
 /** What decided a plan: an operator's override, a subscription, or neither. */
-export const entitlementSources = ["override", "subscription", "free"] as const;
-export type EntitlementSource = (typeof entitlementSources)[number];
+const entitlementSources = ["override", "subscription", "free"] as const;
+type EntitlementSource = (typeof entitlementSources)[number];
 
 /** A price's billing interval, in Stripe's own words. */
-export const stripeIntervals = ["month", "year"] as const;
+const stripeIntervals = ["month", "year"] as const;
 export type StripeInterval = (typeof stripeIntervals)[number];
 
 /**

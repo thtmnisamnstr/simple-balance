@@ -389,8 +389,8 @@ export async function reconcileSubscription(
  * `applySetupIntentSucceeded` is that case. What must never happen is the
  * claim committing first.
  *
- * The Stripe fetch happens *before* the transaction opens, so no database lock
- * is ever held across a network call.
+ * The Stripe fetch happens *before* the transaction opens, so a webhook holds no
+ * database lock across a network call.
  *
  * Two replicas handed the same delivery serialize here rather than racing: the
  * primary key makes the second wait for the first to commit, and it then finds
@@ -1423,7 +1423,8 @@ export type SubscriptionResult = {
  * which case it is from a status it may have read a moment ago.
  *
  * The decision and the Stripe calls that act on it run under a per-user lock,
- * and this is the one place in this file that holds one across a network call.
+ * and this is one of the two places in this file that hold one across a network
+ * call; `confirmPaymentSetup`'s payment is the other, for the same reason.
  * The alternative is two concurrent requests each creating a subscription for
  * the same person, which is somebody charged twice and no constraint able to
  * say so.
@@ -1884,6 +1885,13 @@ export async function confirmPaymentSetup(
         // the same person cannot both be collecting at once. Everything inside
         // reaches Stripe and not the pool, so nothing in it waits on this lock;
         // `resync` takes the lock itself and so runs after it is let go.
+        //
+        // The price check is warmed first, outside the lock, because it reaches
+        // Stripe whenever its cache has gone stale and a call there is a call
+        // made while a pooled connection and the lock are held. Under the lock
+        // it then reads the cache, and the only calls the lock is held across
+        // are the two that find and pay what is owed, which have to be.
+        if (sellsSomething({ kind: "resume" }, row.status)) await saleRefusal();
         outcome = await getDb().transaction(async (tx) => {
           await lockBillingState(tx, actor.userId);
           let invoice: OwedInvoiceOutcome = "none";

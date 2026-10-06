@@ -161,7 +161,7 @@ server to send the count, and a server that sends none gets no sentence.
 
 There is a second shape, for when the browser has no business previewing at all.
 Rather than send the data and a rule for using it, **send nothing and let the
-absence be the answer.** `getAdPlacement` (`src/server/services/billing.ts:2574`)
+absence be the answer.** `getAdPlacement` (`src/server/services/billing.ts:2582`)
 returns the publisher and slot ids, or `null`: a session belonging to somebody
 who should see no advertising simply carries no ad configuration, so the page
 has nothing to render a slot from. `AdSlot` (`src/client/ads.tsx:70`) has no
@@ -238,9 +238,9 @@ nothing is left alone rather than exempted by name. `transaction ?? getDb()` is
 the whole shape for a read: take the caller's connection when there is one, and
 never open a boundary the caller did not ask for.
 
-Eight places in this directory open a transaction directly — whether spelled
+Nine places in this directory open a transaction directly — whether spelled
 `getDb().transaction` or through a `db` alias, which is the same decision made
-harder to grep — and none of the eight advertises the parameter, so nothing is
+harder to grep — and none of the nine advertises the parameter, so nothing is
 being ignored. Six are the original argument: three reads that want every query
 on one snapshot (`getTransaction`, `listAllTransactions`, and
 `listTransactions`' hydration pass), two entry points the scheduler calls, which
@@ -251,7 +251,7 @@ claims the row — and `deleteOwnAccount`, which is reachable only from a browse
 session and ends the tenant whose work anything composing with it would be
 doing.
 
-Billing added the other two, and both argue it where they are written rather
+Billing added the other three, and each argues it where it is written rather
 than here — `beginBillingOperation` cites this rule by name
 (`src/server/services/billing.ts:586-597`). The seventh carries a reason none of
 the first six has, and it is the one to copy: **the row has to be durable before
@@ -260,9 +260,16 @@ and commits it, because a process that dies mid-call otherwise leaves no record
 of the key it already spent, and the retry spends a second one. The eighth is
 `setSubscription`'s inner transaction, which holds `lockBillingState` from the
 read to the store so a second press cannot create a second subscription, and
-lets the lock go before re-reading what Stripe then said. A ninth has to argue
-that nothing will ever want to compose with it, or — like these two — that
-composing with it is exactly what must not happen.
+lets the lock go before re-reading what Stripe then said. The ninth is
+`confirmPaymentSetup`'s, which holds the same lock from reading the grant to
+paying what is owed, so a subscribe and a card replacement for one person cannot
+both be collecting at once; it warms the price check before taking the lock, so
+the only calls it holds the lock across are the two that charge. Both of these
+hold a pooled connection across a network call, which `docs/capacity.md` names
+the first thing to run out — the trade is a slower request against somebody
+charged twice. A tenth has to argue that nothing will ever want to compose with
+it, or — like these three — that composing with it is exactly what must not
+happen.
 
 The parameter is not decoration. The MCP transport passes its transaction in
 (`src/server/mcp.ts:310-343`, and every `runIdempotentMcpMutation` call under it)
@@ -475,10 +482,23 @@ it. Second, the category lock is not only for paths deciding a name: a write
 that merely *references* a category takes it too, because a category delete
 counts references before it archives, and a create sitting between its
 ownership check and its insert is invisible to that count — the recurrence
-lands naming a dead category (`src/server/services/recurrences.ts:529-537`,
+lands naming a dead category (`src/server/services/recurrences.ts:536-548`,
 and the same guard in `transaction-templates.ts` and `budgets.ts`). A new write
 that names or references a category needs the lock even though no name is
 being invented.
+
+The same holds for an account, and was missed until 0.2.1. `deleteAccount`
+counts what names an account under that account's reference lock, and a
+template or a recurrence checked the accounts it named under no lock at all, so
+an account deleted while a recurrence naming it was being created left the
+recurrence proposing flagged rows for good. Both now take the reference lock
+first, ahead of the category lock, which is where every entry takes it. And
+rows come after every namespace: voiding and restoring an entry took the
+duplicate fingerprint and wrote the row before `prepareTransaction` reached the
+namespaces, the reverse of a mass edit or a payee merge holding them and waiting
+on that row, and voiding took no account lock at all, so it raced archiving the
+same account. A commit now writes its staged rows in id order too, the order a
+delete locks them in.
 
 A sixth lock now sits in that range and is **not** part of the ordering.
 `lockBillingState` (`src/server/services/helpers.ts:398-414`) is the same
@@ -492,7 +512,12 @@ billing tables and the ledger tables have no reason to be written in one
 transaction. Adding it to the order would be the easy mistake and would license
 exactly the transaction that must not exist.
 
-*Checked by:* `tests/integration/duplicate-lock.integration.test.ts` for the
+*Checked by:* `tests/integration/lock-order.integration.test.ts` for the order,
+recorded through the real lock functions on an edit off a category, a void, and
+a recurrence and a template naming an account and a category;
+`tests/service-transactions.test.ts` for the two orders no recorder can see,
+read from the source — the duplicate fingerprint in `setTransactionDeleted` and
+the commit's row order. `tests/integration/duplicate-lock.integration.test.ts` for the
 mechanism, from a second connection under a 400ms statement timeout: a blocked
 waiter either expires or does not, and it expires. That is the duplicate
 fingerprint lock rather than a name. `tests/name-locks.test.ts` holds the rule
@@ -721,10 +746,10 @@ which is how you can tell it is one decision made once:
   open for a reason that has nothing to do with what they were editing."
 - `markFittingAccountsActive` (`src/server/services/accounts.ts:884`) — the same
   column from the other direction, and it says "like `setActiveAccounts`".
-- `proposeDueOccurrences` (`src/server/services/recurrences.ts:314`) — "a tick
+- `proposeDueOccurrences` (`src/server/services/recurrences.ts:316`) — "a tick
   advancing a watermark is not a change to what they configured".
 - The four reference rewrites in the two merges
-  (`src/server/services/categories.ts:1178`, `:1260`,
+  (`src/server/services/categories.ts:1181`, `:1263`,
   `src/server/services/payees.ts:458`) — "a merge relabels what a recurrence
   points at without changing what somebody configured". 2.6 owns why the
   rewrites happen at all; this is why they are silent.
@@ -787,12 +812,12 @@ collected whether anybody flushed it or not.
 nothing in it, so it is sent after the transaction that earned it commits, never
 inside it (`AGENTS.md`). `proposeDueOccurrences` collects what to announce
 through a callback and `runDueRecurrences` sends it outside, awaited rather than
-left running (`src/server/services/recurrences.ts:411`); the reminder sweep
+left running (`src/server/services/recurrences.ts:413`); the reminder sweep
 sends after `claimDueNotification`'s transaction has moved the watermark and
 committed.
 
 **A follow-up write, and a follow-up read.** `deferSubscriptionRead`
-(`src/server/services/billing.ts:2263`) stamps a failed attempt *after* the
+(`src/server/services/billing.ts:2271`) stamps a failed attempt *after* the
 locked write it follows has let its lock go, "so it can land where the locked
 write above timed out". And `setActiveAccounts` returns `listAccounts(actor)`
 from outside its own transaction, because `listAccounts` reads through the pool
@@ -862,7 +887,7 @@ the same new category end up on one category rather than two: the second
 lookup sees what the first created.
 ```
 
-(`src/server/services/categories.ts:179-181`, the docstring on
+(`src/server/services/categories.ts:182-184`, the docstring on
 `resolveDraftCategory` rather than the signature under it.)
 
 Run those in parallel and a split naming "Groceries" twice creates two
@@ -909,7 +934,7 @@ to be added to the list, and that is the honest limit of a source read.
 **Binding**, because it is the rule most recently got wrong.
 
 Resolving a category by name never widens the category it finds
-(`src/server/services/categories.ts:139`).
+(`src/server/services/categories.ts:142`).
 Widening to `both` was correct while an entry could only name a category of its
 own direction. It stopped being correct when a category running against the
 direction became a refund, and it stopped quietly: `both` agrees with whichever
@@ -918,7 +943,7 @@ instead of lowering the spending.
 
 Where the direction genuinely cannot decide — a name with nothing behind it
 yet — the caller says so with `categoryKind`
-(`src/server/services/categories.ts:194`),
+(`src/server/services/categories.ts:197`),
 and that field is ignored when the category already exists, because that one has
 an answer already.
 

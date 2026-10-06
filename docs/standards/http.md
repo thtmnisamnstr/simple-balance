@@ -92,7 +92,7 @@ equivalent MCP tool needs today, and therefore the scope a bearer token will
 need once SB-030 lands; `ledger:read` is implied by both of the others
 (`src/server/mcp.ts:509-520`).
 
-The register at `tests/mcp-parity.test.ts:26-45` does two jobs rather than one,
+The register at `tests/mcp-parity.test.ts:27-46` does two jobs rather than one,
 and reading it as one job is how the second gets lost. Most of its entries are
 routes with **no tool at all**, and those are the ones marked session only
 below. One entry is a route whose tool is **spelled differently**:
@@ -350,7 +350,7 @@ Unversioned, and each for a reason.
 | Route | What it is |
 | --- | --- |
 | `GET /health/live`, `GET /health/ready` | Liveness, and a `select 1` against the database. `503` when the database is unreachable (`src/server/api.ts:432-447`). |
-| `/api/auth/*` | Better Auth, plus this product's own sign-up, consent and MCP token routes. No JSON body under it carries the session token: the `HttpOnly` cookie does, and a script that could read the token from a body could do everything the cookie keeps from it (`withholdSessionTokens`, `src/server/http-security.ts:822`). |
+| `/api/auth/*` | Better Auth, plus this product's own sign-up, consent and MCP token routes. No JSON body under it carries the session token: the `HttpOnly` cookie does, and a script that could read the token from a body could do everything the cookie keeps from it (`withholdSessionTokens`, `src/server/http-security.ts:830`). |
 | `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, `/.well-known/openid-configuration` | RFC 9728 and OAuth discovery, each also served under `/mcp` and `/mcp/` because RFC 9728 puts the resource path after the well-known segment (`src/server/api.ts:1025-1044`). |
 | `/mcp`, `/mcp/` | The MCP transport. Governed by [`mcp.md`](mcp.md). |
 | `GET /metrics` | Prometheus text format, and registered only when `METRICS_ENABLED=true`, so a deployment that did not ask for it has no such route rather than a route that refuses. A `METRICS_TOKEN` makes it demand a bearer token. Not proxied by the bundled frontend. |
@@ -365,7 +365,7 @@ and putting `v1` in front of a well-known path would make it undiscoverable.
 `/metrics` is the name every scraper already looks for, and a versioned one
 would have to be configured everywhere to say the same thing.
 
-*Checked by:* `tests/mcp-parity.test.ts:126-141` extracts the registered
+*Checked by:* `tests/mcp-parity.test.ts:127-142` extracts the registered
 `/api/v1` routes from source, so a route added without a tool or a written
 exception fails, and `tests/http-route-table.test.ts` now holds the `/api/v1`
 tables above to that same extraction in both directions. Four of the rows in
@@ -561,14 +561,14 @@ left open honestly rather than closed by a test that would pass forever.
   `/csv/stage` and `/mcp`, a selection-derived limit for any route whose last
   segment is `bulk-edit`, `bulk-delete`, `bulk-selection`, `commit` or
   `delete`, and 256 KiB for everything else under `/api/v1`
-  (`src/server/http-security.ts:380-398`, `:400-418`, `:1037-1053`, `:1069-1077`). A limit is
+  (`src/server/http-security.ts:380-398`, `:400-418`, `:1045-1061`, `:1077-1085`). A limit is
   derived, not guessed: the template mass edit and mass delete were once sized
   as ordinary requests, so a selection their own schemas accepted came back 413.
   Recognizing a bulk route by shape rather than by a hand-kept list is what
   stops that recurring.
 
   The report limit is the one whose derivation is a measurement, and its
-  docblock carries it (`:1055-1068`): Chromium batches pending violations into
+  docblock carries it (`:1063-1076`): Chromium batches pending violations into
   one delivery rather than posting one report each — about 17 KiB for seventeen
   and 100 KiB for a hundred — so a limit sized for a single report answers that
   batch 413 and logs nothing, and the rehearsal records the first violation and
@@ -980,9 +980,9 @@ derives by reading the `(code, status)` pair off every `AppError` and
   held apart on purpose: `serviceErrorCodes`, the nine an `AppError` can carry,
   and `transportErrorCodes`, the six the transport refuses with before a service
   runs — `CROSS_ORIGIN_REQUEST` (`src/server/http-security.ts:495`, `:564`),
-  `UNSUPPORTED_MEDIA_TYPE` (`:509`, `:548`), `PAYLOAD_TOO_LARGE` (`:969`,
-  `:1015`), `INVALID_CONTENT_LENGTH` (`:958`), `REQUEST_BODY_NOT_ALLOWED`
-  (`:985`) and `MALFORMED_BODY` (`src/server/api.ts:1519`), which the
+  `UNSUPPORTED_MEDIA_TYPE` (`:509`, `:548`), `PAYLOAD_TOO_LARGE` (`:977`,
+  `:1023`), `INVALID_CONTENT_LENGTH` (`:966`), `REQUEST_BODY_NOT_ALLOWED`
+  (`:993`) and `MALFORMED_BODY` (`src/server/api.ts:1519`), which the
   [status codes](#status-codes) section above argues for by name and which is
   therefore the sixth rather than an addition this list has not caught up with.
   All fifteen reach a caller from `/api/v1` in this guide's own
@@ -1133,7 +1133,7 @@ That invariant is why this API has both mechanisms, and it is not indecision.
   ordering a keyset cannot resume, such as one that sorts by a name reached from
   another table (`src/server/services/sorting.ts:4-11`).
 - **House.** When both `cursor` and `page` are sent, the cursor wins and `page`
-  is reported as 1 (`src/server/services/transactions.ts:1483-1485`).
+  is reported as 1 (`src/server/services/transactions.ts:1493-1495`).
 - **House, following AIP-158.** `nextCursor: null` is the end signal, and the
   only one. The Azure guidelines forbid exactly that spelling; AIP-158 permits
   it. Keep the null, because the field's presence is contractual: Zod output
@@ -1148,7 +1148,7 @@ That invariant is why this API has both mechanisms, and it is not indecision.
   same field on the tool side.
 - **Binding.** A cursor binds the ordering it was issued for and is refused
   under another, with a message telling the caller to start again from the first
-  page (`src/server/services/cursor.ts:128-194`).
+  page (`src/server/services/cursor.ts:130-196`).
   *Checked by:* `tests/cursor.test.ts`.
 - **House, and it used to bind only the ordering.** A cursor must bind
   everything that defines the collection. It carried `key`, `direction`, `sort`
@@ -1160,7 +1160,7 @@ That invariant is why this API has both mechanisms, and it is not indecision.
   the *new* collection, which is what made it silent.
 
   It now carries `filters`, a fingerprint of the query with the presentation
-  keys taken out (`src/server/services/cursor.ts:25-72`). **State the
+  keys taken out (`src/server/services/cursor.ts:27-74`). **State the
   symmetry:** a cursor binds the collection it walks, a bulk selection binds the
   rows it changes, and both refuse rather than quietly covering something else.
   Four things about how it is built, each of which was a way to get it wrong:
@@ -1205,7 +1205,7 @@ That invariant is why this API has both mechanisms, and it is not indecision.
   case, and no invariant protected the encoding — so a reader of the base64 would
   have built against it. **The published guidance won.** A cursor is now
   `<payload>.<mac>`, where the MAC is HMAC-SHA256 over the payload under a key
-  derived from `AUTH_SECRET` (`src/server/services/cursor.ts:78-126`).
+  derived from `AUTH_SECRET` (`src/server/services/cursor.ts:80-128`).
 
   Signed rather than encrypted, and the difference is the whole argument. The
   contents are a boundary value and a row id the caller already holds, so there
@@ -1241,7 +1241,7 @@ That invariant is why this API has both mechanisms, and it is not indecision.
   filter-binding gap two bullets up, that a cursor bound its ordering and not
   its filters, and that signing first would make the fix additive. It did: a
   cursor now carries a `filters` fingerprint as a member of the signed payload
-  (`src/server/services/cursor.ts:25-41`), which is the bullet two up.
+  (`src/server/services/cursor.ts:27-43`), which is the bullet two up.
 - **Contested: total counts.** Zalando rule 254 and the Azure guidelines both
   say not to return a count of all matching objects, because counting a complex
   query is a full index scan and because clients integrate against a number that
@@ -1253,7 +1253,7 @@ That invariant is why this API has both mechanisms, and it is not indecision.
   exists to be cheap.
   **The code disagrees with that bound today**, on both cursor lists.
   `listTransactions` runs its `count()` unconditionally, before it looks at
-  whether a cursor was sent (`src/server/services/transactions.ts:1476-1481`),
+  whether a cursor was sent (`src/server/services/transactions.ts:1486-1491`),
   and `listStages` does the same (`src/server/services/staging.ts:806-811`),
   so a cursor page pays for a full count it does not use. The fix is not simply
   to skip it: `totalCount` is a field every client of those two lists reads,
@@ -1261,7 +1261,7 @@ That invariant is why this API has both mechanisms, and it is not indecision.
   a release may not make. It takes a deprecation — announced, a window, then
   the count dropped from cursor pages — and this guide records the bound so
   that change has something to point at.
-- **House, four keyset pitfalls,** written here because they currently live only
+- **House, five keyset pitfalls,** written here because they currently live only
   in code comments, where nobody looks before adding the seventh sortable
   column:
   1. **The sort value is computed once in SQL and carried in the cursor.**
@@ -1286,7 +1286,17 @@ That invariant is why this API has both mechanisms, and it is not indecision.
      one into "start from the first page" rather than a 500. The value inside
      one becomes a bound parameter compared against a date or a numeric column,
      and PostgreSQL answers a value it cannot read with an error
-     (`src/server/services/sorting.ts:29-39`, `src/server/services/cursor.ts:197-210`).
+     (`src/server/services/sorting.ts:29-39`, `src/server/services/cursor.ts:199-227`).
+  5. **A timestamp in a cursor is carried to the column's precision.** A
+     JavaScript date keeps the millisecond and a `timestamptz` the microsecond,
+     and a column defaulted to `now()` gives every row one transaction writes
+     the same microsecond. The activity history's marker was written from a
+     date, so the next page asked for rows earlier than a moment the whole group
+     was later than, and a page boundary inside an import skipped the rest of
+     it; the same lists also resumed with an `OR` the index could not start a
+     scan at. Both lists that page by a creation time now write the marker with
+     `instantMarker` in `src/server/services/cursor.ts` and resume with a row
+     comparison, as pitfall 3 asks.
 - **House.** `limit` is optional, defaults to 50 and is capped at 200
   (`src/shared/domain.ts:2140`). A server may return fewer rows than asked for.
   **One list differs and keeps it:** `GET /api/v1/import-batches` defaults to
@@ -1397,7 +1407,7 @@ a misspelled `sort` key still answers 200 with page one in the default order.
   let a bulk selection fingerprint describe a row that has changed underneath
   it.
 
-*Checked by:* `tests/integration/ledger.integration.test.ts:239` ("rolls back an
+*Checked by:* `tests/integration/ledger.integration.test.ts:240` ("rolls back an
 entire staged selection on a stale version") for the refusal, and
 `tests/integration/splits-audit.integration.test.ts:218` for the leg invariant,
 which asserts that an update changing a transaction's legs leaves
@@ -1531,7 +1541,7 @@ so a second submit fails rather than duplicating."
   discovered; an earlier version of this said there was one.
 
 *Checked by:* `tests/idempotency-key.test.ts` for the browser's key generator,
-and `tests/integration/ledger.integration.test.ts:199` ("commits deposits
+and `tests/integration/ledger.integration.test.ts:200` ("commits deposits
 idempotently and produces native balances") plus
 `tests/integration/bulk-transactions.integration.test.ts:106` ("soft-deletes a
 selection atomically and idempotently") for replay, and
@@ -1595,7 +1605,7 @@ edit, a mass delete, a commit, and a CSV import."
   told to read the row again and retry sends the same payload back. Both
   services now refuse it by name with the offending id in the details
   (`src/server/services/staging.ts:1071-1089`), the way `mergeCategories`
-  (`src/server/services/categories.ts:923-929`) already did with the identical
+  (`src/server/services/categories.ts:926-932`) already did with the identical
   encoding, and a repeated id is refused as a duplicate rather than reported as
   a missing row. A superset map is still accepted: naming a version the caller
   did not select harms nothing, and refusing it would break a working request to
@@ -1658,11 +1668,11 @@ edit, a mass delete, a commit, and a CSV import."
   the work so it finishes inside a request: ten thousand rows everywhere, with
   the body limit derived from that cap rather than guessed.
   **The one operation that outgrows this is CSV export**, which buffers up to
-  100,000 transactions in memory (`src/server/services/import-export.ts:999`)
+  100,000 transactions in memory (`src/server/services/import-export.ts:1000`)
   against very carefully specified request limits. The bound it needed is now
   stated and enforced: `CSV_EXPORT_MAX_ROWS` (`src/server/config-limits.ts:31`)
   refuses a larger export with the remedy named — narrow the date range and
-  export one range at a time (`src/server/services/transactions.ts:1434-1440`).
+  export one range at a time (`src/server/services/transactions.ts:1444-1450`).
   [`csv.md`](csv.md) records the decision as settled, and
   `tests/bulk-row-cap.test.ts` holds both refusals to their message.
   **Reporting progress does not reopen this.** Two of these bounded writes now
@@ -1987,7 +1997,7 @@ way.
   Identity, the plan's ceiling and how much of it is used are `whoami`, and the
   regional settings are `get_preferences`. What is left is which sign-in methods
   the deployment offers, which is no business of an agent's
-  (`tests/mcp-parity.test.ts:31-32`).
+  (`tests/mcp-parity.test.ts:32-33`).
 - **House.** Signed out, `GET /api/v1/session` is a `401` like every other
   route here, and `GET /api/v1/session?optional=true` is `200 null`. The
   browser asks that way because "is anybody signed in?" is the first thing it

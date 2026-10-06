@@ -75,7 +75,7 @@ erases just as well.
 
 **Contested.** The flag is good advice in general and wrong here. All three
 sites it flags are Hono middleware
-(`src/server/api.ts:1481`, `src/server/http-security.ts:484` and `:942`),
+(`src/server/api.ts:1481`, `src/server/http-security.ts:484` and `:950`),
 where a `MiddlewareHandler` returns a `Response` to answer the request or
 nothing at all to let the next handler run. "Returns on some paths and not
 others" is the contract, not a mistake.
@@ -534,7 +534,7 @@ own carve-out.
 
 ### 3.5 The Pulumi programs are a second TypeScript program
 
-**House**, and mechanized. `deploy/pulumi` is 8,176 lines of first-party
+**House**, and mechanized. `deploy/pulumi` is 8,208 lines of first-party
 TypeScript that this guide did not know existed. It is not a corner: 0.2.0 took
 it from two stacks to five — `aws`, `gcp`, `oci`, `aws-single`, `oci-single` —
 and
@@ -614,7 +614,7 @@ updateTransaction(actor, id, input, transaction?)
 setTransactionDeleted(actor, id, expectedVersion, deleted, allowDuplicate?, transaction?)
 ```
 
-(`src/server/services/transactions.ts:1136`, `:2407` and `:2512`.)
+(`src/server/services/transactions.ts:1146`, `:2418` and `:2524`.)
 
 Note that `updateTransaction` takes `input: unknown` and parses it, rather than
 a typed object: the version and the draft arrive together inside it. An update

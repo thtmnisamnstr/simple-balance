@@ -38,6 +38,22 @@ resizes a running stack's database machine in place, which restarts it, and
 
 ### Fixed
 
+**Older activity no longer skips the rest of an import.** Every change one
+import or one mass edit makes is recorded at the same instant, and paging back
+through the activity history asked for entries earlier than that instant, so a
+page boundary inside an import skipped every entry of it after that page. Each
+page now picks up exactly where the last one stopped.
+
+**Opening a staged refund or a recurring refund to edit it keeps it a refund.**
+A row or a recurrence naming a category that did not exist yet, with the answer
+that it was a refund, lost that answer when it was opened in the form and
+saved, and committed as income. The answer is shown and kept, on a split for
+each part separately.
+
+**An entry made from a template that has since been deleted can be edited
+again.** Every save of it, a restore after deleting it, and any mass edit that
+included it were refused because the template was gone.
+
 **The Oracle cluster's volumes are encrypted on the way to the disk.** Its
 StorageClass spelled the attachment key the way Oracle's CSI driver does not
 read, and the driver ignored it, so every volume was attached over iSCSI, which
@@ -139,12 +155,19 @@ missing a field names the field to fill in rather than repeating a type error.
 no longer names a category, while another write named a category on a
 different account, could stop both and fail one of them with a server error.
 The two locks they take are now always taken in the same order. A bulk edit
-already did this; the single edits and the staged edits now do too.
+already did this; the single edits and the staged edits now do too. So do
+restoring a deleted entry, which took its locks the other way round from a bulk
+edit or a payee merge, and committing staged rows, which could meet a delete of
+the same rows. Deleting an entry while its account was being archived could
+leave the archived account holding the deleted amount until the next restart,
+and deleting an account while a recurring transaction naming it was being
+created could leave that recurrence pointing at nothing; neither can now.
 
-**The budget forecast counts a recurring refund as a refund.** A monthly
-deposit into a spending category was projected as income, beside a history that
-had always counted the same refund as spending going down. It now lowers the
-projected spending, and income paid back out lowers the projected income.
+**The budget forecast counts a recurring refund as a refund**, whether the
+recurrence picked its category or named one. A monthly deposit into a spending
+category was projected as income, beside a history that had always counted the
+same refund as spending going down. It now lowers the projected spending, and
+income paid back out lowers the projected income.
 
 **Asking to see a CSV import as it goes no longer turns a bad request into a
 success.** A malformed upload sent with a request for progress came back as a
@@ -218,7 +241,9 @@ to do about it.
 row's "…" button always opened downward and closes when the page scrolls, so on
 a row or card near the foot of the window its last items sat off-screen with no
 way to reach them — Restore and Delete on an archived account at the end of the
-Accounts page among them. It now opens upward when there is no room below.
+Accounts page among them. It now opens upward when there is no room below, and
+on a window too short for it either way, as zooming in makes it, it scrolls
+within itself rather than running off the screen or under the header.
 
 **A field left empty or written too long says what to write.** Typing a space
 where a category name goes said "Too small: expected string to have >=1
@@ -229,16 +254,19 @@ amount in a template mass edit say their currency like every other amount
 field, and a typo in `IDEMPOTENCY_RETENTION_HOURS` is reported when the server
 starts rather than on the scheduler's first sweep.
 
-**What an agent could do, a person can now do too.** Six things were
+**What an agent could do, a person can now do too.** Seven things were
 reachable only through the MCP: overriding one month of a group's own budget,
 reading the activity history past its latest hundred entries, seeing the row a
 staged transaction was read from, setting a description or notes across
-several templates at once, giving a budget an end date when it is created, and
-changing a budget's funding order after it is created. Each now has its place
-in the app — a "Just this month" button on a group row that holds its own
-budget, "Show older activity" at the foot of the history, an "As it arrived"
-section on a staged row's form, two more fields in the template mass edit, and
-an "Ends after" and a "Funded first" field on the two budget forms.
+several templates at once, giving a budget an end date when it is created,
+changing a budget's funding order after it is created, and choosing which
+column of an imported file is the bank's reference — the page guessed it from
+four headings and offered no way to pick another or undo a wrong guess. Each
+now has its place in the app — a "Just this month" button on a group row that
+holds its own budget, "Show older activity" at the foot of the history, an "As
+it arrived" section on a staged row's form, two more fields in the template
+mass edit, an "Ends after" and a "Funded first" field on the two budget forms,
+and a "Bank reference" column on the import.
 
 **An agent is no longer told that deleting can be undone.** The instructions
 every agent reads said deleting was a reversal that could be undone, which is

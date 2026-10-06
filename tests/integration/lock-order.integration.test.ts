@@ -29,6 +29,10 @@ vi.mock("../../src/server/services/helpers.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../src/server/services/helpers.js")>();
   return {
     ...original,
+    lockAccountReferences: async (...args: Parameters<typeof original.lockAccountReferences>) => {
+      order.push("account");
+      return original.lockAccountReferences(...args);
+    },
     lockCategoryNamespace: async (...args: Parameters<typeof original.lockCategoryNamespace>) => {
       order.push("category");
       return original.lockCategoryNamespace(...args);
@@ -44,8 +48,11 @@ const { createAccount } = await import("../../src/server/services/accounts.js");
 const { createCategory } = await import("../../src/server/services/categories.js");
 const { bulkEditStages, createStage, updateStage } =
   await import("../../src/server/services/staging.js");
-const { createTransaction, updateTransaction } =
+const { createTransaction, setTransactionDeleted, updateTransaction } =
   await import("../../src/server/services/transactions.js");
+const { createRecurrence } = await import("../../src/server/services/recurrences.js");
+const { createTransactionTemplate } =
+  await import("../../src/server/services/transaction-templates.js");
 
 const connection = process.env.TEST_DATABASE_URL;
 const integration = describe.skipIf(!connection);
@@ -138,5 +145,40 @@ integration("moving off a category", () => {
       idempotencyKey: key(),
     });
     expect(categoryBeforePayee(), order.join(" → ")).toMatchObject({ ordered: true });
+  });
+
+  // Voiding moves money off an account as surely as an edit does, and took no
+  // lock on it, so it could race archiving that account: each committed without
+  // seeing the other's postings, and the archived account kept the voided sum.
+  it("takes the account lock when an entry is voided", async () => {
+    const entry = await createTransaction(actor, { ...withdrawal(null), amount: "7.77" }, key());
+    order.length = 0;
+    await setTransactionDeleted(actor, entry.id, entry.version, true);
+    expect(order[0], order.join(" → ")).toBe("account");
+  });
+
+  // A template or a recurrence names accounts the way an entry does, and took
+  // no lock on them: `deleteAccount` counts references under that lock, so an
+  // account could be deleted while something naming it was being created. The
+  // account lock first, as every entry takes it, so neither order inverts.
+  it("takes the account lock before the category lock for a recurrence and a template", async () => {
+    await createRecurrence(actor, {
+      name: `Rent ${key()}`,
+      shape: {
+        type: "withdrawal",
+        payee: "Landlord",
+        fromAccountId: accountId,
+        amount: "9.00",
+        categoryId,
+      },
+      schedule: { frequency: "monthly", anchorDate: "2026-02-01" },
+    });
+    expect(order.slice(0, 2), order.join(" → ")).toEqual(["account", "category"]);
+    order.length = 0;
+    await createTransactionTemplate(actor, {
+      name: `Template ${key()}`,
+      draft: { type: "withdrawal", payee: "Landlord", fromAccountId: accountId, categoryId },
+    });
+    expect(order.slice(0, 2), order.join(" → ")).toEqual(["account", "category"]);
   });
 });

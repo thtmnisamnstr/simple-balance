@@ -1,6 +1,8 @@
 import {
+  categoryKinds,
   isoDateSchema,
   transactionTypes,
+  type CategoryKind,
   type StagedDraft,
   type TransactionTemplateDraft,
   type TransactionType,
@@ -32,6 +34,14 @@ export type TransactionFormLeg = {
   formKey: string;
   categoryId: string;
   categoryName: string;
+  /**
+   * The kind this leg's category is to be created as, when its name has no
+   * category behind it yet. Carried rather than shown: the form asks one
+   * question for the whole entry, and a split can hold two answers — a CSV
+   * import decides each leg's from the file — so editing the row must not
+   * replace them with one.
+   */
+  categoryKind?: string;
   amount: string;
   note: string;
 };
@@ -46,6 +56,11 @@ export type TransactionFormDraft = {
   // that way, or a CSV import deferred the category to commit. Read here so
   // opening the row in the form does not write null over the only answer it has.
   categoryName: string;
+  // The kind that name is to be created as, which is the whole difference
+  // between a refund and income. The form never read it back, so opening a
+  // staged refund to type its amount and saving replaced the draft with one
+  // that had no answer, and it committed as income.
+  categoryKind?: string;
   legs: TransactionFormLeg[];
   notes: string;
   fromAccountId: string;
@@ -108,6 +123,11 @@ function isUnknownRecord(value: unknown): value is Record<string, unknown> {
  */
 let stagedLegKeySeed = 0;
 
+/** A stored category kind, or empty for anything that is not one. */
+export function asCategoryKind(value: unknown): CategoryKind | "" {
+  return categoryKinds.find((kind) => kind === value) ?? "";
+}
+
 export function stagedLegs(value: unknown): TransactionFormLeg[] {
   if (!Array.isArray(value)) return [];
   return value.filter(isUnknownRecord).map((leg) => ({
@@ -115,6 +135,7 @@ export function stagedLegs(value: unknown): TransactionFormLeg[] {
     formKey: `staged-leg-${(stagedLegKeySeed += 1)}`,
     categoryId: stagedString(leg.categoryId),
     categoryName: stagedString(leg.categoryName),
+    categoryKind: stagedString(leg.categoryKind),
     amount: stagedString(leg.amount),
     note: stagedString(leg.note),
   }));
@@ -132,6 +153,7 @@ export function draftForTransactionForm(input: unknown): TransactionFormDraft {
     payee: stagedString(draft.payee),
     categoryId: stagedString(draft.categoryId),
     categoryName: stagedString(draft.categoryName),
+    categoryKind: stagedString(draft.categoryKind),
     legs: stagedLegs(draft.legs),
     notes: stagedString(draft.notes),
     fromAccountId: stagedString(draft.fromAccountId),
