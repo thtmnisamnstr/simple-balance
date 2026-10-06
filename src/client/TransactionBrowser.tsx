@@ -667,6 +667,9 @@ export function TransactionBrowser({
       setBulkEditing(false);
       setBulkIdempotencyKey(null);
       setSelection(emptySelection());
+      // The count, not the rows: each item's `previousVersion` and
+      // `nextVersion` are for a caller holding the rows, and this page reads
+      // the list again below, which carries every new version.
       setBulkNotice({
         kind: "success",
         message: `${result.updatedCount} transaction${result.updatedCount === 1 ? "" : "s"} updated.`,

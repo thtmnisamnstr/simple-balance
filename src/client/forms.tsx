@@ -1548,6 +1548,36 @@ export function TemplateForm({
   );
 }
 
+/**
+ * What a staged row was read from, beside what was read.
+ *
+ * Kept on the row so that a mapping mistake can be seen and corrected, and for
+ * as long as only an agent could see it, that was true for an agent alone:
+ * `list_staged_transactions` returned it, the instructions flagged it as text
+ * from a bank, and the browser showed one key of it — a recurrence's name.
+ * Free text somebody else wrote, then, that the person whose ledger it is
+ * could not read. Rendered as text and never as markup, and the recurrence key
+ * is left out because the row already says which recurrence proposed it.
+ */
+function ArrivedAs({ rawData }: { rawData: StagedTransaction["rawData"] }) {
+  const heading = useId();
+  const cells = Object.entries(rawData ?? {}).filter(([key]) => key !== "recurrence");
+  if (!cells.length) return null;
+  return (
+    <section className="arrived-as" aria-labelledby={heading}>
+      <h3 id={heading}>As it arrived</h3>
+      <dl>
+        {cells.map(([key, value]) => (
+          <div key={key}>
+            <dt>{key}</dt>
+            <dd>{typeof value === "string" ? value : JSON.stringify(value)}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
 export function TransactionForm({
   accounts,
   categories,
@@ -2420,6 +2450,7 @@ export function TransactionForm({
       <Field label="Notes" hint="Optional" name="draft.notes">
         <Textarea rows={3} value={notes ?? ""} onChange={(event) => setNotes(event.target.value)} />
       </Field>
+      {staged ? <ArrivedAs rawData={staged.rawData} /> : null}
       {!transaction && !staged ? (
         <>
           <fieldset className="commit-choice">

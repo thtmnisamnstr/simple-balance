@@ -278,21 +278,38 @@ export function compareCurrencies(defaultCurrency: string) {
   };
 }
 
+/** The digits `numeric(44,18)` holds, without a sign, written once for every schema below. */
+const DECIMAL_DIGITS = String.raw`(?:0|[1-9]\d{0,25})(?:\.\d{1,18})?`;
+const DECIMAL_DIGITS_MESSAGE =
+  "Use a decimal string with at most 26 integer and 18 fractional digits";
+const DECIMAL_DESCRIPTION =
+  'Money as a decimal STRING, for example "1234.56". Never a JSON number: binary floating point cannot hold these values exactly. Up to 26 digits before the point and 18 after.';
+
 export const decimalStringSchema = z
   .string()
-  .regex(
-    /^-?(?:0|[1-9]\d{0,25})(?:\.\d{1,18})?$/,
-    "Use a decimal string with at most 26 integer and 18 fractional digits",
-  )
-  .describe(
-    'Money as a decimal STRING, for example "1234.56". Never a JSON number: binary floating point cannot hold these values exactly. Up to 26 digits before the point and 18 after.',
-  );
+  .regex(new RegExp(`^-?${DECIMAL_DIGITS}$`), DECIMAL_DIGITS_MESSAGE)
+  .describe(DECIMAL_DESCRIPTION);
 
-export const positiveDecimalStringSchema = decimalStringSchema
-  .refine(
-    (value) => !value.startsWith("-") && value !== "0" && !/^0\.0+$/.test(value),
-    "Amount must be greater than zero",
-  )
+/**
+ * A decimal string the ledger refuses below zero, published without a sign.
+ *
+ * Built on its own rather than as `decimalStringSchema` plus a refinement,
+ * because a refinement is invisible to `z.toJSONSchema`: the pattern in
+ * `tools/list` was the signed one, `^-?…`, beside a description saying the
+ * figure could not be negative, so a client validating against the schema
+ * accepted the minus sign the server then refused. The published pattern is the
+ * only part a model can check before it calls. The sign is refused first and on
+ * its own, with `abort`, so "-5" reads the sentence passed in rather than that
+ * and a complaint about its digits.
+ */
+const unsignedDecimalString = (signMessage: string) =>
+  z
+    .string()
+    .refine((value) => !value.startsWith("-"), { message: signMessage, abort: true })
+    .regex(new RegExp(`^${DECIMAL_DIGITS}$`), DECIMAL_DIGITS_MESSAGE);
+
+export const positiveDecimalStringSchema = unsignedDecimalString("Amount must be greater than zero")
+  .refine((value) => value !== "0" && !/^0\.0+$/.test(value), "Amount must be greater than zero")
   .describe(
     'How much money moved, as a decimal string greater than zero, for example "42.50". Direction comes from the transaction type, so this is never negative.',
   );
@@ -319,7 +336,7 @@ export const idempotencyKeySchema = z
   .min(8)
   .max(200)
   .describe(
-    "A key you choose to make this write safe to retry. Sending the same key again returns the original result instead of recording a second time. Use a fresh one per intended action, for example a UUID.",
+    "A key you choose to make this write safe to retry. Sending the same key again returns the original result instead of recording a second time, for as long as this deployment keeps the record — for good unless its operator set a retention window. Use a fresh one per intended action, for example a UUID.",
   );
 
 /**
@@ -545,7 +562,9 @@ const transactionShapeCommon = {
 };
 
 const transactionCommon = {
-  date: isoDateSchema,
+  date: isoDateSchema.describe(
+    "The day the money moved, in this person's own timezone. Dated after today, it counts toward no balance until the day arrives.",
+  ),
   externalId: oneLine(z.string().trim().max(200))
     .optional()
     .nullable()
@@ -1376,8 +1395,14 @@ export const bulkDeleteStageSchema = z.object({
 });
 
 export const dateRangeSchema = z.object({
-  start: isoDateSchema.optional(),
-  end: isoDateSchema.optional(),
+  start: isoDateSchema
+    .optional()
+    .describe("The first day the range includes. Left out, it reaches back to the earliest entry."),
+  end: isoDateSchema
+    .optional()
+    .describe(
+      "The last day the range includes. Left out, it runs to the latest entry; a balance, summary or report still stops at today.",
+    ),
 });
 
 /**
@@ -1501,10 +1526,9 @@ export type BudgetAmountRule = (typeof budgetAmountRules)[number];
  * table's check constraint and came back as a 500 with a stack trace, for what
  * is only ever a mistyped amount.
  */
-const budgetAmountSchema = decimalStringSchema.refine(
-  (value) => !value.trimStart().startsWith("-"),
-  { message: "A budget cannot be negative. Use zero to budget nothing." },
-);
+const budgetAmountSchema = unsignedDecimalString(
+  "A budget cannot be negative. Use zero to budget nothing.",
+).describe(DECIMAL_DESCRIPTION);
 
 const budgetTarget = {
   categoryId: uuid()
@@ -1758,7 +1782,9 @@ export const budgetPlanCreateSchema = z
   .object({
     ...budgetTarget,
     amount: budgetAmountSchema,
-    activeFrom: isoDateSchema,
+    activeFrom: isoDateSchema.describe(
+      "The first period the budget covers: any day in it, and the period it falls in is the one that starts the budget.",
+    ),
     activeTo: isoDateSchema
       .nullable()
       .optional()
@@ -1786,7 +1812,9 @@ export const budgetPlanCreateSchema = z
 export const budgetPlanUpdateSchema = z
   .object({
     amount: budgetAmountSchema.optional(),
-    activeFrom: isoDateSchema.optional(),
+    activeFrom: isoDateSchema
+      .optional()
+      .describe("Moves the first period the budget covers. Left out, the start stays where it is."),
     // Present and null ends the plan, absent leaves it alone. The distinction
     // is the one the templates already draw, so it reads the same way here.
     activeTo: isoDateSchema
@@ -1818,7 +1846,9 @@ export const budgetPlanUpdateSchema = z
 export const budgetEntrySetSchema = z
   .object({
     ...budgetTarget,
-    periodStart: isoDateSchema,
+    periodStart: isoDateSchema.describe(
+      "Any day in the period this amount is for; it is stored as that period's first day.",
+    ),
     amount: budgetAmountSchema,
     // Absent on the first set, required to change one that is already there.
     expectedVersion: expectedVersionSchema.optional(),
@@ -1828,8 +1858,14 @@ export const budgetEntrySetSchema = z
 
 export const budgetReportQuerySchema = z
   .object({
-    start: isoDateSchema.optional(),
-    end: isoDateSchema.optional(),
+    start: isoDateSchema
+      .optional()
+      .describe(
+        "Any day in the first period to report. Left out, the report starts at the current period.",
+      ),
+    end: isoDateSchema
+      .optional()
+      .describe("Any day in the last period to report. Left out, it ends at today's period."),
     periodUnit: z
       .enum(budgetPeriodUnits)
       .default("month")
@@ -1974,7 +2010,7 @@ export const reportQuerySchema = dateRangeSchema.extend({
     .enum(reportBuckets)
     .optional()
     .describe(
-      "Group the report by day, week, month, quarter or year. Defaults to whatever suits the range asked for.",
+      "Group the report into one column per week, month, quarter or year, or into a single column with none. Left out, each report has its own default: by month for net-worth, income-expense and cash-flow, and one column for categories, balance-sheet and trial-balance. A range needing more than 600 columns is refused; ask for a coarser bucket.",
     ),
 });
 
@@ -2916,7 +2952,7 @@ export const recurrenceShapeSchema = z.discriminatedUnion("type", [
         ),
       ...recurrenceShapeFields,
       fromAccountId: uuid().describe(
-        "Where the money came from: a withdrawal's account, or a transfer's source, whose currency sourceAmount is in. A transfer's two sides must differ, so moving money within one account is refused.",
+        "Where the money came from: a withdrawal's account, or a transfer's source, whose currency amount is in. A transfer's two sides must differ, so moving money within one account is refused.",
       ),
       amount: positiveDecimalStringSchema.optional(),
     })
@@ -2931,7 +2967,7 @@ export const recurrenceShapeSchema = z.discriminatedUnion("type", [
         ),
       ...recurrenceShapeFields,
       fromAccountId: uuid().describe(
-        "Where the money came from: a withdrawal's account, or a transfer's source, whose currency sourceAmount is in. A transfer's two sides must differ, so moving money within one account is refused.",
+        "Where the money came from: a withdrawal's account, or a transfer's source, whose currency amount is in. A transfer's two sides must differ, so moving money within one account is refused.",
       ),
       toAccountId: uuid().describe(
         "Where the money landed: a deposit's account, or a transfer's destination. Its currency is the currency the money arrived in, so a transfer whose two accounts differ in currency is refused without destinationAmount.",
@@ -2958,10 +2994,14 @@ const recurrenceShapeInputSchema = recurrenceShapeSchema.superRefine((shape, con
   if (shape.type === "transfer") checkRecurrenceTransferSides(shape, context);
 });
 
-const recurrenceAnchorDateSchema = isoDateSchema.refine(
-  (value) => value >= "1900-01-01" && value <= "2999-12-31",
-  "Anchor the schedule to a date between 1900 and 2999",
-);
+const recurrenceAnchorDateSchema = isoDateSchema
+  .refine(
+    (value) => value >= "1900-01-01" && value <= "2999-12-31",
+    "Anchor the schedule to a date between 1900 and 2999",
+  )
+  .describe(
+    "The day the schedule is counted from: the first occurrence, and the day every later one is a whole number of intervals after.",
+  );
 
 /** "The second Tuesday", "the last Friday". */
 const recurrencePositionSchema = z

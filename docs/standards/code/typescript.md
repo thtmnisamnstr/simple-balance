@@ -308,7 +308,7 @@ export const budgetPeriodUnits = [
 ] as const satisfies readonly ReportBucket[];
 ```
 
-(`src/shared/domain.ts:1420`.)
+(`src/shared/domain.ts:1445`.)
 
 `as const` keeps the four literals; `satisfies` checks that every one of them is
 a bucket the report engine can group by. Annotating the constant
@@ -320,7 +320,7 @@ either of the other two that the rule working was a deviation from it. Both pass
 the test the `securityHeaderOptions` paragraph below sets, and one of them is
 load-bearing by `AGENTS.md`:
 
-- `PLAN_LABELS` (`src/shared/domain.ts:3392-3395`) is, in `AGENTS.md`'s words,
+- `PLAN_LABELS` (`src/shared/domain.ts:3432-3435`) is, in `AGENTS.md`'s words,
   "the one place a plan's name is written". `satisfies Record<Plan, string>` is
   what makes a plan added without a label fail to compile; `as const` is what
   keeps `PLAN_LABELS.plus` the literal `"Premium"` rather than `string`, which
@@ -351,7 +351,7 @@ totalled: a fourth arriving does not falsify a sentence here.
 ### 2.5 Discriminated unions carry the discriminant in the name
 
 **House.** A transaction draft is a union on `type`, and each member declares it
-as a literal (`src/shared/domain.ts:568`). Every
+as a literal (`src/shared/domain.ts:587`). Every
 function that takes one either handles all three or narrows first. This is why
 `noFallthroughCasesInSwitch` was free: there was nothing to find.
 

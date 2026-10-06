@@ -24,6 +24,7 @@ import {
   Skeleton,
   SortableHeader,
   type SortState,
+  Textarea,
   useConfirm,
 } from "../components.js";
 import { formatDate, formatTime, compareMoney, formatMoney, movementSign } from "../money.js";
@@ -60,6 +61,8 @@ const BULK_FIELDS = [
   { key: "toAccountId", label: "Destination account", clearable: true },
   { key: "amount", label: "Amount", clearable: true },
   { key: "categoryId", label: "Category", clearable: true },
+  { key: "description", label: "Description", clearable: true },
+  { key: "notes", label: "Notes", clearable: true },
 ] as const;
 
 type BulkField = (typeof BULK_FIELDS)[number]["key"];
@@ -152,6 +155,8 @@ export default function TemplatesPage() {
     toAccountId: "leave",
     amount: "leave",
     categoryId: "leave",
+    description: "leave",
+    notes: "leave",
   });
   const [values, setValues] = useState<Record<BulkField, string>>({
     type: "withdrawal",
@@ -160,6 +165,8 @@ export default function TemplatesPage() {
     toAccountId: "",
     amount: "",
     categoryId: "",
+    description: "",
+    notes: "",
   });
   const removal = useConfirm<TransactionTemplate>();
   const bulkRemoval = useConfirm<number>();
@@ -332,6 +339,8 @@ export default function TemplatesPage() {
       toAccountId: "leave",
       amount: "leave",
       categoryId: "leave",
+      description: "leave",
+      notes: "leave",
     });
     setValues({
       type: "withdrawal",
@@ -340,6 +349,8 @@ export default function TemplatesPage() {
       toAccountId: "",
       amount: "",
       categoryId: "",
+      description: "",
+      notes: "",
     });
   };
 
@@ -833,6 +844,17 @@ export default function TemplatesPage() {
                         </option>
                       ))}
                     </Select>
+                  ) : field.key === "notes" ? (
+                    <Textarea
+                      aria-label="New notes"
+                      rows={3}
+                      value={values.notes}
+                      disabled={action !== "set"}
+                      required={action === "set"}
+                      onChange={(event) =>
+                        setValues((current) => ({ ...current, notes: event.target.value }))
+                      }
+                    />
                   ) : (
                     <Input
                       aria-label={`New ${field.label.toLowerCase()}`}

@@ -83,6 +83,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
   // budgets in both and there is no total across them to fall back on.
   const [currency, setCurrency] = useState(session.preferences.defaultCurrency);
   const [activeFrom, setActiveFrom] = useState("");
+  const [activeTo, setActiveTo] = useState("");
   // Three fields and one checkbox, because they are one decision: what happens
   // to the difference at the end of a period. The words "envelope", "sinking
   // fund" and "rollover budget" appear nowhere — a budget is what it says it
@@ -100,7 +101,9 @@ export default function BudgetsPage({ session }: { session: Session }) {
   const remove = useConfirm<BudgetPlan>();
   const [editing, setEditing] = useState<BudgetPlan | null>(null);
   const [override, setOverride] = useState<{
-    categoryId: string;
+    // A category, or a group that holds a budget of its own. A group budgeted
+    // as its categories added up has nothing to override, and offers nothing.
+    target: { categoryId: string } | { groupId: string };
     category: string;
     currency: string;
     periodStart: string;
@@ -111,6 +114,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
   const [editActiveTo, setEditActiveTo] = useState("");
   const [editRollover, setEditRollover] = useState(false);
   const [editRolloverCap, setEditRolloverCap] = useState("");
+  const [editPriority, setEditPriority] = useState("");
 
   /**
    * Four fields of the report this page deliberately does not render, named
@@ -198,6 +202,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
           currency,
           periodUnit,
           activeFrom,
+          ...(activeTo !== "" ? { activeTo } : {}),
           rollover,
           ...(rollover && rolloverCap !== "" ? { rolloverCap } : {}),
           ...(targetAmount !== "" ? { targetAmount, targetDate } : {}),
@@ -219,6 +224,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
       );
       setTarget("");
       setAmount("");
+      setActiveTo("");
       // Everything that decides what kind of budget this is, because the next
       // one is a different budget. A checkbox that survived the create made the
       // one after it carry silently.
@@ -247,6 +253,12 @@ export default function BudgetsPage({ session }: { session: Session }) {
           // Same three-way patch, and the same reason: a cap somebody cleared
           // has to travel as null or the old one stays.
           rolloverCap: editRollover && editRolloverCap !== "" ? editRolloverCap : null,
+          // Blank is unranked, which is zero rather than absent: absent would
+          // leave a rank somebody had just cleared in place. Category budgets
+          // only, as on the create form, because a group's rank is never read.
+          ...(plan.categoryId === null
+            ? {}
+            : { priority: editPriority === "" ? 0 : Number(editPriority) }),
           expectedVersion: plan.version,
         }),
         method: "PUT",
@@ -263,7 +275,9 @@ export default function BudgetsPage({ session }: { session: Session }) {
     mutationFn: () =>
       api<BudgetEntry>("/api/v1/budget-entries", {
         ...json({
-          categoryId: override!.categoryId,
+          ...("groupId" in override!.target
+            ? { groupId: override!.target.groupId }
+            : { categoryId: override!.target.categoryId }),
           currency: override!.currency,
           periodUnit,
           periodStart: override!.periodStart,
@@ -350,14 +364,45 @@ export default function BudgetsPage({ session }: { session: Session }) {
     (category) => category.kind !== "income" && !category.archivedAt,
   );
 
-  const entryFor = (categoryId: string | null, currency: string, periodStart: string) =>
+  const entryFor = (
+    target: { categoryId: string } | { groupId: string },
+    currency: string,
+    periodStart: string,
+  ) =>
     (entries.data ?? []).find(
       (entry) =>
-        entry.categoryId === categoryId &&
+        ("groupId" in target
+          ? entry.groupId === target.groupId
+          : entry.categoryId === target.categoryId) &&
         entry.currency === currency &&
         entry.periodUnit === periodUnit &&
         entry.periodStart === periodStart,
     ) ?? null;
+
+  /**
+   * The one-period dialog, opened on whatever row asked for it.
+   *
+   * A group that holds a budget of its own is overridden the way a category
+   * is; the tool always could, and the page offered it only on category rows,
+   * so an agent had a move its owner did not.
+   */
+  const openOverride = (
+    target: { categoryId: string } | { groupId: string },
+    name: string,
+    period: { currency: string; periodStart: string },
+    limit: string | null,
+  ) => {
+    const existing = entryFor(target, period.currency, period.periodStart);
+    setError("");
+    setOverride({
+      target,
+      category: name,
+      currency: period.currency,
+      periodStart: period.periodStart,
+      existing,
+    });
+    setOverrideAmount(existing?.amount ?? limit ?? "");
+  };
 
   // A budget can only ever be compared against spending in a currency this
   // ledger actually holds, so those are the only ones offered. Free text let
@@ -560,6 +605,16 @@ export default function BudgetsPage({ session }: { session: Session }) {
               onChange={(event) => setActiveFrom(event.target.value)}
             />
           </Field>
+          {/* An agent could set a budget with an end and a person had to set it
+              and then edit it, which is the same budget reached in two steps
+              and a field only the tool offered. */}
+          <Field label="Ends after" optional hint="Leave blank to keep running.">
+            <Input
+              type="date"
+              value={activeTo}
+              onChange={(event) => setActiveTo(event.target.value)}
+            />
+          </Field>
           <Field label="Saving up for" optional>
             <Input
               inputMode="decimal"
@@ -744,6 +799,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
                           setEditRolloverCap(
                             plan.rolloverCap ? amountForInput(plan.rolloverCap, plan.currency) : "",
                           );
+                          setEditPriority(plan.priority === 0 ? "" : String(plan.priority));
                         }}
                       >
                         <Pencil size={16} />
@@ -838,7 +894,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
                 Carry what is left over into the next {unitNoun[editing?.periodUnit ?? periodUnit]}
               </label>
               {editRollover ? (
-                <Field label="Most to carry" hint="Leave blank for no limit.">
+                <Field label="Most to carry" optional hint="Leave blank for no limit.">
                   <Input
                     inputMode="decimal"
                     value={editRolloverCap}
@@ -848,7 +904,21 @@ export default function BudgetsPage({ session }: { session: Session }) {
               ) : null}
             </>
           )}
-          <Field label="Ends after" hint="Leave blank to keep running.">
+          {editing?.categoryId == null ? null : (
+            <Field
+              label="Funded first"
+              optional
+              hint="Lower goes first when a period's income will not cover everything. Leave blank for unranked, which is funded last."
+            >
+              <Input
+                inputMode="numeric"
+                value={editPriority}
+                onChange={(event) => setEditPriority(event.target.value)}
+                placeholder="1"
+              />
+            </Field>
+          )}
+          <Field label="Ends after" optional hint="Leave blank to keep running.">
             <Input
               type="date"
               value={editActiveTo}
@@ -1100,6 +1170,9 @@ export default function BudgetsPage({ session }: { session: Session }) {
                         <th scope="col" className="align-right">
                           Remaining
                         </th>
+                        <th scope="col">
+                          <span className="sr-only">Actions</span>
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1110,6 +1183,12 @@ export default function BudgetsPage({ session }: { session: Session }) {
                             <Badge tone="neutral">
                               {group.policy === "sum_of_children" ? "Adds up" : "Own budget"}
                             </Badge>
+                            {group.source === "entry" ? (
+                              <>
+                                {" "}
+                                <Badge tone="neutral">This {unitNoun[periodUnit]} only</Badge>
+                              </>
+                            ) : null}
                           </th>
                           <td className="align-right money">
                             {group.limit === null ? "—" : formatMoney(group.limit, period.currency)}
@@ -1134,6 +1213,28 @@ export default function BudgetsPage({ session }: { session: Session }) {
                             {group.remaining === null
                               ? "—"
                               : formatMoney(group.remaining, period.currency)}
+                          </td>
+                          <td className="align-right">
+                            {/* Only a group with a budget of its own has an
+                                amount to override; one that adds up its
+                                categories is overridden through them. */}
+                            {group.policy === "sum_of_children" ? null : (
+                              <Button
+                                variant="ghost"
+                                onClick={() =>
+                                  openOverride(
+                                    { groupId: group.groupId },
+                                    group.name,
+                                    period,
+                                    group.limit,
+                                  )
+                                }
+                              >
+                                {group.source === "entry"
+                                  ? "Change this " + unitNoun[periodUnit]
+                                  : "Just this " + unitNoun[periodUnit]}
+                              </Button>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -1275,22 +1376,14 @@ export default function BudgetsPage({ session }: { session: Session }) {
                             {row.categoryId === null ? null : (
                               <Button
                                 variant="ghost"
-                                onClick={() => {
-                                  const existing = entryFor(
-                                    row.categoryId,
-                                    period.currency,
-                                    period.periodStart,
-                                  );
-                                  setError("");
-                                  setOverride({
-                                    categoryId: row.categoryId!,
-                                    category: row.category,
-                                    currency: period.currency,
-                                    periodStart: period.periodStart,
-                                    existing,
-                                  });
-                                  setOverrideAmount(existing?.amount ?? row.limit ?? "");
-                                }}
+                                onClick={() =>
+                                  openOverride(
+                                    { categoryId: row.categoryId! },
+                                    row.category,
+                                    period,
+                                    row.limit,
+                                  )
+                                }
                               >
                                 {row.source === "entry"
                                   ? "Change this " + unitNoun[periodUnit]

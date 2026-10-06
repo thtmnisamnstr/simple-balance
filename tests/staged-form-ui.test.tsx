@@ -106,6 +106,39 @@ describe("a staged row filed by category name", () => {
     );
   };
 
+  /**
+   * The row as it arrived, which `list_staged_transactions` always returned to
+   * an agent and the browser never showed a person. A recurrence's name is the
+   * one key left out, because the row already says which recurrence made it.
+   */
+  it("shows what the row was read from, as text", () => {
+    renderStaged(
+      {
+        ...namedStage,
+        rawData: {
+          Description: "ACME*STORE 1234 <b>bold</b>",
+          Amount: "-12.34",
+          recurrence: {
+            recurrenceId: "44444444-4444-4444-8444-444444444444",
+            recurrenceName: "Rent",
+            occurrenceDate: "2026-07-01",
+          },
+        },
+      },
+      () => undefined,
+    );
+    const arrived = screen.getByRole("region", { name: "As it arrived" });
+    expect(arrived).toHaveTextContent("DescriptionACME*STORE 1234 <b>bold</b>");
+    expect(arrived).toHaveTextContent("Amount-12.34");
+    expect(arrived).not.toHaveTextContent("Rent");
+    expect(arrived.querySelector("b")).toBeNull();
+  });
+
+  it("shows no such section for a row that arrived with nothing", () => {
+    renderStaged(namedStage, () => undefined);
+    expect(screen.queryByRole("region", { name: "As it arrived" })).toBeNull();
+  });
+
   it("shows the name in the picker", () => {
     renderStaged(namedStage, () => undefined);
     expect(screen.getByPlaceholderText("Type to search or add")).toHaveValue("Groceries");

@@ -636,7 +636,7 @@ Three mechanisms, and they are deliberately not the same strictness:
    (`stagedDuplicateKey`, `src/server/services/transactions.ts:2684-2732`).
 2. **The advisory badge.** The queue also looks for a committed transaction of
    the same type, account and amount within `LIKELY_DUPLICATE_DAYS`, which is
-   three (`src/shared/domain.ts:1391`, `src/server/services/staging.ts:592-668`).
+   three (`src/shared/domain.ts:1416`, `src/server/services/staging.ts:592-668`).
    The payee is ignored outright and the date gets three days of latitude, on
    purpose: the bank posts when it settles rather than when the card was swiped,
    and it names the merchant its own way. This decides nothing. It opens a
@@ -727,7 +727,7 @@ panel are given the same number for the same fault.
 Blank lines are skipped before anything is counted, so an interior blank leaves
 the number one low; a trailing blank, which is the common case, comes after
 everything it could shift. Nothing else numbers a row at all: the queue shows no
-position (`src/client/pages/StagingPage.tsx:1027-1076`) and a staged row stores no
+position (`src/client/pages/StagingPage.tsx:1037-1086`) and a staged row stores no
 source row number (`src/server/db/schema.ts:778-890`), so a queue entry is
 traceable to a line only through its `raw_data`.
 
@@ -791,7 +791,7 @@ import that stages more than one action can clear is a cap doing damage."
 
 `DEFAULT_CSV_MAX_ROWS` is `MAX_BULK_SELECTION_ENTRIES`, by construction rather
 than by coincidence (`src/server/config-limits.ts:13`,
-`src/shared/domain.ts:1286`). `CSV_MAX_ROWS` may lower it; raising it past the
+`src/shared/domain.ts:1305`). `CSV_MAX_ROWS` may lower it; raising it past the
 bulk cap only moves the refusal further along, so the configuration ceiling is
 the same number.
 

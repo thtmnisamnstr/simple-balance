@@ -327,7 +327,9 @@ export const stagedTransactionResultSchema = z
     validationIssues: z.array(validationIssueSchema),
     duplicateOfId: uuidSchema
       .nullable()
-      .describe("A committed transaction this row was matched against on import, or null."),
+      .describe(
+        "A committed transaction this row repeats exactly, or null. Worked out whenever the row is written, whoever proposed it — an import, a recurrence, an agent or an edit — and it is the strict match: committing the row is refused with DUPLICATE unless allowDuplicates is sent.",
+      ),
     // Nullable because null means "not worked out", not "no": only the list
     // query compares a row against the rest of the queue, so every other tool
     // returns null here. Declaring it as a plain boolean would make those

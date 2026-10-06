@@ -133,7 +133,7 @@ produce refusals, is where the label itself is checked.
 ### 1.7 Instrument the seam, not the call sites
 
 **House.** Seventy-seven tools are timed and counted by wrapping `registerTool`
-once (`src/server/mcp.ts:624`), and every HTTP request by one middleware
+once (`src/server/mcp.ts:626`), and every HTTP request by one middleware
 mounted above everything, including the guards (`src/server/api.ts:280`). Both
 are chosen so a tool or a route added tomorrow is instrumented by existing
 rather than by somebody remembering.
@@ -382,7 +382,7 @@ deliberately leaves out:
   (`src/server/api.ts:305`) and never the query string, because a filter carries
   payees and search terms.
 - **An MCP tool call** logs the tool name and the outcome
-  (`src/server/mcp.ts:651`) and never the arguments, which are somebody's ledger
+  (`src/server/mcp.ts:653`) and never the arguments, which are somebody's ledger
   by definition.
 - **A message** logs `message.about` — "the password reset", "the reminder" —
   and never the recipient or the subject (`src/server/mail.ts:174`, `:179`), and

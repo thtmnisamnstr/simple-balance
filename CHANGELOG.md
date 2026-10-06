@@ -143,6 +143,34 @@ tell whoever runs the server if it keeps happening. An agent refused for
 missing a scope is told which scope and to ask the person to reconnect, rather
 than "Forbidden".
 
+**What an agent could do, a person can now do too.** Six things were
+reachable only through the MCP: overriding one month of a group's own budget,
+reading the activity history past its latest hundred entries, seeing the row a
+staged transaction was read from, setting a description or notes across
+several templates at once, giving a budget an end date when it is created, and
+changing a budget's funding order after it is created. Each now has its place
+in the app — a "Just this month" button on a group row that holds its own
+budget, "Show older activity" at the foot of the history, an "As it arrived"
+section on a staged row's form, two more fields in the template mass edit, and
+an "Ends after" and a "Funded first" field on the two budget forms.
+
+**An agent is no longer told that deleting can be undone.** The instructions
+every agent reads said deleting was a reversal that could be undone, which is
+true of a transaction and of nothing else: a deleted account, category, group,
+budget, template, recurrence or staged row is gone. They now say which, and
+each of those delete tools says there is no undo and to confirm first.
+Deleting a category also deletes its budgets, which its description now says,
+and editing an entry off the last use of a category removes that category,
+which the two transaction edit tools now say as the staged ones did.
+
+**Agent tool descriptions that were wrong.** `list_accounts` described another
+tool as doing something it does not; a report's bucket offered a `day` that
+does not exist and a default that is not the one used; a staged split leg was
+described with a field name that can never commit; the forecast described two
+of its three bases; a merge undersold what it moves and did not say when it is
+refused; and an amount that must be positive published a pattern allowing a
+minus sign.
+
 **An export that is too large says so in the app.** Exporting more than a
 hundred thousand transactions is refused with a sentence saying to export one
 date range at a time, and the Export button followed a link, so that sentence

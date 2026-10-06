@@ -637,6 +637,9 @@ function ConnectedApps() {
         ...json({}),
         method: "DELETE",
       }),
+    // `revokedTokenCount` goes unread: how many tokens an authorization had
+    // issued is the server's bookkeeping, and what a person asked is whether
+    // the agent is gone, which the list read again here answers.
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["connected-apps"] });
     },

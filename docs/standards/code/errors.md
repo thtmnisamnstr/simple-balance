@@ -68,10 +68,10 @@ from a session and never from a token, which is exactly the pair `AGENTS.md`
 names as the boundary between the surfaces.
 
 **The type is not what keeps them out, and believing it is would mislead.**
-Both are in `serviceErrorCodes` already (`src/shared/domain.ts:2626-2636`),
+Both are in `serviceErrorCodes` already (`src/shared/domain.ts:2662-2672`),
 which is why `new AppError("FORBIDDEN", …)` type-checks anywhere at all; what
 `ServiceErrorCode` narrows against is the transport list beside it
-(`src/shared/domain.ts:2648-2665`), and neither of these is in that. So the
+(`src/shared/domain.ts:2684-2701`), and neither of these is in that. So the
 reason there is no sixth constructor is an argument rather than a compiler
 error, and it has to be made rather than assumed: a constructor is an
 invitation, and what it would invite is a service raising
@@ -337,7 +337,7 @@ has to be told *when* to blame it: a plan already held and a plan set to end
 are disabled on their own account, so the tab offers the grant's sentence only
 where `planChangeTakesEffect` says the press would have spent money, which is
 the same line the route draws with `sellsSomething`.
-`frozenAccountRefusal` (`src/shared/domain.ts:3904`) is thrown by
+`frozenAccountRefusal` (`src/shared/domain.ts:3944`) is thrown by
 `assertAccountsWritable` (`src/server/services/accounts.ts:852`) and is the
 reason an account card's **Edit**, **Archive** and **Delete** now carry, and a
 transaction row's **Edit**, **Delete** and **Restore** with them.
@@ -413,7 +413,7 @@ unusable (missing keys, wrong types), never what makes a row ugly: ugliness is
 the row's own issue list's job.
 
 *Checked by:* `human`. The instance is pinned where it bit
-(`src/shared/domain.ts:1173-1178`, the comment on `payeeSummarySchema.name`).
+(`src/shared/domain.ts:1192-1197`, the comment on `payeeSummarySchema.name`).
 
 ## 5. What is not enforced
 

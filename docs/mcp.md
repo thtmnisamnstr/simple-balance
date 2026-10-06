@@ -96,10 +96,15 @@ call again.
 Money is always a decimal string, never a JSON number, because binary floating
 point cannot hold these values exactly. Dates are `YYYY-MM-DD`. Writes take an
 idempotency key you choose: send the same key again and you get the original
-result back rather than a second transaction. Fields carry descriptions, so an
-agent reading the schema learns the conventions that matter, including the one
-that trips people up: a credit card or loan opens at a negative balance,
-because that is money owed.
+result back rather than a second transaction, for as long as the deployment
+keeps the record. That is for good unless an operator sets
+`IDEMPOTENCY_RETENTION_HOURS`, and a retry after the window does the work
+again; most writes are then refused by something else — a duplicate, a row
+already committed, a stale selection — but a staged create is not.
+
+Fields carry descriptions, so an agent reading the schema learns the
+conventions that matter, including the one that trips people up: a credit card
+or loan opens at a negative balance, because that is money owed.
 
 ## Accounts
 
@@ -239,8 +244,10 @@ calls; each stands or falls on its own.
 
 Pass `dryRun: true` to `bulk_edit_transactions`, `bulk_delete_transactions`,
 `bulk_edit_staged_transactions`, `bulk_edit_transaction_templates`,
-`bulk_delete_transaction_templates`, `stage_csv`, or `commit_staged_transactions`
-to find out what a change would do without doing it.
+`bulk_delete_transaction_templates`, `delete_staged_transactions`, `stage_csv`,
+or `commit_staged_transactions` to find out what a change would do without doing
+it. A dry run stores nothing under its `idempotencyKey`, so the real call can
+reuse the key you previewed with.
 
 ## Paging and ordering
 
@@ -751,8 +758,9 @@ afterward.
 `list_audit_events` reports what was done to this ledger, by whom, and through
 what: `actorSource` is `web`, `mcp`, or `schedule`, and `clientId` names the
 agent when it was one. It pages forward by cursor only: no page number, no
-total count, and no `sort` or `direction`. Sending those does not fail, it is
-simply ignored, so a request for page two comes back as page one.
+total count, and no `sort` or `direction`. Sending `page`, `sort` or
+`direction` is refused as an argument the tool does not take, and the error
+names it.
 
 This is how an agent checks its own work, and how a person sees an agent's.
 Every write goes in, including the ones a scheduler makes on its own, so a row
@@ -786,9 +794,12 @@ in order to explain a refusal it meets is the plan, its limit and how much of it
 is used, and `whoami` carries all three.
 
 Everything else the browser can do, an agent can do. A test compares the two
-surfaces route by route and fails if a capability lands on one without reaching
-the other, so this list is the whole of it rather than the part somebody
-remembered to write down.
+surfaces route by route, and by method, and fails if a capability lands on one
+without reaching the other, so this list is the whole of it rather than the part
+somebody remembered to write down. Five reads go the other way — a transaction,
+a staged row, a recurrence and a budget plan by id, and the staged selection
+preview — because the browser already holds what it is reading from the list it
+opened it from.
 
 ## Revoking access
 

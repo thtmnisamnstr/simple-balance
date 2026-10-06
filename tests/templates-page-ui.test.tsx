@@ -263,6 +263,32 @@ describe("the templates screen", () => {
     expect("categoryId" in patch).toBe(false);
   });
 
+  /**
+   * The two fields the agent's tool always took and this panel did not. The
+   * parity register carried them as "declared rather than argued" — a gap with
+   * nothing behind it but that nobody had added the controls.
+   */
+  it("sets a description and notes across the selection", async () => {
+    const posts = stubApi([rent, coffee]);
+    await renderPage([rent, coffee]);
+
+    fireEvent.click(screen.getByLabelText("Select Rent"));
+    fireEvent.click(screen.getByLabelText("Select Coffee"));
+    fireEvent.click(screen.getByRole("button", { name: /Edit selected/ }));
+    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "set" } });
+    fireEvent.change(screen.getByLabelText("New description"), {
+      target: { value: "Monthly" },
+    });
+    fireEvent.change(screen.getByLabelText("Notes"), { target: { value: "clear" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect((posts[0]!.body as { patch: unknown }).patch).toEqual({
+      description: "Monthly",
+      notes: null,
+    });
+  });
+
   it("will not offer a source account when a deposit is selected", async () => {
     stubApi([rent, salary]);
     await renderPage([rent, salary]);

@@ -359,6 +359,12 @@ export default function StagingPage() {
       bulkCommitKeys.current.clear();
       // Counted before the selection is emptied, and said out loud, because
       // the bar that held the button has gone by the time this renders.
+      //
+      // Counted from the selection rather than read off the reply, which is
+      // why the reply's per-row halves go unread (`web.md` 11.9): a delete's
+      // `deletedIds` and a commit's `committed[].stagedId` each name exactly
+      // the rows selected, since both are all-or-nothing, and the queue is
+      // read again below, which is where each row's absence is shown.
       const rows = selectedRows.length;
       setBulkOutcome(
         `${rows.toLocaleString()} staged ${rows === 1 ? "row" : "rows"} ${
@@ -450,6 +456,10 @@ export default function StagingPage() {
       setBulkEditing(false);
       setBulkEditKey(null);
       setSelected(new Map());
+      // The counts, not the rows. The reply's `items` carry each row's
+      // `issueCount` and `possiblyDuplicate`, and the queue read again below
+      // shows both on the row itself — its issues and its duplicate badge —
+      // which is where somebody looks for them rather than in a sentence.
       setBulkEditNotice(
         `${result.updatedCount} staged row${
           result.updatedCount === 1 ? "" : "s"

@@ -544,9 +544,82 @@ describe("what an agent can reach compared with the browser", () => {
  * writes a URL: a literal up to the first parameter, then a template.
  */
 const AGENT_ONLY: Record<string, string> = {
+  // The four reads by id. Each passed this check for as long as it matched on
+  // the path alone, behind the edit form that sends a PUT to the same URL; the
+  // check is method-aware now and they are named instead.
+  "GET /api/v1/transactions/:id":
+    "Every page that shows or edits an entry already holds it from the list it was opened from, so the browser never reads one by id. An agent meets ids with no list behind them — a staged row's duplicateOfId, an audit event's entityId — and get_transaction reads the record they name.",
+  "GET /api/v1/staged-transactions/:id":
+    "The staged queue holds every row it shows from the list it fetched, and the duplicate review has its own route. An agent holding a staged id from a DUPLICATE refusal's details has no other way to read that row.",
+  "GET /api/v1/recurrences/:id":
+    "The Recurring page fetches the whole list, which is capped, and edits from it. An agent holding the recurrenceId a staged row carries reads the recurrence that proposed it here.",
+  "GET /api/v1/budget-plans/:id":
+    "The budgets page fetches every plan at once and edits from that list. An agent given one plan's id reads that plan here rather than listing them all to find it.",
   "POST /api/v1/staged-transactions/bulk-selection":
     "Staged commits and deletes are explicit-ID, so the page walks the pages and keeps the rows rather than handing the server a filter, and says so at StagingPage.tsx. The route exists for preview_bulk_staged_selection, where an agent has no pages to walk.",
 };
+
+/**
+ * The method each call in the browser makes, read off the call itself.
+ *
+ * The path alone is not a route: `GET /api/v1/transactions/:id` passed for as
+ * long as anything sent a `PUT` to the same path, and four agent-only reads
+ * hid that way behind the edit forms that share their URL. So each place the
+ * path appears is followed out to the call it sits in, and the method is what
+ * that call says — a `method:` it names, `json(…)` for the POST that helper
+ * makes, and otherwise the GET `fetch` defaults to.
+ */
+function callMethods(client: string, pattern: RegExp): Set<string> {
+  const methods = new Set<string>();
+  const global = new RegExp(pattern.source, "g");
+  for (const match of client.matchAll(global)) {
+    // Back to the `(` that opens the call holding this URL, then forward to the
+    // `)` that closes it, skipping over strings and template holes both ways
+    // is not needed backwards: the URL is the call's first argument.
+    const open = client.lastIndexOf("(", match.index);
+    let depth = 0;
+    let end = open;
+    const stack: string[] = [];
+    for (let index = open; index < client.length; index++) {
+      const character = client[index]!;
+      const top = stack.at(-1);
+      if (top === '"' || top === "'") {
+        if (character === "\\") index++;
+        else if (character === top) stack.pop();
+        continue;
+      }
+      if (top === "`") {
+        if (character === "\\") index++;
+        else if (character === "`") stack.pop();
+        else if (character === "$" && client[index + 1] === "{") {
+          stack.push("{");
+          index++;
+        }
+        continue;
+      }
+      if (character === '"' || character === "'" || character === "`") stack.push(character);
+      else if (character === "{") stack.push("{");
+      else if (character === "}") stack.pop();
+      else if (character === "(") depth++;
+      else if (character === ")" && --depth === 0) {
+        end = index;
+        break;
+      }
+    }
+    let call = client.slice(open, end + 1);
+    // A request built beforehand and passed by name — the import page builds
+    // one body for its plain call and its streamed one — is read where it was
+    // built, the nearest `const` of that name before the call.
+    const named = /,\s*(\w+)\s*[,)]/.exec(call.slice(match[0].length + 1));
+    if (named && !/method:|\bjson\(/.test(call)) {
+      const built = client.lastIndexOf(`const ${named[1]} = `, match.index);
+      if (built !== -1) call += client.slice(built, client.indexOf(";", built));
+    }
+    const method = /method:\s*"([A-Z]+)"/.exec(call);
+    methods.add(method ? method[1]! : /\bjson\(/.test(call) ? "POST" : "GET");
+  }
+  return methods;
+}
 
 async function clientSource() {
   const root = new URL("../src/client/", import.meta.url);
@@ -587,10 +660,17 @@ describe("what the browser can reach compared with an agent", () => {
               ? "\\$\\{[^}`]*\\}"
               : segment.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&"),
           )
-          .join("/"),
+          .join("/") +
+          // The path ends here — at the string's end, a query, or a template hole
+          // that writes one: `/staged-transactions/${id}` is not called by a
+          // page that fetches `/staged-transactions/${id}/duplicate`.
+          "(?=[`\"'?$])",
       );
+      const method = route.slice(0, route.indexOf(" "));
       if (!pattern.test(client)) {
         unreachable.push(`${route} — no call in src/client`);
+      } else if (!callMethods(client, pattern).has(method)) {
+        unreachable.push(`${route} — src/client calls the path, never with ${method}`);
       }
     }
     expect(unreachable).toEqual([]);
@@ -742,9 +822,35 @@ describe("what the browser can reach compared with an agent", () => {
       }
       // `...(condition ? { expectedVersion } : {})` is a field the form really
       // sends, and reading only the head of the chunk saw a dot and took
-      // nothing — so a conditional spread is read for every key inside it.
+      // nothing — so a conditional spread is read for every key of every object
+      // literal inside it. Shorthand included: this read only `key:` pairs, so
+      // `{ rolloverCap }` and `{ targetAmount, targetDate }` were invisible
+      // while the comment above said the shorthand case was the one handled.
       if (trimmed.startsWith("...")) {
-        for (const key of trimmed.matchAll(/\b([A-Za-z_$][\w$]*)\s*:/g)) fields.add(key[1]!);
+        let depth = 0;
+        let member = "";
+        for (const character of trimmed) {
+          if (character === "{") {
+            depth += 1;
+            if (depth === 1) {
+              member = "";
+              continue;
+            }
+          } else if (character === "}") {
+            depth -= 1;
+            if (depth === 0) {
+              const key = /^\s*([A-Za-z_$][\w$]*)/.exec(member);
+              if (key) fields.add(key[1]!);
+              continue;
+            }
+          } else if (character === "," && depth === 1) {
+            const key = /^\s*([A-Za-z_$][\w$]*)/.exec(member);
+            if (key) fields.add(key[1]!);
+            member = "";
+            continue;
+          }
+          if (depth >= 1) member += character;
+        }
         return;
       }
       const key = /^([A-Za-z_$][\w$]*)/.exec(trimmed);
@@ -817,8 +923,13 @@ describe("what the browser can reach compared with an agent", () => {
    *
    * The direction is the one the rule cares about: every field a TOOL writes
    * has to be reachable from the form that writes the same record. The other
-   * way round is not a defect — a page may send a field no tool declares only
-   * by sending a field the route refuses, which fails at the server.
+   * way round is the browser holding something an agent cannot, and the one
+   * field that does it is argued in `AGENTS.md`: `ifUnchosen`, which the
+   * preferences route accepts and no tool declares, because it carries a guess
+   * from a browser's locale and an agent has no locale to be tentative about.
+   * Nothing here checks that direction, so a second such field needs the same
+   * kind of argument written beside it; this comment used to say the route
+   * would refuse one, which `ifUnchosen` itself disproves.
    */
   type WrittenForm = {
     /** What the reader calls this form. */
@@ -886,10 +997,6 @@ describe("what the browser can reach compared with an agent", () => {
         legs: "A split. Setting one division of money across many templates is the mirror of flattening a split into one category in bulk, which AGENTS.md forbids on transactions for the same reason: the division is per row, and no single value stands for all of them.",
         categoryName:
           "Naming a category that may not exist creates one, which is a change to the ledger's own records and needs ledger:write wherever it is reached from. This panel picks from the categories it has already loaded; a new one is made where the form can ask which kind it is.",
-        description:
-          "Declared rather than argued. The register's and the staged queue's mass edits both offer this through `bulkEditFields` and this panel does not, so the only thing separating them is that nobody added it. Named here so the gap is visible to whoever reads this next, instead of being rediscovered by hand a third time.",
-        notes:
-          "The other half of the same gap, and the same declaration: `bulkEditFields` offers notes on both of the other mass-edit panels. Neither this nor `description` has an argument behind it — they are recorded so closing them is a decision somebody takes rather than a discovery somebody repeats.",
       },
     },
     {
@@ -898,10 +1005,15 @@ describe("what the browser can reach compared with an agent", () => {
       at: [],
       file: "src/client/pages/BudgetsPage.tsx",
       writes: "setEntry",
-      unoffered: {
-        groupId:
-          "The override opens from a category row and carries that row's `categoryId`; a group row renders no button at all, because the page reports a group as a subtotal of the categories beside it and says so where `priority` is left off a group. Overriding a group is overriding the categories under it.",
-      },
+      unoffered: {},
+    },
+    {
+      what: "setting a standing budget",
+      tool: "create_budget_plan",
+      at: [],
+      file: "src/client/pages/BudgetsPage.tsx",
+      writes: "createPlan",
+      unoffered: {},
     },
     {
       what: "editing a standing budget",
@@ -922,8 +1034,6 @@ describe("what the browser can reach compared with an agent", () => {
           "The same for an incremental plan: the percentage is what makes it incremental, so changing it here would change the kind of budget rather than its amount.",
         percentOfIncome:
           "And the same for a percent-of-income plan, whose sentence in the dialog says there is nothing here to type precisely because the parameter is the method.",
-        priority:
-          "Declared rather than argued. The funding order is set when the budget is created and shown afterward as a badge, so changing it today means deleting the plan and making it again. Named here because it is the one field in this group that is not a choice of method, and nothing but the absence of a control keeps it out.",
       },
     },
   ];

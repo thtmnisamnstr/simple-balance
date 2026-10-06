@@ -210,7 +210,7 @@ thing they ever see:
 
 One `eslint` rule is off. **`no-control-regex`** flags a regular expression that
 matches control characters, and all four sites here exist *to reject* them: two
-sanitize user input (`src/shared/domain.ts:333-334`), one is the CSV-injection
+sanitize user input (`src/shared/domain.ts:350-351`), one is the CSV-injection
 defense (`src/shared/csv.ts:513`), and one scrubs a CSP report before it reaches
 the log (`src/server/api.ts:1268`), where the body is attacker-controlled and a
 newline would let one report write several log lines with a forged error among
@@ -291,7 +291,7 @@ in the same breath, which reads as one toolchain over one tree.
 format check today: `scripts/capacity/load.mjs`, `scripts/capacity/schedule.mjs`,
 `scripts/ralph/git-guard.mjs`, `scripts/ralph/runner.mjs`, and
 `scripts/set-version.mjs` — the tool the release procedure runs first
-(`docs/upgrades.md:1366`). The infrastructure half is the reason nothing has
+(`docs/upgrades.md:1379`). The infrastructure half is the reason nothing has
 broken: all thirteen Pulumi modules happen to be clean, so the gap has stayed
 invisible while `npm run verify` went on passing. `typescript.md` §3.5 records
 the same gap from the other end, in the row of its comparison table that reads

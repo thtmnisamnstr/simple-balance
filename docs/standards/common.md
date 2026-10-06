@@ -289,7 +289,7 @@ table's sense, and whether the "Not" column is honest, stays review.
 | **Recurrence** | A saved shape and a schedule that proposes a staged row on its due date. | Something that posts. |
 | **Template** | A saved shape with no schedule. | A recurrence. |
 | **Plan** | What a sign-in is entitled to and billed for: free or paid. `plus` on the wire, **Premium** on screen. | A budget plan, which is always written out in full. |
-| **Entitlement** | What a plan permits, worked out from the plan and the moment rather than stored (`resolveEntitlement`, `src/shared/domain.ts:3478`). | A plan. An entitlement follows from one and changes with nobody present, which is why no column holds it. |
+| **Entitlement** | What a plan permits, worked out from the plan and the moment rather than stored (`resolveEntitlement`, `src/shared/domain.ts:3518`). | A plan. An entitlement follows from one and changes with nobody present, which is why no column holds it. |
 | **Frozen** | A live account a plan's limit leaves closed to every change to what it holds: fully readable, counted in every balance, summary and report, and still free to be archived, or deleted while nothing is on it. | Archived. An archived account already refuses writes, is outside the limit, and uses up no place. |
 | **Place** | One of the accounts a plan keeps usable; the product's word for the slot. | An account. A place opens up only when an account in use is archived or deleted. |
 
@@ -452,11 +452,11 @@ exception to.
 **House.** §Naming says a name is the same word on every surface, and names no
 exception. Six closed sets already read against that sentence:
 `accountTypeLabels` (`src/shared/domain.ts:53`), `PLAN_LABELS`
-(`src/shared/domain.ts:3392`), `categoryKindLabels`
+(`src/shared/domain.ts:3432`), `categoryKindLabels`
 (`src/client/select-options.ts:113`, which both category pages read),
 `transactionTypeLabels`
-(`src/client/pages/TemplatesPage.tsx:68`), and `ORDINAL_LABELS` and
-`FREQUENCY_LABELS` (`src/client/forms.tsx:2467`, `:2548`) for the two schedule
+(`src/client/pages/TemplatesPage.tsx:71`), and `ORDINAL_LABELS` and
+`FREQUENCY_LABELS` (`src/client/forms.tsx:2498`, `:2579`) for the two schedule
 pickers. In four of the six the label is a different *word* rather than the same
 word capitalized: `credit_card` reads Credit Card, `plus` reads Premium, `both`
 reads "Income or expense", and the ordinal `-1` reads Last.
@@ -483,7 +483,7 @@ only. There is no reverse lookup from a label to a wire value, because a label
 is not an identifier.
 
 **One gap is open and named here rather than implied.** `whoami` returns the
-plan as a bare wire value (`src/server/mcp-output-schemas.ts:678-679`) and its
+plan as a bare wire value (`src/server/mcp-output-schemas.ts:680-681`) and its
 description never says the screen reads a different word, so an agent explaining
 why a write was refused says "plus" about a product that sells Premium. That is
 the defect `AGENTS.md` records one level down from a route-by-route parity

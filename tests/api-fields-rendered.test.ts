@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { beforeAll, describe, expect, it } from "vitest";
+import { createMcpServer } from "../src/server/mcp.js";
 import {
   bulkStageEditResultSchema,
   bulkTransactionEditResultSchema,
@@ -26,6 +29,50 @@ import { sourceFiles, type SourceFile } from "./support/source.js";
  * declaration rather than in a list — the same shape as a named exception, with
  * the entry where the next reader meets it.
  */
+/**
+ * Every field name any result publishes, at any depth.
+ *
+ * The two populations below are what `api.ts` declares and six shared shapes'
+ * top-level keys, and both are the client's own account of what arrives. A
+ * field the client never declared was therefore never asked about, and neither
+ * was anything nested: a staged row's `committedTransactionId`, a bulk result's
+ * per-row `previousVersion`, a commit's `committed[].stagedId`. So the
+ * published result schemas are walked too. The two transports return the same
+ * service objects — `mcp-output-schemas.ts` is their published shape — so this
+ * is what the server says it sends, not what the browser expected to get.
+ */
+let published = new Map<string, string>();
+
+beforeAll(async () => {
+  const server = createMcpServer(
+    { userId: "fields", source: "mcp", clientId: "fields" },
+    new Set(["ledger:read", "ledger:stage", "ledger:write"]),
+  );
+  const client = new Client({ name: "fields", version: "1.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  const { tools } = await client.listTools();
+  await client.close();
+  await server.close();
+  const found = new Map<string, string>();
+  const walk = (node: unknown, tool: string): void => {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) return node.forEach((member) => walk(member, tool));
+    const schema = node as Record<string, unknown>;
+    const properties = schema["properties"] as Record<string, unknown> | undefined;
+    for (const [name, value] of Object.entries(properties ?? {})) {
+      if (!found.has(name)) found.set(name, tool);
+      walk(value, tool);
+    }
+    for (const key of ["items", "anyOf", "oneOf", "allOf", "additionalProperties"]) {
+      walk(schema[key], tool);
+    }
+  };
+  for (const tool of tools) walk(tool.outputSchema, tool.name);
+  published = found;
+});
+
 describe("every field the API sends", () => {
   const files = sourceFiles("src/client");
   const api = files.find((file) => file.path === "src/client/api.ts");
@@ -103,6 +150,7 @@ describe("every field the API sends", () => {
     for (const [name, schema] of Object.entries(RE_EXPORTED)) {
       for (const key of Object.keys(schema.shape)) if (!declared.has(key)) declared.set(key, name);
     }
+    for (const [name, tool] of published) if (!declared.has(name)) declared.set(name, tool);
 
     const mentioned = new Set<string>();
     const argued = new Set<string>();
@@ -121,6 +169,10 @@ describe("every field the API sends", () => {
     expect(declared.size).toBeGreaterThan(200);
     expect([...declared.keys()]).toContain("mergedSourcePayees");
     expect([...declared.keys()]).toContain("clientSecret");
+    // Nested, and declared nowhere in the client: the published half reached it.
+    expect(published.size).toBeGreaterThan(200);
+    expect([...declared.keys()]).toContain("committedTransactionId");
+    expect([...declared.keys()]).toContain("stagedId");
     expect(mentioned.size).toBeGreaterThan(1000);
     // And the blanking really blanked: a name that exists only as a field of an
     // `api.ts` type must not count as mentioned by its own declaration.

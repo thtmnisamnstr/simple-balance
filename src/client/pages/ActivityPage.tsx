@@ -1,8 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
+import { useRef } from "react";
 import { Bot, CalendarClock, History, Monitor } from "lucide-react";
 import type { ActorSource } from "../../shared/domain.js";
-import { api, type AuditEvent, type Page } from "../api.js";
-import { Alert, Badge, EmptyState, PageHeader, Skeleton } from "../components.js";
+import { api, queryString, type AuditEvent, type Page } from "../api.js";
+import { Alert, Badge, Button, EmptyState, PageHeader, Skeleton } from "../components.js";
 import { useTimezone } from "../timezone.js";
 import { formatTimestamp } from "../money.js";
 
@@ -125,26 +126,62 @@ export function activitySentence(
   return `${noun}${name ? ` “${name}”` : ""} ${verb}`;
 }
 
+/**
+ * A hundred at a time, and every one of them reachable.
+ *
+ * The page fetched the latest hundred once and said so, while
+ * `list_audit_events` took a cursor and could walk the whole history: an agent
+ * could read further back into somebody's own record than they could. The
+ * route always returned `nextCursor`, so this is the same walk the tool makes.
+ */
+const ACTIVITY_PAGE_SIZE = 100;
+
 export default function ActivityPage() {
   const timezone = useTimezone();
-  const events = useQuery({
+  const events = useInfiniteQuery({
     queryKey: ["audit-events"],
-    queryFn: () => api<Page<AuditEvent>>("/api/v1/audit-events?limit=100"),
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam, signal }) =>
+      api<Page<AuditEvent>>(
+        `/api/v1/audit-events?${queryString({
+          limit: String(ACTIVITY_PAGE_SIZE),
+          cursor: pageParam,
+        })}`,
+        { signal },
+      ),
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
   });
+  const items = events.data?.pages.flatMap((page) => page.items) ?? [];
+  // Where the rows a "Show older" press brings in begin. When that press was
+  // the last one there is, the button goes with them and focus would fall to
+  // `<body>` (`web.md` 13.3), so it lands on the first of them instead: where
+  // reading carries on, and where the next Tab starts from. While there is
+  // more, the button stays and keeps focus, and nothing moves.
+  const arriving = useRef<number | null>(null);
+  const hasOlder = events.hasNextPage;
   return (
     <>
       <PageHeader
         eyebrow="Security"
         title="Activity history"
-        description="Changes made here and by agents, kept in order and never rewritten. The hundred most recent are shown."
+        description="Changes made here and by agents, kept in order and never rewritten. Newest first, a hundred at a time."
       />
       {events.error ? <Alert>{events.error.message}</Alert> : null}
-      {events.data?.items.length ? (
+      {items.length ? (
         <section className="panel activity-list">
-          {events.data.items.map((event) => {
+          {items.map((event, index) => {
             const { Icon, tone, label } = actorPresentation(event.actorSource);
             return (
-              <div className="activity-row" key={event.id}>
+              <div
+                className="activity-row"
+                key={event.id}
+                tabIndex={-1}
+                ref={(row) => {
+                  if (!row || index !== arriving.current) return;
+                  arriving.current = null;
+                  if (!hasOlder) row.focus();
+                }}
+              >
                 <span className={`activity-icon ${event.actorSource}`}>
                   <Icon size={17} />
                 </span>
@@ -161,6 +198,23 @@ export default function ActivityPage() {
               </div>
             );
           })}
+          {/* At the list's foot, where a numbered list keeps its pages: the
+              same bar, so the two ways of reaching further back look like one
+              thing. */}
+          {hasOlder ? (
+            <div className="pagination">
+              <Button
+                variant="ghost"
+                loading={events.isFetchingNextPage}
+                onClick={() => {
+                  arriving.current = items.length;
+                  void events.fetchNextPage();
+                }}
+              >
+                Show older activity
+              </Button>
+            </div>
+          ) : null}
         </section>
       ) : events.isPending ? (
         <Skeleton height={120} label="Loading activity…" />

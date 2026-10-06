@@ -156,7 +156,7 @@ conformance.
 
 **Binding, and already met by accident of the schema.** A subject cannot contain
 CR or LF. Recurrence and template names go through `oneLine`
-(`src/shared/domain.ts:334-340`), which refuses every character
+(`src/shared/domain.ts:351-357`), which refuses every character
 from U+0000 to U+001F and U+007F, so header injection through a subject is
 closed at the schema rather than at the mailer. Worth writing down precisely because the
 defense is nowhere near the code it defends.
@@ -1094,7 +1094,7 @@ shutdown, is the slow half.** Migrations run at startup under advisory lock
 (`src/server/index.ts:28,78`; `src/server/scheduler.ts:73,101`), so readiness
 cannot open before they finish. The 0.1.5 notes record that the payee index
 "takes a moment to build while the container starts, before it opens readiness"
-(`docs/upgrades.md:1156-1158`). So the generous number is `--start-period`,
+(`docs/upgrades.md:1169-1171`). So the generous number is `--start-period`,
 currently 20s (`Dockerfile:58`), plus a Kubernetes startup probe. Not the
 shutdown deadline.
 

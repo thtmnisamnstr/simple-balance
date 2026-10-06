@@ -3098,8 +3098,45 @@ input[type="radio"] {
   border-bottom: 1px solid var(--line-soft);
 }
 
-.activity-row:last-child {
+/* A staged row's original cells, read-only under the form that edits the draft
+   read from them. Two columns so a heading and its cell read as one line, and
+   the cell wraps anywhere because a bank's reference is one unbroken word. */
+.arrived-as h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.arrived-as dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.arrived-as dl > div {
+  display: contents;
+}
+
+.arrived-as dt {
+  color: var(--muted);
+}
+
+.arrived-as dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.activity-row:last-child,
+.activity-row:has(+ .pagination) {
   border-bottom: 0;
+}
+
+/* "Show older activity" sits in the same bar a numbered list keeps its pages
+   in, inside a card that already insets its rows by 18px, so the bar's own
+   inline padding would push the button 16px further in than the rows. */
+.activity-list > .pagination {
+  padding-inline: 0;
 }
 
 .activity-icon {

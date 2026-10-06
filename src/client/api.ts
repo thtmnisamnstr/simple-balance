@@ -754,14 +754,27 @@ export type StagedTransaction = {
   importBatchId?: string | null;
   recurrenceId?: string | null;
   occurrenceDate?: string | null;
-  rawData?: {
-    recurrence?: {
-      recurrenceId: string;
-      recurrenceName: string;
-      occurrenceDate: string;
-    };
-  } | null;
+  /**
+   * The row as it arrived: a CSV line's cells by heading, whatever an agent
+   * proposing the row attached, or a recurrence's name. Shown on the staged
+   * row's form as it arrived; nothing reads it back into the entry.
+   */
+  rawData?:
+    | (Record<string, unknown> & {
+        recurrence?: {
+          recurrenceId: string;
+          recurrenceName: string;
+          occurrenceDate: string;
+        };
+      })
+    | null;
   version: number;
+  /**
+   * Always `staged` on any row this client reads: the queue lists only rows
+   * still waiting, so `committedTransactionId` — the transaction a committed
+   * row became — is not declared here. It answers a question about a row that
+   * has left the queue, which only an agent reading one by id can be holding.
+   */
   status: StagedStatus;
   createdAt: string;
 };
@@ -1015,6 +1028,12 @@ export type AuditEvent = {
 // than keeping a second copy of either that can drift.
 export type { CsvPreview, CsvSampleRow } from "../shared/csv.js";
 
+/**
+ * `cursorAvailable` is never read in the browser. Both lists that carry it draw
+ * page numbers, so whether an ordering could be resumed with a cursor is a
+ * question this client never asks; an agent walking a list asks it on every
+ * page.
+ */
 export type { PaginatedPage, Page };
 
 export type BudgetPeriodUnitName = BudgetPeriodUnit;

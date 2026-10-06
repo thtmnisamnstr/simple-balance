@@ -99,6 +99,19 @@ and the next `up` makes the key.
 - **`Accept: text/event-stream;q=0` gets JSON.** 0.2.0 sent frames to any
   `Accept` containing the type; a weight of zero now means no, as RFC 9110
   says. A wildcard alone never asked for frames and still does not.
+- **The MCP instructions and many tool descriptions read differently.** The
+  instructions no longer say deleting can be undone; they say a transaction's
+  delete is a reversal and every other delete is permanent. Twenty-odd
+  descriptions changed wording — delete tools say there is no undo, the
+  account and category tools name their refusals, `list_staged_transactions`
+  describes its paging — and every tool a description names is now in
+  backticks. No tool, argument or result field was added, renamed or removed.
+- **A positive amount publishes a pattern with no minus sign.** Every
+  amount described as greater than zero, and a budget's amount, used to publish
+  `^-?…` in `tools/list`; they publish the unsigned pattern now. The server
+  refused a negative before and refuses it the same way, with the same
+  sentence, so a client sending what worked yesterday is unaffected; one that
+  validates against the schema now refuses a negative before sending it.
 - **Archiving or deleting a frozen account succeeds.** 0.2.0 refused both
   with `422 VALIDATION_ERROR` naming the account, over HTTP and MCP alike; they
   now behave as they do on any account, so a delete still needs nothing on the

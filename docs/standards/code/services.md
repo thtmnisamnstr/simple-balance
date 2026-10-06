@@ -648,7 +648,7 @@ at a moment no code observes, and a deployment that stops selling answers
 written on the way down would go on saying what it said then, and that last case
 would lock paying customers out of their own books. `ledger_account.active` is
 the person's choice and nothing else; `frozenAccountIds`
-(`src/shared/domain.ts:3614`) combines it with the entitlement at read time.
+(`src/shared/domain.ts:3654`) combines it with the entitlement at read time.
 
 The obvious alternative is to resolve the entitlement once at the edge — in the
 route, or in a middleware — and pass the answer down. It is wrong for the reason
