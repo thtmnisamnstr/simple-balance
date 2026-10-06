@@ -103,7 +103,9 @@ cross-tenant read, which is the one class of bug in this product that cannot be
 apologized for.
 
 *Checked by:* `tests/integration/tenant-isolation.integration.test.ts`, which
-walks the surface with two users and asserts neither can see the other, and
+walks the services with two users and asserts neither can see the other;
+`tests/integration/tenant-isolation-routes.integration.test.ts`, which does the
+same over every route that names a record, read from the router; and
 `tests/service-write-scope.test.ts` for the half that suite is structurally
 blind to. A read that forgets the owner shows somebody another tenant's row and
 two users will find it; a *write* that forgets the owner can only be caught

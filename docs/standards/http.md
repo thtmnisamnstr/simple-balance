@@ -72,10 +72,12 @@ transport argument: 403 would confirm the row exists, so
 as an id that was never issued (`src/server/services/accounts.ts:596`). This is
 deliberate, it is not a missing feature, and it applies to every resource.
 
-*Checked by:* `tests/integration/tenant-isolation.integration.test.ts:169-207`
-("refuses reads of another tenant's records by id", "refuses writes to another
-tenant's records by id") and `:383-399`, which asserts `status: 404` under the
-comment "Reading somebody else's by id is a 404, never a 403". Not checked
+*Checked by:* `tests/integration/tenant-isolation-routes.integration.test.ts`,
+which reads every `/api/v1` route with an id in its path out of the router, asks
+each one for the first person's record as the second, and accepts only a 404
+with `NOT_FOUND` — and fails on a route that has no probe, so the next resource
+is asked when it is written. The bulk paths, whose ids are in the body, are
+`tests/integration/tenant-isolation.integration.test.ts:209-236`. Not checked
 mechanically: that no service leaks existence through a distinguishable
 message.
 
@@ -2193,7 +2195,7 @@ than rediscovering the disagreement.
 | The browser's idempotency key is a v4 UUID, long enough for the server's minimum | `tests/idempotency-key.test.ts` |
 | A commit replays rather than duplicating, and a bulk write is atomic | `tests/integration/ledger.integration.test.ts`, `tests/integration/bulk-transactions.integration.test.ts` |
 | A leg write bumps the parent transaction's version | `tests/integration/splits-audit.integration.test.ts:218` |
-| A stranger's id is a 404 and never a 403 | `tests/integration/tenant-isolation.integration.test.ts` |
+| A stranger's id is a 404 and never a 403, on every route that names a record | `tests/integration/tenant-isolation-routes.integration.test.ts`, `tests/integration/tenant-isolation.integration.test.ts` |
 | The Hono security headers and the nginx ones agree, on every surface and in every combination of the three settings | `tests/security-header-parity.test.ts` |
 | A vendor's hosts reach only the surface that needs them, and the rehearsal only the plan tab | `tests/security-header-parity.test.ts`, `tests/csp-report-only.test.ts` |
 | A literal collection path is reached by its own handler rather than by the parameter route above it | `tests/route-shadowing.test.ts` |

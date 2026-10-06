@@ -110,13 +110,21 @@ describe("testing.md file counts", () => {
     const [passWithout, skipWithout] = testNumbers(guide, "`npm test`, no database");
     const [passWith] = testNumbers(guide, "`npm test`, database set");
     expect(passWithout! + skipWithout!, "the Tests column has to add up").toBe(passWith);
-    // The integration tier run alone is one larger than the skip count, because
-    // one case in it needs no database and runs either way. The guide explains
-    // that difference in prose directly below the table, so the number and the
-    // explanation cannot come apart without this failing.
+    // The integration tier run alone is larger than the skip count by the cases
+    // in it that need no database and run either way: every `it` inside a
+    // top-level `describe(` rather than inside the file's database guard.
+    // Counted from the files rather than written here, because it was written
+    // here as one and went stale the day a second file put two of its own
+    // outside the guard. The guide explains the difference in prose directly
+    // below the table, so the number and the explanation cannot come apart.
+    const databaseFree = integration
+      .map((name) => readFileSync(path.join(repoRoot, "tests/integration", name), "utf8"))
+      .flatMap((text) => [...text.matchAll(/^describe\([\s\S]*?^\}\);$/gm)])
+      .reduce((total, [block]) => total + (block.match(/^\s+it\(/gm)?.length ?? 0), 0);
+    expect(databaseFree, "found the database-free cases at all").toBeGreaterThan(0);
     const [integrationTests] = testNumbers(guide, "`npm run test:integration`");
     expect(integrationTests, "the integration tier against its own skip count").toBe(
-      skipWithout! + 1,
+      skipWithout! + databaseFree,
     );
     // Whitespace-collapsed, because the sentence is hard-wrapped and the number
     // sits at the end of a line as often as not.

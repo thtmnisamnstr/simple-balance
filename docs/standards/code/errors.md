@@ -131,11 +131,15 @@ ones on the sentence. The group is the one worth having: its reference is
 single-column rather than composite, so the database does not stop a category
 pointing at somebody else's, and only the service does.
 
-It walks the services it names rather than the surface, so a service added later
-goes unchecked until somebody adds it there — and billing is in exactly that
-position now. Nothing reaches `billing_customer` or `billing_subscription` as
-the wrong tenant. The suite also needs a `TEST_DATABASE_URL`, which
-`npm run verify` does not have.
+That file walks the services it names. The surface is
+`tests/integration/tenant-isolation-routes.integration.test.ts`, which reads
+every `/api/v1` route with an id in its path out of the router and asks each for
+one person's record as another, so a route added later is asked when it is
+written rather than when somebody remembers. Billing names no record in a path
+and so is not among them: nothing reaches `billing_customer` or
+`billing_subscription` as the wrong tenant. Both need a `TEST_DATABASE_URL`,
+which `npm run verify` does not have, though the route list's completeness is
+checked without one.
 
 ### 2.2 `staleVersion` is its own thing for a reason
 

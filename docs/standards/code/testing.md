@@ -7,7 +7,7 @@ keeping.
 | --- | --- | --- | --- |
 | Unit (node) | 208 | `npm test` | nothing |
 | Unit (jsdom) | 63 | `npm test` | nothing |
-| Integration | 79 | `npm test` **or** `npm run test:integration` | PostgreSQL |
+| Integration | 80 | `npm test` **or** `npm run test:integration` | PostgreSQL |
 | Browser | 7 | `npm run test:browser` | PostgreSQL, Chromium |
 
 **`npm test` collects the integration tier too**, which surprises people and is
@@ -23,22 +23,26 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 272 pass, 78 skip | **2,933 pass, 901 skip** |
-| `npm test`, database set | 350 pass | **3,834 pass** |
-| `npm run test:integration` | 79 pass | 902 pass |
+| `npm test`, no database | 273 pass, 78 skip | **2,939 pass, 903 skip** |
+| `npm test`, database set | 351 pass | **3,842 pass** |
+| `npm run test:integration` | 80 pass | 906 pass |
 
-The integration tier reports 902 tests on its own and 901 skips inside a
-database-less `npm test`, and the one-test difference is not an error: one case
-in that tier needs no database and so runs either way. It is counted among the
-2,933 rather than among the skips, which is why the two rows add up to 3,834
-both times.
+The integration tier reports 906 tests on its own and 903 skips inside a
+database-less `npm test`, and the three-test difference is not an error: three
+cases in that tier need no database and so run either way. They are counted
+among the 2,939 rather than among the skips, which is why the two rows add up
+to 3,842 both times.
 
-The third row is one test larger than the first row's skip count, and the odd
-one out is worth knowing: `bulk-transactions-mcp.integration.test.ts` has one
-`describe` outside the database guard, because discovering which tools a scope
-exposes needs no ledger. It runs on every `npm test`, database or not.
+The third row is three tests larger than the first row's skip count, and the
+odd ones out are worth knowing. `bulk-transactions-mcp.integration.test.ts` has
+one `describe` outside the database guard, because discovering which tools a
+scope exposes needs no ledger, and `tenant-isolation-routes.integration.test.ts`
+has two, because whether every route that names a record has a probe is a
+question about the router rather than about a ledger. All three run on every
+`npm test`, database or not, and that file therefore counts as passing rather
+than skipped in the first row.
 
-The first row is what CI and `npm run verify` see, and 2,769 is the number that
+The first row is what CI and `npm run verify` see, and 2,939 is the number that
 actually gates a change by default. The second is what a developer with a local
 PostgreSQL sees, and it is strictly better. Reporting the second as though it
 were the first overstates what the gate covers, which is a mistake worth naming
