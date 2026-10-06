@@ -406,10 +406,16 @@
   because node-postgres sends no server name for an IP literal and checks the
   certificate against `localhost` instead — so `verify-full` against an address
   fails however many IP SANs the certificate carries. Every volume that holds
-  data says it is encrypted even where the provider encrypts by default, because
-  a default is that provider's current behavior in one region rather than a
-  promise to this deployment, it is invisible in a plan while a property is not,
-  and a property can be tested. None of this is enforced in `src/`: a URL that
+  data is encrypted at rest, and says so as a property wherever the provider
+  makes that optional — on AWS, encrypting by default is an account setting
+  that is off on a fresh account — because there the property is the whole
+  guarantee, it is visible in a plan where a setting is not, and it can be
+  tested. Where the provider encrypts every volume and offers no way not to, as
+  Google's persistent disks and Oracle's block volumes do, there is nothing to
+  say short of a customer-managed key, and no program creates one, because a
+  key the stack made is a way to lock a deployment out of its own ledger volume.
+  On Oracle the hop between a machine and its disks is encrypted too, which is
+  a launch option there and off unless asked for. None of this is enforced in `src/`: a URL that
   was accepted stays accepted, warned about rather than refused, per the rule
   above. TLS is insisted on wherever the connection crosses a machine; a
   connection that never leaves one is not that case. **One provisioned database

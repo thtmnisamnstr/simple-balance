@@ -7,7 +7,8 @@ keep, so upgrading is swapping it for a newer one.
 
 **Nothing to do by hand.** No migration, no new setting, and nothing an
 existing configuration has to change. A stack that is already up plans no
-change, except an `oci-single` stack whose database node is `small`, below.
+change, except two on Oracle Cloud, both below: an `oci-single` stack whose
+database node is `small`, and the `oci` cluster.
 What follows is what moves under a client, found by a full smoke test
 of a 0.2.0 deployment and a sweep of every surface against the guides. No
 route, tool or CSV column is removed.
@@ -67,6 +68,19 @@ POSTGRES_MAINTENANCE_WORK_MEM=512MB
 ```sh
 sudo systemctl restart simple-balance
 ```
+
+**The `oci` cluster attaches new volumes paravirtualized and encrypts them in
+transit.** Its StorageClass asked for `attachmentType`, which Oracle's CSI
+driver does not read — the key is `attachment-type` — and ignores without a
+word, so every volume it made is attached over iSCSI, which OCI does not
+encrypt between the node and the disk; and the node pool never asked for
+in-transit encryption at all. `pulumi up` replaces the class under the same
+name, removing the old one first, which touches no volume a claim already holds,
+and turns the flag on in the node pool, which OCI gives to the nodes it makes
+from then on. So a running cluster's volumes keep their iSCSI attachment and
+its nodes keep their launch options, and both apply to what is made after. At
+rest nothing changes: Oracle encrypts every block volume with its own key, and
+always has.
 
 **What an operator sees differently.** Nothing that started on 0.2.0 stops
 starting, and four things are said in the log that were not, or not then: an

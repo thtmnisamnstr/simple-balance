@@ -1126,7 +1126,7 @@ shutdown, is the slow half.** Migrations run at startup under advisory lock
 (`src/server/index.ts:28,78`; `src/server/scheduler.ts:73,101`), so readiness
 cannot open before they finish. The 0.1.5 notes record that the payee index
 "takes a moment to build while the container starts, before it opens readiness"
-(`docs/upgrades.md:1291-1293`). So the generous number is `--start-period`:
+(`docs/upgrades.md:1305-1307`). So the generous number is `--start-period`:
 300s in all three Node images, the same budget the compose recipe's
 `start_period` and the chart's startup probe give the same work, and the three
 are held to each other. It was 20s in the images, which reported a first start
@@ -1698,30 +1698,38 @@ check. A reader adding a seventh target therefore met six obligations and no
 reasoning, which makes adding a test exception the obvious move the first time
 one is inconvenient. The reasoning below is what makes that the wrong move.
 
-**Encryption at rest, set as a property on every volume and on the
-StorageClass.** Not "the provider encrypts by default". On AWS it is not a
-default at all — EBS encryption by default is an account setting that is off on
-a fresh account, so the property is the whole guarantee. Everywhere else a
-default is the provider's behaviour in one region today rather than a promise to
-this deployment, it is invisible in `pulumi preview` where a property is not,
-and a property can be tested. Before this, two uncommented lines of
-`encrypted: true` in one program were the repository's entire at-rest story.
+**Encryption at rest, set as a property wherever the provider makes it
+optional.** Not "the provider encrypts by default" where a default is all it
+is. On AWS it is not a default at all — EBS encryption by default is an account
+setting that is off on a fresh account, so the property is the whole guarantee —
+and a setting is invisible in `pulumi preview` where a property is not, and a
+property can be tested. Before this, two uncommented lines of `encrypted: true`
+in one program were the repository's entire at-rest story.
 *Checked by:* `tests/single-encryption.test.ts`,
 `tests/cluster-pulumi-database.test.ts`.
 
-**Two StorageClasses do not say it, and that is open.** The cluster check read
-only the AWS program until it derived its population from every program that
-builds a Kubernetes provider, and then found the GCP and OCI classes stating no
-encryption: `pd-balanced` with no encryption parameter, and OCI's block volume
-class with an attachment type and a performance setting and nothing else. Both
-programs' comments say the provider encrypts every volume with a key it manages,
-and the only encryption parameter either one mentions is for a customer key,
-which both decline. So the property this rule asks for may have no spelling on
-those two providers short of a customer key. Whether to take one, or to record
-these two as a named exception with that argument, is the owner's decision; a
-StorageClass's parameters cannot be changed in place, so either fix replaces the
-class on an existing cluster. Until then the test holds them in a register of
-reported violations, so a third program cannot join them unnoticed.
+**Where the provider leaves no choice, the class says nothing, and that was
+decided.** The cluster check read only the AWS program until it derived its
+population from every program that builds a Kubernetes provider, and then found
+the GCP and OCI classes stating no encryption. Google encrypts every persistent
+disk and Oracle every block volume at rest with keys they manage, and neither
+offers a way not to, so the only encryption parameter either driver has is a
+customer key, which both programs decline for the lock-out reason they give.
+This section used to ask for a property on every volume even where the provider
+encrypts by default, which had no spelling on those two, and they sat in a
+register of reported violations while it was open. The owner settled it in
+0.2.1 by saying where the rule applies rather than by excepting the two
+programs it did not fit, so the test now asks by driver: a class on one of those
+two needs no property, and any other class does, a third cloud's included.
+
+**The same sweep found Oracle's in-transit half had never been on.** The OCI
+class asked for `attachmentType`, which the CSI driver does not read — its key
+is `attachment-type` — and ignores without a word, so every cluster volume was
+attached over iSCSI, which OCI does not encrypt in transit; and the node pool
+never asked for in-transit encryption, which the driver reads from the node at
+attach time. Both are right from 0.2.1. A volume keeps the attachment it was
+provisioned with, so the fix reaches the volumes made after it, and the flag
+reaches the nodes made after it.
 
 **Encryption in transit, proved from the server's side.** The generated URL is
 `sslmode=verify-full`; its `sslrootcert` is a path something actually mounts;
@@ -2083,7 +2091,7 @@ a renamed variable moved the version.
 | The scheduler checks its mail transport at startup and closes it on shutdown | `tests/scheduler-startup.test.ts` |
 | No metric label carries an identity, a path is counted under its route pattern, and `/metrics` is absent unless asked for and refuses without its token | `tests/metrics.test.ts` |
 | Every line goes through the `LOG_LEVEL` gate outside the configuration layer, an error is never silenced, and a caught error that is dropped says why | `tests/log-level.test.ts` |
-| Encryption at rest is set explicitly on every volume the single-machine programs build, and on the cluster's StorageClass | `tests/single-encryption.test.ts`, `tests/cluster-pulumi-database.test.ts` |
+| Encryption at rest is set explicitly on every volume the single-machine programs build, and on every cluster StorageClass whose provider makes it optional; Oracle's cluster volumes are attached paravirtualized on nodes that encrypt the hop | `tests/single-encryption.test.ts`, `tests/cluster-pulumi-database.test.ts` |
 | Encryption in transit to the database: the generated URL is `verify-full`, its `sslrootcert` is a path something actually mounts, and every `pg_hba` line crossing a machine is `hostssl` | `tests/single-database-tls.test.ts`, `tests/compose-database-node.test.ts`, `tests/helm-database-tls.test.ts` |
 | Which ports each program opens, by source, exhaustively — nothing on the database node from `0.0.0.0/0`, nothing anywhere on 3000 | `tests/single-ingress.test.ts` |
 | Which address a published port binds to, in every compose file, with the three deliberately public ones named | `tests/compose-bind-address.test.ts` |

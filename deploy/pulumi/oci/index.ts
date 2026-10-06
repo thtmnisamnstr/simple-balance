@@ -384,6 +384,12 @@ const nodePool = new oci.containerengine.NodePool(name, {
   },
   nodeConfigDetails: {
     size: settings.database === "in-cluster" ? 4 : 3,
+    // Encrypts the hop between a node and its disks: the boot volume, and every
+    // paravirtualized volume the CSI driver attaches, which decides from this
+    // node's own launch options. Off unless asked for, and it is a launch
+    // property, so a pool that turns it on gives it to the nodes it makes from
+    // then on and not to the ones already running.
+    isPvEncryptionInTransitEnabled: true,
     placementConfigs: availabilityDomains.apply((domains) =>
       // Every domain the region has. A region with one — several have — gets
       // one entry and the pool is spread across fault domains inside it
@@ -411,11 +417,12 @@ const k8sProvider = new k8s.Provider("oke", { kubeconfig }, { dependsOn: [nodePo
 
 // The class the ledger's volumes are cut from.
 //
-// No `kmsKeyId`, and that is the decision rather than an omission, for the
+// No `kms-key-id`, and that is the decision rather than an omission, for the
 // reason `../oci-single` gives at more length: Oracle encrypts every block
-// volume at rest with keys it manages, and a key of our own here buys a key
-// policy to get wrong and a way to lock a deployment permanently out of its
-// own ledger volume.
+// volume at rest with keys it manages and offers no way to turn that off, so
+// there is nothing to say here short of a key of our own, and that buys a key
+// policy to get wrong and a way to lock a deployment permanently out of its own
+// ledger volume.
 //
 // What the class is for is the three properties OKE's own default does not set
 // the way a database wants them.
@@ -426,11 +433,16 @@ const databaseStorageClass = new k8s.storage.v1.StorageClass(
     provisioner: "blockvolume.csi.oraclecloud.com",
     parameters: {
       // Paravirtualized rather than iSCSI: the CSI driver attaches it without
-      // the node running an iscsiadm login, which is one fewer thing to fail
-      // on a node that was replaced while a volume was attached.
-      attachmentType: "paravirtualized",
-      // 10 VPUs per GB is Oracle's "balanced" tier. The default is 0, which is
-      // the lowest-cost tier and the wrong one for a database's WAL.
+      // the node running an iscsiadm login, which is one fewer thing to fail on
+      // a node that was replaced while a volume was attached, and it is the
+      // only attachment OCI encrypts in transit. Hyphenated, because that is
+      // the key the driver reads. This was `attachmentType` until 0.2.1, which
+      // the driver ignores without a word, so every volume this class made
+      // before then is attached over iSCSI and keeps that attachment for life.
+      "attachment-type": "paravirtualized",
+      // 10 VPUs per GB is Oracle's "balanced" tier. Said although it is also
+      // the driver's default today, because 0 is the lowest-cost tier and the
+      // wrong one for a database's WAL, and a default can move.
       vpusPerGB: "10",
     },
     // A volume lives in one availability domain and a pod that needs it has to
@@ -443,7 +455,15 @@ const databaseStorageClass = new k8s.storage.v1.StorageClass(
     // removes it on purpose.
     reclaimPolicy: "Retain",
   },
-  { provider: k8sProvider },
+  {
+    provider: k8sProvider,
+    // A class's parameters cannot be changed in place, so changing one
+    // replaces it, and the replacement has to keep this name because the
+    // chart's claims ask for it by name. Removing the old one first is the only
+    // order that can work, and it touches nothing a claim already holds: a
+    // bound volume carries its own copy of what it was provisioned with.
+    deleteBeforeReplace: true,
+  },
 );
 
 // --------------------------------------------------------------- ingress ---

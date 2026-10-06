@@ -291,7 +291,7 @@ in the same breath, which reads as one toolchain over one tree.
 those files failed a format check — `scripts/capacity/load.mjs`,
 `scripts/capacity/schedule.mjs`, `scripts/ralph/git-guard.mjs`,
 `scripts/ralph/runner.mjs`, and `scripts/set-version.mjs`, the tool the release
-procedure runs first (`docs/upgrades.md:1474`) — while all thirteen Pulumi
+procedure runs first (`docs/upgrades.md:1488`) — while all thirteen Pulumi
 modules happened to be clean, so the gap stayed invisible while
 `npm run verify` went on passing. The five are formatted now, and the test
 below holds every file the command does not reach to the formatter anyway. `typescript.md` §3.5 records

@@ -250,10 +250,12 @@ of 0.2.0 or later reads either setting.
 
 ## Encryption
 
-Stated per profile rather than left to each provider's defaults, because a
-default is the provider's current behavior in one region and not a promise to
-this deployment — and because a property can be read in a plan and tested, while
-a default is invisible in both.
+Stated per profile rather than left to each provider's defaults. Where a
+provider makes encryption optional the program sets it as a property, because a
+setting is the provider's current behavior in one account and not a promise to
+this deployment, and a property can be read in a plan and tested where a setting
+is invisible in both. Where the provider encrypts every volume and offers no way
+not to, the row says so and names the provider's key.
 
 ### At rest
 
@@ -263,7 +265,7 @@ a default is invisible in both.
 | `single` on Oracle Cloud, both data volumes and both boot volumes | OCI encrypts every boot and block volume at rest and offers no way to turn it off. The key is Oracle's own unless `simple-balance:kmsVaultOcid` and `simple-balance:kmsKeyOcid` name one of yours, and `tests/single-encryption.test.ts` holds the program to that: no key appears unless one is configured |
 | `ha` on EKS, the database's volumes | A `simple-balance-gp3-encrypted` StorageClass the program creates, `encrypted: "true"`, named into `database.persistence.storageClass`. EKS also needs the `aws-ebs-csi-driver` addon and its IRSA role, which the program now installs — without it a PVC from the StatefulSet sits `Pending` forever |
 | `ha` on GKE, the database's volumes | Google-encrypted persistent disks, on a `simple-balance-pd-balanced` StorageClass the program creates |
-| `ha` on OKE, the database's volumes | Oracle-encrypted block volumes, on a `simple-balance-block` StorageClass the program creates, paravirtualized and at the balanced performance tier. No `kmsKeyId`, for the reason the single profile gives: a key of our own here buys a key policy to get wrong and a way to be locked out of the ledger's own volume |
+| `ha` on OKE, the database's volumes | Oracle-encrypted block volumes, on a `simple-balance-block` StorageClass the program creates, at the balanced performance tier. No `kms-key-id`, for the reason the single profile gives: a key of our own here buys a key policy to get wrong and a way to be locked out of the ledger's own volume |
 | `ha`, the Kubernetes Secrets holding `DATABASE_URL`, `AUTH_SECRET`, `STRIPE_SECRET_KEY` and the database's own passwords | Envelope encryption in etcd against a KMS key each program creates: `encryptionConfigKeyArn` on EKS, `databaseEncryption` on GKE. This is the one place a program *creates* a key rather than accepting one, because neither cloud offers a managed key for it — and it is the one exception to the rule below, which is that a program accepts a key and never makes one |
 
 ### A customer-managed key, if you ask for one
@@ -457,7 +459,8 @@ defaults to the billed one and cannot be changed afterward, and a
 | Application and scheduler to database, in `ha` | `sslmode=verify-full` against a CA the chart generates, mounted into both pods at `/etc/simple-balance/db-ca.pem` |
 | Citus coordinator to workers, and streaming replication, in `ha` | `sslmode=verify-ca`. Not `verify-full`, deliberately: Patroni registers members by pod address, which no certificate can promise, so a name check would fail a healthy cluster |
 | Hypervisor to block storage, AWS | Automatic on Nitro when the volume is encrypted. There is no property for it, so the guarantee rests on the instance-type tables being Nitro throughout — `t4g` on the application node, `t4g` and `m7g` on the database node — which a test pins rather than trusting the comment |
-| Hypervisor to block storage, Oracle Cloud | `isPvEncryptionInTransitEnabled: true`, on both instance launches and on both volume attachments. Two flags because they are two hops: the launch flag covers the boot volume and the attachment flag the attached one, and both need a paravirtualized attachment, which is what the program uses |
+| Hypervisor to block storage, Oracle Cloud, in `single` | `isPvEncryptionInTransitEnabled: true`, on both instance launches and on both volume attachments. Two flags because they are two hops: the launch flag covers the boot volume and the attachment flag the attached one, and both need a paravirtualized attachment, which is what the program uses |
+| Node to block storage, `ha` on OKE | `isPvEncryptionInTransitEnabled: true` on the node pool, which the CSI driver reads from the node when it attaches a volume, and `attachment-type: paravirtualized` on the StorageClass, the only attachment OCI encrypts in transit. Since 0.2.1: before it the class spelled that key `attachmentType`, which the driver ignores, so the volumes and nodes made before then are iSCSI and unflagged, and keep what they were made with |
 
 **Why `verify-full` and not `require`.** The same connection string is read by
 node-postgres and by libpq, in `psql`, `pg_dump` and the restore script. For

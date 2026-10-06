@@ -38,6 +38,15 @@ resizes a running stack's database machine in place, which restarts it, and
 
 ### Fixed
 
+**The Oracle cluster's volumes are encrypted on the way to the disk.** Its
+StorageClass spelled the attachment key the way Oracle's CSI driver does not
+read, and the driver ignored it, so every volume was attached over iSCSI, which
+Oracle does not encrypt in transit, and the node pool never asked for in-transit
+encryption either. New volumes are attached paravirtualized on nodes that
+encrypt the hop. Volumes and nodes that already exist keep what they were made
+with, and at rest every Oracle and Google volume was encrypted all along, by the
+provider's own key.
+
 **Saving something without changing it no longer makes every other copy of it
 stale.** An unchanged save of a transaction, account, category, group, budget,
 template, recurrence or staged row rewrote the row and bumped its version, so a

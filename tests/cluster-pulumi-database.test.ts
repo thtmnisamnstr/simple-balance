@@ -46,29 +46,31 @@ const clusterPrograms = repoFiles((file) => /^deploy\/pulumi\/[^/]+\/index\.ts$/
   }));
 
 /**
- * Cluster programs whose StorageClass states no encryption at rest, each a
- * real violation found by the sweep and reported for fixing, with what the
- * class says instead.
+ * Drivers whose provider encrypts every volume at rest and offers no way not
+ * to, each with what the provider says.
  *
- * `AGENTS.md` asks every volume that holds data to say it is encrypted even
- * where the provider encrypts by default, and `operations.md` puts that
- * property on the StorageClass. Both programs here rely on the default and
- * say so only in a comment, which `pulumi preview` does not show and this
- * test cannot hold. Neither driver's parameters, as the programs describe
- * them, has a switch for the provider's own key — only a customer key, which
- * both refuse on purpose — so the fix is a decision for the rule as much as
- * for the programs, and it is not this file's to make.
+ * `AGENTS.md` asks a volume to say it is encrypted wherever the provider makes
+ * that optional, because there the property is the whole guarantee and a plan
+ * shows it. On these two there is nothing to say short of a customer key,
+ * which every class here declines (below). This used to be a register of two
+ * programs in violation; the owner settled it by saying where the rule applies
+ * rather than by excepting the programs it did not fit, so a third cloud is
+ * asked the same question and answers it by its driver.
  */
-const UNSTATED_ENCRYPTION = new Map([
+const ENCRYPTED_WITHOUT_ASKING = new Map([
   [
-    "deploy/pulumi/gcp/index.ts",
-    'Real violation found by the sweep, reported for fixing: `pd.csi.storage.gke.io` with `parameters: { type: "pd-balanced" }` and nothing else; the comment above it says Google encrypts every persistent disk and declines `disk-encryption-kms-key`',
+    "pd.csi.storage.gke.io",
+    "Google encrypts every persistent disk at rest with Google-managed keys and has no setting that turns it off; the driver's only encryption parameter is `disk-encryption-kms-key`, a customer key",
   ],
   [
-    "deploy/pulumi/oci/index.ts",
-    'Real violation found by the sweep, reported for fixing: `blockvolume.csi.oraclecloud.com` with `parameters: { attachmentType: "paravirtualized", vpusPerGB: "10" }` and nothing else; the comment above it says Oracle encrypts every block volume and declines a `kmsKeyId`',
+    "blockvolume.csi.oraclecloud.com",
+    "Oracle encrypts every block volume at rest with Oracle-managed keys and has no setting that turns it off; the driver's only encryption parameter is `kms-key-id`, a customer key",
   ],
 ]);
+
+/** The driver a StorageClass names. */
+const provisionerOf = (storageClass: string) =>
+  /provisioner:\s*"([^"]+)"/.exec(storageClass)?.[1] ?? "";
 
 /** The `parameters` object a StorageClass hands its driver, or nothing. */
 const parametersOf = (storageClass: string) =>
@@ -193,26 +195,44 @@ describe("encryption at rest, written down rather than assumed", () => {
   /**
    * The rule itself, over every cluster program rather than the one where it
    * was first written. The old check asserted `encrypted: "true"` on AWS and
-   * asked GCP only that it held no customer key, and never read OCI at all,
-   * so two of three StorageClasses stated nothing about encryption with every
-   * test green.
+   * asked GCP only that it held no customer key, and never read OCI at all.
    */
-  it("says on every StorageClass that its volumes are encrypted", () => {
-    const silent = clusterPrograms
-      .filter((program) =>
-        program.storageClasses.every(
-          (storageClass) => !/\bencrypt\w*\s*:\s*"true"/i.test(parametersOf(storageClass)),
-        ),
-      )
-      .map((program) => program.path);
+  it("says on every StorageClass that its volumes are encrypted, wherever that is optional", () => {
+    const silent = clusterPrograms.flatMap((program) =>
+      program.storageClasses
+        .filter((storageClass) => !ENCRYPTED_WITHOUT_ASKING.has(provisionerOf(storageClass)))
+        .filter((storageClass) => !/\bencrypt\w*\s*:\s*"true"/i.test(parametersOf(storageClass)))
+        .map((storageClass) => `${program.path}: ${provisionerOf(storageClass)}`),
+    );
+    expect(silent, "set the driver's encryption parameter").toEqual([]);
+    const used = clusterPrograms.flatMap((program) => program.storageClasses.map(provisionerOf));
     expect(
-      silent.filter((program) => !UNSTATED_ENCRYPTION.has(program)),
-      "set the driver's encryption parameter, or register the program with what it says instead",
+      [...ENCRYPTED_WITHOUT_ASKING.keys()].filter((provisioner) => !used.includes(provisioner)),
+      "no class names these drivers any more — take them out",
     ).toEqual([]);
-    expect(
-      [...UNSTATED_ENCRYPTION.keys()].filter((program) => !silent.includes(program)),
-      "these state encryption now, or are no longer cluster programs — take them out of the register",
-    ).toEqual([]);
+  });
+
+  /**
+   * The Oracle class's half of in-transit encryption, and the bug that kept it
+   * from ever applying. The class asked for `attachmentType`, which the driver
+   * does not read and ignores without a word, so every volume it made was
+   * attached over iSCSI, which OCI never encrypts in transit. The other half is
+   * the node pool's launch option, which the driver consults at attach time.
+   */
+  it("attaches Oracle's volumes paravirtualized, on nodes that encrypt the hop", () => {
+    const oci = clusterPrograms.find((program) => program.path === "deploy/pulumi/oci/index.ts")!;
+    expect(oci, "the OCI cluster program").toBeDefined();
+    for (const storageClass of oci.storageClasses) {
+      expect(parametersOf(storageClass)).toContain('"attachment-type": "paravirtualized"');
+    }
+    for (const program of clusterPrograms) {
+      for (const storageClass of program.storageClasses) {
+        expect(parametersOf(storageClass), program.path).not.toMatch(/\battachmentType\b/);
+      }
+    }
+    const pools = resourceCallsCode(oci.text, "oci.containerengine.NodePool");
+    expect(pools.length).toBeGreaterThan(0);
+    for (const pool of pools) expect(pool).toContain("isPvEncryptionInTransitEnabled: true");
   });
 
   it("AWS cuts the ledger's volumes encrypted, which is not an account default", () => {

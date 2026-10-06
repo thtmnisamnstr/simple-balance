@@ -21,14 +21,14 @@ import {
  * Every property below is one that can be deleted in a tidy-up without
  * anything failing until somebody audits a deployment.
  *
- * Why properties are set even where the provider already encrypts by default,
- * which is the objection this suite invites. Three reasons and only the third
- * is about cryptography. On AWS it is *not* a default: EBS encryption by
+ * Why a property rather than the provider's word, which is the objection this
+ * suite invites. On AWS encryption at rest is *not* a default: EBS encryption by
  * default is an account setting that is off on a fresh account, so the property
- * is the whole guarantee. A default is the provider's behaviour in one region
- * today rather than a promise to this deployment, and it is invisible in
- * `pulumi preview` where a property is not. And a property can be tested, which
- * is what this file is.
+ * is the whole guarantee, it shows in `pulumi preview` where a setting does not,
+ * and it can be tested, which is what this file is. On Oracle every volume is
+ * encrypted at rest and nothing turns that off, so there is no property to hold
+ * and what is held instead is the hop between a machine and its disks, which is
+ * off unless asked for. `AGENTS.md` draws the line at exactly that place.
  */
 
 const aws = readProgram(AWS_SINGLE);
