@@ -1,0 +1,13 @@
+# Everything on this host is somebody's ledger behind a sign-in, so there is
+# nothing here for a search index: a crawler sees the sign-in screen and
+# nothing else. Without this file the request reached the app's own page,
+# which a crawler reads as a robots file with no rules in it.
+#
+# AdSense's crawler is let in because the advertising this deployment may
+# serve is matched to the page by that crawler, and blocking it shows less
+# relevant ads rather than none.
+User-agent: Mediapartners-Google
+Allow: /
+
+User-agent: *
+Disallow: /

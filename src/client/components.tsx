@@ -15,22 +15,26 @@ import {
   X,
 } from "lucide-react";
 import {
+  type CSSProperties,
   type ComponentType,
   type InputHTMLAttributes,
   type PropsWithChildren,
   type ReactNode,
   createContext,
   forwardRef,
+  isValidElement,
   useContext,
   useEffect,
   useId,
+  useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import type { SortDirection } from "../shared/domain.js";
 import { APP_NAME } from "../shared/version.js";
 import { PROGRESS_VERB, type ProgressEvent } from "../shared/progress.js";
-import { errorMessages } from "./api.js";
+import { errorIssues } from "./api.js";
 import type { DatePreset } from "./date-range.js";
 import { useDateRange } from "./date-range.js";
 
@@ -105,6 +109,12 @@ export function SortableHeader<Field extends string>({
 /**
  * The same ordering control for lists that are not tables and so have no
  * headings to click.
+ *
+ * Each field carries the `lean` a `SortableHeader` would, and choosing a field
+ * starts it there. It used to keep whatever direction the last field had, so
+ * Balance on Accounts and Committed on Categories and Payees started
+ * smallest-first while the same kind of column in a table started largest-first
+ * (`web.md` 9.4).
  */
 export function SortMenu<Field extends string>({
   fields,
@@ -112,7 +122,7 @@ export function SortMenu<Field extends string>({
   onSort,
   label = "Sort by",
 }: {
-  fields: readonly { field: Field; label: string }[];
+  fields: readonly { field: Field; label: string; lean?: SortLean }[];
   sort: SortState<Field>;
   onSort: (next: SortState<Field>) => void;
   label?: string;
@@ -125,9 +135,11 @@ export function SortMenu<Field extends string>({
       <Select
         id={id}
         value={sort.field}
-        onChange={(event) =>
-          onSort({ field: event.target.value as Field, direction: sort.direction })
-        }
+        onChange={(event) => {
+          const chosen = fields.find((entry) => entry.field === event.target.value);
+          if (!chosen) return;
+          onSort({ field: chosen.field, direction: chosen.lean === "descending" ? "desc" : "asc" });
+        }}
       >
         {fields.map((entry) => (
           <option key={entry.field} value={entry.field}>
@@ -268,7 +280,7 @@ export function Pagination({
   return (
     <nav ref={bar} className="pagination" aria-label={`${itemLabel} pages`}>
       <p className="pagination-summary" aria-live="polite">
-        {`Showing ${first}–${last} of ${totalCount} ${itemLabel}`}
+        {`Showing ${formatCount(first)}–${formatCount(last)} of ${formatCount(totalCount)} ${itemLabel}`}
       </p>
       {totalPages > 1 ? (
         <div className="pagination-pages">
@@ -353,14 +365,31 @@ export function Button({
 }) {
   const reasonId = useId();
   const explained = Boolean(disabledReason) && Boolean(props.disabled) && !loading;
+  const { onClick } = props;
   const button = (
     // A spinner is a picture of waiting, which is nothing at all to somebody who
     // cannot see it. `aria-busy` says the control is working and the `.sr-only`
     // word says so in text, because a disabled button otherwise goes silent at
     // exactly the moment a person most wants to know their click landed.
+    //
+    // Working is `aria-disabled`, never `disabled`, whatever the caller passed
+    // beside `loading`. A browser blurs an element it disables, so a button that
+    // disabled itself for its own request let go of focus the moment it was
+    // pressed and the answer arrived with focus on `<body>` — the question
+    // web.md 13.3 left open. The click is swallowed here instead, and
+    // `preventDefault` is what also stops a form's implicit submission, which
+    // the browser delivers as a click on this button.
     <button
       {...props}
-      disabled={loading || props.disabled}
+      disabled={loading ? false : props.disabled}
+      aria-disabled={loading || undefined}
+      onClick={(event) => {
+        if (loading) {
+          event.preventDefault();
+          return;
+        }
+        onClick?.(event);
+      }}
       aria-busy={loading || undefined}
       aria-describedby={
         [explained ? reasonId : null, props["aria-describedby"]].filter(Boolean).join(" ") ||
@@ -408,6 +437,55 @@ export function RequiredNote() {
 }
 
 /**
+ * One form's refusal, shared by its summary and its fields.
+ *
+ * Per form rather than per page, because two forms are often open at once — a
+ * dialog over the list behind it — and both have a `payee`. `ids` is where each
+ * `Field` puts the element a summary line should take somebody to, keyed by
+ * the request path it claims; a `useId` is opaque, so knowing a path would not
+ * give the id without it.
+ */
+type FormErrorScope = {
+  issues: { path: string | null; message: string }[];
+  ids: Map<string, string>;
+};
+
+const FormErrorContext = createContext<FormErrorScope | null>(null);
+
+/** A field named `draft.legs` speaks for `draft.legs.2.amount` as well. */
+const claimsPath = (name: string, path: string | null) =>
+  path !== null && (path === name || path.startsWith(`${name}.`));
+
+/**
+ * Wraps a form so the refusal its submit got reaches both halves of GOV.UK's
+ * contract: every sentence in the summary at the top, linked, and each one again
+ * beside the field it is about. The fields say which request paths are theirs
+ * with `Field`'s `name`; a sentence no field claims stays in the summary alone,
+ * which is where a duplicate-name conflict or a network failure belongs.
+ */
+export function FormErrors({ error, children }: { error: unknown; children: ReactNode }) {
+  // One map for the form's lifetime, which the fields write into from effects.
+  const [ids] = useState(() => new Map<string, string>());
+  const scope = useMemo(() => ({ issues: errorIssues(error), ids }), [error, ids]);
+  return <FormErrorContext.Provider value={scope}>{children}</FormErrorContext.Provider>;
+}
+
+/**
+ * A `<form>` that is its own refusal's scope: `FormErrors` around the element,
+ * so a form takes part by naming its error rather than by wrapping its body.
+ */
+export function Form({
+  error,
+  ...props
+}: React.FormHTMLAttributes<HTMLFormElement> & { error: unknown }) {
+  return (
+    <FormErrors error={error}>
+      <form {...props} />
+    </FormErrors>
+  );
+}
+
+/**
  * Every sentence a submit failure carried, at the top of the form, with focus.
  *
  * Focus is moved with a ref because nothing reloads. GOV.UK's summary works on
@@ -444,8 +522,41 @@ export function ErrorSummary({
     if (!error) return;
     container.current?.focus();
   }, [error]);
-  const messages = errorMessages(error);
-  if (!messages.length) return null;
+  const scope = useContext(FormErrorContext);
+  const issues = errorIssues(error);
+  if (!issues.length) return null;
+  // The element a line takes somebody to: the field that claimed its path, if
+  // one did. Looked up at render, after every field below has registered.
+  const targetOf = (path: string | null) => {
+    if (!scope || path === null) return null;
+    for (const [name, id] of scope.ids) if (claimsPath(name, path)) return id;
+    return null;
+  };
+  // Focus rather than a fragment, so nothing is written into the address and a
+  // dialog's own history stays as it was. The control inside the field, which
+  // for a group of controls is the first of them.
+  const goTo = (id: string) => {
+    const field = document.getElementById(id);
+    const control =
+      field?.querySelector<HTMLElement>("input, select, textarea, button") ?? field ?? null;
+    control?.focus();
+  };
+  const line = (issue: { path: string | null; message: string }) => {
+    const target = targetOf(issue.path);
+    return target ? (
+      <a
+        href={`#${target}`}
+        onClick={(event) => {
+          event.preventDefault();
+          goTo(target);
+        }}
+      >
+        {issue.message}
+      </a>
+    ) : (
+      issue.message
+    );
+  };
   // Defaults to 3 rather than GOV.UK's fixed 2 because every call site is inside
   // `Modal`, whose title is already an `<h2>` and is the dialog's accessible
   // name; a second `<h2>` in the body reads as a peer section of the dialog
@@ -453,18 +564,18 @@ export function ErrorSummary({
   const Heading = level === 2 ? "h2" : "h3";
   // Plain defense against a refusal carrying an unbounded list. No call site
   // reaches it today.
-  const shown = messages.slice(0, 10);
-  const rest = messages.length - shown.length;
+  const shown = issues.slice(0, 10);
+  const rest = issues.length - shown.length;
   return (
     <div ref={container} tabIndex={-1} className="alert alert-error error-summary">
       <div role="alert">
         <Heading className="error-summary-title">There is a problem</Heading>
         {shown.length === 1 ? (
-          <p>{shown[0]}</p>
+          <p>{line(shown[0]!)}</p>
         ) : (
           <ul>
-            {shown.map((message, index) => (
-              <li key={`${index}-${message}`}>{message}</li>
+            {shown.map((issue, index) => (
+              <li key={`${index}-${issue.path ?? ""}-${issue.message}`}>{line(issue)}</li>
             ))}
           </ul>
         )}
@@ -478,17 +589,22 @@ export function ErrorSummary({
 /**
  * What a `Field` tells the control inside it.
  *
- * Through context rather than by cloning the child. `Field` is used at 96 sites
- * and its children are arbitrary JSX — an `<Input>`, a `<Select>`, a
- * `CategoryPicker` that renders one three levels down — so `cloneElement` would
- * reach the first case and silently miss the rest. A context reaches all of
- * them, wires nothing at the call sites, and costs a `useId` per field.
+ * Through context rather than by cloning the child. `Field` wraps every form
+ * field in the app (`web.md` 8.1 keeps the count) and its children are
+ * arbitrary JSX — an `<Input>`, a `<Select>`, a `CategoryPicker` that renders
+ * one three levels down — so `cloneElement` would reach the first case and
+ * silently miss the rest. A context reaches all of them, wires nothing at the
+ * call sites, and costs a `useId` per field.
  *
  * `null` means "there is no single control here to point at": that is the
  * `as="group"` case, where the label belongs to the group and each control
  * inside carries its own name.
  */
-type FieldWiring = { id: string; describedBy: string | undefined; invalid: boolean } | null;
+type FieldWiring = {
+  id: string | undefined;
+  describedBy: string | undefined;
+  invalid: boolean;
+} | null;
 
 const FieldContext = createContext<FieldWiring>(null);
 
@@ -518,6 +634,7 @@ export function Field({
   label,
   hint,
   error,
+  name,
   optional = false,
   as,
   children,
@@ -525,6 +642,14 @@ export function Field({
   label: string;
   hint?: string;
   error?: string;
+  /**
+   * The request path or paths this field's value is sent as — `name`,
+   * `draft.payee`, both `draft.amount` and `draft.sourceAmount` for an amount
+   * that is either. Inside `FormErrors`, a server sentence about one of them is
+   * shown here as the field's error and the summary links to it. A path covers
+   * the paths below it, so `draft.legs` speaks for every leg.
+   */
+  name?: string | readonly string[];
   /**
    * Said in the HINT, never in the label.
    *
@@ -547,11 +672,32 @@ export function Field({
 }>) {
   const base = useId();
   const controlId = `${base}-control`;
+  const scope = useContext(FormErrorContext);
+  const names = name === undefined ? [] : typeof name === "string" ? [name] : name;
+  const nameKey = names.join(" ");
+  useEffect(() => {
+    if (!scope || !nameKey) return;
+    const claimed = nameKey.split(" ");
+    for (const path of claimed) scope.ids.set(path, `${base}-field`);
+    return () => {
+      for (const path of claimed) {
+        if (scope.ids.get(path) === `${base}-field`) scope.ids.delete(path);
+      }
+    };
+  }, [scope, nameKey, base]);
+  // A sentence the field itself computed wins: it is about what is on screen
+  // now, where the server's is about what was last sent.
+  const served = scope
+    ? scope.issues
+        .filter((issue) => names.some((path) => claimsPath(path, issue.path)))
+        .map((issue) => issue.message)
+    : [];
+  const shownError = error ?? (served.length ? [...new Set(served)].join(" ") : undefined);
   // "Optional." leads, because it is the shorter claim and the one a reader
   // scanning a column of fields is looking for.
   const hintText = optional ? (hint ? `Optional. ${hint}` : "Optional.") : hint;
   const hintId = hintText ? `${base}-hint` : undefined;
-  const errorId = error ? `${base}-error` : undefined;
+  const errorId = shownError ? `${base}-error` : undefined;
   const describedBy = [hintId, errorId].filter(Boolean).join(" ") || undefined;
   return (
     // A `<div>` rather than a wrapping `<label>`, and the hint and the error
@@ -566,7 +712,14 @@ export function Field({
     // what a `<label for>` is for.
     <div
       className="field"
-      {...(as === "group" ? { role: "group", "aria-labelledby": `${base}-label` } : {})}
+      id={`${base}-field`}
+      // A group has no single control to point at its hint and error, so the
+      // group itself does: a sentence about the whole composite is read when
+      // focus enters it, rather than sitting beside fifty controls none of
+      // which names it.
+      {...(as === "group"
+        ? { role: "group", "aria-labelledby": `${base}-label`, "aria-describedby": describedBy }
+        : {})}
     >
       {as === "group" ? (
         <span className="field-label" id={`${base}-label`}>
@@ -582,13 +735,13 @@ export function Field({
           {hintText}
         </span>
       ) : null}
-      {error ? (
+      {shownError ? (
         <span className="field-error" id={errorId}>
-          {error}
+          {shownError}
         </span>
       ) : null}
       <FieldContext.Provider
-        value={as === "group" ? null : { id: controlId, describedBy, invalid: Boolean(error) }}
+        value={as === "group" ? null : { id: controlId, describedBy, invalid: Boolean(shownError) }}
       >
         {children}
       </FieldContext.Provider>
@@ -616,12 +769,27 @@ function fieldProps(
 ) {
   if (!field) return {};
   return {
-    ...(own.id === undefined ? { id: field.id } : {}),
+    ...(own.id === undefined && field.id !== undefined ? { id: field.id } : {}),
     ...(own["aria-describedby"] === undefined && field.describedBy
       ? { "aria-describedby": field.describedBy }
       : {}),
     ...(own["aria-invalid"] === undefined && field.invalid ? { "aria-invalid": true } : {}),
   };
+}
+
+/**
+ * The `aria-describedby` for a control that has a sentence of its own to add to
+ * what its `Field` already says.
+ *
+ * A control passed its own `aria-describedby` loses the Field's, because a
+ * caller's prop wins (`fieldProps`). The category picker has a line of its own
+ * — "Saving will add … as a new category" — that was rendered beside its input
+ * and pointed at by nothing (`web.md` 8.1); passing it alone would have cut
+ * the field's hint and error off instead. So the two are joined here.
+ */
+export function useFieldDescribedBy(own: string | undefined) {
+  const field = useContext(FieldContext);
+  return [field?.describedBy, own].filter(Boolean).join(" ") || undefined;
 }
 
 export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
@@ -708,6 +876,9 @@ export function SearchBox({
   );
 }
 
+/** The space between a row menu's trigger and its popover, and the popover and the edge. */
+const MENU_GAP = 5;
+
 /**
  * The overflow menu on a row, as a native disclosure.
  *
@@ -718,6 +889,16 @@ export function SearchBox({
  * travel with the page, so it closes on scroll and resize rather than drifting
  * away from the row it belongs to.
  *
+ * That trade is why it opens upward when there is no room below. Anchored under
+ * a trigger near the bottom of the window, the last items — Restore and Delete
+ * on an account card — sat past the edge, and scrolling to reach them closed
+ * the menu, so they could not be pressed at all. And it is why, when neither
+ * side has room, it opens toward the larger and scrolls inside itself rather
+ * than running off either edge: on a short window, which is what zooming makes,
+ * a frozen card's menu with its reasons is taller than the room on both sides.
+ * Below 780px the room above ends at the sticky header, which is drawn over
+ * the popover, not at the top of the window.
+ *
  * Deliberately not `role="menu"`. Those roles promise a screen reader arrow-key
  * navigation, and a roving tabindex exists nowhere else in this client. A
  * disclosure that behaves like a disclosure is honest; menu roles without the
@@ -726,7 +907,8 @@ export function SearchBox({
 export function RowMenu({ label, children }: { label: string; children: ReactNode }) {
   const details = useRef<HTMLDetailsElement>(null);
   const summary = useRef<HTMLElement>(null);
-  const [anchor, setAnchor] = useState<{ top: number; right: number } | null>(null);
+  const popover = useRef<HTMLDivElement>(null);
+  const [anchor, setAnchor] = useState<CSSProperties | null>(null);
 
   const close = (returnFocus = false) => {
     if (!details.current?.open) return;
@@ -743,7 +925,24 @@ export function RowMenu({ label, children }: { label: string; children: ReactNod
         return;
       }
       const rect = summary.current.getBoundingClientRect();
-      setAnchor({ top: rect.bottom + 5, right: window.innerWidth - rect.right });
+      // Open already, so the popover has been laid out and has a height.
+      const height = popover.current?.offsetHeight ?? 0;
+      const header = document.querySelector(".mobile-header");
+      const ceiling =
+        header && getComputedStyle(header).display !== "none"
+          ? Math.max(0, header.getBoundingClientRect().bottom)
+          : 0;
+      const roomBelow = window.innerHeight - rect.bottom - 2 * MENU_GAP;
+      const roomAbove = rect.top - ceiling - 2 * MENU_GAP;
+      const below = height <= roomBelow || roomBelow >= roomAbove;
+      const room = Math.max(0, below ? roomBelow : roomAbove);
+      setAnchor({
+        ...(below
+          ? { top: rect.bottom + MENU_GAP }
+          : { bottom: window.innerHeight - rect.top + MENU_GAP }),
+        right: window.innerWidth - rect.right,
+        ...(height > room ? { maxHeight: room, overflowY: "auto" } : {}),
+      });
     };
     element.addEventListener("toggle", onToggle);
     return () => element.removeEventListener("toggle", onToggle);
@@ -757,7 +956,12 @@ export function RowMenu({ label, children }: { label: string; children: ReactNod
     const onPointerDown = (event: Event) => {
       if (!details.current?.contains(event.target as Node)) close();
     };
-    const onReflow = () => close();
+    // Except a scroll inside the popover, which is how a menu taller than the
+    // room it was given is read to its end.
+    const onReflow = (event: Event) => {
+      if (event.target instanceof Node && popover.current?.contains(event.target)) return;
+      close();
+    };
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("pointerdown", onPointerDown);
     // Capturing, so a scroll inside the table is caught as well as the page's.
@@ -785,8 +989,9 @@ export function RowMenu({ label, children }: { label: string; children: ReactNod
           Both rules read it as a mouse-only affordance. */}
       {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
       <div
+        ref={popover}
         className="menu-popover row-menu-popover"
-        style={anchor ? { top: anchor.top, right: anchor.right } : undefined}
+        style={anchor ?? undefined}
         // Choosing something closes the menu. Without this it stays open behind
         // whatever the choice opened, and is still there afterward.
         onClick={() => close()}
@@ -860,7 +1065,8 @@ export function ConfirmDialog({
   open,
   title,
   description,
-  confirmLabel = "Delete",
+  confirmLabel,
+  confirmVariant = "danger",
   onConfirm,
   onCancel,
   children,
@@ -868,7 +1074,18 @@ export function ConfirmDialog({
   open: boolean;
   title: string;
   description?: string;
-  confirmLabel?: string;
+  /**
+   * The verb and what it acts on, "Delete budget" rather than "Delete". It had
+   * a default of "Delete", and nine of twenty dialogs took it, so the label was
+   * the one sentence in the dialog that did not say what was about to go.
+   */
+  confirmLabel: string;
+  /**
+   * `primary` when the confirmed action puts something in place rather than
+   * taking something away: restoring, committing, paying. Red on "Restore
+   * account" said the opposite of what the button does.
+   */
+  confirmVariant?: "danger" | "primary";
   onConfirm: () => void;
   onCancel: () => void;
   children?: ReactNode;
@@ -884,7 +1101,7 @@ export function ConfirmDialog({
           <Button type="button" variant="ghost" onClick={onCancel}>
             Cancel
           </Button>
-          <Button type="button" variant="danger" onClick={onConfirm}>
+          <Button type="button" variant={confirmVariant} onClick={onConfirm}>
             {confirmLabel}
           </Button>
         </>
@@ -927,8 +1144,8 @@ const presets: { value: DatePreset; label: string }[] = [
 export function DateRangeBar() {
   const { start, end, preset, setPreset, setRange } = useDateRange();
   return (
-    <div className="date-bar" role="group" aria-label="Visible date range">
-      <div className="date-bar-title">
+    <div className="option-bar" role="group" aria-label="Visible date range">
+      <div className="option-bar-title">
         <CalendarDays size={17} />
         <span>Viewing</span>
       </div>
@@ -947,7 +1164,7 @@ export function DateRangeBar() {
           wraps around them rather than through them. Unwrapped, the 560px step
           broke after "to" and left it stranded at the end of a line with its
           date on the next. */}
-      <div className="date-bar-range">
+      <div className="option-bar-range">
         <Input
           aria-label="Start date"
           type="date"
@@ -1074,13 +1291,28 @@ export function BulkEditToggle({
   enabled,
   onToggle,
   disabled = false,
+  hint,
   children,
 }: PropsWithChildren<{
   label: string;
   enabled: boolean;
   onToggle: (enabled: boolean) => void;
   disabled?: boolean;
+  /**
+   * What to know about this field, wired the way `Field` wires a hint.
+   *
+   * It was a `<small>` each caller wrote after the control, pointed at by
+   * nothing (`web.md` 8.1, Binding on SC 1.3.1): "Leave blank to clear", the
+   * one currency an account change may take, and every reason a toggle is
+   * disabled, all sat beside controls a screen reader read without them. The
+   * toggle and the control both point at it now — the toggle because a reason
+   * it is dead is about the toggle, the control because what to type is about
+   * the control.
+   */
+  hint?: string;
 }>) {
+  const hintId = useId();
+  const describedBy = hint ? hintId : undefined;
   return (
     <div className={enabled ? "bulk-edit-field enabled" : "bulk-edit-field"}>
       <label className="bulk-edit-toggle">
@@ -1088,29 +1320,63 @@ export function BulkEditToggle({
           type="checkbox"
           checked={enabled}
           disabled={disabled}
+          aria-describedby={describedBy}
           onChange={(event) => onToggle(event.target.checked)}
         />
         <span>{label}</span>
       </label>
-      {children}
+      <FieldContext.Provider value={{ id: undefined, describedBy, invalid: false }}>
+        {children}
+      </FieldContext.Provider>
+      {hint ? <small id={hintId}>{hint}</small> : null}
     </div>
   );
 }
 
 /**
- * Stands in for content while it loads. Without it the empty state shows first,
- * so a page with plenty of data still greets you with "nothing here yet" for as
- * long as the request takes.
+ * Where focus goes when a selection's own controls take the selection away.
  *
- * The shimmer is `aria-hidden`, because a picture of a paragraph is not a
- * paragraph. That left a gap when the loading sentences this replaced were
- * retired: they said "Loading accounts…" out loud and the shimmer said nothing,
- * so somebody using a screen reader met silence where the page had been. The
- * `label` is that sentence, kept, in a live region that announces once.
+ * "Clear selection" empties the selection, which unmounts the bar it sits in,
+ * so focus fell to `<body>` on every surface that has one — the register, the
+ * staged queue, templates and both merge panels (`web.md` 13.3) — and the next
+ * Tab started from the top of the page. It goes back to where the selection is
+ * made: the element the page marks `data-selection-home`, its select-all box or
+ * the first row's.
  *
- * Pass `label` on the first skeleton of a group and leave it off the rest — a
- * list of eight rows should say "Loading transactions…" once, not eight times.
+ * In a layout effect's cleanup because that runs before the node leaves the
+ * document, the one moment `contains(document.activeElement)` can still tell a
+ * bar that took focus with it from one that went away while focus was
+ * elsewhere. A notice that takes focus afterward — a bulk delete's — runs
+ * later and wins, which is right: it says what happened.
  */
+export function useFocusHomeOnUnmount<T extends HTMLElement>() {
+  const ref = useRef<T>(null);
+  useLayoutEffect(() => {
+    const node = ref.current;
+    return () => {
+      if (!node?.contains(document.activeElement)) return;
+      document.querySelector<HTMLElement>("[data-selection-home]")?.focus();
+    };
+  }, []);
+  return ref;
+}
+
+/**
+ * The panel a merge is set up in, which appears at two selected rows and goes
+ * when the selection does. A component of its own so its unmount is its own:
+ * the hook above has to run its cleanup before the panel leaves the document,
+ * and a section rendered inline by the page is removed before the page's own
+ * cleanup would run.
+ */
+export function MergePanel({ children }: PropsWithChildren) {
+  const panel = useFocusHomeOnUnmount<HTMLElement>();
+  return (
+    <section className="panel merge-panel" ref={panel}>
+      {children}
+    </section>
+  );
+}
+
 /**
  * The bar that appears when rows are selected: how many, and what may be done
  * to them.
@@ -1127,7 +1393,7 @@ export function BulkEditToggle({
  * One element, one `aria-live`, one icon, one actions group, one 560px step.
  * The count sentence stays a prop because the three say genuinely different
  * things — a filtered selection is still being counted while a template
- * selection is not — but `selectionCount` is here so the thousands separator
+ * selection is not — but `formatCount` is here so the thousands separator
  * is one decision rather than three.
  */
 export function SelectionBar({
@@ -1135,8 +1401,9 @@ export function SelectionBar({
   notes,
   children,
 }: PropsWithChildren<{ summary: ReactNode; notes?: ReactNode }>) {
+  const bar = useFocusHomeOnUnmount<HTMLDivElement>();
   return (
-    <div className="selection-bar" aria-live="polite">
+    <div className="selection-bar" aria-live="polite" ref={bar}>
       <div>
         <ListChecks size={17} aria-hidden />
         <strong>{summary}</strong>
@@ -1148,15 +1415,31 @@ export function SelectionBar({
 }
 
 /**
- * A selection count, with its thousands grouped.
+ * A count a person reads, with its thousands grouped.
  *
  * Ten thousand is the cap on every bulk operation in the product
  * (`AGENTS.md`), and four digits with no separator is where a count starts
- * being misread — so the one queue that already grouped was right and the two
- * that can reach the same cap were not.
+ * being misread. It was `selectionCount` and only the selection bars asked it,
+ * so the bar read "4,318" while the dialog it opened read "4318 … will be
+ * edited", the notice after it "Deleted 4318", and the pages under the list
+ * "of 12345". Every count in a sentence goes through it now.
  */
-export const selectionCount = (count: number) => count.toLocaleString();
+export const formatCount = (count: number) => count.toLocaleString();
 
+/**
+ * Stands in for content while it loads. Without it the empty state shows first,
+ * so a page with plenty of data still greets you with "nothing here yet" for as
+ * long as the request takes.
+ *
+ * The shimmer is `aria-hidden`, because a picture of a paragraph is not a
+ * paragraph. That left a gap when the loading sentences this replaced were
+ * retired: they said "Loading accounts…" out loud and the shimmer said nothing,
+ * so somebody using a screen reader met silence where the page had been. The
+ * `label` is that sentence, kept, in a live region that announces once.
+ *
+ * Pass `label` on the first skeleton of a group and leave it off the rest — a
+ * list of eight rows should say "Loading transactions…" once, not eight times.
+ */
 export function Skeleton({ height = 16, label }: { height?: number; label?: string }) {
   return (
     <>
@@ -1207,13 +1490,19 @@ export function MetricTile({
   negative?: boolean;
   note?: string;
 }) {
+  // Named by its label, so a screen reader moving by landmark or listing
+  // articles hears "Balance" rather than a row of unnamed articles.
+  const labelId = useId();
   return (
-    <article className={`metric-card ${emphasis ? "metric-balance" : ""}`}>
+    <article
+      className={`metric-card ${emphasis ? "metric-balance" : ""}`}
+      aria-labelledby={labelId}
+    >
       <span className={`metric-icon ${tone ?? ""}`}>
         <Icon size={18} />
       </span>
       <div>
-        <span>{label}</span>
+        <span id={labelId}>{label}</span>
         <strong className={negative ? "money-negative" : ""}>{figure}</strong>
         {note ? <small>{note}</small> : null}
       </div>
@@ -1282,6 +1571,23 @@ export function EmptyState({
   );
 }
 
+/**
+ * The words an alert's children render, for deciding when it says something new.
+ *
+ * An alert built from more than one child — a sentence, the server's refusal and
+ * a "Restore anyway" button — is a new array on every render, so an effect keyed
+ * on `children` ran on every render, and an alert that takes focus took it on
+ * every keystroke in the search box above the list it sat on. Its text is the
+ * same between those renders, and the text is what a person reads.
+ */
+function textOf(node: ReactNode): string {
+  if (node === null || node === undefined || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(textOf).join("");
+  if (isValidElement<{ children?: ReactNode }>(node)) return textOf(node.props.children);
+  return "";
+}
+
 export function Alert({
   kind = "error",
   takeFocus = false,
@@ -1289,6 +1595,7 @@ export function Alert({
 }: PropsWithChildren<{ kind?: "error" | "success" | "info"; takeFocus?: boolean }>) {
   const Icon = kind === "success" ? CheckCircle2 : AlertCircle;
   const box = useRef<HTMLDivElement>(null);
+  const text = textOf(children);
   /**
    * Where focus goes when the control that started the work has gone.
    *
@@ -1308,8 +1615,23 @@ export function Alert({
    * moving focus away from it would be the defect rather than the fix.
    */
   useEffect(() => {
-    if (takeFocus) box.current?.focus();
-  }, [takeFocus, children]);
+    if (!takeFocus) return;
+    box.current?.focus();
+    // When the work was confirmed in a dialog, the dialog is still open as this
+    // mounts: a modal dialog makes everything outside it inert, so the focus
+    // above does not land, and closing the dialog then hands focus back to the
+    // button that opened it — which the work just removed, leaving `<body>`.
+    // A bulk edit's "N transactions updated." was exactly that. The dialog's
+    // `close` event fires after it has restored focus, so focusing again there
+    // is the last word.
+    const open = [...document.querySelectorAll("dialog[open]")].find(
+      (dialog) => !dialog.contains(box.current),
+    );
+    if (!open) return;
+    const refocus = () => box.current?.focus();
+    open.addEventListener("close", refocus, { once: true });
+    return () => open.removeEventListener("close", refocus);
+  }, [takeFocus, text]);
   return (
     <div
       ref={box}
@@ -1320,6 +1642,22 @@ export function Alert({
       <Icon size={17} />
       <div>{children}</div>
     </div>
+  );
+}
+
+/**
+ * A transfer's category cell: a dash, and words for whoever cannot see one.
+ *
+ * One component so the transactions list and the staged queue cannot drift
+ * apart again — one of them said "Uncategorized", which reads as work left
+ * undone, about a row that can never have a category.
+ */
+export function TransferCategory() {
+  return (
+    <span className="subtle">
+      <span aria-hidden="true">—</span>
+      <span className="sr-only">No category: transfers have none</span>
+    </span>
   );
 }
 

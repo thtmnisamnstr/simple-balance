@@ -5,10 +5,10 @@ keeping.
 
 | Tier | Files | Runs with | Needs |
 | --- | --- | --- | --- |
-| Unit (node) | 195 | `npm test` | nothing |
-| Unit (jsdom) | 59 | `npm test` | nothing |
-| Integration | 75 | `npm test` **or** `npm run test:integration` | PostgreSQL |
-| Browser | 6 | `npm run test:browser` | PostgreSQL, Chromium |
+| Unit (node) | 208 | `npm test` | nothing |
+| Unit (jsdom) | 63 | `npm test` | nothing |
+| Integration | 80 | `npm test` **or** `npm run test:integration` | PostgreSQL |
+| Browser | 7 | `npm run test:browser` | PostgreSQL, Chromium |
 
 **`npm test` collects the integration tier too**, which surprises people and is
 worth stating plainly. `vitest.config.ts:21` excludes four things and only two
@@ -23,22 +23,26 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 255 pass, 74 skip | **2,769 pass, 863 skip** |
-| `npm test`, database set | 329 pass | **3,632 pass** |
-| `npm run test:integration` | 75 pass | 864 pass |
+| `npm test`, no database | 273 pass, 78 skip | **2,966 pass, 907 skip** |
+| `npm test`, database set | 351 pass | **3,873 pass** |
+| `npm run test:integration` | 80 pass | 910 pass |
 
-The integration tier reports 864 tests on its own and 863 skips inside a
-database-less `npm test`, and the one-test difference is not an error: one case
-in that tier needs no database and so runs either way. It is counted among the
-2,769 rather than among the skips, which is why the two rows add up to 3,632
-both times.
+The integration tier reports 910 tests on its own and 907 skips inside a
+database-less `npm test`, and the three-test difference is not an error: three
+cases in that tier need no database and so run either way. They are counted
+among the 2,966 rather than among the skips, which is why the two rows add up
+to 3,873 both times.
 
-The third row is one test larger than the first row's skip count, and the odd
-one out is worth knowing: `bulk-transactions-mcp.integration.test.ts` has one
-`describe` outside the database guard, because discovering which tools a scope
-exposes needs no ledger. It runs on every `npm test`, database or not.
+The third row is three tests larger than the first row's skip count, and the
+odd ones out are worth knowing. `bulk-transactions-mcp.integration.test.ts` has
+one `describe` outside the database guard, because discovering which tools a
+scope exposes needs no ledger, and `tenant-isolation-routes.integration.test.ts`
+has two, because whether every route that names a record has a probe is a
+question about the router rather than about a ledger. All three run on every
+`npm test`, database or not, and that file therefore counts as passing rather
+than skipped in the first row.
 
-The first row is what CI and `npm run verify` see, and 2,769 is the number that
+The first row is what CI and `npm run verify` see, and 2,966 is the number that
 actually gates a change by default. The second is what a developer with a local
 PostgreSQL sees, and it is strictly better. Reporting the second as though it
 were the first overstates what the gate covers, which is a mistake worth naming
@@ -95,15 +99,18 @@ two assumptions with nothing watching.
 
 ### 1.2 The browser tier is small on purpose
 
-**House.** Six files, one worker, against a real API and a real PostgreSQL.
+**House.** Seven files, one worker, against a real API and a real PostgreSQL.
 `budgets.spec.ts` is the one that drives flows — twenty-three tests of a
-person getting through the budgets page — and the other five are each here
+person getting through the budgets page — and the other six are each here
 rather than in jsdom for the reason 1.1 gives: what they assert is something
-only a layout or paint engine computes. `plan-buttons.spec.ts` measures an
+only a layout, paint or focus engine computes. `plan-buttons.spec.ts` measures an
 offset between two buttons, `progress-paint.spec.ts` reads a progress bar's
 pixels, `reflow.spec.ts` and `target-size.spec.ts` measure the document and
-every target, and `selection-bar.spec.ts` measures one bar in each state its
-controls can take. The tier is slow and it is the only one that proves the
+every target, `selection-bar.spec.ts` measures one bar in each state its
+controls can take, and `smoke-test-fixes.spec.ts` holds what a smoke test of a
+0.2.0 deployment found — where focus lands after a dialog closes, whether a
+transitioned drawer can take focus, whether a long figure pushes the page
+sideways. The tier is slow and it is the only one that proves the
 whole stack works, so it covers a path per capability rather than a case per
 branch. `tests/testing-guide-counts.test.ts` holds the first of those numbers
 to the file it counts, because it sat at eleven while the file grew to eighteen
@@ -265,7 +272,7 @@ read a figure that is true of what it created and is also a property of
 something larger:
 
 - `rollover.from` is the earliest `activeFrom` across *every* plan the actor
-  holds (`src/server/services/budgets.ts:1097`). The forecast tests anchor one
+  holds (`src/server/services/budgets.ts:1111`). The forecast tests anchor one
   in 2020 to give a stepped chain a base, so shuffled ahead of it the carry
   origin answered 2020.
 - `period.unfunded` is null when nobody anywhere set a funding order, which the
@@ -366,6 +373,20 @@ a file — is what was already being done. It asks the person adding a file to
 remember a test they have never read, which is the kind of discipline that works
 until the day it matters.
 
+**The 0.2.1 sweep found nine more, every one of them passing over less than it
+claimed.** The browser tier's reflow and target-size specs visited thirteen and
+three of the twenty-six URLs the router declares, and read the router now. The
+parity check compared seven of forty write tools and now takes every tool
+`tools/list` does not annotate read-only. The radio-group check missed the
+Settings page's group; the page-header check read twelve of twenty-one
+headers; the money-control check found fourteen of sixteen controls; the
+cluster encryption check read one of three programs; the startup read of the
+bounded limits named six of seven; the closed-set settings table held two of
+the four booleans `getConfig` reads; and the page-level blocks missed five.
+Each now derives its population from the source it is about, and three of them
+were hiding real defects: two money fields labeled by hand, two StorageClasses
+that state no encryption, and a limit nothing read at startup.
+
 *Checked by:* nothing mechanical, and the honest reason is that "this array is a
 population rather than an exception" is a judgement a test cannot make. What can
 be said is that all three sweeps now discover *and* count, each proved by
@@ -376,8 +397,8 @@ There is no general check of the population half either, and the reason is worth
 stating rather than leaving as an absence. Every sweep that discovers one does
 assert it today, in one of two shapes: a floor with a named member where the
 tree is expected to grow, and an exact list where it is not —
-`tests/transport-database-access.test.ts:77` names the two transports outright,
-and `tests/forecast-boundary.test.ts:45` names everything allowed to import the
+`tests/transport-database-access.test.ts:132` names the two transports outright,
+and `tests/forecast-boundary.test.ts:48` names everything allowed to import the
 forecast. A grep that knew only the first shape would call both of those silent,
 and a rule that fires on a correct test is a rule people turn off. Which shape a
 sweep should use is the same judgement as population-versus-exception, one step
@@ -551,7 +572,7 @@ thirty-fourth did not: `ledger.integration.test.ts` left Google credentials,
 registration rule the next file never asked for, and nothing anywhere would have
 said so.
 
-**The variables are only half of it.** `src/server/config.ts:224` caches the
+**The variables are only half of it.** `src/server/config.ts:227` caches the
 parsed configuration in a module-level variable, so a file that turns something
 on also has to call `vi.resetModules()` before the next read. The environment
 can be perfectly restored and the configuration still answer out of the previous
@@ -587,7 +608,7 @@ imports and when, and that is not a property of its text.
 | `tests/mcp-measurements.test.ts` | Every number `mcp.md` quotes, against the live tool list. Four had drifted when it was written. |
 | `tests/mcp-instructions.test.ts` | The server instructions carry each rule an agent otherwise learns by being refused. |
 | `tests/table-overflow.test.ts` | Every table has a caption and every header cell a `scope`, alongside the scroll containment it started with. |
-| `tests/transport-database-access.test.ts` | `services.md` 1.2, by the thing that goes wrong when it is broken: a query in `api.ts` or `mcp.ts` that is not one of the five carrying a written reason, and a reason still listed after the line it explains has gone. |
+| `tests/transport-database-access.test.ts` | `services.md` 1.2, by the thing that goes wrong when it is broken: a query in `api.ts` or `mcp.ts`, on any receiver, that is not one of the seven lines carrying a written reason, and a reason still listed after the line it explains has gone. |
 | `tests/migrations.test.ts` | The migration list in `AGENTS.md` matches the directory, both directions. |
 | `tests/mcp-parity.test.ts` | Route parity between the two transports, both directions. |
 
@@ -615,9 +636,9 @@ The guides cite the code three ways:
 
 | Shape | Example |
 | --- | --- |
-| Full path | `` `src/client/forms.tsx:334` `` |
-| Bare filename | `` `forms.tsx:337` `` — resolved by basename |
-| Continuation | `` `:628` `` — inherits the last file the prose named |
+| Full path | `` `src/client/forms.tsx:354` `` |
+| Bare filename | `` `forms.tsx:357` `` — resolved by basename |
+| Continuation | `` `:655` `` — inherits the last file the prose named |
 
 The full-path example used to name line 342, where that file opens a return
 with a bare `<>`. 6.2 calls a citation that has landed on a fragment a cheap

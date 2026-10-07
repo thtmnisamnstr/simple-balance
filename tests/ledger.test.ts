@@ -187,6 +187,13 @@ describe("natural liability presentation", () => {
     });
   });
 
+  it("shows a card paid off to the cent as nothing owed, not a credit", () => {
+    expect(presentAccountBalance("credit_card", "0")).toEqual({
+      balance: "0",
+      balancePresentation: { label: "Amount owed", amount: "0" },
+    });
+  });
+
   it("does not relabel an overdrawn checking account", () => {
     expect(presentAccountBalance("checking", "-20")).toEqual({
       balance: "-20",

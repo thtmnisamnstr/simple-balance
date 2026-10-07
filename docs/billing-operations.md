@@ -187,7 +187,14 @@ mode when you go live, because nothing made in one mode exists in the other.
    one here.
 
    Link is optional. It is off until you turn it on under Wallets in the
-   payment method settings, and Stripe does not offer it in India. With it
+   payment method settings, and Stripe does not offer it in India. With Link
+   on, the payment form can show a **Bank** choice beside **Card**, sometimes
+   with bank logos or a cash-back badge. That is Link paying from a bank
+   account the person has saved with Link, still the `link` method, and not
+   ACH Direct Debit: the sandbox's invoice PaymentIntents read back
+   `payment_method_types: ["card", "link"]` while the form showed it. Check a
+   PaymentIntent's types rather than the form's labels before concluding
+   another method is on. With it
    off, every form offers a card, with Apple Pay and Google Pay where the
    domain is registered, and nothing is refused. Neither kind of request names
    Link as a method it needs: Stripe refuses a request that names a method the
@@ -497,10 +504,12 @@ three notices anything. Above it nothing is archived, hidden or deleted — ever
 account stays listed, readable and counted in every balance, report and export —
 but only three stay usable: the three oldest, until the person makes their
 one-time choice on the Accounts page, or an agent makes it with
-`set_active_accounts`. The rest are frozen and refuse every write: a new entry,
-an edit, a delete, a rename, and a payee or category merge that would touch one,
-which refuses whole. A staged or imported row that names one gets an issue
-instead of committing. `docs/monetization.md` has the whole rule, and why the
+`set_active_accounts`. The rest are frozen and refuse every change to what they
+hold: a new entry, an edit, a deleted entry, a rename, and a payee or category
+merge that would touch one, which refuses whole. A staged or imported row that
+names one gets an issue instead of committing. They can still be archived, or
+deleted while nothing is on them, so somebody can clear away the ones they no
+longer use without upgrading first. `docs/monetization.md` has the whole rule, and why the
 choice is made only once.
 
 **So grant an override first** to everybody who should keep every account —

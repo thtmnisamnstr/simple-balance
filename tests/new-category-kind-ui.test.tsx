@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Account, Category } from "../src/client/api.js";
+import type { Account, Category, Recurrence, StagedTransaction } from "../src/client/api.js";
 import { RecurrenceForm, TransactionForm } from "../src/client/forms.js";
 import { TimezoneProvider } from "../src/client/timezone.js";
 
@@ -116,7 +116,7 @@ describe("choosing what a new category is", () => {
     chooseType(/Deposit/);
     fireEvent.change(picker(), { target: { value: "Gadgets" } });
     expect(
-      screen.getByRole("radiogroup", { name: "What kind of category Gadgets is" }),
+      screen.getByRole("radiogroup", { name: "What kind of category is “Gadgets”?" }),
     ).toBeInTheDocument();
     // The direction's own guess is what is selected until somebody says
     // otherwise, so the default answer is the one the server would have given.
@@ -222,7 +222,7 @@ describe("choosing what a new category is", () => {
     fireEvent.change(pickers[1]!, { target: { value: "Returned Coat" } });
     expect(screen.getAllByLabelText("A refund of money you spent")).toHaveLength(1);
     expect(
-      screen.getByRole("radiogroup", { name: "What kind of category these are" }),
+      screen.getByRole("radiogroup", { name: "What kind of categories are these?" }),
     ).toBeInTheDocument();
   });
 });
@@ -257,7 +257,7 @@ describe("choosing what a new category is, on a recurrence", () => {
     chooseType(/Withdrawal/);
     fireEvent.change(picker(), { target: { value: "Bicycle repairs" } });
     expect(
-      screen.getByRole("radiogroup", { name: "What kind of category Bicycle repairs is" }),
+      screen.getByRole("radiogroup", { name: "What kind of category is “Bicycle repairs”?" }),
     ).toBeInTheDocument();
   });
 
@@ -273,9 +273,138 @@ describe("choosing what a new category is, on a recurrence", () => {
     });
     fireEvent.change(picker(), { target: { value: "Utilities" } });
     fireEvent.click(screen.getByLabelText("A refund of money you spent"));
-    fireEvent.click(screen.getByRole("button", { name: /Create recurrence/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Create recurring transaction/ }));
 
     await waitFor(() => expect(bodies).toHaveLength(1));
     expect(bodies[0]).toMatchObject({ shape: { categoryKind: "expense" } });
+  });
+});
+
+/**
+ * Opening a stored answer and saving it keeps the answer.
+ *
+ * Both forms asked the question on create and never read the answer back, and
+ * an update replaces a staged draft or a recurrence's shape whole. So the most
+ * ordinary repair there is — a recurring refund proposed with no amount, opened
+ * in the form to type one — saved a draft with no kind, and the row committed
+ * as income. The inline editor already kept the stored kind; the forms did not.
+ */
+describe("a stored category kind, opened in a form and saved", () => {
+  function renderWith(element: React.ReactElement) {
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, staleTime: Number.POSITIVE_INFINITY },
+        mutations: { retry: false },
+      },
+    });
+    client.setQueryData(["payees", "suggestions", ""], []);
+    client.setQueryData(["transaction-templates"], []);
+    return render(
+      <QueryClientProvider client={client}>
+        <TimezoneProvider timezone="UTC">{element}</TimezoneProvider>
+      </QueryClientProvider>,
+    );
+  }
+
+  const stagedRow = (draft: Record<string, unknown>) =>
+    ({
+      id: "44444444-4444-4444-8444-444444444444",
+      version: 3,
+      status: "staged",
+      validationIssues: [],
+      importBatchId: null,
+      createdAt: "2026-07-01T12:00:00.000Z",
+      draft: {
+        type: "deposit",
+        date: "2026-07-01",
+        payee: "Electronics Store",
+        toAccountId: checking.id,
+        amount: "30.00",
+        ...draft,
+      },
+    }) as unknown as StagedTransaction;
+
+  it("keeps a staged refund's kind, and shows it as the answer", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    captureRequests(bodies);
+    renderWith(
+      <TransactionForm
+        accounts={[checking]}
+        categories={[groceries]}
+        staged={stagedRow({ categoryName: "Gadgets", categoryKind: "expense" })}
+        onDone={vi.fn()}
+      />,
+    );
+    expect(refundChoice()).toBeChecked();
+    fireEvent.submit(document.querySelector("form")!);
+    await vi.waitFor(() => expect(bodies.length).toBeGreaterThan(0));
+    const draft = bodies.at(-1)!.draft as Record<string, unknown>;
+    expect(draft.categoryName).toBe("Gadgets");
+    expect(draft.categoryKind).toBe("expense");
+  });
+
+  it("keeps each leg's own kind on a split", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    captureRequests(bodies);
+    renderWith(
+      <TransactionForm
+        accounts={[checking]}
+        categories={[groceries]}
+        staged={stagedRow({
+          legs: [
+            { categoryName: "Gadgets", categoryKind: "expense", amount: "20.00" },
+            { categoryName: "Toys", categoryKind: "expense", amount: "10.00" },
+          ],
+        })}
+        onDone={vi.fn()}
+      />,
+    );
+    fireEvent.submit(document.querySelector("form")!);
+    await vi.waitFor(() => expect(bodies.length).toBeGreaterThan(0));
+    const legs = (bodies.at(-1)!.draft as { legs: Record<string, unknown>[] }).legs;
+    expect(legs.map((leg) => leg.categoryKind)).toEqual(["expense", "expense"]);
+  });
+
+  it("keeps a recurring refund's kind", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    captureRequests(bodies);
+    renderWith(
+      <RecurrenceForm
+        accounts={[checking]}
+        categories={[groceries]}
+        recurrence={
+          {
+            id: "55555555-5555-4555-8555-555555555555",
+            version: 2,
+            name: "Quarterly rebate",
+            shape: {
+              type: "deposit",
+              payee: "Utility",
+              toAccountId: checking.id,
+              amount: "12.00",
+              categoryName: "Utilities",
+              categoryKind: "expense",
+            },
+            frequency: "monthly",
+            interval: 1,
+            anchorDate: "2026-07-15",
+            monthPolicy: "last_day",
+            weekendPolicy: "allow",
+            positionOrdinal: null,
+            positionWeekday: null,
+            proposesFrom: "2026-07-15",
+            lastOccurrenceDate: null,
+            nextOccurrenceDate: "2026-07-15",
+            notifyOnCreate: false,
+            nextOccurrence: { occurrenceDate: "2026-07-15", postedDate: null },
+          } as unknown as Recurrence
+        }
+        onDone={vi.fn()}
+      />,
+    );
+    expect(refundChoice()).toBeChecked();
+    fireEvent.submit(document.querySelector("form")!);
+    await waitFor(() => expect(bodies.length).toBeGreaterThan(0));
+    expect(bodies.at(-1)).toMatchObject({ shape: { categoryKind: "expense" } });
   });
 });

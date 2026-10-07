@@ -12,47 +12,21 @@ import { httpRequests, registry, resetMetrics } from "../src/server/metrics.js";
  * reach the scrape endpoint, which is not the person whose ledger it counts, so
  * a label carrying a user id, an email or an account name would publish through
  * the monitoring system exactly what every query in `src/server/services`
- * scopes by actor to keep private. Nothing in `src` does that today and this is
- * what keeps it that way — a new label is a decision that has to survive
- * reading this list.
+ * scopes by actor to keep private. Nothing in `src` does that today, and
+ * `tests/observability-guide.test.ts` is what keeps it that way: a new label is
+ * a decision that has to survive its allow-list.
  *
  * The other half is cardinality, which is the same defect wearing a cost rather
  * than a privacy label: a series per account id is a monitoring system that
  * falls over on a ledger somebody actually uses.
  */
-const FORBIDDEN_LABELS = [
-  "user",
-  "userid",
-  "user_id",
-  "actor",
-  "email",
-  "account",
-  "accountid",
-  "account_id",
-  "payee",
-  "category",
-  "id",
-  "name",
-  "amount",
-  "currency",
-];
-
-/** A label whose values a person's data could ever supply. */
-const looksIdentifying = (label: string) => FORBIDDEN_LABELS.includes(label.toLowerCase());
 
 describe("the metric registry", () => {
-  it("labels nothing with somebody's identity", async () => {
-    const metrics = await registry.getMetricsAsJSON();
-    const offenders = metrics.flatMap((metric) =>
-      // `component` and the default labels are added by us and are a closed set
-      // of two, so they are read the same way as any other label rather than
-      // exempted: if one of them ever became identifying, this should fail.
-      (metric.aggregator === "omit" ? [] : ((metric as { labelNames?: string[] }).labelNames ?? []))
-        .filter((label) => looksIdentifying(label))
-        .map((label) => `${metric.name} has a ${label} label`),
-    );
-    expect(offenders).toEqual([]);
-  });
+  // Which labels a metric carries is read in `tests/observability-guide.test.ts`
+  // ("carry nobody's identity, read where a scrape reads them"), from the
+  // values a scrape publishes against an allow-list. The check that stood here
+  // read `labelNames` off `getMetricsAsJSON`, which never returns it, so it
+  // looked at nothing and could not fail.
 
   it("names every metric of its own with the same prefix", async () => {
     const metrics = await registry.getMetricsAsJSON();

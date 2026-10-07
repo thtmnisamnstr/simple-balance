@@ -108,20 +108,34 @@ describe("a call the grant does reach", () => {
   });
 });
 
+/**
+ * A stateless endpoint has no stream to open and no session to end. A GET used
+ * to be answered 200 `text/event-stream` and then held open with nothing ever
+ * written to it, one connection and one server instance per client, found by
+ * the 0.2.0 sandbox smoke test.
+ */
+describe("anything but a POST", () => {
+  for (const method of ["GET", "DELETE", "PUT"]) {
+    it(`answers ${method} with a prompt 405 naming POST`, async () => {
+      const response = await handleMcpRequest(
+        new Request("https://books.example/mcp", {
+          method,
+          headers: { accept: "application/json, text/event-stream" },
+        }),
+        actor,
+        new Set(["ledger:read"]),
+      );
+
+      expect(response.status).toBe(405);
+      expect(response.headers.get("Allow")).toBe("POST");
+      expect(response.headers.get("content-type")).toMatch(/application\/json/);
+      const body = (await response.json()) as { jsonrpc?: string; error?: { code?: number } };
+      expect(body).toMatchObject({ jsonrpc: "2.0", error: { code: -32_000 }, id: null });
+    });
+  }
+});
+
 describe("a request carrying no call to inspect", () => {
-  it("passes a GET through untouched", async () => {
-    const response = await handleMcpRequest(
-      new Request("https://books.example/mcp", {
-        method: "GET",
-        headers: { accept: "text/event-stream" },
-      }),
-      actor,
-      new Set(["ledger:read"]),
-    );
-
-    expect(response.status).not.toBe(403);
-  });
-
   // Rebuilding a bodyless request with an empty body would change what the
   // transport sees, so it is forwarded as it arrived.
   it("passes a POST with no body through untouched", async () => {

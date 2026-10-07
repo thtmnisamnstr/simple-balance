@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { MAX_BULK_SELECTION_ENTRIES, PROGRESS_STREAM_MIN_ROWS } from "../src/shared/domain.js";
-import { streamProgress } from "../src/server/stream.js";
+import { acceptsFrames, streamProgress } from "../src/server/stream.js";
 import {
   createProgressDecoder,
   encodeProgressFrame,
@@ -10,6 +10,7 @@ import {
   type ProgressEvent,
   type ProgressFrame,
 } from "../src/shared/progress.js";
+import { INTERNAL_ERROR_MESSAGE } from "../src/server/services/errors.js";
 
 /**
  * The format the server writes and the browser reads, held to one function.
@@ -133,6 +134,27 @@ describe("the threshold a bar earns its row at", () => {
   });
 });
 
+/**
+ * Frames are opt-in by `Accept`, and an opt-out has to be read as one: RFC 9110
+ * gives `q=0` the meaning "not acceptable", and a substring test sent frames to
+ * a caller that had said it could not read them.
+ */
+describe("who has asked for frames", () => {
+  it("is anybody naming the type with a weight above zero", () => {
+    expect(acceptsFrames("text/event-stream")).toBe(true);
+    expect(acceptsFrames("application/json, text/event-stream")).toBe(true);
+    expect(acceptsFrames("Text/Event-Stream; q=0.5")).toBe(true);
+  });
+
+  it("is nobody who weighs it at zero, leaves it out, or sends a wildcard", () => {
+    expect(acceptsFrames("text/event-stream;q=0")).toBe(false);
+    expect(acceptsFrames("application/json, text/event-stream; q=0.0")).toBe(false);
+    expect(acceptsFrames("application/json")).toBe(false);
+    expect(acceptsFrames("*/*")).toBe(false);
+    expect(acceptsFrames(undefined)).toBe(false);
+  });
+});
+
 describe("the response that carries the frames", () => {
   /**
    * A reply readable before the work behind it has finished.
@@ -244,7 +266,7 @@ describe("the response that carries the frames", () => {
         async () => {
           throw new Error("refused");
         },
-        () => ({ error: { code: "INTERNAL_ERROR", message: "An unexpected error occurred" } }),
+        () => ({ error: { code: "INTERNAL_ERROR", message: INTERNAL_ERROR_MESSAGE } }),
       );
       settled = stream.settled;
       return stream.response;

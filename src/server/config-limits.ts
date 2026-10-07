@@ -7,8 +7,9 @@ const MAX_CSV_CONFIGURATION_BYTES = 100 * 1024 * 1024;
  * delete. A larger import produced a queue that could only be cleared a
  * selection at a time, which is a cap doing damage rather than protecting
  * anything. Lowering it with CSV_MAX_ROWS is a deployment's business; asking
- * for more than the bulk cap refuses to start, because the extra rows could
- * only ever have staged a queue no single action clears.
+ * for more than the bulk cap warns and runs at the default, which is the cap,
+ * because the extra rows could only ever have staged a queue no single action
+ * clears.
  */
 export const DEFAULT_CSV_MAX_ROWS = MAX_BULK_SELECTION_ENTRIES;
 export const MAX_CSV_CONFIGURATION_ROWS = MAX_BULK_SELECTION_ENTRIES;
@@ -228,4 +229,9 @@ export function assertConfiguredLimits() {
   configuredRecurrenceTickSeconds();
   configuredRecurrenceCatchUpLimit();
   configuredRecurrenceClaimLimit();
+  // The seventh, and the one most likely to be found late: the sweep that reads
+  // it rides the scheduler's tick, so a typo was reported in the scheduler's
+  // log after its first tick, or never, on a deployment whose scheduler runs
+  // somewhere nobody reads. It warns like the rest and never refuses.
+  configuredIdempotencyRetentionHours();
 }

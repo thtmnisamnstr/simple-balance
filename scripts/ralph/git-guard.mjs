@@ -36,9 +36,7 @@ function isContained(base, target) {
   const relative = path.relative(base, target);
   return (
     relative === "" ||
-    (!path.isAbsolute(relative) &&
-      relative !== ".." &&
-      !relative.startsWith(`..${path.sep}`))
+    (!path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`))
   );
 }
 
@@ -78,12 +76,7 @@ function regularFileState(
 
 function restoreIndex(gitDirectory, previousIndex) {
   const indexPath = path.join(gitDirectory, "index");
-  const currentIndex = regularFileState(
-    indexPath,
-    gitDirectory,
-    false,
-    maximumIndexBytes,
-  );
+  const currentIndex = regularFileState(indexPath, gitDirectory, false, maximumIndexBytes);
   if (!previousIndex) {
     if (currentIndex) unlinkSync(indexPath);
     return;
@@ -92,16 +85,8 @@ function restoreIndex(gitDirectory, previousIndex) {
     flag: "w",
     mode: 0o600,
   });
-  const restored = regularFileState(
-    indexPath,
-    gitDirectory,
-    true,
-    maximumIndexBytes,
-  );
-  if (
-    restored.bytes !== previousIndex.bytes ||
-    restored.sha256 !== previousIndex.sha256
-  ) {
+  const restored = regularFileState(indexPath, gitDirectory, true, maximumIndexBytes);
+  if (restored.bytes !== previousIndex.bytes || restored.sha256 !== previousIndex.sha256) {
     fail("could not restore the pre-commit Git index");
   }
 }
@@ -173,9 +158,7 @@ function scanGitMetadataTree(directory) {
         path: relative,
         type: "file",
         bytes: stats.size,
-        sha256: createHash("sha256")
-          .update(readFileSync(entry))
-          .digest("hex"),
+        sha256: createHash("sha256").update(readFileSync(entry)).digest("hex"),
       });
     }
   }
@@ -185,10 +168,7 @@ function scanGitMetadataTree(directory) {
 function captureGitTrees(gitDirectory, commonDirectory) {
   return {
     common: scanGitMetadataTree(commonDirectory),
-    worktree:
-      gitDirectory === commonDirectory
-        ? null
-        : scanGitMetadataTree(gitDirectory),
+    worktree: gitDirectory === commonDirectory ? null : scanGitMetadataTree(gitDirectory),
   };
 }
 
@@ -267,28 +247,18 @@ function createGitContext({
   ];
 
   function git(arguments_, output = "buffer") {
-    const result = spawnSync(
-      gitExecutable,
-      [...fixedArguments, ...arguments_],
-      {
-        cwd: root,
-        env: environment,
-        encoding: output === "inherit" ? undefined : "buffer",
-        stdio: output === "inherit" ? "inherit" : "pipe",
-        maxBuffer: maximumGitOutputBytes,
-      },
-    );
+    const result = spawnSync(gitExecutable, [...fixedArguments, ...arguments_], {
+      cwd: root,
+      env: environment,
+      encoding: output === "inherit" ? undefined : "buffer",
+      stdio: output === "inherit" ? "inherit" : "pipe",
+      maxBuffer: maximumGitOutputBytes,
+    });
     if (result.error) fail(result.error.message);
     if (result.signal) fail(`Git ${arguments_[0]} terminated by ${result.signal}`);
     if (result.status !== 0) {
-      const stderr = Buffer.isBuffer(result.stderr)
-        ? result.stderr.toString("utf8").trim()
-        : "";
-      fail(
-        `Git ${arguments_[0]} exited with ${result.status}${
-          stderr ? `: ${stderr}` : ""
-        }`,
-      );
+      const stderr = Buffer.isBuffer(result.stderr) ? result.stderr.toString("utf8").trim() : "";
+      fail(`Git ${arguments_[0]} exited with ${result.status}${stderr ? `: ${stderr}` : ""}`);
     }
     return Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.alloc(0);
   }
@@ -332,9 +302,7 @@ function captureMetadata(gitDirectory, commonDirectory) {
     const state = regularFileState(entry.path, allowedRoot, entry.required);
     if (entry.attributes && state) scanAttributes(entry.path, state.content);
     if (!entry.attributes) scanConfig(entry.path, state);
-    captured[entry.name] = state
-      ? { bytes: state.bytes, sha256: state.sha256 }
-      : null;
+    captured[entry.name] = state ? { bytes: state.bytes, sha256: state.sha256 } : null;
   }
   return captured;
 }

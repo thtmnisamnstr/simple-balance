@@ -26,12 +26,14 @@ import {
   Button,
   DateRangeBar,
   EmptyState,
+  formatCount,
   MetricTile,
   Modal,
   Note,
   PageHeader,
   Skeleton,
 } from "../components.js";
+import { noAccountReason } from "../list-filters.js";
 import {
   compareMoney,
   formatDate,
@@ -111,7 +113,7 @@ export default function DashboardPage() {
           <Button
             onClick={() => setOpen(true)}
             disabled={!accounts.data?.length}
-            disabledReason={accounts.isPending ? undefined : "Create an account first."}
+            disabledReason={noAccountReason(accounts)}
           >
             <Plus size={16} /> Add transaction
           </Button>
@@ -148,7 +150,8 @@ export default function DashboardPage() {
                   <h2>{formatMoney(currency.balance, currency.currency)} total</h2>
                 </div>
                 <span className="subtle">
-                  {currency.accounts.length} account{currency.accounts.length === 1 ? "" : "s"}
+                  {formatCount(currency.accounts.length)} account
+                  {currency.accounts.length === 1 ? "" : "s"}
                 </span>
               </div>
               <div className="metric-grid">
@@ -157,6 +160,9 @@ export default function DashboardPage() {
                   icon={Scale}
                   label="Balance"
                   figure={formatMoney(currency.balance, currency.currency)}
+                  // Below zero is the one state of this figure worth a
+                  // warning, as the net cash flow beside it already says.
+                  negative={isNegativeMoney(currency.balance)}
                 />
                 <MetricTile
                   icon={ArrowDownLeft}
@@ -266,7 +272,10 @@ export default function DashboardPage() {
                                   {item.category}
                                 </Link>
                               ) : (
-                                <span>{item.category}</span>
+                                // Spending filed under no category, in the
+                                // muted type the register and the queue give
+                                // the same word.
+                                <span className="subtle">{item.category}</span>
                               )}
                               <strong>{formatMoney(item.amount, currency.currency)}</strong>
                             </div>

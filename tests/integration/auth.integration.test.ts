@@ -229,6 +229,41 @@ integration("embedded local authentication", () => {
     expect(credentials[0].password?.length).toBeGreaterThan(30);
   });
 
+  // Found by the 0.2.0 sandbox smoke test: a signed-out visit logged a failed
+  // request on every load, because "is anybody signed in?" was answered 401.
+  // Asked with `optional=true` it is `200 null`, on that route alone, and a
+  // client that never asks still gets the 401 it always read.
+  it("answers the browser's signed-in question without a failure when asked to", async () => {
+    expect((await authRequest("/api/v1/session")).status).toBe(401);
+    const optional = await authRequest("/api/v1/session?optional=true");
+    expect(optional.status).toBe(200);
+    expect(await optional.json()).toBeNull();
+    expect((await authRequest("/api/v1/accounts?optional=true")).status).toBe(401);
+    const signedIn = await authRequest("/api/v1/session?optional=true", undefined, ownerCookie);
+    expect(signedIn.status).toBe(200);
+    expect(await signedIn.json()).toMatchObject({ user: { email: ownerEmail } });
+  });
+
+  // The cookie is HttpOnly, and Better Auth handed the same value back in JSON
+  // to any script on the page. The smoke test read it out of both routes.
+  it("hands no session token to page script from the session routes", async () => {
+    for (const path of ["/api/auth/get-session", "/api/auth/list-sessions"]) {
+      const response = await authRequest(path, undefined, ownerCookie);
+      expect(response.status).toBe(200);
+      const text = await response.text();
+      expect(text, path).not.toMatch(/"token"/);
+      expect(text.length, path).toBeGreaterThan(10);
+    }
+  });
+
+  // An authorization link naming no client used to land on `/?error=…`, which
+  // is the Overview with nothing on screen saying why.
+  it("sends a failed flow to the page that explains it", async () => {
+    const response = await authRequest("/api/auth/error?error=invalid_client");
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/auth-error?error=invalid_client");
+  });
+
   // This deployment names nobody in ALLOWED_EMAILS, which is the single-user
   // configuration: one account exists, the setup code is spent, and the rule
   // admits no one else. A second person cannot get in even holding the code.
@@ -265,6 +300,25 @@ integration("embedded local authentication", () => {
       error: { code: "REGISTRATION_CLOSED" },
     });
     expect(await getDb().select().from(user)).toHaveLength(1);
+  });
+
+  it("refuses a malformed CSV stage request before it starts streaming", async () => {
+    // A frames client still gets the status its request earned: once the first
+    // frame goes out the status line is spent at 200, so a body that was never
+    // a stage request has to be refused before that, as the commit route is.
+    const response = await app.request("http://localhost:3000/api/v1/csv/stage", {
+      method: "POST",
+      headers: {
+        cookie: ownerCookie,
+        origin: "http://localhost:3000",
+        "content-type": "application/json",
+        accept: "text/event-stream",
+      },
+      body: JSON.stringify({ csv: "date,amount\n", fileName: "" }),
+    });
+    expect(response.status).toBe(422);
+    expect(response.headers.get("content-type")).toMatch(/application\/json/);
+    expect(await response.json()).toMatchObject({ error: { code: "VALIDATION_ERROR" } });
   });
 
   it("rejects cross-origin finance and session mutations", async () => {

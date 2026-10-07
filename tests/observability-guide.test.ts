@@ -30,29 +30,28 @@ const fileAt = (path: string) => {
 const lineOf = (text: string, offset: number) => text.slice(0, offset).split("\n").length;
 
 /**
- * A label whose values a person's data could ever supply.
+ * The labels a metric here may carry, each with the closed vocabulary that
+ * keeps its values from ever being somebody's data.
  *
- * The same list `tests/metrics.test.ts` holds, kept here because this file
- * reads it against a different half of the metric — see §1.8 of the guide.
+ * It was a deny-list of fourteen exact names, so `account_name`, `payeeId` or
+ * `memo` would each have passed it, and the rule is about the values rather
+ * than the spelling. A label is now identifying until somebody writes down
+ * why its values cannot be: anything not here fails by name.
  */
-const FORBIDDEN_LABELS = new Set([
-  "user",
-  "userid",
-  "user_id",
-  "actor",
-  "email",
-  "account",
-  "accountid",
-  "account_id",
-  "payee",
-  "category",
-  "id",
-  "name",
-  "amount",
-  "currency",
-]);
+const BOUNDED_LABELS: Record<string, string> = {
+  component: "api or scheduler, set by the entrypoint",
+  method: "the HTTP method, a closed set",
+  route: "the route pattern that matched, never the path with an id in it",
+  status: "the HTTP status code",
+  tool: "an MCP tool name, the registry's closed list",
+  outcome: "a short closed set each counter declares",
+  operation: "a service operation name written in the source",
+  version: "this build's APP_VERSION",
+  state: "a closed set of pool or scheduler states",
+  le: "a histogram bucket boundary, from the buckets the metric declares",
+};
 
-const looksIdentifying = (label: string) => FORBIDDEN_LABELS.has(label.toLowerCase());
+const looksIdentifying = (label: string) => !(label in BOUNDED_LABELS);
 
 const PROBE = "simple_balance_probe_total";
 

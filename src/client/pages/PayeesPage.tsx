@@ -16,6 +16,8 @@ import {
   compareForSort,
   ConfirmDialog,
   EmptyState,
+  formatCount,
+  MergePanel,
   PageHeader,
   SearchBox,
   Select,
@@ -29,9 +31,9 @@ import { emptyScreen, waysOut } from "../list-filters.js";
 
 const payeeSortFields = [
   { field: "name", label: "Name" },
-  { field: "committed", label: "Committed" },
-  { field: "staged", label: "Staged" },
-  { field: "total", label: "Total transactions" },
+  { field: "committed", label: "Committed", lean: "descending" },
+  { field: "staged", label: "Staged", lean: "descending" },
+  { field: "total", label: "Total transactions", lean: "descending" },
 ] as const;
 type PayeeSortField = (typeof payeeSortFields)[number]["field"];
 
@@ -99,7 +101,7 @@ export default function PayeesPage() {
       setMergeOutcome(
         `${folded} ${folded === 1 ? "spelling" : "spellings"} folded into “${
           result.targetPayee
-        }”. ${moved} committed ${moved === 1 ? "entry" : "entries"} and ${staged} staged ${
+        }”. ${formatCount(moved)} committed ${moved === 1 ? "entry" : "entries"} and ${formatCount(staged)} staged ${
           staged === 1 ? "row" : "rows"
         } now name it.`,
       );
@@ -191,9 +193,9 @@ export default function PayeesPage() {
       </div>
 
       {selectedPayees.length >= 2 ? (
-        <section className="panel merge-panel">
+        <MergePanel>
           <div>
-            <strong>Merge {selectedPayees.length} selected payees</strong>
+            <strong>Merge {formatCount(selectedPayees.length)} selected payees</strong>
             <small>Committed transactions and staged rows will use the payee you keep.</small>
           </div>
           <Select
@@ -231,7 +233,7 @@ export default function PayeesPage() {
             Clear selection
           </Button>
           {mergeMutation.error ? <Alert>{mergeMutation.error.message}</Alert> : null}
-        </section>
+        </MergePanel>
       ) : null}
       {mergeOutcome ? (
         <Alert kind="success" takeFocus>
@@ -243,12 +245,13 @@ export default function PayeesPage() {
       {duplicates.error ? <Alert>{duplicates.error.message}</Alert> : null}
       {filtered.length ? (
         <div className="record-list record-list-card">
-          {filtered.map((payee) => (
+          {filtered.map((payee, index) => (
             <div className="record-row" key={payee.name}>
               <div className="record-name">
                 <input
                   type="checkbox"
                   aria-label={`Select ${payee.name} for merging`}
+                  data-selection-home={index === 0 || undefined}
                   checked={participants.has(payee.name)}
                   onChange={(event) => {
                     const next = new Set(participants);
@@ -261,7 +264,7 @@ export default function PayeesPage() {
                     setParticipants(next);
                   }}
                 />
-                <span className="account-icon">
+                <span className="record-icon">
                   <UserRound size={16} />
                 </span>
                 <span>
@@ -276,13 +279,14 @@ export default function PayeesPage() {
                     </Link>
                   </strong>
                   <small>
-                    {payee.transactionCount} committed · {payee.stagedTransactionCount} staged
+                    {formatCount(payee.transactionCount)} committed ·{" "}
+                    {formatCount(payee.stagedTransactionCount)} staged
                   </small>
                 </span>
               </div>
               <div>
                 <Badge tone="blue">
-                  {payee.totalCount} transaction{payee.totalCount === 1 ? "" : "s"}
+                  {formatCount(payee.totalCount)} transaction{payee.totalCount === 1 ? "" : "s"}
                 </Badge>
               </div>
               <div className="row-actions">
@@ -331,7 +335,7 @@ export default function PayeesPage() {
             ? `Every transaction and staged row naming the others is rewritten to “${merge.value}”. The change is recorded in the activity log but cannot be undone in one step.`
             : undefined
         }
-        confirmLabel="Merge"
+        confirmLabel="Merge payees"
         onConfirm={merge.confirm}
         onCancel={merge.cancel}
       />

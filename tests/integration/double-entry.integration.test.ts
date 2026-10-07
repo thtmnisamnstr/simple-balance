@@ -509,7 +509,7 @@ integration("double-entry ledger", () => {
         },
         "de-counter",
       ),
-    ).rejects.toThrow(/accounts are unavailable/);
+    ).rejects.toThrow(/accounts is archived or was not found/);
   });
 
   it("reports a repeated account name as a conflict rather than a failure", async () => {

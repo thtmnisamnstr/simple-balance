@@ -1,11 +1,13 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Actor, RecurrenceShape, ValidationIssue } from "../../shared/domain.js";
 import {
+  draftAccountFields,
   MAX_RECURRENCES,
   recurrenceCreateSchema,
   recurrenceScheduleSchema,
   recurrenceShapeSchema,
   recurrenceUpdateSchema,
+  type DraftAccountField,
 } from "../../shared/domain.js";
 import {
   nextOccurrenceAfter,
@@ -31,8 +33,10 @@ import { normalizeHumanName } from "../../shared/names.js";
 import { conflict, duplicate, notFound, staleVersion } from "./errors.js";
 import { notifyRecurrenceProposed } from "./notifications.js";
 import {
+  lockAccountReferences,
   lockCategoryNamespace,
   lockRecurrenceNamespace,
+  patchChangesNothing,
   serializeRow,
   writeAudit,
 } from "./helpers.js";
@@ -93,8 +97,7 @@ async function recurrenceReferenceIssues(
   const sides = (["fromAccountId", "toAccountId"] as const)
     .map((field) => ({ field, id: (shape as Record<string, unknown>)[field] }))
     .filter(
-      (side): side is { field: "fromAccountId" | "toAccountId"; id: string } =>
-        typeof side.id === "string",
+      (side): side is { field: DraftAccountField; id: string } => typeof side.id === "string",
     );
   if (sides.length) {
     const rows = await tx
@@ -116,12 +119,12 @@ async function recurrenceReferenceIssues(
       if (!account) {
         issues.push({
           field: side.field,
-          message: "This recurrence names an account that no longer exists",
+          message: "This recurring transaction names an account that no longer exists",
         });
       } else if (account.archivedAt) {
         issues.push({
           field: side.field,
-          message: "This recurrence names an archived account",
+          message: "This recurring transaction names an archived account",
         });
       }
     }
@@ -153,12 +156,12 @@ async function recurrenceReferenceIssues(
       if (!category) {
         issues.push({
           field: one.field,
-          message: "This recurrence names a category that no longer exists",
+          message: "This recurring transaction names a category that no longer exists",
         });
       } else if (category.archivedAt) {
         issues.push({
           field: one.field,
-          message: "This recurrence names an archived category",
+          message: "This recurring transaction names an archived category",
         });
       }
     }
@@ -186,7 +189,7 @@ function draftFor(shape: RecurrenceShape, postedDate: string) {
 
 const MISSING_AMOUNT_ISSUE: ValidationIssue = {
   field: "amount",
-  message: "This recurrence does not set an amount. Fill one in before committing.",
+  message: "This recurring transaction does not set an amount. Fill one in before committing.",
 };
 
 export type RecurrenceTickOutcome =
@@ -455,14 +458,19 @@ async function assertNameAvailable(
   }
 }
 
+/** The accounts a shape names, for the reference lock that comes before the rest. */
+function shapeAccountIds(shape: RecurrenceShape) {
+  return draftAccountFields
+    .map((field) => (shape as Record<string, unknown>)[field])
+    .filter((id): id is string => typeof id === "string");
+}
+
 /**
  * A recurrence may keep an account that was archived after it was made, but it
  * may never be created naming one that is not this person's.
  */
 async function assertReferencesAreOwned(tx: DbTransaction, actor: Actor, shape: RecurrenceShape) {
-  const accountIds = (["fromAccountId", "toAccountId"] as const)
-    .map((field) => (shape as Record<string, unknown>)[field])
-    .filter((id): id is string => typeof id === "string");
+  const accountIds = shapeAccountIds(shape);
   if (accountIds.length) {
     const owned = await tx
       .select({ id: ledgerAccounts.id })
@@ -530,7 +538,11 @@ export async function createRecurrence(actor: Actor, input: unknown, transaction
     // way every names-a-category write extends it. Without this, a category
     // delete racing this create counts zero recurrence references while this
     // transaction sits between its ownership check and its insert, and the
-    // recurrence lands naming a dead category.
+    // recurrence lands naming a dead category. The accounts come before it,
+    // for the same race against `deleteAccount`, which counts references under
+    // that lock; without it an account could be deleted while a recurrence
+    // naming it was being created, and every occurrence after was flagged.
+    await lockAccountReferences(tx, actor, shapeAccountIds(parsed.shape));
     if (parsed.shape.categoryId || parsed.shape.legs?.some((leg) => leg.categoryId)) {
       await lockCategoryNamespace(tx, actor);
     }
@@ -581,7 +593,8 @@ export async function updateRecurrence(
   const changes = recurrenceUpdateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
     // Same order as the create, for the same race. A patch with no shape
-    // names no category and needs no category lock.
+    // names no account or category and needs neither lock.
+    if (changes.shape) await lockAccountReferences(tx, actor, shapeAccountIds(changes.shape));
     if (changes.shape?.categoryId || changes.shape?.legs?.some((leg) => leg.categoryId)) {
       await lockCategoryNamespace(tx, actor);
     }
@@ -617,6 +630,16 @@ export async function updateRecurrence(
             : { ordinal: before.positionOrdinal, weekday: before.positionWeekday },
     });
     const columns = scheduleColumns(schedule);
+    if (
+      patchChangesNothing(before, {
+        name: changes.name,
+        shape: changes.shape,
+        notifyOnCreate: changes.notifyOnCreate,
+        ...columns,
+      })
+    ) {
+      return recurrenceRowView(before);
+    }
     // proposes_from is deliberately untouched. It is how far back this was ever
     // allowed to reach, and an edit today must not conjure rows for months
     // already dealt with.

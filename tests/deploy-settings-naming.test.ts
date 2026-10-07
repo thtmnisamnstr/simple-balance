@@ -145,10 +145,9 @@ const vendorSpellings: Record<string, string> = {
  * v0.1.6, so a deployment already sets it and renaming it breaks that
  * deployment.
  *
- * Nothing may join this list. A name arriving now is unreleased by definition,
- * which makes it the open question below rather than history.
+ * Nothing may join this list, or the 0.2.0 one below it.
  */
-const frozenBeforeThisRelease: Record<string, string> = {
+const frozenIn01x: Record<string, string> = {
   ALLOWED_EMAILS: "released in 0.1.x",
   APP_BASE_URL: "released in 0.1.x",
   AUTH_MODE: "released in 0.1.x, and generic enough to collide with a sidecar",
@@ -176,25 +175,33 @@ const frozenBeforeThisRelease: Record<string, string> = {
 };
 
 /**
- * The open question, and the reason this file exists.
+ * §Naming: frozen in 0.2.0, by the release shipping them.
  *
- * Every name here is this product's own invention, unprefixed, and unreleased:
- * none is readable in the tree at v0.1.6. §Naming records three as **Open** and
- * owns them in a backlog row **due before 0.2.0 ships**. The rest arrived in
- * the same release, in the same profile, and freeze on the same day, so they
- * are one decision rather than several.
+ * Every name here is this product's own invention, unprefixed, and released in
+ * 0.2.0. Before the cut they were held here as an open question, due before
+ * 0.2.0 shipped, in two lists — ten "open" and nine "arguable" — and the
+ * release answered it by shipping all nineteen as they were. A rename is now a
+ * deprecation that accepts both spellings for a release, not an edit, so this
+ * is a record of what froze and why each is as it is.
  *
- * This is not an exemption list. It is the question written somewhere that
- * fails when somebody adds to it, which prose cannot do. **It empties when the
- * decision is made** — into `SB_` names, or into a named exception in §Naming.
- * After 0.2.0 ships neither move is available, because a rename then breaks
- * every operator.
+ * Nothing may join it. A name invented from 0.2.1 on is prefixed `SB_`, and a
+ * name that arrives here without one is the defect this file exists to catch.
+ *
+ * The `POSTGRES_*` entries are the ones invented inside PostgreSQL's
+ * namespace. The six tuning names are the mild end: `compose.postgres.yml`
+ * interpolates them into `-c` flags, so the variables are ours while the
+ * settings inside them are PostgreSQL's own. `POSTGRES_APP_PASSWORD` is the
+ * sharp end — PostgreSQL has no `app_password`, so only the prefix is
+ * borrowed. `POSTGRES_IMAGE` and `POSTGRES_DATA_MOUNT` name which PostgreSQL
+ * container `compose.distributed.yml` runs and where its volume is mounted,
+ * and `deploy/docker/citus.Dockerfile` already carries `ARG POSTGRES_IMAGE`
+ * for the same choice.
  */
-const openAndDueBeforeThisReleaseShips: Record<string, string> = {
-  PRIVACY_POLICY_URL: "§Naming **Open**, and a backlog row: arrived with the ads work",
-  TERMS_OF_USE_URL: "§Naming **Open**: arrived beside the policy, and is set with it",
+const frozenIn020: Record<string, string> = {
+  PRIVACY_POLICY_URL: "arrived with the ads work; §Naming records the question it was",
+  TERMS_OF_USE_URL: "arrived beside the policy, and is set with it",
   SITE_ADDRESS:
-    "§Naming **Open**: no Caddy convention names it, the Caddyfile in this " +
+    "no Caddy convention names it, the Caddyfile in this " +
     "repository is what spells it, and the machine beside it already says " +
     "SB_BIND_ADDRESS for an address of its own",
   ACME_EMAIL:
@@ -224,33 +231,6 @@ const openAndDueBeforeThisReleaseShips: Record<string, string> = {
     "asserts it has a certified consent platform is a question only this " +
     "product asks — which is §Naming's own argument for prefixing " +
     "SB_BILLING_ENABLED while leaving STRIPE_SECRET_KEY alone",
-};
-
-/**
- * The edge the same decision has to rule on, recorded rather than decided.
- *
- * Each is a name this repository invented inside another product's namespace,
- * which is neither clean case. The six tuning names are the mild end:
- * `compose.postgres.yml` interpolates them into `-c` flags, so the variables
- * are ours while the settings inside them are PostgreSQL's own and an operator
- * reads `shared_buffers` in PostgreSQL's documentation. `POSTGRES_APP_PASSWORD`
- * is the sharp end — PostgreSQL has no `app_password`, so only the prefix is
- * borrowed and `db-init.sh` in this directory is its only reader.
- *
- * The last two are the same borrowing one step further out: they name which
- * PostgreSQL container `compose.distributed.yml` runs and where its volume is
- * mounted, which is a fact about a third-party image rather than a setting of
- * this product's. `CADDY_IMAGE` is the same shape in the list above and is
- * held open there, but this spelling is settled rather than open:
- * `deploy/docker/citus.Dockerfile` already carries `ARG POSTGRES_IMAGE` for
- * exactly this choice, and one repository calling the same thing two names
- * would be worse than either name.
- *
- * All nine are unreleased and freeze with everything above. They are here
- * rather than in `vendorSpellings` because granting them quietly would answer
- * the question this file exists to hold open.
- */
-const arguableAndPartOfTheSameDecision: Record<string, string> = {
   POSTGRES_APP_PASSWORD: "db-init.sh's, not the image's — nothing in src/ or in postgres reads it",
   POSTGRES_SHARED_BUFFERS: "ours around PostgreSQL's shared_buffers",
   POSTGRES_EFFECTIVE_CACHE_SIZE: "ours around PostgreSQL's effective_cache_size",
@@ -271,9 +251,8 @@ const arguableAndPartOfTheSameDecision: Record<string, string> = {
 const accounted: Record<string, string> = {
   ...platformConventions,
   ...vendorSpellings,
-  ...frozenBeforeThisRelease,
-  ...openAndDueBeforeThisReleaseShips,
-  ...arguableAndPartOfTheSameDecision,
+  ...frozenIn01x,
+  ...frozenIn020,
 };
 
 const whereFor = (name: string) => [...(found.get(name) ?? [])].sort().join(", ");
@@ -322,9 +301,8 @@ describe("who a setting's name belongs to", () => {
       unaccounted,
       "operations.md §Configuration → Naming: an unprefixed name is a platform " +
         "convention, a vendor's spelling, or frozen by having been released. A " +
-        "new name this product invented is prefixed SB_ — or, where the case is " +
-        "genuinely arguable, added to a list in this file with its reason and to " +
-        "the backlog row operations.md owns it in",
+        "new name this product invented is prefixed SB_, and neither frozen " +
+        "register takes a new entry",
     ).toEqual([]);
   });
 
@@ -335,11 +313,10 @@ describe("who a setting's name belongs to", () => {
     expect(stale, "an exception outliving its variable is a grant nobody is reading").toEqual([]);
   });
 
-  it("leaves the unreleased inventions as a question somebody has to close", () => {
-    // Pinned by membership and not only by count, so a tenth name added here
-    // without widening operations.md's backlog row fails — which is the failure
-    // the row's three-name wording would otherwise have survived.
-    expect(Object.keys(openAndDueBeforeThisReleaseShips).sort()).toEqual([
+  it("freezes exactly what 0.2.0 shipped, and nothing since", () => {
+    // Pinned by membership, so a name added here — an exception a change
+    // writes for itself — fails rather than freezing quietly.
+    expect(Object.keys(frozenIn020).sort()).toEqual([
       "ACME_EMAIL",
       "ACME_EMAIL_OPTION",
       "ADSENSE_CONSENT_MANAGED",
@@ -347,6 +324,15 @@ describe("who a setting's name belongs to", () => {
       "APP_PORT",
       "CADDY_IMAGE",
       "MAX_BODY_SIZE",
+      "POSTGRES_APP_PASSWORD",
+      "POSTGRES_DATA_MOUNT",
+      "POSTGRES_EFFECTIVE_CACHE_SIZE",
+      "POSTGRES_IMAGE",
+      "POSTGRES_MAINTENANCE_WORK_MEM",
+      "POSTGRES_MAX_CONNECTIONS",
+      "POSTGRES_MAX_WAL_SIZE",
+      "POSTGRES_SHARED_BUFFERS",
+      "POSTGRES_WORK_MEM",
       "PRIVACY_POLICY_URL",
       "SITE_ADDRESS",
       "TERMS_OF_USE_URL",

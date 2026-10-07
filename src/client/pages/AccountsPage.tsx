@@ -19,6 +19,7 @@ import {
   type AccountType,
   accountAllowance,
   activeChoicePending,
+  ARCHIVED_ACCOUNT_DELETE_REFUSAL,
   frozenAccountRefusal,
   MAX_FREE_ACCOUNTS,
   restoreAllowance,
@@ -31,6 +32,7 @@ import {
   compareForSort,
   ConfirmDialog,
   EmptyState,
+  formatCount,
   Modal,
   Note,
   PageHeader,
@@ -56,7 +58,7 @@ const iconFor = (type: AccountType) => {
 const accountSortFields = [
   { field: "name", label: "Name" },
   { field: "currency", label: "Currency" },
-  { field: "balance", label: "Balance" },
+  { field: "balance", label: "Balance", lean: "descending" },
   { field: "status", label: "Status" },
 ] as const;
 type AccountSortField = (typeof accountSortFields)[number]["field"];
@@ -188,6 +190,9 @@ export default function AccountsPage({ session }: { session: Session }) {
             ...json({ expectedVersion: account.version }),
             method: "DELETE",
           }),
+    // The last notice is about the last press. Left up, it sat beside this
+    // press's refusal saying the opposite.
+    onMutate: () => setNotice(""),
     onSuccess: async (_result, { account, action }) => {
       setNotice(
         action === "delete"
@@ -228,7 +233,20 @@ export default function AccountsPage({ session }: { session: Session }) {
           failure is not here: it renders where the list would have been, so
           the page does not become a header, a filter bar and nothing with the
           explanation scrolled off the top. 7.6. */}
-      {mutation.error ? <Alert>{mutation.error.message}</Alert> : null}
+      {/* Named, and taking focus: the press came from a menu far down the
+          page, and the confirmation that asked first has closed, so without
+          it focus fell to <body> and the refusal was off screen. */}
+      {mutation.error && mutation.variables ? (
+        <Alert takeFocus>
+          {`“${mutation.variables.account.name}” was not ${
+            mutation.variables.action === "delete"
+              ? "deleted"
+              : mutation.variables.account.archivedAt
+                ? "restored"
+                : "archived"
+          }. ${mutation.error.message}`}
+        </Alert>
+      ) : null}
       {notice ? (
         <Alert kind="success" takeFocus>
           {notice}
@@ -258,7 +276,7 @@ export default function AccountsPage({ session }: { session: Session }) {
             <h2 className="account-type-heading">
               {group.label}
               <span className="subtle">
-                {`${group.accounts.length} account${group.accounts.length === 1 ? "" : "s"}`}
+                {`${formatCount(group.accounts.length)} account${group.accounts.length === 1 ? "" : "s"}`}
               </span>
             </h2>
             <div className="account-card-grid">
@@ -267,25 +285,29 @@ export default function AccountsPage({ session }: { session: Session }) {
                 const liability = liabilityAccountTypes.has(account.type);
                 const noPlace = Boolean(account.archivedAt) && !restore.ok;
                 const noPlaceId = `${reasonId}-${account.id}`;
-                // The sentence the server refuses all three items with, so a
-                // frozen card says why its menu is gray instead of leaving the
-                // person to find out from a 422. Said once, under the last
-                // item, because one reason covers all three. The fallback is
-                // the only limit any plan freezes under, for a session that
-                // arrived without one. The Restore wiring never meets this: an
-                // archived account is never frozen.
+                // The sentence the server refuses an edit with, so a frozen
+                // card says why Edit is gray instead of leaving the person to
+                // find out from a 422. Under Edit, the one item it explains:
+                // archiving and deleting stay open on a frozen account, because
+                // neither gives it a place. The fallback is the only limit any
+                // plan freezes under, for a session that arrived without one.
+                // The Restore wiring never meets this: an archived account is
+                // never frozen.
                 const frozenReason = account.frozen
                   ? frozenAccountRefusal(activeLimit ?? MAX_FREE_ACCOUNTS, account.name)
                   : null;
                 const frozenId = `${reasonId}-frozen-${account.id}`;
                 const describedBy = frozenReason ? frozenId : undefined;
+                // The server refuses to delete an archived account, so the item
+                // says so before it is pressed rather than after a refusal.
+                const archivedId = `${reasonId}-archived-${account.id}`;
                 return (
                   <article
                     className={`account-card ${account.archivedAt ? "archived" : ""}`}
                     key={account.id}
                   >
                     <header>
-                      <span className="account-icon">
+                      <span className="record-icon">
                         <Icon size={20} />
                       </span>
                       <div className="account-card-actions">
@@ -299,9 +321,14 @@ export default function AccountsPage({ session }: { session: Session }) {
                           >
                             <Pencil size={15} /> Edit
                           </button>
+                          {frozenReason ? (
+                            <small className="button-reason menu-reason" id={frozenId}>
+                              {frozenReason}
+                            </small>
+                          ) : null}
                           <button
-                            disabled={account.frozen || noPlace}
-                            aria-describedby={noPlace ? noPlaceId : describedBy}
+                            disabled={noPlace}
+                            aria-describedby={noPlace ? noPlaceId : undefined}
                             onClick={() => {
                               // Archiving moves money: the balance is posted
                               // out to equity so the account ends at zero.
@@ -341,8 +368,8 @@ export default function AccountsPage({ session }: { session: Session }) {
                           ) : null}
                           <button
                             className="danger"
-                            disabled={account.frozen}
-                            aria-describedby={describedBy}
+                            disabled={Boolean(account.archivedAt)}
+                            aria-describedby={account.archivedAt ? archivedId : undefined}
                             onClick={() => {
                               removal.ask(account, () =>
                                 mutation.mutate({ account, action: "delete" }),
@@ -351,9 +378,9 @@ export default function AccountsPage({ session }: { session: Session }) {
                           >
                             <Trash2 size={15} /> Delete if unused
                           </button>
-                          {frozenReason ? (
-                            <small className="button-reason menu-reason" id={frozenId}>
-                              {frozenReason}
+                          {account.archivedAt ? (
+                            <small className="button-reason menu-reason" id={archivedId}>
+                              {ARCHIVED_ACCOUNT_DELETE_REFUSAL}
                             </small>
                           ) : null}
                         </RowMenu>
@@ -454,10 +481,10 @@ export default function AccountsPage({ session }: { session: Session }) {
         title="Archive this account?"
         description={
           closing.value
-            ? `${formatMoney(closing.value.balance, closing.value.currency)} is posted out of “${closing.value.name}” to Opening Balances, so the account closes at zero and that amount stops counting toward your totals. The books stay balanced and its history stays readable. Restoring the account posts the balance back.`
+            ? `${formatMoney(closing.value.balance, closing.value.currency)} is posted out of “${closing.value.name}” to Opening Balances, so the account ends at zero and that amount stops counting toward your totals. The books stay balanced and its history stays readable. Restoring the account posts the balance back.`
             : undefined
         }
-        confirmLabel="Archive"
+        confirmLabel="Archive account"
         onConfirm={closing.confirm}
         onCancel={closing.cancel}
       />
@@ -470,13 +497,15 @@ export default function AccountsPage({ session }: { session: Session }) {
             ? `Whatever “${restoring.value.name}” held when it was archived is posted back from Opening Balances, and starts counting toward your totals again. Its history was readable all along; this changes the money, not the record.`
             : undefined
         }
-        confirmLabel="Restore"
+        confirmLabel="Restore account"
+        confirmVariant="primary"
         onConfirm={restoring.confirm}
         onCancel={restoring.cancel}
       />
 
       <ConfirmDialog
         open={removal.open}
+        confirmLabel="Delete account"
         title="Delete this account?"
         description={
           removal.value

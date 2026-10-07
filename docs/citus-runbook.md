@@ -16,7 +16,7 @@ kubectl -n <namespace> exec <any database pod> -- \
   patronictl -c /etc/patroni/patroni.yml list
 ```
 
-```
+```text
 + Citus cluster: sb-simple-balance-db ------+--------------+-----------+----+
 | Group | Member                   | Host        | Role         | State     | TL |
 +-------+--------------------------+-------------+--------------+-----------+----+
@@ -314,7 +314,7 @@ exists, so do not bootstrap — wait for a leader". The value is empty, so no
 member can claim leadership from it either. Every database pod then logs this,
 every ten seconds, forever:
 
-```
+```text
 INFO: Lock owner: ; I am <release>-simple-balance-db-0-0
 INFO: waiting for leader to bootstrap
 ```

@@ -166,17 +166,19 @@ describe("how much each category is used", () => {
     expect(await screen.findByText("Groceries")).toBeInTheDocument();
 
     const sortBy = screen.getByRole("combobox", { name: "Sort by" });
+    // Each count starts largest-first, as the same column would in a table
+    // (`web.md` 9.4); it used to keep whatever direction Name had.
     fireEvent.change(sortBy, { target: { value: "total" } });
-    // Ascending: 0, 1, 5, 9.
-    expect(listedNames()).toEqual(["Unused", "Rent", "Groceries", "Salary"]);
+    // Descending: 9, 5, 1, 0.
+    expect(listedNames()).toEqual(["Salary", "Groceries", "Rent", "Unused"]);
 
     fireEvent.change(sortBy, { target: { value: "staged" } });
-    // Ascending: 0, 0, 1, 7. Ties fall back to name.
-    expect(listedNames()).toEqual(["Rent", "Unused", "Groceries", "Salary"]);
+    // Descending: 7, 1, 0, 0. Ties fall back to name.
+    expect(listedNames()).toEqual(["Salary", "Groceries", "Rent", "Unused"]);
 
     fireEvent.change(sortBy, { target: { value: "committed" } });
-    // Ascending: 0, 1, 2, 4.
-    expect(listedNames()).toEqual(["Unused", "Rent", "Salary", "Groceries"]);
+    // Descending: 4, 2, 1, 0.
+    expect(listedNames()).toEqual(["Groceries", "Salary", "Rent", "Unused"]);
   });
 
   it("asks the server for archived rows rather than filtering them out here", async () => {

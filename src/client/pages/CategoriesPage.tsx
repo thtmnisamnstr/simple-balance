@@ -30,7 +30,9 @@ import {
   ConfirmDialog,
   EmptyState,
   Field,
+  formatCount,
   Input,
+  MergePanel,
   Modal,
   PageHeader,
   RowMenu,
@@ -42,20 +44,17 @@ import {
   useConfirm,
 } from "../components.js";
 import { emptyScreen, waysOut } from "../list-filters.js";
+import { categoryKindLabels } from "../select-options.js";
 
-const kindLabels: Record<CategoryKind, string> = {
-  income: "Income",
-  expense: "Expense",
-  both: "Income or expense",
-};
+const kindLabels: Record<CategoryKind, string> = categoryKindLabels;
 
 const categorySortFields = [
   { field: "name", label: "Name" },
   { field: "kind", label: "Kind" },
   { field: "status", label: "Status" },
-  { field: "committed", label: "Committed" },
-  { field: "staged", label: "Staged" },
-  { field: "total", label: "Total transactions" },
+  { field: "committed", label: "Committed", lean: "descending" },
+  { field: "staged", label: "Staged", lean: "descending" },
+  { field: "total", label: "Total transactions", lean: "descending" },
 ] as const;
 type CategorySortField = (typeof categorySortFields)[number]["field"];
 
@@ -161,6 +160,13 @@ function CategoryDialog({
   );
 }
 
+/** What a row action on a category would have done, for the sentence saying it did not. */
+function rowActionVerb(input: { action: "update" | "archive" | "delete"; category: Category }) {
+  if (input.action === "delete") return "deleted";
+  if (input.action === "archive") return input.category.archivedAt ? "restored" : "archived";
+  return "changed";
+}
+
 export default function CategoriesPage() {
   const location = useLocation();
   const queryClient = useQueryClient();
@@ -214,6 +220,9 @@ export default function CategoriesPage() {
   });
 
   const [groupResetNonce, setGroupResetNonce] = useState(0);
+  // What the last group action did, beside the groups rather than beside the
+  // categories, because a group's delete takes its own row and focus with it.
+  const [groupNotice, setGroupNotice] = useState("");
   const groupMutation = useMutation({
     mutationFn: async (
       input:
@@ -249,8 +258,18 @@ export default function CategoriesPage() {
         method: "DELETE",
       });
     },
-    onSuccess: async () => {
-      setGroupName("");
+    onMutate: () => setGroupNotice(""),
+    onSuccess: async (_result, input) => {
+      // Only a create clears the add form: a rename or a policy change elsewhere
+      // on the page used to wipe a group name half typed into it.
+      if (input.action === "create") setGroupName("");
+      // A delete takes its row and the button that did it, so focus fell to
+      // `<body>` with nothing saying the group had gone (`web.md` 13.3).
+      if (input.action === "delete") {
+        setGroupNotice(
+          `Group “${input.group.name}” deleted. Its categories are still here, now in no group.`,
+        );
+      }
       // Both, because a group's categories are shown with it and deleting a
       // group leaves them behind without one.
       await queryClient.invalidateQueries({ queryKey: ["category-groups"] });
@@ -309,6 +328,9 @@ export default function CategoriesPage() {
         method: "DELETE",
       });
     },
+    // A notice about the last row action is not true of the next one, and left
+    // up it sat beside that one's refusal saying the opposite.
+    onMutate: () => setRowNotice(""),
     onSuccess: async (_result, input) => {
       /*
        * 13.3, and `web.md` 9.8 names this as the shape that keeps recurring:
@@ -393,7 +415,7 @@ export default function CategoriesPage() {
       setMergeOutcome(
         `${folded} ${folded === 1 ? "category" : "categories"} folded into “${
           result.targetCategory.name
-        }”. ${moved} committed ${moved === 1 ? "entry" : "entries"} and ${staged} staged ${
+        }”. ${formatCount(moved)} committed ${moved === 1 ? "entry" : "entries"} and ${formatCount(staged)} staged ${
           staged === 1 ? "row" : "rows"
         } now name it.`,
       );
@@ -463,40 +485,45 @@ export default function CategoriesPage() {
         description="Group income and spending, with how much each one is used across the whole ledger. Spot near-duplicates and merge them."
       />
       <section className="panel panel-stack">
+        {/* A form, so each control is a `Field` with a label on screen. They were
+            bare controls named by `aria-label`, with a placeholder as the only
+            visible word — "Groceries" — which vanishes on the first keystroke
+            and was never a label (`web.md` 8.1, SC 3.3.2). A filter bar may be
+            bare because it has no submit, no refusal and no required field;
+            this has all three. */}
         <form className="inline-form" onSubmit={addCategory}>
-          <Input
-            required
-            aria-label="Category name"
-            placeholder="Groceries"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
-          <Select
-            aria-label="Category applies to"
-            value={kind}
-            onChange={(event) => setKind(event.target.value as CategoryKind)}
-          >
-            <option value="expense">Expense</option>
-            <option value="income">Income</option>
-            <option value="both">Both</option>
-          </Select>
-          <Select
-            aria-label="Category group"
-            value={newGroupId}
-            onChange={(event) => setNewGroupId(event.target.value)}
-          >
-            <option value="">No group</option>
-            {(groups.data ?? []).map((group) => (
-              <option key={group.id} value={group.id}>
-                {group.name}
-              </option>
-            ))}
-          </Select>
+          <Field label="Category name">
+            <Input
+              required
+              placeholder="Groceries"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+          </Field>
+          <Field label="Applies to">
+            <Select value={kind} onChange={(event) => setKind(event.target.value as CategoryKind)}>
+              <option value="expense">{kindLabels.expense}</option>
+              <option value="income">{kindLabels.income}</option>
+              <option value="both">{kindLabels.both}</option>
+            </Select>
+          </Field>
+          <Field label="Category group">
+            <Select value={newGroupId} onChange={(event) => setNewGroupId(event.target.value)}>
+              <option value="">No group</option>
+              {(groups.data ?? []).map((group) => (
+                <option key={group.id} value={group.id}>
+                  {group.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
           <Button type="submit" loading={categoryMutation.isPending}>
             <Plus size={16} /> Add category
           </Button>
         </form>
-        {categoryMutation.error ? <Alert>{categoryMutation.error.message}</Alert> : null}
+        {categoryMutation.error && categoryMutation.variables?.action === "create" ? (
+          <Alert>{categoryMutation.error.message}</Alert>
+        ) : null}
       </section>
 
       <section className="panel panel-stack">
@@ -522,26 +549,33 @@ export default function CategoriesPage() {
             }
           }}
         >
-          <Input
-            required
-            aria-label="Group name"
-            placeholder="Fixed costs"
-            value={groupName}
-            onChange={(event) => setGroupName(event.target.value)}
-          />
-          <Select
-            aria-label="Group budget"
-            value={groupPolicy}
-            onChange={(event) => setGroupPolicy(event.target.value as CategoryGroup["policy"])}
-          >
-            <option value="standalone">Has a budget of its own</option>
-            <option value="sum_of_children">Adds up its categories' budgets</option>
-          </Select>
+          <Field label="Group name">
+            <Input
+              required
+              placeholder="Fixed costs"
+              value={groupName}
+              onChange={(event) => setGroupName(event.target.value)}
+            />
+          </Field>
+          <Field label="Group budget">
+            <Select
+              value={groupPolicy}
+              onChange={(event) => setGroupPolicy(event.target.value as CategoryGroup["policy"])}
+            >
+              <option value="standalone">Has a budget of its own</option>
+              <option value="sum_of_children">Adds up its categories' budgets</option>
+            </Select>
+          </Field>
           <Button type="submit" loading={groupMutation.isPending}>
             <Plus size={16} /> Add group
           </Button>
         </form>
         {groupMutation.error ? <Alert>{groupMutation.error.message}</Alert> : null}
+        {groupNotice ? (
+          <Alert kind="success" takeFocus>
+            {groupNotice}
+          </Alert>
+        ) : null}
         {/* Three states, not one. A failed read used to render the same "No
             groups yet." as an empty ledger, while every group picker on the
             page silently offered nothing but "No group" — which reads exactly
@@ -588,9 +622,20 @@ export default function CategoriesPage() {
                         key={`${group.id}:${group.version}:${groupResetNonce}`}
                         aria-label={`Name of ${group.name}`}
                         defaultValue={group.name}
+                        onKeyDown={(event) => {
+                          // Escape puts the stored name back and Enter commits,
+                          // the two keys every other click-to-edit cell honors
+                          // (`web.md` 8.10).
+                          if (event.key === "Escape") event.currentTarget.value = group.name;
+                          if (event.key === "Enter") event.currentTarget.blur();
+                        }}
                         onBlur={(event) => {
                           const next = event.target.value.trim();
-                          if (next !== "" && next !== group.name) {
+                          // A name cleared and left is put back rather than left
+                          // blank on screen: nothing is sent for it, so a blank
+                          // field was showing a group the server still names.
+                          if (next === "") event.target.value = group.name;
+                          else if (next !== group.name) {
                             groupMutation.mutate({ action: "update", group, name: next });
                           }
                         }}
@@ -612,7 +657,7 @@ export default function CategoriesPage() {
                         <option value="sum_of_children">Adds up its categories' budgets</option>
                       </Select>
                     </td>
-                    <td className="align-right">{group.categoryCount}</td>
+                    <td className="align-right">{formatCount(group.categoryCount)}</td>
                     {/* A trash icon in `.row-actions`, like every other
                         per-row delete in the product. It was a full-width ghost
                         button reading "Delete Fixed costs" in a row whose first
@@ -689,9 +734,9 @@ export default function CategoriesPage() {
       </div>
 
       {selectedCategories.length >= 2 ? (
-        <section className="panel merge-panel">
+        <MergePanel>
           <div>
-            <strong>Merge {selectedCategories.length} selected categories</strong>
+            <strong>Merge {formatCount(selectedCategories.length)} selected categories</strong>
             <small>Transactions and staged rows will move to the category you keep.</small>
           </div>
           <Select
@@ -735,7 +780,7 @@ export default function CategoriesPage() {
             Clear selection
           </Button>
           {mergeMutation.error ? <Alert>{mergeMutation.error.message}</Alert> : null}
-        </section>
+        </MergePanel>
       ) : null}
       {mergeOutcome ? (
         <Alert kind="success" takeFocus>
@@ -748,18 +793,32 @@ export default function CategoriesPage() {
           {rowNotice}
         </Alert>
       ) : null}
+      {/* A refusal from a row, beside the notices about rows and naming the
+          category, taking focus. It used to render in the Add category panel
+          at the top of the page, so a refused delete far down the list
+          changed nothing anybody could see. */}
+      {categoryMutation.error &&
+      categoryMutation.variables &&
+      categoryMutation.variables.action !== "create" ? (
+        <Alert takeFocus>
+          {`“${categoryMutation.variables.category.name}” was not ${rowActionVerb(
+            categoryMutation.variables,
+          )}. ${categoryMutation.error.message}`}
+        </Alert>
+      ) : null}
 
       {categories.error ? <Alert>{categories.error.message}</Alert> : null}
       {duplicates.error ? <Alert>{duplicates.error.message}</Alert> : null}
 
       {filtered.length ? (
         <div className="record-list record-list-card">
-          {filtered.map((category) => (
+          {filtered.map((category, index) => (
             <div className="record-row" key={category.id}>
               <div className="record-name">
                 <input
                   type="checkbox"
                   aria-label={`Select ${category.name} for merging`}
+                  data-selection-home={index === 0 || undefined}
                   checked={selectedIds.has(category.id)}
                   onChange={(event) => {
                     const next = new Set(selectedIds);
@@ -771,7 +830,7 @@ export default function CategoriesPage() {
                     }
                   }}
                 />
-                <span className="account-icon">
+                <span className="record-icon">
                   <Tags size={16} />
                 </span>
                 <span>
@@ -786,8 +845,8 @@ export default function CategoriesPage() {
                     </Link>
                   </strong>
                   <small>
-                    {kindLabels[category.kind]} · {category.transactionCount} committed ·{" "}
-                    {category.stagedTransactionCount} staged
+                    {kindLabels[category.kind]} · {formatCount(category.transactionCount)} committed
+                    · {formatCount(category.stagedTransactionCount)} staged
                   </small>
                 </span>
                 {/* Here rather than in the badge cell below, which
@@ -804,7 +863,7 @@ export default function CategoriesPage() {
                   {kindLabels[category.kind]}
                 </Badge>
                 <Badge tone="blue">
-                  {category.totalCount} transaction
+                  {formatCount(category.totalCount)} transaction
                   {category.totalCount === 1 ? "" : "s"}
                 </Badge>
               </div>
@@ -921,13 +980,14 @@ export default function CategoriesPage() {
             ? `Every transaction and staged row filed under the others moves to “${merge.value}”, and the others are removed. This cannot be undone.`
             : undefined
         }
-        confirmLabel="Merge"
+        confirmLabel="Merge categories"
         onConfirm={merge.confirm}
         onCancel={merge.cancel}
       />
 
       <ConfirmDialog
         open={removal.open}
+        confirmLabel="Delete category"
         title="Delete this category?"
         description={
           removal.value

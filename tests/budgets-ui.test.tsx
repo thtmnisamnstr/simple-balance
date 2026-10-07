@@ -312,8 +312,13 @@ describe("the budgets page", () => {
     renderBudgets();
 
     fireEvent.click(await screen.findByRole("button", { name: "Change the budget for Groceries" }));
-    fireEvent.change(screen.getByLabelText(/Ends after/), {
+    fireEvent.change(within(screen.getByRole("dialog")).getByLabelText(/Ends after/), {
       target: { value: "2026-06-30" },
+    });
+    // The funding order, which only an agent could change until the dialog
+    // had the field the create form already had.
+    fireEvent.change(within(screen.getByRole("dialog")).getByLabelText(/Funded first/), {
+      target: { value: "2" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save budget" }));
 
@@ -323,6 +328,7 @@ describe("the budgets page", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]!.body).toMatchObject({
       activeTo: "2026-06-30",
+      priority: 2,
       expectedVersion: 1,
     });
   });
@@ -356,8 +362,15 @@ describe("the budgets page", () => {
         name: /Groceries/,
       })
     ).closest("tr")!;
-    fireEvent.click(within(groceriesRow).getByRole("button", { name: /Just this month/ }));
+    fireEvent.click(
+      within(groceriesRow).getByRole("button", {
+        name: "Set the amount for Groceries in March 2026",
+      }),
+    );
     const dialog = within(screen.getByRole("dialog", { name: /Groceries, March 2026/ }));
+    // The standing budget's amount, at the currency's decimals rather than as
+    // it arrives: "200" opened as "200", and "12.5" as "12.5".
+    expect(dialog.getByLabelText(/Amount/)).toHaveValue("200.00");
     fireEvent.change(dialog.getByLabelText(/Amount/), {
       target: { value: "300.00" },
     });
@@ -374,6 +387,75 @@ describe("the budgets page", () => {
     // No version on a period that had none: sending one would claim to be
     // changing something that is not there.
     expect(writes[0]!.body).not.toHaveProperty("expectedVersion");
+  });
+
+  /**
+   * A group with a budget of its own is overridden the way a category is. The
+   * tool always took a `groupId`, and the parity register excused the page on
+   * the argument that overriding a group is overriding its categories — true
+   * of a group that adds its categories up, and false of one that holds its
+   * own budget. A group that adds up offers nothing, because it has no amount
+   * of its own to set.
+   */
+  it("sets one period's amount on a group that holds its own budget", async () => {
+    const groupId = "99999999-9999-4999-8999-999999999999";
+    const groupRow = {
+      name: "Household",
+      limit: "900",
+      actual: "800",
+      remaining: "100",
+      source: "plan" as const,
+      carriedIn: null,
+      available: null,
+      carriedOut: null,
+      priority: 0,
+      funded: null,
+    };
+    const withGroups: BudgetReport = {
+      ...report,
+      periods: report.periods.map((period) => ({
+        ...period,
+        groups: [
+          { ...groupRow, groupId, policy: "standalone" as const },
+          {
+            ...groupRow,
+            groupId: "88888888-8888-4888-8888-888888888888",
+            name: "Leisure",
+            policy: "sum_of_children" as const,
+            source: "sum" as const,
+          },
+        ],
+      })),
+    };
+    const writes: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input), window.location.origin);
+        if (url.pathname === "/api/v1/budget-report") return Response.json(withGroups);
+        if (url.pathname === "/api/v1/categories") return Response.json(categories);
+        if (url.pathname === "/api/v1/budget-entries" && init?.method === "PUT") {
+          writes.push(JSON.parse(String(init.body)));
+          return Response.json({});
+        }
+        return Response.json([]);
+      }),
+    );
+    renderBudgets();
+
+    const household = (await screen.findByRole("rowheader", { name: /Household/ })).closest("tr")!;
+    const leisure = screen.getByRole("rowheader", { name: /Leisure/ }).closest("tr")!;
+    expect(within(leisure).queryByRole("button")).toBeNull();
+    fireEvent.click(
+      within(household).getByRole("button", { name: "Set the amount for Household in March 2026" }),
+    );
+    const dialog = within(screen.getByRole("dialog", { name: /Household, March 2026/ }));
+    fireEvent.change(dialog.getByLabelText(/Amount/), { target: { value: "950.00" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Save override" }));
+
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]).toMatchObject({ groupId, periodStart: "2026-03-01", amount: "950.00" });
+    expect(writes[0]).not.toHaveProperty("categoryId");
   });
 
   /**
@@ -466,7 +548,9 @@ describe("the budgets page", () => {
     });
     const rentRow = within(reportTable).getByRole("rowheader", { name: /Rent/ }).closest("tr")!;
     // The row already carries an override, so the action says so.
-    fireEvent.click(within(rentRow).getByRole("button", { name: /Change this month/ }));
+    fireEvent.click(
+      within(rentRow).getByRole("button", { name: "Change the amount for Rent in March 2026" }),
+    );
     fireEvent.click(
       within(screen.getByRole("dialog", { name: /Rent, March 2026/ })).getByRole("button", {
         name: /Use the standing budget/,

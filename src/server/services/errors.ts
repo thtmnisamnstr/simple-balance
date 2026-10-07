@@ -118,6 +118,16 @@ export const duplicate = (message: string, details?: unknown) =>
   new AppError("DUPLICATE", message, 409, details);
 
 /**
+ * What a person or an agent is told when the server failed and nothing about
+ * the request can say why. It says what happened and the one move left,
+ * because errors.md 3.1 refuses "an unexpected error occurred": three words of
+ * apology-shaped noise and no information. The cause goes to the log, never
+ * here.
+ */
+export const INTERNAL_ERROR_MESSAGE =
+  "This could not be finished because of a problem on the server. Try again, and if it keeps happening, tell whoever runs this server.";
+
+/**
  * `agentMessage` is here for the same reason `conflict` carries one, and for a
  * refusal that needs it more: a frozen account arrives under the code that
  * means "fix the arguments", and no argument an agent can change gets past it.
@@ -127,9 +137,49 @@ export const duplicate = (message: string, details?: unknown) =>
 export const validationError = (message: string, details?: unknown, agentMessage?: string) =>
   new AppError("VALIDATION_ERROR", message, 422, details, agentMessage);
 
-export function zodIssues(error: ZodError): ValidationIssue[] {
+/**
+ * What to say about a field a draft left out, by the name it has in every
+ * draft shape.
+ *
+ * Zod words a missing field "Invalid input: expected string, received
+ * undefined", which is a sentence about its own types, and the staged queue
+ * showed it under a row an agent had proposed without an account. A staged row
+ * is the one place a person meets an incomplete draft — every form here marks
+ * these fields required — so this is the queue's vocabulary rather than a
+ * second error system: a name not listed keeps Zod's wording.
+ */
+const MISSING_FIELD: Record<string, string> = {
+  type: "Choose deposit, withdrawal or transfer",
+  date: "Enter the date",
+  payee: "Enter a payee",
+  // `common.md`'s worked sentence for an empty amount, for all three: the
+  // field beside the message already says which amount it is.
+  amount: "Enter an amount",
+  sourceAmount: "Enter an amount",
+  destinationAmount: "Enter an amount",
+  fromAccountId: "Choose the account the money comes from",
+  toAccountId: "Choose the account the money goes to",
+};
+
+/**
+ * Missing rather than wrong, which Zod 4 does not record: an issue carries no
+ * input unless the parse asked for it, so the caller hands the input over and
+ * the path is walked to see whether anything is there.
+ */
+function missingFieldMessage(issue: ZodError["issues"][number], input: unknown) {
+  if (issue.code !== "invalid_type") return undefined;
+  let value = input;
+  for (const key of issue.path) {
+    if (value === null || typeof value !== "object") return undefined;
+    value = (value as Record<PropertyKey, unknown>)[key];
+  }
+  const leaf = issue.path.at(-1);
+  return value === undefined && typeof leaf === "string" ? MISSING_FIELD[leaf] : undefined;
+}
+
+export function zodIssues(error: ZodError, input?: unknown): ValidationIssue[] {
   return error.issues.map((issue) => ({
     field: issue.path.join(".") || "draft",
-    message: issue.message,
+    message: (input === undefined ? undefined : missingFieldMessage(issue, input)) ?? issue.message,
   }));
 }

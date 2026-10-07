@@ -123,3 +123,191 @@ describe("every sentence that reports a finished action", () => {
     }
   });
 });
+
+/**
+ * The trigger half, which the answer half above cannot see.
+ *
+ * Deriving the population from the success alerts finds every finished action
+ * that HAS a sentence, so an action with none is invisible to it — and six
+ * deletes were exactly that: a template, a recurrence, a standing budget, a
+ * category group, a connected agent and the other row on the duplicate review
+ * each removed the row and the button that removed it, left focus on
+ * `<body>`, and said nothing. So this starts from the trigger: every mutation
+ * that sends a `DELETE` has to set, on success, a piece of state that some
+ * focus-taking `Alert` in the same file renders.
+ */
+describe("every delete a row confirms", () => {
+  /** The text from `open` to the brace or paren that closes it. */
+  const balanced = (code: string, open: number) => {
+    const opener = code[open]!;
+    const closer = opener === "{" ? "}" : ")";
+    let depth = 0;
+    for (let index = open; index < code.length; index += 1) {
+      if (code[index] === opener) depth += 1;
+      else if (code[index] === closer && --depth === 0) return code.slice(open, index + 1);
+    }
+    return code.slice(open);
+  };
+
+  /**
+   * Named with the reason a sentence is not the answer. Deleting the account
+   * ends the session and leaves the app, so there is no page left to put one
+   * on.
+   */
+  const NO_PAGE_LEFT: Record<string, string> = {
+    "src/client/pages/SettingsPage.tsx#/api/v1/me":
+      "Deleting the account signs the person out and leaves the app; the sentence it would need has nowhere to render.",
+  };
+
+  const deletes = sourceFiles("src/client").flatMap((file) =>
+    [...file.code.matchAll(/useMutation\b[^(]*\(/g)].flatMap((hit) => {
+      const body = balanced(file.code, hit.index + hit[0].length - 1);
+      if (!body.includes('method: "DELETE"')) return [];
+      const path = /api(?:<[^>]*>)?\(\s*[`"]([^`"$]+)/.exec(body)?.[1] ?? "?";
+      const onSuccess = /onSuccess\s*:\s*(?:async\s*)?\(/.exec(body);
+      const handler = onSuccess ? body.slice(onSuccess.index) : "";
+      const setters = [...handler.matchAll(/\bset([A-Z]\w*)\(/g)].map(
+        (setter) => setter[1]!.charAt(0).toLowerCase() + setter[1]!.slice(1),
+      );
+      return [{ key: `${file.path}#${path}`, file, setters }];
+    }),
+  );
+
+  /** Every identifier a focus-taking `Alert` in this file reads in its words. */
+  const focusedWords = (code: string) =>
+    new Set(
+      [...code.matchAll(/<Alert\b[^>]*\btakeFocus\b[^>]*>([\s\S]*?)<\/Alert>/g)].flatMap((alert) =>
+        [...alert[1]!.matchAll(/[A-Za-z_$][\w$]*/g)].map((word) => word[0]),
+      ),
+    );
+
+  it("finds them", () => {
+    expect(deletes.length).toBeGreaterThanOrEqual(8);
+  });
+
+  it("says, where focus lands, that the row has gone", () => {
+    const silent = deletes
+      .filter((one) => !(one.key in NO_PAGE_LEFT))
+      .filter((one) => {
+        const words = focusedWords(one.file.code);
+        return !one.setters.some((state) => words.has(state));
+      })
+      .map((one) => one.key);
+    expect(silent, "set a notice an Alert with takeFocus renders").toEqual([]);
+    const keys = new Set(deletes.map((one) => one.key));
+    expect(Object.keys(NO_PAGE_LEFT).filter((key) => !keys.has(key))).toEqual([]);
+  });
+});
+
+/**
+ * A notice is about the last press, so the next press clears it.
+ *
+ * An alert already on screen announces nothing when its words are set to the
+ * same words again, and takes no focus, so a second "Amazon committed." in a run
+ * of one payee's imported rows, or a second "Deleted “Coffee”, Oct 1.", was
+ * silent and left focus on `<body>`. And a notice left up sat beside the next
+ * press's refusal, so the page reported on one record twice. Accounts and
+ * Categories already cleared theirs as each press started; three pages that
+ * gained notices in 0.2.1 did not, and neither did the staged queue's row
+ * actions before them.
+ *
+ * Derived from every `useMutation` in the client whose `onSuccess` sets a
+ * notice or an outcome: the same setter is called with nothing in `onMutate`,
+ * directly or through a helper it names, or at the top of `mutationFn`.
+ */
+describe("every notice a press leaves", () => {
+  /** Cleared before the mutation is called rather than inside it. */
+  const CLEARED_BEFORE: Record<string, string> = {
+    "src/client/pages/BudgetsPage.tsx#createPlan#setNotice":
+      "The form's submit handler calls `startAttempt`, which clears the notice and the error, before every `createPlan.mutate`.",
+    "src/client/pages/StagingPage.tsx#bulkEditMutation#setBulkEditNotice":
+      "Only the bulk editor submits it, and `openBulkEditor` clears the notice as the editor opens, which it has to before every edit because a successful one closes it.",
+  };
+
+  const presses = sourceFiles("src/client").flatMap((file) => {
+    const found: { key: string; cleared: boolean }[] = [];
+    for (const match of file.code.matchAll(/const (\w+) = useMutation\b[^(]*\(\{/g)) {
+      let depth = 0;
+      let end = match.index + match[0].length - 1;
+      for (; end < file.code.length; end += 1) {
+        if (file.code[end] === "{") depth += 1;
+        else if (file.code[end] === "}" && --depth === 0) break;
+      }
+      const body = file.code.slice(match.index + match[0].length - 1, end + 1);
+      const part = (name: string) =>
+        body.slice(body.indexOf(`${name}:`), body.indexOf(`${name}:`) === -1 ? 0 : undefined);
+      const onSuccess = part("onSuccess").split(/\n    on(?:Error|Settled|Mutate):/)[0]!;
+      const setters = new Set(
+        [...onSuccess.matchAll(/\b(set\w*(?:Notice|Outcome))\(\s*(?!null\b|""|undefined\b)/g)].map(
+          (setter) => setter[1]!,
+        ),
+      );
+      const onMutate = part("onMutate").split(/\n    on(?:Error|Settled|Success):/)[0]!;
+      const helper = /^onMutate:\s*(\w+),/.exec(onMutate)?.[1];
+      const helperBody = helper
+        ? (new RegExp(`const ${helper} = [^;]*;`).exec(file.code)?.[0] ?? "")
+        : "";
+      const mutationFn = part("mutationFn").slice(0, 300);
+      for (const setter of setters) {
+        const clears = new RegExp(`${setter}\\(\\s*(?:null|""|undefined)\\s*\\)`);
+        found.push({
+          key: `${file.path}#${match[1]}#${setter}`,
+          cleared: [onMutate, helperBody, mutationFn].some((text) => clears.test(text)),
+        });
+      }
+    }
+    return found;
+  });
+
+  it("finds the presses that leave one", () => {
+    expect(presses.length).toBeGreaterThan(8);
+  });
+
+  it("clears it as the next press starts, or says where it is cleared instead", () => {
+    expect(
+      presses
+        .filter((press) => !press.cleared && !(press.key in CLEARED_BEFORE))
+        .map((press) => press.key),
+      "clear the notice in onMutate",
+    ).toEqual([]);
+    expect(
+      Object.keys(CLEARED_BEFORE).filter(
+        (key) => !presses.some((press) => press.key === key && !press.cleared),
+      ),
+      "these are cleared in the mutation now, or gone — take them out",
+    ).toEqual([]);
+  });
+});
+
+/**
+ * A bulk edit's refusal sits at the top of its dialog and takes focus.
+ *
+ * 0.2.1 moved all three to the top, where 8.3 puts a summary, and left them
+ * without focus. The dialog scrolls with its footer, so on a phone or at zoom
+ * somebody pressed Apply at the bottom and saw nothing happen: focus stayed on
+ * Apply and the sentence was scrolled out of sight. Derived from every mutation
+ * that posts to a `bulk-edit` path.
+ */
+describe("every bulk edit's refusal", () => {
+  const refusals = sourceFiles("src/client").flatMap((file) =>
+    [...file.code.matchAll(/const (\w+) = useMutation\b[\s\S]{0,400}?bulk-edit"/g)].map((match) => {
+      const name = match[1]!;
+      const alert = new RegExp(`\\{${name}\\.error \\? \\(?\\s*<Alert([^>]*)>`).exec(file.code);
+      return { where: `${file.path}#${name}`, attributes: alert?.[1] };
+    }),
+  );
+
+  it("finds all three", () => {
+    expect(refusals.map((refusal) => refusal.where).sort()).toEqual([
+      "src/client/TransactionBrowser.tsx#bulkMutation",
+      "src/client/pages/StagingPage.tsx#bulkEditMutation",
+      "src/client/pages/TemplatesPage.tsx#bulkEdit",
+    ]);
+  });
+
+  it("takes focus", () => {
+    for (const refusal of refusals) {
+      expect(refusal.attributes, refusal.where).toContain("takeFocus");
+    }
+  });
+});

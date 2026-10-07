@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
+import { renamedRoutes } from "./support/routes.js";
 
 /**
  * The route tables in `docs/standards/http.md` against the routes the server
@@ -36,13 +37,17 @@ async function allRoutes() {
   const source = await readFile(apiPath, "utf8");
   const surface: string[] = [];
   const deprecated: { route: string; successor: string }[] = [];
-  for (const match of source.matchAll(
-    /app\.(get|post|put|delete)\(\s*"(\/api\/v1[^"]*)",\s*(deprecated\("([^"]+)"\))?/g,
-  )) {
+  const renamed = renamedRoutes(source);
+  for (const match of source.matchAll(/app\.(get|post|put|delete)\(\s*"(\/api\/v1[^"]*)"/g)) {
     const route = `${match[1]!.toUpperCase()} ${match[2]}`;
-    if (match[3]) deprecated.push({ route, successor: match[4]! });
+    const successor = renamed.get(route);
+    if (successor) deprecated.push({ route, successor });
     else surface.push(route);
   }
+  // A table entry no route answers to would mark a path that 404s anyway.
+  expect(
+    [...renamed.keys()].filter((route) => !deprecated.some((one) => one.route === route)),
+  ).toEqual([]);
   return { surface, deprecated };
 }
 
@@ -140,9 +145,11 @@ describe("the conventions the paths follow", () => {
   /**
    * And the parameters a handler still names, as a fixed list.
    *
-   * Eight reads remain and every one of them hands its string straight to
-   * something that parses it — `queryBooleanSchema` for the flag,
-   * `isoDateSchema` inside the service for the dates. That is the defense in
+   * Nine reads remain and every one of them hands its string straight to
+   * something that parses it — `queryBooleanSchema` for the two flags,
+   * `isoDateSchema` inside the service for the dates. `optional` is the
+   * session probe's, read before the route because signed out is decided in
+   * the middleware (`docs/standards/http.md`, Session and account). That is the defense in
    * the right place, so these are not defects; naming them is what makes a
    * ninth a decision somebody made rather than one that arrived.
    */
@@ -152,7 +159,7 @@ describe("the conventions the paths follow", () => {
     const named = [
       ...new Set([...routes.matchAll(/c\.req\.query\(\s*"([^"]+)"/g)].map((match) => match[1]!)),
     ].sort();
-    expect(named).toEqual(["end", "includeArchived", "search", "start"]);
+    expect(named).toEqual(["end", "includeArchived", "optional", "search", "start"]);
   });
 });
 
@@ -174,9 +181,7 @@ describe("the paths kept alive across a rename", () => {
     const { surface, deprecated } = await allRoutes();
     const missing = deprecated.filter(
       ({ route, successor }) =>
-        !surface.includes(
-          `${route.slice(0, route.indexOf(" "))} ${successor.replace(/\{([^}]+)\}/g, ":$1")}`,
-        ),
+        !surface.includes(`${route.slice(0, route.indexOf(" "))} ${successor}`),
     );
     expect(missing).toEqual([]);
   });

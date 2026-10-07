@@ -113,6 +113,118 @@ describe("money that is not a ledger amount", () => {
 });
 
 /**
+ * `common.md` §Money: "A comparison is arithmetic."
+ *
+ * Four places in the browser decided a figure was zero by comparing its text —
+ * `=== "0"` and `!== "0"` on a split's remainder and a category's total — and a
+ * fifth decided one was negative by its first character. Each was right only
+ * because whatever produced the string happened to write it canonically; "0.00"
+ * and "-0" are zero too. The helpers in `src/client/money.ts` are the one place
+ * a figure's spelling may be read, because they are what decide it for
+ * everybody else.
+ */
+describe("a comparison of money", () => {
+  it("is arithmetic everywhere in the browser but the helpers that do it", () => {
+    const BY_SPELLING = /[!=]==?\s*"0"|\.startsWith\("-"\)/;
+    const files = sourceFiles("src/client").filter((file) => file.path !== "src/client/money.ts");
+    const helpers = files.reduce(
+      (count, file) =>
+        count + (file.code.match(/\b(isZeroMoney|isNegativeMoney|compareMoney)\(/g) ?? []).length,
+      0,
+    );
+    // The helpers are in use, so this is not passing on a client that stopped
+    // comparing money at all.
+    expect(helpers).toBeGreaterThan(10);
+    const spelled = files.flatMap((file) =>
+      file.code
+        .split("\n")
+        .flatMap((line, index) => (BY_SPELLING.test(line) ? [`${file.path}:${index + 1}`] : [])),
+    );
+    expect(spelled).toEqual([]);
+  });
+
+  /**
+   * A figure whose currency is not known is shown bare, through `shownMoney`,
+   * and never handed to `formatMoney` with an empty one: that falls through to
+   * `${amount} ${currency}` and draws "45.00 ", which is what the Recurring
+   * list showed for a recurring transaction whose account had gone.
+   */
+  it("never formats a figure with an empty currency", () => {
+    const BLANK = /formatMoney\([^;]*?(?:\?\?\s*""|,\s*"")\s*\)/;
+    const blank = sourceFiles("src/client").flatMap((file) =>
+      file.code
+        .split("\n")
+        .flatMap((line, index) => (BLANK.test(line) ? [`${file.path}:${index + 1}`] : [])),
+    );
+    expect(blank, "shownMoney says the bare figure where the currency is unknown").toEqual([]);
+  });
+});
+
+/**
+ * `common.md` §Prose: numbers a person reads are formatted.
+ *
+ * `formatCount` groups thousands, and it was `selectionCount` and only the
+ * selection bars asked it: the bar read "4,318" while the dialog it opened
+ * read "4318 … will be edited", the notice after it "Deleted 4318", the pages
+ * under the list "of 12345", and the import's result counts up to ten
+ * thousand were never grouped. So a count shown in JSX or written into a
+ * template literal goes through it — named by its shape, a path whose last
+ * part is a count or a length.
+ */
+describe("a count a person reads", () => {
+  const COUNTED = /(?:Count|length|^count|^moved|^staged|^total)$/;
+  /** Shown, and never a count of anything that reaches four digits. */
+  const NOT_A_COUNT: Record<string, string> = {
+    "src/client/pages/BudgetsPage.tsx#count":
+      "The forecast's period choices, the strings 3, 6, 12 and 24, shown as their own option labels.",
+  };
+
+  it("groups its thousands wherever it is shown", () => {
+    const shown: string[] = [];
+    const excused = new Set<string>();
+    for (const file of sourceFiles("src/client")) {
+      if (!file.path.endsWith(".tsx")) continue;
+      const places = [
+        ...file.code.matchAll(/(?<![=\w$])\{([A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*)\}/g),
+        ...file.code.matchAll(
+          /\$\{\s*([A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*)(?:\s*\?\?\s*0)?\s*\}/g,
+        ),
+      ];
+      // A value pluralizing the noun after it is a count whatever it is called:
+      // `${deletion.value} transaction${deletion.value === 1 ? "" : "s"}` was
+      // three confirmations' worth of "4318" that a name alone could not find.
+      const pluralized = new Set(
+        [
+          ...file.code.matchAll(
+            /\$\{\s*([A-Za-z_$][\w$.]*)(?:\s*\?\?\s*0)?\s*\}\s+[a-z]+\$\{\s*\1\s*===\s*1/g,
+          ),
+        ].map((match) => match[1]!),
+      );
+      for (const place of places) {
+        const path = place[1]!;
+        if (!COUNTED.test(path.split(".").at(-1)!) && !pluralized.has(path)) continue;
+        if (`${file.path}#${path}` in NOT_A_COUNT) {
+          excused.add(`${file.path}#${path}`);
+          continue;
+        }
+        shown.push(`${file.path}:${file.code.slice(0, place.index).split("\n").length} ${path}`);
+      }
+    }
+    // Formatted ones are calls and are not read above, so the floor is on the
+    // calls: the bars, the notices, the pagination and the import at least.
+    const formatted = sourceFiles("src/client").reduce(
+      (total, file) => total + (file.code.match(/\bformatCount\(/g) ?? []).length,
+      0,
+    );
+    expect(formatted).toBeGreaterThan(25);
+    expect(shown, "write it through formatCount, or name it with why it never groups").toEqual([]);
+    expect([...excused].sort(), "the register excuses something the scan no longer finds").toEqual(
+      Object.keys(NOT_A_COUNT).sort(),
+    );
+  });
+});
+
+/**
  * The word a person reads, where the wire value is not it.
  *
  * `tests/plan-labels.test.ts` already holds the plan half: no file spells
@@ -134,6 +246,30 @@ describe("a wire value and the word a person reads", () => {
         "a second map is a second answer",
       ).toEqual([]);
     }
+  });
+
+  /**
+   * §Prose: sentence case, not Title Case — and a label map is where a word is
+   * written once for every screen, so a capital there is a capital everywhere.
+   * `accountTypeLabels` read "Credit Card", "Crypto Wallet", "Other Asset" and
+   * "Other Liability" in the account-type picker and in every group heading on
+   * Accounts and the Overview, beside "Checking" and "Income or expense".
+   */
+  it("writes every label in a map in sentence case", () => {
+    const titled: string[] = [];
+    let maps = 0;
+    for (const file of sourceFiles("src")) {
+      for (const map of file.code.matchAll(
+        /\b\w*(?:Labels|_LABELS)\b\s*(?::[^=\n]+)?=\s*\{([^}]*)\}/g,
+      )) {
+        maps += 1;
+        for (const value of map[1]!.matchAll(/:\s*"([^"]+)"/g)) {
+          if (/\s[A-Z]/.test(value[1]!)) titled.push(`${file.path} "${value[1]}"`);
+        }
+      }
+    }
+    expect(maps, "the scan found none of the six maps common.md names").toBeGreaterThanOrEqual(6);
+    expect(titled, "a capital after the first word is Title Case").toEqual([]);
   });
 });
 
@@ -157,17 +293,35 @@ describe("a wire value and the word a person reads", () => {
  * answered by rewording a correct comment.
  */
 describe("the em dash", () => {
+  const named = /<h[1-6]\b|<th\b|aria-label=|confirmLabel=|\blabel:\s*"/;
+  const dashedLabels = (code: string) =>
+    code
+      .split("\n")
+      .flatMap((line, index) => (line.includes("—") && named.test(line) ? [index + 1] : []));
+
   it("stays out of a heading, a table header and a label", () => {
-    const named = /<h[1-6]\b|<th\b|aria-label=|confirmLabel=|\blabel:\s*"/;
-    const offenders: string[] = [];
-    for (const file of sourceFiles("src")) {
-      file.code.split("\n").forEach((line, index) => {
-        if (line.includes("—") && named.test(line)) {
-          offenders.push(`${file.path}:${index + 1}`);
-        }
-      });
-    }
+    const offenders = sourceFiles("src").flatMap((file) =>
+      dashedLabels(file.code).map((line) => `${file.path}:${line}`),
+    );
     expect(offenders, "a dash here stands in for deciding what it says").toEqual([]);
+  });
+
+  /**
+   * The canary. A clean tree is the expected answer above, so a pattern that
+   * had stopped matching anything would look exactly like one, and this check
+   * had no way to tell the two apart. Each shape it claims to read is written
+   * here once with a dash in it and must be found; a plain sentence must not.
+   */
+  it("finds a dash in each shape it claims to read", () => {
+    const synthetic = [
+      "<h2>Budgets — this month</h2>",
+      '<th scope="col">Amount — USD</th>',
+      'aria-label="Edit — Groceries"',
+      'confirmLabel="Delete — budget"',
+      'label: "Monthly — $3.00",',
+      "<p>A sentence may use one — like this.</p>",
+    ].join("\n");
+    expect(dashedLabels(synthetic)).toEqual([1, 2, 3, 4, 5]);
   });
 });
 

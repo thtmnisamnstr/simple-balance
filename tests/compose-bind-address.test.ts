@@ -146,4 +146,25 @@ describe("which address a published port binds to", () => {
       "${SB_BIND_ADDRESS:?set SB_BIND_ADDRESS to this machine's private IP}:5432:5432",
     ]);
   });
+
+  /**
+   * `AGENTS.md` names the trial recipe's bundled PostgreSQL as the one
+   * provisioned database outside the hardening rules — superuser, no TLS — on
+   * the condition that it publishes nothing. That condition is the whole of the
+   * exception, so it is held here: a port mapping on it would make a trial
+   * database with a superuser's password the one reachable from the network.
+   */
+  it("publishes nothing from the trial recipe's bundled database", () => {
+    expect(mappings.filter(({ at }) => at.endsWith("compose.distributed.yml postgres"))).toEqual(
+      [],
+    );
+    // And the service is still there to have been checked.
+    expect(
+      composeFiles.some(
+        (file) =>
+          file.path === "deploy/compose/compose.distributed.yml" &&
+          /^  postgres:$/m.test(file.text),
+      ),
+    ).toBe(true);
+  });
 });

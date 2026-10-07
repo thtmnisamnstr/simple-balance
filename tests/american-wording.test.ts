@@ -50,6 +50,17 @@ const LOSING: { pattern: RegExp; instead: string }[] = [
   { pattern: /\btotall(ed|ing)\b/i, instead: "totaled, totaling" },
   { pattern: /\bartefact/i, instead: "artifact" },
   { pattern: /\bafterwards\b/i, instead: "afterward" },
+  // Spellings the sweep's word map missed, found in comments and a refusal
+  // after it. `\blabelled\b` leaves `aria-labelledby` alone, because the
+  // attribute runs straight on into "by" and has no word boundary there.
+  { pattern: /\bneighbour/i, instead: "neighbor" },
+  { pattern: /\blabell(ed|ing)\b/i, instead: "labeled, labeling" },
+  { pattern: /\btowards\b/i, instead: "toward" },
+  { pattern: /\bcolour/i, instead: "color" },
+  { pattern: /\bfavour/i, instead: "favor" },
+  { pattern: /\bcancell(ed|ing)\b/i, instead: "canceled, canceling" },
+  { pattern: /\bwhilst\b/i, instead: "while" },
+  { pattern: /\bamongst\b/i, instead: "among" },
 ];
 
 type Scanned = { path: string; text: string };

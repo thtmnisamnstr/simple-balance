@@ -5,10 +5,28 @@ keep, so upgrading is swapping it for a newer one.
 
 ## Before you upgrade to 0.2.1
 
-This note is written as work lands rather than when the release is cut.
+**Nothing to do by hand.** No migration, no new setting, and nothing an
+existing configuration has to change. A stack that is already up plans no
+change, except two on Oracle Cloud, both below: an `oci-single` stack whose
+database node is `small`, and the `oci` cluster.
+What follows is what moves under a client, found by a full smoke test
+of a 0.2.0 deployment and a sweep of every surface against the guides. No
+route, tool or CSV column is removed.
 
-**Nothing to do by hand.** One fix, and it is to the first `pulumi up` of an
-`oci-single` stack, so a stack that is already up plans no change.
+**Four of the changes narrow what a client could do, which `writing.md`
+§Versioning counts as a break**, and they are named here rather than left to
+the list: a recurring transfer naming one account on both sides is refused; a
+second account whose name differs from another only in case is refused; a save
+that changes nothing no longer bumps `version`; and the auth routes' JSON no
+longer carries the session token. Each refused or exposed something the product
+itself got wrong — a transfer that proposed a row nothing could commit, two
+accounts a person could not tell apart in a picker, a version change nobody
+made that made every other open copy stale, and a credential `HttpOnly` exists
+to keep from page script. Nothing a ledger already holds is touched by any of
+them. They ship in a patch release as an approved exception to `writing.md`
+§Versioning, whose rule still counts each as a break and is not changed by
+this: each corrects something that should never have been possible, rather than
+taking away something a client was meant to have.
 
 **`oci-single` waits for its settings vault to be reachable before making the
 key in it.** OCI reports a new vault active minutes before it publishes the
@@ -20,7 +38,222 @@ more, because the router and macOS had each remembered the "no such host".
 The program now asks OCI's own nameservers until the hostname exists, so the
 first lookup the provider makes succeeds and nothing has a "no" to remember. It
 waits up to fifteen minutes, and says so if that runs out; the vault is kept,
-and the next `up` makes the key.
+and the next `up` makes the key. The question is asked on every `up`, not only
+the first, and only an answer from those nameservers counts as "not yet": a
+network that lets nothing reach port 53 but its own resolver — many corporate
+networks and VPNs — times out instead, and the program then goes ahead as 0.2.0
+did rather than waiting out the fifteen minutes on a stack whose key has existed
+for months.
+
+**`oci-single` gives a `small` database node 8 GB, and that is one change a
+running stack plans.** Oracle halved its Always Free Ampere allowance on June
+15, 2026, to 1,500 OCPU-hours and 9,000 GB-hours a month — 2 OCPUs and 12 GB —
+so the `small` pair's four cores are about two past it whatever this release
+does, and its 8 GB of memory was two thirds of what is now free. The database
+node takes the other 4 GB, because there that memory is free and becomes index
+cache ([`deployment-sizing.md`](deployment-sizing.md#small-on-oracle-cloud)).
+Free in the tenancy's home region with the allowance otherwise unused, which is
+the case this profile is built for; anywhere else the extra 4 GB is billed, at
+about $4.38 a month. `pulumi up` resizes the machine in place, which OCI does by
+restarting it, so the ledger is unreachable for the minute or two that takes;
+neither volume is touched. Run it at a quiet moment. A stack whose database
+node is `medium` or `large` plans nothing, and neither does AWS.
+
+A resize asks Oracle for more memory, and on Always Free it can meet the
+`Out of host capacity` that a first launch often does. The update then fails,
+and so does every `up` at that step until there is room. Check in the console
+that the database machine is running before anything else — start it there if
+it is not; its disks are untouched either way — and try the resize again later.
+Meanwhile `pulumi up --exclude '<the database instance's URN>'` applies
+everything else, and `pulumi stack --show-urns` lists the URN.
+
+The PostgreSQL settings that go with 8 GB reach a machine built before this
+only by hand, because `oci-single` never applies a machine's user data twice.
+Left alone, the server runs with 4 GB's settings in 8 GB of memory, which is
+correct and slower than it needs to be. On the database node, set these three
+lines in `/opt/simple-balance/env.base` and restart the unit, which rebuilds the
+environment from that file:
+
+```sh
+POSTGRES_SHARED_BUFFERS=2GB
+POSTGRES_EFFECTIVE_CACHE_SIZE=5632MB
+POSTGRES_MAINTENANCE_WORK_MEM=512MB
+```
+
+```sh
+sudo systemctl restart simple-balance
+```
+
+**The `oci` cluster attaches new volumes paravirtualized and encrypts them in
+transit.** Its StorageClass asked for `attachmentType`, which Oracle's CSI
+driver does not read — the key is `attachment-type` — and ignores without a
+word, so every volume it made is attached over iSCSI, which OCI does not
+encrypt between the node and the disk; and the node pool never asked for
+in-transit encryption at all. `pulumi up` replaces the class under the same
+name, removing the old one first, which touches no volume a claim already holds,
+and turns the flag on in the node pool, which OCI gives to the nodes it makes
+from then on. So a running cluster's volumes keep their iSCSI attachment and
+its nodes keep their launch options, and both apply to what is made after. At
+rest nothing changes: Oracle encrypts every block volume with its own key, and
+always has.
+
+**What an operator sees differently.** Nothing that started on 0.2.0 stops
+starting, and four things are said in the log that were not, or not then: an
+`IDEMPOTENCY_RETENTION_HOURS` that is not a whole number in range, at startup
+rather than at the scheduler's first sweep; a
+`SETUP_TOKEN` shorter than sixteen characters on an instance already claimed,
+where it is never read; an `SMTP_PORT` that is not a port, which still refuses
+but now names the variable; and, in the split frontend image, an
+`SB_BILLING_CONFIGURED`, `SB_ADS_CONFIGURED` or `SB_CSP_REPORT_ONLY` that is
+neither `true` nor `false` in any capitalization, which is still read as off,
+as it always was — and `TRUE` or `True`, which nginx always read as on, still
+are, passed through lowercased with nothing in the log. The
+three Node images allow 300 seconds before a failing healthcheck counts, where
+they allowed 20, so a first start that is still migrating reports as starting
+rather than unhealthy; the compose recipe and the chart already allowed 300.
+
+**What a client sees differently.**
+
+- **Paging the activity history no longer skips entries.** Every audit entry
+  one transaction writes shares an instant, and the page marker carried it only
+  to the millisecond, so a page boundary inside an import skipped the rest of
+  it. `list_audit_events` and `GET /api/v1/audit-events` now issue a marker
+  that carries the microsecond, and the import-batch list does the same. A
+  marker is opaque and one 0.2.0 issued is still accepted.
+- **An edit that keeps an entry's `templateId` is accepted after the template
+  has been deleted.** It was refused as a template not found, on every save,
+  restore and mass edit of such an entry. A different id is still checked.
+- **An unchanged save returns the version it was sent.** Saving a
+  transaction, account, category, group, budget, template, recurrence or staged
+  row without changing anything now writes nothing — no new version, no audit
+  entry — where 0.2.0 bumped the version every time. Asking for the state a
+  record is already in (archiving an archived account, deleting a deleted
+  entry) is the same. A client that assumed `version + 1` after a save has to
+  read the version the response carries, which it always should have. A mass
+  edit writes only the rows its patch changes: `updatedCount` counts those, and
+  an unchanged row's `nextVersion` equals its `previousVersion`.
+- **Two account names that differ only in case or spacing are refused.**
+  Creating "CHECKING" beside "Checking", or renaming onto it, is a `409
+  DUPLICATE`, the rule categories and payees already followed. Two such
+  accounts a ledger already holds are left alone and either can still be
+  renamed.
+- **A recurring transfer naming one account on both sides is refused** on
+  create and on an edit that sends such a shape, with the message the staged
+  row it would have proposed carried. One already stored goes on proposing that
+  flagged row until it is edited.
+- **`/mcp` answers `GET`, `DELETE` and `PUT` with `405`.** 0.2.0 answered a
+  `GET` `200 text/event-stream` and held it open with nothing ever written;
+  MCP SDK clients treat the `405` as "no stream here".
+- **No session token in an auth route's JSON.** `get-session`,
+  `list-sessions`, sign-in, sign-up and change-password no longer carry the
+  session token in their bodies. The browser never read it — it uses the
+  cookie — and a script that did was reading the credential `HttpOnly`
+  exists to hide.
+- **`GET /api/v1/session?optional=true` answers `200 null` when signed out.**
+  New and opt-in; without the parameter it is the `401` it always was.
+- **A failed sign-in or authorization flow lands on `/auth-error`**, a page
+  that says what went wrong, rather than on `/?error=…`.
+- **The account-deletion summary counts the staged queue**, the rows still
+  waiting there, rather than every staged row ever kept as provenance. MCP's
+  `summarize_own_data` reports the same count.
+- **`/robots.txt` is a robots file** asking every crawler but AdSense's to
+  stay out, where 0.2.0 answered it with the app's own page. It ships in the
+  client bundle, so the decomposed profile's nginx serves it with no change.
+- **`POST /api/v1/csv/stage` refuses a malformed body with a 422 before it
+  streams.** A client that asked for progress frames used to get a 200 and an
+  `error` frame for a request that was never a stage request; it gets the same
+  JSON 422 a client that did not ask for frames gets. A refusal only reading
+  the file can find, such as a row over the cap, still arrives as a frame.
+- **`delete_staged_transactions` with `dryRun` records nothing.** Sending the
+  real delete next with the same `idempotencyKey` now succeeds, where it was
+  refused with `CONFLICT`.
+- **Two messages say something useful.** A 500's message reads "This could not
+  be finished because of a problem on the server. Try again, and if it keeps
+  happening, tell whoever runs this server." in place of "An unexpected error
+  occurred", and an MCP scope refusal names the scope and the move instead of
+  "Forbidden: …". The `INTERNAL_ERROR` code and the JSON-RPC `-32000` are
+  unchanged.
+- **A staged row that leaves a field out names it.** Its issue reads, for
+  example, "Choose the account the money comes from" where 0.2.0 passed on
+  "Invalid input: expected string, received undefined". The `field` beside it
+  is unchanged, and a field that is present but wrong keeps the wording it had.
+- **Eight refusals carry their number in `details`.** The CSV byte and row
+  caps carry `{field: "csv", limit}`, the export cap and the two report bounds
+  `{limit}`, the register bound `{limit, postingCount}`, the 413
+  `{limit}`, and the frozen-account refusal `{accountId, limit}`. Each was a
+  refusal with no `details` at all, so nothing a client read is gone; the
+  frozen refusal keeps its `422 VALIDATION_ERROR`.
+- **Every response on a renamed path carries `Deprecation`, `Sunset` and
+  `Link`**, including the 401, 403, 413 and 415 refused before the route,
+  which went without them in 0.2.0. The `successor-version` link names the id
+  the request was sent with — `</api/v1/accounts/<id>/archived>` — where it
+  was the literal `{id}` template, and the `deprecation` link points at the
+  0.1.6 changelog entry rather than the top of the file. The four old paths
+  still answer until the sunset, March 1, 2027.
+- **A cross-origin `403` and a `415` carry `Cache-Control: no-store`**, which
+  every other `/api/v1` response already did.
+- **`Accept: text/event-stream;q=0` gets JSON.** 0.2.0 sent frames to any
+  `Accept` containing the type; a weight of zero now means no, as RFC 9110
+  says. A wildcard alone never asked for frames and still does not.
+- **The MCP instructions and many tool descriptions read differently.** The
+  instructions no longer say deleting can be undone; they say a transaction's
+  delete is a reversal and every other delete is permanent. Twenty-odd
+  descriptions changed wording — delete tools say there is no undo, the
+  account and category tools name their refusals, `list_staged_transactions`
+  describes its paging — and every tool a description names is now in
+  backticks. No tool, argument or result field was added, renamed or removed.
+- **A positive amount publishes a pattern with no minus sign.** Every
+  amount described as greater than zero, and a budget's amount, used to publish
+  `^-?…` in `tools/list`; they publish the unsigned pattern now. The server
+  refused a negative before and refuses it the same way, with the same
+  sentence, so a client sending what worked yesterday is unaffected; one that
+  validates against the schema now refuses a negative before sending it.
+- **A liability at exactly zero is presented as `Amount owed`.**
+  `balancePresentation.label` on a credit card or loan with a zero balance
+  read `Credit balance`; it reads `Amount owed`, with the amount `0`. A
+  positive liability balance is still a credit balance and a negative one is
+  still owed. `balance` itself is unchanged.
+- **Three refusals say something truer.** Deleting an archived account reads
+  "An archived account cannot be deleted. Restore it first." where it said
+  "Unarchive", deleting an in-use category that is already archived no longer
+  advises archiving it, and the frozen-account refusal names an account in use
+  being archived or deleted as the way back. Codes and statuses are unchanged.
+- **Archiving or deleting a frozen account succeeds.** 0.2.0 refused both
+  with `422 VALIDATION_ERROR` naming the account, over HTTP and MCP alike; they
+  now behave as they do on any account, so a delete still needs nothing on the
+  account and an archived one still needs a free place to be restored. Every
+  other write to a frozen account is refused exactly as before, with a sentence
+  that now says its entries and details cannot change rather than that nothing
+  can.
+- **A free-text field's refusal is a sentence.** An empty or over-long name,
+  payee, description, note or search was refused with Zod's own wording, "Too
+  small: expected string to have >=1 characters"; it reads "Enter a category
+  name" or "A payee must be 160 characters or fewer" now, and a template mass
+  edit's empty string says that `null` is the clear. The code, the status and
+  the field path are unchanged; only `message` is.
+- **Thirteen refusals that said a thing "is unavailable" say what happened.**
+  An account, category, template, staged row or split row that could not be
+  used now reads as archived or not found, with the move that works — "The
+  account the money comes from is archived or was not found. Choose another
+  account." — over HTTP and MCP alike. Another person's record reads exactly
+  as a missing one does. Codes and statuses are unchanged.
+
+### What to check afterwards
+
+`/health/ready`, as with any upgrade; nothing at startup is new, so a clean
+start is the whole check. A client that matched a refusal's message text rather
+than its `code` should read the two lists above, because several messages are
+reworded and every code is the one it was.
+
+On an `oci-single` stack at `small`, `pulumi stack output databaseMachine`
+should say 8 GB once `pulumi up` has finished. On the database node, reached as
+[`deploy/pulumi/README.md`](../deploy/pulumi/README.md) describes, this says
+2GB once the settings above are in:
+
+```sh
+sudo docker compose -f /opt/simple-balance/compose.postgres.yml exec postgres \
+  psql -U postgres -c 'show shared_buffers'
+```
 
 ## Before you upgrade to 0.2.0
 
@@ -1334,9 +1567,11 @@ repository closes.
 
 4. Date the `## Unreleased` heading in `CHANGELOG.md`, since nothing does that
    for you and the upgrade notes above send people there to read it.
-5. Add that release's migrations to the frozen list in `AGENTS.md`. Once an
-   image has run one against somebody's data it can never be edited again, and
-   the list is what says so.
+5. Add that release's migrations to the frozen list in `AGENTS.md`, and record
+   each one's SHA-256 and journal `when` in
+   `tests/support/frozen-migrations.json`. Once an image has run one against
+   somebody's data it can never be edited again; the list says so and the
+   hashes are what notice when a body changes anyway.
 6. `npm run verify`, then commit and push on the default branch. The publish
    runs the same suite first, so a failure here is one the release would have
    met anyway.

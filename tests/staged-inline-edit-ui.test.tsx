@@ -195,7 +195,7 @@ describe("editing staged fields in place", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /edit the amount of Corner shop$/i }),
     );
-    const editor = screen.getByLabelText("Amount of Corner shop in USD");
+    const editor = screen.getByLabelText("Amount of Corner shop (USD)");
     expect(editor).toHaveValue("10.00");
     fireEvent.change(editor, { target: { value: "12.50" } });
     fireEvent.blur(editor);
@@ -284,5 +284,20 @@ describe("editing staged fields in place", () => {
     // dialog, because the page's own header carries a Stage button too.
     expect(within(dialog).getByDisplayValue("Corner shop")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Stage transaction" })).toBeInTheDocument();
+  });
+});
+
+/**
+ * The type under the payee is the word the register prints, not the wire value.
+ * The queue printed `draft.type` as it came, so a staged row read "withdrawal"
+ * one page over from a register that read "Withdrawal" for the same entry.
+ */
+describe("the type under a staged payee", () => {
+  it("reads as the register reads it", async () => {
+    stubQueue();
+    renderStaging();
+    const trigger = await screen.findByRole("button", { name: /edit the payee of Corner shop$/i });
+    const subtitle = trigger.closest("th, td")!.querySelector(".table-subtitle");
+    expect(subtitle).toHaveTextContent(/^Withdrawal$/);
   });
 });

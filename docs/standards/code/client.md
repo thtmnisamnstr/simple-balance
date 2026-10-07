@@ -19,7 +19,7 @@ stale one.
 
 The exception is a form editing something loaded: the query result seeds the
 initial state and then the state is the truth until the save. That is a
-deliberate copy with a defined end, and `src/client/forms.tsx:1670` is the site
+deliberate copy with a defined end, and `src/client/forms.tsx:1790` is the site
 that cites this sentence for it.
 
 *Checked by:* nothing, and §4 says why — the two shapes are the same three
@@ -39,7 +39,7 @@ exactly this and are correct. What a key must not carry is anything that does
 not survive `JSON.stringify` — a function, a class instance, a `Map` — because
 structural hashing flattens those and two different questions become one entry.
 An earlier version of this sentence banned objects outright, which would have
-flagged all three — `:281`, `:309` and `:345` — and
+flagged all three — `:288`, `:316` and `:352` — and
 `tests/query-keys.test.ts:16-24` records why the check declines to.
 
 **That three is a hand count, and nothing holds it.** It was written in two
@@ -65,7 +65,7 @@ invalidation written by hand, and no test will remind you.
 **Binding, mostly.** If it can be worked out from what is already in state, work
 it out during render. `splitting`, `showsCategoryPicker`, `splitSettled` and
 `entrySide` in `TransactionForm` are all plain `const`s
-(`src/client/forms.tsx:1739-1751` and `:1807`), and every one of them would be
+(`src/client/forms.tsx:1864-1878` and `:1934`), and every one of them would be
 a synchronization bug as state.
 
 `react/set-state-in-effect` found thirteen sites and every one has been
@@ -84,7 +84,7 @@ what the person typed.
 The other thing that is not a derived value: an answer a handler needs before
 the next render can deliver it. The staged list's inline editors keep
 `inlineInFlight`, `inlineCanceled` and `focusAfterInline` in refs
-(`src/client/pages/StagingPage.tsx:601-612`) even though the first shadows
+(`src/client/pages/StagingPage.tsx:634-645`) even though the first shadows
 `isPending`, because the deciding read happens in the same event burst as the
 write: Enter commits, and the blur that follows a click away runs before the
 render that would have set `isPending`, so the state version double-submits —
@@ -94,7 +94,7 @@ does, it is state hiding in a ref, which is the same bug from the other side. Do
 not "fix" these to `isPending` — that is the obvious edit and the wrong one, and
 the comments at the three sites say so.
 
-That citation named `:592-603` for a release, which is the two `useState` calls
+That citation named `:623-634` for a release, which is the two `useState` calls
 immediately above — the opposite of what the sentence says, in the sentence
 that says it. `tests/standards-citations.test.ts` cannot catch that kind, because
 the lines it pointed at exist and have something on them. The habit that avoids
@@ -137,7 +137,7 @@ it. `react/use-memo` wants a dependency list of simple expressions, and the
 reminder preview's was `JSON.stringify(parsedReminder?.data ?? null)` — a memo
 keyed on a value rebuilt every render, stringified so it would compare equal at
 a cost larger than the five dates it was saving. It is computed during render
-now (`src/client/forms.tsx:1056-1062`), which is the same fix as 1.3's and why
+now (`src/client/forms.tsx:1119-1125`), which is the same fix as 1.3's and why
 the rule sits in this section rather than in one of its own: both findings were
 a dependency array admitting that the thing above it was not worth memoizing.
 The obvious alternative was to key the memo on the raw fields instead, which
@@ -160,7 +160,7 @@ to exactly one group and that two forms on one page stay separate.
 ### 2.1 The client has its own exact money, and uses it for decisions
 
 **Binding.** `src/client/money.ts` works in scaled `bigint`, through
-`moneyUnits` (`src/client/money.ts:160`). Use
+`moneyUnits` (`src/client/money.ts:229`). Use
 `compareMoney`, `isNegativeMoney` and `sumMoney` for anything that decides
 something.
 
@@ -178,8 +178,10 @@ same question two ways.
 
 **One value in this client is money-shaped and outside this rule.** The plan
 tab divides a float to render a price: `formatPrice`
-(`src/client/pages/PlanPage.tsx:578-598`) takes Stripe's integer count of minor
-units and divides by the scale `Intl` already knows. The membership test is
+(`src/client/pages/PlanPage.tsx:627-663`) takes Stripe's integer count of minor
+units and divides by the scale Stripe charged it in, which is the one `Intl`
+already knows for every currency but four Stripe documents otherwise
+(`STRIPE_CHARGE_DIGITS`, beside it). The membership test is
 [`common.md`](../common.md) §Money that is not a ledger amount, which owns the
 carve-out for the whole guide set — all four of its clauses, because a value
 passing three of them is a ledger amount.
@@ -219,7 +221,7 @@ Read this with 2.3, which is its boundary: a preview is of what a refusal will
 *say* and whether a form is valid, never of who is entitled to what.
 
 *Checked by:* one test per previewed rule, and
-`tests/frozen-accounts-ui.test.tsx:280` is the worked example — it calls the
+`tests/frozen-accounts-ui.test.tsx:282` is the worked example — it calls the
 shared `frozenAccountRefusal` and asserts the disabled button's accessible
 description *equals* it, so a near-match in the client fails on the string. §4
 says what that technique does and does not reach.
@@ -236,10 +238,10 @@ The two deciders live in `src/shared/domain.ts` and are imported by no file in
 what somebody may do, and `frozenAccountIds`, which turns that into a set of
 ids. Both are reachable — the module boundary allows it — and both are named in
 the client only in comments explaining why they are not called
-(`src/client/api.ts:468-472`, `src/client/TransactionBrowser.tsx:419`). What
+(`src/client/api.ts:561-563`, `src/client/TransactionBrowser.tsx:441`). What
 the browser reads instead is the answer: `frozen` on each account
-(`src/client/api.ts:476`), and an ad that exists only because the server sent a
-placement at all (`src/server/api.ts:1454`, `src/client/ads.tsx:7-14`).
+(`src/client/api.ts:567`), and an ad that exists only because the server sent a
+placement at all (`src/server/api.ts:1586`, `src/client/ads.tsx:7-14`).
 
 **The obvious alternative was to compute it in the browser from the session**,
 which is one import and looks like 2.2 being obeyed. It is wrong three times
@@ -267,13 +269,13 @@ exist in `src/shared/domain.ts` so a rename cannot void the check quietly.
 ### 3.1 `Field` wraps every labeled control in a form
 
 **House.** Layout, label, hint, error **and the word "optional"** in one place
-(`src/client/components.tsx:517`). The fourth is the newest and the one this
+(`src/client/components.tsx:633`). The fourth is the newest and the one this
 enumeration left out for a release, which matters because of the direction a
 reader acts in: somebody marking a field optional from a list of three writes
 the word into the label, and a name computed from `<label for>` is the label's
 entire text, so "(optional)" becomes part of the control's accessible **name**
 — the defect the `optional` prop was added to remove
-(`src/client/components.tsx:528-539`). `web.md` §8.4 owns the scheme, the
+(`src/client/components.tsx:653-664`). `web.md` §8.4 owns the scheme, the
 census and the WCAG argument; what belongs here is that the slot is a prop and
 never a per-page decision. Three consequences worth knowing, and the first of
 them used to be the opposite:
@@ -293,16 +295,16 @@ them used to be the opposite:
 - `jsx-a11y/label-has-associated-control` still cannot see through it, which is
   why that rule is off. See [`index.md`](index.md).
 
-**In a form that stacks.** Two shapes take a bare control and an `aria-label`
-instead: a filter bar, which `web.md` §7.6 governs, and `.inline-form` — the
-one-row "add a category" (`src/client/pages/CategoriesPage.tsx:465`) and "add a
-group" (`:515`) bars, which are both of them. This sentence named a third, "add
-a payee", which does not exist and never did: the payees page has no form on it
-at all, and a carve-out listing a site that is not there invites the next one
-to be written because the list implied a pattern. In the second shape, a
-stacked label per control would treble the row's height for three words that the
-button beside them already implies, and a field-level error has nowhere to go
-because the refusal comes back as one `Alert` under the row. The carve-out is written here rather
+**In a filter bar.** One shape takes a bare control and an `aria-label` instead:
+a filter bar, which `web.md` §7.6 governs. **`.inline-form` was a second, and
+is superseded in 0.2.1.** The one-row "add a category"
+(`src/client/pages/CategoriesPage.tsx:494`) and "add a group" (`:542`) bars took
+bare controls on the argument that a stacked label per control would treble the
+row's height. They are forms — a submit, a refusal, a required field — and a
+placeholder as the only visible word is a label that vanishes on the first
+keystroke (`web.md` 8.1, SC 3.3.2), so both wrap their controls in `Field` now,
+and the filter bar is the one shape left. The sentence once named a third, "add
+a payee", which never existed. The carve-out is written here rather
 than left implicit because this sentence used to say "every labeled control"
 without qualification, and the one page that obeyed it literally — Templates,
 which wrapped its Type filter in a `Field` — ended up with a filter twenty
@@ -350,9 +352,9 @@ What is left for this guide is the code-side half: where in `src/client` the
 field has to become reachable. A request type in `api.ts` that carries the
 field is not reachability — it makes the field settable by code and by nobody
 at a screen. The control is what closes it, and the shape has recurred three
-times: a body field (`src/client/forms.tsx:2815-2822`), a creation field
-(`src/client/pages/CategoriesPage.tsx:278-281`) and a list filter
-(`src/client/pages/StagingPage.tsx:827-831`), each site carrying the same note
+times: a body field (`src/client/forms.tsx:2977-2984`), a creation field
+(`src/client/pages/CategoriesPage.tsx:300-303`) and a list filter
+(`src/client/pages/StagingPage.tsx:878-882`), each site carrying the same note
 about the one before it. Three instances is a pattern rather than a scar: when
 a shared schema gains a field, the form gains a control in the same change.
 
@@ -371,7 +373,7 @@ imports it and the app shell imports `PlanPage`, so every page of every
 deployment fetched Stripe.js: the sign-in screen, a subscriber reading
 balances, a deployment that sells nothing at all. The fix is the `/pure` entry
 plus a loader keyed by the publishable key, called on the plan tab when there
-is something to confirm (`src/client/pages/PlanPage.tsx:19-26` and `:357-376`).
+is something to confirm (`src/client/pages/PlanPage.tsx:19-26` and `:367-386`).
 The ad script is the same shape by hand — keyed by publisher id, fetched by the
 first `AdSlot` that mounts and by nothing else (`src/client/ads.tsx:24-57`).
 The schema library's `eval` probe is the third face of it: a library doing
@@ -408,7 +410,7 @@ nothing.
 | --- | --- |
 | 1.1 Server state is a query | Not mechanizable. |
 | 2.1 `Number()` only where approximate | Half checked now. The narrower rule this row called "possible and fiddly" was written: `tests/money-never-floated.test.ts` flags a money-*named* identifier inside a `Number()` or a `parseFloat` anywhere in `src`, which is what a lint rule banning `Number(` outright could not do without firing on every pixel. What stays a sentence is money under a name that does not say so — `fillPercent(limit, actual)` in `budget-display.ts` takes two decimal strings and a `Number(actual)` added there passes. The check states that limit in its own docstring. |
-| 2.2 The preview calls the rule rather than copying it | Checked one rule at a time, and the technique works: `tests/frozen-accounts-ui.test.tsx:280` calls the shared `frozenAccountRefusal` and asserts the rendered accessible description *equals* it, so a hand-rolled near-match fails on the string rather than passing a grep for the import. The cost is one test per previewed rule, written by whoever adds the preview. What stays open is the preview nobody wrote a test for — a copy of a rule that has no shared home yet reads as ordinary client code, and `tests/module-boundaries.test.ts` proves the import is allowed, not that it was taken. |
+| 2.2 The preview calls the rule rather than copying it | Checked one rule at a time, and the technique works: `tests/frozen-accounts-ui.test.tsx:282` calls the shared `frozenAccountRefusal` and asserts the rendered accessible description *equals* it, so a hand-rolled near-match fails on the string rather than passing a grep for the import. The cost is one test per previewed rule, written by whoever adds the preview. What stays open is the preview nobody wrote a test for — a copy of a rule that has no shared home yet reads as ordinary client code, and `tests/module-boundaries.test.ts` proves the import is allowed, not that it was taken. |
 | 3.1 `Field` wraps every labeled control in a form | Half checked now. `tests/field-contract.test.tsx` holds that every `<input>`, `<select>` and `<textarea>` in `src/client` goes through the three shared components, so every one of them is *reachable* by a `Field`; whether a given call site wrapped it is still a reader's job, because the lint rule that would see that is off precisely because it cannot see through `Field`. A control labeled by hand beside a `Field` fails nothing, since the accessible name comes out the same either way. |
 | 3.3 Fields reachable from the browser | Half checked now, on the write side. `tests/mcp-parity.test.ts` compares route lists, and a field is one level below anything a route list can see — `AGENTS.md` now says so in the invariant itself. Its `WRITTEN_FORMS` register closes six of those pairs by name, comparing 52 fields a tool writes against the fields the matching form sends, and the request reader was widened to three shapes to do it: a plain object, an array field-list, and a mutation whose request travels through `json(…)`. What stays a sentence is every tool outside those six, and the read side entirely. The gap has been hit three times, most expensively by `categoryKind`. |
 

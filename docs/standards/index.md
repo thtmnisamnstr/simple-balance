@@ -40,7 +40,7 @@ subject, and those six are the guides that govern them. Repeating an invariant
 where the temptation lives is placement, not duplication. Repeating it where
 there is no temptation would be the drift the paragraph above forbids, which is
 why the other two do not carry it: `http.md` settles money on the wire in its
-own terms (`docs/standards/http.md:741-743`), and nothing `writing.md` governs
+own terms (`docs/standards/http.md:793-795`), and nothing `writing.md` governs
 holds an amount. `tests/standards-index.test.ts` holds the list to the guides,
 both ways, so "every guide" cannot creep back in.
 

@@ -211,7 +211,7 @@ is kept and nothing is sent.
 
 For money that moves on a schedule, like rent, salary, and subscriptions:
 
-1. Open **Recurring** and press **New recurrence**, or choose **Save as
+1. Open **Recurring** and press **New recurring transaction**, or choose **Save as
    recurring transaction** from any row's ⋯ menu to start from a real example.
 2. Set the schedule: daily, weekly, monthly or yearly, every N of those, on a
    day of the month or a relative day such as the last Friday. Choose what
@@ -248,9 +248,10 @@ stops being useful. Each step works on its own.
    halfway through is not yet a month you stayed within.
 
 A budget is a standing instruction: one line covers every month until you end
-it. December is allowed to be different. Press **Just this month** on the row
-to override a single period (once an override exists the button reads **Change
-this month**), and clear the override to fall back.
+it. December is allowed to be different. Press the calendar button at the end
+of the row to set an amount for that period alone (a screen reader names it
+"Set the amount for Groceries in December 2026", and "Change" once an override
+exists), and clear the override to fall back.
 
 Add categories one at a time as the numbers teach you something. A category
 you budgeted and never spent on still shows, at zero. That is usually the

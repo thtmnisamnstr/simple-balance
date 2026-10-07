@@ -4,7 +4,320 @@ Notable changes, newest first.
 
 ## Unreleased
 
+Everything below except the `oci-single` fix came out of a full smoke test of a
+0.2.0 deployment — the browser app, the HTTP API, the MCP surface and billing
+against a Stripe sandbox.
+
+### Changed
+
+**Moving from monthly to annual asks first.** It is the one plan change that
+charges a card the moment it is pressed, and it did so on a single click. The
+plan tab now says the annual plan starts today, that what is left of the month
+is credited and the difference is charged now, and charges nothing until that is
+confirmed. Nothing else asks: a move to monthly waits for the renewal, canceling
+runs to the end of the period, and both are undone on the same tab, so canceling
+stays exactly as easy as subscribing.
+
+**A frozen account can be archived or deleted.** After a downgrade, every
+account past the free plan's three refused every change, including being put
+away, so somebody with thirty accounts who wanted to clear out the ones they no
+longer use had to upgrade first or swap each one into use and out again. Archive
+and delete now work on a frozen account, from the Accounts page and from an
+agent alike. Neither gives anything a place, because a frozen account never
+held one, and an archived account still needs a free place to come back, so the
+limit is exactly where it was. Its entries and details stay closed to change.
+
+**Oracle's `small` database node has 8 GB.** Oracle halved its Always Free
+Ampere allowance on June 15, 2026, to 2 OCPUs and 12 GB, so a `small` pair's
+four cores are about two past it, about $14 a month, whatever this release does.
+The memory the allowance still covers now goes to the database node, which takes
+the ledger PostgreSQL holds entirely in cache from 2.8M transactions to 6.3M at
+no cost, and its PostgreSQL settings move with it. AWS is unchanged. `pulumi up`
+resizes a running stack's database machine in place, which restarts it, and
+`docs/upgrades.md` has the settings for a machine built before this.
+
 ### Fixed
+
+**Older activity no longer skips the rest of an import.** Every change one
+import or one mass edit makes is recorded at the same instant, and paging back
+through the activity history asked for entries earlier than that instant, so a
+page boundary inside an import skipped every entry of it after that page. Each
+page now picks up exactly where the last one stopped.
+
+**Opening a staged refund or a recurring refund to edit it keeps it a refund.**
+A row or a recurrence naming a category that did not exist yet, with the answer
+that it was a refund, lost that answer when it was opened in the form and
+saved, and committed as income. The answer is shown and kept, on a split for
+each part separately.
+
+**An entry made from a template that has since been deleted can be edited
+again.** Every save of it, a restore after deleting it, and any mass edit that
+included it were refused because the template was gone.
+
+**The Oracle cluster's volumes are encrypted on the way to the disk.** Its
+StorageClass spelled the attachment key the way Oracle's CSI driver does not
+read, and the driver ignored it, so every volume was attached over iSCSI, which
+Oracle does not encrypt in transit, and the node pool never asked for in-transit
+encryption either. New volumes are attached paravirtualized on nodes that
+encrypt the hop. Volumes and nodes that already exist keep what they were made
+with, and at rest every Oracle and Google volume was encrypted all along, by the
+provider's own key.
+
+**Saving something without changing it no longer makes every other copy of it
+stale.** An unchanged save of a transaction, account, category, group, budget,
+template, recurrence or staged row rewrote the row and bumped its version, so a
+second tab or an agent holding the same record was refused its next save over a
+change nobody made. Such a save now writes nothing — no new version, no audit
+entry, no posting — and so does archiving something already archived or
+deleting something already deleted. A mass edit writes only the rows its change
+actually changes, and its count says how many that was.
+
+**MCP connections no longer hold a server open for nothing.** The endpoint is
+stateless, and it answered every client's `GET` with an event stream that could
+never carry a message and stayed open, one connection and one server instance
+per connected agent. It now answers `405`, which MCP clients read as "no stream
+here".
+
+**The session cookie's secret stays out of page script.** The cookie is
+`HttpOnly`, and the sign-in, sign-up, session and session-list answers handed
+the same value back in JSON anyway, readable by any script running on the page
+— and while advertising is on, the page allows scripts from any HTTPS origin.
+Those answers no longer carry it.
+
+**Forms say what is wrong next to the field that is wrong.** A refusal from the
+server listed its sentences at the top of the account, transaction, template
+and recurrence forms and nowhere else. Each sentence now also appears beside the
+field it is about, which is marked invalid, and each line of the summary at the
+top is a link that takes you to that field.
+
+**Focus stays where you are working.** A button that was busy dropped focus, so
+the next Tab started from the top of the page; the result of a bulk edit, or of
+anything confirmed in a dialog, never received focus; deleting or restoring a
+single transaction said nothing at all; opening the menu on a phone left focus
+behind it, and following a link from it pulled focus back out of the page it
+opened. All of these now land focus on the button that is still there or on the
+sentence saying what happened. The menu button says whether the menu is open,
+and a deleted transaction is labeled "Deleted" in words as well as struck
+through.
+
+**A refused delete says so where you can see it.** Deleting a category or an
+account that is still in use put the refusal at the top of the page, often far
+above the row, beside an earlier success message that was no longer true. The
+refusal now names what was not deleted, takes focus, and replaces the old
+message.
+
+**A CSV import no longer picks an account for you.** With several accounts, the
+first one alphabetically was already chosen, one press from staging a whole file
+into an account nobody had named. It now asks, unless there is only one.
+
+**Two accounts can no longer be told apart only by capital letters.** Account
+names were the one kind of name compared exactly, so "Checking" and "CHECKING"
+could both exist. They are now compared the way categories and payees are.
+Accounts that already differ only that way are kept.
+
+**A recurring transfer between an account and itself is refused when it is
+made**, rather than accepted and then filling the staged queue, every time it
+came due, with a row nobody could commit.
+
+**Pages that were hard to read on a phone or a screen reader.** A very large
+balance pushed the overview and accounts pages sideways at phone widths, and
+now wraps. The budgets forecast showed one table per currency with nothing on
+screen saying which currency each was. Transfers read "Uncategorized" on the
+transactions list, which looked like work left undone, and now show a dash as
+the staged queue already did. A split's remaining amount read "10 left to
+assign" with no currency and "-65.5 left" when over-assigned; it is written as
+money, and over-assigning says so. The activity history read like code —
+"Create from stage transaction" — and never said which record changed; each
+line now says what happened, in words, and names the record. And the
+add-category form called a kind "Both" that the rest of the app calls "Income
+or expense", while the question about what kind a new category is had no
+visible wording at all.
+
+**A link that fails says so.** A failed sign-in or MCP authorization link
+landed on the overview with no word of what had gone wrong, and a report name
+nobody knows showed net worth under the wrong address. The first now gets a page
+that says what happened, and the second goes to Reports.
+
+**Pages fit their window, and numbers start at their currency's decimals.**
+Staged, with a duplicate waiting, was wider than an 820px window and broke its
+duplicates button over two lines on a phone; header actions now drop to a row of
+their own instead. Dates in the staged queue, the import preview and Recurring's
+next column broke onto three lines in a narrow table, and now stay whole. An
+account opened for editing showed its starting amount to eighteen decimal
+places, and a transaction or budget dropped its cents to "12.5"; every amount
+field now starts at the currency's own decimals. When the accounts list failed
+to load, the add buttons said to create an account first; they now say the
+accounts did not load. The duplicate review no longer opens with the cursor in
+its second form, a badge's icon no longer touches its words, and a staged row
+missing a field names the field to fill in rather than repeating a type error.
+
+**Two edits at once no longer deadlock.** Editing an entry or a staged row so it
+no longer names a category, while another write named a category on a
+different account, could stop both and fail one of them with a server error.
+The two locks they take are now always taken in the same order. A bulk edit
+already did this; the single edits and the staged edits now do too. So do
+restoring a deleted entry, which took its locks the other way round from a bulk
+edit or a payee merge, and committing staged rows, which could meet a delete of
+the same rows. Deleting an entry while its account was being archived could
+leave the archived account holding the deleted amount until the next restart,
+and deleting an account while a recurring transaction naming it was being
+created could leave that recurrence pointing at nothing; neither can now.
+
+**The budget forecast counts a recurring refund as a refund**, whether the
+recurrence picked its category or named one. A monthly deposit into a spending
+category was projected as income, beside a history that had always counted the
+same refund as spending going down. It now lowers the projected spending, and
+income paid back out lowers the projected income.
+
+**Asking to see a CSV import as it goes no longer turns a bad request into a
+success.** A malformed upload sent with a request for progress came back as a
+200 with an error inside it; it is refused with a 422, as a commit already was.
+
+**An agent can preview a staged delete and then do it.** A dry run of deleting
+staged rows stored its result under the request's key, so sending the real
+delete with that key next was refused as a conflict. It no longer stores
+anything, as every other dry run already did.
+
+**A server failure says what to do.** It used to say "An unexpected error
+occurred". It now says the server could not finish and to try again, and to
+tell whoever runs the server if it keeps happening. An agent refused for
+missing a scope is told which scope and to ask the person to reconnect, rather
+than "Forbidden".
+
+**After a delete, the page says so and you keep your place.** Deleting a
+template, a recurrence, a budget, a category group or a connected agent, or
+dropping the other row on the duplicate review, now says what happened and puts
+the keyboard there, where it used to fall back to the top of the page. "Clear
+selection" returns you to the list instead. Empty lists no longer claim there
+is nothing at all when a date range is hiding rows: they say nothing is in the
+range and suggest widening it. A figure that failed to load shows a dash and
+says why, rather than $0.00, and a card paid off to the cent reads "Amount
+owed: $0.00" rather than calling zero a credit. The bulk edit's Apply button
+gives the reason that applies instead of one about currencies, an archived
+account's menu explains why it cannot be deleted, and the advice on a frozen
+account names the move that works.
+
+**The app reads correctly to people who do not see color, use a screen reader
+or zoom in.** A deleted transaction and an archived account card were faded
+until their text was hard to read; they are muted and labelled instead. The
+page you are on in the sidebar and the transaction type you have chosen were
+marked by color alone, and now have a bar and a heavier edge. Money fields now
+say their currency in their label, as the transaction form's always did. Notes
+beside a field — what saving a new category name will do, what is left to
+assign in a split, why a field in a bulk edit cannot be changed — are now read
+with the field. The two add forms on Categories have labels on screen rather
+than a placeholder that disappears as you type. A split that mixes spending and
+income says so on the Category field. The duplicate review signs both amounts,
+so a deposit and a withdrawal of the same figure no longer look alike; a staged
+row's Review link keeps the date range it was found in; a staged row that
+cannot be committed says why; and the account-deletion email field can be
+filled in by your browser.
+
+**One word for one thing, and the same look for the same thing.** The duplicate
+review said "drop" where the queue says "delete" for the same action; a split's
+rows were read out as "split 2" rather than "category 2"; the template bulk edit
+said "source" and "destination" where the form says "from" and "to"; and the
+Recurring page said "recurrence" where every page pointing at it says
+"recurring transaction". Each now uses the one word. Every confirmation button
+names what it acts on — "Delete template", not "Delete" — and the ones that put
+something back rather than take it away, restoring an account and committing a
+row flagged as a possible duplicate, are no longer red. Row buttons in the
+transaction list and the staged queue name their row for a screen reader, as
+Categories and Budgets already did, and Budgets' "Just this month" is a named
+icon like every other row action. Counts group their thousands everywhere, not
+only in the selection bar. A transfer template's badge is blue, as transfers
+are everywhere else. Every Cancel is the same quiet button. Templates and
+Recurring frame their list like Transactions and Staged, and the pager under a
+list no longer scrolls sideways with its columns. Choosing Balance or a count in
+a sort menu starts with the largest. The staged queue's import filter shows when
+each file arrived, so two `checking.csv` imports can be told apart. Account
+types read "Credit card" rather than "Credit Card", and the staged queue says
+"Withdrawal" under a payee, as the transaction list does, rather than
+"withdrawal". And a refusal that said a
+thing "is unavailable" now says whether it was archived or not found, and what
+to do about it.
+
+**A row's menu can be used at the bottom of the window.** The menu behind a
+row's "…" button always opened downward and closes when the page scrolls, so on
+a row or card near the foot of the window its last items sat off-screen with no
+way to reach them — Restore and Delete on an archived account at the end of the
+Accounts page among them. It now opens upward when there is no room below, and
+on a window too short for it either way, as zooming in makes it, it scrolls
+within itself rather than running off the screen or under the header.
+
+**A field left empty or written too long says what to write.** Typing a space
+where a category name goes said "Too small: expected string to have >=1
+characters". Every free-text field now refuses in words — "Enter a category
+name", "An account name must be 120 characters or fewer" — in the browser and
+for an agent alike. The amount in the review queue's quick edit and the new
+amount in a template mass edit say their currency like every other amount
+field, and a typo in `IDEMPOTENCY_RETENTION_HOURS` is reported when the server
+starts rather than on the scheduler's first sweep.
+
+**What an agent could do, a person can now do too.** Seven things were
+reachable only through the MCP: overriding one month of a group's own budget,
+reading the activity history past its latest hundred entries, seeing the row a
+staged transaction was read from, setting a description or notes across
+several templates at once, giving a budget an end date when it is created,
+changing a budget's funding order after it is created, and choosing which
+column of an imported file is the bank's reference — the page guessed it from
+four headings and offered no way to pick another or undo a wrong guess. Each
+now has its place in the app — a "Just this month" button on a group row that
+holds its own budget, "Show older activity" at the foot of the history, an "As
+it arrived" section on a staged row's form, two more fields in the template
+mass edit, an "Ends after" and a "Funded first" field on the two budget forms,
+and a "Bank reference" column on the import.
+
+**An agent is no longer told that deleting can be undone.** The instructions
+every agent reads said deleting was a reversal that could be undone, which is
+true of a transaction and of nothing else: a deleted account, category, group,
+budget, template, recurrence or staged row is gone. They now say which, and
+each of those delete tools says there is no undo and to confirm first.
+Deleting a category also deletes its budgets, which its description now says,
+and editing an entry off the last use of a category removes that category,
+which the two transaction edit tools now say as the staged ones did.
+
+**Agent tool descriptions that were wrong.** `list_accounts` described another
+tool as doing something it does not; a report's bucket offered a `day` that
+does not exist and a default that is not the one used; a staged split leg was
+described with a field name that can never commit; the forecast described two
+of its three bases; a merge undersold what it moves and did not say when it is
+refused; and an amount that must be positive published a pattern allowing a
+minus sign.
+
+**An export that is too large says so in the app.** Exporting more than a
+hundred thousand transactions is refused with a sentence saying to export one
+date range at a time, and the Export button followed a link, so that sentence
+arrived as a page of raw JSON in place of the app — as did a session that had
+lapsed. The button now fetches the file and shows a refusal where you are.
+
+**A refusal that names a number carries it as a field.** The CSV size and row
+limits, the export limit, the request size limit, the report and register
+limits and the frozen-account refusal said their number only in the sentence,
+so a program had to read English to learn it. Each now carries `limit` in its
+details, as the bulk and plan limits always did.
+
+**Old API paths say they are going, even when they refuse.** The four paths
+renamed in 0.1.6 marked themselves deprecated only once a request reached
+them, so a signed-out request — the first thing an old tab meets after its
+session lapses — got a plain 401. Every response on an old path now carries the
+deprecation headers, and the link to the new path names the real id rather than
+`{id}`. A cross-origin or wrong-content-type refusal is now marked uncacheable
+like every other `/api/v1` response.
+
+**A client that declines progress frames gets none.** An `Accept` header
+weighing `text/event-stream` at `q=0` — "not acceptable" — still got frames;
+it now gets the JSON answer.
+
+**The account-deletion summary counts what is actually in the queue.** It
+counted every staged row ever kept, so somebody with an empty queue was told
+thousands of staged rows were about to be deleted.
+
+**Smaller things.** The free-plan refusal said "this one has 3" where it meant
+the ledger; the plan tab mentioned frozen accounts when none were frozen; Google
+sign-in asked for each of its three scopes twice; a signed-out visit logged a
+failed request in the browser on every load; and `/robots.txt` answered with the
+app's own page, which a crawler reads as having no rules.
 
 **The first `pulumi up` of a new `oci-single` stack no longer fails at the
 settings key.** OCI reports a new vault active minutes before the vault's own
@@ -1356,7 +1669,6 @@ view forwards it.
 written.** Every command in it named no compose file, in a directory that holds
 more than one, so the first failed and left an empty dump behind; the last
 brought the old images back up. It names the file once and builds the release.
-
 
 **Turning AdSense on no longer stops a compose deployment from starting.** No
 compose shape passed `PRIVACY_POLICY_URL` to the application, and the server

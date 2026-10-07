@@ -126,6 +126,9 @@ function assertNotADeployment(baseUrl: string | undefined) {
 // Imported and re-exported rather than only re-exported: this module names
 // both below, and `export ... from` puts neither in local scope.
 import { authModes, type AuthMode } from "../shared/domain.js";
+
+/** How every on/off setting is spelled: lowercase, and nothing else. */
+const booleanSettings = ["true", "false"] as const;
 export { authModes, type AuthMode };
 
 export type AppConfig = {
@@ -266,20 +269,20 @@ export function getConfig(): AppConfig {
     })
     .parse((process.env.LOG_LEVEL ?? "info").toLowerCase());
   const trustProxy = z
-    .enum(["true", "false"], { error: () => "TRUST_PROXY must be true or false" })
+    .enum(booleanSettings, { error: () => "TRUST_PROXY must be true or false" })
     .transform((value) => value === "true")
     .parse((process.env.TRUST_PROXY ?? "false").toLowerCase());
   // Parsed strictly rather than treating anything unrecognized as off. A
   // misspelling here has no symptom: the process starts, serves, and quietly
   // proposes nothing until somebody notices a year of missing rent.
   const recurrenceSchedulerEnabled = z
-    .enum(["true", "false"], {
+    .enum(booleanSettings, {
       error: () => "RECURRENCE_SCHEDULER must be true or false",
     })
     .transform((value) => value === "true")
     .parse((process.env.RECURRENCE_SCHEDULER ?? "true").toLowerCase());
   const metricsEnabled = z
-    .enum(["true", "false"], {
+    .enum(booleanSettings, {
       error: () => "METRICS_ENABLED must be true or false",
     })
     .transform((value) => value === "true")
@@ -297,7 +300,7 @@ export function getConfig(): AppConfig {
   // rehearse an ad is the wrong trade. An ad the policy refuses is read from the
   // browser console on a page that shows one, while that page goes on enforcing.
   const cspReportOnly = z
-    .enum(["true", "false"], {
+    .enum(booleanSettings, {
       error: () => "SB_CSP_REPORT_ONLY must be true or false",
     })
     .transform((value) => value === "true")
@@ -400,6 +403,22 @@ export function getConfig(): AppConfig {
       "SB_CSP_REPORT_ONLY is true, so the plan and billing tab reports what its " +
         "content security policy would have blocked and blocks nothing. Every " +
         "other page still enforces. Turn it off once you have read the reports.",
+    );
+  }
+  // The length rule is enforced where the code is used, which is a production
+  // instance nobody has claimed yet: `getOwnerSetupToken` refuses there, and
+  // that is the only moment a short code could be guessed into an account.
+  // Everywhere else — a claimed instance, the scheduler — it was read by
+  // nothing and said nothing, so a short value sat in the configuration
+  // looking accepted until the day somebody restored to an empty database.
+  // Said here instead of refused, because claimed instances already run with
+  // one and a code nobody reads is not worth stopping a ledger for.
+  const setupToken = readSecret("SETUP_TOKEN")?.trim();
+  if (setupToken && setupToken.length < 16 && isProduction) {
+    console.warn(
+      "SETUP_TOKEN has fewer than 16 characters. It is only read while no account " +
+        "exists, and then it refuses to start; set a longer one, or remove it and " +
+        "a code is generated and printed when one is needed.",
     );
   }
   if (metricsEnabled && !values.METRICS_TOKEN && isProduction) {
@@ -537,14 +556,18 @@ export function parseMailSettings(env: {
   }
 
   const ssl = z
-    .enum(["true", "false"], { error: () => "SMTP_SSL must be true or false" })
+    .enum(booleanSettings, { error: () => "SMTP_SSL must be true or false" })
     .transform((value) => value === "true")
     .parse((env.SMTP_SSL ?? "false").toLowerCase());
+  // Named, as PORT's is. Bare, a typo stopped the server with "expected
+  // number, received NaN" and an empty path, which says what went wrong and
+  // not where. The values accepted are the ones accepted before.
+  const smtpPortRule = "SMTP_PORT must be a whole number between 1 and 65535";
   const port = z.coerce
-    .number()
-    .int()
-    .min(1)
-    .max(65535)
+    .number({ error: () => smtpPortRule })
+    .int({ error: () => smtpPortRule })
+    .min(1, { error: () => smtpPortRule })
+    .max(65535, { error: () => smtpPortRule })
     .parse(env.SMTP_PORT ?? (ssl ? 465 : 587));
 
   if (!mailAddress.test(from)) {
@@ -609,6 +632,9 @@ const stripeInputs = [
   ["STRIPE_PRICE_YEARLY_ID", /^price_/, "price_…"],
 ] as const;
 
+/** Which Stripe environment a key belongs to, read from its prefix. */
+export const stripeKeyModes = ["live", "test"] as const;
+
 /**
  * Which half of Stripe a key belongs to, when the key says so.
  *
@@ -621,7 +647,9 @@ const stripeInputs = [
  * a Price says which half it lives in, and a test price behind a live key is a
  * checkout that fails for every customer rather than a startup that fails once.
  */
-export function stripeMode(key: string): "live" | "test" | undefined {
+export type StripeKeyMode = (typeof stripeKeyModes)[number];
+
+export function stripeMode(key: string): StripeKeyMode | undefined {
   if (/^(sk|rk|pk)_live_/.test(key)) return "live";
   if (/^(sk|rk|pk)_test_/.test(key)) return "test";
   return undefined;
@@ -647,7 +675,7 @@ export function parseBillingSettings(
   isProduction: boolean,
 ): BillingSettings | undefined {
   const enforcing = z
-    .enum(["true", "false"], {
+    .enum(booleanSettings, {
       error: () => "SB_BILLING_ENABLED must be true or false",
     })
     .transform((value) => value === "true")
@@ -854,7 +882,7 @@ export function parseAdSettings(env: {
   documentUrl("PRIVACY_POLICY_URL", env.PRIVACY_POLICY_URL);
 
   const consentManaged = z
-    .enum(["true", "false"], { error: () => "ADSENSE_CONSENT_MANAGED must be true or false" })
+    .enum(booleanSettings, { error: () => "ADSENSE_CONSENT_MANAGED must be true or false" })
     .transform((value) => value === "true")
     .parse((env.ADSENSE_CONSENT_MANAGED ?? "false").toLowerCase());
 

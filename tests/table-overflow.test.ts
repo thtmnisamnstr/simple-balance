@@ -87,6 +87,46 @@ describe("wide tables", () => {
     expect(wrapRule).not.toContain("background");
     expect(wrapRule).not.toContain("box-shadow");
   });
+
+  /**
+   * `web.md` 7.2: a list's table is one shape on every list. The card frames
+   * the table and the pager, and only the `.table-wrap` inside it scrolls — the
+   * register and the staged queue scrolled the card, so their pager scrolled
+   * sideways with the columns, and Templates and Recurring put their only
+   * table in a `.panel` instead.
+   */
+  it("frames a list's table and pager in one card, with only the table scrolling", async () => {
+    const styles = await readFile(new URL("../src/client/styles.css", import.meta.url), "utf8");
+    const card = ruleFor(styles, ".table-card")
+      .map((rule) => rule.body)
+      .join("\n");
+    expect(card, ".table-card clips rather than scrolls").not.toMatch(/overflow-x:\s*auto/);
+
+    const misshapen: string[] = [];
+    let cards = 0;
+    for (const file of await tsxFiles(CLIENT)) {
+      const source = await readFile(file, "utf8");
+      // Closed at its own indentation, so the scroller's `</div>` inside it is
+      // not mistaken for the card's.
+      for (const match of source.matchAll(
+        /^( *)<div className="table-card">([\s\S]*?)\n\1<\/div>$/gm,
+      )) {
+        cards += 1;
+        const at = `${file.pathname.split("/client/")[1]}:${source.slice(0, match.index).split("\n").length}`;
+        const body = match[2]!;
+        // The first element inside is the scroller, and the pager comes after
+        // the scroller closes rather than inside it.
+        if (!/^\s*(?:\{\/\*[\s\S]*?\*\/\}\s*)?<div\s+className="table-wrap"/.test(body))
+          misshapen.push(`${at} does not open on a .table-wrap`);
+        const table = body.lastIndexOf("</table>");
+        const closes = body.indexOf("</div>", table);
+        const pager = body.indexOf("<Pagination", table);
+        if (pager >= 0 && pager < closes) misshapen.push(`${at} pages inside the scroller`);
+      }
+    }
+    expect(cards).toBe(4);
+    expect(misshapen).toEqual([]);
+  });
 });
 
 /**

@@ -10,6 +10,14 @@ A trailing slash works too. `/mcp` is the canonical form and the one discovery
 advertises, but `/mcp/` reaches the same endpoint, because a client configured
 with one used to complete the whole OAuth flow and then get a 404 on every call.
 
+Every call is a POST. `GET`, `DELETE` and `PUT` answer `405` with `Allow: POST`
+once the token checks out, which is how the transport lets a stateless server
+say it offers no server-to-client stream and has no session to end. Until
+0.2.1 a `GET` was answered `200 text/event-stream` and then held open with
+nothing ever written to it, one connection and one server instance per client
+for as long as the client kept it; MCP SDK clients treat the `405` as "no
+stream here" and carry on.
+
 Agent clients get the same ledger validation, review workflow, duplicate
 protection, and audit trail the browser gets. Nothing is relaxed for automation.
 
@@ -88,10 +96,15 @@ call again.
 Money is always a decimal string, never a JSON number, because binary floating
 point cannot hold these values exactly. Dates are `YYYY-MM-DD`. Writes take an
 idempotency key you choose: send the same key again and you get the original
-result back rather than a second transaction. Fields carry descriptions, so an
-agent reading the schema learns the conventions that matter, including the one
-that trips people up: a credit card or loan opens at a negative balance,
-because that is money owed.
+result back rather than a second transaction, for as long as the deployment
+keeps the record. That is for good unless an operator sets
+`IDEMPOTENCY_RETENTION_HOURS`, and a retry after the window does the work
+again; most writes are then refused by something else — a duplicate, a row
+already committed, a stale selection — but a staged create is not.
+
+Fields carry descriptions, so an agent reading the schema learns the
+conventions that matter, including the one that trips people up: a credit card
+or loan opens at a negative balance, because that is money owed.
 
 ## Accounts
 
@@ -99,12 +112,14 @@ because that is money owed.
 `update_account`, `archive_account`, `set_active_accounts`, and
 `delete_account`.
 
-**A frozen account refuses every write, and says so in `frozen`.** A plan that
-limits how many accounts may be active is the only thing that freezes one: the
-rest stay fully readable and keep counting toward every balance and report,
-and they refuse new entries, edits, deletes, renames and archiving alike. A
-payee or category merge that would rewrite an entry on one is refused whole
-rather than applied to the rest. `whoami` carries `plan`, `accountLimit` and
+**A frozen account refuses every change to what it holds, and says so in
+`frozen`.** A plan that limits how many accounts may be active is the only thing
+that freezes one: the rest stay fully readable and keep counting toward every
+balance and report, and they refuse new entries, edits, deleted entries and
+renames alike. A payee or category merge that would rewrite an entry on one is
+refused whole rather than applied to the rest. `archive_account` and
+`delete_account` still work on one, because neither gives it a place, so an
+agent asked to clear away unused accounts after a downgrade can. `whoami` carries `plan`, `accountLimit` and
 `accountsUsed`: `plan` is null where nothing is sold, and `accountLimit` and
 `accountsUsed` are null wherever there is no limit, which includes Premium.
 `set_active_accounts` names the whole set that stays usable.
@@ -229,8 +244,10 @@ calls; each stands or falls on its own.
 
 Pass `dryRun: true` to `bulk_edit_transactions`, `bulk_delete_transactions`,
 `bulk_edit_staged_transactions`, `bulk_edit_transaction_templates`,
-`bulk_delete_transaction_templates`, `stage_csv`, or `commit_staged_transactions`
-to find out what a change would do without doing it.
+`bulk_delete_transaction_templates`, `delete_staged_transactions`, `stage_csv`,
+or `commit_staged_transactions` to find out what a change would do without doing
+it. A dry run stores nothing under its `idempotencyKey`, so the real call can
+reuse the key you previewed with.
 
 ## Paging and ordering
 
@@ -320,7 +337,8 @@ looks like, so set it when asked and not otherwise.
 value. There is no version to check on this record and no undo beyond setting it
 back, so confirm it with the person first.
 
-`summarize_own_data` counts everything in the ledger.
+`summarize_own_data` counts everything in the ledger, and the staged rows it
+counts are the ones still waiting in the queue rather than every row ever kept.
 
 `get_financial_summary` answers a question about money rather than about a row.
 It computes balances, deposits, withdrawals and
@@ -740,8 +758,9 @@ afterward.
 `list_audit_events` reports what was done to this ledger, by whom, and through
 what: `actorSource` is `web`, `mcp`, or `schedule`, and `clientId` names the
 agent when it was one. It pages forward by cursor only: no page number, no
-total count, and no `sort` or `direction`. Sending those does not fail, it is
-simply ignored, so a request for page two comes back as page one.
+total count, and no `sort` or `direction`. Sending `page`, `sort` or
+`direction` is refused as an argument the tool does not take, and the error
+names it.
 
 This is how an agent checks its own work, and how a person sees an agent's.
 Every write goes in, including the ones a scheduler makes on its own, so a row
@@ -775,9 +794,12 @@ in order to explain a refusal it meets is the plan, its limit and how much of it
 is used, and `whoami` carries all three.
 
 Everything else the browser can do, an agent can do. A test compares the two
-surfaces route by route and fails if a capability lands on one without reaching
-the other, so this list is the whole of it rather than the part somebody
-remembered to write down.
+surfaces route by route, and by method, and fails if a capability lands on one
+without reaching the other, so this list is the whole of it rather than the part
+somebody remembered to write down. Five reads go the other way — a transaction,
+a staged row, a recurrence and a budget plan by id, and the staged selection
+preview — because the browser already holds what it is reading from the list it
+opened it from.
 
 ## Revoking access
 

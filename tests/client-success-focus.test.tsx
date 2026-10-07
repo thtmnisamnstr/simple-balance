@@ -6,6 +6,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Account, AuthPublicOptions } from "../src/client/api.js";
 import App from "../src/client/App.js";
+import { Alert } from "../src/client/components.js";
 import { ActiveAccountChooser } from "../src/client/pages/AccountsPage.js";
 import DuplicateReviewPage from "../src/client/pages/DuplicateReviewPage.js";
 import { BrowserRouter, Route, Routes } from "../src/client/router.js";
@@ -258,13 +259,13 @@ describe("the duplicate queue, whose last drop removes the page it was on", () =
     );
     await screen.findByLabelText("Staged row under review");
 
-    fireEvent.click(screen.getByRole("button", { name: /drop this staged row/i }));
-    fireEvent.click(await screen.findByRole("button", { name: "Drop it" }));
+    fireEvent.click(screen.getByRole("button", { name: /delete this staged row/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete staged row" }));
 
     // The screen that says the run is over is still there; what was missing was
     // anywhere for the person who pressed Drop to be standing.
     expect(await screen.findByText(/no duplicates left to review/i)).toBeInTheDocument();
-    const sentence = screen.getByText(/The row was dropped/);
+    const sentence = screen.getByText(/The row was deleted/);
     expect(document.activeElement).toBe(focusedStatus(sentence));
   });
 });
@@ -345,5 +346,36 @@ describe("the sign-in screen, whose only button is replaced by its own answer", 
 
     const sentence = await screen.findByText(/a link to choose a new password is on its way/);
     await waitFor(() => expect(document.activeElement).toBe(focusedStatus(sentence)));
+  });
+});
+
+/**
+ * An alert built from several children takes focus when its words change, and
+ * not when its parent merely renders again. Keyed on `children`, it was a new
+ * array on every render, so the transaction list's export refusal pulled focus
+ * out of the search box on every keystroke — the box the refusal told people
+ * to use.
+ */
+describe("an alert that takes focus, under a parent that keeps rendering", () => {
+  function Page({ query, message }: { query: string; message: string }) {
+    return (
+      <div>
+        <label>
+          Search
+          <input value={query} onChange={() => {}} />
+        </label>
+        <Alert takeFocus>Nothing was exported. {message}</Alert>
+      </div>
+    );
+  }
+
+  it("stays out of the way of typing, and takes focus again for a new refusal", () => {
+    const { rerender } = render(<Page query="" message="Too many rows." />);
+    const search = screen.getByRole("textbox", { name: "Search" });
+    search.focus();
+    rerender(<Page query="c" message="Too many rows." />);
+    expect(document.activeElement).toBe(search);
+    rerender(<Page query="c" message="Sign in again." />);
+    expect(document.activeElement).toBe(screen.getByRole("alert"));
   });
 });

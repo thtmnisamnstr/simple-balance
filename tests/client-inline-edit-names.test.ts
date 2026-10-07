@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
  *
  * SC 2.5.3 Label in Name wants what a voice user reads aloud to be how the
  * control is addressed, and the visible text of these triggers is the value
- * itself — so `30 Jul 2026 — edit the date of Corner shop`, never `Edit the
+ * itself — so `30 Jul 2026, edit the date of Corner shop`, never `Edit the
  * date of Corner shop`. 8.10's *Checked by* names
  * `tests/staged-inline-edit-ui.test.tsx`, which holds the PUT, the cancels and
  * the same-value silence; the naming shape was held by nothing, and three of
@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest";
  *
  * A source check rather than a rendered one, because what the rule is about is
  * the *order* of two things inside one string. A rendered name is already
- * interpolated, so "Corner shop — edit the payee" and "Edit the payee of Corner
+ * interpolated, so "Corner shop, edit the payee" and "Edit the payee of Corner
  * shop" are both a name containing the visible text, and only the source says
  * which of them leads with it.
  */
@@ -71,12 +71,11 @@ function ariaLabel(props: string) {
 /**
  * The name itself, following one hop when the attribute names a value.
  *
- * A trigger whose name is a plain string is written as a `const` beside the row
- * rather than at the attribute, because `common.md` reads an em dash on an
- * `aria-label=` line as a label nobody finished deciding — the sibling triggers
- * escape that only because their expressions wrap. So the string this rule is
- * about is one hop away, and a check that read the attribute alone would report
- * every such trigger and be answered by inlining the string again.
+ * The payee trigger's name is a `const` beside the row rather than at the
+ * attribute. It was put there to keep an em dash off an `aria-label=` line,
+ * where `common.md` refuses one, and the dash is gone now; the hop stays
+ * because a name worked out beside the row is an ordinary way to write one,
+ * and a check that read the attribute alone would report it.
  */
 function nameExpression(source: string, expression: string) {
   const written = expression.trim();
@@ -110,13 +109,13 @@ describe("a click-to-edit trigger", () => {
       '  className="inline-edit inline-edit-money"',
       "  aria-label={`${",
       "    summary.amount ? formatMoney(summary.amount) : 'No amount'",
-      "  } — edit the amount of ${payee}`}",
+      "  }, edit the amount of ${payee}`}",
       "  onClick={() => openInline(stage, 'amount', value)}",
       ">",
       "  {summary.amount}",
       "</button>",
       "const trailingName = `Edit the date of ${payee}`;",
-      "const leadingName = `${date} — edit the date of ${payee}`;",
+      "const leadingName = `${date}, edit the date of ${payee}`;",
       '<button className="inline-edit" aria-label={trailingName} />',
       '<button className="inline-edit" aria-label={leadingName} />',
     ].join("\n");
@@ -138,6 +137,10 @@ describe("a click-to-edit trigger", () => {
         expect(label, `${trigger.at} has no accessible name at all`).not.toBeNull();
         const name = nameExpression(source, label!);
         if (!leadsWithTheValue(name)) trailing.push(`${trigger.at} ${name.slice(0, 60)}`);
+        // `common.md` §Prose: no em dash in a label. All four joined their two
+        // halves with one, and the one-hop `const` was how the payee name kept
+        // its dash off the line the label check reads.
+        if (name.includes("—")) trailing.push(`${trigger.at} joins with an em dash`);
       }
     }
     expect(checked, "no triggers found, so this examined nothing").toBeGreaterThanOrEqual(4);

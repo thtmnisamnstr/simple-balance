@@ -39,7 +39,7 @@ describe("grouping accounts by type", () => {
       account("d", "checking"),
     ]);
     expect(groups.map((group) => group.type)).toEqual(["cash", "checking", "credit_card", "loan"]);
-    expect(groups.map((group) => group.label)).toEqual(["Cash", "Checking", "Credit Card", "Loan"]);
+    expect(groups.map((group) => group.label)).toEqual(["Cash", "Checking", "Credit card", "Loan"]);
   });
 
   it("keeps every account, and leaves out the types nobody has", () => {

@@ -114,7 +114,7 @@ function captureRequests(bodies: Record<string, unknown>[]) {
 }
 
 const legAmount = (index: number) =>
-  screen.getByLabelText(`Amount for split ${index}`) as HTMLInputElement;
+  screen.getByLabelText(new RegExp(`^Amount for category ${index}( \\(|$)`)) as HTMLInputElement;
 
 afterEach(() => {
   cleanup();
@@ -125,7 +125,7 @@ describe("splitting a transaction in the form", () => {
   it("opens with a single category and no split rows", () => {
     renderForm();
     expect(screen.getByText("Split across categories")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Amount for split 1")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Amount for category 1( \(|$)/)).not.toBeInTheDocument();
   });
 
   /**
@@ -156,8 +156,13 @@ describe("splitting a transaction in the form", () => {
     fireEvent.click(screen.getByText("Split across categories"));
 
     fireEvent.change(legAmount(1), { target: { value: "60" } });
-    expect(screen.getByText("40 left to assign.")).toBeInTheDocument();
+    // As money, in the account's currency: the bare "40 left to assign." named
+    // neither, which the 0.2.0 sandbox smoke test found on a euro account.
+    expect(screen.getByText("$40.00 left to assign.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Commit transaction/ })).toBeDisabled();
+
+    fireEvent.change(legAmount(2), { target: { value: "65.5" } });
+    expect(screen.getByText("$25.50 more than the total is assigned.")).toBeInTheDocument();
 
     fireEvent.change(legAmount(2), { target: { value: "40" } });
     expect(screen.getByText("The split adds up.")).toBeInTheDocument();
@@ -188,9 +193,9 @@ describe("splitting a transaction in the form", () => {
     });
     fireEvent.change(screen.getByLabelText("Amount (USD)"), { target: { value: "100" } });
     fireEvent.click(screen.getByText("Split across categories"));
-    fireEvent.click(screen.getByLabelText("Remove split 2"));
+    fireEvent.click(screen.getByLabelText("Remove category 2"));
 
-    expect(screen.queryByLabelText("Amount for split 1")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Amount for category 1( \(|$)/)).not.toBeInTheDocument();
     expect(screen.getByText("Split across categories")).toBeInTheDocument();
     expect((screen.getByPlaceholderText("Type to search or add") as HTMLInputElement).value).toBe(
       "Food",
@@ -212,7 +217,7 @@ describe("splitting a transaction in the form", () => {
     fireEvent.change(legAmount(1), { target: { value: "60" } });
     fireEvent.change(pickers()[1]!, { target: { value: "Household" } });
     fireEvent.change(legAmount(2), { target: { value: "40" } });
-    fireEvent.change(screen.getByLabelText("Note for split 1"), {
+    fireEvent.change(screen.getByLabelText("Note for category 1"), {
       target: { value: "Groceries" },
     });
 
@@ -237,8 +242,9 @@ describe("splitting a transaction in the form", () => {
     captureRequests(bodies);
     renderForm({ transaction: split });
 
-    expect(legAmount(1).value).toBe("60");
-    expect(legAmount(2).value).toBe("40");
+    // At the currency's decimals, as every edit form opens a stored amount.
+    expect(legAmount(1).value).toBe("60.00");
+    expect(legAmount(2).value).toBe("40.00");
     const pickers = screen.getAllByPlaceholderText("Type to search or add");
     expect((pickers[0] as HTMLInputElement).value).toBe("Food");
 
@@ -250,6 +256,33 @@ describe("splitting a transaction in the form", () => {
       "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
     ]);
+  });
+
+  /**
+   * The browser's preview of the server's category rule goes on the field it
+   * is about. It was an alert at the foot of the form: the Category group never
+   * said it was wrong and nothing pointed at the sentence (`web.md` 8.1).
+   */
+  it("says on the Category field when a split mixes spending and income", () => {
+    const salary: Category = {
+      id: "66666666-6666-4666-8666-666666666666",
+      name: "Salary",
+      kind: "income",
+      version: 1,
+    };
+    renderForm({
+      transaction: {
+        ...split,
+        legs: [split.legs[0]!, { ...split.legs[1]!, categoryId: salary.id, category: salary }],
+      },
+      categories: [food, household, salary],
+    });
+    const sentence =
+      "A withdrawal is either spending or income coming back, not both. Enter it as two transactions.";
+    expect(screen.getByRole("group", { name: "Category" })).toHaveAccessibleDescription(
+      expect.stringContaining(sentence),
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("offers no split on a transfer, which has no category side", () => {

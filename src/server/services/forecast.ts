@@ -2,10 +2,16 @@ import { and, eq, sql } from "drizzle-orm";
 import type {
   Actor,
   BudgetPeriodUnit,
+  CategoryKind,
   ForecastBasis,
   RecurrenceShape,
 } from "../../shared/domain.js";
-import { forecastQuerySchema, MAX_FORECAST_PERIODS } from "../../shared/domain.js";
+import {
+  forecastQuerySchema,
+  MAX_FORECAST_PERIODS,
+  resolveEntrySide,
+} from "../../shared/domain.js";
+import { normalizeHumanName } from "../../shared/names.js";
 import { occurrencesBetween, todayIn } from "../../shared/recurrence-dates.js";
 import { getDb } from "../db/client.js";
 import {
@@ -16,6 +22,7 @@ import {
   recurrences,
 } from "../db/schema.js";
 import { otherUnits, periodsBetween } from "./budgets.js";
+import { preferredCategory } from "./categories.js";
 import { canonicalDecimal, decimal } from "./helpers.js";
 import { getPreferences } from "./preferences.js";
 import { ruleOf } from "./recurrences.js";
@@ -315,6 +322,50 @@ export async function getForecast(actor: Actor, input: unknown): Promise<Forecas
     ).map((row) => [row.id, row.currency]),
   );
 
+  // Which way each category runs, so a recurrence is projected the way the
+  // ledger would post it: `resolveEntrySide` decides it, as it does for an
+  // entry. Reading the type alone projected a monthly refund into a spending
+  // category as income, beside a historical baseline that — reading the
+  // postings — had always counted it as spending going down.
+  const categoryRows = await getDb()
+    .select({
+      id: categories.id,
+      name: categories.name,
+      kind: categories.kind,
+      archivedAt: categories.archivedAt,
+    })
+    .from(categories)
+    .where(eq(categories.userId, actor.userId));
+  const categoryKind = new Map<string, CategoryKind>(
+    categoryRows.map((row) => [row.id, row.kind as CategoryKind]),
+  );
+  // And by name, for a recurrence that names its category rather than citing
+  // it — the browser's form does whenever the category is new, and an agent may
+  // at any time. Resolved as the ledger resolves one, ignoring case and space
+  // and preferring a live category to an archived one, because a shape keeps
+  // the name it was saved with after the first occurrence creates the category,
+  // so reading ids alone projected a named refund as income for good.
+  const categoryByName = new Map<string, string>();
+  for (const row of [...categoryRows].sort(preferredCategory)) {
+    const key = normalizeHumanName(row.name);
+    if (!categoryByName.has(key)) categoryByName.set(key, row.id);
+  }
+  type NamedCategory = { categoryId?: string; categoryName?: string; categoryKind?: CategoryKind };
+  // The category a shape or a leg names, and the kind it runs: the category's
+  // own where one exists, and otherwise the kind the name will be created as —
+  // the leg's, or the entry's, which is the fallback the ledger uses.
+  const resolveCategory = (named: NamedCategory, entry: NamedCategory) => {
+    const id =
+      named.categoryId ??
+      (named.categoryName ? categoryByName.get(normalizeHumanName(named.categoryName)) : undefined);
+    const kind = id
+      ? categoryKind.get(id)
+      : named.categoryName
+        ? (named.categoryKind ?? entry.categoryKind)
+        : undefined;
+    return { categoryId: id, kind };
+  };
+
   type Bucket = { income: string; spending: string; occurrences: number };
   const byCurrency = new Map<string, Map<string, Bucket>>();
   const bucketFor = (currency: string, periodStart: string) => {
@@ -364,6 +415,25 @@ export async function getForecast(actor: Actor, input: unknown): Promise<Forecas
         reason: `It has more than ${ceiling} occurrences in this window, so the projection stops counting it partway and the later periods are short by whatever it would have added.`,
       });
     }
+    const entry = shape as NamedCategory;
+    const legs = (shape as { legs?: (NamedCategory & { amount: string })[] }).legs ?? [];
+    // A split names its categories on its legs and carries none of its own.
+    const attributions =
+      legs.length > 0
+        ? legs.map((leg) => ({ ...resolveCategory(leg, entry), amount: leg.amount }))
+        : [{ ...resolveCategory(entry, entry), amount }];
+    const side =
+      shape.type === "transfer"
+        ? null
+        : resolveEntrySide(
+            shape.type,
+            attributions.flatMap(({ kind }) => (kind ? [kind] : [])),
+          );
+    if (side && !side.ok) {
+      unprojectable.push({ id: row.id, name: row.name, reason: side.message });
+      continue;
+    }
+    const reversal = side?.reversal ?? false;
     for (const occurrence of occurrences) {
       // A weekend policy can push a posted date to null — "skip" means this
       // occurrence does not happen at all — and a projection of a date that is
@@ -373,33 +443,36 @@ export async function getForecast(actor: Actor, input: unknown): Promise<Forecas
       if (periodStart === undefined) continue;
       const source = (shape as { fromAccountId?: string }).fromAccountId;
       const destination = (shape as { toAccountId?: string }).toAccountId;
-      if (shape.type === "deposit" && destination) {
-        const currency = accountCurrency.get(destination);
+      if (shape.type === "deposit" || shape.type === "withdrawal") {
+        const accountId = shape.type === "deposit" ? destination : source;
+        const currency = accountId ? accountCurrency.get(accountId) : undefined;
         if (!currency) continue;
         const bucket = bucketFor(currency, periodStart);
-        bucket.income = canonicalDecimal(decimal(bucket.income).plus(amount));
         bucket.occurrences += 1;
-      } else if (shape.type === "withdrawal" && source) {
-        const currency = accountCurrency.get(source);
-        if (!currency) continue;
-        const bucket = bucketFor(currency, periodStart);
-        bucket.spending = canonicalDecimal(decimal(bucket.spending).plus(amount));
-        bucket.occurrences += 1;
-        // A split names its categories on its legs and carries none of its
-        // own, so reading `categoryId` alone attributed a split recurrence to
-        // nothing — and a budget it pays every month then counted as entirely
-        // uncovered, spending the same money twice under the pessimistic basis.
-        const legs = (shape as { legs?: { categoryId?: string; amount: string }[] }).legs ?? [];
-        const attributions =
-          legs.length > 0
-            ? legs.map((leg) => ({ categoryId: leg.categoryId, amount: leg.amount }))
-            : [{ categoryId: (shape as { categoryId?: string }).categoryId, amount }];
+        // Income in, or income going back out; spending out, or spending
+        // coming back as a refund. Each lands on the side it reverses.
+        const spends = (shape.type === "withdrawal") !== reversal;
+        const signed = shape.type === "withdrawal" ? decimal(amount) : decimal(amount).negated();
+        if (!spends) {
+          bucket.income = canonicalDecimal(decimal(bucket.income).minus(signed));
+          continue;
+        }
+        bucket.spending = canonicalDecimal(decimal(bucket.spending).plus(signed));
+        // Spending by category, so a budget a recurrence pays counts as
+        // covered: reading `categoryId` alone attributed a split recurrence to
+        // nothing, and the budget then counted as entirely uncovered, spending
+        // the same money twice under the pessimistic basis. A refund takes its
+        // share back off the category it returns to.
         for (const attribution of attributions) {
           if (!attribution.categoryId) continue;
           const key = `${currency}:${periodStart}:${attribution.categoryId}`;
+          const share =
+            shape.type === "withdrawal"
+              ? decimal(attribution.amount)
+              : decimal(attribution.amount).negated();
           spendingByCategory.set(
             key,
-            canonicalDecimal(decimal(spendingByCategory.get(key) ?? ZERO).plus(attribution.amount)),
+            canonicalDecimal(decimal(spendingByCategory.get(key) ?? ZERO).plus(share)),
           );
         }
       } else if (shape.type === "transfer" && source && destination) {

@@ -1,12 +1,10 @@
 import { createHash } from "node:crypto";
 import Papa from "papaparse";
-import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   categoryCreateSchema,
-  idempotencyKeySchema,
   transactionDraftSchema,
-  uuid,
   type Actor,
   type CategoryKind,
   type Page,
@@ -18,7 +16,8 @@ import {
   APP_CSV_LEGS_COLUMN,
   csvCell,
   csvFileLine,
-  csvMappingSchema,
+  csvStageInputSchema,
+  importBatchListQuerySchema,
   isAppExportCsv,
   normalizeCsvRows,
   parseExportedLegs,
@@ -26,6 +25,8 @@ import {
   restoreNeutralizedCell,
   rowsToCsv,
   type CsvSampleRow,
+  type CategoryResolution,
+  type PayeeResolution,
 } from "../../shared/csv.js";
 import { getDb, type DbTransaction, withTransaction } from "../db/client.js";
 import {
@@ -42,6 +43,7 @@ import {
 } from "../config-limits.js";
 import { validationError } from "./errors.js";
 import {
+  countAfterCommit,
   getIdempotent,
   lockAccountReferences,
   lockCategoryNamespace,
@@ -51,7 +53,7 @@ import {
   setIdempotent,
   writeAudit,
 } from "./helpers.js";
-import { cursorInstant, decodeCursor, encodeCursor } from "./cursor.js";
+import { cursorInstant, decodeCursor, encodeCursor, instantMarker } from "./cursor.js";
 import { cleanHumanName, normalizeHumanName } from "../../shared/names.js";
 import type { ProgressEvent } from "../../shared/progress.js";
 import { payeeSummaries, preferredPayee, seedCanonicalPayeeCache } from "./payees.js";
@@ -59,48 +61,6 @@ import { preferredCategory } from "./categories.js";
 import { insertImportedStages } from "./staging.js";
 import { listAllTransactions } from "./transactions.js";
 import { csvRowsStaged } from "../metrics.js";
-
-export const csvStageInputSchema = z.object({
-  csv: z
-    .string()
-    .min(1)
-    .describe("The file's text, decoded. Send the whole file; rows are not streamed."),
-  fileName: z
-    .string()
-    .trim()
-    .min(1)
-    .max(240)
-    .describe(
-      "What the file was called. Recorded on the import batch so somebody can tell one import from another later.",
-    ),
-  idempotencyKey: idempotencyKeySchema,
-  defaultAccountId: uuid().describe(
-    "The account every row is posted against. Accounts are never read out of the file, so this is the only thing that decides where the rows land.",
-  ),
-  mapping: csvMappingSchema
-    .optional()
-    .describe(
-      "Which column holds which field. Not needed for a Simple Balance export, whose columns are already known.",
-    ),
-  dateFormat: z
-    .enum(["YMD", "MDY", "DMY"])
-    .default("YMD")
-    .describe(
-      "How to read an ambiguous date. 03/04/2026 is April 3 under DMY and March 4 under MDY, and nothing in the file says which, so getting this wrong misfiles rows silently rather than failing.",
-    ),
-  decimalSeparator: z
-    .enum([".", ","])
-    .default(".")
-    .describe(
-      "Whether the file writes 1.234,56 or 1,234.56. Wrong, an amount is misread by a factor of a thousand rather than refused.",
-    ),
-  dryRun: z
-    .boolean()
-    .default(false)
-    .describe(
-      "Parse and validate the whole file, reporting what would be staged, without staging anything.",
-    ),
-});
 
 /**
  * The size limit, applied wherever a CSV arrives rather than only where one is
@@ -112,10 +72,13 @@ export const csvStageInputSchema = z.object({
  * answer: a file too large to import should say so before somebody maps its
  * columns.
  */
-function assertCsvWithinSizeLimit(csv: string) {
+export function assertCsvWithinSizeLimit(csv: string) {
   const maxBytes = configuredCsvMaxBytes();
   if (Buffer.byteLength(csv, "utf8") > maxBytes) {
-    throw validationError(`CSV exceeds the ${maxBytes}-byte limit`);
+    throw validationError(`CSV exceeds the ${maxBytes}-byte limit`, {
+      field: "csv",
+      limit: maxBytes,
+    });
   }
 }
 
@@ -132,26 +95,6 @@ export type ImportBatchSummary = {
   createdAt: string;
 };
 
-export const importBatchListQuerySchema = z.object({
-  cursor: z
-    .string()
-    .min(1)
-    .max(500)
-    .optional()
-    .describe(
-      "Resume token from a previous page, taken from `nextCursor`. This list only walks forward.",
-    ),
-  limit: z.coerce
-    .number()
-    .int()
-    .min(1)
-    .max(100)
-    .default(25)
-    .describe(
-      "Batches per page, 1 to 100. Defaults to 25, lower than the other lists because a batch summary is bigger.",
-    ),
-});
-
 export async function listActiveImportBatches(
   actor: Actor,
   input: unknown,
@@ -164,12 +107,12 @@ export async function listActiveImportBatches(
     // here and to `encodeCursor` below, or the walk resumes into a different
     // collection — which is the defect that member exists to prevent.
     const cursor = decodeCursor(query.cursor, { key: "created", direction: "desc" });
-    const createdAt = cursorInstant(cursor);
+    // To the microsecond and as a row comparison, for the reasons
+    // `listAuditEvents` gives: a millisecond marker skips rows that share the
+    // boundary's millisecond, and the OR form cannot start an index scan.
+    cursorInstant(cursor);
     conditions.push(
-      or(
-        lt(importBatches.createdAt, createdAt),
-        and(eq(importBatches.createdAt, createdAt), lt(importBatches.id, cursor.id)),
-      )!,
+      sql`(${importBatches.createdAt}, ${importBatches.id}) < (${cursor.sort}::timestamptz, ${cursor.id}::uuid)`,
     );
   }
 
@@ -179,6 +122,7 @@ export async function listActiveImportBatches(
       fileName: importBatches.fileName,
       rowCount: importBatches.rowCount,
       createdAt: importBatches.createdAt,
+      cursorSort: instantMarker(importBatches.createdAt),
       stagedCount: sql<number>`count(${stagedTransactions.id})::int`,
     })
     .from(importBatches)
@@ -198,7 +142,7 @@ export async function listActiveImportBatches(
   const hasMore = rows.length > query.limit;
   const pageRows = rows.slice(0, query.limit);
   return {
-    items: pageRows.map((row) => ({
+    items: pageRows.map(({ cursorSort: _cursorSort, ...row }) => ({
       ...row,
       stagedCount: Number(row.stagedCount),
       createdAt: row.createdAt.toISOString(),
@@ -207,7 +151,7 @@ export async function listActiveImportBatches(
       ? encodeCursor({
           key: "created",
           direction: "desc",
-          sort: pageRows.at(-1)!.createdAt.toISOString(),
+          sort: pageRows.at(-1)!.cursorSort,
           id: pageRows.at(-1)!.id,
         })
       : null,
@@ -398,13 +342,13 @@ export type CsvReferenceResolution = {
     resolvedName: string;
     categoryId: string | null;
     kind: CategoryKind;
-    resolution: "existing" | "new" | "updated" | "deferred";
+    resolution: CategoryResolution;
     unarchived: boolean;
   }[];
   payees: {
     inputPayee: string;
     resolvedPayee: string;
-    resolution: "existing" | "new";
+    resolution: PayeeResolution;
   }[];
 };
 
@@ -800,11 +744,11 @@ async function resolveImportedCategories(
 export async function stageCsv(
   actor: Actor,
   input: unknown,
-  transaction?: DbTransaction,
   options: {
     mayMutateCategories?: boolean;
     onProgress?: (event: ProgressEvent) => void;
   } = {},
+  transaction?: DbTransaction,
 ) {
   const mayMutateCategories = options.mayMutateCategories ?? true;
   const parsed = csvStageInputSchema.parse(input);
@@ -819,6 +763,7 @@ export async function stageCsv(
   if (parsedCsv.data.length > maxRows) {
     throw validationError(
       `CSV exceeds the ${maxRows}-row limit. A larger export can be filtered by date and imported one range at a time.`,
+      { field: "csv", limit: maxRows },
     );
   }
   if (
@@ -870,7 +815,9 @@ export async function stageCsv(
       .where(and(eq(ledgerAccounts.userId, actor.userId), isNull(ledgerAccounts.systemKind)));
     const allowedAccountIds = new Set(accountRows.map((account) => account.id));
     if (!allowedAccountIds.has(parsed.defaultAccountId)) {
-      throw validationError("Default account is unavailable");
+      throw validationError(
+        "The account chosen for this file was not found. Choose one of your accounts.",
+      );
     }
 
     const appExport = isAppExportCsv(parsedCsv.meta.fields ?? []);
@@ -990,7 +937,13 @@ export async function stageCsv(
   // Rows placed in the queue, which is what an import costs this deployment. A
   // preview stages nothing and is not counted; a file that staged four thousand
   // rows counts four thousand, for the same reason a mass edit counts rows.
-  if (!replayed && "stagedIds" in outcome) csvRowsStaged.inc(outcome.stagedIds.length);
+  // After the commit that staged them, through the helper every other service
+  // counts with: `stageCsv` takes a caller's transaction, and a count taken
+  // inside one that then rolled back would count rows nobody staged.
+  if (!replayed && "stagedIds" in outcome) {
+    const staged = outcome.stagedIds.length;
+    countAfterCommit(transaction, () => csvRowsStaged.inc(staged));
+  }
   return outcome;
 }
 

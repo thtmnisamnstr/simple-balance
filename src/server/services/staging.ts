@@ -53,6 +53,7 @@ import {
   lockCategoryNamespace,
   lockIdempotencyKey,
   lockPayeeNamespace,
+  patchChangesNothing,
   selectionFingerprint,
   serializeRow,
   setIdempotent,
@@ -184,7 +185,7 @@ async function validateDraft(
   if (!parsed.success) {
     return {
       draft: null,
-      issues: zodIssues(parsed.error),
+      issues: zodIssues(parsed.error, withoutLegIds),
       duplicateOfId: null,
       duplicateKey: null,
     };
@@ -467,8 +468,10 @@ function stageSortPlan(
   const tie = ordered(id, direction);
   const draft = sql`${stagedTransactions.draft}`;
   // Draft fields are optional, so absent values need a defined place to land.
-  const paged = (expression: SQL) => ({
-    orderBy: [ordered(expression, direction, true), tie],
+  // A computed key that is never null says so: AGENTS.md asks for `nulls last`
+  // only on a key that can be null.
+  const paged = (expression: SQL, nullable = true) => ({
+    orderBy: [ordered(expression, direction, nullable), tie],
     keyset: null,
     cursorValue: null,
   });
@@ -499,11 +502,14 @@ function stageSortPlan(
       // it — a strict match, another row still waiting, or something already
       // committed that looks like the same money. Asking only about the strict
       // match sorted a badged row in among the ready ones.
-      return paged(sql`case
+      return paged(
+        sql`case
         when jsonb_array_length(${stagedTransactions.validationIssues}) > 0 then 0
         when ${possiblyDuplicate} then 1
         else 2
-      end`);
+      end`,
+        false,
+      );
     case "amount":
       // A transfer states its amount as `sourceAmount`, which is what the queue
       // shows for one, so sorting on `amount` alone left every transfer with no
@@ -945,12 +951,22 @@ export async function updateStage(
   actor: Actor,
   id: string,
   input: unknown,
-  transaction?: DbTransaction,
   options: { mayEditLedgerRecords?: boolean } = {},
+  transaction?: DbTransaction,
 ) {
   const { draft, expectedVersion } = stageUpdateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
-    await lockStagedDraftReferences(tx, actor, [draft]);
+    // The stored draft as well as the new one: the category it may be moving
+    // off is pruned at the end under the category lock, which has to be taken
+    // here, before the payee lock, or this and a create naming a category take
+    // the two in opposite orders. Read without a lock; the version check below
+    // refuses the edit if the row changed in between.
+    const [prior] = await tx
+      .select({ draft: stagedTransactions.draft })
+      .from(stagedTransactions)
+      .where(and(eq(stagedTransactions.id, id), eq(stagedTransactions.userId, actor.userId)))
+      .limit(1);
+    await lockStagedDraftReferences(tx, actor, prior ? [draft, prior.draft] : [draft]);
     const canonicalDraft = await canonicalizeStagedDraftPayee(tx, actor, draft);
     const [before] = await tx
       .select()
@@ -960,13 +976,17 @@ export async function updateStage(
     if (!before || before.status !== "staged") throw notFound("Staged transaction not found");
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
     const validation = await validateDraft(tx, actor, canonicalDraft);
+    const next = {
+      draft: canonicalDraft,
+      validationIssues: validation.issues,
+      duplicateOfId: validation.duplicateOfId,
+      duplicateKey: validation.duplicateKey,
+    };
+    if (patchChangesNothing(before, next)) return stageView(before);
     const [updated] = await tx
       .update(stagedTransactions)
       .set({
-        draft: canonicalDraft,
-        validationIssues: validation.issues,
-        duplicateOfId: validation.duplicateOfId,
-        duplicateKey: validation.duplicateKey,
+        ...next,
         version: expectedVersion + 1,
         updatedAt: new Date(),
       })
@@ -1090,7 +1110,9 @@ export async function deleteStages(actor: Actor, input: unknown, transaction?: D
       .orderBy(stagedTransactions.id)
       .for("update");
     if (rows.length !== parsed.stagedIds.length) {
-      throw notFound("One or more staged transactions are unavailable");
+      throw notFound(
+        "One or more of those staged rows were not found; they may have been committed or deleted. Reload the queue and try again.",
+      );
     }
     for (const row of rows) {
       if (parsed.expectedVersions[row.id] !== row.version) {
@@ -1152,8 +1174,8 @@ export async function deleteStages(actor: Actor, input: unknown, transaction?: D
 export async function commitStages(
   actor: Actor,
   input: unknown,
-  transaction?: DbTransaction,
   options: { onProgress?: (event: ProgressEvent) => void } = {},
+  transaction?: DbTransaction,
 ) {
   const parsed = commitStageSchema.parse(input);
   // Deliberately not awaited and deliberately unable to fail: it writes three
@@ -1193,9 +1215,18 @@ export async function commitStages(
           inArray(stagedTransactions.id, parsed.stagedIds),
           eq(stagedTransactions.status, "staged"),
         ),
-      );
+      )
+      // Each row is written in this order, which is the order its row lock is
+      // taken in. A delete locks the same rows sorted by id, so in whatever
+      // order the table answered, a commit and a delete over the same rows
+      // could each hold one the other wanted and deadlock, the loser getting a
+      // 500 where it would otherwise have found the rows gone. The reply is put
+      // back in the request's order below, because a client may read it so.
+      .orderBy(stagedTransactions.id);
     if (rows.length !== parsed.stagedIds.length) {
-      throw notFound("One or more staged transactions are unavailable");
+      throw notFound(
+        "One or more of those staged rows were not found; they may have been committed or deleted. Reload the queue and try again.",
+      );
     }
     await lockStagedDraftReferences(
       tx,
@@ -1314,6 +1345,10 @@ export async function commitStages(
       committed.push({ stagedId: row.id, transactionId: transaction.id });
       report({ phase: "posting", done: committed.length, total: validated.length });
     }
+    // Written in id order, for the lock order above, and answered in the order
+    // the request named the rows, which is the order this reply always had.
+    const requested = new Map(parsed.stagedIds.map((stagedId, index) => [stagedId, index]));
+    committed.sort((a, b) => requested.get(a.stagedId)! - requested.get(b.stagedId)!);
     const response = { committed };
     await setIdempotent(
       tx,
@@ -1472,8 +1507,8 @@ function patchedStageDraft(draft: Record<string, unknown>, patch: BulkStagePatch
 export async function bulkEditStages(
   actor: Actor,
   input: unknown,
-  transaction?: DbTransaction,
   options: { mayEditLedgerRecords?: boolean } = {},
+  transaction?: DbTransaction,
 ) {
   const parsed = bulkStageEditSchema.parse(input);
   const { selection, patch } = parsed;
@@ -1533,7 +1568,9 @@ export async function bulkEditStages(
     const verifySelection = (rows: (typeof stagedTransactions.$inferSelect)[]) => {
       if (selection.mode === "ids") {
         if (rows.length !== selection.items.length) {
-          throw notFound("One or more staged transactions are unavailable");
+          throw notFound(
+            "One or more of those staged rows were not found; they may have been committed or deleted. Reload the queue and try again.",
+          );
         }
         const expected = new Map(selection.items.map((item) => [item.id, item.expectedVersion]));
         for (const row of rows) {
@@ -1596,7 +1633,8 @@ export async function bulkEditStages(
     }
 
     let drafts = rows.map((row) => patchedStageDraft(row.draft as Record<string, unknown>, patch));
-    await lockStagedDraftReferences(tx, actor, drafts);
+    // The rows' stored drafts too, for the reason `updateStage` gives.
+    await lockStagedDraftReferences(tx, actor, [...drafts, ...rows.map((row) => row.draft)]);
     // Now the rows, under the locks, and the selection re-verified: a row
     // edited between the snapshot and here is a stale selection, not a row to
     // silently edit on top of.
@@ -1624,15 +1662,27 @@ export async function bulkEditStages(
       });
     }
 
+    // A row the patch leaves as it was, issues and all, is not written: the same
+    // rule a single unchanged save follows, for the same reason.
+    const changing = planned.filter(
+      (entry) =>
+        !patchChangesNothing(entry.row, {
+          draft: entry.draft,
+          validationIssues: entry.issues,
+          duplicateOfId: entry.duplicateOfId,
+          duplicateKey: entry.duplicateKey,
+        }),
+    );
+    const changed = new Set(changing);
     const items = planned.map((entry) => ({
       id: entry.row.id,
-      version: entry.row.version + (parsed.dryRun ? 0 : 1),
+      version: entry.row.version + (parsed.dryRun || !changed.has(entry) ? 0 : 1),
       issueCount: entry.issues.length,
       possiblyDuplicate: entry.duplicateOfId !== null,
     }));
     const result: BulkStageEditResult = {
       dryRun: parsed.dryRun,
-      updatedCount: planned.length,
+      updatedCount: changing.length,
       validCount: planned.filter((entry) => entry.issues.length === 0).length,
       invalidCount: planned.filter((entry) => entry.issues.length > 0).length,
       items,
@@ -1646,8 +1696,8 @@ export async function bulkEditStages(
     // refuses for having too many bind parameters.
     const CHUNK = 500;
     const now = new Date();
-    for (let start = 0; start < planned.length; start += CHUNK) {
-      const batch = planned.slice(start, start + CHUNK);
+    for (let start = 0; start < changing.length; start += CHUNK) {
+      const batch = changing.slice(start, start + CHUNK);
       const patches = sql.join(
         batch.map(
           (entry) =>
@@ -1691,8 +1741,8 @@ export async function bulkEditStages(
     // landed. One query per chunk against rows this transaction holds locked.
     const before = new Map(planned.map((entry) => [entry.row.id, entry.row]));
     const audits: Parameters<typeof writeAuditMany>[2][number][] = [];
-    for (let start = 0; start < planned.length; start += CHUNK) {
-      const ids = planned.slice(start, start + CHUNK).map((entry) => entry.row.id);
+    for (let start = 0; start < changing.length; start += CHUNK) {
+      const ids = changing.slice(start, start + CHUNK).map((entry) => entry.row.id);
       const rows = await tx
         .select()
         .from(stagedTransactions)

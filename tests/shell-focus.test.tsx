@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { readdirSync, readFileSync } from "node:fs";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { Alert } from "../src/client/components.js";
+import { useState } from "react";
+import { Alert, Button, MergePanel, Modal, SelectionBar } from "../src/client/components.js";
 
 /**
  * Where focus is, at the four moments `web.md` 13.3 called the largest hole in
@@ -116,6 +117,59 @@ describe("the mobile drawer", () => {
  * of the document — past the skip link and the whole sidebar — to get back to a
  * list somebody was in the middle of.
  */
+/**
+ * "Clear selection" empties the selection, which unmounts the bar or panel the
+ * button sits in, so focus fell to `<body>` on all five surfaces that have one
+ * (`web.md` 13.3). Both components send it back to where the selection is
+ * made, the element marked `data-selection-home`.
+ */
+describe("a selection's own way out", () => {
+  function Surface({ panel }: { panel: boolean }) {
+    const [selected, setSelected] = useState(true);
+    const clear = (
+      <Button type="button" onClick={() => setSelected(false)}>
+        Clear selection
+      </Button>
+    );
+    return (
+      <>
+        <input type="checkbox" aria-label="Select all" data-selection-home />
+        {selected ? (
+          panel ? (
+            <MergePanel>{clear}</MergePanel>
+          ) : (
+            <SelectionBar summary="2 selected">{clear}</SelectionBar>
+          )
+        ) : null}
+      </>
+    );
+  }
+
+  it.each([
+    ["a selection bar", false],
+    ["a merge panel", true],
+  ])("returns focus to where the selection is made, from %s", (_name, panel) => {
+    render(<Surface panel={panel} />);
+    const clear = screen.getByRole("button", { name: "Clear selection" });
+    clear.focus();
+    fireEvent.click(clear);
+    expect(screen.queryByRole("button", { name: "Clear selection" })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("checkbox", { name: "Select all" }));
+  });
+
+  it("has somewhere to go on every page that renders one", () => {
+    const pages = readdirSync("src/client", { recursive: true, encoding: "utf8" })
+      .filter((name) => name.endsWith(".tsx"))
+      .map((name) => ({ name, code: readFileSync(`src/client/${name}`, "utf8") }))
+      .filter(({ code }) => /<(SelectionBar|MergePanel)\b/.test(code));
+    // The register, the staged queue, templates and both merge panels.
+    expect(pages.length).toBeGreaterThanOrEqual(5);
+    expect(
+      pages.filter(({ code }) => !code.includes("data-selection-home")).map(({ name }) => name),
+    ).toEqual([]);
+  });
+});
+
 describe("an alert that reports a finished action", () => {
   it("takes focus when asked, so the next Tab starts from the outcome", () => {
     render(
@@ -126,6 +180,32 @@ describe("an alert that reports a finished action", () => {
     const alert = screen.getByRole("status");
     expect(document.activeElement).toBe(alert);
     expect(alert.getAttribute("tabindex")).toBe("-1");
+  });
+
+  /**
+   * When the work was confirmed in a dialog, the dialog is still open as the
+   * sentence mounts, and closing it hands focus back to the button that opened
+   * it — which the work removed. The sentence takes focus again on the dialog's
+   * `close`. Found by the 0.2.0 sandbox smoke test on a bulk edit's "N
+   * transactions updated."; `tests/browser/smoke-test-fixes.spec.ts` holds it
+   * in a real browser, where the open dialog makes the page behind it inert.
+   */
+  it("takes focus again once the dialog it was confirmed in has closed", () => {
+    const view = (open: boolean) => (
+      <>
+        <Modal open={open} title="Edit selected" onClose={() => {}}>
+          <button type="button">Apply changes</button>
+        </Modal>
+        <Alert kind="success" takeFocus>
+          2 transactions updated.
+        </Alert>
+      </>
+    );
+    const { rerender } = render(view(true));
+    // What the open dialog does in a browser: focus stays inside it.
+    act(() => screen.getByRole("button", { name: "Apply changes", hidden: true }).focus());
+    rerender(view(false));
+    expect(document.activeElement).toBe(screen.getByRole("status"));
   });
 
   it("leaves focus alone otherwise", () => {

@@ -435,9 +435,15 @@ a {
   background: var(--fill-subtle);
 }
 
+/* SC 1.4.1: the current page was told apart by hue alone — `--green-dark`
+   against `--ink-soft` is 1.01:1 in lightness, and the fill against the sidebar
+   1.13 — so to anyone who does not see the green, every link looked the same.
+   The bar at the leading edge is a shape, and it is drawn in the link's own
+   text color, which already clears 4.5:1 on the fill. */
 .sidebar nav a.active {
   color: var(--green-dark);
   background: var(--green-soft);
+  box-shadow: inset 3px 0 0 var(--green-dark);
 }
 
 .sidebar-foot {
@@ -593,9 +599,10 @@ a {
 
 .page-heading {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 24px;
+  gap: 16px 24px;
 }
 
 .page-header h1 {
@@ -622,11 +629,17 @@ a {
   text-transform: uppercase;
 }
 
+/* Beside the title while both fit, and on a row of their own, still at the
+   right edge, once they do not. Without the wrap a long set of actions held
+   its width and pushed the page sideways: Staged with duplicates waiting was
+   59px wider than an 820px window, with its title squeezed onto two lines. */
 .page-actions {
   display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
   align-items: center;
   gap: 9px;
+  margin-left: auto;
 }
 
 .button {
@@ -649,12 +662,19 @@ a {
     background 120ms ease;
 }
 
-.button:active:not(:disabled) {
+.button:active:not(:disabled, [aria-disabled="true"]) {
   transform: translateY(1px);
 }
 
 .button:disabled {
   cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Working rather than unavailable: the button keeps focus (see `Button`), and
+   looks as a disabled one did, with the cursor saying it is busy. */
+.button[aria-disabled="true"] {
+  cursor: progress;
   opacity: 0.5;
 }
 
@@ -664,7 +684,7 @@ a {
   box-shadow: 0 5px 14px var(--accent-glow);
 }
 
-.button-primary:hover:not(:disabled) {
+.button-primary:hover:not(:disabled, [aria-disabled="true"]) {
   background: var(--green-fill-hover);
 }
 
@@ -771,7 +791,7 @@ a {
   background: var(--surface);
 }
 
-.button-secondary:hover:not(:disabled) {
+.button-secondary:hover:not(:disabled, [aria-disabled="true"]) {
   border-color: var(--line-strong);
   background: var(--surface-soft);
 }
@@ -781,7 +801,7 @@ a {
   background: transparent;
 }
 
-.button-ghost:hover:not(:disabled) {
+.button-ghost:hover:not(:disabled, [aria-disabled="true"]) {
   background: var(--fill-subtle);
 }
 
@@ -917,14 +937,17 @@ a {
    is 130px, so between roughly 560px and 900px the four `.category-toolbar`
    pages held a bar that could neither shrink nor wrap. 7.6 settled what a
    filter bar HOLDS and nothing said what it IS. */
-.date-bar,
+.option-bar,
 .filter-bar {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-.date-bar {
+/* A bar of options above what they change: the shared date range, Budgets'
+   view and projection choices, Reports' grouping. It was `.date-bar`, and
+   three of its four bars hold no dates. */
+.option-bar {
   width: fit-content;
   padding: 8px 10px;
   border: 1px solid var(--line);
@@ -933,7 +956,7 @@ a {
   /* The same wrap `.filter-bar` got, for the same reason, on the sibling that
      did not get it. The note above describes a bar that between 560px and
      900px "could neither shrink nor wrap"; the remedy reached `.filter-bar`
-     at base and `.date-bar` only inside the 560px block, so Budgets'
+     at base and `.option-bar` only inside the 560px block, so Budgets'
      four-control view bar and Reports' options bar went on overflowing
      `.content` exactly where the note says. Measured at 620, 820 and 900px:
      /budgets was 958px wide inside a 900px viewport. SC 1.4.10. */
@@ -942,13 +965,13 @@ a {
 
 /* The two dates and their joining word, kept together so the bar wraps around
    the group rather than through it. */
-.date-bar-range {
+.option-bar-range {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-.date-bar-title {
+.option-bar-title {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -958,7 +981,7 @@ a {
   font-weight: 620;
 }
 
-.date-bar .input {
+.option-bar .input {
   min-height: 33px;
   padding-top: 5px;
   padding-bottom: 5px;
@@ -1203,10 +1226,24 @@ input[type="radio"] {
   padding-left: 18px;
 }
 
+/* A link inside an alert is told from the sentences beside it by its underline
+   and not by its color. The house green on the error alert's red is 1.07:1 in
+   lightness, so for somebody who cannot tell those two hues apart an error
+   summary's link lines read as plain lines (SC 1.4.1), and on a success alert
+   green is the alert's own color. Links carry no underline anywhere by default,
+   so this has to say so. */
+.alert a {
+  color: inherit;
+  text-decoration: underline;
+}
+
 .badge {
   display: inline-flex;
   width: fit-content;
   align-items: center;
+  /* A flex container drops the space JSX leaves between an icon and its text,
+     so without a gap the two touch. */
+  gap: 4px;
   padding: 3px 7px;
   border-radius: 99px;
   color: var(--muted);
@@ -1222,9 +1259,11 @@ input[type="radio"] {
 .badge-amber { color: var(--amber); background: var(--amber-soft); }
 .badge-blue { color: var(--blue); background: var(--blue-soft); }
 
-/* A payee or a category with a badge beside it. Without this the badge is a
-   block sibling and drops onto its own line, doubling the row's height. */
-.transaction-payee {
+/* A cell's text with a badge beside it: a payee, an account, a category, a
+   date. Without this the badge is a block sibling and drops onto its own line,
+   doubling the row's height. It was `.transaction-payee`, and six of its eight
+   uses were not a payee. */
+.cell-with-badge {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -1312,12 +1351,34 @@ input[type="radio"] {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
+  gap: 12px;
+}
+
+/* Wrapped like the metric tiles below it, never clipped. A balance has up to
+   twenty-six integer digits, and at 375px one that long pushed the heading off
+   the right edge and the whole page scrolled sideways. The flex item has to be
+   allowed to shrink before the text inside it can wrap. */
+.currency-heading > div {
+  min-width: 0;
 }
 
 .currency-heading h2 {
   margin: 4px 0 0;
   font-size: 20px;
   letter-spacing: -0.03em;
+  overflow-wrap: anywhere;
+}
+
+/* A table's own name, shown above it. Left-aligned like the column it heads
+   and set like the currency code it most often carries. */
+.table-caption {
+  padding: 12px 14px 8px;
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 780;
+  letter-spacing: 0.06em;
+  text-align: left;
+  caption-side: top;
 }
 
 .currency-code {
@@ -1411,7 +1472,7 @@ input[type="radio"] {
 }
 
 /* `align-items: start` for the reason written out at `.settings-column`: a
-   tall card cannot push a short one's neighbour down to meet it. This was the
+   tall card cannot push a short one's neighbor down to meet it. This was the
    one two-column page grid that stretched instead, so the Accounts panel grew
    to the height of Spending by category and ended in blank card. */
 .dashboard-detail-grid {
@@ -1451,6 +1512,29 @@ input[type="radio"] {
 
 .account-mini-row strong {
   display: block;
+}
+
+/* The row wraps rather than the number. Letting both children shrink and
+   break anywhere kept a 26-digit balance on screen and also split an ordinary
+   one, "$8,924." over "60", wherever a long name left it a narrow column. The
+   balance keeps its whole width and drops beneath the name when the two do not
+   fit; only a figure wider than the whole row breaks, and only within it. */
+.account-mini-row {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+
+.account-mini-row > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.account-mini-row > span {
+  max-width: 100%;
+  margin-left: auto;
+  overflow-wrap: anywhere;
+  text-align: right;
 }
 
 .account-mini-list {
@@ -1579,8 +1663,14 @@ input[type="radio"] {
   border-radius: 13px;
 }
 
-.account-card.archived {
-  opacity: 0.65;
+/* Archived is said by the card's badge and by its name and balance turning to
+   `--muted`, not by fading the card. It was `opacity: 0.65`, which took the
+   muted type and balance labels to 2.63:1 in light and 3.69:1 in dark, under
+   SC 1.4.3's 4.5:1 for text a person still reads. Before the hover rule below,
+   so a pointer on the card still lights its name. */
+.account-card.archived h2,
+.account-card.archived footer strong {
+  color: var(--muted);
 }
 
 .account-card-link {
@@ -1601,7 +1691,9 @@ input[type="radio"] {
   padding: 15px 16px 0;
 }
 
-.account-icon {
+/* The glyph tile beside a listed record: an account's card, a category's row,
+   a payee's row. It was `.account-icon` and drew all three. */
+.record-icon {
   display: grid;
   width: 36px;
   height: 36px;
@@ -1667,6 +1759,13 @@ input[type="radio"] {
 
 .account-card-link > footer strong {
   font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+/* For the same reason as the currency heading: the balance may be very long,
+   and a flex child will not shrink below its content unless told it may. */
+.account-card-link > footer > div {
+  min-width: 0;
 }
 
 /* SC 2.5.8 Target Size, met on the spacing branch rather than the size one.
@@ -1816,7 +1915,7 @@ input[type="radio"] {
 }
 
 /* Fixed rather than absolute, so a row menu is not clipped by the horizontal
-   scroll on .table-card. The offsets come from the trigger's position at the
+   scroll on a table's .table-wrap, or by the .table-card around it. The offsets come from the trigger's position at the
    moment it opens. */
 .row-menu-popover {
   position: fixed;
@@ -1985,15 +2084,26 @@ input[type="radio"] {
   min-width: 0;
 }
 
+/* A list's card: the frame around its table and the pager under it. The table
+   scrolls in a `.table-wrap` inside, so the pager stays put when the columns
+   scroll, and the card clips the header's fill to its own corners. It scrolled
+   itself until the pager was found scrolling sideways with the columns. */
 .table-card {
-  overflow-x: auto;
+  overflow: hidden;
   border-radius: 12px;
 }
 
-/* For a table already inside a panel. `.table-card` carries a card's own
-   border, background and shadow, so using it here draws a second card around
-   the first; leaving the wrapper unstyled lets a table wider than the panel
-   spill past its edge with no way to reach the far columns. */
+/* The card clips, so a focus ring drawn outside the scroller would be cut off
+   on all four sides. Inside it, the ring is whole. */
+.table-card > .table-wrap:focus-visible {
+  outline-offset: -3px;
+}
+
+/* The scroller around a wide table, inside a panel or inside a .table-card.
+   It carries no chrome of its own: a card's border, background and shadow here
+   would draw a second card around the first, and leaving the wrapper unstyled
+   lets a table wider than its frame spill past the edge with no way to reach
+   the far columns. */
 .table-wrap {
   overflow-x: auto;
 }
@@ -2189,9 +2299,21 @@ input[type="radio"] {
   font-size: 11px;
 }
 
+/* A voided entry is muted, struck through and badged, and not faded. It was
+   `opacity: 0.5`, which took every piece of text in the row under SC 1.4.3's
+   4.5:1 — the cells to 2.50:1, the amounts to about 2.3, the "Deleted" badge
+   itself to 1.91 — and a voided entry is content somebody reads rather than a
+   disabled control, so the exemption for those does not reach it. `--muted`
+   holds 4.5:1 on the surface in both themes. The amounts lose their green and
+   red with the rest: a voided entry moves no money, and the sign beside the
+   figure still says which way it would have. */
 .row-deleted {
-  opacity: 0.5;
+  color: var(--muted);
   text-decoration: line-through;
+}
+
+.row-deleted :is(a, .transaction-cell strong, .money.deposit, .money.withdrawal, .money) {
+  color: var(--muted);
 }
 
 .row-actions {
@@ -2267,29 +2389,6 @@ input[type="radio"] {
 .row-actions button:disabled {
   cursor: not-allowed;
   opacity: 0.5;
-}
-
-/* Where the house dim is the wrong number: a control inside something that is
-   already dimmed. Opacity composites down the subtree, so the two multiply.
-   A voided row is at 0.5 (`.row-deleted` above) and an archived account card at
-   0.65 (`.account-card.archived`), which put a disabled control at 0.25 and
-   0.325 — `--muted` at 1.39:1 and `--ink-soft` at 1.75:1 on `--surface`, a
-   control that has vanished rather than one stating a condition, which is the
-   opposite of what the dim is for.
-
-   Both are reachable and both are what disabling these families created: a
-   voided entry on a frozen account shows Restore alone, and an archived card's
-   Restore is refused while every place is in use. Dropped rather than scaled to
-   a product of 0.5, because the container's dim is already the whole answer the
-   eye gets in there, and a control dimmer than the row it sits in reads as
-   missing. What still separates a dead control from a live one inside a dimmed
-   container is the cursor, the hover that does not light, and the reason it
-   points at. The next container that dims a subtree joins this list; nothing
-   else can be done about it in CSS, because a descendant combinator cannot say
-   "no ancestor dims". */
-.row-deleted .row-actions button:disabled,
-.account-card.archived .menu-popover button:disabled {
-  opacity: 1;
 }
 
 .checkbox-cell {
@@ -2403,11 +2502,19 @@ input[type="radio"] {
   cursor: pointer;
 }
 
+/* SC 1.4.1: chosen was a change of hue and nothing else — the border 1.05:1
+   against the unchosen one, the text 1.70, the fill 1.08 — on a control every
+   transaction, template and recurrence form opens with. The chosen one now has
+   an edge twice as thick and drawn in the text color, so it is heavier as well
+   as greener. An inset ring rather than a wider border, so choosing one does
+   not shift the three by a pixel. */
 .transaction-type.selected {
-  border-color: var(--green-line-strong);
+  border-color: var(--green-dark);
   color: var(--green-dark);
   background: var(--green-wash);
-  box-shadow: 0 0 0 2px var(--focus-inner);
+  box-shadow:
+    inset 0 0 0 1px var(--green-dark),
+    0 0 0 2px var(--focus-inner);
 }
 
 .transaction-type span,
@@ -2836,6 +2943,7 @@ input[type="radio"] {
 .inline-form {
   display: grid;
   grid-template-columns: minmax(120px, 1fr) 160px 160px auto;
+  align-items: end;
   gap: 8px;
 }
 
@@ -2964,7 +3072,7 @@ input[type="radio"] {
   cursor: pointer;
 }
 
-.record-name .account-icon {
+.record-name .record-icon {
   width: 31px;
   height: 31px;
 }
@@ -3029,8 +3137,45 @@ input[type="radio"] {
   border-bottom: 1px solid var(--line-soft);
 }
 
-.activity-row:last-child {
+/* A staged row's original cells, read-only under the form that edits the draft
+   read from them. Two columns so a heading and its cell read as one line, and
+   the cell wraps anywhere because a bank's reference is one unbroken word. */
+.arrived-as h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.arrived-as dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.arrived-as dl > div {
+  display: contents;
+}
+
+.arrived-as dt {
+  color: var(--muted);
+}
+
+.arrived-as dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.activity-row:last-child,
+.activity-row:has(+ .pagination) {
   border-bottom: 0;
+}
+
+/* "Show older activity" sits in the same bar a numbered list keeps its pages
+   in, inside a card that already insets its rows by 18px, so the bar's own
+   inline padding would push the button 16px further in than the rows. */
+.activity-list > .pagination {
+  padding-inline: 0;
 }
 
 .activity-icon {
@@ -3516,6 +3661,16 @@ input[type="radio"] {
   display: flex;
   flex-wrap: wrap;
   gap: 14px;
+}
+
+/* The question a radio row answers, set like a field's label because that is
+   what it is: the visible name the group is labeled by. */
+.radio-question {
+  display: block;
+  margin-top: 8px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 650;
 }
 
 .recurrence-preview {
@@ -4152,18 +4307,26 @@ polyline.chart-line {
   .sidebar {
     transform: translateX(-102%);
     box-shadow: 18px 0 55px var(--shadow-overlay);
+    /* Hidden only once the slide out has finished, so it stays visible while
+       it moves. */
     transition:
       transform 180ms ease,
-      visibility 180ms;
+      visibility 0s linear 180ms;
     /* Moved off screen it is still focusable, so tabbing from the header walked
        into a menu nobody can see and ended on Sign out. Hidden takes it out of
        the tab order; the transform still does the animation. */
     visibility: hidden;
   }
 
+  /* Visible at once on the way in. A transitioned `visibility` holds its old
+     value until partway through, so the drawer was still hidden at the moment
+     it was asked to take focus, and focus stayed on <body>. */
   .sidebar.open {
     transform: translateX(0);
     visibility: visible;
+    transition:
+      transform 180ms ease,
+      visibility 0s;
   }
   .mobile-close {
     display: grid;
@@ -4211,8 +4374,13 @@ polyline.chart-line {
   .page-heading > .page-actions {
     width: 100%;
   }
+  /* Equal shares while the labels fit, and a row each once they do not: the
+     minimum is what lets the row wrap at all, since a zero basis always fits.
+     Without it "Review 2 possible duplicates" broke onto two lines inside its
+     own button at 390px. */
   .page-heading > .page-actions .button {
     flex: 1;
+    min-width: max-content;
   }
   /* The same stacking for a section heading that carries actions, which is the
      embedded transaction browser on the three detail pages. It was written as
@@ -4230,9 +4398,12 @@ polyline.chart-line {
   .section-title:has(> .page-actions) > .page-actions .button {
     flex: 1;
   }
+  /* `minmax(0, 1fr)`, not `1fr`: a bare `1fr` cannot go below its content's
+     narrowest width, so a twenty-six digit balance in the accounts panel
+     widened the column past the screen and both panels with it. */
   .dashboard-detail-grid,
   .auth-shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .auth-art {
     display: none;
@@ -4252,17 +4423,17 @@ polyline.chart-line {
     align-items: flex-start;
     gap: 6px;
   }
-  .date-bar {
+  .option-bar {
     width: 100%;
     flex-wrap: wrap;
   }
-  .date-bar-title {
+  .option-bar-title {
     width: 100%;
   }
-  .date-bar .select-wrap {
+  .option-bar .select-wrap {
     flex: 1;
   }
-  .date-bar .input[type="date"] {
+  .option-bar .input[type="date"] {
     width: 135px;
   }
   /* The group takes the line and the two dates share it, rather than holding
@@ -4270,7 +4441,7 @@ polyline.chart-line {
      rigid, made the group 328px wide inside a 320px viewport — a reflow failure
      (SC 1.4.10) in place of a cosmetic one. `min-width: 0` on both, because a
      flex item will not shrink below its intrinsic width without it. */
-  .date-bar-range {
+  .option-bar-range {
     flex: 1 1 100%;
     min-width: 0;
   }
@@ -4288,7 +4459,7 @@ polyline.chart-line {
     flex: none;
     margin-top: 2px;
   }
-  .date-bar-range .input[type="date"] {
+  .option-bar-range .input[type="date"] {
     flex: 1 1 0;
     width: auto;
     min-width: 0;

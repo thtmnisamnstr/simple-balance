@@ -50,6 +50,19 @@ export type FileBackedSecret = (typeof FILE_BACKED_SECRETS)[number];
 let resolved: ReadonlyMap<FileBackedSecret, string> | undefined;
 
 /**
+ * Said once per process. `resolveFileBackedSecrets` memoizes, so this only
+ * repeats across a `vi.resetModules()` in tests, but the set costs nothing and
+ * makes the intent plain.
+ */
+const warned = new Set<string>();
+
+function warnOnce(message: string) {
+  if (warned.has(message)) return;
+  warned.add(message);
+  console.warn(message);
+}
+
+/**
  * Reads every `NAME_FILE` that is set, once per process.
  *
  * The resolved values stay in this map and are handed out by `readSecret`. They
@@ -69,19 +82,6 @@ let resolved: ReadonlyMap<FileBackedSecret, string> | undefined;
  * entrypoint is added next. Resolving on first read removes the ordering
  * entirely, and `db/migrate.ts` needs no knowledge of this file.
  */
-/**
- * Said once per process. `resolveFileBackedSecrets` memoizes, so this only
- * repeats across a `vi.resetModules()` in tests, but the set costs nothing and
- * makes the intent plain.
- */
-const warned = new Set<string>();
-
-function warnOnce(message: string) {
-  if (warned.has(message)) return;
-  warned.add(message);
-  console.warn(message);
-}
-
 export function resolveFileBackedSecrets(): ReadonlyMap<FileBackedSecret, string> {
   if (resolved) return resolved;
   const found = new Map<FileBackedSecret, string>();
@@ -145,9 +145,10 @@ export function resolveFileBackedSecrets(): ReadonlyMap<FileBackedSecret, string
  * The value of a secret, from its file if it has one and from the environment
  * otherwise.
  *
- * Every reader of these six names goes through here rather than through
- * `process.env`, which is what lets the resolve be lazy: whichever reader runs
- * first pays for it, and no entrypoint has to remember to prime anything.
+ * Every reader of a name in `FILE_BACKED_SECRETS` goes through here rather than
+ * through `process.env`, which is what lets the resolve be lazy: whichever
+ * reader runs first pays for it, and no entrypoint has to remember to prime
+ * anything.
  */
 export function readSecret(name: FileBackedSecret): string | undefined {
   return resolveFileBackedSecrets().get(name) ?? process.env[name];

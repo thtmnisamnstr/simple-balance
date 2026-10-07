@@ -286,24 +286,142 @@ describe("where a read-only tool is registered", () => {
 describe("tools and nothing else", () => {
   const server = sourceFiles("src/server");
 
-  it("registers no resource and no prompt", () => {
-    const found = server.flatMap((file) =>
-      [...file.code.matchAll(/\bregister(Resource|Prompt)\b/g)].map(
-        (match) => `${file.path}: ${match[0]}`,
-      ),
+  /**
+   * Every member the installed SDK declares as registering something, read off
+   * its own type declarations: the ones returning a `Registered…` handle. That
+   * is `registerTool`, `registerResource` and `registerPrompt`, the deprecated
+   * `tool`, `resource` and `prompt` they replaced, and
+   * `experimental.tasks.registerToolTask` — seven today, and an SDK that adds
+   * an eighth adds it here without anybody having to know.
+   */
+  const SDK = "node_modules/@modelcontextprotocol/sdk/dist/esm";
+  const registering = (declarations: string) => {
+    const names = new Set<string>();
+    let member = "";
+    for (const line of declarations.split("\n")) {
+      // A member starts at four spaces of indent. `registerTool`'s config
+      // object runs deeper and closes on a line opening with `}`, so the name
+      // held when its return type arrives is still its own.
+      const start = /^ {4}(\w+)[<(]/.exec(line);
+      if (start) member = start[1]!;
+      if (/\): Registered\w+;/.test(line)) names.add(member);
+    }
+    return names;
+  };
+  const REGISTERING = new Set([
+    ...registering(readFileSync(`${SDK}/server/mcp.d.ts`, "utf8")),
+    ...registering(readFileSync(`${SDK}/experimental/tasks/mcp-server.d.ts`, "utf8")),
+  ]);
+
+  /**
+   * And the two that register nothing by name. The low-level `Server` beneath
+   * `McpServer` answers a JSON-RPC method with whatever `setRequestHandler` was
+   * given, or with `fallbackRequestHandler` when nothing was — so either can
+   * serve `resources/list` without a resource ever being registered.
+   */
+  const RAW = ["setRequestHandler", "fallbackRequestHandler"];
+
+  /**
+   * Where each one appears in `src/server`, comments blanked.
+   *
+   * A camelCase name is found wherever it appears, because nothing else is
+   * spelled that way and a destructured or `.bind`-aliased method registers as
+   * surely as a call. The three plain words are found only as a member —
+   * `.resource`, or `server["resource"]` but not the array `["tool"]` a metric
+   * labels itself with — because strings are not blanked, and "tool" is in
+   * most of the descriptions.
+   */
+  const sites = (name: string) => {
+    const pattern = /[A-Z]/.test(name)
+      ? new RegExp(`\\b${name}\\b`, "g")
+      : new RegExp(
+          `(?:\\.\\s*${name}\\b|(?<=[\\w$)\\]])\\s*\\[\\s*["'\`]${name}["'\`]\\s*\\])`,
+          "g",
+        );
+    return server.flatMap((file) =>
+      [...file.code.matchAll(pattern)].map((match) => ({
+        name,
+        file: file.path,
+        line: file.code.slice(0, match.index).split("\n").length,
+        call: /^\s*\(/.test(file.code.slice(match.index + match[0].length)),
+        registers: /^\s*\(\s*"([^"]+)"/.exec(file.code.slice(match.index + match[0].length))?.[1],
+      })),
     );
+  };
+
+  /**
+   * First, that the vocabulary is the SDK's and is whole. A declaration file
+   * that moved or changed shape would leave the sweep below looking for nothing
+   * and passing on everything — the old matcher's failure in another form: it
+   * knew two spellings of seven, and none of the raw handlers.
+   */
+  it("knows every way the SDK has to register something", () => {
+    expect([...REGISTERING]).toEqual(
+      expect.arrayContaining(["registerTool", "registerResource", "registerPrompt", "tool"]),
+    );
+    expect(REGISTERING.size).toBeGreaterThanOrEqual(7);
+    const protocol = readFileSync(`${SDK}/shared/protocol.d.ts`, "utf8");
+    for (const name of RAW) {
+      expect(protocol, `the SDK no longer declares ${name}`).toMatch(
+        new RegExp(`^ {4}${name}[?<(:]`, "m"),
+      );
+    }
+  });
+
+  /**
+   * The old check matched `register(Resource|Prompt)` and nothing else, so the
+   * deprecated `server.resource(…)` and `server.prompt(…)`, a raw
+   * `server.server.setRequestHandler(ListResourcesRequestSchema, …)`, and a
+   * `fallbackRequestHandler` answering every method all passed it while putting
+   * a resource or a prompt on the surface. Nor could it see a tool registered
+   * around `registerTool`: `tool(…)` and `registerToolTask(…)` go straight to
+   * the SDK's `_createRegisteredTool`, past the wrapper in `createMcpServer`
+   * that times and counts every tool, so that tool would be served and never
+   * measured.
+   */
+  it("registers no resource, no prompt, and no tool but through registerTool", () => {
+    const found = [...REGISTERING, ...RAW]
+      .filter((name) => name !== "registerTool")
+      .flatMap(sites)
+      .map((site) => `${site.file}:${site.line}: ${site.name}`);
     expect(
       found,
-      "mcp.md §Tool, resource or prompt names the two conditions that reopen this. " +
-        "Make the case there before adding one.",
+      "mcp.md §Tool, resource or prompt names the two conditions that reopen a resource " +
+        "or a prompt; make the case there before adding one. A tool goes through " +
+        "registerTool, which is what times and counts it.",
     ).toEqual([]);
   });
 
-  it("reads the file the registrations are actually in", () => {
-    // The guard that matters here. The assertion above is a search for
-    // something absent, which a reader pointed at the wrong directory, or one
-    // whose comment-blanking ate the code, would also report.
-    const registrations = server.filter((file) => /\bregisterTool\b/.test(file.code));
-    expect(registrations.map((file) => file.path)).toContain("src/server/mcp.ts");
+  /**
+   * The guard that matters here. The assertion above is a search for
+   * something absent, which a reader pointed at the wrong directory, or one
+   * whose comment-blanking ate the code, would also report — and the old guard
+   * asked only that `registerTool` appear once somewhere in `mcp.ts`.
+   *
+   * The same set rather than at least as many, compared by name so a failure
+   * says which: a tool served that no `registerTool` call names was registered
+   * some way this sweep cannot see, and a call that serves nothing to a token
+   * holding every scope sits behind a condition other than scope, where the
+   * specification says the tool set "MUST NOT vary per-connection".
+   */
+  it("finds one registerTool call for every tool the server offers", async () => {
+    const calls = sites("registerTool").filter((site) => site.call);
+    expect(calls.map((site) => site.file)).toContain("src/server/mcp.ts");
+    expect(calls.length).toBeGreaterThanOrEqual(70);
+    const offered = (await listTools(EVERY_SCOPE)).map((tool) => tool.name);
+    const named = new Set(calls.map((site) => site.registers));
+    expect(
+      offered.filter((name) => !named.has(name)),
+      "served, and named by no registerTool call in src/server",
+    ).toEqual([]);
+    expect(
+      calls
+        .filter((site) => !site.registers || !offered.includes(site.registers))
+        .map(
+          (site) =>
+            `${site.file}:${site.line}: ${site.registers ?? "a name that is not a literal"}`,
+        ),
+      "a registerTool call a token holding every scope is not served",
+    ).toEqual([]);
   });
 });

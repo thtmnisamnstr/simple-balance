@@ -34,7 +34,10 @@ describe("the forecast", () => {
   it("is imported by the transports that answer for it and by nothing else", () => {
     const importers = sourceFiles("src")
       .filter((file) => file.path !== FORECAST)
-      .filter((file) => /from "[^"]*forecast\.js"/.test(file.code))
+      // A static import and a dynamic one both: `await import("./forecast.js")`
+      // reaches the module as surely, and the first version of this read only
+      // the `from` spelling.
+      .filter((file) => /(?:from\s+|import\s*\(\s*)"[^"]*\/forecast\.js"/.test(file.code))
       .map((file) => file.path);
     expect(
       importers.filter((path) => !MAY_IMPORT.includes(path)),
@@ -61,6 +64,29 @@ describe("the forecast", () => {
       /writeAudit\s*\(/,
     ].filter((pattern) => pattern.test(source!.code));
     expect(writes.map(String), "a projection that wrote a row would be a posting").toEqual([]);
+  });
+
+  /**
+   * The half the grep above cannot see: a write reached through something the
+   * forecast imports. It reads its own file, so `createTransaction` called from
+   * here would pass it. Every name the forecast takes from another service is
+   * held to not being named like a write, and the helpers that open a write
+   * are named outright.
+   */
+  it("calls nothing in another service that writes", () => {
+    const source = sourceFiles("src").find((file) => file.path === FORECAST)!;
+    const imported = [
+      ...source.code.matchAll(/import\s*\{([^}]*)\}\s*from\s*"\.\/[\w-]+\.js"/g),
+    ].flatMap((match) =>
+      match[1]!
+        .split(",")
+        .map((name) => name.replace(/^\s*type\s+/, "").trim())
+        .filter(Boolean),
+    );
+    expect(imported.length).toBeGreaterThan(3);
+    const WRITER =
+      /^(create|update|delete|set|commit|stage|merge|archive|restore|apply|record|write|insert|reconcile|mark|claim|begin|finish|ensure|close|bulk|lock|take|with[A-Z])/;
+    expect(imported.filter((name) => WRITER.test(name))).toEqual([]);
   });
 
   /**

@@ -319,6 +319,15 @@ describe("services.md 2.9, every write that leaves `version` alone is named with
   });
 });
 
+/**
+ * Metrics a service counts the moment it happens, with the reason a rollback
+ * cannot make the count untrue.
+ */
+const COUNTED_AT_ONCE: Record<string, string> = {
+  idempotencyReplays:
+    "A request answered from its stored record was answered, whatever the caller's transaction does next; the count is about traffic, not the books.",
+};
+
 describe("services.md 2.10, a side effect waits for the commit", () => {
   /**
    * `ledger_writes_total` names the books rather than the traffic, so a count
@@ -330,12 +339,25 @@ describe("services.md 2.10, a side effect waits for the commit", () => {
     const immediate: string[] = [];
     let counted = 0;
     for (const file of SERVICES) {
+      // Every metric the file imports, not only `ledgerWrites`: `csv_rows_staged`
+      // was counted straight inside `stageCsv`, which takes a caller's
+      // transaction, while this asked about one counter by name.
+      const imported = (file.code.match(/import \{([^}]*)\} from "\.\.\/metrics\.js"/)?.[1] ?? "")
+        .split(",")
+        .map((name) => name.trim())
+        .filter((name) => name && !(name in COUNTED_AT_ONCE));
       for (const declaration of topLevelDeclarations(file)) {
         const spans = callSpans(declaration.body, "countAfterCommit");
-        for (const match of declaration.body.matchAll(/\bledgerWrites\s*\.\s*inc\s*\(/g)) {
-          counted += 1;
-          const inside = spans.some(([from, to]) => match.index > from && match.index < to);
-          if (!inside) immediate.push(`${file.path}:${declaration.line} ${declaration.name}`);
+        for (const metric of imported) {
+          for (const match of declaration.body.matchAll(
+            new RegExp(`\\b${metric}\\s*\\.\\s*inc\\s*\\(`, "g"),
+          )) {
+            counted += 1;
+            const inside = spans.some(([from, to]) => match.index > from && match.index < to);
+            if (!inside) {
+              immediate.push(`${file.path}:${declaration.line} ${declaration.name} ${metric}`);
+            }
+          }
         }
       }
     }

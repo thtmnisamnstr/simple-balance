@@ -1,7 +1,9 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { globSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { stylesheet } from "./support/css.js";
+import { blankComments, repoRoot } from "./support/source.js";
 
 /**
  * How far apart two sections of a page sit, and who decides.
@@ -35,36 +37,233 @@ function rules(text: string) {
 const parsed = rules(css);
 const selectorsOf = (selector: string) => selector.split(",").map((one) => one.trim());
 
+/** A module's lines, comments blanked, so a tag in a comment is not read as one. */
+const moduleLines = (() => {
+  const read = new Map<string, string[]>();
+  return (file: string) => {
+    if (!read.has(file)) read.set(file, blankComments(readFileSync(file, "utf8")).split("\n"));
+    return read.get(file)!;
+  };
+})();
+
+const indentOf = (line: string) => line.length - line.trimStart().length;
+/** A line that opens an element, or ends a multi-line opening tag and so starts its children. */
+const holdsChildren = (line: string) => /^\s*<[A-Za-z]/.test(line) || line.trim() === ">";
+/** A function body opened on this line: a `.map` callback, a hook's, a nested helper's. */
+const opensCallback = (line: string) =>
+  /=>\s*[({]\s*$/.test(line) || (indentOf(line) > 0 && /\bfunction\b.*\{\s*$/.test(line));
+
+/** Every line enclosing line `at`, nearest first, stopping above `floor`. */
+function enclosing(lines: readonly string[], at: number, floor: number): number[] {
+  const found: number[] = [];
+  let level = indentOf(lines[at]!);
+  for (let index = at - 1; index > floor && level > 0; index--) {
+    if (lines[index]!.trim() === "") continue;
+    if (indentOf(lines[index]!) < level) {
+      found.push(index);
+      level = indentOf(lines[index]!);
+    }
+  }
+  return found;
+}
+
+/** Where component `name` is declared: in `file`, or in the relative module `file` imports it from. */
+function declarationOf(file: string, name: string): { file: string; start: number } | null {
+  const lines = moduleLines(file);
+  const own = new RegExp(
+    `^(?:export\\s+)?(?:default\\s+)?function\\s+${name}\\b|^(?:export\\s+)?const\\s+${name}\\s*=`,
+  );
+  const start = lines.findIndex((line) => own.test(line));
+  if (start !== -1) return { file, start };
+  const imports = lines.join("\n").matchAll(/import\s+(?:(\w+)|\{([^}]*)\})\s+from\s+"(\.[^"]+)"/g);
+  for (const [, defaultName, named, from] of imports) {
+    const names = (named ?? "").split(",").map((one) =>
+      one
+        .trim()
+        .split(/\s+as\s+/)
+        .at(-1),
+    );
+    if (defaultName !== name && !names.includes(name)) continue;
+    const base = path.resolve(path.dirname(file), from!.replace(/\.js$/, ""));
+    const target = [`${base}.tsx`, `${base}.ts`].find((candidate) => existsSync(candidate));
+    if (!target) return null;
+    if (defaultName !== name) return declarationOf(target, name);
+    const found = moduleLines(target).findIndex((line) =>
+      /^export\s+default\s+function/.test(line),
+    );
+    return found === -1 ? null : { file: target, start: found };
+  }
+  return null;
+}
+
+/** The words of an element's `className`, from the string literals on its own line or attribute line. */
+function classesOf(lines: readonly string[], at: number, column: number): string[] {
+  const own = indentOf(lines[at]!);
+  const first = lines[at]!.slice(column + 1);
+  // Up to a nested tag only: `<EmptyState action={<Link className="button">}>`
+  // names a button, and the button is not at the top.
+  const nested = first.search(/<[A-Za-z]/);
+  const attributes = [nested === -1 ? first : first.slice(0, nested)];
+  for (let index = at + 1; index < lines.length && indentOf(lines[index]!) > own; index++) {
+    if (indentOf(lines[index]!) !== own + 2 || !lines[index]!.trim().startsWith("className=")) {
+      continue;
+    }
+    attributes.push(lines[index]!);
+    for (let next = index + 1; indentOf(lines[next]!) > own + 2; next++)
+      attributes.push(lines[next]!);
+  }
+  const text = attributes.join("\n");
+  const attribute = text.indexOf("className=");
+  if (attribute === -1) return [];
+  let value = text.slice(attribute + "className=".length);
+  if (value.startsWith("{")) {
+    let depth = 0;
+    let end = 0;
+    for (; end < value.length; end++) {
+      if (value[end] === "{") depth++;
+      if (value[end] === "}" && --depth === 0) break;
+    }
+    value = value.slice(0, end + 1);
+  } else {
+    value = value.slice(0, value.indexOf('"', 1) + 1);
+  }
+  return [
+    ...[...value.matchAll(/"([^"]*)"/g)].map(([, words]) => words!),
+    ...[...value.matchAll(/`([^`]*)`/g)].map(([, words]) => words!.replaceAll(/\$\{[^}]*\}/g, " ")),
+  ]
+    .flatMap((words) => words.split(/\s+/))
+    .filter((word) => /^[a-z][a-z0-9-]*[a-z0-9]$/.test(word));
+}
+
 /**
- * The classes a page component puts at the top level of `.content`.
+ * The classes a component puts at the top of whatever renders it, and those of
+ * every component it puts there in turn.
  *
- * Listed by hand, and that is the limitation worth stating: a page that invents
- * a new kind of section and gives it a margin is not caught until somebody adds
- * it here. What the list does catch is the failure that actually happened —
- * an existing page-level block growing a margin back.
+ * An element is at the top when nothing between it and the component's
+ * `return` is another element. A fragment, a conditional and a `.map` all
+ * leave their contents where they are, which is how `.alert` and
+ * `.account-type-section` get into the column; a function body opened above
+ * the `return` means the `return` is somebody else's.
  */
-const PAGE_LEVEL = [
-  ".page-header",
-  ".date-bar",
-  ".filter-bar",
-  ".report-tabs",
-  ".panel",
-  ".table-card",
-  ".alert",
-  ".empty-state",
-  ".selection-bar",
-  ".record-list-card",
-  ".settings-grid",
-  ".currency-sections",
-  ".import-layout",
-  ".account-type-section",
-  ".merge-panel",
-  ".duplicate-groups",
-  ".back-link",
-  ".metric-grid",
-];
+function topClasses(file: string, start: number, seen: Set<string>): string[] {
+  const key = `${file}:${start}`;
+  if (seen.has(key)) return [];
+  seen.add(key);
+  const lines = moduleLines(file);
+  let end = start + 1;
+  while (end < lines.length && !/^(?:\}|\);|\};)\s*$/.test(lines[end]!)) end++;
+  const body = lines.slice(start, end).map((line) => line.trim());
+  /** A `const` holding JSX, which is at the top only where `{name}` is a child of the return. */
+  const jsxConst = (line: string) => /^\s*const (\w+) = .*\($/.exec(line)?.[1];
+  const isRoot = (line: string) =>
+    /^\s*return\b/.test(line) || body.includes(`{${jsxConst(line) ?? "\u0000"}}`);
+  const isDetour = (line: string) =>
+    opensCallback(line) || (jsxConst(line) !== undefined && !isRoot(line));
+
+  const found: string[] = [];
+  for (let at = start + 1; at < end; at++) {
+    const line = lines[at]!;
+    // A tag that starts the line, ends a one-line `return`, or is the branch
+    // of a one-line conditional: `{error ? <Alert>…</Alert> : null}`. That
+    // last reaches nothing the others do not today, and is kept because a
+    // block written that way would otherwise be missed without a sound.
+    const opened = /^\s*(?:\{.*?[?&:(]\s*|return\s+)?(<([A-Za-z][\w.]*))/.exec(line);
+    if (!opened || (!/^\s*</.test(line) && !/^\s*(?:\{|return\b)/.test(line))) continue;
+    const chain = enclosing(lines, at, start);
+    if (chain.some((index) => holdsChildren(lines[index]!))) continue;
+    const roots = chain.filter((index) => isRoot(lines[index]!));
+    const detours = chain.filter((index) => isDetour(lines[index]!));
+    // Line numbers, so the outermost is the smallest. A detour above it means
+    // the `return` found belongs to a callback, not to the component.
+    const outermostRoot = roots.length > 0 ? Math.min(...roots) : isRoot(line) ? at : null;
+    if (outermostRoot === null || detours.some((index) => index < outermostRoot)) continue;
+    const column = opened.index + opened[0].length - opened[1]!.length;
+    found.push(...classesOf(lines, at, column));
+    const tag = opened[2]!;
+    if (/^[A-Z]/.test(tag)) {
+      const declared = declarationOf(file, tag);
+      if (declared) found.push(...topClasses(declared.file, declared.start, seen));
+    }
+  }
+  return found;
+}
+
+/**
+ * Every class some page puts at the top level of `.content`, from the pages
+ * the router renders down.
+ */
+const pageTop = (() => {
+  const app = path.join(repoRoot, "src/client/App.tsx");
+  const pages = [
+    ...moduleLines(app)
+      .join("\n")
+      .matchAll(/<Route\s+path="[^"]+"\s+element=\{\s*<(\w+)/g),
+  ];
+  const classes = new Set<string>();
+  for (const [, page] of pages) {
+    const declared = declarationOf(app, page!);
+    if (!declared) throw new Error(`${page} is routed and its declaration was not found`);
+    for (const name of topClasses(declared.file, declared.start, new Set()))
+      classes.add(`.${name}`);
+  }
+  return [...classes].sort();
+})();
+
+/**
+ * The classes a page component puts at the top level of `.content`, less any
+ * the stylesheet takes out of the column's flow.
+ *
+ * This was a hand-kept list of eighteen, and its docblock named the limit: a
+ * page that invents a new kind of section is not caught until somebody adds
+ * it. By the time it was replaced five had arrived unadded — `.note`,
+ * `.account-transactions`, `.account-register`, `.duplicate-review` and
+ * `.settings-tabs`, each measured as a direct child of `.content` by opening
+ * every route in a browser — so a margin on any of them would have passed
+ * every assertion below. None carried one, which made it a near miss rather
+ * than a defect.
+ *
+ * Now read out of the components themselves, `App.tsx`'s `<Route>` table
+ * down, by indentation: `oxfmt` puts a JSX child two spaces under its parent,
+ * which is the same bet `topLevelDeclarations` in `tests/support/source.ts`
+ * makes, and the repository has no parser to make a better one. It counts a
+ * branch a page never takes, such as the `.section-title` `TransactionBrowser`
+ * draws when it is part of a detail page, and that overcount is the safe
+ * direction: a class only sometimes at the top should carry no margin either.
+ *
+ * A box positioned `absolute` or `fixed` is not a flex item, so the column's
+ * gap never reaches it and a margin on it decides nothing about the stack.
+ * `.sr-only`'s `margin: -1px` is half of the clip trick and `.modal`'s
+ * `margin: auto` centers a dialog in the top layer; both are read off the
+ * stylesheet here rather than excused by name.
+ */
+const outOfFlow = (name: string) =>
+  parsed.some(
+    (rule) =>
+      selectorsOf(rule.selector).includes(name) && /position:\s*(?:absolute|fixed)/.test(rule.body),
+  );
+const PAGE_LEVEL = pageTop.filter((name) => !outOfFlow(name));
 
 describe("the page stack", () => {
+  /**
+   * Found what it was meant to find, because an empty population passes every
+   * claim made over it. Each name is reached by one path through the reader
+   * and no other, checked by switching each path off in turn: `.page-header`
+   * by following a component into its declaration, `.back-link` by a
+   * `className` written where a component is used, `.note` by a one-line
+   * `return`, and `.account-type-section` by a `.map` inside the `return`. A
+   * path that stops matching takes its name out of the list and fails here.
+   */
+  it("finds the blocks a page puts in the column", () => {
+    expect(PAGE_LEVEL.length).toBeGreaterThan(20);
+    for (const name of [".page-header", ".back-link", ".note", ".account-type-section"]) {
+      expect(PAGE_LEVEL, name).toContain(name);
+    }
+    expect(pageTop.filter(outOfFlow), "the stylesheet still takes these out of the flow").toEqual([
+      ".modal",
+      ".sr-only",
+    ]);
+  });
+
   it("takes its rhythm from one container", () => {
     const content = parsed.find((rule) => selectorsOf(rule.selector).includes(".content"));
     expect(content, ".content has no rule").toBeDefined();
@@ -152,8 +351,11 @@ describe("a scrolling table", () => {
       // other table here — six columns of arbitrary CSV headers in a 300px
       // aside — and was the one scrolling container in the client a keyboard
       // could not reach, because the pattern only knew two class names.
+      // `.table-card` left the alternation when it stopped scrolling: it is
+      // the frame around a list's table and pager now, and the `.table-wrap`
+      // inside it is the scroller that takes the tab stop.
       for (const match of source.matchAll(
-        /<div\s[^>]*?className="(?:table-(?:card|wrap)|preview-table-wrap)"[^>]*>/g,
+        /<div\s[^>]*?className="(?:table-wrap|preview-table-wrap)"[^>]*>/g,
       )) {
         checked += 1;
         const tag = match[0];
@@ -178,16 +380,14 @@ describe("a scrolling table", () => {
  * sticks over it.
  */
 describe("focus and the sticky layers", () => {
-  it("shows a focus indicator on every focusable kind", () => {
+  it("shows a focus indicator where the picker's own input cannot", () => {
     const focusRules = parsed.filter((rule) => /:focus(-visible|-within)?\b/.test(rule.selector));
     const covered = focusRules.map((rule) => rule.selector).join(" ");
-    // `summary` is the row menu's trigger, `[tabindex]` is a scrolling table,
-    // and a checkbox used to have nothing but `accent-color`. All three were
-    // focusable with no indicator, which is SC 2.4.7 three times.
-    for (const kind of ["button", "a", "summary", "input", "select", "textarea", "[tabindex]"]) {
-      expect(covered, `${kind} can take focus and shows nothing`).toContain(kind);
-    }
     // The file picker's own input is visually hidden, so the wrapper takes it.
+    // Which focusable kinds the shared ring names is "the shared focus ring"
+    // below, read as entries: this used to check them here as substrings, and
+    // `"a"` and `"input"` appear in nearly any selector, so removing either from
+    // the ring stayed green.
     expect(covered).toContain(".file-drop:focus-within");
   });
 
@@ -367,15 +567,22 @@ describe("a page-scoped class", () => {
    * This is a register rather than a rule, because the distinction the rule
    * draws — is this class named for a *page* or for a *component that happens
    * to share the page's word* — is a judgement no pattern makes. `.settings-note`
-   * was named for a page and used on eight files; `.account-icon` is named for
-   * an account and appears wherever an account does. Nothing structural tells
-   * them apart: `.settings-note` was used on its own page too.
+   * was named for a page and used on eight files; `.transaction-cell` is named
+   * for the register and appears wherever the register does. Nothing structural
+   * tells them apart: `.settings-note` was used on its own page too.
+   *
+   * And a reason here has to be true. Two were not: `.account-icon` was "an
+   * account's colored glyph, wherever an account is listed" and drew the
+   * category and payee glyphs too, and `.transaction-payee` was "the same
+   * register" and wrapped an account, a category, a next date and a reminder.
+   * Both were renamed for what they do — `.record-icon` and `.cell-with-badge`
+   * — which is the answer to a false reason, and neither is a page's word, so
+   * neither needs a line here.
    *
    * The value is that a *new* off-page use has to be classified here, which is
    * the reading `.settings-note` never got in 26 uses across four releases.
    */
   const COMPONENTS = new Map([
-    ["account-icon", "An account's colored glyph, wherever an account is listed"],
     ["budget-display", "The budget section the dashboard and the budgets page share"],
     ["budget-report", "Same section, same reason"],
     ["budget-progress", "The bar inside it"],
@@ -394,7 +601,6 @@ describe("a page-scoped class", () => {
     ["recurrence-preview-label", "Same preview"],
     ["transaction-cell", "A cell in the transaction register, wherever the register appears"],
     ["transaction-icon", "Same register"],
-    ["transaction-payee", "Same register, and the staged queue shows the same shape"],
     [
       "category-picker",
       "The half-typed-category control, in every form that files an entry (6.1 lists it)",
@@ -483,6 +689,12 @@ describe("a page-scoped class", () => {
       .join("\n");
     const stale = [...COMPONENTS.keys()].filter((name) => !everything.includes(name));
     expect(stale, "these are excused and unused").toEqual([]);
+    // And 6.3 states its size, which said twenty-one through ten additions.
+    const WORDS: Record<number, string> = { 29: "twenty-nine", 30: "thirty", 31: "thirty-one" };
+    const guide = readFileSync("docs/standards/web.md", "utf8").replaceAll(/\s+/g, " ");
+    expect(guide).toContain(
+      `register of the ${WORDS[COMPONENTS.size] ?? COMPONENTS.size} that are components`,
+    );
   });
 });
 
@@ -537,5 +749,29 @@ describe("a table cell", () => {
     // of buttons is not a numeric column as far as a grep is concerned.
     const align = css.slice(css.indexOf("\n.align-right {"));
     expect(align.slice(0, align.indexOf("}"))).not.toContain("font-variant-numeric");
+  });
+});
+
+/**
+ * `web.md` 13.2, SC 2.4.7, read as tokens rather than as a substring.
+ *
+ * The check above joins every focus selector into one string and asks whether
+ * each kind appears in it, and `"a"` and `"input"` appear in nearly anything —
+ * so deleting `a`, `input` or `summary` from the shared rule stayed green. This
+ * reads the `:is(…)` list of the rule that draws the ring and requires each
+ * kind as a whole entry, and the rule to draw something.
+ */
+describe("the shared focus ring", () => {
+  it("names every focusable kind as an entry of its own, and draws an outline", () => {
+    const ring = parsed.find((rule) => /^:is\([^)]*\):focus-visible\b/.test(rule.selector.trim()));
+    expect(ring, "the shared :is(…):focus-visible rule").toBeDefined();
+    const kinds = /^:is\(([^)]*)\)/
+      .exec(ring!.selector.trim())![1]!
+      .split(",")
+      .map((entry) => entry.trim());
+    for (const kind of ["button", "a", "summary", "input", "select", "textarea", "[tabindex]"]) {
+      expect(kinds, `${kind} can take focus and shows nothing`).toContain(kind);
+    }
+    expect(ring!.body).toMatch(/outline:\s*\d+px solid/);
   });
 });

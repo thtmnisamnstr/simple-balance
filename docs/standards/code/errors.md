@@ -12,7 +12,7 @@ The wire format — RFC 9457, status codes, the envelope — is
 HTTP status, optional details, and an optional second message for an agent
 (see 2.2 and 2.4). Both transports render it: HTTP into a problem document, MCP
 into a tool error — and the MCP one puts `agentMessage` where the message would
-go wherever a throw site set one (`src/server/mcp.ts:290`), so the fifth field
+go wherever a throw site set one (`src/server/mcp.ts:293`), so the fifth field
 is wire-visible rather than a note to ourselves.
 
 The distinction is the question **is there something the caller could do
@@ -24,16 +24,16 @@ caller to fix something they did not do.
 Twelve throws in `src/server/services` are that second kind, and all twelve are
 correct. They come in four shapes: three `TypeError`s in the idempotency
 canonicalizer for payload shapes that cannot occur
-(`src/server/services/helpers.ts:175`, `:191` and `:197`); two for a reference
+(`src/server/services/helpers.ts:230`, `:246` and `:252`); two for a reference
 count that came back non-numeric after being cast to one in SQL
-(`src/server/services/payees.ts:58` and `src/server/services/categories.ts:485`);
+(`src/server/services/payees.ts:58` and `src/server/services/categories.ts:472`);
 three for an `insert().returning()` that came back empty, which either throws or
-returns the row (`src/server/services/budgets.ts:560`, `:934` and
+returns the row (`src/server/services/budgets.ts:568`, `:945` and
 `src/server/services/category-groups.ts:132`); and four in billing, each
 doubting something established moments earlier — the route's own registration,
 the actor's user row, a customer row whose insert had just lost a conflict, and
 a subscription Stripe cannot return without a price
-(`src/server/services/billing.ts:678`, `:936`, `:965` and `:1516`). The reason
+(`src/server/services/billing.ts:679`, `:993`, `:1022` and `:1601`). The reason
 each cannot happen is written beside it in the test rather than copied here.
 
 So the rule is not "never throw a bare `Error` here". It is "never throw one for
@@ -61,17 +61,17 @@ use the constructor that names the situation.
 | `validationError` | 422 | The request is well-formed and asks for something impossible. |
 
 **The transport is the named exception, and it is two lines.**
-`src/server/api.ts` constructs `AppError` directly at `:1504` and `:1522`, and
+`src/server/api.ts` constructs `AppError` directly at `:1636` and `:1654`, and
 both carry a code no service raises at all: `FORBIDDEN` and
 `REAUTHENTICATION_REQUIRED` belong to the two operations that are reachable
 from a session and never from a token, which is exactly the pair `AGENTS.md`
 names as the boundary between the surfaces.
 
 **The type is not what keeps them out, and believing it is would mislead.**
-Both are in `serviceErrorCodes` already (`src/shared/domain.ts:2615-2625`),
+Both are in `serviceErrorCodes` already (`src/shared/domain.ts:2705-2715`),
 which is why `new AppError("FORBIDDEN", …)` type-checks anywhere at all; what
 `ServiceErrorCode` narrows against is the transport list beside it
-(`src/shared/domain.ts:2637-2654`), and neither of these is in that. So the
+(`src/shared/domain.ts:2727-2744`), and neither of these is in that. So the
 reason there is no sixth constructor is an argument rather than a compiler
 error, and it has to be made rather than assumed: a constructor is an
 invitation, and what it would invite is a service raising
@@ -82,10 +82,10 @@ So the rule is scoped rather than absolute: a service uses the constructors, and
 the transport may name a status the service half has no word for. It was four
 lines rather than two, and shrinking it is what the other two paragraphs of this
 section used to be about. The already-configured-password site was byte-for-byte
-what `conflict()` produces and now calls it (`src/server/api.ts:1513`). The malformed-body guard
+what `conflict()` produces and now calls it (`src/server/api.ts:1645`). The malformed-body guard
 was a `VALIDATION_ERROR` **400** where the constructor is 422 by definition,
 which is why it could not use one — it is now a `TransportError`
-(`src/server/api.ts:1378`, the class at `src/server/services/errors.ts:13-23`),
+(`src/server/api.ts:1519`, the class at `src/server/services/errors.ts:13-23`),
 a separate enumeration for the refusals that are about the request rather than
 about the ledger, so `VALIDATION_ERROR` means one status again and the code an
 MCP tool can raise stays the service half alone.
@@ -94,8 +94,12 @@ MCP tool can raise stays the service half alone.
 that name neither half and close both. One holds every code constructed
 anywhere under `src/server` to a single status — which is the exact defect the
 paragraph above narrates, `VALIDATION_ERROR` meaning 400 at one site and 422 at
-the rest. The other bans an error body assembled anywhere but the two
-renderers, since a shape built at a route is a shape no enumeration covers.
+the rest. The other bans an error body assembled anywhere but three named
+constructs — `errorEnvelope` and `transportError` in `api.ts`, `errorResponse`
+in `http-security.ts` — each counted, since a shape built at a route is a shape
+no enumeration covers. It excused the two files whole until a narrower read
+found three bodies built inline in `api.ts`: the session gate's 401 goes through
+`transportError` now, and the two catch-all 404s throw `notFound`.
 `tests/errors-guide.test.ts` holds the count the prose claims: the direct
 constructions stay at those two lines and those two codes, the thrown
 `TransportError` stays at its one, and no service builds either by hand.
@@ -109,6 +113,16 @@ bit is enough to enumerate.
 Because every query is scoped by `actor.userId` (see `services.md` 1.1), this
 falls out naturally: the row simply is not in the result.
 
+**One 403 says "not yours", and it is not about a record.** An MCP consent
+started in one account and answered in another is refused with
+`CONSENT_NOT_YOURS` and a 403 (`src/server/api.ts:894-901` and `:935-942`).
+The consent code is a single-use secret the authorization link carries, not an
+id anybody can enumerate, so the bit the 403 confirms is one the person holding
+the link already has. And the sentence is the move that works — sign in as the
+account that started it — which a 404's "not found" would hide. It stays a 403
+because it shipped as one: a client that reads the status would break on a
+404.
+
 *Checked by:* `tests/integration/tenant-isolation.integration.test.ts`, which
 reaches for one person's accounts, categories, category groups, payees,
 transactions and budgets as somebody else and insists the refusal is the
@@ -117,11 +131,15 @@ ones on the sentence. The group is the one worth having: its reference is
 single-column rather than composite, so the database does not stop a category
 pointing at somebody else's, and only the service does.
 
-It walks the services it names rather than the surface, so a service added later
-goes unchecked until somebody adds it there — and billing is in exactly that
-position now. Nothing reaches `billing_customer` or `billing_subscription` as
-the wrong tenant. The suite also needs a `TEST_DATABASE_URL`, which
-`npm run verify` does not have.
+That file walks the services it names. The surface is
+`tests/integration/tenant-isolation-routes.integration.test.ts`, which reads
+every `/api/v1` route with an id in its path out of the router and asks each for
+one person's record as another, so a route added later is asked when it is
+written rather than when somebody remembers. Billing names no record in a path
+and so is not among them: nothing reaches `billing_customer` or
+`billing_subscription` as the wrong tenant. Both need a `TEST_DATABASE_URL`,
+which `npm run verify` does not have, though the route list's completeness is
+checked without one.
 
 ### 2.2 `staleVersion` is its own thing for a reason
 
@@ -193,23 +211,25 @@ about how many arguments the refusal carries.
 
 The two callers show the rule running in both directions, which is what makes it
 a rule rather than a workaround for billing. The account allowance
-(`src/server/services/accounts.ts:717`) tells a browser to upgrade under
+(`src/server/services/accounts.ts:731`) tells a browser to upgrade under
 Settings, and tells an agent that only the person who owns the ledger can raise
 the limit: billing is session-only by `AGENTS.md`, so an agent told to upgrade
 is told to do something it holds no credential for, which is the same fault as
 telling it to reload. The active-account chooser
-(`src/server/services/accounts.ts:953`) goes the other way. This is a call an
+(`src/server/services/accounts.ts:967`) goes the other way. This is a call an
 agent *can* make, so its sentence names the call, says what a valid one looks
 like, and — where nothing is frozen — says that no list at all is valid, so the
 agent stops trying different ones instead of guessing.
 
 Six throw sites carry one today and the shape recurs: the archive restore meets
 the same ceiling from the other side
-(`src/server/services/accounts.ts:1176`), the frozen-account refusal is the same
-argument under a 422 (`src/server/services/accounts.ts:847`), and the two in
-`closeBillingForDeletion` (`src/server/services/billing.ts:1946` and `:1953`)
-send a person to whoever runs the server while naming the cause, and whether
-retrying helps, for a program. Those last two are reached only from the
+(`src/server/services/accounts.ts:1204`), the frozen-account refusal is the same
+argument under a 422 (`src/server/services/accounts.ts:861`), and the two in
+`closeBillingForDeletion` (`src/server/services/billing.ts:2006` and `:2013`)
+give a person the move each cause leaves them — whoever runs the server, where
+the keys cannot vouch for Stripe's answer, and a retry in a few minutes, where
+Stripe could not be reached — while naming the cause, and whether retrying
+helps, for a program. Those last two are reached only from the
 session-only deletion path, so nothing renders them today — written that way
 because the browser's sentence would be the wrong one if it ever widens, which
 is cheaper than noticing later. Every refusal whose remedy is browser-only has
@@ -260,7 +280,12 @@ replaced said the window overlapped, which was true and useless — it described
 the check rather than the situation.
 
 **No apologies, no "unexpected", no exception text.** "Sorry, an unexpected
-error occurred" is three words of apology and no information.
+error occurred" is three words of apology and no information. The 500 both
+transports send said exactly "An unexpected error occurred" until 0.2.1; it is
+`INTERNAL_ERROR_MESSAGE` now (`src/server/services/errors.ts`), which says the
+server could not finish and the one move left. `tests/ui-copy.test.ts` refuses
+"unexpected" and "an error occurred" with the other banned words, over template
+literals and JSX text as well as quoted strings.
 
 ### 3.2 A refusal names the specific case when it can
 
@@ -276,20 +301,30 @@ array. Showing the envelope is how "A budget cannot be negative" reached the
 screen as "Request validation failed".
 
 The client digs the messages out of the details
-(`src/client/api.ts:98-104`, discriminating on `path` so a CSV parser's errors
+(`src/client/api.ts:143-149`, discriminating on `path` so a CSV parser's errors
 fall through), deduplicates them on the field-and-sentence pair rather than the
-sentence (`:112-119`), and shows those in preference to the envelope (`:122`).
+sentence (`:157-165`), and shows those in preference to the envelope (`:169`).
 Which means schema messages are user-facing: write them that way.
 
-*Checked by:* `human` on the phrasing; `tests/domain.test.ts` pins several
-specific messages.
+Nineteen request schemas left their length rules to Zod, so typing a space where
+a category name goes read "Too small: expected string to have >=1 characters".
+Every free-text field now passes its sentence beside its number — `enter(…)`
+for an empty one, in the GOV.UK form `common.md`'s table uses, and `atMost(…)`
+for one too long — and a template mass edit's empty string says that `null` is
+the clear, since that refusal is deliberate and only an agent can reach it.
+
+*Checked by:* `tests/schema-messages.test.ts`, which refuses any `.min` or
+`.max` on a `z.string()` in `src/shared/domain.ts` that passes no message, with
+a register of the output schemas no refusal is ever read from, and samples the
+sentences at both ends; `tests/domain.test.ts` pins several specific messages;
+and `human` on the phrasing, which is the half a source check cannot judge.
 
 ## 4. Refusing early, and previewing the refusal
 
 **House.** Some rules the browser has to know before it submits, or the person
 gets a 422 the screen never hinted at. Those live in `src/shared` as a function
 returning a result rather than throwing
-(`src/shared/domain.ts:162`):
+(`src/shared/domain.ts:174`):
 
 ```ts
 {
@@ -300,7 +335,7 @@ returning a result rather than throwing
 
 A withdrawal gets its twin — "either spending or income coming back" — because
 3.2 asks a refusal to name the specific case, and here the direction *is* the
-case (`src/shared/domain.ts:174-175`).
+case (`src/shared/domain.ts:183-184`).
 
 The service calls it and throws the message; the form calls it and renders the
 message. One sentence, one source, and the screen can never disagree with the
@@ -322,8 +357,8 @@ has to be told *when* to blame it: a plan already held and a plan set to end
 are disabled on their own account, so the tab offers the grant's sentence only
 where `planChangeTakesEffect` says the press would have spent money, which is
 the same line the route draws with `sellsSomething`.
-`frozenAccountRefusal` (`src/shared/domain.ts:3840`) is thrown by
-`assertAccountsWritable` (`src/server/services/accounts.ts:842`) and is the
+`frozenAccountRefusal` (`src/shared/domain.ts:4012`) is thrown by
+`assertAccountsWritable` (`src/server/services/accounts.ts:856`) and is the
 reason an account card's **Edit**, **Archive** and **Delete** now carry, and a
 transaction row's **Edit**, **Delete** and **Restore** with them.
 
@@ -398,7 +433,7 @@ unusable (missing keys, wrong types), never what makes a row ugly: ugliness is
 the row's own issue list's job.
 
 *Checked by:* `human`. The instance is pinned where it bit
-(`src/shared/domain.ts:1163-1168`, the comment on `payeeSummarySchema.name`).
+(`src/shared/domain.ts:1231-1236`, the comment on `payeeSummarySchema.name`).
 
 ## 5. What is not enforced
 

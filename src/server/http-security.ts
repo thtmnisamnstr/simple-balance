@@ -437,8 +437,12 @@ function errorResponse(
   // is what somebody remembered.
   code: TransportErrorCode,
   message: string,
+  // Only the size cap passes any: it is the one transport refusal whose
+  // sentence names a number, and `http.md` rules that a number in a message is
+  // a field in the details too, so a client never parses the sentence for it.
+  details?: Record<string, unknown>,
 ) {
-  return context.json({ error: { code, message } }, status);
+  return context.json({ error: details ? { code, message, details } : { code, message } }, status);
 }
 
 function contentType(request: Request) {
@@ -797,6 +801,65 @@ export function hardenAuthCookies(baseUrl: string): MiddlewareHandler {
   };
 }
 
+/**
+ * Keep the session token out of every body the auth routes send.
+ *
+ * The cookie is `HttpOnly` so that no script on the page can read it, and then
+ * Better Auth hands the same value back in JSON anyway: `get-session` carries
+ * it as `session.token`, `list-sessions` as `token` on every session, and
+ * sign-in, sign-up and change-password as a top-level `token`. Any script that
+ * can call `fetch` on this origin could read it out of those and take it
+ * elsewhere. The content security policy allows scripts from any HTTPS origin
+ * while advertising is on, so "any script" is not a hypothetical worth waving
+ * away.
+ *
+ * Defense in depth rather than a door that was open, and said so because an
+ * earlier draft of this note called it a seven-day credential. It is not one
+ * on its own: the cookie carries the token and a signature made with the
+ * server's secret, and no bearer plugin is on to accept the bare value. But it
+ * is the session's identity, it is what `revoke-session` takes, and a plugin
+ * added later that accepted it would turn every one of these bodies into a
+ * credential without anybody touching this file.
+ *
+ * Nothing here reads one. The browser authenticates with the cookie alone and
+ * an MCP client with its own bearer token, which is a different field on a
+ * different route. The one Better Auth call that takes a session token as
+ * input, `revoke-session`, is not used by this app; `revoke-other-sessions`
+ * and signing out need none.
+ */
+export function withholdSessionTokens(): MiddlewareHandler {
+  return async (context, next) => {
+    await next();
+    if (!(context.res.headers.get("content-type") ?? "").includes("application/json")) return;
+    const text = await context.res.clone().text();
+    if (!text.includes('"token"')) return;
+    let body: unknown;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      return;
+    }
+    const strip = (value: unknown) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return;
+      const record = value as Record<string, unknown>;
+      delete record.token;
+      if (record.session && typeof record.session === "object") {
+        delete (record.session as Record<string, unknown>).token;
+      }
+    };
+    if (Array.isArray(body)) body.forEach(strip);
+    else strip(body);
+    const { status, statusText } = context.res;
+    const headers = new Headers(context.res.headers);
+    headers.delete("content-length");
+    // Hono's setter copies every header of the response it replaces onto the
+    // new one, `content-length` included, which would describe the longer
+    // body. Clearing it first leaves only the headers carried over above.
+    context.res = undefined;
+    context.res = new Response(JSON.stringify(body), { status, statusText, headers });
+  };
+}
+
 type NativeOutgoingResponse = {
   shouldKeepAlive?: boolean;
   writableFinished?: boolean;
@@ -913,6 +976,7 @@ export function boundRequestBody(options: BodyLimitOptions): MiddlewareHandler {
         413,
         "PAYLOAD_TOO_LARGE",
         `Request body exceeds the ${maxBytes}-byte limit`,
+        { limit: maxBytes },
       );
     }
 
@@ -958,6 +1022,7 @@ export function boundRequestBody(options: BodyLimitOptions): MiddlewareHandler {
           413,
           "PAYLOAD_TOO_LARGE",
           `Request body exceeds the ${maxBytes}-byte limit`,
+          { limit: maxBytes },
         );
       }
       chunks.push(value);

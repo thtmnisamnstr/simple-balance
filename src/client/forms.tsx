@@ -53,22 +53,29 @@ import {
   Alert,
   Button,
   ErrorSummary,
+  Form,
   Field,
   Input,
   Note,
   RequiredNote,
   Select,
   Textarea,
+  useFieldDescribedBy,
 } from "./components.js";
 import {
+  amountForInput,
   compareMoney,
   formatDate,
   formatTime,
   isNegativeMoney,
   isPositiveMoney,
+  isZeroMoney,
+  moneyLabel,
   moneyRemainder,
+  shownMoney,
 } from "./money.js";
 import {
+  asCategoryKind,
   draftForTransactionForm,
   type RecurrenceShapeSeed,
   type TransactionFormLeg,
@@ -77,6 +84,9 @@ import { currencyOptionLabel, currencyOptions } from "./select-options.js";
 import { calendarDateInTimezone, useTimezone } from "./timezone.js";
 import { newIdempotencyKey } from "./idempotency.js";
 import { cleanHumanName, normalizeHumanName } from "../shared/names.js";
+
+/** Whether a transaction form writes to the books or to the staging queue. */
+type SaveMode = "commit" | "stage";
 
 // Keys for legs the server has not named yet. A counter, not an id: it only
 // has to be unique within one page's lifetime, and it exists so a removed
@@ -103,9 +113,8 @@ export function AccountForm({
   );
   const [openingBalance, setOpeningBalance] = useState(() => {
     if (!account) return "0";
-    return liabilityAccountTypes.has(account.type)
-      ? account.openingBalance.replace(/^-/, "")
-      : account.openingBalance;
+    const stored = amountForInput(account.openingBalance, account.currency);
+    return liabilityAccountTypes.has(account.type) ? stored.replace(/^-/, "") : stored;
   });
   const [liabilityBalanceKind, setLiabilityBalanceKind] = useState<"owed" | "credit">(
     account && liabilityAccountTypes.has(account.type) && isPositiveMoney(account.openingBalance)
@@ -187,7 +196,8 @@ export function AccountForm({
   });
 
   return (
-    <form
+    <Form
+      error={mutation.error}
       className="form-grid"
       onSubmit={(event) => {
         event.preventDefault();
@@ -196,7 +206,7 @@ export function AccountForm({
     >
       <ErrorSummary error={mutation.error} />
       <RequiredNote />
-      <Field label="Account name">
+      <Field label="Account name" name="name">
         <Input
           autoFocus
           required
@@ -206,7 +216,7 @@ export function AccountForm({
         />
       </Field>
       <div className="two-columns">
-        <Field label="Account type">
+        <Field label="Account type" name="type">
           <Select
             value={type}
             onChange={(event) => changeAccountType(event.target.value as UserAccountType)}
@@ -218,7 +228,11 @@ export function AccountForm({
             ))}
           </Select>
         </Field>
-        <Field label="Currency or crypto asset" hint="Fixed once this account is in use">
+        <Field
+          label="Currency or crypto asset"
+          hint="Fixed once this account is in use"
+          name="currency"
+        >
           <Select required value={currency} onChange={(event) => setCurrency(event.target.value)}>
             {currencyOptions(currency).map((option) => (
               <option key={option} value={option}>
@@ -229,7 +243,7 @@ export function AccountForm({
         </Field>
       </div>
       <div className={liabilityAccountTypes.has(type) ? "three-columns" : "two-columns"}>
-        <Field label="Opening date">
+        <Field label="Opening date" name="openingDate">
           <Input
             type="date"
             required
@@ -248,7 +262,13 @@ export function AccountForm({
             </Select>
           </Field>
         ) : null}
-        <Field label={liabilityAccountTypes.has(type) ? "Starting amount" : "Opening balance"}>
+        <Field
+          label={moneyLabel(
+            liabilityAccountTypes.has(type) ? "Starting amount" : "Opening balance",
+            currency,
+          )}
+          name="openingBalance"
+        >
           <Input
             inputMode="decimal"
             required
@@ -262,14 +282,14 @@ export function AccountForm({
           />
         </Field>
       </div>
-      <Field label="Institution" hint="Optional">
+      <Field label="Institution" optional name="institution">
         <Input
           value={institution}
           onChange={(event) => setInstitution(event.target.value)}
           placeholder="Your bank or card issuer"
         />
       </Field>
-      <Field label="Notes" hint="Optional">
+      <Field label="Notes" optional name="notes">
         <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} />
       </Field>
       <label className="check-label">
@@ -294,7 +314,7 @@ export function AccountForm({
           {account ? "Save account" : "Create account"}
         </Button>
       </div>
-    </form>
+    </Form>
   );
 }
 
@@ -374,6 +394,13 @@ export function PayeeInput({
 }
 
 export function draftFromTransaction(transaction: Transaction): TransactionDraft {
+  const from = (amount: string | null | undefined) =>
+    amountForInput(amount!, transaction.sourceCurrency ?? "");
+  const to = (amount: string | null | undefined) =>
+    amountForInput(amount!, transaction.destinationCurrency ?? "");
+  // The legs are the counter-account side, so in the currency of the account
+  // the money left or arrived at; a transfer is never split.
+  const leg = transaction.type === "deposit" ? to : from;
   const common = {
     date: transaction.date,
     description: transaction.description ?? null,
@@ -383,11 +410,11 @@ export function draftFromTransaction(transaction: Transaction): TransactionDraft
     // would replace it with a new leg and retire the one it stood for.
     ...(transaction.legs.length
       ? {
-          legs: transaction.legs.map((leg) => ({
-            id: leg.id,
-            categoryId: leg.categoryId,
-            amount: leg.amount,
-            note: leg.note,
+          legs: transaction.legs.map((part) => ({
+            id: part.id,
+            categoryId: part.categoryId,
+            amount: leg(part.amount),
+            note: part.note,
           })),
         }
       : {}),
@@ -398,7 +425,7 @@ export function draftFromTransaction(transaction: Transaction): TransactionDraft
     return {
       type: "deposit",
       toAccountId: transaction.destinationAccountId!,
-      amount: transaction.destinationAmount!,
+      amount: to(transaction.destinationAmount),
       ...common,
     };
   }
@@ -406,7 +433,7 @@ export function draftFromTransaction(transaction: Transaction): TransactionDraft
     return {
       type: "withdrawal",
       fromAccountId: transaction.sourceAccountId!,
-      amount: transaction.sourceAmount!,
+      amount: from(transaction.sourceAmount),
       ...common,
     };
   }
@@ -414,8 +441,8 @@ export function draftFromTransaction(transaction: Transaction): TransactionDraft
     type: "transfer",
     fromAccountId: transaction.sourceAccountId!,
     toAccountId: transaction.destinationAccountId!,
-    sourceAmount: transaction.sourceAmount!,
-    destinationAmount: transaction.destinationAmount!,
+    sourceAmount: from(transaction.sourceAmount),
+    destinationAmount: to(transaction.destinationAmount),
     ...common,
   };
 }
@@ -447,21 +474,6 @@ const transactionTypeOptions: {
 ];
 
 /**
- * The transaction type, as one control rather than three copies of it.
- *
- * Two shapes, because there are two behaviors. A template may hold no type at
- * all, and clicking the chosen one again is how somebody says so — which a radio
- * cannot express, since a radio has no way to become unset. That shape is a group
- * of toggles reporting `aria-pressed`.
- *
- * Where a type is always set it is a real radio group, and a real radio group
- * owes the keyboard more than a row of buttons does: the group is one tab stop
- * rather than three, and the arrows move the choice inside it. These were three
- * buttons each claiming `role="radio"` with none of that, so a screen reader was
- * told to expect arrow keys that did nothing and the tab key walked through every
- * option on the way past.
- */
-/**
  * The accounts a select may offer.
  *
  * Live ones, plus any archived account this record already points at, and both
@@ -488,6 +500,21 @@ function selectableAccounts(accounts: Account[], ...referenced: (string | undefi
   );
 }
 
+/**
+ * The transaction type, as one control rather than three copies of it.
+ *
+ * Two shapes, because there are two behaviors. A template may hold no type at
+ * all, and clicking the chosen one again is how somebody says so — which a radio
+ * cannot express, since a radio has no way to become unset. That shape is a group
+ * of toggles reporting `aria-pressed`.
+ *
+ * Where a type is always set it is a real radio group, and a real radio group
+ * owes the keyboard more than a row of buttons does: the group is one tab stop
+ * rather than three, and the arrows move the choice inside it. These were three
+ * buttons each claiming `role="radio"` with none of that, so a screen reader was
+ * told to expect arrow keys that did nothing and the tab key walked through every
+ * option on the way past.
+ */
 type TransactionTypeChoiceProps =
   // Only the shape that permits no type can report one, so the two are separate
   // rather than one signature widened to fit both. A caller whose state cannot
@@ -636,12 +663,24 @@ export function CategoryPicker({
   // category and leaves the category's kind alone. Filtering here is what made
   // a refund impossible to enter.
   const existing = categories.find((category) => normalizeHumanName(category.name) === normalized);
+  // What saving will do with the name, pointed at by the input as well as shown
+  // beside it, so a screen reader hears whether a new category is about to be
+  // made — the one consequence of this field nobody can undo by retyping.
+  const noteId = useId();
+  const note =
+    normalized && !existing
+      ? `Saving will add “${cleaned}” as a new category.`
+      : normalized && existing && !categoryId
+        ? `Will use your existing “${existing.name}”.`
+        : null;
+  const describedBy = useFieldDescribedBy(note ? noteId : undefined);
 
   return (
     <div className="category-picker">
       <Input
         list={listId}
         aria-label={ariaLabel}
+        aria-describedby={describedBy}
         autoFocus={autoFocus}
         value={categoryName}
         onChange={(event) => {
@@ -665,12 +704,7 @@ export function CategoryPicker({
           <option key={category.id} value={category.name} />
         ))}
       </datalist>
-      {normalized && !existing ? (
-        <small>Saving will add “{cleaned}” as a new category.</small>
-      ) : null}
-      {normalized && existing && !categoryId ? (
-        <small>Will use your existing “{existing.name}”.</small>
-      ) : null}
+      {note ? <small id={noteId}>{note}</small> : null}
     </div>
   );
 }
@@ -696,6 +730,7 @@ function CategoryLegs({
   onLegsChange,
   total,
   requireBalance = true,
+  currency,
 }: {
   categories: Category[];
   categoryId: string;
@@ -707,6 +742,13 @@ function CategoryLegs({
   // A template's amounts are optional by design, so its split is not asked to
   // add up to anything until it is used.
   requireBalance?: boolean;
+  /**
+   * The account's currency, so what is left is written as money: "10 left to
+   * assign" said neither which currency nor that it was ten pounds rather than
+   * ten euro, and an over-assigned split read as "-65.5 left". Absent until an
+   * account is chosen, when the plain figure is all there is to say.
+   */
+  currency?: string;
 }) {
   const blank = (): TransactionFormLeg => ({
     id: "",
@@ -718,6 +760,8 @@ function CategoryLegs({
   });
   const replace = (index: number, changes: Partial<TransactionFormLeg>) =>
     onLegsChange(legs.map((leg, at) => (at === index ? { ...leg, ...changes } : leg)));
+  const remainderId = useId();
+  const capId = useId();
 
   if (!legs.length) {
     return (
@@ -758,7 +802,8 @@ function CategoryLegs({
     total,
     legs.map((leg) => leg.amount || "0"),
   );
-  const settled = remainder === "0";
+  const settled = isZeroMoney(remainder);
+  const atCap = legs.length >= MAX_TRANSACTION_LEGS;
 
   return (
     <div className="category-legs">
@@ -774,7 +819,7 @@ function CategoryLegs({
             categories={categories}
             categoryId={leg.categoryId}
             categoryName={leg.categoryName}
-            ariaLabel={`Category for split ${index + 1}`}
+            ariaLabel={`Category ${index + 1}`}
             onChange={(nextId, nextName) =>
               replace(index, { categoryId: nextId, categoryName: nextName })
             }
@@ -785,18 +830,21 @@ function CategoryLegs({
             onChange={(event) => replace(index, { amount: event.target.value })}
             placeholder="0.00"
             pattern="(0|[1-9][0-9]{0,25})(\.[0-9]{1,18})?"
-            aria-label={`Amount for split ${index + 1}`}
+            aria-label={moneyLabel(`Amount for category ${index + 1}`, currency)}
+            // The line saying what is left to assign is about every amount
+            // here, and was pointed at by none of them.
+            aria-describedby={remainderId}
           />
           <Input
             value={leg.note}
             onChange={(event) => replace(index, { note: event.target.value })}
             placeholder="Note"
-            aria-label={`Note for split ${index + 1}`}
+            aria-label={`Note for category ${index + 1}`}
           />
           <button
             type="button"
             className="link-button"
-            aria-label={`Remove split ${index + 1}`}
+            aria-label={`Remove category ${index + 1}`}
             onClick={() => {
               const rest = legs.filter((_, at) => at !== index);
               if (rest.length >= 2) {
@@ -820,11 +868,18 @@ function CategoryLegs({
           type="button"
           className="link-button"
           onClick={() => onLegsChange([...legs, blank()])}
-          disabled={legs.length >= MAX_TRANSACTION_LEGS}
+          disabled={atCap}
+          aria-describedby={atCap ? capId : undefined}
         >
           Add a category
         </button>
+        {/* `web.md` 12.3: a control that is dead says why, and this one went
+            dead at the cap with nothing saying so. */}
+        {atCap ? (
+          <small id={capId}>{`A split can name up to ${MAX_TRANSACTION_LEGS} categories.`}</small>
+        ) : null}
         <small
+          id={remainderId}
           className={
             settled || !requireBalance
               ? "category-legs-remainder settled"
@@ -837,7 +892,9 @@ function CategoryLegs({
               ? "Enter an amount for the transaction and for each category."
               : settled
                 ? "The split adds up."
-                : `${remainder} left to assign.`}
+                : isNegativeMoney(remainder)
+                  ? `${shownMoney(remainder.slice(1), currency)} more than the total is assigned.`
+                  : `${shownMoney(remainder, currency)} left to assign.`}
         </small>
       </div>
     </div>
@@ -1003,6 +1060,12 @@ export function TemplateForm({
   const [toAccountId, setToAccountId] = useState(source.toAccountId ?? "");
   const [amount, setAmount] = useState(source.amount ?? "");
   const [destinationAmount, setDestinationAmount] = useState(source.destinationAmount ?? "");
+  // The account each amount is in, for its label: the side the type reads, or,
+  // with no type yet, whichever side has been filled in.
+  const currencyOf = (id: string) => accounts.find((account) => account.id === id)?.currency;
+  const amountCurrency = currencyOf(
+    type === "deposit" ? toAccountId : type ? fromAccountId : fromAccountId || toAccountId,
+  );
   const [categoryId, setCategoryId] = useState(source.categoryId ?? "");
   const [categoryName, setCategoryName] = useState(
     categories.find((category) => category.id === source.categoryId)?.name ??
@@ -1121,7 +1184,8 @@ export function TemplateForm({
 
   const accountOptions = selectableAccounts(accounts, fromAccountId, toAccountId);
   return (
-    <form
+    <Form
+      error={mutation.error}
       className="form-grid"
       onSubmit={(event) => {
         event.preventDefault();
@@ -1133,7 +1197,7 @@ export function TemplateForm({
     >
       <ErrorSummary error={mutation.error} />
       <RequiredNote />
-      <Field label="Template name" hint="What you will pick it out by later.">
+      <Field label="Template name" hint="What you will pick it out by later." name="name">
         <Input
           autoFocus
           required
@@ -1153,16 +1217,16 @@ export function TemplateForm({
       )}
 
       <div className="two-columns">
-        <Field label="Payee" hint="Leave blank to fill in each time.">
+        <Field label="Payee" hint="Leave blank to fill in each time." name="draft.payee">
           <PayeeInput value={payee} onChange={setPayee} />
         </Field>
-        <Field label="Date" hint="Leave blank to use the day you apply it.">
+        <Field label="Date" hint="Leave blank to use the day you apply it." name="draft.date">
           <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
         </Field>
       </div>
 
       {type !== "deposit" ? (
-        <Field label={type === "transfer" ? "From account" : "Account"}>
+        <Field label={type === "transfer" ? "From account" : "Account"} name="draft.fromAccountId">
           <Select value={fromAccountId} onChange={(event) => setFromAccountId(event.target.value)}>
             <option value="">Leave blank</option>
             {accountOptions.map((account) => (
@@ -1174,7 +1238,7 @@ export function TemplateForm({
         </Field>
       ) : null}
       {type !== "withdrawal" ? (
-        <Field label={type === "transfer" ? "To account" : "Account"}>
+        <Field label={type === "transfer" ? "To account" : "Account"} name="draft.toAccountId">
           <Select value={toAccountId} onChange={(event) => setToAccountId(event.target.value)}>
             <option value="">Leave blank</option>
             {accountOptions.map((account) => (
@@ -1186,7 +1250,11 @@ export function TemplateForm({
         </Field>
       ) : null}
 
-      <Field label="Amount" hint="Leave blank when it differs every time.">
+      <Field
+        label={moneyLabel("Amount", amountCurrency)}
+        hint="Leave blank when it differs every time."
+        name="draft.amount"
+      >
         <Input
           inputMode="decimal"
           value={amount}
@@ -1198,7 +1266,8 @@ export function TemplateForm({
 
       {type === "transfer" ? (
         <Field
-          label="Amount received"
+          name="draft.destinationAmount"
+          label={moneyLabel("Amount received", currencyOf(toAccountId))}
           hint="For a transfer between currencies: what arrives on the other side. Leave blank when both accounts share a currency, or to fill it in each time."
         >
           <Input
@@ -1212,7 +1281,12 @@ export function TemplateForm({
       ) : null}
 
       {type === "transfer" ? null : (
-        <Field label="Category" hint="Optional" as="group">
+        <Field
+          label="Category"
+          optional
+          as="group"
+          name={["draft.categoryId", "draft.categoryName", "draft.legs"]}
+        >
           <CategoryLegs
             categories={categories}
             categoryId={categoryId}
@@ -1228,14 +1302,14 @@ export function TemplateForm({
           />
         </Field>
       )}
-      <Field label="Description" hint="Optional">
+      <Field label="Description" optional name="draft.description">
         <Input
           value={description}
           onChange={(event) => setDescription(event.target.value)}
           placeholder="Additional details"
         />
       </Field>
-      <Field label="Notes" hint="Optional">
+      <Field label="Notes" optional name="draft.notes">
         <Textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} />
       </Field>
 
@@ -1283,7 +1357,7 @@ export function TemplateForm({
 
             {reminderRepeats ? (
               <div className="two-columns">
-                <Field label="Repeats">
+                <Field label="Repeats" name="notification.frequency">
                   <Select
                     value={reminderFrequency}
                     onChange={(event) =>
@@ -1298,6 +1372,7 @@ export function TemplateForm({
                   </Select>
                 </Field>
                 <Field
+                  name="notification.interval"
                   label={`Every N ${FREQUENCY_UNITS[reminderFrequency]}s`}
                   hint="1 means every one."
                 >
@@ -1314,6 +1389,7 @@ export function TemplateForm({
 
             <div className="two-columns">
               <Field
+                name="notification.anchorDate"
                 label={reminderRepeats ? "Starting" : "Send on"}
                 hint={
                   reminderRepeats
@@ -1328,7 +1404,11 @@ export function TemplateForm({
                   onChange={(event) => setReminderDate(event.target.value)}
                 />
               </Field>
-              <Field label="Send at" hint="Your own clock, not the server's.">
+              <Field
+                label="Send at"
+                hint="Your own clock, not the server's."
+                name="notification.time"
+              >
                 <Input
                   type="time"
                   required
@@ -1366,7 +1446,7 @@ export function TemplateForm({
                 </div>
                 {reminderByPosition ? (
                   <div className="two-columns">
-                    <Field label="Which one to remind on">
+                    <Field label="Which one to remind on" name="notification.position">
                       <Select
                         value={String(reminderOrdinal)}
                         onChange={(event) =>
@@ -1382,7 +1462,7 @@ export function TemplateForm({
                         ))}
                       </Select>
                     </Field>
-                    <Field label="Day to remind on">
+                    <Field label="Day to remind on" name="notification.position">
                       <Select
                         value={String(reminderWeekday)}
                         onChange={(event) => setReminderWeekday(Number(event.target.value))}
@@ -1496,7 +1576,37 @@ export function TemplateForm({
           {template ? "Save template" : "Save as template"}
         </Button>
       </div>
-    </form>
+    </Form>
+  );
+}
+
+/**
+ * What a staged row was read from, beside what was read.
+ *
+ * Kept on the row so that a mapping mistake can be seen and corrected, and for
+ * as long as only an agent could see it, that was true for an agent alone:
+ * `list_staged_transactions` returned it, the instructions flagged it as text
+ * from a bank, and the browser showed one key of it — a recurrence's name.
+ * Free text somebody else wrote, then, that the person whose ledger it is
+ * could not read. Rendered as text and never as markup, and the recurrence key
+ * is left out because the row already says which recurrence proposed it.
+ */
+function ArrivedAs({ rawData }: { rawData: StagedTransaction["rawData"] }) {
+  const heading = useId();
+  const cells = Object.entries(rawData ?? {}).filter(([key]) => key !== "recurrence");
+  if (!cells.length) return null;
+  return (
+    <section className="arrived-as" aria-labelledby={heading}>
+      <h3 id={heading}>As it arrived</h3>
+      <dl>
+        {cells.map(([key, value]) => (
+          <div key={key}>
+            <dt>{key}</dt>
+            <dd>{typeof value === "string" ? value : JSON.stringify(value)}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
   );
 }
 
@@ -1511,6 +1621,7 @@ export function TransactionForm({
   initialPayee,
   initialType,
   initialMode = "commit",
+  autoFocus = true,
   onDone,
 }: {
   accounts: Account[];
@@ -1529,7 +1640,14 @@ export function TransactionForm({
   initialCategoryId?: string;
   initialPayee?: string;
   initialType?: TransactionType;
-  initialMode?: "commit" | "stage";
+  initialMode?: SaveMode;
+  /**
+   * Whether the payee takes focus when the form appears. On by default,
+   * because almost every form here is one somebody just opened. A page that
+   * lays forms out side by side turns it off: two forms each claiming focus
+   * left it in whichever rendered last, halfway down the page.
+   */
+  autoFocus?: boolean;
   onDone: () => void;
 }) {
   const timezone = useTimezone();
@@ -1603,7 +1721,7 @@ export function TransactionForm({
   );
   const [amount, setAmount] = useState(initial?.amount ?? "");
   const [destinationAmount, setDestinationAmount] = useState(initial?.destinationAmount ?? "");
-  const [mode, setMode] = useState<"commit" | "stage">(initialMode);
+  const [mode, setMode] = useState<SaveMode>(initialMode);
   const [allowDuplicate, setAllowDuplicate] = useState(false);
   const [createAnother, setCreateAnother] = useState(false);
   const [resetAfterSave, setResetAfterSave] = useState(false);
@@ -1621,7 +1739,9 @@ export function TransactionForm({
    * existed but could not create one, so a refund into a brand new spending
    * category was the one entry the MCP could record and this form could not.
    */
-  const [categoryKind, setCategoryKind] = useState<CategoryKind | "">("");
+  const [categoryKind, setCategoryKind] = useState<CategoryKind | "">(() =>
+    asCategoryKind(initial?.categoryKind),
+  );
   const categoryKindGroup = useId();
   const [repeatNotice, setRepeatNotice] = useState("");
 
@@ -1698,7 +1818,12 @@ export function TransactionForm({
   // does not carry to another: "a refund of money you spent" is not on offer
   // for a withdrawal, and leaving the state set would go on sending expense on
   // an entry whose form never said so.
+  const kindType = useRef(type);
   useEffect(() => {
+    // A change, and not the first run: on mount it wiped the answer a stored
+    // draft was opened with.
+    if (kindType.current === type) return;
+    kindType.current = type;
     // Every route into a new type resets it - the picker, a template being
     // applied, the reset after saving another - so this belongs on the change
     // rather than in the one handler somebody would remember to update. The
@@ -1745,20 +1870,13 @@ export function TransactionForm({
   const showsCategoryPicker = !splitting && type !== "transfer";
   const splitSettled =
     !splitting ||
-    moneyRemainder(
-      amount,
-      legs.map((leg) => leg.amount || "0"),
-    ) === "0";
+    isZeroMoney(
+      moneyRemainder(
+        amount,
+        legs.map((leg) => leg.amount || "0"),
+      ),
+    );
 
-  /**
-   * The side of the books this entry will land on, previewed.
-   *
-   * `AGENTS.md` says the browser previews this rule and the services enforce
-   * it, and for a while only the second half was true: the form happily offered
-   * a split with one income leg and one expense leg, which the server refuses
-   * with a 422 nobody could have predicted from the screen. One function, so
-   * the sentence here is the sentence the service would have thrown.
-   */
   /**
    * Every category this entry will actually be filed under.
    *
@@ -1766,7 +1884,7 @@ export function TransactionForm({
    * the same set the submit handler sends: a split sends its legs and drops
    * the single picker, and one that is not a split does the reverse. Reading
    * both at once let a name left behind in the single picker by switching to a
-   * split still count towards the preview below.
+   * split still count toward the preview below.
    */
   const namedCategories = splitting
     ? legs.map((leg) => ({ id: leg.categoryId, name: leg.categoryName }))
@@ -1804,6 +1922,15 @@ export function TransactionForm({
   // server falls back to.
   const newCategoryKind: CategoryKind = categoryKind || (type === "deposit" ? "income" : "expense");
 
+  /**
+   * The side of the books this entry will land on, previewed.
+   *
+   * `AGENTS.md` says the browser previews this rule and the services enforce
+   * it, and for a while only the second half was true: the form happily offered
+   * a split with one income leg and one expense leg, which the server refuses
+   * with a 422 nobody could have predicted from the screen. One function, so
+   * the sentence here is the sentence the service would have thrown.
+   */
   const entrySide =
     type === "transfer"
       ? null
@@ -2034,13 +2161,19 @@ export function TransactionForm({
         ...(categoryKind && newCategoryNames.length > 0 ? { categoryKind } : {}),
         ...(splitting
           ? {
-              legs: legs.map((leg) => ({
-                ...(leg.id ? { id: leg.id } : {}),
-                categoryId: leg.categoryId || null,
-                categoryName: leg.categoryId ? null : leg.categoryName.trim() || null,
-                amount: leg.amount,
-                note: leg.note.trim() || null,
-              })),
+              legs: legs.map((leg) => {
+                // The leg's own answer, carried back for a name still waiting
+                // to be created, so an edit does not turn it into the entry's.
+                const kind = leg.categoryId ? "" : asCategoryKind(leg.categoryKind);
+                return {
+                  ...(leg.id ? { id: leg.id } : {}),
+                  categoryId: leg.categoryId || null,
+                  categoryName: leg.categoryId ? null : leg.categoryName.trim() || null,
+                  ...(kind ? { categoryKind: kind } : {}),
+                  amount: leg.amount,
+                  note: leg.note.trim() || null,
+                };
+              }),
             }
           : {}),
         notes: notes || null,
@@ -2134,7 +2267,8 @@ export function TransactionForm({
   });
 
   return (
-    <form
+    <Form
+      error={mutation.error}
       className="form-grid"
       onSubmit={(event: FormEvent) => {
         event.preventDefault();
@@ -2162,7 +2296,8 @@ export function TransactionForm({
       {templates.data?.length ? (
         <Field
           label="Start from a template"
-          hint="Optional. Anything you change here stays here; the template is not touched."
+          optional
+          hint="Anything you change here stays here; the template is not touched."
         >
           <Select
             value={selectedTemplateId}
@@ -2198,7 +2333,7 @@ export function TransactionForm({
         }}
       />
       <div className="two-columns">
-        <Field label="Date">
+        <Field label="Date" name="draft.date">
           <Input
             type="date"
             required
@@ -2206,15 +2341,15 @@ export function TransactionForm({
             onChange={(event) => setDate(event.target.value)}
           />
         </Field>
-        <Field label="Payee">
+        <Field label="Payee" name="draft.payee">
           {/* The component, not a copy of it: PayeeInput's own comment says a
               second copy would be a second answer to "what counts as the same
               payee", and this form carried that second copy byte for byte. */}
-          <PayeeInput autoFocus required value={payee} onChange={setPayee} />
+          <PayeeInput autoFocus={autoFocus} required value={payee} onChange={setPayee} />
         </Field>
       </div>
       {type !== "deposit" ? (
-        <Field label={type === "transfer" ? "From account" : "Account"}>
+        <Field label={type === "transfer" ? "From account" : "Account"} name="draft.fromAccountId">
           <Select
             required
             value={fromAccountId}
@@ -2233,7 +2368,7 @@ export function TransactionForm({
         </Field>
       ) : null}
       {type !== "withdrawal" ? (
-        <Field label={type === "transfer" ? "To account" : "Account"}>
+        <Field label={type === "transfer" ? "To account" : "Account"} name="draft.toAccountId">
           <Select
             required
             value={toAccountId}
@@ -2253,14 +2388,11 @@ export function TransactionForm({
       ) : null}
       <div className={crossCurrency ? "two-columns" : ""}>
         <Field
+          name={["draft.amount", "draft.sourceAmount"]}
           label={
             type === "transfer"
-              ? `Amount sent${source ? ` (${source.currency})` : ""}`
-              : `Amount${
-                  (type === "deposit" ? destination : source)
-                    ? ` (${(type === "deposit" ? destination : source)!.currency})`
-                    : ""
-                }`
+              ? moneyLabel("Amount sent", source?.currency)
+              : moneyLabel("Amount", (type === "deposit" ? destination : source)?.currency)
           }
         >
           <Input
@@ -2274,7 +2406,8 @@ export function TransactionForm({
         </Field>
         {crossCurrency ? (
           <Field
-            label={`Amount received${destination ? ` (${destination.currency})` : ""}`}
+            name="draft.destinationAmount"
+            label={moneyLabel("Amount received", destination?.currency)}
             hint="The implied rate is saved with the transfer"
           >
             <Input
@@ -2289,7 +2422,7 @@ export function TransactionForm({
         ) : null}
       </div>
       <div className="two-columns">
-        <Field label="Description" hint="Optional">
+        <Field label="Description" optional name="draft.description">
           <Input
             value={description ?? ""}
             onChange={(event) => setDescription(event.target.value)}
@@ -2298,7 +2431,17 @@ export function TransactionForm({
         </Field>
       </div>
       {type === "transfer" ? null : (
-        <Field label="Category" hint="Optional" as="group">
+        <Field
+          label="Category"
+          optional
+          as="group"
+          // The browser's preview of the server's category rule, on the field
+          // it is about. It was an alert at the foot of the form, so the
+          // Category group never said it was wrong and nothing pointed at the
+          // sentence (`web.md` 8.1).
+          error={entrySideError || undefined}
+          name={["draft.categoryId", "draft.categoryName", "draft.categoryKind", "draft.legs"]}
+        >
           <CategoryLegs
             key={categoryPickerVersion}
             categories={categories}
@@ -2311,44 +2454,52 @@ export function TransactionForm({
             legs={legs}
             onLegsChange={setLegs}
             total={amount}
+            currency={(type === "deposit" ? destination : source)?.currency}
           />
           {newCategoryNames.length > 0 ? (
-            <div
-              className="radio-row"
-              role="radiogroup"
-              aria-label={
-                newCategoryNames.length === 1
-                  ? `What kind of category ${newCategoryNames[0]} is`
-                  : "What kind of category these are"
-              }
-            >
-              <label className="check-label">
-                <input
-                  type="radio"
-                  name={categoryKindGroup}
-                  checked={newCategoryKind === (type === "deposit" ? "income" : "expense")}
-                  onChange={() => setCategoryKind("")}
-                />
-                {type === "deposit" ? "Money you earned" : "Money you spent"}
-              </label>
-              <label className="check-label">
-                <input
-                  type="radio"
-                  name={categoryKindGroup}
-                  checked={newCategoryKind === (type === "deposit" ? "expense" : "income")}
-                  onChange={() => setCategoryKind(type === "deposit" ? "expense" : "income")}
-                />
-                {type === "deposit"
-                  ? "A refund of money you spent"
-                  : "Paying back money you earned"}
-              </label>
-            </div>
+            <>
+              {/* The question on screen, and the group named by it. It was only an
+                `aria-label`, so a sighted person met two radio buttons under the
+                category with nothing saying what they were choosing between. */}
+              <span className="radio-question" id={`${categoryKindGroup}-question`}>
+                {newCategoryNames.length === 1
+                  ? `What kind of category is “${newCategoryNames[0]}”?`
+                  : "What kind of categories are these?"}
+              </span>
+              <div
+                className="radio-row"
+                role="radiogroup"
+                aria-labelledby={`${categoryKindGroup}-question`}
+              >
+                <label className="check-label">
+                  <input
+                    type="radio"
+                    name={categoryKindGroup}
+                    checked={newCategoryKind === (type === "deposit" ? "income" : "expense")}
+                    onChange={() => setCategoryKind("")}
+                  />
+                  {type === "deposit" ? "Money you earned" : "Money you spent"}
+                </label>
+                <label className="check-label">
+                  <input
+                    type="radio"
+                    name={categoryKindGroup}
+                    checked={newCategoryKind === (type === "deposit" ? "expense" : "income")}
+                    onChange={() => setCategoryKind(type === "deposit" ? "expense" : "income")}
+                  />
+                  {type === "deposit"
+                    ? "A refund of money you spent"
+                    : "Paying back money you earned"}
+                </label>
+              </div>
+            </>
           ) : null}
         </Field>
       )}
-      <Field label="Notes" hint="Optional">
+      <Field label="Notes" optional name="draft.notes">
         <Textarea rows={3} value={notes ?? ""} onChange={(event) => setNotes(event.target.value)} />
       </Field>
+      {staged ? <ArrivedAs rawData={staged.rawData} /> : null}
       {!transaction && !staged ? (
         <>
           <fieldset className="commit-choice">
@@ -2406,7 +2557,6 @@ export function TransactionForm({
         </>
       ) : null}
       {repeatNotice ? <Alert kind="success">{repeatNotice}</Alert> : null}
-      {entrySideError ? <Alert kind="error">{entrySideError}</Alert> : null}
       <div className="form-actions">
         <Button type="button" variant="ghost" onClick={onDone}>
           Cancel
@@ -2430,7 +2580,7 @@ export function TransactionForm({
               : "Commit transaction"}
         </Button>
       </div>
-    </form>
+    </Form>
   );
 }
 
@@ -2592,7 +2742,13 @@ export function RecurrenceForm({
     (shape && "destinationAmount" in shape ? (shape.destinationAmount ?? "") : "") || "",
   );
   const [categoryId, setCategoryId] = useState(shape?.categoryId ?? "");
-  const [categoryKind, setCategoryKind] = useState<CategoryKind | "">("");
+  // Seeded from the stored shape, for the reason the transaction form gives:
+  // saving an edit replaces the shape whole, so an answer not read back here was
+  // an answer the next proposal did not carry, and a recurring refund was
+  // proposed as income.
+  const [categoryKind, setCategoryKind] = useState<CategoryKind | "">(() =>
+    asCategoryKind(shape && "categoryKind" in shape ? shape.categoryKind : undefined),
+  );
   const categoryKindGroup = useId();
   // A stored shape may name its category rather than cite one, the way a CSV
   // import or an agent leaves it. Seeding from the id alone dropped the name on
@@ -2611,6 +2767,7 @@ export function RecurrenceForm({
         categories.find((category) => category.id === leg.categoryId)?.name ??
         leg.categoryName ??
         "",
+      categoryKind: asCategoryKind("categoryKind" in leg ? leg.categoryKind : undefined),
       amount: leg.amount ?? "",
       note: leg.note ?? "",
     })),
@@ -2757,13 +2914,18 @@ export function RecurrenceForm({
             : {}),
           ...(kept.length >= 2
             ? {
-                legs: kept.map((leg) => ({
-                  ...(leg.categoryId
-                    ? { categoryId: leg.categoryId }
-                    : { categoryName: trimmed(leg.categoryName) }),
-                  amount: trimmed(leg.amount),
-                  ...(trimmed(leg.note) ? { note: trimmed(leg.note) } : {}),
-                })),
+                legs: kept.map((leg) => {
+                  const kind = leg.categoryId ? "" : asCategoryKind(leg.categoryKind);
+                  return {
+                    ...(leg.categoryId
+                      ? { categoryId: leg.categoryId }
+                      : { categoryName: trimmed(leg.categoryName) }),
+                    // Each leg's own answer, as the transaction form carries it.
+                    ...(kind ? { categoryKind: kind } : {}),
+                    amount: trimmed(leg.amount),
+                    ...(trimmed(leg.note) ? { note: trimmed(leg.note) } : {}),
+                  };
+                }),
               }
             : categoryId
               ? { categoryId }
@@ -2863,10 +3025,12 @@ export function RecurrenceForm({
   const entrySideError = entrySide && !entrySide.ok ? entrySide.message : "";
   const splitSettled =
     !splitting ||
-    moneyRemainder(
-      amount,
-      legs.map((leg) => leg.amount || "0"),
-    ) === "0";
+    isZeroMoney(
+      moneyRemainder(
+        amount,
+        legs.map((leg) => leg.amount || "0"),
+      ),
+    );
   // Every leg of a split has to name a category and an amount, or the save
   // silently posts fewer legs than are on screen. A row left blank used to be
   // dropped, which took the split below two and sent no category at all.
@@ -2885,7 +3049,8 @@ export function RecurrenceForm({
   );
 
   return (
-    <form
+    <Form
+      error={mutation.error}
       className="form-grid"
       onSubmit={(event) => {
         event.preventDefault();
@@ -2894,7 +3059,7 @@ export function RecurrenceForm({
     >
       <ErrorSummary error={mutation.error} />
       <RequiredNote />
-      <Field label="Name" hint="What you will pick it out by later.">
+      <Field label="Name" hint="What you will pick it out by later." name="name">
         <Input
           autoFocus
           required
@@ -2906,12 +3071,16 @@ export function RecurrenceForm({
 
       <TransactionTypeChoice value={type} onChange={setType} />
 
-      <Field label="Payee">
-        <PayeeInput value={payee} onChange={setPayee} />
+      {/* Required, as the shared schema says ("Payee is required") and as the
+          transaction form's payee already was: a field neither marked optional
+          nor required is the bug `web.md` 8.4 names, and the browser never
+          blocked a blank one. */}
+      <Field label="Payee" name="shape.payee">
+        <PayeeInput required value={payee} onChange={setPayee} />
       </Field>
 
       {type !== "deposit" ? (
-        <Field label={type === "transfer" ? "From account" : "Account"}>
+        <Field label={type === "transfer" ? "From account" : "Account"} name="shape.fromAccountId">
           <Select
             required
             value={fromAccountId}
@@ -2927,7 +3096,7 @@ export function RecurrenceForm({
         </Field>
       ) : null}
       {type !== "withdrawal" ? (
-        <Field label={type === "transfer" ? "To account" : "Account"}>
+        <Field label={type === "transfer" ? "To account" : "Account"} name="shape.toAccountId">
           <Select
             required
             value={toAccountId}
@@ -2945,8 +3114,14 @@ export function RecurrenceForm({
 
       <div className={crossCurrency ? "two-columns" : ""}>
         <Field
+          name={["shape.amount", "shape.sourceAmount"]}
           label={
-            crossCurrency && sendingAccount ? `Amount sent (${sendingAccount.currency})` : "Amount"
+            crossCurrency
+              ? moneyLabel("Amount sent", sendingAccount?.currency)
+              : moneyLabel(
+                  "Amount",
+                  (type === "deposit" ? receivingAccount : sendingAccount)?.currency,
+                )
           }
           hint="Leave blank when it differs every time. Each proposal then waits on Staged transactions for a number."
         >
@@ -2960,8 +3135,10 @@ export function RecurrenceForm({
         </Field>
         {crossCurrency ? (
           <Field
-            label={`Amount received (${receivingAccount!.currency})`}
-            hint="Optional. Leave blank unless the rate is agreed in advance."
+            name="shape.destinationAmount"
+            label={moneyLabel("Amount received", receivingAccount?.currency)}
+            optional
+            hint="Leave blank unless the rate is agreed in advance."
           >
             <Input
               inputMode="decimal"
@@ -2975,7 +3152,17 @@ export function RecurrenceForm({
       </div>
 
       {type === "transfer" ? null : (
-        <Field label="Category" hint="Optional" as="group">
+        <Field
+          label="Category"
+          optional
+          as="group"
+          // The browser's preview of the server's category rule, on the field
+          // it is about. It was an alert at the foot of the form, so the
+          // Category group never said it was wrong and nothing pointed at the
+          // sentence (`web.md` 8.1).
+          error={entrySideError || undefined}
+          name={["shape.categoryId", "shape.categoryName", "shape.categoryKind", "shape.legs"]}
+        >
           <CategoryLegs
             categories={categories}
             categoryId={categoryId}
@@ -2987,38 +3174,45 @@ export function RecurrenceForm({
             legs={legs}
             onLegsChange={setLegs}
             total={amount}
+            currency={(type === "deposit" ? receivingAccount : sendingAccount)?.currency}
           />
           {newCategoryNames.length > 0 ? (
-            <div
-              className="radio-row"
-              role="radiogroup"
-              aria-label={
-                newCategoryNames.length === 1
-                  ? `What kind of category ${newCategoryNames[0]} is`
-                  : "What kind of category these are"
-              }
-            >
-              <label className="check-label">
-                <input
-                  type="radio"
-                  name={categoryKindGroup}
-                  checked={newCategoryKind === (type === "deposit" ? "income" : "expense")}
-                  onChange={() => setCategoryKind("")}
-                />
-                {type === "deposit" ? "Money you earned" : "Money you spent"}
-              </label>
-              <label className="check-label">
-                <input
-                  type="radio"
-                  name={categoryKindGroup}
-                  checked={newCategoryKind === (type === "deposit" ? "expense" : "income")}
-                  onChange={() => setCategoryKind(type === "deposit" ? "expense" : "income")}
-                />
-                {type === "deposit"
-                  ? "A refund of money you spent"
-                  : "Paying back money you earned"}
-              </label>
-            </div>
+            <>
+              {/* The question on screen, and the group named by it. It was only an
+                `aria-label`, so a sighted person met two radio buttons under the
+                category with nothing saying what they were choosing between. */}
+              <span className="radio-question" id={`${categoryKindGroup}-question`}>
+                {newCategoryNames.length === 1
+                  ? `What kind of category is “${newCategoryNames[0]}”?`
+                  : "What kind of categories are these?"}
+              </span>
+              <div
+                className="radio-row"
+                role="radiogroup"
+                aria-labelledby={`${categoryKindGroup}-question`}
+              >
+                <label className="check-label">
+                  <input
+                    type="radio"
+                    name={categoryKindGroup}
+                    checked={newCategoryKind === (type === "deposit" ? "income" : "expense")}
+                    onChange={() => setCategoryKind("")}
+                  />
+                  {type === "deposit" ? "Money you earned" : "Money you spent"}
+                </label>
+                <label className="check-label">
+                  <input
+                    type="radio"
+                    name={categoryKindGroup}
+                    checked={newCategoryKind === (type === "deposit" ? "expense" : "income")}
+                    onChange={() => setCategoryKind(type === "deposit" ? "expense" : "income")}
+                  />
+                  {type === "deposit"
+                    ? "A refund of money you spent"
+                    : "Paying back money you earned"}
+                </label>
+              </div>
+            </>
           ) : null}
         </Field>
       )}
@@ -3026,7 +3220,7 @@ export function RecurrenceForm({
       <fieldset className="form-fieldset">
         <legend>Schedule</legend>
         <div className="two-columns">
-          <Field label="Repeats">
+          <Field label="Repeats" name="schedule.frequency">
             <Select
               value={frequency}
               onChange={(event) => setFrequency(event.target.value as RecurrenceFrequencyName)}
@@ -3038,7 +3232,11 @@ export function RecurrenceForm({
               ))}
             </Select>
           </Field>
-          <Field label={`Every N ${FREQUENCY_UNITS[frequency]}s`} hint="1 means every one.">
+          <Field
+            label={`Every N ${FREQUENCY_UNITS[frequency]}s`}
+            hint="1 means every one."
+            name="schedule.interval"
+          >
             <Input
               type="number"
               min={1}
@@ -3050,6 +3248,7 @@ export function RecurrenceForm({
         </div>
 
         <Field
+          name="schedule.anchorDate"
           label="Starting"
           hint="The first candidate date, and the one every later date is counted from. Nothing dated before today is ever proposed."
         >
@@ -3085,7 +3284,7 @@ export function RecurrenceForm({
             </div>
             {byPosition ? (
               <div className="two-columns">
-                <Field label="Which one">
+                <Field label="Which one" name="schedule.position">
                   <Select
                     value={String(ordinal)}
                     onChange={(event) =>
@@ -3099,7 +3298,7 @@ export function RecurrenceForm({
                     ))}
                   </Select>
                 </Field>
-                <Field label="Day">
+                <Field label="Day" name="schedule.position">
                   <Select
                     value={String(weekday)}
                     onChange={(event) => setWeekday(Number(event.target.value))}
@@ -3113,7 +3312,7 @@ export function RecurrenceForm({
                 </Field>
               </div>
             ) : (
-              <Field label="When the month is too short">
+              <Field label="When the month is too short" name="schedule.monthPolicy">
                 <Select
                   value={monthPolicy}
                   onChange={(event) =>
@@ -3129,6 +3328,7 @@ export function RecurrenceForm({
         ) : null}
 
         <Field
+          name="schedule.weekendPolicy"
           label="When it lands on a weekend"
           hint="A business day here means Monday through Friday. Holidays are not modeled."
         >
@@ -3179,14 +3379,14 @@ export function RecurrenceForm({
         ) : null}
       </fieldset>
 
-      <Field label="Description" hint="Optional">
+      <Field label="Description" optional name="shape.description">
         <Input
           value={description}
           onChange={(event) => setDescription(event.target.value)}
           placeholder="Additional details"
         />
       </Field>
-      <Field label="Notes" hint="Optional">
+      <Field label="Notes" optional name="shape.notes">
         <Textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} />
       </Field>
 
@@ -3226,7 +3426,6 @@ export function RecurrenceForm({
         ordinary staged row you check and commit.
       </Alert>
 
-      {entrySideError ? <Alert kind="error">{entrySideError}</Alert> : null}
       <div className="form-actions">
         <Button type="button" variant="ghost" onClick={onDone}>
           Cancel
@@ -3239,7 +3438,7 @@ export function RecurrenceForm({
             // form asks for them: a person reads down the form and wants to
             // know what to do next, not everything still outstanding.
             !name.trim()
-              ? "Give the recurrence a name."
+              ? "Give the recurring transaction a name."
               : !payee.trim()
                 ? "Enter a payee."
                 : !accountReady || !transferReady
@@ -3252,9 +3451,9 @@ export function RecurrenceForm({
           }
           disabled={!ready}
         >
-          {recurrence ? "Save recurrence" : "Create recurrence"}
+          {recurrence ? "Save recurring transaction" : "Create recurring transaction"}
         </Button>
       </div>
-    </form>
+    </Form>
   );
 }

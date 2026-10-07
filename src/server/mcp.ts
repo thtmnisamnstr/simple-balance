@@ -88,7 +88,7 @@ import {
   updateTransactionTemplate,
 } from "./services/transaction-templates.js";
 import { mcpToolCalls, mcpToolDuration } from "./metrics.js";
-import { AppError, zodIssues } from "./services/errors.js";
+import { AppError, zodIssues, INTERNAL_ERROR_MESSAGE } from "./services/errors.js";
 import {
   flushDeferredCounts,
   getIdempotent,
@@ -96,13 +96,16 @@ import {
   setIdempotent,
 } from "./services/helpers.js";
 import {
-  csvStageInputSchema,
   exportTransactionsCsv,
   getCsvPreview,
-  importBatchListQuerySchema,
   listActiveImportBatches,
   stageCsv,
 } from "./services/import-export.js";
+import {
+  csvPreviewInputSchema,
+  csvStageInputSchema,
+  importBatchListQuerySchema,
+} from "../shared/csv.js";
 import { getPlanSummary } from "./services/billing.js";
 import { getPreferences, preferencePatchSchema, setPreferences } from "./services/preferences.js";
 import { summarizeOwnData } from "./services/account-deletion.js";
@@ -296,7 +299,7 @@ async function runTool(fn: () => Promise<unknown>) {
               message: "Request validation failed",
               details: zodIssues(error),
             }
-          : { code: "INTERNAL_ERROR", message: "An unexpected error occurred" };
+          : { code: "INTERNAL_ERROR", message: INTERNAL_ERROR_MESSAGE };
     return {
       ...toolResult({ error: body }),
       isError: true,
@@ -366,7 +369,7 @@ const destructiveAnnotations = {
 };
 
 /**
- * Destructive and *not* undoable, which two tools are and the wire cannot say.
+ * Destructive and *not* undoable, which eleven tools are and the wire cannot say.
  *
  * `ToolAnnotations` has three booleans and no fourth field, so `destructiveHint`
  * is the only thing a client reads and it covers both "posts a reversal you can
@@ -378,13 +381,15 @@ const destructiveAnnotations = {
  * registered here has to say "this cannot be undone" in its own description,
  * because the description is the only channel that can carry it.
  *
- * **Two tools, not four.** The obvious longer list was wrong and the code said
- * so: `bulk_delete_transactions` already reads "deleting posts a reversal
- * rather than erasing, so it can be undone with set_transaction_deleted",
- * which is the invariant working — a delete voids an entry and a restore posts
- * it back, so nothing is lost. And a revoked agent can be authorized again
- * from a browser, which its own description says. The two merges are the real
- * case: they collapse rows into one and there is nothing left to unpick.
+ * **The two merges, and every delete that leaves nothing to restore.** It was
+ * the two merges alone for a while, on the argument that a delete is a
+ * reversal — which is true of a transaction and of nothing else. Deleting a
+ * transaction voids it and a restore posts it back, and a revoked agent can be
+ * authorized again from a browser, so neither is here. But a deleted account,
+ * category, group, budget, single-period amount, template, recurrence or staged
+ * row is gone, and the server's own instructions told every agent that
+ * deleting could be undone. The merges collapse rows into one; the deletes
+ * remove a row outright. Both leave nothing to unpick.
  *
  * Identical to `destructiveAnnotations` on the wire, deliberately. Naming it is
  * what makes the wording rule checkable; making it differ would be inventing a
@@ -572,9 +577,9 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         "",
         "Dates are YYYY-MM-DD in the person's own timezone. A summary stops at today whatever end date you ask for, and tells you the day it used.",
         "",
-        "Reading is free. Writing is not: a tool that creates something takes an idempotencyKey you choose, and a tool that changes or deletes something takes the expectedVersion you last read. If a write fails with STALE_VERSION, read the record again — do not retry with the old version.",
+        "Reading is free. Writing is not: a tool that creates something takes an idempotencyKey you choose, and a tool that changes or deletes a versioned record takes the expectedVersion you last read; each tool's schema says which of the two it needs. If a write fails with STALE_VERSION, read the record again — do not retry with the old version.",
         "",
-        "Prefer staging to committing when a person has not asked for something specific. `ledger:stage` proposes a row for them to review; `ledger:write` changes the books. Deleting is a reversal, not an erasure, so it can be undone.",
+        "Prefer staging to committing when a person has not asked for something specific. `ledger:stage` proposes a row for them to review; `ledger:write` changes the books. Deleting a transaction posts its reversal and can be undone; every other delete is permanent.",
         "",
         "Amounts are always positive. Which way money moved is the transaction's type, not the sign. A deposit into a spending category is a refund and lowers that category's spending rather than counting as income.",
         "",
@@ -583,7 +588,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         // description. Saying it on every write tool would be the per-tool
         // convention this string exists to replace, and an agent that meets it
         // without this has been refused by a rule nothing warned it of.
-        "A plan may cap how many accounts stay active. The rest are frozen: still readable and counted in every total, closed to every write, and no argument you can change gets past that. whoami reports the plan and its ceiling, and list_accounts reports frozen on each account.",
+        "A plan may cap how many accounts stay active. The rest are frozen: still readable and counted in every total, closed to every change to what they hold, and no argument you can change gets past that. A frozen account can still be archived, or deleted while nothing is on it. whoami reports the plan and its ceiling, and list_accounts reports frozen on each account.",
         "",
         // Without this, "no such tool" and "not in your grant" are the same
         // message, character for character: gating is by non-registration, so a
@@ -657,7 +662,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "List accounts",
         description:
-          "List this person's accounts and balances in their native currencies. Each `balance` counts every posting on the account, **future-dated ones included**, unless `end` narrows it — so it is not the same figure as \"money available today\". `get_account_balances` reports a balance per currency across the whole ledger, and `get_financial_summary` stops at today in this person's own timezone.",
+          "List this person's accounts and balances in their native currencies. Each `balance` counts every posting on the account, **future-dated ones included**, unless `end` narrows it — so it is not the same figure as \"money available today\". `get_account_balances` separates one account's balance today from what is still to come, and `get_financial_summary` stops at today in this person's own timezone.",
         inputSchema: toolInput({
           end: isoDateSchema
             .optional()
@@ -785,7 +790,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Get account",
         description:
-          "Get one account by ID, with the balance the account page shows: every posting it holds, including any dated in the future. Use get_account_balances to separate what has already moved from what has not. An archived account comes back too, so read archivedAt rather than assuming a result means it is in use.",
+          "Get one account by ID, with the balance the account page shows: every posting it holds, including any dated in the future. Use `get_account_balances` to separate what has already moved from what has not. An archived account comes back too, so read archivedAt rather than assuming a result means it is in use.",
         inputSchema: toolInput({ id: recordIdSchema }),
         outputSchema: mcpOutputSchema(accountResultSchema),
         annotations: readAnnotations,
@@ -809,7 +814,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Who this ledger belongs to",
         description:
-          "The name and email of the person whose books these are, and the client id this call is authorized under, which is how you tell yourself apart in list_connected_agents. It reports nothing about how they sign in. plan, accountLimit and accountsUsed say what these books are allowed and how much of it is gone; all three are null where nothing is sold. notificationsAvailable says whether this deployment can send mail at all, which decides whether a recurrence set to email on proposal, or a template reminder, will ever arrive. scopes is what this token may do; a call needing more comes back as a 403 naming the scope, so you can say which one you are short of rather than guess.",
+          "The name and email of the person whose books these are, and the client id this call is authorized under, which is how you tell yourself apart in `list_connected_agents`. It reports nothing about how they sign in. plan, accountLimit and accountsUsed say what these books are allowed and how much of it is gone; all three are null where nothing is sold. notificationsAvailable says whether this deployment can send mail at all, which decides whether a recurrence set to email on proposal, or a template reminder, will ever arrive. scopes is what this token may do; a call needing more comes back as a 403 naming the scope, so you can say which one you are short of rather than guess.",
         inputSchema: toolInput({}),
         outputSchema: mcpOutputSchema(identityResultSchema),
         annotations: readAnnotations,
@@ -884,10 +889,8 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Preview CSV columns",
         description:
-          "Read the delimiter, headers, and first rows of a CSV without staging anything or touching the ledger. Use it to work out the column mapping before calling stage_csv.",
-        inputSchema: toolInput({
-          csv: z.string().min(1).describe("The file's text."),
-        }),
+          "Read the delimiter, headers, and first rows of a CSV without staging anything or touching the ledger. Use it to work out the column mapping before calling `stage_csv`.",
+        inputSchema: csvPreviewInputSchema.strict(),
         outputSchema: mcpOutputSchema(csvFilePreviewResultSchema),
         annotations: readAnnotations,
       },
@@ -898,7 +901,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Count everything in this ledger",
         description:
-          "How many accounts, transactions, categories, staged rows, import batches, payees, and connected agents this person has.",
+          "How many accounts, transactions, categories, staged rows still waiting in the queue, import batches, payees, and connected agents this person has.",
         inputSchema: toolInput({}),
         outputSchema: mcpOutputSchema(ownDataSummaryResultSchema),
         annotations: readAnnotations,
@@ -968,7 +971,8 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       "list_staged_transactions",
       {
         title: "List staged transactions",
-        description: "Review uncommitted staged transactions and validation warnings.",
+        description:
+          "Review the staged queue: rows proposed by a CSV import, a recurrence or an agent that are not in the books yet and affect no balance. Each row carries its draft, any validationIssues blocking its commit, duplicateOfId when it repeats something already in the ledger, and repeatsStagedRow when it repeats another row still waiting — this list is the only place that last one is worked out. Filter with validity to see only the rows that would commit, only those with an issue, or only likely duplicates. Newest first by default. 50 rows a page, up to 200; only the date ordering can be resumed with nextCursor, which records the ordering and filters it was issued for, and every other ordering pages by number. Committed transactions are `list_transactions`.",
         inputSchema: stageListQuerySchema.strict(),
         outputSchema: mcpOutputSchema(pageResultSchema(stagedTransactionResultSchema)),
         annotations: readAnnotations,
@@ -1033,7 +1037,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Run a financial report",
         description:
-          "Run one of six reports over a date range, returned as a matrix of rows by time bucket, separately per currency and never mixed across them. net-worth and balance-sheet are what the accounts hold at the end of each bucket; income-expense, categories and cash-flow are what moved during it; trial-balance lists every account including the server's own counter-accounts and totals zero when the books are whole. Nothing dated after today is counted whatever end you ask for, and asOf says which day the figures are really as of.",
+          "Run one of six reports over a date range, returned as a matrix of rows by time bucket, separately per currency and never mixed across them. net-worth and balance-sheet are what the accounts hold at the end of each bucket; income-expense, categories and cash-flow are what moved during it; trial-balance lists every account including the server's own counter-accounts and totals zero when the books are whole. Nothing dated after today is counted whatever end you ask for, and asOf says which day the figures are really as of. A range needing more than 600 columns at the bucket asked for is refused; ask for a coarser bucket or a shorter range.",
         inputSchema: reportQuerySchema
           .extend({
             includeArchived: z
@@ -1055,7 +1059,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "List one account's postings with a running balance",
         description:
-          "List every posting on one account in date order with the balance before and after each of them, plus the balance the window opens and closes on. Built for finding mistakes rather than for analysis: where a balance goes wrong, this is the row it went wrong on. An archived account ends at zero, and the postings that closed it out to equity are in the list.",
+          "List every posting on one account in date order with the balance before and after each of them, plus the balance the window opens and closes on. Built for finding mistakes rather than for analysis: where a balance goes wrong, this is the row it went wrong on. An archived account ends at zero, and the postings that closed it out to equity are in the list. A range holding more than 10,000 postings is refused; ask for a shorter one.",
         inputSchema: dateRangeSchema.extend({ id: recordIdSchema }).strict(),
         outputSchema: mcpOutputSchema(accountRegisterResultSchema),
         annotations: readAnnotations,
@@ -1128,7 +1132,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "List standing budgets",
         description:
-          "List the standing budgets. One plan covers every period in its window, so a budget running all year is one row here rather than twelve. To see what was actually spent against them, call get_budget_report; this tool reports only what was intended.",
+          "List the standing budgets. One plan covers every period in its window, so a budget running all year is one row here rather than twelve. To see what was actually spent against them, call `get_budget_report`; this tool reports only what was intended.",
         inputSchema: toolInput({}),
         outputSchema: mcpOutputSchema(z.array(budgetPlanResultSchema)),
         annotations: readAnnotations,
@@ -1164,7 +1168,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Project balances forward",
         description:
-          'What the balances do next if nothing changes, projected from the recurrences that already have dates and amounts. Nothing here is a balance or a report figure: money dated in the future has not moved, and no projection may be reported as though it had. Say "projected" when you pass one on. The projection uses recurrences alone by default; basis recurring_and_budgets also subtracts the part of each category\'s budget its recurrences do not already cover, which is the pessimistic reading. Budgeted figures come back either way, so a period whose budgets dwarf its recurrences can be seen for what it is. Recurrences with no amount, and budgets whose amount is worked out from periods that have not happened, are listed in unprojectable rather than counted as nothing — mention them if the figures matter, because the projection is short by whatever they are worth.',
+          'What the balances do next if nothing changes, projected from the recurrences that already have dates and amounts. Nothing here is a balance or a report figure: money dated in the future has not moved, and no projection may be reported as though it had. Say "projected" when you pass one on. The projection uses recurrences alone by default. Basis recurring_and_budgets also subtracts the part of each category\'s budget its recurrences do not already cover, which is the pessimistic reading; recurring_and_history instead adds what this ledger usually does, averaged over recent finished periods, which is what the browser shows and the only basis that says anything about a ledger with no recurrences or budgets. Budgeted figures come back either way, so a period whose budgets dwarf its recurrences can be seen for what it is. Recurrences with no amount, and budgets whose amount is worked out from periods that have not happened, are listed in unprojectable rather than counted as nothing — mention them if the figures matter, because the projection is short by whatever they are worth.',
         inputSchema: forecastQuerySchema.strict(),
         outputSchema: mcpOutputSchema(forecastResultSchema),
         annotations: readAnnotations,
@@ -1216,9 +1220,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       ({ id, input, idempotencyKey }) =>
         runTool(() =>
           runIdempotentMcpMutation(actor, "stage.update", idempotencyKey, { id, input }, (tx) =>
-            updateStage(actor, id, input, tx, {
-              mayEditLedgerRecords: scopes.has("ledger:write"),
-            }),
+            updateStage(actor, id, input, { mayEditLedgerRecords: scopes.has("ledger:write") }, tx),
           ),
         ),
     );
@@ -1227,14 +1229,14 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Delete staged transactions",
         description:
-          "Delete explicitly selected staged transactions. Confirm it with the person first. A staged row removed here is gone, not reversed, because nothing was ever posted.",
+          "Delete explicitly selected staged transactions. A staged row removed here is gone, not reversed, because nothing was ever posted, so there is no undo: confirm it with the person first.",
         inputSchema: bulkDeleteStageSchema
           .extend({
             idempotencyKey: idempotencyKeySchema,
           })
           .strict(),
         outputSchema: mcpOutputSchema(deletedStagesResultSchema),
-        annotations: destructiveAnnotations,
+        annotations: unrecoverableAnnotations,
       },
       (input) => {
         // The tool adds `idempotencyKey`, which the service's own schema does
@@ -1244,6 +1246,11 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         // `mcp.stage.delete` record was hashed from: narrowing it here would
         // turn a retry across the deploy into a CONFLICT.
         const { idempotencyKey, ...selection } = input;
+        // A dry run writes nothing, so it records nothing either — as the other
+        // seven dry-run tools behave. Recording it made the real delete sent
+        // with the same key a CONFLICT, which is exactly the "show the count,
+        // then do it" flow the description asks for.
+        if (selection.dryRun) return runTool(() => deleteStages(actor, selection));
         return runTool(() =>
           runIdempotentMcpMutation(actor, "stage.delete", idempotencyKey, input, (tx) =>
             deleteStages(actor, selection, tx),
@@ -1263,7 +1270,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       },
       (input) =>
         runTool(() =>
-          bulkEditStages(actor, input, undefined, {
+          bulkEditStages(actor, input, {
             mayEditLedgerRecords: scopes.has("ledger:write"),
           }),
         ),
@@ -1273,7 +1280,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Stage CSV transactions",
         description:
-          "Parse CSV text, preview it with dryRun, or place all rows in the staging queue. Categories named in the file are matched to ones that already exist. Creating a category, bringing an archived one back, or widening what it may carry are ledger:write changes, so with only ledger:stage the row is staged under the category's name and the resolution is reported as deferred; committing it, which needs ledger:write, is what makes the category.",
+          "Parse CSV text, preview it with dryRun, or place all rows in the staging queue. Categories named in the file are matched to ones that already exist. Creating a category or bringing an archived one back are ledger:write changes, so with only ledger:stage the row is staged under the category's name and the resolution is reported as deferred; committing it, which needs ledger:write, is what makes the category.",
         inputSchema: csvStageInputSchema.strict(),
         outputSchema: mcpOutputSchema(csvStageResultSchema),
         annotations: additiveAnnotations,
@@ -1283,7 +1290,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
           mayMutateCategories: scopes.has("ledger:write"),
         };
         // Both branches now, because stageCsv honors the key itself.
-        return runTool(() => stageCsv(actor, input, undefined, options));
+        return runTool(() => stageCsv(actor, input, options));
       },
     );
   }
@@ -1294,7 +1301,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Create a category group",
         description:
-          "Create a group to file categories under. policy is the one decision with no default: standalone means the group holds a budget of its own, sum_of_children means it is whatever its categories add up to. Both are defensible and being given the other one silently makes every figure on the page wrong in the same direction, so it has to be said. Put categories in it with update_category's groupId.",
+          "Create a group to file categories under. policy is the one decision with no default: standalone means the group holds a budget of its own, sum_of_children means it is whatever its categories add up to. Both are defensible and being given the other one silently makes every figure on the page wrong in the same direction, so it has to be said. Put categories in it with `update_category`'s groupId.",
         inputSchema: categoryGroupCreateSchema
           .extend({ idempotencyKey: idempotencyKeySchema })
           .strict(),
@@ -1336,14 +1343,14 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Delete a category group",
         description:
-          "Delete a group. Its categories stay exactly where they are and lose their group, because the group was a way of reading them rather than a thing they belong to; a budget about the group goes with it, since a budget about nothing is not a budget. No posting and no balance changes either way. Confirm it with the person first. Needs the current version.",
+          "Delete a group. Its categories stay exactly where they are and lose their group, because the group was a way of reading them rather than a thing they belong to; a budget about the group goes with it, since a budget about nothing is not a budget. No posting and no balance changes either way. There is no undo, so confirm it with the person first. Needs the current version.",
         inputSchema: toolInput({
           id: recordIdSchema,
           expectedVersion: expectedVersionSchema,
           idempotencyKey: idempotencyKeySchema,
         }),
         outputSchema: mcpOutputSchema(deletedCategoryGroupResultSchema),
-        annotations: destructiveAnnotations,
+        annotations: unrecoverableAnnotations,
       },
       ({ id, expectedVersion, idempotencyKey }) =>
         runTool(() =>
@@ -1361,7 +1368,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Set a standing budget",
         description:
-          "Budget an amount for one category, per period, from activeFrom onward. One row covers every period in its window, so this is what to use for an ongoing budget; set_budget_entry is for changing a single period, and get_budget_report is what shows either of them against real spending. Both ends of the window are snapped to the period, so any day inside a month names that whole month and the budget applies to the month it starts in. Leave activeTo out while it is still running. Windows for one category may not overlap, so raising a budget means ending the old one at the period before the new one starts. An income category is refused because it has no spending to compare against. Three optional fields change what kind of budget this is, and none of them is a mode anybody picks: rollover on makes it an envelope, where what a period does not spend belongs to the next one and an overspend is owed by it; rolloverCap holds that carry inside a number in both directions; and targetAmount with targetDate makes it a sinking fund, which works out each period's own figure from what is still needed and how many periods are left. A fund needs rollover on and an amount of zero, because it decides its own amount. Nothing is stored per period for any of them, so get_budget_report folds the carry at read time. Three more decide the amount instead of fixing it, and again the parameter is the choice: lookbackPeriods budgets the average of what the last few periods actually spent, percentOfPrevious steps last period's amount up by a percentage, and percentOfIncome takes a share of what came in the period before. Only one way of working out an amount may be named at a time. priority decides which budgets a short period funds first, lowest going first, with unranked funded last. This is a change to the ledger's own records rather than a proposal about money, so it needs ledger:write.",
+          "Budget an amount for one category, per period, from activeFrom onward. One row covers every period in its window, so this is what to use for an ongoing budget; `set_budget_entry` is for changing a single period, and `get_budget_report` is what shows either of them against real spending. Both ends of the window are snapped to the period, so any day inside a month names that whole month and the budget applies to the month it starts in. Leave activeTo out while it is still running. Windows for one category may not overlap, so raising a budget means ending the old one at the period before the new one starts. An income category is refused because it has no spending to compare against. Three optional fields change what kind of budget this is, and none of them is a mode anybody picks: rollover on makes it an envelope, where what a period does not spend belongs to the next one and an overspend is owed by it; rolloverCap holds that carry inside a number in both directions; and targetAmount with targetDate makes it a sinking fund, which works out each period's own figure from what is still needed and how many periods are left. A fund needs rollover on and an amount of zero, because it decides its own amount. Nothing is stored per period for any of them, so `get_budget_report` folds the carry at read time. Three more decide the amount instead of fixing it, and again the parameter is the choice: lookbackPeriods budgets the average of what the last few periods actually spent, percentOfPrevious steps last period's amount up by a percentage, and percentOfIncome takes a share of what came in the period before. Only one way of working out an amount may be named at a time. priority decides which budgets a short period funds first, lowest going first, with unranked funded last. This is a change to the ledger's own records rather than a proposal about money, so it needs ledger:write.",
         inputSchema: budgetPlanCreateSchema
           .extend({
             idempotencyKey: idempotencyKeySchema,
@@ -1382,7 +1389,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Change a standing budget",
         description:
-          "Change the amount, the window, or the carry of a standing budget. Changing the amount changes every period the window covers, including ones already past, so to leave history alone end this plan and create another from the next period. Every field left out is left alone; activeTo, rolloverCap, targetAmount, targetDate, lookbackPeriods, percentOfPrevious and percentOfIncome accept null to clear them, which is how a sinking fund or a worked-out amount becomes an ordinary budget again. Sending one rule's parameter clears whichever other rule was there, because a budget works out its amount one way. Turning rollover off on a fund is refused rather than silently emptying it. Needs the current version, which get_budget_plan returns. Confirm it with the person when they did not ask for this exact change. It writes no postings, so nothing about the books moves.",
+          "Change the amount, the window, or the carry of a standing budget. Changing the amount changes every period the window covers, including ones already past, so to leave history alone end this plan and create another from the next period. Every field left out is left alone; activeTo, rolloverCap, targetAmount, targetDate, lookbackPeriods, percentOfPrevious and percentOfIncome accept null to clear them, which is how a sinking fund or a worked-out amount becomes an ordinary budget again. Sending one rule's parameter clears whichever other rule was there, because a budget works out its amount one way. Turning rollover off on a fund is refused rather than silently emptying it. Needs the current version, which `get_budget_plan` returns. Confirm it with the person when they did not ask for this exact change. It writes no postings, so nothing about the books moves.",
         inputSchema: budgetPlanUpdateSchema
           .extend({
             id: recordIdSchema,
@@ -1408,14 +1415,14 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Delete a standing budget",
         description:
-          "Delete a standing budget. It wrote no postings, so removing it leaves the books exactly as they were and changes no balance or report; only the budget page stops comparing against it. Confirm it with the person first. Needs the current version.",
+          "Delete a standing budget. It wrote no postings, so removing it leaves the books exactly as they were and changes no balance or report; only the budget page stops comparing against it. There is no undo, so confirm it with the person first. Needs the current version.",
         inputSchema: toolInput({
           id: recordIdSchema,
           expectedVersion: expectedVersionSchema,
           idempotencyKey: idempotencyKeySchema,
         }),
         outputSchema: mcpOutputSchema(deletedBudgetResultSchema),
-        annotations: destructiveAnnotations,
+        annotations: unrecoverableAnnotations,
       },
       ({ id, expectedVersion, idempotencyKey }) =>
         runTool(() =>
@@ -1433,7 +1440,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Budget one period only",
         description:
-          "Set the amount for a single period, overriding whatever standing budget covers it. Use this for a one-time change, such as a larger food budget in December, and create_budget_plan for anything ongoing. periodStart is truncated to the period unit, so any day inside the period names it. Leave expectedVersion out the first time; setting one that already exists needs its version, which list_budget_entries returns. Changing one replaces the figure that was there, which then survives only in the audit log, so confirm the new amount first; delete_budget_entry puts the period back to whatever standing budget covers it.",
+          "Set the amount for a single period, overriding whatever standing budget covers it. Use this for a one-time change, such as a larger food budget in December, and `create_budget_plan` for anything ongoing. periodStart is truncated to the period unit, so any day inside the period names it. Leave expectedVersion out the first time; setting one that already exists needs its version, which `list_budget_entries` returns. Changing one replaces the figure that was there, which then survives only in the audit log, so confirm the new amount first; `delete_budget_entry` puts the period back to whatever standing budget covers it.",
         inputSchema: budgetEntrySetSchema
           .extend({
             idempotencyKey: idempotencyKeySchema,
@@ -1463,14 +1470,14 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Remove a single-period budget",
         description:
-          "Remove a one-period override, so that period falls back to whatever standing budget covers it, or to no budget at all if none does. Writes no postings and changes no balance. Needs the current version. Confirm it with the person first. The period falls back to whatever the standing budget says.",
+          "Remove a one-period override, so that period falls back to whatever standing budget covers it, or to no budget at all if none does. Writes no postings and changes no balance. There is no undo, so confirm it with the person first. Needs the current version.",
         inputSchema: toolInput({
           id: recordIdSchema,
           expectedVersion: expectedVersionSchema,
           idempotencyKey: idempotencyKeySchema,
         }),
         outputSchema: mcpOutputSchema(deletedBudgetResultSchema),
-        annotations: destructiveAnnotations,
+        annotations: unrecoverableAnnotations,
       },
       ({ id, expectedVersion, idempotencyKey }) =>
         runTool(() =>
@@ -1534,14 +1541,14 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Delete recurring transaction",
         description:
-          "Stop a recurring transaction. Rows it has already proposed are left exactly as they are, whether they are still in the queue or already committed, and they go on reporting which recurrence made them. Confirm it with the person first. Rows it already proposed are left alone; only future occurrences stop.",
+          "Stop a recurring transaction. Rows it has already proposed are left exactly as they are, whether they are still in the queue or already committed, and they go on reporting which recurrence made them; only future occurrences stop. There is no undo, so confirm it with the person first.",
         inputSchema: toolInput({
           id: recordIdSchema,
           expectedVersion: expectedVersionSchema,
           idempotencyKey: idempotencyKeySchema,
         }),
         outputSchema: mcpOutputSchema(z.object({ id: recordIdSchema })),
-        annotations: destructiveAnnotations,
+        annotations: unrecoverableAnnotations,
       },
       ({ id, expectedVersion, idempotencyKey }) =>
         runTool(() =>
@@ -1585,7 +1592,8 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       "create_account",
       {
         title: "Create account",
-        description: "Create a checking, savings, card, cash, loan, or other account.",
+        description:
+          "Create a checking, savings, card, cash, loan, or other account. On a plan that limits how many accounts are active, creating one while every place is in use is refused with CONFLICT, and the details carry the limit and how many are in use.",
         inputSchema: accountCreateSchema
           .extend({
             idempotencyKey: idempotencyKeySchema,
@@ -1627,7 +1635,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Archive or restore account",
         description:
-          "Retire an account, or bring one back. Archiving posts whatever the account still holds out to the Opening Balances equity account, so it closes at zero and drops out of balances and summaries while its history stays readable. Restoring posts the balance back. This moves money in the books, so confirm it with the person first.",
+          "Retire an account, or bring one back. Archiving posts whatever the account still holds out to the Opening Balances equity account, so it closes at zero and drops out of balances and summaries while its history stays readable. Restoring posts the balance back, and on a plan that limits how many accounts are active it needs a free place: with none it is refused with CONFLICT, and the details carry the limit and how many are in use. This moves money in the books, so confirm it with the person first.",
         inputSchema: toolInput({
           id: recordIdSchema,
           expectedVersion: expectedVersionSchema,
@@ -1657,7 +1665,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Choose which accounts stay usable",
         description:
-          "Name every account that stays usable. Any account left out is frozen: still readable, still counted in every balance and report, and closed to every change — no new entry, no edit, no delete, not even a rename. A plan that limits how many accounts may be active is the only reason an account is ever frozen, and `whoami` reports that limit. **The choice is made once.** While the choice is still open — which is whenever more accounts are marked `active` than the plan keeps, as a downgrade or a spell on the paid plan leaves behind — this may name any set within the limit; afterward an account already in use must stay in the list, and a frozen one can only be added when a place has opened up — which happens when somebody archives or deletes an account they were using. Archived accounts are not part of this and use up no place. This replaces the whole set rather than toggling one account, so sending the same list twice does nothing the second time. It is refused while nothing is frozen, unless the list names exactly the accounts already active. While the choice is open, this decides which accounts the person keeps, and the set cannot be traded for a different one afterward, so confirm it with the person first.",
+          "Name every account that stays usable. Any account left out is frozen: still readable, still counted in every balance and report, and closed to every change to what it holds — no new entry, no edit, no deleted entry, not even a rename — though it can still be archived, or deleted while nothing is on it. A plan that limits how many accounts may be active is the only reason an account is ever frozen, and `whoami` reports that limit. **The choice is made once.** While the choice is still open — which is whenever more accounts are marked `active` than the plan keeps, as a downgrade or a spell on the paid plan leaves behind — this may name any set within the limit; afterward an account already in use must stay in the list, and a frozen one can only be added when a place has opened up — which happens when somebody archives or deletes an account they were using. Archived accounts are not part of this and use up no place. This replaces the whole set rather than toggling one account, so sending the same list twice does nothing the second time. It is refused while nothing is frozen, unless the list names exactly the accounts already active. While the choice is open, this decides which accounts the person keeps, and the set cannot be traded for a different one afterward, so confirm it with the person first.",
         inputSchema: toolInput({
           accountIds: activeAccountsSchema.shape.accountIds,
         }),
@@ -1677,14 +1685,14 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Delete unused account",
         description:
-          "Permanently delete an account, only when it is not archived and has no history or staged rows. Unarchive it first if it is archived.",
+          "Permanently delete an account, only when it is not archived and has no history or staged rows. Restore it first if it is archived. There is no undo, so confirm it with the person first.",
         inputSchema: toolInput({
           id: recordIdSchema,
           expectedVersion: expectedVersionSchema,
           idempotencyKey: idempotencyKeySchema,
         }),
         outputSchema: mcpOutputSchema(deletedEntityResultSchema),
-        annotations: destructiveAnnotations,
+        annotations: unrecoverableAnnotations,
       },
       ({ id, expectedVersion, idempotencyKey }) =>
         runTool(() =>
@@ -1742,7 +1750,8 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       "archive_category",
       {
         title: "Archive or restore category",
-        description: "Archive an in-use category or restore an archived category.",
+        description:
+          "Archive a category that is in use, or restore an archived one. Archiving changes no posting and no balance: it takes the category out of what can be chosen for new entries while every entry already filed under it keeps it. It can be undone by restoring.",
         inputSchema: toolInput({
           id: recordIdSchema,
           expectedVersion: expectedVersionSchema,
@@ -1852,14 +1861,14 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Delete transaction template",
         description:
-          "Delete a saved template. Transactions already made from it are untouched, because a template is only a starting point and nothing points back to it. Confirm it with the person first. Transactions already made from it are untouched.",
+          "Delete a saved template. Transactions already made from it are untouched, because a template is only a starting point and nothing points back to it. There is no undo, so confirm it with the person first.",
         inputSchema: toolInput({
           id: recordIdSchema,
           expectedVersion: expectedVersionSchema,
           idempotencyKey: idempotencyKeySchema,
         }),
         outputSchema: mcpOutputSchema(deletedEntityResultSchema),
-        annotations: destructiveAnnotations,
+        annotations: unrecoverableAnnotations,
       },
       ({ id, expectedVersion, idempotencyKey }) =>
         runTool(() =>
@@ -1889,10 +1898,10 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Bulk delete transaction templates",
         description:
-          "Atomically delete many saved templates at once, each named with the version it was read at. Transactions already made from them are untouched, because a template is only a starting point and nothing points back to it. Confirm it with the person first. Transactions already made from these templates are untouched.",
+          "Atomically delete many saved templates at once, each named with the version it was read at. Transactions already made from them are untouched, because a template is only a starting point and nothing points back to it. There is no undo, so confirm it with the person first.",
         inputSchema: transactionTemplateBulkDeleteSchema.strict(),
         outputSchema: mcpOutputSchema(transactionTemplateBulkMcpResultSchema),
-        annotations: destructiveAnnotations,
+        annotations: unrecoverableAnnotations,
       },
       (input) => runTool(() => bulkDeleteTransactionTemplates(actor, input)),
     );
@@ -1900,14 +1909,15 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       "delete_category",
       {
         title: "Delete unused category",
-        description: "Permanently delete a category only when it is unused.",
+        description:
+          "Permanently delete a category that nothing uses — no transaction, staged row, template or recurrence. Its budgets and single-period amounts are deleted with it, and there is no undo, so confirm it with the person first; archive it instead to keep them.",
         inputSchema: toolInput({
           id: recordIdSchema,
           expectedVersion: expectedVersionSchema,
           idempotencyKey: idempotencyKeySchema,
         }),
         outputSchema: mcpOutputSchema(deletedEntityResultSchema),
-        annotations: destructiveAnnotations,
+        annotations: unrecoverableAnnotations,
       },
       ({ id, expectedVersion, idempotencyKey }) =>
         runTool(() =>
@@ -1925,7 +1935,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Merge categories",
         description:
-          "Move transaction and staging references into one target category and remove the sources. Confirm it with the person first: the source categories are gone afterward and there is no undo.",
+          "Move everything filed under the source categories — transactions, split legs, staged rows, templates, recurrences, and budgets with their single-period amounts — onto one target category, and remove the sources. Refused when the target and a source are budgeted over the same period, or both have an amount set for the same one, because the merge would leave two budgets for one period: end or delete one first. Confirm it with the person first: the source categories are gone afterward and there is no undo.",
         inputSchema: categoryMergeSchema
           .extend({
             idempotencyKey: idempotencyKeySchema,
@@ -1976,7 +1986,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Update committed transaction",
         description:
-          "Update a committed transaction and rebuild its postings atomically. Replaces the draft rather than patching it, so read the transaction first. Confirm with the person when they did not ask for this exact change; the correction is appended, so the old figures stay in the audit trail.",
+          "Update a committed transaction and rebuild its postings atomically. Replaces the draft rather than patching it, so read the transaction first. Confirm with the person when they did not ask for this exact change; the correction is appended, so the old figures stay in the audit trail. Moving the last entry off a category also removes that category when nothing else refers to it — no transaction, staged row, template, recurrence or budget.",
         inputSchema: toolInput({
           id: recordIdSchema,
           input: transactionUpdateSchema.describe(
@@ -2003,7 +2013,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Bulk delete committed transactions",
         description:
-          "Atomically soft-delete explicit versioned transactions or a previewed all-matching selection. Rows already deleted are left alone, deleted rows stop affecting balances and reports, and dryRun validates without writing. Confirm it with the person first, and use dryRun to show them the count. Deleting posts a reversal rather than erasing, so it can be undone with set_transaction_deleted.",
+          "Atomically soft-delete explicit versioned transactions or a previewed all-matching selection. Rows already deleted are left alone, deleted rows stop affecting balances and reports, and dryRun validates without writing. Confirm it with the person first, and use dryRun to show them the count. Deleting posts a reversal rather than erasing, so it can be undone with `set_transaction_deleted`.",
         inputSchema: bulkTransactionDeleteSchema.strict(),
         outputSchema: mcpOutputSchema(bulkTransactionEditMcpResultSchema),
         annotations: destructiveAnnotations,
@@ -2015,7 +2025,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Bulk edit committed transactions",
         description:
-          "Atomically edit explicit versioned transactions or a previewed all-matching selection. Transfers only accept common-field edits, account changes must preserve native currency, and dryRun validates without writing. A selection holding even one split refuses a category or type change outright rather than flattening the split, so the whole call fails: leave splits out of the selection, or edit their legs one entry at a time. Confirm it with the person first, and use dryRun to show them the count before writing.",
+          "Atomically edit explicit versioned transactions or a previewed all-matching selection. Transfers only accept common-field edits, account changes must preserve native currency, and dryRun validates without writing. A selection holding even one split refuses a category or type change outright rather than flattening the split, so the whole call fails: leave splits out of the selection, or edit their legs one entry at a time. Confirm it with the person first, and use dryRun to show them the count before writing. Moving the last entry off a category also removes that category when nothing else refers to it — no transaction, staged row, template, recurrence or budget.",
         inputSchema: bulkTransactionEditSchema.strict(),
         outputSchema: mcpOutputSchema(bulkTransactionEditMcpResultSchema),
         annotations: destructiveAnnotations,
@@ -2027,7 +2037,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Delete or restore transaction",
         description:
-          "Soft-delete a committed transaction or restore it. A restore that now conflicts with an active transaction requires allowDuplicate=true.",
+          "Delete a committed transaction by posting its reversal, or restore it by posting it back, so a delete can be undone. A restore that now conflicts with an active transaction requires allowDuplicate=true.",
         inputSchema: transactionDeletedMutationSchema
           .extend({
             id: recordIdSchema,
@@ -2053,7 +2063,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Commit staged transactions",
         description:
-          "Validate and atomically commit explicit staged transaction IDs; supports dry-run. Committing puts money in the books, so confirm it with the person first unless they asked for exactly this. Use dryRun to show them what would happen.",
+          "Validate and atomically commit explicit staged transaction IDs; supports dry-run. Committing puts money in the books, so confirm it with the person first unless they asked for exactly this. Use dryRun to show them what would happen. A row that repeats something already in the ledger, or another row in the same call, refuses the whole call with DUPLICATE; send allowDuplicates only once the person has said the repeat is intended.",
         inputSchema: commitStageSchema.strict(),
         outputSchema: mcpOutputSchema(committedStagesResultSchema),
         annotations: destructiveAnnotations,
@@ -2142,7 +2152,7 @@ async function scopeChallenge(
           // model can act on.
           error: {
             code: -32_000,
-            message: `Forbidden: ${name} needs ${required}`,
+            message: `${name} needs the ${required} scope, which this connection was not granted. Ask the person to reconnect and approve it.`,
             "www-authenticate": challenge,
           },
           id: call.id ?? null,
@@ -2163,7 +2173,31 @@ async function scopeChallenge(
   return { response: null, forward };
 }
 
+/**
+ * What a stateless endpoint says to anything but a POST.
+ *
+ * The SDK answers PUT with this already, but it treats GET as a request for
+ * the standalone server-to-client stream and answers 200 `text/event-stream`,
+ * and it treats DELETE as ending a session and answers 200. Neither exists
+ * here: every POST builds a server, answers, and is gone, so nothing could ever
+ * be written to that stream, and there is no session to end. The stream stayed
+ * open regardless, holding a connection and a whole server instance for every
+ * client that asked — and the SDK's own client asks once after every
+ * `initialize`. The Streamable HTTP transport lets a server decline both with a
+ * 405, which is what the SDK's stateless example does, and its client treats a
+ * 405 on that GET as "no stream here" rather than as an error.
+ *
+ * The envelope is the SDK's own for PUT, so all three refusals read the same.
+ */
+function methodNotAllowed() {
+  return Response.json(
+    { jsonrpc: "2.0", error: { code: -32_000, message: "Method not allowed." }, id: null },
+    { status: 405, headers: { Allow: "POST" } },
+  );
+}
+
 export async function handleMcpRequest(request: Request, actor: Actor, scopes: Set<string>) {
+  if (request.method !== "POST") return methodNotAllowed();
   const { response, forward } = await scopeChallenge(request, scopes);
   if (response) return response;
   const transport = new WebStandardStreamableHTTPServerTransport({

@@ -50,7 +50,7 @@ export const PLATFORM_COMMANDS = [
  * public address, and a rule for a port nothing listens on is an invitation to
  * put something there later.
  */
-export const DATABASE_PLATFORM_COMMANDS = [
+const DATABASE_PLATFORM_COMMANDS = [
   '["/bin/sh", "-c", "iptables -I INPUT 1 -p tcp --dport 5432 -j ACCEPT && netfilter-persistent save"]',
 ];
 
@@ -363,9 +363,9 @@ export function requireUsableKmsKey(keyId: string, facts: OciKeyFacts): string {
  *
  * `protectionMode` defaults to HSM when a key is created without naming one, it
  * cannot be changed afterwards, and HSM key versions are billed per version
- * where software ones are free. The `small` pair on this cloud is otherwise
- * $0 — exactly at the Always Free ceiling — so this is the first thing in the
- * profile that can take it off $0, and it does it silently and permanently.
+ * where software ones are free. A stack the allowance otherwise covers — one
+ * machine, with `databaseNode: false` — is $0, so this is the first thing in
+ * the profile that can take it off $0, and does it silently and permanently.
  * A warning rather than a refusal: an operator may want HSM, and a program that
  * refused it would be making somebody's compliance decision for them.
  */
@@ -426,17 +426,41 @@ export async function waitForDnsName(
   }
 }
 
+/** The parts of `node:dns/promises` the lookup uses, passed in so a test can stand in. */
+export type AuthoritativeDns = Pick<
+  typeof import("node:dns/promises"),
+  "Resolver" | "resolveNs" | "resolve4"
+>;
+
+/**
+ * The answers that mean "the name is not there yet", from a server that was
+ * asked and answered: no such name, or no record of that type, or a server
+ * failure while the zone catches up.
+ */
+const NOT_YET = new Set(["ENOTFOUND", "ENODATA", "ESERVFAIL"]);
+
 /**
  * A {@link NameExists} that asks the zone's authoritative nameservers.
  *
  * The nameservers are found through the ordinary resolver, which is safe:
  * they are long-lived names it already has, not the new one. The question about
  * the new name goes to them directly, from a resolver of its own that caches
- * nothing. Any failure is a "not yet", and the deadline above is what ends it.
+ * nothing.
+ *
+ * Only an answer is a "not yet". A question that could not be asked — a
+ * timeout, a refusal, nameservers with no address to send to — is a yes, which
+ * is what 0.2.0 assumed: the key is made and the provider does its own lookup.
+ * This runs on every `pulumi up` of a stack with a settings vault, not only the
+ * first, and many networks — corporate ones, VPNs, DNS-over-HTTPS setups — let
+ * nothing reach port 53 but their own resolver. There every question timed
+ * out, each was read as "not yet", and an `up` that changed nothing waited
+ * fifteen minutes and then failed where 0.2.0 had succeeded.
  */
-export function authoritativeNameExists(): NameExists {
+export function authoritativeNameExists(
+  load: () => Promise<AuthoritativeDns> = () => import("node:dns/promises"),
+): NameExists {
   return async (host) => {
-    const { Resolver, resolveNs, resolve4 } = await import("node:dns/promises");
+    const { Resolver, resolveNs, resolve4 } = await load();
     const labels = host.split(".");
     for (let i = 1; i < labels.length - 1; i++) {
       const zone = labels.slice(i).join(".");
@@ -449,19 +473,27 @@ export function authoritativeNameExists(): NameExists {
       const addresses = (
         await Promise.all(servers.map((ns) => resolve4(ns).catch(() => [])))
       ).flat();
-      if (addresses.length === 0) return false;
+      if (addresses.length === 0) return true;
       const resolver = new Resolver({ timeout: 5_000, tries: 2 });
       resolver.setServers(addresses);
+      const notYet = (error: unknown) =>
+        NOT_YET.has((error as { code?: string } | null)?.code ?? "");
       try {
         await resolver.resolveCname(host);
         return true;
-      } catch {
-        return resolver.resolve4(host).then(
-          (found) => found.length > 0,
-          () => false,
-        );
+      } catch (error) {
+        // No such name is a no; no CNAME is not, because the name may be an A
+        // record, which the next question is about.
+        if ((error as { code?: string } | null)?.code === "ENOTFOUND") return false;
+        if (!notYet(error)) return true;
       }
+      return resolver.resolve4(host).then(
+        (found) => found.length > 0,
+        (error) => !notYet(error),
+      );
     }
-    return false;
+    // No zone's nameservers could be found at all, which is a network that
+    // cannot ask rather than a name that is not there.
+    return true;
   };
 }

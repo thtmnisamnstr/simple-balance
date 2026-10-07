@@ -208,6 +208,41 @@ describe("money arguments on the MCP surface", () => {
   });
 
   /**
+   * A figure the server refuses below zero publishes no minus sign.
+   *
+   * The positive amounts were `decimalStringSchema` plus a refinement, and a
+   * refinement is invisible to `z.toJSONSchema`, so thirty-three of them
+   * published `^-?…` beside a description saying "greater than zero" — a
+   * client validating against the schema accepted the sign the server then
+   * refused. `mcp.md` §Inputs a model cannot get wrong is the rule: the
+   * published schema is the one an agent obeys.
+   *
+   * Decided by what the description promises, because that is the claim an
+   * agent reads: a node saying a figure is greater than zero or cannot be
+   * negative has to carry a pattern that agrees. Opening balances, carry caps
+   * and percentages may be negative or are refused across fields, and their
+   * descriptions say so rather than promising a sign.
+   */
+  it("publishes no minus sign on a figure described as never negative", () => {
+    const PROMISES_A_SIGN = /greater than zero|cannot be negative|never negative/i;
+    const patterns = (node: Node): string[] => [
+      ...(typeof node["pattern"] === "string" ? [node["pattern"]] : []),
+      ...(Array.isArray(node["allOf"]) ? (node["allOf"] as Node[]).flatMap(patterns) : []),
+    ];
+    const promising = moneyNodes.filter(
+      (entry) =>
+        typeof entry.node["description"] === "string" &&
+        PROMISES_A_SIGN.test(entry.node["description"]) &&
+        patterns(entry.node).length > 0,
+    );
+    expect(promising.length).toBeGreaterThan(15);
+    const signed = promising
+      .filter((entry) => patterns(entry.node).some((pattern) => pattern.startsWith("^-?")))
+      .map((entry) => entry.path);
+    expect(signed).toEqual([]);
+  });
+
+  /**
    * And the register earns its place rather than sitting there.
    *
    * An entry whose prefix no longer matches a money-named node is excusing

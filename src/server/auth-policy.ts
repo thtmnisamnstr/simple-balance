@@ -173,20 +173,15 @@ export function mayCreateProviderAccount(providerId: string) {
  * ALLOWED_EMAILS; see isLinkedIdentityAuthorized for why.
  */
 export async function mayCreateSession(
-  userId: string,
-  path?: string | null,
-  transactionAccounts?: LinkedAuthAccount[],
+  path: string | null | undefined,
+  linkedAccounts: LinkedAuthAccount[],
 ) {
+  // The accounts are the caller's to read, through the hook's own adapter, and
+  // never read here. This used to fall back to the application pool when none
+  // were passed, which is the one read AGENTS.md forbids inside a hook: the
+  // hook runs in the sign-up transaction, and on a one-connection pool that
+  // transaction holds the only connection the fallback could wait for.
   const config = getConfig();
-  const linkedAccounts =
-    transactionAccounts ??
-    (await getDb()
-      .select({
-        providerId: authAccount.providerId,
-        password: authAccount.password,
-      })
-      .from(authAccount)
-      .where(eq(authAccount.userId, userId)));
   if (path === "/sign-in/email" || path === "/sign-up/email") {
     return config.localAuthEnabled && hasCredentialAccount(linkedAccounts);
   }

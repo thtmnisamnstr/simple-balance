@@ -257,3 +257,54 @@ describe("the PostgreSQL settings the database machine actually runs on", () => 
     expect(SOURCE).toContain("const databaseSize = SIZES[databaseSizeName];");
   });
 });
+
+/**
+ * Oracle's own database half for `small`, held to its row the way the table is.
+ *
+ * A literal of its own rather than a column of the table, because it is one
+ * cloud's machine and AWS builds the row as written; read out of its own block,
+ * so a number changed in the program and not the document fails here rather
+ * than being found by whoever sized a machine from the page.
+ */
+describe("Oracle's own database machine for `small`", () => {
+  const start = SOURCE.indexOf("export const OCI_DATABASE_SIZES");
+  const block = SOURCE.slice(start, SOURCE.indexOf("\n};", start));
+  const shape = /database: \{ vcpu: (\d+), memoryGib: (\d+), diskGib: (\d+) \}/.exec(block);
+  const keys = [
+    "sharedBuffers",
+    "effectiveCacheSize",
+    "workMem",
+    "maintenanceWorkMem",
+    "maxWalSize",
+  ] as const;
+
+  it("agrees with the document's row for it", () => {
+    expect(start, "OCI_DATABASE_SIZES is missing").toBeGreaterThan(-1);
+    expect(shape, "OCI_DATABASE_SIZES.small.database").not.toBeNull();
+    const cells = row("`small` on Oracle Cloud");
+    expect(cells[1], "database node").toBe(`${shape![1]} vCPU, ${shape![2]} GiB`);
+    keys.forEach((key, index) => {
+      const match = new RegExp(`${key}: "([^"]+)"`).exec(block);
+      expect(match, key).not.toBeNull();
+      expect(cells[index + 2], key).toBe(match![1]);
+    });
+  });
+
+  // The cores and the disk are the table's, and only the memory moves: a disk
+  // that differed would hold a different ledger on each cloud under one name,
+  // and fewer cores is not what the row was measured with.
+  it("changes the memory and nothing else about the machine", () => {
+    expect(shape![1]).toBe(node("small", "database", "vcpu"));
+    expect(shape![3]).toBe(node("small", "database", "diskGib"));
+    expect(Number(shape![2])).toBeGreaterThan(Number(node("small", "database", "memoryGib")));
+  });
+
+  it("is laid over the row by the Oracle program and by no other", () => {
+    const oci = read("deploy/pulumi/oci-single/index.ts");
+    const aws = read("deploy/pulumi/aws-single/index.ts");
+    expect(oci).toContain(
+      "size: { ...settings.database.size, ...single.OCI_DATABASE_SIZES[settings.database.sizeName] },",
+    );
+    expect(aws).not.toContain("OCI_DATABASE_SIZES");
+  });
+});

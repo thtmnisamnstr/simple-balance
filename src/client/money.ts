@@ -142,8 +142,77 @@ export function formatMoney(amount: string, currency: string, locales?: string |
   }
 }
 
+/**
+ * A figure as money where the currency is known, and as the bare figure where
+ * it is not.
+ *
+ * `formatMoney` with an empty currency falls through to `${amount} ${currency}`
+ * and draws "45.00 " with a trailing space, which is what the Recurring list
+ * showed for a recurring transaction whose account had been deleted. The form
+ * had this answer already and kept it to itself.
+ */
+export function shownMoney(amount: string, currency: string | null | undefined) {
+  return currency ? formatMoney(amount, currency) : amount;
+}
+
+/**
+ * A stored amount as an input should start out: the currency's own decimal
+ * places, like `formatMoney`, but as a plain decimal the input reads back —
+ * no symbol, no grouping, ASCII digits, and the sign kept.
+ *
+ * What the server sends is not that. An account's opening balance arrives at
+ * the column's full scale, so the edit form opened on "3250.000000000000000000",
+ * and a transaction or a budget arrives canonical, so $12.50 opened as "12.5"
+ * and the duplicate review put "1850.00" beside "1850" for one payment. Only
+ * zeros are added or removed: a digit the currency does not have is kept rather
+ * than rounded away, because an input is for changing a value, not for
+ * deciding it. A crypto asset, which has no ISO precision, keeps the digits it
+ * has and loses only trailing zeros.
+ */
+export function amountForInput(amount: string, currency: string) {
+  const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(amount);
+  if (!match) return amount;
+  const [, sign, integer, fraction = ""] = match;
+  const digits = isoCurrency(currency)
+    ? (numberFormat(undefined, { style: "currency", currency }).resolvedOptions()
+        .minimumFractionDigits ?? 0)
+    : 0;
+  const kept = fraction.replace(/0+$/, "").padEnd(digits, "0");
+  return `${sign}${integer}${kept ? `.${kept}` : ""}`;
+}
+
+/**
+ * A money field's label, carrying the currency whenever the form knows it.
+ *
+ * `web.md` 8.5, Binding on SC 3.3.2: a symbol drawn beside an input is not part
+ * of its label and is not announced, so "Amount" with "$" painted in front of it
+ * tells a screen reader nothing about which money. The transaction form wrote
+ * "Amount (USD)" inline and every other money field in the app wrote "Amount",
+ * including two dialogs that showed the currency nowhere at all. One function,
+ * so the next money field is labeled the same way by default.
+ *
+ * The currency is left out rather than guessed while the form cannot know it —
+ * an account not chosen yet, a template with no account — because a wrong code
+ * in a label is worse than none.
+ */
+export function moneyLabel(base: string, currency?: string | null) {
+  return currency ? `${base} (${currency})` : base;
+}
+
 export function isNegativeMoney(amount: string) {
   return amount.startsWith("-") && !/^-?0(?:\.0+)?$/.test(amount);
+}
+
+/**
+ * Whether a figure is zero, worked out rather than spelled.
+ *
+ * `common.md` rules that a comparison is arithmetic. Four places asked
+ * `=== "0"` or `!== "0"`, which is right only while whatever produced the
+ * string happens to write zero one way — "0.00" and "-0" are zero too. Null is
+ * not zero: it is a figure that could not be read.
+ */
+export function isZeroMoney(amount: string | null) {
+  return amount !== null && compareMoney(amount, "0") === 0;
 }
 
 export function isPositiveMoney(amount: string) {

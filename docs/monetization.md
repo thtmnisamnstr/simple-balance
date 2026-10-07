@@ -80,8 +80,16 @@ which are archiving one, deleting one, or upgrading.
 
 **Somebody who already has more than three keeps all of them, and chooses three
 to keep using.** The rest are *frozen*: every balance, every entry and every
-report still counts them and still shows them, and nothing about them may
-change — no new entry, no edit, no delete, not even a rename.
+report still counts them and still shows them, and nothing they hold may
+change — no new entry, no edit, no deleted entry, not even a rename.
+
+**A frozen account can always be put away.** Archiving one, or deleting one
+with nothing on it, is allowed, because neither gives anything a place: a
+frozen account never held one, and coming back out of the archive needs a free
+place like any restore. Somebody who downgrades with thirty accounts and uses
+three should be able to clear away the other twenty-seven in an afternoon.
+Refusing it, as 0.2.0 did, made a downgrade feel like a punishment, and the
+limit was never at risk.
 
 **The choice is made once, and after that the only move is filling a place that
 has opened up.** An account somebody is using stays that way until they archive
@@ -248,6 +256,12 @@ is zero. If you sell through other partners as well you need more lines than
 this one, and the way to do that is to serve your own `/ads.txt` from whatever
 terminates TLS in front of this deployment; it will take precedence.
 
+`/robots.txt` is served too, and it lets AdSense's crawler (`Mediapartners-Google`)
+in while asking every other crawler to stay out. AdSense matches ads to a page
+by reading it with that crawler, so a robots file that turned it away would get
+less relevant ads rather than none. If whatever terminates TLS serves a robots
+file of its own, keep that allowance in it.
+
 **If this deployment is on a subdomain** — `balance.example.com` rather than
 `example.com` — crawlers read the **root** domain's `/ads.txt`, not this one.
 What that means depends on whether the publisher id is the same in both places:
@@ -260,7 +274,7 @@ What that means depends on whether the publisher id is the same in both places:
 - **A different id or a different seller on the subdomain** — and only then —
   the root file needs a referral line:
 
-  ```
+  ```text
   subdomain=balance.example.com
   ```
 
@@ -402,6 +416,15 @@ payment method saved while something is owed says whether it paid it. A
 subscriber whose plan is set to end presses **Keep my plan** before changing
 interval, because renewing again is the consent the renewal terms below are
 shown for, and it is that button's to give.
+
+**One press asks first: the one that charges a card now.** Moving from monthly
+to annual bills the difference the moment it is pressed, so the tab opens a
+confirmation saying the annual plan starts today, what is left of the month is
+credited and the difference is charged now, and charges nothing until it is
+confirmed. Nothing else asks. A move to monthly waits for the renewal and a
+cancellation runs to the end of the period, and both are undone on the same tab
+with one more press — and canceling in particular stays exactly as easy as
+subscribing was.
 
 **The renewal terms are stated where the consent is asked for.** Beside the
 Annual and Monthly buttons, beside the payment form's confirm button for the

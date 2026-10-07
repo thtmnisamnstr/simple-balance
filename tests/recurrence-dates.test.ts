@@ -13,6 +13,7 @@ import {
   weekdayOf,
   type RecurrenceRule,
 } from "../src/shared/recurrence-dates.js";
+import { sourceFiles } from "./support/source.js";
 
 const rule = (over: Partial<RecurrenceRule> = {}): RecurrenceRule => ({
   frequency: "monthly",
@@ -572,7 +573,7 @@ describe("the watermark a schedule seeks from", () => {
 });
 
 /**
- * A bare `at time zone` in SQL, and why the two that exist are not the defect.
+ * Asking the database what day or what time it is, and the two places that do.
  *
  * `AGENTS.md`: "Whether it is a given day, or a given time of day, where
  * somebody lives is answered in one place. PostgreSQL reads a bare offset
@@ -581,30 +582,141 @@ describe("the watermark a schedule seeks from", () => {
  * offset. Ask `calendarDayIn`, `clockTimeIn` or `todayIn` … never ask the
  * database."
  *
- * Two queries name a timezone anyway, and both are correct: they bound which
- * rows are *candidates* and decide nothing, with the real answer coming per row
- * from the shared helpers. That distinction is invisible from the SQL, which is
- * why both carry the sentence — and why this check is about the sentence rather
- * than about the SQL. One of the two had the reasoning and the other had
- * copied the query.
+ * This used to look for `at time zone` and nothing else, which is one spelling
+ * of the question out of several. `current_date` is the database's day in its
+ * session's zone, `now()::date` and `date_trunc('day', now())` are the same day
+ * cast or truncated, `localtimestamp` is its wall clock, `timezone()` is
+ * `at time zone` written as a function, and a `date` column declared with
+ * `.defaultNow()` is the database choosing the day on every insert. Every one of
+ * those walked past the old pattern. They are found here in code with its
+ * comments blanked, so prose about the rule is not mistaken for breaking it;
+ * SQL comments sit inside a template literal and are read as code, which is
+ * where the reasons below are written.
+ *
+ * Two queries ask anyway, and both are correct: they bound which rows are
+ * *candidates* and decide nothing, with the real answer coming per row from
+ * the shared helpers. That distinction is invisible from the SQL, which is why
+ * each is named in the register with its reason and still has to carry the
+ * sentence in the source — one of the two once had the reasoning and the other
+ * had copied the query.
  */
-describe("asking the database about a timezone", () => {
-  it("happens twice, and both say why it is not deciding a day", async () => {
-    const { globSync, readFileSync } = await import("node:fs");
-    const found: string[] = [];
-    for (const file of globSync("src/server/**/*.ts")) {
-      const lines = readFileSync(file, "utf8").split("\n");
-      lines.forEach((line, index) => {
-        if (!/at time zone/i.test(line)) return;
-        // The SQL comment lines above it, which is where the reason goes in a
-        // template literal: `//` would be inside the query string.
-        const above = lines.slice(Math.max(0, index - 12), index).join(" ");
-        const explains = /bounds candidates|decides nothing|forbidden move/i.test(above);
-        found.push(`${file}:${index + 1}${explains ? "" : " — says nothing"}`);
-      });
+const BOUNDS_CANDIDATES = [
+  {
+    file: "src/server/services/cursor.ts",
+    snippet: "to_char(${column} at time zone 'UTC'",
+    because:
+      "A page marker: a stored instant written out in UTC to the microsecond and compared " +
+      "with the same column as an instant. It decides nobody's day or time, and UTC is " +
+      "the only zone in which the text and the instant agree whatever the session's is.",
+  },
+  {
+    file: "src/server/services/recurrences.ts",
+    snippet: "r.next_occurrence_date <= ((now() at time zone 'UTC')::date + 1)",
+    because:
+      "The recurrence sweep's prefilter. UTC's date plus one is wide enough for every zone " +
+      "ahead of UTC, and whether a row is really due is answered per row by todayIn.",
+  },
+  {
+    file: "src/server/services/notifications.ts",
+    snippet: "n.next_notification_date <= ((now() at time zone 'UTC')::date + 1)",
+    because:
+      "The reminder sweep's prefilter: the same bound for the same reason, with calendarDayIn " +
+      "and clockTimeIn deciding per row against the person's own timezone.",
+  },
+] as const;
+
+/** The database's own clock, in each spelling PostgreSQL accepts. */
+const CLOCK = String.raw`(?:(?<![.\w$])now\(\)|\bcurrent_timestamp\b|\b(?:transaction|statement|clock)_timestamp\(\))`;
+
+/**
+ * Each way of putting the question, named so a failure says which one it saw.
+ *
+ * The two clock patterns stop at a line or a semicolon, so a `now()` stored as
+ * a moment — which is a fact about when, not about which day — is not mistaken
+ * for one cast into a date three statements later.
+ */
+const ASKS_THE_DATABASE = [
+  { spelling: "at time zone", pattern: /\bat\s+time\s+zone\b/gi },
+  { spelling: "timezone()", pattern: /(?<![.\w$])timezone\s*\(/gi },
+  { spelling: "current_date", pattern: /\bcurrent_date\b/gi },
+  { spelling: "a session clock", pattern: /\b(?:current_time|localtime|localtimestamp)\b/gi },
+  {
+    spelling: "the clock cast to a day or a time",
+    pattern: new RegExp(String.raw`${CLOCK}[^;\n]*?::\s*(?:date|time|timestamp)\b`, "gi"),
+  },
+  {
+    spelling: "the clock read as a calendar",
+    pattern: new RegExp(
+      String.raw`\b(?:date_trunc|date_part|extract|date|to_char)\s*\([^;\n]*?${CLOCK}`,
+      "gi",
+    ),
+  },
+  {
+    spelling: "a date column defaulting to now",
+    pattern: /\b(?:date|time)\(\s*"[^"]*"[^)]*\)(?:\s*\.\w+\([^()]*\))*?\s*\.defaultNow\(\)/g,
+  },
+] as const;
+
+type Asked = {
+  file: string;
+  line: number;
+  text: string;
+  above: string;
+  spellings: string[];
+};
+
+const asked: Asked[] = sourceFiles("src/server").flatMap((file) => {
+  const lines = file.text.split("\n");
+  const byLine = new Map<number, Asked>();
+  for (const { spelling, pattern } of ASKS_THE_DATABASE) {
+    for (const match of file.code.matchAll(pattern)) {
+      const line = file.code.slice(0, match.index).split("\n").length;
+      const found = byLine.get(line) ?? {
+        file: file.path,
+        line,
+        text: lines[line - 1]!,
+        // A SQL comment rather than a `//` one, because inside a template
+        // literal `//` would be part of the query string.
+        above: lines.slice(Math.max(0, line - 13), line - 1).join(" "),
+        spellings: [],
+      };
+      found.spellings.push(spelling);
+      byLine.set(line, found);
     }
-    // Two, and no more: a third is a decision somebody should have to defend.
-    expect(found).toHaveLength(2);
-    expect(found.filter((one) => one.includes("says nothing"))).toEqual([]);
+  }
+  return [...byLine.values()].sort((a, b) => a.line - b.line);
+});
+
+const registered = (one: Asked) =>
+  BOUNDS_CANDIDATES.find((entry) => entry.file === one.file && one.text.includes(entry.snippet));
+
+describe("asking the database what day or what time it is", () => {
+  it("happens only where the register says why it is not deciding a day", () => {
+    const unexplained = asked
+      .filter((one) => !registered(one))
+      .map((one) => `${one.file}:${one.line} (${one.spellings.join(", ")}) ${one.text.trim()}`);
+    expect(
+      unexplained,
+      "ask calendarDayIn, clockTimeIn or todayIn from src/shared/recurrence-dates.ts; if this " +
+        "only bounds candidates and decides nothing, add it to BOUNDS_CANDIDATES with the reason",
+    ).toEqual([]);
+  });
+
+  /**
+   * The register from the other side, which is also the scan proving it still
+   * matches: an entry is satisfied by a line the patterns *found*, not by the
+   * snippet merely being in the file, so a pattern that went blind fails here
+   * rather than passing over nothing.
+   */
+  it("still finds both, and both still say why in the source", () => {
+    const missing = BOUNDS_CANDIDATES.filter(
+      (entry) => !asked.some((one) => registered(one) === entry),
+    ).map((entry) => `${entry.file} ${entry.snippet}`);
+    expect(missing).toEqual([]);
+    const silent = asked
+      .filter((one) => registered(one))
+      .filter((one) => !/bounds candidates|decides nothing|forbidden move/i.test(one.above))
+      .map((one) => `${one.file}:${one.line} says nothing`);
+    expect(silent).toEqual([]);
   });
 });

@@ -126,7 +126,12 @@ describe("staged rows on category and payee detail", () => {
     expect(await screen.findByText("Staged Only Payee")).toBeInTheDocument();
     const row = screen.getByText("Staged Only Payee").closest("tr")!;
     expect(within(row).getByText("Staged")).toBeInTheDocument();
-    expect(within(row).getByRole("link", { name: "Review" })).toHaveAttribute("href", "/staged");
+    // With the range the row was found in (`web.md` 11.7): bare, it opened a
+    // this-month queue that hid a row from any other month.
+    expect(within(row).getByRole("link", { name: "Review" })).toHaveAttribute(
+      "href",
+      "/staged?preset=custom&start=2026-01-01&end=2026-12-31",
+    );
   });
 
   it("never offers staged rows to a committed bulk edit", async () => {

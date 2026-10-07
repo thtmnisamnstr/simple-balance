@@ -81,3 +81,21 @@ export function waysOut(ways: readonly string[]): string {
     last === undefined ? first : `${[first, ...rest.slice(0, -1)].join(", ")}, or ${last}`;
   return `${joined.slice(0, 1).toUpperCase()}${joined.slice(1)}.`;
 }
+
+/**
+ * Why a button that adds an entry is dead for want of an account, or nothing
+ * while the accounts are still on their way.
+ *
+ * Three buttons said "Create an account first." whenever the list was not
+ * loading, which includes when it failed, so somebody with a dozen accounts
+ * was told they had none at the moment the page could not read them. The
+ * import page already told the two apart; this is that distinction, once.
+ */
+export function noAccountReason(accounts: {
+  readonly isPending: boolean;
+  readonly isError: boolean;
+}): string | undefined {
+  if (accounts.isPending) return undefined;
+  if (accounts.isError) return "Your accounts did not load. Reload the page to try again.";
+  return "Create an account first.";
+}

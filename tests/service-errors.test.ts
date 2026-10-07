@@ -169,23 +169,92 @@ describe("the code-to-status map", () => {
    *
    * An error shape assembled at a route is an error shape no enumeration covers
    * — which is how a sixth transport code reached the wire once before.
+   *
+   * The two places are `api.ts`'s renderer, with the auth routes' builder that
+   * sits beside it, and `errorResponse` in `http-security.ts`.
+   *
+   * This used to excuse the whole of `src/server/api.ts`, which is the file the
+   * routes are registered in, so a body built by hand at any route passed for
+   * being in the renderer's file. And it saw only a quoted code, so an envelope
+   * with its code in a variable — `{ error: { code, message } }` — was invisible
+   * in every file. So what is excused now is a construct, found by the
+   * top-level statement an envelope is built inside and counted, and an
+   * envelope is any `error: {` whose code is not a number: JSON-RPC's
+   * `code: -32000` on the `/mcp` mount is a different protocol's error object
+   * and is not this enumeration's business.
    */
   it("builds an error body in the two places that are allowed to", () => {
-    const ALLOWED = new Set([
-      // The one renderer every thrown error goes through.
-      "src/server/api.ts",
-      // `errorResponse`, which exists so a transport refusal cannot invent a code.
-      "src/server/http-security.ts",
-    ]);
-    const offenders: string[] = [];
+    const TRANSPORT_LEVEL = [
+      {
+        where: "src/server/api.ts",
+        statement: "export function errorEnvelope(",
+        times: 4,
+        because:
+          "The one renderer every thrown error goes through, for a response and for a " +
+          "streamed frame alike: a branch per class it knows, and INTERNAL_ERROR for the rest.",
+      },
+      {
+        where: "src/server/api.ts",
+        statement: "const transportError = ",
+        times: 1,
+        because:
+          "The auth routes' refusal, answered before any service is reached, which keeps the " +
+          "flat {code, message} pair beside the envelope so a 0.1.5 client still finds it.",
+      },
+      {
+        where: "src/server/http-security.ts",
+        statement: "function errorResponse(",
+        times: 1,
+        because: "Its code is typed TransportErrorCode, so a transport refusal cannot invent one.",
+      },
+    ];
+
+    const excused = TRANSPORT_LEVEL;
+
+    // Counted per statement, so a second envelope inside an excused one is a
+    // new decision rather than a passenger on the old one.
+    const built = new Map<
+      string,
+      { where: string; line: number; statement: string; times: number }
+    >();
     for (const file of sourceFiles("src/server")) {
-      const relative = file.path.slice(file.path.indexOf("src/server"));
-      if (ALLOWED.has(relative)) continue;
-      // A quoted code, which is the HTTP envelope's shape. JSON-RPC's numeric
-      // `code: -32000` on the `/mcp` mount is a different protocol's error
-      // object and is not this enumeration's business.
-      if (/error:\s*\{\s*code:\s*"/.test(file.code)) offenders.push(relative);
+      const lines = file.code.split("\n");
+      for (const match of file.code.matchAll(
+        /\berror\s*:\s*(?:[^{}\n]*\?\s*)?\{(?:[^{}]*?[,\s])?code\s*(?:[,}]|:(?!\s*-?\d))/g,
+      )) {
+        // The formatter starts every top-level statement at column zero and
+        // indents everything inside one, so the nearest such line above is the
+        // statement this envelope is part of. `topLevelDeclarations` is not
+        // enough here: it knows `function` and `const`, and a route
+        // registration would fall into whichever declaration preceded it.
+        let index = file.code.slice(0, match.index).split("\n").length - 1;
+        while (index > 0 && !/^[A-Za-z_$]/.test(lines[index]!)) index -= 1;
+        const statement = lines[index]!.trimEnd();
+        const key = `${file.path} ${statement}`;
+        const seen = built.get(key) ?? { where: file.path, line: index + 1, statement, times: 0 };
+        seen.times += 1;
+        built.set(key, seen);
+      }
     }
-    expect(offenders).toEqual([]);
+
+    const owner = (site: { where: string; statement: string }) =>
+      excused.find(
+        (known) => known.where === site.where && site.statement.startsWith(known.statement),
+      );
+    const unexcused = [...built.values()]
+      .filter((site) => owner(site)?.times !== site.times)
+      .map((site) => `${site.where}:${site.line} ${site.statement} builds ${site.times}`);
+    expect(
+      unexcused,
+      "build an error body by throwing a TransportError or an AppError for errorEnvelope to " +
+        "render, or through errorResponse; a new constructor goes in TRANSPORT_LEVEL with its reason",
+    ).toEqual([]);
+
+    // The other half: an entry outliving its statement licenses the next one,
+    // and an empty scan would otherwise pass for a clean one.
+    const stale = excused
+      .filter((known) => ![...built.values()].some((site) => owner(site) === known))
+      .map((known) => `${known.where} ${known.statement}`);
+    expect(stale).toEqual([]);
   });
 });

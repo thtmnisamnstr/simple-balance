@@ -274,7 +274,12 @@ integration("password reset and address verification", () => {
       password: "newcomer-password-1",
     });
     expect(signUp.status).toBe(200);
-    expect((await signUp.json()).token).toBeNull();
+    // No session before the address is confirmed. This read the body's `token`
+    // as null, and the auth routes no longer put a session token in a body at
+    // all, so the cookie is where a session would show.
+    expect(signUp.headers.getSetCookie().some((cookie) => /session_token=[^;]+/.test(cookie))).toBe(
+      false,
+    );
 
     const blocked = await post(app, "/api/auth/sign-in/email", {
       email: "newcomer@example.com",

@@ -164,6 +164,68 @@ describe("API transport security wiring", () => {
 });
 
 /**
+ * What a refusal that comes before the session check still says about itself.
+ *
+ * `no-store` and the deprecation headers were both set after the guards — the
+ * first inside the session check, the second by a middleware on each old route
+ * — so a cross-origin 403, a 415 and a 401 on an old spelling went out without
+ * them. `http.md` asks `no-store` on every `/api/v1` response without
+ * exception, and the 401 is what an old tab left open across an upgrade meets
+ * first.
+ */
+describe("headers set before anything can refuse", () => {
+  const anyId = "00000000-0000-4000-8000-000000000001";
+
+  it("marks a cross-origin refusal and a media-type refusal uncacheable", async () => {
+    const crossOrigin = await app.request(`${applicationOrigin}/api/v1/preferences`, {
+      method: "PUT",
+      headers: { origin: "https://attacker.example", "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(crossOrigin.status).toBe(403);
+    expect(crossOrigin.headers.get("cache-control")).toBe("no-store");
+
+    const noMediaType = await app.request(`${applicationOrigin}/api/v1/connected-apps/x`, {
+      method: "DELETE",
+      headers: { origin: applicationOrigin },
+    });
+    expect(noMediaType.status).toBe(415);
+    expect(noMediaType.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("says an old spelling is deprecated even when it refuses the request", async () => {
+    const response = await app.request(`${applicationOrigin}/api/v1/accounts/${anyId}/archive`, {
+      method: "POST",
+      headers: { origin: applicationOrigin, "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(response.status).toBe(401);
+    expect(response.headers.get("deprecation")).toMatch(/^@\d+$/);
+    expect(response.headers.get("sunset")).toBeTruthy();
+    // The successor with the id this request named, never a `{id}` template:
+    // a brace is not allowed in a URI reference, so that link led nowhere.
+    const link = response.headers.get("link") ?? "";
+    expect(link).toContain(`</api/v1/accounts/${anyId}/archived>; rel="successor-version"`);
+    expect(link).toMatch(/CHANGELOG\.md#[\w-]+>; rel="deprecation"/);
+    expect(link).not.toMatch(/[{}]/);
+  });
+
+  it("marks only the old spellings", async () => {
+    const current = await app.request(`${applicationOrigin}/api/v1/accounts/${anyId}/archived`, {
+      method: "POST",
+      headers: { origin: applicationOrigin, "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(current.status).toBe(401);
+    expect(current.headers.get("deprecation")).toBeNull();
+    const old = await app.request(`${applicationOrigin}/api/v1/staged/${anyId}/duplicate`);
+    expect(old.headers.get("link")).toContain(
+      `</api/v1/staged-transactions/${anyId}/duplicate>; rel="successor-version"`,
+    );
+  });
+});
+
+/**
  * The icon lived in the built bundle the whole time and nothing routed to it:
  * only /assets/* was served statically, so /favicon.svg fell through to the
  * single-page shell and a browser was handed index.html under text/html for an
@@ -208,6 +270,24 @@ describe("static files at the root of the client bundle", () => {
   // and two metas, and the check here was `expect(css).toContain(...)` over the
   // whole file — with two palettes that passes when the color turns up in the
   // wrong block, so doubling it would have kept the words and lost the meaning.
+
+  /**
+   * `/robots.txt` reached the single-page shell, which a crawler reads as a
+   * robots file with no rules in it, found by the 0.2.0 sandbox smoke test. It
+   * is a file in public/, so the bundle-root handler above serves it.
+   */
+  it("ships a robots file that keeps every page out of a search index", () => {
+    const robots = readFileSync(
+      path.join(import.meta.dirname, "..", "public", "robots.txt"),
+      "utf8",
+    );
+    const groups = robots
+      .split(/\n\s*\n/)
+      .map((group) => group.split("\n").filter((line) => line && !line.startsWith("#")))
+      .filter((lines) => lines.length);
+    const everyone = groups.find((lines) => lines.includes("User-agent: *"));
+    expect(everyone).toContain("Disallow: /");
+  });
 
   it("keeps the icon the document asks for in the bundle", () => {
     const html = readFileSync(path.join(import.meta.dirname, "..", "index.html"), "utf8");

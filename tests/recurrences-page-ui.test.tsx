@@ -257,8 +257,8 @@ const addDays = (iso: string, days: number) => {
 
 describe("the recurrence form", () => {
   const openForm = async () => {
-    fireEvent.click(screen.getByRole("button", { name: /New recurrence/ }));
-    await screen.findByRole("heading", { name: "New recurrence" });
+    fireEvent.click(screen.getByRole("button", { name: /New recurring transaction/ }));
+    await screen.findByRole("heading", { name: "New recurring transaction" });
   };
 
   it("previews the next five dates with the arithmetic the scheduler runs", async () => {
@@ -360,7 +360,7 @@ describe("the recurrence form", () => {
     });
     fireEvent.change(screen.getByLabelText(/^Repeats/), { target: { value: "daily" } });
 
-    const save = screen.getByRole("button", { name: "Create recurrence" });
+    const save = screen.getByRole("button", { name: "Create recurring transaction" });
     // The button is otherwise enabled here, which is what makes the assertion
     // below mean something rather than being true of any half-filled form.
     expect(save).not.toBeDisabled();
@@ -429,11 +429,11 @@ describe("the recurrence form", () => {
       }),
     );
     fireEvent.click(screen.getByRole("button", { name: /^Edit$/ }));
-    await screen.findByRole("heading", { name: "Edit recurrence" });
+    await screen.findByRole("heading", { name: "Edit recurring transaction" });
 
     expect(screen.getByDisplayValue("Utilities")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Save recurrence" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save recurring transaction" }));
     await vi.waitFor(() => expect(writes).toHaveLength(1));
     expect(writes[0]!.body).toMatchObject({
       shape: { categoryName: "Utilities" },
@@ -452,7 +452,7 @@ describe("the recurrence form", () => {
     fireEvent.click(screen.getByLabelText(/On a relative day/));
     fireEvent.change(screen.getByLabelText(/^Which one/), { target: { value: "-1" } });
     fireEvent.change(screen.getByLabelText(/^Day$/), { target: { value: "5" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create recurrence" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create recurring transaction" }));
 
     await vi.waitFor(() => expect(writes).toHaveLength(1));
     expect(writes[0]!.path).toBe("/api/v1/recurrences");
@@ -492,7 +492,7 @@ describe("the recurrence form", () => {
    */
   it("is laid out like the schedule section above it", async () => {
     await renderPage([]);
-    fireEvent.click(screen.getByRole("button", { name: /New recurrence/ }));
+    fireEvent.click(screen.getByRole("button", { name: /New recurring transaction/ }));
     const dialog = within(await screen.findByRole("dialog"));
 
     for (const name of ["Schedule", "Notifications"]) {
@@ -512,7 +512,7 @@ describe("the recurrence form", () => {
     const toggle = screen.getByLabelText(/Email me when this proposes/);
     expect(toggle).not.toBeChecked();
     fireEvent.click(toggle);
-    fireEvent.click(screen.getByRole("button", { name: "Create recurrence" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create recurring transaction" }));
 
     await vi.waitFor(() => expect(writes).toHaveLength(1));
     expect(writes[0]!.body).toMatchObject({ notifyOnCreate: true });

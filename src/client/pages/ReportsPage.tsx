@@ -15,7 +15,7 @@ import {
 } from "../components.js";
 import { formatDate, formatMoney, isNegativeMoney, sumMoney } from "../money.js";
 import { useDateRange } from "../date-range.js";
-import { Link, useLocation, useParams, useSearchParams } from "../router.js";
+import { Link, Navigate, useLocation, useParams, useSearchParams } from "../router.js";
 import { reportBuckets, reportNames, type ReportName } from "../../shared/domain.js";
 import { emptyScreen, waysOut } from "../list-filters.js";
 
@@ -190,6 +190,13 @@ export default function ReportsPage() {
 
   return (
     <>
+      {/* A report name this page does not know drew Net worth under an address
+          that still said otherwise. Replaced rather than pushed, so Back does
+          not land on the bad address again; inside the page rather than as an
+          early return, so the page's first return still carries its header. */}
+      {param !== undefined && !isReportName(param) ? (
+        <Navigate to={{ pathname: "/reports", search: location.search }} replace />
+      ) : null}
       <PageHeader eyebrow="Reports" title={TITLES[report]} description={BLURBS[report]} />
 
       <nav className="report-tabs" aria-label="Reports">
@@ -210,13 +217,13 @@ export default function ReportsPage() {
           one control every page shares was the one in a different place. */}
       <DateRangeBar />
 
-      <div className="date-bar" role="group" aria-label="Report options">
-        {/* The only `.date-bar` in the app without one, so an unlabelled
+      <div className="option-bar" role="group" aria-label="Report options">
+        {/* The only `.option-bar` in the app without one, so an unlabelled
             dropdown sat directly under a bar that announces itself with a
             glyph and the word "Viewing". The group's own name is different
             from the visible word, as it is on the other two: `aria-label`
             replaces content, so a title repeating it would be read twice. */}
-        <div className="date-bar-title">
+        <div className="option-bar-title">
           <SlidersHorizontal size={17} />
           <span>Options</span>
         </div>

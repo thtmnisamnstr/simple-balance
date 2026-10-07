@@ -409,7 +409,7 @@ integration("changing many staged rows at once", () => {
         patch: { payee: "Stolen" },
         idempotencyKey: nextKey(),
       }),
-    ).rejects.toThrow(/unavailable/i);
+    ).rejects.toThrow(/were not found/);
     const stillTheirs = await rowsById(stranger);
     expect(
       (stillTheirs.get((theirs as { id: string }).id)!.draft as Record<string, unknown>).payee,

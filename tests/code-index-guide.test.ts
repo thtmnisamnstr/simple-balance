@@ -370,15 +370,17 @@ describe("what the formatter is pointed at", () => {
    * hardcoded `{deploy,scripts}` glob passed every mutation except the one that
    * matters: the command was widened and nothing noticed.
    */
-  const outside = readdirSync(".", { withFileTypes: true })
-    .filter((entry) => !entry.name.startsWith(".") && !IGNORED.has(entry.name))
-    .flatMap((entry) =>
-      entry.isDirectory()
-        ? globSync(`${entry.name}/**/*`).filter((path) => !path.includes("node_modules"))
-        : [entry.name],
-    )
-    .filter((path) => SOURCE.test(path) && !covered(path))
-    .sort();
+  const beyondFormat = (pattern: RegExp) =>
+    readdirSync(".", { withFileTypes: true })
+      .filter((entry) => !entry.name.startsWith(".") && !IGNORED.has(entry.name))
+      .flatMap((entry) =>
+        entry.isDirectory()
+          ? globSync(`${entry.name}/**/*`).filter((path) => !path.includes("node_modules"))
+          : [entry.name],
+      )
+      .filter((path) => pattern.test(path) && !covered(path))
+      .sort();
+  const outside = beyondFormat(SOURCE);
 
   const guide = flat(INDEX);
 
@@ -399,23 +401,34 @@ describe("what the formatter is pointed at", () => {
   });
 
   /**
-   * The five that make this a live divergence rather than a latent one.
+   * Every file the command does not reach, held to the formatter here because
+   * nothing else holds it.
    *
-   * A scope that excludes only already-formatted files is a tidiness question.
-   * A scope that excludes `scripts/set-version.mjs` — the first command the
-   * release procedure runs — is the toolchain disagreeing with itself about a
-   * file somebody edits under time pressure.
+   * This used to pin the divergence rather than close it. It counted the files
+   * a format check rejected — five, `scripts/set-version.mjs` among them, the
+   * first command the release procedure runs — and required the guide to say
+   * that number and name each one, so formatting them failed the test. What it
+   * could not say was that the next unformatted script was wrong: a sixth only
+   * had to be listed. Now nothing outside `format`'s paths may fail a check,
+   * which `npm run verify` never asks of them.
+   *
+   * `.mts` too, which `SOURCE` leaves out of the guide's census: the scripts'
+   * type declarations are `.d.mts`, and oxfmt formats them like any module.
    */
-  it("names the files outside it that a format check would reject", () => {
+  it("holds every file outside it to the formatter anyway", () => {
+    const code = beyondFormat(/\.(?:[cm]?[jt]s|[jt]sx)$/);
     let output: string;
+    let status = 0;
     try {
-      output = execFileSync("npx", ["oxfmt", "--check", ...outside], {
+      output = execFileSync("npx", ["oxfmt", "--check", ...code], {
         cwd: process.cwd(),
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
       });
     } catch (error) {
-      output = String((error as { stdout?: string }).stdout ?? "");
+      const thrown = error as { status?: number; stdout?: string };
+      status = thrown.status ?? 1;
+      output = String(thrown.stdout ?? "");
     }
     /*
      * Strip the colour before matching, or this check silently inverts.
@@ -424,11 +437,8 @@ describe("what the formatter is pointed at", () => {
      * watching, and GitHub Actions makes it think so — `FORCE_COLOR` is set for
      * the whole job. The capture then holds
      * `\x1b[38;2;244;191;117;1mscripts/set-version.mjs\x1b[0m` rather than the
-     * path, so `failing.length` is still five and the count assertion above
-     * still passes, while every `guide.includes()` below fails on a string the
-     * guide could not possibly contain. Green on a laptop, red on CI, and the
-     * failure names the five files the guide *does* name — which reads as the
-     * guide being wrong when it is right.
+     * path, and every match below reads nothing — which here would mean a
+     * count of zero files checked passing as zero files failing.
      *
      * Not `NO_COLOR`: oxfmt ignores it, checked here with
      * `NO_COLOR=1 FORCE_COLOR=1 npx oxfmt --check`, which still colours. Not a
@@ -447,9 +457,16 @@ describe("what the formatter is pointed at", () => {
     const ESCAPE = String.fromCharCode(27);
     const plain = output.replaceAll(new RegExp(`${ESCAPE}\\[[\\d;]*m`, "g"), "");
     const failing = [...plain.matchAll(/^(\S+) \(\d+ms\)$/gm)].map(([, path]) => path!);
-    expect(says(guide, `${spell(failing.length)} of those files fail a`)).toBe(true);
-    const unnamed = failing.filter((path) => !guide.includes(`\`${path}\``));
-    expect(unnamed, "list it, or the count above is a number with nothing behind it").toEqual([]);
+    // Found what it was meant to find: the release script is in the
+    // population, and oxfmt read at least every script — none of which
+    // `.oxfmtrc.json` ignores — rather than skipping them and passing.
+    expect(code).toContain("scripts/set-version.mjs");
+    const checked = Number(/ on (\d+) files/.exec(plain)?.[1] ?? 0);
+    expect(checked, plain).toBeGreaterThanOrEqual(
+      code.filter((path) => path.startsWith("scripts/")).length,
+    );
+    expect(failing, "run `npx oxfmt` on these").toEqual([]);
+    expect(status, plain).toBe(0);
   });
 
   /**

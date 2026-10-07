@@ -44,6 +44,7 @@ import {
   reversesEntry,
   transactionDraftSchema,
   transactionUpdateSchema,
+  type EntryType,
 } from "../../shared/domain.js";
 import { getDb, type Database, type DbTransaction, withTransaction } from "../db/client.js";
 import {
@@ -70,6 +71,8 @@ import {
   lockCategoryNamespace,
   lockIdempotencyKey,
   lockPayeeNamespace,
+  patchChangesNothing,
+  sameStoredValue,
   selectionFingerprint,
   serializeRow,
   setIdempotent,
@@ -210,7 +213,9 @@ async function getOwnedAccounts(
     rows.length !== new Set(ids).size ||
     rows.some((row) => row.archivedAt !== null && !allowedArchivedIds.has(row.id))
   ) {
-    throw validationError("One or more accounts are unavailable");
+    throw validationError(
+      "One or more of those accounts is archived or was not found. Choose an account you are using.",
+    );
   }
   // Separately, and with its own sentence: "unavailable" is what an account
   // somebody else owns says, and a frozen account is one of theirs that they
@@ -257,6 +262,16 @@ type PrepareTransactionOptions = {
    * written; whoever commits the row opens the real one.
    */
   systemAccounts?: "ensure" | "lookup";
+  /**
+   * The template id the entry being edited already carries.
+   *
+   * Ownership was checked when it was first written, and the id carries no
+   * foreign key, so deleting the template leaves it in place by design. Checked
+   * again on every edit, it made an entry from a deleted template impossible to
+   * edit, restore, or take part in a mass edit — the browser sends the stored id
+   * back and has no way to clear it — over an id nobody was changing.
+   */
+  storedTemplateId?: string | null;
 };
 
 /**
@@ -334,10 +349,7 @@ function counterAccount(
  * browser previews it and this enforces it. All this adds is the refusal: the
  * form shows the sentence beside the field, and here it is a 422.
  */
-function counterKindFor(
-  type: "deposit" | "withdrawal",
-  namedKinds: ReadonlySet<CategoryKind>,
-): SystemAccountKind {
+function counterKindFor(type: EntryType, namedKinds: ReadonlySet<CategoryKind>): SystemAccountKind {
   const side = resolveEntrySide(type, namedKinds);
   if (!side.ok) throw validationError(side.message);
   return side.counterKind;
@@ -467,7 +479,11 @@ export function buildPreparedTransaction(
 
   if (draft.type === "deposit") {
     const destination = accountMap.get(draft.toAccountId);
-    if (!destination) throw validationError("Destination account is unavailable");
+    if (!destination) {
+      throw validationError(
+        "The account the money goes to is archived or was not found. Choose another account.",
+      );
+    }
     assertLegsCoverTotal(draft, draft.amount);
     return {
       transaction: {
@@ -502,7 +518,11 @@ export function buildPreparedTransaction(
 
   if (draft.type === "withdrawal") {
     const source = accountMap.get(draft.fromAccountId);
-    if (!source) throw validationError("Source account is unavailable");
+    if (!source) {
+      throw validationError(
+        "The account the money comes from is archived or was not found. Choose another account.",
+      );
+    }
     assertLegsCoverTotal(draft, draft.amount);
     return {
       transaction: {
@@ -533,7 +553,11 @@ export function buildPreparedTransaction(
   }
   const source = accountMap.get(draft.fromAccountId);
   const destination = accountMap.get(draft.toAccountId);
-  if (!source || !destination) throw validationError("Transfer account is unavailable");
+  if (!source || !destination) {
+    throw validationError(
+      "One of the transfer's accounts is archived or was not found. Choose another account.",
+    );
+  }
   if (source.currency !== destination.currency && !draft.destinationAmount) {
     throw validationError("Destination amount is required when transfer currencies differ", {
       field: "destinationAmount",
@@ -628,6 +652,46 @@ function transactionShapeColumns(values: typeof transactions.$inferInsert) {
 }
 
 /**
+ * Whether saving this draft would leave the entry exactly as it is.
+ *
+ * `repostTransaction` already writes no posting for an edit that moves no
+ * money, but the row itself was still rewritten, its version bumped and an
+ * audit entry written for a change that was not one. A bumped version is not
+ * harmless: every other form holding this entry is now stale and refuses its
+ * next save, over nothing. So an unchanged save writes nothing at all, the
+ * way AGENTS.md has always described it.
+ *
+ * The columns compare the way `sameStoredValue` says. A leg matches only by
+ * id: a leg sent without one is a new leg, which moves the money to a new leg
+ * id even when the figures agree.
+ */
+function changesNothing(
+  before: typeof transactions.$inferSelect,
+  beforeLegs: readonly TransactionLegRow[],
+  prepared: PreparedTransaction,
+) {
+  const next = {
+    ...transactionShapeColumns(prepared.transaction),
+    externalId: prepared.transaction.externalId ?? null,
+  };
+  const current = { ...transactionShapeColumns(before), externalId: before.externalId ?? null };
+  if (!patchChangesNothing(current, next, ["sourceAmount", "destinationAmount", "effectiveRate"])) {
+    return false;
+  }
+  const liveLegs = beforeLegs.filter((leg) => !decimal(leg.amount).isZero());
+  if (liveLegs.length !== prepared.legs.length) return false;
+  return prepared.legs.every((leg, index) => {
+    const stored = liveLegs[index]!;
+    return (
+      leg.id === stored.id &&
+      leg.categoryId === stored.categoryId &&
+      sameStoredValue(leg.amount, stored.amount, true) &&
+      sameStoredValue(leg.note, stored.note)
+    );
+  });
+}
+
+/**
  * Bring a transaction's legs to the desired list and hand back where each
  * prepared posting's `legIndex` now points.
  *
@@ -661,7 +725,11 @@ async function resyncLegs(
   const ids: (string | null)[] = [];
   for (const [ordinal, leg] of desired.entries()) {
     const current = leg.id ? byId.get(leg.id) : undefined;
-    if (leg.id && !current) throw validationError("Leg is unavailable");
+    if (leg.id && !current) {
+      throw validationError(
+        "One of these split rows no longer belongs to this transaction. Open it again and retry.",
+      );
+    }
     if (current) {
       named.add(current.id);
       await tx
@@ -974,7 +1042,9 @@ export async function prepareTransaction(
       !category ||
       (category.archivedAt !== null && !options.allowedArchivedCategoryIds?.has(category.id))
     ) {
-      throw validationError("Category is unavailable");
+      throw validationError(
+        "That category is archived or was not found. Choose another, or restore it first.",
+      );
     }
     namedKinds.add(category.kind);
   }
@@ -1014,7 +1084,7 @@ export async function prepareTransaction(
 
   // A template id carries no foreign key, so ownership is checked here. Without
   // it an entry could name somebody else's template and be counted against it.
-  if (draft.templateId) {
+  if (draft.templateId && draft.templateId !== options.storedTemplateId) {
     const owned = options.references
       ? options.references.templateIds.has(draft.templateId)
       : (
@@ -1029,7 +1099,7 @@ export async function prepareTransaction(
             )
             .limit(1)
         ).length > 0;
-    if (!owned) throw validationError("Template is unavailable");
+    if (!owned) throw validationError("The template this entry was made from was not found.");
   }
 
   return assertBalanced(
@@ -1374,6 +1444,7 @@ export async function listAllTransactions(
       if (all.length > maxRows) {
         throw validationError(
           `Export exceeds ${maxRows.toLocaleString("en-US")} rows. Narrow it with a start and end date and export one range at a time.`,
+          { limit: maxRows },
         );
       }
       if (rows.length < batchSize) return all;
@@ -1480,7 +1551,7 @@ function transactionFilterConditions(actor: Actor, query: BulkTransactionFilter)
   if (query.type) conditions.push(eq(transactions.type, query.type));
   if (query.categoryId) {
     // An exists rather than a join, so a receipt split two ways across the same
-    // category is still one row in the list and counts once towards a mass
+    // category is still one row in the list and counts once toward a mass
     // edit's expected count.
     conditions.push(
       or(
@@ -1745,6 +1816,7 @@ type BulkEditPlan = {
   before: TransactionRow;
   draft: TransactionDraft;
   prepared: PreparedTransaction;
+  unchanged: boolean;
 };
 
 function assertExpectedFilterSnapshot(
@@ -1793,7 +1865,9 @@ async function selectBulkSnapshot(
     .where(and(eq(transactions.userId, actor.userId), inArray(transactions.id, ids)))
     .orderBy(transactions.id);
   if (rows.length !== ids.length) {
-    throw notFound("One or more transactions are unavailable");
+    throw notFound(
+      "One or more of those transactions were not found; they may have been deleted. Reload the list and try again.",
+    );
   }
   const expectedVersions = new Map(selection.items.map((item) => [item.id, item.expectedVersion]));
   const staleItems = rows
@@ -2016,6 +2090,7 @@ export async function bulkEditTransactions(
       );
       const prepared = await prepareTransaction(tx, actor, draft, {
         references,
+        storedTemplateId: before.templateId,
         allowedArchivedAccountIds: existingAccountIds,
         // A category archived since the entry was written still has to be
         // allowed through, or a mass date change fails on a split whose
@@ -2049,15 +2124,21 @@ export async function bulkEditTransactions(
         before,
         prepared,
         draft: { ...draft, payee: canonicalPayee },
+        // A row the patch leaves exactly as it was is not written, the way a
+        // single unchanged save is not: setting a category on a hundred rows
+        // that forty already had bumped all hundred, and every form holding
+        // one of the forty went stale over nothing.
+        unchanged: changesNothing(before, legs, prepared),
       });
     }
+    const changing = plans.filter((plan) => !plan.unchanged);
 
-    await assertBulkDuplicatesAllowed(tx, actor, plans, parsed.allowDuplicates);
+    await assertBulkDuplicatesAllowed(tx, actor, changing, parsed.allowDuplicates);
 
-    const plannedItems = plans.map(({ before, draft }) => ({
+    const plannedItems = plans.map(({ before, draft, unchanged }) => ({
       id: before.id,
       previousVersion: before.version,
-      nextVersion: before.version + 1,
+      nextVersion: unchanged ? before.version : before.version + 1,
       type: draft.type,
       date: draft.date,
       payee: draft.payee,
@@ -2065,7 +2146,7 @@ export async function bulkEditTransactions(
     const visibleItems =
       parsed.selection.mode === "filter" ? plannedItems.slice(0, 200) : plannedItems;
     const baseResult = {
-      updatedCount: plans.length,
+      updatedCount: changing.length,
       dryRun: parsed.dryRun,
       selectionCount: plans.length,
       selectionFingerprint: snapshotFingerprint,
@@ -2079,7 +2160,7 @@ export async function bulkEditTransactions(
 
     const now = new Date();
     const updatedRows: TransactionRow[] = [];
-    for (const { before, prepared } of plans) {
+    for (const { before, prepared } of changing) {
       const values = prepared.transaction;
       const [updated] = await tx
         .update(transactions)
@@ -2101,7 +2182,7 @@ export async function bulkEditTransactions(
       updatedRows.push(updated);
     }
 
-    for (const { before, prepared } of plans) {
+    for (const { before, prepared } of changing) {
       const legIds = await resyncLegs(tx, actor, before.id, prepared.legs);
       // A deleted row keeps its labels editable and its ledger void.
       await repostTransaction(
@@ -2114,7 +2195,7 @@ export async function bulkEditTransactions(
     const editedLegs = await legsByTransaction(
       tx,
       actor,
-      plans.map((plan) => plan.before.id),
+      changing.map((plan) => plan.before.id),
     );
     // One insert for the whole edit rather than one per row. They land in this
     // transaction either way, so a round trip each bought nothing — and a mass
@@ -2122,7 +2203,7 @@ export async function bulkEditTransactions(
     await writeAuditMany(
       tx,
       actor,
-      plans.map(({ before }, index) => ({
+      changing.map(({ before }, index) => ({
         entityType: "transaction",
         entityId: before.id,
         operation: "bulk_update",
@@ -2138,7 +2219,7 @@ export async function bulkEditTransactions(
     await pruneOrphanedCategories(
       tx,
       actor,
-      plans.flatMap((plan, index) =>
+      changing.flatMap((plan, index) =>
         categoriesReleasedBy(
           {
             categoryId: plan.before.categoryId,
@@ -2341,6 +2422,7 @@ export async function updateTransaction(
   transaction?: DbTransaction,
 ) {
   const { draft, expectedVersion, allowDuplicate } = transactionUpdateSchema.parse(input);
+  let wrote = true;
   const updated = await withTransaction(transaction, async (tx) => {
     const [before] = await tx
       .select()
@@ -2370,11 +2452,23 @@ export async function updateTransaction(
       ...draftAccountIds(draft),
       ...allowedArchivedAccountIds,
     ]);
+    // The category namespace too, whenever the stored entry names a category,
+    // and not only when the new draft does. Moving an entry off its category
+    // prunes that category at the end, which takes this lock — after the payee
+    // lock `prepareTransaction` takes — and a create naming a category takes
+    // the two the other way round: the ABBA inversion helpers.ts orders against,
+    // which `bulkEditTransactions` already closed for the rows it reads.
+    if (allowedArchivedCategoryIds.size) await lockCategoryNamespace(tx, actor);
     const resolvedDraft = await resolveDraftCategory(tx, actor, draft);
     const prepared = await prepareTransaction(tx, actor, resolvedDraft, {
       allowedArchivedAccountIds,
       allowedArchivedCategoryIds,
+      storedTemplateId: before.templateId,
     });
+    if (changesNothing(before, beforeLegs ?? [], prepared)) {
+      wrote = false;
+      return hydrateTransaction(tx, actor, before);
+    }
     await assertDuplicateAllowed(tx, actor, resolvedDraft, allowDuplicate, id);
     const [updated] = await tx
       .update(transactions)
@@ -2423,7 +2517,7 @@ export async function updateTransaction(
     );
     return hydrateTransaction(tx, actor, updated);
   });
-  countAfterCommit(transaction, () => ledgerWrites.inc({ operation: "update" }));
+  if (wrote) countAfterCommit(transaction, () => ledgerWrites.inc({ operation: "update" }));
   return updated;
 }
 
@@ -2435,6 +2529,7 @@ export async function setTransactionDeleted(
   allowDuplicate = false,
   transaction?: DbTransaction,
 ) {
+  let wrote = true;
   const changed = await withTransaction(transaction, async (tx) => {
     const [before] = await tx
       .select()
@@ -2443,15 +2538,36 @@ export async function setTransactionDeleted(
       .limit(1);
     if (!before) throw notFound("Transaction not found");
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
+    // Asked for the state it is already in. Deleting a deleted entry used to
+    // stamp it again, bump its version and write a second audit entry for a
+    // reversal that posted nothing.
+    if ((before.deletedAt !== null) === deleted) {
+      wrote = false;
+      return hydrateTransaction(tx, actor, before);
+    }
     // Both directions move money: voiding posts the reversal, restoring posts
     // it back. The accounts come from the stored row, because the request
     // carries an id and a version and nothing else.
-    assertAccountsWritable(
-      await accountFreeze(tx, actor),
-      [before.sourceAccountId, before.destinationAccountId].filter(
-        (accountId): accountId is string => accountId !== null,
-      ),
+    const entryAccountIds = [before.sourceAccountId, before.destinationAccountId].filter(
+      (accountId): accountId is string => accountId !== null,
     );
+    // Namespaces first and rows second, the order every other ledger write
+    // takes. Restoring took the duplicate lock and wrote the row before
+    // `prepareTransaction` took the account, category and payee locks — the
+    // reverse of a mass edit or a payee merge holding those and waiting on this
+    // row, which deadlocked and answered a 500. And voiding took no account lock
+    // at all, so it could race archiving the same account: each committed
+    // without seeing the other's postings, and the archived account was left
+    // holding the voided amount until the next start reconciled it.
+    await lockAccountReferences(tx, actor, entryAccountIds);
+    if (!deleted) {
+      const storedLegs = (await legsByTransaction(tx, actor, [id])).get(id) ?? [];
+      if (before.categoryId || storedLegs.some((leg) => leg.categoryId)) {
+        await lockCategoryNamespace(tx, actor);
+      }
+      await lockPayeeNamespace(tx, actor);
+    }
+    assertAccountsWritable(await accountFreeze(tx, actor), entryAccountIds);
     if (!deleted && before.deletedAt) {
       await assertDuplicateAllowed(tx, actor, transactionToDraft(before), allowDuplicate, id);
     }
@@ -2479,6 +2595,7 @@ export async function setTransactionDeleted(
     let restored: (typeof postings.$inferInsert)[] = [];
     if (!deleted) {
       const prepared = await prepareTransaction(tx, actor, transactionToDraft(updated, legs), {
+        storedTemplateId: updated.templateId,
         allowedArchivedAccountIds: new Set(
           [updated.sourceAccountId, updated.destinationAccountId].filter(
             (accountId): accountId is string => accountId !== null,
@@ -2507,9 +2624,11 @@ export async function setTransactionDeleted(
   // things to watch: a deployment deleting steadily is somebody cleaning up,
   // and one restoring steadily is somebody undoing a mistake being made
   // repeatedly.
-  countAfterCommit(transaction, () =>
-    ledgerWrites.inc({ operation: deleted ? "delete" : "restore" }),
-  );
+  if (wrote) {
+    countAfterCommit(transaction, () =>
+      ledgerWrites.inc({ operation: deleted ? "delete" : "restore" }),
+    );
+  }
   return changed;
 }
 

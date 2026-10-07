@@ -228,9 +228,30 @@ In `AGENTS.md`, move this release's migrations from "written and unreleased" to
 the frozen list, attributed to this version, and leave behind only migrations
 that are still genuinely unreleased.
 
+Then record each newly frozen file's SHA-256 and journal `when` — this appends
+every migration the journal names that the register does not have yet, and
+touches nothing already in it:
+
+```sh
+node -e 'const {createHash} = require("node:crypto"); const fs = require("node:fs");
+const journal = JSON.parse(fs.readFileSync("drizzle/meta/_journal.json", "utf8"));
+const path = "tests/support/frozen-migrations.json";
+const register = JSON.parse(fs.readFileSync(path, "utf8"));
+for (const entry of journal.entries) {
+  const file = entry.tag + ".sql";
+  if (register[file]) continue;
+  const body = fs.readFileSync("drizzle/" + file);
+  register[file] = { sha256: createHash("sha256").update(body).digest("hex"), when: entry.when };
+}
+fs.writeFileSync(path, JSON.stringify(register, null, 2) + "\n");'
+```
+
 Once an image has run a migration against somebody's data it can never be edited
 again, and that list is what says so. `tests/migrations.test.ts` holds the list
-to what is on disk.
+to what is on disk, and `tests/frozen-migrations.test.ts` holds every frozen
+file to the bytes and the timestamp that shipped — the migrator compares the
+timestamp and never the hash, so a changed body is otherwise found by somebody's
+database rather than by a test.
 
 ## 7. Verify and commit
 

@@ -18,12 +18,13 @@ import {
   Button,
   ConfirmDialog,
   EmptyState,
+  formatCount,
   Note,
   PageHeader,
   Skeleton,
   useConfirm,
 } from "../components.js";
-import { formatDate, formatMoney } from "../money.js";
+import { formatDate, formatMoney, movementSign } from "../money.js";
 import { TransactionForm } from "../forms.js";
 import { summarizeStagedDraft } from "../staged-draft.js";
 import { Link, Navigate, useParams } from "../router.js";
@@ -81,6 +82,11 @@ export default function DuplicateReviewPage() {
    */
   const [handled, setHandled] = useState<{ from: string; to: string | "done" } | null>(null);
   const advanceTo = handled && handled.from === id ? handled.to : null;
+  // The review a drop of the OTHER row happened on. That drop stays on the
+  // page and swaps the pair for "Nothing repeats this anymore", and the panel
+  // whose button did it is the one that went, so focus fell to `<body>` and
+  // the change was announced to nobody (`web.md` 13.3).
+  const [droppedOtherOn, setDroppedOtherOn] = useState<string | null>(null);
 
   const review = useQuery({
     queryKey: ["staged", id, "duplicate"],
@@ -116,6 +122,8 @@ export default function DuplicateReviewPage() {
           from: id,
           to: at(position + 1) ?? at(position - 1) ?? "done",
         });
+      } else if (id) {
+        setDroppedOtherOn(id);
       }
       await Promise.all([
         queryClient.invalidateQueries({
@@ -166,13 +174,13 @@ export default function DuplicateReviewPage() {
         {/* 13.3's shape, on the branch that ends every run: the Drop button is
             inside the panel this replaces, so confirming unmounts the element
             the dialog's `close()` would have returned focus to and it falls to
-            `<body>`. The neighbour case needs nothing — `<Navigate>` changes
+            `<body>`. The neighbor case needs nothing — `<Navigate>` changes
             the pathname and the shell moves focus to `<main>` — so only the
             queue of one was bare, which is the common ending rather than an
             edge. `EmptyState` cannot take focus and `Note` is a plain `<p>`,
             so this is also the only thing here a screen reader announces. */}
         <Alert kind="success" takeFocus>
-          The row was dropped. Nothing left in the queue looks like a copy of anything else.
+          The row was deleted. Nothing left in the queue looks like a copy of anything else.
         </Alert>
         {caughtUp}
       </>
@@ -221,10 +229,12 @@ export default function DuplicateReviewPage() {
     <>
       <PageHeader
         eyebrow={
-          position >= 0 && total ? `Possible duplicate ${position + 1} of ${total}` : "Review queue"
+          position >= 0 && total
+            ? `Possible duplicate ${formatCount(position + 1)} of ${formatCount(total)}`
+            : "Review queue"
         }
         title="Two records of one payment"
-        description="Correct either side and save it, or drop the copy that should not be there. Only a staged row can be dropped: a committed transaction is already in the books."
+        description="Correct either side and save it, or delete the copy that should not be there. Only a staged row can be deleted here: a committed transaction is already in the books."
         actions={
           /* A fragment and not a wrapper element, which is what this was. The
              responsive rule that gives a phone full-width header buttons is
@@ -273,25 +283,32 @@ export default function DuplicateReviewPage() {
           <Skeleton height={320} />
         </div>
       ) : !review.data ? null : !review.data.second ? (
-        <EmptyState
-          icon={CheckCheck}
-          title="Nothing repeats this anymore"
-          body="Whatever it looked like a copy of has been changed, committed or dropped. This row is on its own now."
-          action={
-            // On to the next one where there is one: this row needs nothing
-            // further, and stopping here would end the run over a row that has
-            // already been settled.
-            at(position + 1) ? (
-              <Link className="button button-primary" to={at(position + 1)!}>
-                Next duplicate <ChevronRight size={15} />
-              </Link>
-            ) : (
-              <Link className="button button-primary" to="/staged">
-                Back to the queue
-              </Link>
-            )
-          }
-        />
+        <>
+          {droppedOtherOn === id ? (
+            <Alert kind="success" takeFocus>
+              The other row was deleted, so nothing repeats this one anymore.
+            </Alert>
+          ) : null}
+          <EmptyState
+            icon={CheckCheck}
+            title="Nothing repeats this anymore"
+            body="Whatever it looked like a copy of has been changed, committed or deleted. This row is on its own now."
+            action={
+              // On to the next one where there is one: this row needs nothing
+              // further, and stopping here would end the run over a row that has
+              // already been settled.
+              at(position + 1) ? (
+                <Link className="button button-primary" to={at(position + 1)!}>
+                  Next duplicate <ChevronRight size={15} />
+                </Link>
+              ) : (
+                <Link className="button button-primary" to="/staged">
+                  Back to the queue
+                </Link>
+              )
+            }
+          />
+        </>
       ) : (
         <div className="duplicate-review">
           {[review.data.first, review.data.second].map((side, index) => {
@@ -318,18 +335,23 @@ export default function DuplicateReviewPage() {
                       <Badge tone="amber">Waiting in the queue</Badge>
                     )}
                   </h2>
+                  {/* Signed, as every movement is (`web.md` 10.1). On the one page
+                      asking whether two records are the same payment, a $50
+                      deposit and a $50 withdrawal read identically without it. */}
                   <span>
                     {committed
                       ? `${formatDate(committed.date)} · ${
                           (committed.sourceAmount ?? committed.destinationAmount)
-                            ? formatMoney(
+                            ? `${movementSign(committed.type).sign}${formatMoney(
                                 committed.sourceAmount ?? committed.destinationAmount ?? "0",
                                 committed.sourceCurrency ?? committed.destinationCurrency ?? "",
-                              )
+                              )}`
                             : ""
                         }`
                       : summary?.amount && summary.currency
-                        ? `${formatDate(String(staged?.draft.date ?? ""))} · ${formatMoney(summary.amount, summary.currency)}`
+                        ? `${formatDate(String(staged?.draft.date ?? ""))} · ${
+                            movementSign(String(staged?.draft.type ?? "")).sign
+                          }${formatMoney(summary.amount, summary.currency)}`
                         : formatDate(String(staged?.draft.date ?? ""))}
                   </span>
                 </div>
@@ -339,6 +361,7 @@ export default function DuplicateReviewPage() {
                   categories={categories.data!}
                   transaction={committed ?? undefined}
                   staged={staged ?? undefined}
+                  autoFocus={false}
                   onDone={refresh}
                 />
 
@@ -350,11 +373,11 @@ export default function DuplicateReviewPage() {
                       onClick={() => drop.ask(staged.id, () => deletion.mutate(side))}
                     >
                       <Trash2 size={15} />
-                      Drop this staged row
+                      Delete this staged row
                     </Button>
                   ) : (
                     <Note>
-                      Committed transactions are not dropped from here. If this is the copy to
+                      Committed transactions are not deleted from here. If this is the copy to
                       remove, delete it from the transactions list.
                     </Note>
                   )}
@@ -367,9 +390,9 @@ export default function DuplicateReviewPage() {
 
       <ConfirmDialog
         open={drop.open}
-        title="Drop this staged row?"
+        title="Delete this staged row?"
         description="It leaves the queue and posts nothing. The other record stays as it is."
-        confirmLabel="Drop it"
+        confirmLabel="Delete staged row"
         onConfirm={drop.confirm}
         onCancel={drop.cancel}
       />

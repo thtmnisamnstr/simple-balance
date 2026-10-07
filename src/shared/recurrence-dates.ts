@@ -311,13 +311,6 @@ function firstIndexAfter(rule: RecurrenceRule, after: string) {
 }
 
 /**
- * The watermark a schedule seeks from: everything on or before it is settled.
- *
- * Shared because the browser's preview and the scheduler have to seek from the
- * same day. Deriving it from the anchor instead, as a form with no row in hand
- * is tempted to, shows a first date the scheduler will not propose.
- */
-/**
  * Whether the proposal floor swallows a posted date.
  *
  * `proposesFrom` exists so nothing is proposed dated before the recurrence was
@@ -332,6 +325,13 @@ export function proposalFloorSwallows(postedDate: string | null, proposesFrom: s
   return postedDate !== null && postedDate < proposesFrom;
 }
 
+/**
+ * The watermark a schedule seeks from: everything on or before it is settled.
+ *
+ * Shared because the browser's preview and the scheduler have to seek from the
+ * same day. Deriving it from the anchor instead, as a form with no row in hand
+ * is tempted to, shows a first date the scheduler will not propose.
+ */
 export function scheduleCursor(row: { proposesFrom: string; lastOccurrenceDate: string | null }) {
   const floor = addDays(row.proposesFrom, -1);
   return row.lastOccurrenceDate ? laterOf(row.lastOccurrenceDate, floor) : floor;

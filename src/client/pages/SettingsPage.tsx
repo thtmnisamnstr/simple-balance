@@ -14,6 +14,7 @@ import {
   ConfirmDialog,
   EmptyState,
   Field,
+  formatCount,
   Input,
   Note,
   PageHeader,
@@ -527,13 +528,19 @@ export function DeleteAccount({ session }: { session: Session }) {
               ) : null}
             </Note>
           ) : null}
+          {/* The person's own address, so it says so (SC 1.3.5): `type="email"`
+              and the `email` token, which is what lets a password manager or
+              a speech tool fill it. It turned autofill off, and repeated the
+              address in a placeholder beside the hint that already shows it.
+              What makes this deliberate is the button and the dialog after
+              it, not making somebody retype what their browser knows. */}
           <Field label="Type your email address to confirm" hint={session.user.email}>
             <Input
               required
+              type="email"
+              autoComplete="email"
               value={confirmEmail}
-              autoComplete="off"
               onChange={(event) => setConfirmEmail(event.target.value)}
-              placeholder={session.user.email}
             />
           </Field>
           {deletion.error ? <Alert>{deletion.error.message}</Alert> : null}
@@ -584,7 +591,9 @@ export function DeleteAccount({ session }: { session: Session }) {
               }`
             : "Everything in this ledger will be removed now. There is no copy and no undo."
         }
-        confirmLabel="Delete everything"
+        // "your account", which is the glossary's qualifier for the sign-in:
+        // the Accounts page's "Delete account" means a bank account.
+        confirmLabel="Delete your account"
         onConfirm={() => {
           setConfirmDelete(false);
           deletion.mutate();
@@ -623,6 +632,10 @@ function ConnectedApps() {
   const queryClient = useQueryClient();
   const timezone = useTimezone();
   const revocation = useConfirm<ConnectedApp>();
+  // The sentence focus lands on after a revoke: the agent's row and its button
+  // go with it, so focus fell to `<body>` and nothing said it had worked
+  // (`web.md` 13.3).
+  const [notice, setNotice] = useState("");
   const apps = useQuery({
     queryKey: ["connected-apps"],
     queryFn: () => api<ConnectedApp[]>("/api/v1/connected-apps"),
@@ -637,7 +650,13 @@ function ConnectedApps() {
         ...json({}),
         method: "DELETE",
       }),
-    onSuccess: async () => {
+    // `revokedTokenCount` goes unread: how many tokens an authorization had
+    // issued is the server's bookkeeping, and what a person asked is whether
+    // the agent is gone, which the list read again here answers.
+    onMutate: () => setNotice(""),
+    onSuccess: async (_result, clientId) => {
+      const name = apps.data?.find((app) => app.clientId === clientId)?.name ?? "The agent";
+      setNotice(`“${name}” can no longer reach this ledger.`);
       await queryClient.invalidateQueries({ queryKey: ["connected-apps"] });
     },
   });
@@ -655,6 +674,11 @@ function ConnectedApps() {
       </header>
 
       {revokeMutation.error ? <Alert>{revokeMutation.error.message}</Alert> : null}
+      {notice ? (
+        <Alert kind="success" takeFocus>
+          {notice}
+        </Alert>
+      ) : null}
 
       {/* One chain, not three sibling expressions. 12.1's four states are
           exclusive, and written as siblings the error rendered BESIDE the
@@ -664,7 +688,7 @@ function ConnectedApps() {
           keyed on the second, so a query that had not started yet showed the
           empty state instead of the skeleton. */}
       {apps.isPending ? (
-        <Skeleton height={64} label="Loading connected apps…" />
+        <Skeleton height={64} label="Loading connected agents…" />
       ) : apps.isError ? (
         <Alert>{apps.error.message}</Alert>
       ) : apps.data.length === 0 ? (
@@ -701,13 +725,16 @@ function ConnectedApps() {
                   ? ` · approval runs out ${when(app.expiresAt, timezone)}`
                   : ""}
                 {app.activeTokenCount > 0
-                  ? ` · ${app.activeTokenCount} active token${app.activeTokenCount === 1 ? "" : "s"}`
+                  ? ` · ${formatCount(app.activeTokenCount)} active token${app.activeTokenCount === 1 ? "" : "s"}`
                   : ""}
               </Note>
             </div>
+            {/* Named for its agent: a list of these read "Revoke, Revoke,
+                Revoke" to anybody moving through the page by its buttons. */}
             <Button
               type="button"
               variant="danger"
+              aria-label={`Revoke ${app.name}`}
               loading={revokeMutation.isPending && revokeMutation.variables === app.clientId}
               onClick={() => revocation.ask(app, () => revokeMutation.mutate(app.clientId))}
             >
@@ -725,7 +752,7 @@ function ConnectedApps() {
             ? `“${revocation.value.name}” loses access immediately, including any token it is already holding, and it cannot renew. Your ledger is not changed and anything it already recorded stays. To let it back in, authorize it again from the agent itself.`
             : undefined
         }
-        confirmLabel="Revoke"
+        confirmLabel="Revoke access"
         onConfirm={revocation.confirm}
         onCancel={revocation.cancel}
       />

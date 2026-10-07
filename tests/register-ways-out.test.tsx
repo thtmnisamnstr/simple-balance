@@ -2,9 +2,10 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Account, PaginatedPage, StagedTransaction, Transaction } from "../src/client/api.js";
+import { noAccountReason } from "../src/client/list-filters.js";
 import { TransactionBrowser } from "../src/client/TransactionBrowser.js";
 import { BrowserRouter } from "../src/client/router.js";
 import { TimezoneProvider } from "../src/client/timezone.js";
@@ -52,7 +53,7 @@ function queryClient() {
   });
 }
 
-function stub() {
+function stub({ accountsFail = false } = {}) {
   const transactionQueries: URL[] = [];
   vi.stubGlobal(
     "fetch",
@@ -79,7 +80,14 @@ function stub() {
       if (url.pathname === "/api/v1/staged-transactions") {
         return json(empty satisfies PaginatedPage<StagedTransaction>);
       }
-      if (url.pathname === "/api/v1/accounts") return json([account]);
+      if (url.pathname === "/api/v1/accounts") {
+        return accountsFail
+          ? new Response(JSON.stringify({ error: { code: "INTERNAL", message: "Down" } }), {
+              status: 500,
+              headers: { "Content-Type": "application/json" },
+            })
+          : json([account]);
+      }
       if (url.pathname === "/api/v1/categories") return json([]);
       if (url.pathname === "/api/v1/payees/suggestions") return json([]);
       return new Response("Not found", { status: 404 });
@@ -88,8 +96,8 @@ function stub() {
   return transactionQueries;
 }
 
-function renderRegister() {
-  window.history.replaceState(null, "", "/transactions?preset=all-time");
+function renderRegister(search = "?preset=all-time") {
+  window.history.replaceState(null, "", `/transactions${search}`);
   return render(
     <QueryClientProvider client={queryClient()}>
       <TimezoneProvider timezone="UTC">
@@ -133,6 +141,23 @@ describe("the register's empty screen", () => {
     expect(screen.queryByText(/turn on Show deleted/i)).toBeNull();
   });
 
+  /**
+   * "Yet" is a claim about the whole ledger, and a bounded range cannot make
+   * it: a view of July said "No transactions yet" with June full. The range is
+   * still not a filter (`web.md` 12.1) — the screen is the constructive one,
+   * about the range, with widening it named first.
+   */
+  it("says nothing in this range, rather than nothing yet, while a range is set", async () => {
+    stub();
+    renderRegister("?preset=custom&start=2026-07-01&end=2026-07-31");
+
+    expect(await screen.findByText("No transactions in this view")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Show deleted"));
+    expect(await screen.findByText("No transactions in this range")).toBeInTheDocument();
+    expect(screen.getByText(/^Widen the date range, or add/)).toBeInTheDocument();
+    expect(screen.queryByText("No transactions yet")).toBeNull();
+  });
+
   it("keeps it a way out rather than a reason to say nothing matches", async () => {
     stub();
     renderRegister();
@@ -145,5 +170,20 @@ describe("the register's empty screen", () => {
     expect(await screen.findByText("No transactions match this view")).toBeInTheDocument();
     expect(screen.getByText(/clear the type filter/i)).toBeInTheDocument();
     expect(screen.getByText(/turn on Show deleted/i)).toBeInTheDocument();
+  });
+});
+
+describe("the Add button when the accounts did not load", () => {
+  it("says they did not load, rather than that there are none", async () => {
+    // It said "Create an account first." to somebody whose accounts merely
+    // failed to arrive, which is a false sentence on a disabled button.
+    stub({ accountsFail: true });
+    renderRegister();
+    const add = await screen.findByRole("button", { name: /Add transaction/ });
+    await waitFor(() =>
+      expect(add).toHaveAccessibleDescription(noAccountReason({ isPending: false, isError: true })),
+    );
+    expect(noAccountReason({ isPending: false, isError: false })).toBe("Create an account first.");
+    expect(noAccountReason({ isPending: true, isError: false })).toBeUndefined();
   });
 });

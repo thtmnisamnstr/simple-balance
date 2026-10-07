@@ -130,7 +130,7 @@ line.** What PostgreSQL wants resident is the indexes, because that is what a
 list ordered by any column it displays is made of. At the capacity target the
 two large tables' indexes alone come to:
 
-```
+```text
 posting             66,100,078 rows x 162.1 B =  10.72 GB
 ledger_transaction  30,000,000 rows x 293.6 B =   8.81 GB
                                                  --------
@@ -164,7 +164,9 @@ machines whose disks would still have been too small.
 **And `small` staying at 4 GiB is that same arithmetic, not thrift.** A `small`
 deployment is sized for 2M transactions, and 4 GiB holds a 2.8M-transaction
 ledger entirely in cache — indexes, heap and all. There is nothing for more
-memory to do there.
+memory to do there that is worth paying for. Oracle is the exception, because
+there the memory is not paid for: see [`small` on Oracle
+Cloud](#small-on-oracle-cloud).
 
 **Storage: yes, and it is the real defect.** Both disks were wrong, in opposite
 directions, because they were one number. The arithmetic is below.
@@ -207,6 +209,32 @@ it does not move with the machine's memory in the same way:
 server takes its configuration — a managed service's parameter group, or
 `postgresql.conf` and `ALTER SYSTEM` on one you keep — and pick the column by
 that server's memory rather than by this machine's.
+
+### `small` on Oracle Cloud
+
+**`oci-single` builds `small`'s database node with 8 GiB rather than 4, and
+writes the five settings to match.** Since June 15, 2026, Oracle's Always Free
+allowance is half what it was: 1,500 OCPU-hours and 9,000 GB-hours of Ampere a
+month, which Oracle calls 2 OCPUs and 12 GB. The `small` pair's four cores are
+past that either way. Its memory is not, and the 8 GB the allowance covers
+beyond the application node's 4 GiB are worth more on the database node than
+anywhere: by the table above they take the ledger held entirely in cache from
+2.8M transactions to 6.3M, and they cost nothing. AWS builds the row as written,
+because there the same memory is a `t4g.large` and is billed.
+
+The numbers are `OCI_DATABASE_SIZES` in `deploy/pulumi/single-common/index.ts`,
+and the settings follow the ratios `medium` and `large` use: a quarter of memory
+for `shared_buffers`, eleven sixteenths for `effective_cache_size`, and 64 MiB a
+GiB for `maintenance_work_mem`.
+
+| | Database node | `shared_buffers` | `effective_cache_size` | `work_mem` | `maintenance_work_mem` | `max_wal_size` |
+| --- | --- | --- | --- | --- | --- | --- |
+| `small` on Oracle Cloud | 2 vCPU, 8 GiB | 2GB | 5632MB | 8MB | 512MB | 4GB |
+
+A machine built before this keeps the settings its first boot wrote, because
+`oci-single` never applies a machine's user data twice. `pulumi up` gives it the
+memory and restarts it; `docs/upgrades.md` has the one edit that gives it the
+settings.
 
 ## What a ledger actually costs
 
@@ -266,7 +294,7 @@ have almost nothing in common.
 
 **The database node**, which holds `PGDATA` and nothing else:
 
-```
+```text
 disk = (ledger × 1.20 + ledger × 0.15 + 2 × max_wal_size) ÷ 0.95 ÷ 0.80
 ```
 
@@ -293,7 +321,7 @@ disk = (ledger × 1.20 + ledger × 0.15 + 2 × max_wal_size) ÷ 0.95 ÷ 0.80
 **The application node**, which holds the dumps, the generated secret and the
 database's CA certificate:
 
-```
+```text
 disk = ((backupKeep + 1) × 0.145 × ledger + 1 GiB) ÷ 0.95 ÷ 0.80
 ```
 

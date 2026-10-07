@@ -21,6 +21,25 @@ import { user } from "./db/schema.js";
 import { log } from "./log.js";
 
 /**
+ * What this deployment asks Google for, said once.
+ *
+ * Better Auth puts `email profile openid` in front of whatever `scope` names
+ * unless `disableDefaultScope` is set, so naming the three here as well sent
+ * each of them twice on every sign-in. Google ignores the repeats, and the
+ * consent screen and the authorization URL are what a person checking what
+ * this app asks for actually reads.
+ */
+export function googleProviderOptions(clientId: string, clientSecret: string) {
+  return {
+    clientId,
+    clientSecret,
+    disableDefaultScope: true,
+    scope: ["openid", "email", "profile"],
+    prompt: "select_account" as const,
+  };
+}
+
+/**
  * What the auth library says when something goes wrong, and where it says it.
  *
  * Two options, and each closes a way round `log`. `logger.log` sends the lines
@@ -61,6 +80,12 @@ export function authReporting(level: LogLevel) {
         log.fromLibrary("Better Auth", lineLevel, message, ...parts),
     },
     onAPIError: {
+      // Where Better Auth sends a person when a flow fails before reaching
+      // anything of ours — an MCP client's authorization link naming a client
+      // that does not exist, most often. Unset, production sends them to
+      // `/?error=…`, which landed on the Overview with nothing on screen saying
+      // why. The browser app answers this path with a page that does.
+      errorURL: "/auth-error",
       onError: (error: unknown) => {
         if (!isAPIError(error)) throw error;
         if (error.status === "INTERNAL_SERVER_ERROR") {
@@ -189,14 +214,7 @@ function createAuthInstance() {
       transaction: true,
     }),
     socialProviders: config.googleAuthEnabled
-      ? {
-          google: {
-            clientId: config.googleClientId!,
-            clientSecret: config.googleClientSecret!,
-            scope: ["openid", "email", "profile"],
-            prompt: "select_account",
-          },
-        }
+      ? { google: googleProviderOptions(config.googleClientId!, config.googleClientSecret!) }
       : {},
     databaseHooks: {
       user: {
@@ -228,11 +246,14 @@ function createAuthInstance() {
       session: {
         create: {
           before: async (newSession, context) => {
+            // Through the hook's own adapter, which runs on the transaction's
+            // connection. Every session this app creates comes from a request,
+            // so there always is one; a caller with none is refused rather than
+            // read for through the pool, which is the deadlock AGENTS.md names.
             const transactionAdapter = context?.context.internalAdapter;
-            const linkedAccounts = transactionAdapter
-              ? await transactionAdapter.findAccounts(newSession.userId)
-              : undefined;
-            return mayCreateSession(newSession.userId, context?.path, linkedAccounts);
+            if (!transactionAdapter) return false;
+            const linkedAccounts = await transactionAdapter.findAccounts(newSession.userId);
+            return mayCreateSession(context?.path, linkedAccounts);
           },
         },
       },

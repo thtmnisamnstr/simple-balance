@@ -77,7 +77,11 @@ export const MIX = [
   { kind: "accounts", percent: 15, what: "GET /api/v1/accounts/:id/balances" },
   { kind: "report", percent: 10, what: "GET /api/v1/reports/:report" },
   { kind: "write", percent: 10, what: "POST /api/v1/transactions — the write path" },
-  { kind: "edit", percent: 5, what: "PATCH /api/v1/transactions/:id — a rename, which posts nothing" },
+  {
+    kind: "edit",
+    percent: 5,
+    what: "PATCH /api/v1/transactions/:id — a rename, which posts nothing",
+  },
   { kind: "budget", percent: 5, what: "GET /api/v1/budget-report" },
 ];
 

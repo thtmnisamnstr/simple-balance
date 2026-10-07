@@ -48,7 +48,7 @@ The last of those cost five lines. `AppError` and `ApiClientError` both declared
 their fields in the constructor signature, which is TypeScript-only syntax that
 emits assignments. They now declare fields and assign them
 (`src/server/services/errors.ts:31-61`,
-`src/client/api.ts:35-52`).
+`src/client/api.ts:35-67`).
 
 The gain is not stylistic. It means `node --experimental-strip-types` and every
 other type-stripping runtime can run this source directly, and it means reading
@@ -75,7 +75,7 @@ erases just as well.
 
 **Contested.** The flag is good advice in general and wrong here. All three
 sites it flags are Hono middleware
-(`src/server/api.ts:1350`, `src/server/http-security.ts:480` and `:887`),
+(`src/server/api.ts:1481`, `src/server/http-security.ts:484` and `:950`),
 where a `MiddlewareHandler` returns a `Response` to answer the request or
 nothing at all to let the next handler run. "Returns on some paths and not
 others" is the contract, not a mistake.
@@ -188,7 +188,7 @@ lookup that a database constraint guarantees is honest, and the alternative is a
 branch that cannot be reached and cannot be tested.
 
 The one this section was written about is
-`src/server/services/accounts.ts:570`, building the row an archived account
+`src/server/services/accounts.ts:576`, building the row an archived account
 would have had so the caller sees the shape it expects; the alternative was
 making every field optional for one call site. The other three are a different
 thing wearing the same syntax, and 2.6 is their rule: each is confined to one
@@ -234,7 +234,7 @@ export type CategoryKind = (typeof categoryKinds)[number];
 
 The array is the single source: Zod validates from it, the database enum is
 generated from it (`src/server/db/schema.ts:199`),
-and the UI iterates it (`src/client/pages/CategoriesPage.tsx:138`).
+and the UI iterates it (`src/client/pages/CategoriesPage.tsx:137`).
 Adding a member is one edit, and every one of those follows.
 
 *Checked by:* `npm run typecheck`, for the half of it that is a refusal:
@@ -260,6 +260,18 @@ The rule it enforces is deliberately narrow: not "every closed set must be a
 tuple", which would fire on correct inline unions used once, but "no union whose
 member set equals a tuple that already exists". That is one set spelled twice,
 and the two can come apart.
+
+**Narrower than its own reason, until 0.2.1.** "One set spelled twice" covers a
+set nobody wrote a tuple for, and that check could not see one: the CSV date
+formats and decimal separators were spelled four and five times, one of them a
+literal `z.enum` in a service, and a budget row's limit source, an import's
+resolutions and the duplicate review's two sides were each spelled in a
+service, its MCP output schema and the client — where a member added to the
+service alone fails the tool with an output validation error. Each has a tuple
+now, and the same file's third case asks that any set spelled more than once —
+as an alias, inline, or a `z.enum` of literals, though not a key list inside
+`Pick` or `Omit` — have one source. Two sets that only share their words are
+named with the reason: an account card's row actions and a category's.
 
 A `type X = "a" | "b";` alias is only where such a union is easiest to see, not
 where it stops. The same set restated as a property or a parameter type reads as
@@ -296,7 +308,7 @@ export const budgetPeriodUnits = [
 ] as const satisfies readonly ReportBucket[];
 ```
 
-(`src/shared/domain.ts:1410`.)
+(`src/shared/domain.ts:1484`.)
 
 `as const` keeps the four literals; `satisfies` checks that every one of them is
 a bucket the report engine can group by. Annotating the constant
@@ -308,17 +320,17 @@ either of the other two that the rule working was a deviation from it. Both pass
 the test the `securityHeaderOptions` paragraph below sets, and one of them is
 load-bearing by `AGENTS.md`:
 
-- `PLAN_LABELS` (`src/shared/domain.ts:3329-3332`) is, in `AGENTS.md`'s words,
+- `PLAN_LABELS` (`src/shared/domain.ts:3491-3494`) is, in `AGENTS.md`'s words,
   "the one place a plan's name is written". `satisfies Record<Plan, string>` is
   what makes a plan added without a label fail to compile; `as const` is what
   keeps `PLAN_LABELS.plus` the literal `"Premium"` rather than `string`, which
   is what `tests/product-facts.test.ts:61` asserts and what the marketing site
   reads through `docs/product/facts.json`. Annotating `Record<Plan, string>`
   would do the first and lose the second.
-- `authReporting` (`src/server/auth.ts:56-73`) returns the logger and error
+- `authReporting` (`src/server/auth.ts:75-98`) returns the logger and error
   handler Better Auth is configured with, checked against
   `Pick<BetterAuthOptions, "logger" | "onAPIError">` without being flattened
-  into it. `src/server/auth.ts:96` spreads the result and
+  into it. `src/server/auth.ts:121` spreads the result and
   `tests/auth-log.test.ts:379` destructures `.onAPIError` off it — which the
   library's own type makes optional, so an annotation would stop that
   compiling.
@@ -339,7 +351,7 @@ totalled: a fourth arriving does not falsify a sentence here.
 ### 2.5 Discriminated unions carry the discriminant in the name
 
 **House.** A transaction draft is a union on `type`, and each member declares it
-as a literal (`src/shared/domain.ts:558`). Every
+as a literal (`src/shared/domain.ts:615`). Every
 function that takes one either handles all three or narrows first. This is why
 `noFallthroughCasesInSwitch` was free: there was nothing to find.
 
@@ -372,7 +384,7 @@ names it. Both spellings confine the cast to one name, which is what the rule
 asks; neither widens anything else.
 
 That discipline is the rule, and it is what separates these from the fourth —
-`src/server/services/accounts.ts:570`, which assembles an internal row shape and
+`src/server/services/accounts.ts:576`, which assembles an internal row shape and
 which 2.2 already records. A cast confined to one property can be read, checked
 against the vendor's changelog, and deleted when the vendor catches up. A cast
 that asserts a whole shape cannot.
@@ -473,8 +485,8 @@ floating-point numbers."
 
 The server uses `decimal.js` through one wrapper
 (`src/server/services/helpers.ts:22`).
-The client uses scaled `bigint` (`src/client/money.ts:160`,
-`src/client/money.ts:175`),
+The client uses scaled `bigint` (`src/client/money.ts:229`,
+`src/client/money.ts:244`),
 because the browser bundle should not carry a decimal library to render a table.
 
 Two implementations of one rule is a risk worth naming: they must agree. What
@@ -522,7 +534,7 @@ own carve-out.
 
 ### 3.5 The Pulumi programs are a second TypeScript program
 
-**House**, and mechanized. `deploy/pulumi` is 8,112 lines of first-party
+**House**, and mechanized. `deploy/pulumi` is 8,208 lines of first-party
 TypeScript that this guide did not know existed. It is not a corner: 0.2.0 took
 it from two stacks to five — `aws`, `gcp`, `oci`, `aws-single`, `oci-single` —
 and
@@ -542,7 +554,7 @@ for keeping them:
 | Typecheck | `npm run typecheck`, two projects | `npm run typecheck` inside `deploy/pulumi`, five projects |
 | In `npm run verify` | yes | no — a separate CI job (`.github/workflows/verify.yml:441-445`) |
 | `oxlint` | yes | yes, same config |
-| `oxfmt` | yes | **no**: `npm run format` is `oxfmt src tests *.ts` (`package.json:28`) |
+| `oxfmt` | yes | not by the command — `npm run format` is `oxfmt src tests *.ts` (`package.json:28`) — but by `tests/code-index-guide.test.ts`, which holds every file the command misses to `oxfmt --check` |
 
 The compiler version is the one that cannot be negotiated. TypeScript 7 removed
 `moduleResolution: node`, and says so rather than degrading —
@@ -602,7 +614,7 @@ updateTransaction(actor, id, input, transaction?)
 setTransactionDeleted(actor, id, expectedVersion, deleted, allowDuplicate?, transaction?)
 ```
 
-(`src/server/services/transactions.ts:1076`, `:2337` and `:2430`.)
+(`src/server/services/transactions.ts:1146`, `:2418` and `:2524`.)
 
 Note that `updateTransaction` takes `input: unknown` and parses it, rather than
 a typed object: the version and the draft arrive together inside it. An update
@@ -624,7 +636,7 @@ nothing to say about the signature, which is the side this rule is about.
   improve on it. Everything in `src/server/services` does this.
 - **Return a result** when the caller is going to render the failure rather than
   propagate it. `resolveEntrySide` returns `{ ok: false, message }`
-  (`src/shared/domain.ts:162`) precisely so the
+  (`src/shared/domain.ts:174`) precisely so the
   browser can preview the refusal without provoking it.
 
 That second shape exists because of a real defect: the form used to let somebody

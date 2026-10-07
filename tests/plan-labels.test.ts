@@ -70,4 +70,29 @@ describe("the label a person reads for a plan", () => {
     }
     expect(offenders).toEqual([]);
   });
+
+  /**
+   * The other spelling. The check above refuses the capitalized wire value, the
+   * word the plan was called before the constant; a label written out by hand —
+   * "Premium" in a sentence — passed it, which is half of what `PLAN_LABELS`
+   * exists to prevent. Every renamed label appears in the source exactly once,
+   * as its own entry in the map.
+   */
+  it("writes each renamed label in the map and nowhere else", () => {
+    const offenders: string[] = [];
+    for (const plan of renamed) {
+      const label = PLAN_LABELS[plan];
+      const word = new RegExp(`\\b${label}\\b`, "g");
+      for (const file of sourceFiles("src")) {
+        const code = readerVisible(file);
+        for (const match of code.matchAll(word)) {
+          const line = code.slice(0, match.index).split("\n").length;
+          const text = code.split("\n")[line - 1]!.trim();
+          if (file.path === "src/shared/domain.ts" && text === `${plan}: "${label}",`) continue;
+          offenders.push(`${file.path}:${line} — ${label}`);
+        }
+      }
+    }
+    expect(offenders, "read it from PLAN_LABELS").toEqual([]);
+  });
 });

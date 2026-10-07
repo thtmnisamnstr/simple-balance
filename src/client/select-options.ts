@@ -109,3 +109,9 @@ export function timezoneOptionLabel(timezone: string) {
   const place = timezone.replaceAll("_", " ").replace("/", " / ");
   return `${place} — ${abbreviation} (${offset})`;
 }
+
+export const categoryKindLabels = {
+  income: "Income",
+  expense: "Expense",
+  both: "Income or expense",
+} as const;

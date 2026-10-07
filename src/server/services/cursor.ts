@@ -1,4 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { sql } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { sortDirections } from "../../shared/domain.js";
 import { getConfig } from "../config.js";
@@ -192,6 +194,21 @@ export function decodeCursor(
     );
   }
   return parsed;
+}
+
+/**
+ * A timestamp column as a page marker, to the microsecond and in UTC.
+ *
+ * A JavaScript date keeps the millisecond, and a column defaulted to `now()`
+ * holds the microsecond — the same one for every row a transaction writes. A
+ * marker that dropped the rest asked the next page for rows earlier than a
+ * moment the whole group was later than, and skipped the group. In UTC because
+ * the marker is an instant compared with an instant; it decides nobody's day.
+ */
+export function instantMarker(column: AnyPgColumn) {
+  // An instant written out and compared as one, so this decides nothing about
+  // anybody's day; UTC only so the text and the instant agree.
+  return sql<string>`to_char(${column} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 }
 
 /**

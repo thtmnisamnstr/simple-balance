@@ -233,7 +233,9 @@ async function fire(user, kind) {
   switch (kind) {
     case "register":
       // The page people live on, and the one the keyset cursor exists for.
-      return fetch(`${base}/api/v1/transactions?limit=50&order=date&direction=desc`, { headers: h });
+      return fetch(`${base}/api/v1/transactions?limit=50&order=date&direction=desc`, {
+        headers: h,
+      });
     case "summary":
       return fetch(`${base}/api/v1/summary`, { headers: h });
     case "accounts": {
@@ -494,7 +496,12 @@ async function cpuLimitOf(name) {
   if (cpuLimits.has(name)) return cpuLimits.get(name);
   let cores = 0;
   try {
-    const { stdout } = await run("docker", ["inspect", name, "--format", "{{.HostConfig.NanoCpus}}"]);
+    const { stdout } = await run("docker", [
+      "inspect",
+      name,
+      "--format",
+      "{{.HostConfig.NanoCpus}}",
+    ]);
     cores = Number(stdout.trim()) / 1e9;
   } catch {
     cores = 0;
@@ -554,13 +561,18 @@ async function serverPercentiles() {
     const buckets = new Map();
     let total = 0;
     for (const line of text.split("\n")) {
-      const bucket = /^simple_balance_http_request_duration_seconds_bucket\{[^}]*le="([^"]+)"[^}]*\}\s+(\d+)/.exec(line);
+      const bucket =
+        /^simple_balance_http_request_duration_seconds_bucket\{[^}]*le="([^"]+)"[^}]*\}\s+(\d+)/.exec(
+          line,
+        );
       if (bucket) {
         const le = Number(bucket[1]);
         buckets.set(le, (buckets.get(le) ?? 0) + Number(bucket[2]));
         continue;
       }
-      const count = /^simple_balance_http_request_duration_seconds_count\{[^}]*\}\s+(\d+)/.exec(line);
+      const count = /^simple_balance_http_request_duration_seconds_count\{[^}]*\}\s+(\d+)/.exec(
+        line,
+      );
       if (count) total += Number(count[1]);
     }
     if (total === 0) return null;
@@ -803,7 +815,9 @@ const results = {
 };
 
 console.log(`\n${"=".repeat(64)}\nCapacity run\n${"=".repeat(64)}`);
-console.log(`  requests measured   ${samplesAll.length.toLocaleString()} (${dispatched.toLocaleString()} dispatched)`);
+console.log(
+  `  requests measured   ${samplesAll.length.toLocaleString()} (${dispatched.toLocaleString()} dispatched)`,
+);
 
 /**
  * Each arm of the schedule on its own line.
@@ -816,7 +830,9 @@ console.log(`  requests measured   ${samplesAll.length.toLocaleString()} (${disp
  * comfortably, and what it does not.
  */
 console.log("\n  By arm of the schedule, from when each request was due:");
-console.log(`    ${"arm".padEnd(9)} ${"requests".padStart(9)} ${"p50".padStart(8)} ${"p95".padStart(9)} ${"p99".padStart(9)}  errors`);
+console.log(
+  `    ${"arm".padEnd(9)} ${"requests".padStart(9)} ${"p50".padStart(8)} ${"p95".padStart(9)} ${"p99".padStart(9)}  errors`,
+);
 for (const name of ["steady", "burst", "imports"]) {
   const phase = phases.get(name);
   if (!phase || phase.samples.length === 0) continue;
@@ -829,7 +845,12 @@ for (const name of ["steady", "burst", "imports"]) {
       `${((bad / phase.samples.length) * 100).toFixed(2)}% (${bad.toLocaleString()})`,
   );
 }
-console.log(`\n  Statuses overall    ${[...statuses.entries()].sort().map(([s, n]) => `${s}:${n}`).join("  ")}`);
+console.log(
+  `\n  Statuses overall    ${[...statuses.entries()]
+    .sort()
+    .map(([s, n]) => `${s}:${n}`)
+    .join("  ")}`,
+);
 
 console.log("\n  Steady arm, by request kind (p95):");
 for (const [kind, list] of [...steady.byKind.entries()].sort()) {
@@ -847,7 +868,12 @@ if (importSamples.length > 0) {
   );
   const codes = new Map();
   for (const i of importSamples) codes.set(i.status, (codes.get(i.status) ?? 0) + 1);
-  console.log(`    statuses            ${[...codes.entries()].sort().map(([c, n]) => `${c}:${n}`).join("  ")}`);
+  console.log(
+    `    statuses            ${[...codes.entries()]
+      .sort()
+      .map(([c, n]) => `${c}:${n}`)
+      .join("  ")}`,
+  );
 }
 if (server) {
   console.log("\n  The application's own histogram, which excludes the driver and the loopback.");

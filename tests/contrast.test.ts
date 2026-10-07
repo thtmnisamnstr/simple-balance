@@ -202,4 +202,130 @@ describe("contrast, from the tokens", () => {
     expect(ratio(light["--focus-ring"]!, light["--surface"]!).toFixed(2)).toBe(claim![1]);
     expect(ratio(dark["--focus-ring"]!, dark["--surface"]!).toFixed(2)).toBe(claim![2]);
   });
+
+  /**
+   * A fade is a contrast change nothing above can see.
+   *
+   * The checks above measure a rule that names both a color and a fill, and
+   * opacity names neither: `.row-deleted { opacity: 0.5 }` took every piece of
+   * text in a voided row under 4.5:1 — the amounts to about 2.3, its own
+   * "Deleted" badge to 1.91 — and an archived account card at 0.65 took its
+   * labels to 2.63, all while this file passed. A voided entry is content
+   * somebody reads, not a disabled control, so SC 1.4.3's exemption does not
+   * reach it, and `web.md` 2.3 listed the fade as one of its cues.
+   *
+   * So a fade is allowed where the exemption is: on a control that is
+   * disabled, which every `:disabled` selector is. Anything else is named
+   * below with what it fades and why that holds no text a person must read.
+   */
+  const FADES_NO_TEXT: Record<string, string> = {
+    '.button[aria-disabled="true"]':
+      "A button that is working: disabled in all but focus (13.3), so the exemption a disabled control has is the one it needs.",
+    "50%":
+      "A step of the `busy-pulse` keyframes, which only `.animate-spin` uses: the spinner glyph inside a busy button, under reduced motion.",
+    ".sort-header svg":
+      "The sort arrow beside a column heading: a glyph, whose words are the heading itself and are not faded.",
+    ".sort-header:hover svg, .sort-header:focus-visible svg": "The same arrow, while pointed at.",
+    ".file-drop input":
+      "The native file input, hidden at zero under the drop zone that labels it and takes its clicks.",
+  };
+
+  it("fades only a disabled control, or something named that holds no text", () => {
+    const fading = blocks(css).filter((block) => {
+      const opacity = /(?:^|[;\s])opacity\s*:\s*([\d.]+)/.exec(block.body);
+      return opacity !== null && Number(opacity[1]) < 1;
+    });
+    // A parser that stopped reading would pass on nothing; the disabled
+    // families alone are five.
+    expect(fading.length).toBeGreaterThan(8);
+    const selector = (block: Block) => block.selector.replaceAll(/\s+/g, " ");
+    const unexplained = fading
+      .filter((block) => !block.selector.split(",").every((part) => part.includes(":disabled")))
+      .filter((block) => !(selector(block) in FADES_NO_TEXT))
+      .map(selector);
+    expect(unexplained).toEqual([]);
+    const fadingSelectors = new Set(fading.map(selector));
+    expect(Object.keys(FADES_NO_TEXT).filter((entry) => !fadingSelectors.has(entry))).toEqual([]);
+  });
+
+  /**
+   * `web.md` 2.3, Binding on SC 1.4.1: a chosen or current thing is told apart
+   * by more than its hue.
+   *
+   * Two were not. The sidebar's current page changed only its text and fill
+   * color, 1.01:1 and 1.13:1 in lightness from its neighbours, and the chosen
+   * transaction type only its border, text and fill color, on the control every
+   * entry form opens with. A rule that marks a state — a class or attribute that
+   * says active, selected, sorted, current, checked or pressed — has to set at
+   * least one property that is not a color — itself, or in a rule on
+   * something inside the same state: a sorted column heading's cue is its
+   * arrow coming to full strength, which is a rule on the arrow.
+   */
+  const NOT_A_STATE = new Set([".active-account-choices"]);
+  const BEYOND_HUE =
+    /(?:^|[;\s])(box-shadow|font-weight|border-width|border-style|outline|text-decoration|opacity|content)\s*:/;
+
+  it("marks a chosen or current thing by more than its hue", () => {
+    const STATE =
+      /^.*?(\.(active|selected|sorted|current)\b|\[aria-(current|checked|pressed|selected)[^\]]*\]|:checked)/;
+    const states = blocks(css)
+      .filter((block) => STATE.test(block.selector) && !NOT_A_STATE.has(block.selector.trim()))
+      .map((block) => ({ block, state: STATE.exec(block.selector)![0].replaceAll(/\s+/g, " ") }));
+    expect(states.length).toBeGreaterThanOrEqual(4);
+    const beyond = new Set(
+      states.filter(({ block }) => BEYOND_HUE.test(block.body)).map(({ state }) => state),
+    );
+    const hueOnly = states
+      .filter(({ block }) => /(?:^|[;\s])(color|background|border-color)\s*:/.test(block.body))
+      .filter(({ state }) => !beyond.has(state))
+      .map(({ state }) => state);
+    expect(hueOnly).toEqual([]);
+  });
+});
+
+/**
+ * `web.md` 11.1, SC 1.4.11: a series is a graphical object a reader has to
+ * tell apart from the plot it sits on, so every series token reaches 3:1
+ * against the surface a chart is drawn on, in both themes.
+ *
+ * This file's docstring claimed it and the non-text pairs above held no series
+ * token at all, so a palette change could have taken a line below the floor
+ * with every test green. Read from the palettes rather than listed, so an
+ * eleventh series is measured the day it is added.
+ */
+describe("a chart's series", () => {
+  it("stands 3:1 off the surface it is drawn on, in both themes", () => {
+    const failures: string[] = [];
+    let measured = 0;
+    for (const [name, palette] of [
+      ["light", light],
+      ["dark", dark],
+    ] as const) {
+      const series = Object.keys(palette).filter((token) => /^--series-\d+$/.test(token));
+      expect(series.length, `${name} has its series`).toBeGreaterThanOrEqual(10);
+      for (const token of series) {
+        measured += 1;
+        const value = ratio(palette[token]!, palette["--surface"]!);
+        if (value < 3) failures.push(`${name} ${token} ${value.toFixed(2)}:1`);
+      }
+    }
+    expect(measured).toBeGreaterThanOrEqual(20);
+    expect(failures).toEqual([]);
+  });
+});
+
+/**
+ * `web.md` 2.3, SC 1.4.1 again, for a link rather than a state. Links carry no
+ * underline by default and take the house green, so inside an error alert a
+ * link was green on red — 1.07:1 in lightness — and an error summary's link
+ * lines were the plain lines beside them for anybody who cannot tell the hues
+ * apart.
+ */
+describe("a link inside an alert", () => {
+  it("is underlined and takes the alert's own color", () => {
+    const rule = blocks(css).find((block) => block.selector.trim() === ".alert a");
+    expect(rule, ".alert a").toBeDefined();
+    expect(rule!.body).toMatch(/text-decoration:\s*underline/);
+    expect(rule!.body).toMatch(/color:\s*inherit/);
+  });
 });

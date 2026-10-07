@@ -103,6 +103,10 @@ COPY deploy/docker/nginx.conf.template /etc/nginx/templates/default.conf.templat
 # mode is set here rather than trusted to a checkout, and it stays root's to
 # write, since the uid nginx runs as has no business editing its own startup.
 COPY --chmod=0755 deploy/docker/nginx-real-ip.envsh /docker-entrypoint.d/18-sb-real-ip.envsh
+# The three on/off switches, one step earlier and for the same reason: what it
+# exports is what envsubst substitutes. It warns about a value the template's
+# `map` cannot match and keeps the outcome that value always had, which is off.
+COPY --chmod=0755 deploy/docker/nginx-switches.envsh /docker-entrypoint.d/17-sb-switches.envsh
 # Outside /etc/nginx/templates on purpose: the entrypoint runs envsubst over
 # everything in there, and outside /etc/nginx/conf.d, which the main config
 # includes into http{} where a location-scoped directive is a syntax error.

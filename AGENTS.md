@@ -19,7 +19,8 @@
   reaching a posting, a balance, a report or a stored column. A vendor's price
   is outside it and may never reach one: it arrives from Stripe as an integer
   count of the currency's minor units, is rendered once and never stored, summed
-  or posted, and the plan tab divides it by the scale `Intl` already knows in
+  or posted, and the plan tab divides it by the scale Stripe charged it in —
+  `Intl`'s own, except for four currencies Stripe documents otherwise — in
   order to show it. The boundary belongs here rather than in a guide alone,
   because this is the books rule and an invariant that shipped code contradicts
   stops being believed: without it a reviewer quoting the first sentence either
@@ -46,9 +47,12 @@
   three. Never make an account that was created without a mail server unusable
   once one is added, and never refuse to store a notification setting because
   there is nowhere to send it yet.
-- Decisions made inside a Better Auth database hook must come from configuration
-  and the request, never from a query. The hook runs inside the sign-up
-  transaction, which on a one-connection pool is holding the only connection.
+- Decisions made inside a Better Auth database hook come from configuration,
+  the request, and reads through the hook's own adapter, and never from the
+  application pool. The hook runs inside the sign-up transaction, which on a
+  one-connection pool is holding the only connection, so a pool read waits for
+  itself; the adapter Better Auth hands the hook runs on that same connection.
+  `tests/auth-policy-paths.test.ts` holds the hooks to it.
 - The books are double-entry. Every transaction settles to zero in each currency
   it touches, checked before anything is written. A deposit credits the
   destination and debits income; a withdrawal debits the source and credits
@@ -88,8 +92,19 @@
   `id:version`, so a leg relabeled underneath one would leave that description
   agreeing about a row that changed.
 - Postings are append-only. To correct one, work out the difference per account,
-  currency, and date, and append only that. Never update or delete a posting.
-  An edit that changes nothing about the movement writes nothing at all.
+  currency, and date, and append only that. Never update a posting, and never
+  delete one while its account exists. Deleting an account is allowed only while
+  it has never held a transaction, and then it takes its opening pair and any
+  closing pair with it: both halves of each name that account, nothing else
+  refers to them, and leaving them would fail the delete on a foreign key.
+  `deleteAccount` is the one place a posting is deleted, and
+  `tests/postings-append-only.test.ts` keeps it the one.
+  An edit that changes nothing about the movement writes nothing at all, and an
+  edit that changes nothing writes nothing anywhere: no posting, no new
+  `version`, no audit entry, on every record a form saves with an expected
+  version. A bumped version is not free — every other form holding the record
+  goes stale over a change nobody made — so each update compares first
+  (`patchChangesNothing` in `src/server/services/helpers.ts`).
 - Deleting voids an entry by posting its reversal, and restoring posts it back.
   Nothing filters deleted rows out of a balance, because a voided entry already
   nets to zero. Editing a deleted entry leaves it void.
@@ -149,7 +164,7 @@
   postings, require idempotency; a record somebody names is protected by its own
   name being unique, so a second submit fails rather than duplicating. Bulk
   commits are explicit-ID, validate-first, and atomic. The active-account choice
-  is the one update that carries neither, and the reason is in its shape: it
+  is the one update to a ledger record that carries neither, and the reason is in its shape: it
   states the whole set that stays active, so sending it a second time leaves
   exactly the state the first call left, and what serializes it is
   `lockAccountNamespace` rather than a version — an expected version would not
@@ -157,7 +172,12 @@
   no version either, because `active` is not reachable through the account edit
   schema, so a bump would invalidate the expected version in every form somebody
   had open over a column they were not editing. That is the trade the
-  category-group rule below already makes.
+  category-group rule below already makes. Three account-management writes take
+  no version either, each argued in `docs/standards/http.md` and held to a
+  register by `tests/http-version-and-idempotency.test.ts`: saving preferences,
+  which writes only the fields it names; revoking an agent, where revoking twice
+  is revoking; and deleting the account, which leaves nothing for a stale
+  version to protect.
 - Ten thousand rows is the cap, and it is the same number everywhere: a mass
   edit, a mass delete, a commit, and a CSV import. An import that stages more
   than one action can clear is a cap doing damage. A filtered selection is
@@ -209,7 +229,10 @@
   it writes, and refuses rather than skips a row it cannot give one account to.
 - A transaction's `templateId` is provenance and carries no foreign key, so a
   deleted template leaves the transactions made from it untouched. Ownership is
-  checked on write, since nothing else constrains it.
+  checked when an id is written, since nothing else constrains it, and not
+  again on an edit that keeps the id the entry already has: a template deleted
+  since is exactly the case the missing key is for, and re-checking it made such
+  an entry impossible to edit, restore or include in a mass edit.
 - A template mass edit names explicit rows with expected versions and has no
   filtered selection, because the list is capped and the browser holds all of
   it. A patch key left out leaves the field alone, a value sets it, and `null`
@@ -248,11 +271,17 @@
   and counts toward every balance, summary and report: no `frozen` clause may
   enter a read, or the archive rule's warning applies, that never make a figure
   correct by filtering alone while the figures beside it do not. What it refuses
-  is every write, including the ones that name no account — an entry deleted by
-  id, an edit moving money off it, and a payee or category merge that walks the
-  whole ledger. Those refuse whole rather than skipping rows. Archived accounts
-  are outside all of it: they already refuse every write, so they are never
-  frozen and use up none of the places. **The choice is made once.** An account
+  is every change to what it holds, including the ones that name no account —
+  an entry deleted by id, an edit moving money off it, a rename, and a payee or
+  category merge that walks the whole ledger. Those refuse whole rather than
+  skipping rows. What it never refuses is being put away: a frozen account may
+  be archived, or deleted while nothing is on it, because it held no place and
+  so frees none for anything else, and coming back out of the archive needs a
+  free place like any restore. Refusing that left somebody who had downgraded
+  with accounts they could read and could not tidy away, which is a penalty
+  rather than a limit. Archived accounts are outside all of it: they already
+  refuse every write, so they are never frozen and use up none of the places.
+  **The choice is made once.** An account
   in use stays in use until it is archived or deleted, and only then may a
   frozen one take its place — `activeAccountChange` is that rule, and
   `activeChoicePending` says when the question is still open: more live
@@ -345,10 +374,13 @@
   is also the only place the cluster's
   schema is written down, which is why `deploy/citus/` no longer holds a second
   copy — `docs/citus-runbook.md` points an operator at the migration itself for
-  the by-hand path. `0016` is the
-  one exception to the composite-key habit and says why in the schema: a
-  category's group is a single-column reference, because `on delete set null`
-  nulls every column of the constraint it is on and the tenant is not nullable.
+  the by-hand path. Two references
+  break the composite-key habit on a single node, and the schema says why for
+  each. A category's group (`0016`) is single-column because `on delete set
+  null` nulls every column of the constraint it is on and the tenant is not
+  nullable. A template's reminder (`0009`) points at its template by id alone;
+  the reminder is written only from a template the person owns, and `0023`
+  makes the key composite on a cluster, where Citus needs the tenant in it.
   `tests/migrations.test.ts` holds this list to what is on disk, because a list
   of what may never change is worth nothing if it can quietly fall behind.
   Never edit or regenerate one: someone's database has already run it, and
@@ -377,12 +409,27 @@
   because node-postgres sends no server name for an IP literal and checks the
   certificate against `localhost` instead — so `verify-full` against an address
   fails however many IP SANs the certificate carries. Every volume that holds
-  data says it is encrypted even where the provider encrypts by default, because
-  a default is that provider's current behavior in one region rather than a
-  promise to this deployment, it is invisible in a plan while a property is not,
-  and a property can be tested. None of this is enforced in `src/`: a URL that
+  data is encrypted at rest, and says so as a property wherever the provider
+  makes that optional — on AWS, encrypting by default is an account setting
+  that is off on a fresh account — because there the property is the whole
+  guarantee, it is visible in a plan where a setting is not, and it can be
+  tested. Where the provider encrypts every volume and offers no way not to, as
+  Google's persistent disks and Oracle's block volumes do, there is nothing to
+  say short of a customer-managed key, and no program creates one, because a
+  key the stack made is a way to lock a deployment out of its own ledger volume.
+  On Oracle the hop between a machine and its disks is encrypted too, which is
+  a launch option there and off unless asked for. None of this is enforced in `src/`: a URL that
   was accepted stays accepted, warned about rather than refused, per the rule
-  above.
+  above. TLS is insisted on wherever the connection crosses a machine; a
+  connection that never leaves one is not that case. **One provisioned database
+  is outside the rest of it, by name:** `deploy/compose/compose.distributed.yml`
+  bundles a PostgreSQL so a trial on one machine is one command, and it runs as
+  the image's superuser over the image's own `host` lines. It publishes no
+  port, its only network is the compose project's own, and the file's header
+  says to point `DATABASE_URL` at a real server and delete the service when the
+  trial ends. It stays as it is because fixing it in place is not upgrade-safe:
+  `initdb` never runs again on an existing volume, so a new role would exist
+  only for trials started after the change.
 - No metric label carries somebody's identity: not a user id, an email, an
   account name or an amount. A metric is read by whoever can reach the scrape
   endpoint, which is not the person whose ledger it counts, and the same rule
@@ -410,7 +457,7 @@ disagreement rather than quietly losing it.
 Two habits from those guides are worth knowing before the first edit, because
 both look like mistakes:
 
-- **Comments are dense on purpose** — 26.2% of non-blank lines in `src`. They
+- **Comments are dense on purpose** — 26.6% of non-blank lines in `src`. They
   carry why the obvious alternative is wrong. Do not tidy them away.
   (`docs/standards/code/comments.md`.)
 - **Some loops must not be parallelized.** Legs resolve one at a time so two

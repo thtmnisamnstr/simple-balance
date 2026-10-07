@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, Repeat, Target, Trash2, TrendingUp } from "lucide-react";
+import { CalendarCog, Pencil, Repeat, Target, Trash2, TrendingUp } from "lucide-react";
 import { useState } from "react";
 import {
   api,
@@ -27,6 +27,7 @@ import {
   Modal,
   Note,
   PageHeader,
+  RequiredNote,
   Select,
   Skeleton,
   useConfirm,
@@ -42,7 +43,14 @@ import {
   unitNoun,
   unitNounPlural,
 } from "../budget-display.js";
-import { compareMoney, formatDate, formatMoney, isNegativeMoney } from "../money.js";
+import {
+  amountForInput,
+  compareMoney,
+  formatDate,
+  formatMoney,
+  isNegativeMoney,
+  moneyLabel,
+} from "../money.js";
 
 const periodUnits: { value: BudgetPeriodUnitName; label: string }[] = [
   { value: "week", label: "Weekly" },
@@ -50,6 +58,18 @@ const periodUnits: { value: BudgetPeriodUnitName; label: string }[] = [
   { value: "quarter", label: "Quarterly" },
   { value: "year", label: "Yearly" },
 ];
+
+/**
+ * The name of the button that sets one period's amount, which says the row and
+ * the period because the icon says neither.
+ *
+ * It was a text button reading "Just this month" — no verb, a "just", and the
+ * same words on every row, so a screen reader's list of buttons was forty
+ * identical entries — in a table whose standing budgets above it already used
+ * icons named for their row (`web.md` 9.8).
+ */
+const overrideLabel = (overridden: boolean, name: string, period: string) =>
+  `${overridden ? "Change" : "Set"} the amount for ${name} in ${period}`;
 
 export default function BudgetsPage({ session }: { session: Session }) {
   const queryClient = useQueryClient();
@@ -60,6 +80,10 @@ export default function BudgetsPage({ session }: { session: Session }) {
   const [notice, setNotice] = useState("");
   /** What a row action in the single-periods table did, said where focus reaches it. */
   const [rowOutcome, setRowOutcome] = useState("");
+  // A row's refusal, named and beside the row outcome rather than in the "Set a
+  // budget" panel, which is where the shared `error` renders and which the
+  // press did not come from.
+  const [rowRefusal, setRowRefusal] = useState("");
   // Defaults to counting it, matching the server: a budget's limit was never
   // scoped to an account, so money spent on a card since closed is money the
   // budget covered.
@@ -77,6 +101,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
   // budgets in both and there is no total across them to fall back on.
   const [currency, setCurrency] = useState(session.preferences.defaultCurrency);
   const [activeFrom, setActiveFrom] = useState("");
+  const [activeTo, setActiveTo] = useState("");
   // Three fields and one checkbox, because they are one decision: what happens
   // to the difference at the end of a period. The words "envelope", "sinking
   // fund" and "rollover budget" appear nowhere — a budget is what it says it
@@ -94,7 +119,9 @@ export default function BudgetsPage({ session }: { session: Session }) {
   const remove = useConfirm<BudgetPlan>();
   const [editing, setEditing] = useState<BudgetPlan | null>(null);
   const [override, setOverride] = useState<{
-    categoryId: string;
+    // A category, or a group that holds a budget of its own. A group budgeted
+    // as its categories added up has nothing to override, and offers nothing.
+    target: { categoryId: string } | { groupId: string };
     category: string;
     currency: string;
     periodStart: string;
@@ -105,6 +132,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
   const [editActiveTo, setEditActiveTo] = useState("");
   const [editRollover, setEditRollover] = useState(false);
   const [editRolloverCap, setEditRolloverCap] = useState("");
+  const [editPriority, setEditPriority] = useState("");
 
   /**
    * Four fields of the report this page deliberately does not render, named
@@ -192,6 +220,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
           currency,
           periodUnit,
           activeFrom,
+          ...(activeTo !== "" ? { activeTo } : {}),
           rollover,
           ...(rollover && rolloverCap !== "" ? { rolloverCap } : {}),
           ...(targetAmount !== "" ? { targetAmount, targetDate } : {}),
@@ -213,6 +242,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
       );
       setTarget("");
       setAmount("");
+      setActiveTo("");
       // Everything that decides what kind of budget this is, because the next
       // one is a different budget. A checkbox that survived the create made the
       // one after it carry silently.
@@ -241,6 +271,12 @@ export default function BudgetsPage({ session }: { session: Session }) {
           // Same three-way patch, and the same reason: a cap somebody cleared
           // has to travel as null or the old one stays.
           rolloverCap: editRollover && editRolloverCap !== "" ? editRolloverCap : null,
+          // Blank is unranked, which is zero rather than absent: absent would
+          // leave a rank somebody had just cleared in place. Category budgets
+          // only, as on the create form, because a group's rank is never read.
+          ...(plan.categoryId === null
+            ? {}
+            : { priority: editPriority === "" ? 0 : Number(editPriority) }),
           expectedVersion: plan.version,
         }),
         method: "PUT",
@@ -257,7 +293,9 @@ export default function BudgetsPage({ session }: { session: Session }) {
     mutationFn: () =>
       api<BudgetEntry>("/api/v1/budget-entries", {
         ...json({
-          categoryId: override!.categoryId,
+          ...("groupId" in override!.target
+            ? { groupId: override!.target.groupId }
+            : { categoryId: override!.target.categoryId }),
           currency: override!.currency,
           periodUnit,
           periodStart: override!.periodStart,
@@ -280,6 +318,13 @@ export default function BudgetsPage({ session }: { session: Session }) {
         ...json({ expectedVersion: entry.version }),
         method: "DELETE",
       }),
+    // The last outcome is about the last press: left up, it sat beside the next
+    // one's refusal, and a repeat of the same sentence was neither announced
+    // nor given focus by an alert already showing it.
+    onMutate: () => {
+      setRowOutcome("");
+      setRowRefusal("");
+    },
     onSuccess: (_result, entry) => {
       /*
        * 13.3, and the shape `web.md` 9.8 names. Removing an override takes its
@@ -294,7 +339,12 @@ export default function BudgetsPage({ session }: { session: Session }) {
       setOverride(null);
       invalidate();
     },
-    onError: (cause: Error) => setError(cause.message),
+    // Pressed inside the override dialog, the refusal belongs in the dialog,
+    // which is still open; pressed on a row, it belongs beside the rows.
+    onError: (cause: Error, entry) =>
+      override
+        ? setError(cause.message)
+        : setRowRefusal(`Override for ${entry.targetName} was not removed. ${cause.message}`),
   });
 
   const deletePlan = useMutation({
@@ -303,11 +353,21 @@ export default function BudgetsPage({ session }: { session: Session }) {
         ...json({ expectedVersion: plan.version }),
         method: "DELETE",
       }),
-    onSuccess: () => {
+    // The row and its trash icon go together, so focus fell to `<body>` and
+    // nothing said the budget had gone — `common.md`'s own worked example is
+    // "Delete budget", then "Budget deleted", and the second half was never
+    // shown (`web.md` 13.3).
+    onMutate: () => {
+      setRowOutcome("");
+      setRowRefusal("");
+    },
+    onSuccess: (_result, plan) => {
+      setRowOutcome(`Budget for ${plan.targetName} deleted. The books are exactly as they were.`);
       setError("");
       invalidate();
     },
-    onError: (cause: Error) => setError(cause.message),
+    onError: (cause: Error, plan) =>
+      setRowRefusal(`Budget for ${plan.targetName} was not deleted. ${cause.message}`),
   });
 
   // Only categories that can carry spending. An income category has nothing for
@@ -344,14 +404,48 @@ export default function BudgetsPage({ session }: { session: Session }) {
     (category) => category.kind !== "income" && !category.archivedAt,
   );
 
-  const entryFor = (categoryId: string | null, currency: string, periodStart: string) =>
+  const entryFor = (
+    target: { categoryId: string } | { groupId: string },
+    currency: string,
+    periodStart: string,
+  ) =>
     (entries.data ?? []).find(
       (entry) =>
-        entry.categoryId === categoryId &&
+        ("groupId" in target
+          ? entry.groupId === target.groupId
+          : entry.categoryId === target.categoryId) &&
         entry.currency === currency &&
         entry.periodUnit === periodUnit &&
         entry.periodStart === periodStart,
     ) ?? null;
+
+  /**
+   * The one-period dialog, opened on whatever row asked for it.
+   *
+   * A group that holds a budget of its own is overridden the way a category
+   * is; the tool always could, and the page offered it only on category rows,
+   * so an agent had a move its owner did not.
+   */
+  const openOverride = (
+    target: { categoryId: string } | { groupId: string },
+    name: string,
+    period: { currency: string; periodStart: string },
+    limit: string | null,
+  ) => {
+    const existing = entryFor(target, period.currency, period.periodStart);
+    setError("");
+    setOverride({
+      target,
+      category: name,
+      currency: period.currency,
+      periodStart: period.periodStart,
+      existing,
+    });
+    // At the currency's decimals, as every edit field opens a stored amount
+    // (`web.md` 10.2): both arrive canonical, so $12.50 opened as "12.5".
+    const seed = existing?.amount ?? limit;
+    setOverrideAmount(seed ? amountForInput(seed, period.currency) : "");
+  };
 
   // A budget can only ever be compared against spending in a currency this
   // ledger actually holds, so those are the only ones offered. Free text let
@@ -394,13 +488,16 @@ export default function BudgetsPage({ session }: { session: Session }) {
       {/* The group and the control inside it must not share a name: two things
           answering to "Budget period" is ambiguous to anything navigating by
           accessible name, and a browser test found it by matching both. */}
-      <div className="date-bar" role="group" aria-label="Budget view">
-        <div className="date-bar-title">
+      <div className="option-bar" role="group" aria-label="Budget view">
+        <div className="option-bar-title">
           <Target size={17} />
           <span>Budgeting by</span>
         </div>
+        {/* Named by the words beside it, as the forecast bar's selects are: the
+            name was "Budget period" under a visible "Budgeting by", so a voice
+            user saying what they could see named nothing (SC 2.5.3). */}
         <Select
-          aria-label="Budget period"
+          aria-label="Budgeting by"
           value={periodUnit}
           onChange={(event) => setPeriodUnit(event.target.value as BudgetPeriodUnitName)}
         >
@@ -435,6 +532,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
         </label>
       </div>
 
+      {rowRefusal ? <Alert takeFocus>{rowRefusal}</Alert> : null}
       {rowOutcome ? (
         <Alert kind="success" takeFocus>
           {rowOutcome}
@@ -457,6 +555,9 @@ export default function BudgetsPage({ session }: { session: Session }) {
             createPlan.mutate();
           }}
         >
+          {/* `web.md` 8.4: three fields here say they are optional, and what an
+              unmarked one means is said once, as on every other form. */}
+          <RequiredNote />
           <Field label="Category or group">
             <Select required value={target} onChange={(event) => setTarget(event.target.value)}>
               <option value="">Choose what to budget</option>
@@ -479,7 +580,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
           </Field>
           {targetAmount === "" && rule !== "income" ? (
             <Field
-              label="Amount"
+              label={moneyLabel("Amount", currency)}
               hint={
                 rule === "step"
                   ? "The first period's amount. The increase starts from the one after."
@@ -554,7 +655,17 @@ export default function BudgetsPage({ session }: { session: Session }) {
               onChange={(event) => setActiveFrom(event.target.value)}
             />
           </Field>
-          <Field label="Saving up for" optional>
+          {/* An agent could set a budget with an end and a person had to set it
+              and then edit it, which is the same budget reached in two steps
+              and a field only the tool offered. */}
+          <Field label="Ends after" optional hint="Leave blank to keep running.">
+            <Input
+              type="date"
+              value={activeTo}
+              onChange={(event) => setActiveTo(event.target.value)}
+            />
+          </Field>
+          <Field label={moneyLabel("Saving up for", currency)} optional>
             <Input
               inputMode="decimal"
               value={targetAmount}
@@ -596,7 +707,11 @@ export default function BudgetsPage({ session }: { session: Session }) {
             Carry what is left over into the next {unitNoun[periodUnit]}
           </label>
           {rollover ? (
-            <Field label="Most to carry" optional>
+            <Field
+              label={moneyLabel("Most to carry", currency)}
+              optional
+              hint="Leave blank for no limit."
+            >
               <Input
                 inputMode="decimal"
                 value={rolloverCap}
@@ -732,10 +847,13 @@ export default function BudgetsPage({ session }: { session: Session }) {
                         onClick={() => {
                           setError("");
                           setEditing(plan);
-                          setEditAmount(plan.amount);
+                          setEditAmount(amountForInput(plan.amount, plan.currency));
                           setEditActiveTo(plan.activeTo ?? "");
                           setEditRollover(plan.rollover);
-                          setEditRolloverCap(plan.rolloverCap ?? "");
+                          setEditRolloverCap(
+                            plan.rolloverCap ? amountForInput(plan.rolloverCap, plan.currency) : "",
+                          );
+                          setEditPriority(plan.priority === 0 ? "" : String(plan.priority));
                         }}
                       >
                         <Pencil size={16} />
@@ -796,6 +914,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
           }}
         >
           {error ? <Alert kind="error">{error}</Alert> : null}
+          <RequiredNote />
           {editing &&
           editing.amountRule !== "fixed" &&
           editing.amountRule !== "incremental" &&
@@ -813,7 +932,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
                   decision. 8.3's point is that the native half needs nothing:
                   no form here sets `noValidate`, so the browser blocks the
                   submit, focuses the field and says why, for one word. */}
-              <Field label="Amount">
+              <Field label={moneyLabel("Amount", editing?.currency)}>
                 <Input
                   required
                   inputMode="decimal"
@@ -830,7 +949,11 @@ export default function BudgetsPage({ session }: { session: Session }) {
                 Carry what is left over into the next {unitNoun[editing?.periodUnit ?? periodUnit]}
               </label>
               {editRollover ? (
-                <Field label="Most to carry" hint="Leave blank for no limit.">
+                <Field
+                  label={moneyLabel("Most to carry", editing?.currency)}
+                  optional
+                  hint="Leave blank for no limit."
+                >
                   <Input
                     inputMode="decimal"
                     value={editRolloverCap}
@@ -840,7 +963,21 @@ export default function BudgetsPage({ session }: { session: Session }) {
               ) : null}
             </>
           )}
-          <Field label="Ends after" hint="Leave blank to keep running.">
+          {editing?.categoryId == null ? null : (
+            <Field
+              label="Funded first"
+              optional
+              hint="Lower goes first when a period's income will not cover everything. Leave blank for unranked, which is funded last."
+            >
+              <Input
+                inputMode="numeric"
+                value={editPriority}
+                onChange={(event) => setEditPriority(event.target.value)}
+                placeholder="1"
+              />
+            </Field>
+          )}
+          <Field label="Ends after" optional hint="Leave blank to keep running.">
             <Input
               type="date"
               value={editActiveTo}
@@ -860,7 +997,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
         onCancel={remove.cancel}
       >
         It wrote nothing to the books, so deleting it changes no balance and no report. This page
-        simply stops comparing against it.
+        stops comparing against it.
       </ConfirmDialog>
 
       {(entries.data ?? []).length > 0 ? (
@@ -978,7 +1115,10 @@ export default function BudgetsPage({ session }: { session: Session }) {
             setEntry.mutate();
           }}
         >
-          <Field label="Amount" hint={`Applies to this ${unitNoun[periodUnit]} only.`}>
+          <Field
+            label={moneyLabel("Amount", override?.currency)}
+            hint={`Applies to this ${unitNoun[periodUnit]} only.`}
+          >
             <Input
               required
               inputMode="decimal"
@@ -1092,6 +1232,9 @@ export default function BudgetsPage({ session }: { session: Session }) {
                         <th scope="col" className="align-right">
                           Remaining
                         </th>
+                        <th scope="col">
+                          <span className="sr-only">Actions</span>
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1102,6 +1245,12 @@ export default function BudgetsPage({ session }: { session: Session }) {
                             <Badge tone="neutral">
                               {group.policy === "sum_of_children" ? "Adds up" : "Own budget"}
                             </Badge>
+                            {group.source === "entry" ? (
+                              <>
+                                {" "}
+                                <Badge tone="neutral">This {unitNoun[periodUnit]} only</Badge>
+                              </>
+                            ) : null}
                           </th>
                           <td className="align-right money">
                             {group.limit === null ? "—" : formatMoney(group.limit, period.currency)}
@@ -1126,6 +1275,31 @@ export default function BudgetsPage({ session }: { session: Session }) {
                             {group.remaining === null
                               ? "—"
                               : formatMoney(group.remaining, period.currency)}
+                          </td>
+                          <td className="row-actions">
+                            {/* Only a group with a budget of its own has an
+                                amount to override; one that adds up its
+                                categories is overridden through them. */}
+                            {group.policy === "sum_of_children" ? null : (
+                              <button
+                                type="button"
+                                aria-label={overrideLabel(
+                                  group.source === "entry",
+                                  group.name,
+                                  periodName(periodUnit, period.periodStart),
+                                )}
+                                onClick={() =>
+                                  openOverride(
+                                    { groupId: group.groupId },
+                                    group.name,
+                                    period,
+                                    group.limit,
+                                  )
+                                }
+                              >
+                                <CalendarCog size={16} />
+                              </button>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -1199,7 +1373,9 @@ export default function BudgetsPage({ session }: { session: Session }) {
                                 {row.category}
                               </Link>
                             ) : (
-                              row.category
+                              // Spending filed under no category, muted as the
+                              // register and the queue show the same word.
+                              <span className="subtle">{row.category}</span>
                             )}{" "}
                             {row.source === "entry" ? (
                               <Badge tone="neutral">This {unitNoun[periodUnit]} only</Badge>
@@ -1263,31 +1439,26 @@ export default function BudgetsPage({ session }: { session: Session }) {
                               )}
                             </div>
                           </td>
-                          <td className="align-right">
+                          <td className="row-actions">
                             {row.categoryId === null ? null : (
-                              <Button
-                                variant="ghost"
-                                onClick={() => {
-                                  const existing = entryFor(
-                                    row.categoryId,
-                                    period.currency,
-                                    period.periodStart,
-                                  );
-                                  setError("");
-                                  setOverride({
-                                    categoryId: row.categoryId!,
-                                    category: row.category,
-                                    currency: period.currency,
-                                    periodStart: period.periodStart,
-                                    existing,
-                                  });
-                                  setOverrideAmount(existing?.amount ?? row.limit ?? "");
-                                }}
+                              <button
+                                type="button"
+                                aria-label={overrideLabel(
+                                  row.source === "entry",
+                                  row.category,
+                                  periodName(periodUnit, period.periodStart),
+                                )}
+                                onClick={() =>
+                                  openOverride(
+                                    { categoryId: row.categoryId! },
+                                    row.category,
+                                    period,
+                                    row.limit,
+                                  )
+                                }
                               >
-                                {row.source === "entry"
-                                  ? "Change this " + unitNoun[periodUnit]
-                                  : "Just this " + unitNoun[periodUnit]}
-                              </Button>
+                                <CalendarCog size={16} />
+                              </button>
                             )}
                           </td>
                         </tr>
@@ -1331,8 +1502,8 @@ export default function BudgetsPage({ session }: { session: Session }) {
         {/* Bare controls with their own labels, like every other view control in
             the app. A `Field` stacks a label above and made this bar half again
             as tall as the one at the top of the page — §7.6. */}
-        <div className="date-bar" role="group" aria-label="Projection options">
-          <div className="date-bar-title">
+        <div className="option-bar" role="group" aria-label="Projection options">
+          <div className="option-bar-title">
             <span>{unitNounPlural[periodUnit]} ahead</span>
           </div>
           <Select
@@ -1346,7 +1517,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
               </option>
             ))}
           </Select>
-          <div className="date-bar-title">
+          <div className="option-bar-title">
             <span>Counting</span>
           </div>
           <Select
@@ -1366,7 +1537,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
               one section up for `groupId`. */}
           {forecastBasis === "recurring_and_history" ? (
             <>
-              <div className="date-bar-title">
+              <div className="option-bar-title">
                 <span>Averaged over</span>
               </div>
               <Select
@@ -1417,7 +1588,11 @@ export default function BudgetsPage({ session }: { session: Session }) {
               aria-label={`Projected balances in ${currency.currency}`}
             >
               <table className="data-table">
-                <caption className="sr-only">
+                {/* On screen, not only to a screen reader. One of these per
+                    currency stacks up as identical tables of figures, and with
+                    the caption hidden nothing visible said which money each
+                    one was counting. */}
+                <caption className="table-caption">
                   Projected balances in {currency.currency}
                   {forecast.data ? `, from ${formatDate(forecast.data.from)}` : ""}
                 </caption>

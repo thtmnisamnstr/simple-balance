@@ -10,6 +10,7 @@ import {
   type Entitlement,
   type FreezableAccount,
   frozenAccountIds,
+  ARCHIVED_ACCOUNT_DELETE_REFUSAL,
   frozenAccountRefusal,
   restoreAllowance,
 } from "../../shared/domain.js";
@@ -38,10 +39,12 @@ import {
   decimal,
   lockAccountNamespace,
   lockAccountReferences,
+  patchChangesNothing,
   serializeRow,
   writeAudit,
   writeAuditMany,
 } from "./helpers.js";
+import { normalizeHumanName } from "../../shared/names.js";
 import { getPreferences } from "./preferences.js";
 import { getEntitlement } from "./billing.js";
 import { calendarDayIn, todayIn } from "../../shared/recurrence-dates.js";
@@ -441,10 +444,13 @@ export function presentAccountBalance(type: AccountType, balance: string) {
   const signedBalance = canonicalDecimal(balance);
   const value = decimal(signedBalance);
   const isLiability = liabilityAccountTypes.has(type as UserAccountType);
+  // A liability at zero owes nothing, and "Amount owed: $0.00" says so. It was
+  // labeled a credit balance, which a card paid off to the cent is not:
+  // `common.md`, "Zero is a value", and the word for it is the plain one.
   return {
     balance: signedBalance,
     balancePresentation:
-      isLiability && value.isNegative()
+      isLiability && (value.isNegative() || value.isZero())
         ? { label: "Amount owed", amount: canonicalDecimal(value.abs()) }
         : isLiability
           ? { label: "Credit balance", amount: signedBalance }
@@ -452,14 +458,6 @@ export function presentAccountBalance(type: AccountType, balance: string) {
   };
 }
 
-/**
- * The balance an account actually holds, summed from its postings.
- *
- * The list query derives this for every account at once. The single-account
- * paths have no such aggregate to draw on, and returning the declared opening
- * balance in its place would report a figure that stopped being true the moment
- * the first transaction landed.
- */
 /**
  * The where-clause every by-id account read and write shares.
  *
@@ -478,6 +476,14 @@ function userAccountById(actor: Actor, id: string) {
   );
 }
 
+/**
+ * The balance an account actually holds, summed from its postings.
+ *
+ * The list query derives this for every account at once. The single-account
+ * paths have no such aggregate to draw on, and returning the declared opening
+ * balance in its place would report a figure that stopped being true the moment
+ * the first transaction landed.
+ */
 async function currentBalance(tx: Pick<DbTransaction, "execute">, actor: Actor, accountId: string) {
   const result = await tx.execute(sql`
     select coalesce(sum(p.amount), 0)::text as balance
@@ -671,18 +677,26 @@ async function assertAccountNameAvailable(
   name: string,
   excludeId?: string,
 ) {
-  const [existing] = await tx
-    .select({ id: ledgerAccounts.id })
+  // Compared the way categories and payees are, ignoring case and spacing, so
+  // "Checking" and "CHECKING" cannot sit side by side as two accounts nobody
+  // can tell apart in a picker. Decided here rather than by an index on the
+  // folded name: a deployment that already holds two such accounts keeps
+  // them, and can still rename either one, where a new unique index would
+  // have failed the migration that added it. Every caller holds
+  // `lockAccountNamespace`, which is what keeps two requests from both
+  // reading the folded name as free.
+  const wanted = normalizeHumanName(name);
+  const rows = await tx
+    .select({ id: ledgerAccounts.id, name: ledgerAccounts.name })
     .from(ledgerAccounts)
     .where(
       and(
         eq(ledgerAccounts.userId, actor.userId),
-        eq(ledgerAccounts.name, name),
         isNull(ledgerAccounts.systemKind),
         excludeId ? ne(ledgerAccounts.id, excludeId) : undefined,
       ),
-    )
-    .limit(1);
+    );
+  const existing = rows.find((row) => normalizeHumanName(row.name) === wanted);
   if (existing) {
     throw duplicate("An account with this name already exists", {
       duplicateAccountId: existing.id,
@@ -846,8 +860,8 @@ export function assertAccountsWritable(freeze: AccountFreeze, ids: Iterable<stri
     if (name !== undefined) {
       throw validationError(
         frozenAccountRefusal(freeze.limit, name),
-        undefined,
-        `"${name}" is frozen: the plan in force keeps ${freeze.limit} accounts active and closes the rest to every write. No argument you can change gets past this. whoami reports the plan and its ceiling, list_accounts reports \`frozen\` on each account, and a frozen one comes back into use only when somebody archives or deletes an account that is in use, or the person upgrades from a browser.`,
+        { accountId: id, limit: freeze.limit },
+        `"${name}" is frozen: the plan in force keeps ${freeze.limit} accounts active and closes the rest to every change to what they hold. No argument you can change gets past this. whoami reports the plan and its ceiling, list_accounts reports \`frozen\` on each account, and a frozen one comes back into use only when somebody archives or deletes an account that is in use, or the person upgrades from a browser. Archiving the frozen account itself, or deleting it while nothing is on it, is allowed and frees no place.`,
       );
     }
   }
@@ -1077,6 +1091,9 @@ export async function updateAccount(
     // every change, not only the ones that move money: a rename is a change,
     // and an opening-balance edit posts twice.
     assertAccountsWritable(await accountFreeze(tx, actor), [id]);
+    if (patchChangesNothing(before, changes, ["openingBalance"])) {
+      return { ...accountView(before, await currentBalance(tx, actor, id)), frozen: false };
+    }
 
     if (changes.name && changes.name !== before.name) {
       // The reference lock above is per account id and does not serialize two
@@ -1153,10 +1170,21 @@ export async function setAccountArchived(
       .limit(1);
     if (!before) throw notFound("Account not found");
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
-    // After the version, before anything is written. A frozen account refuses
-    // every change, not only the ones that move money: a rename is a change,
-    // and an opening-balance edit posts twice.
-    assertAccountsWritable(await accountFreeze(tx, actor), [id]);
+    // No freeze check, in either direction. A frozen account takes no change
+    // to what it holds, but putting it away is not one of those: archiving
+    // gives up a place it never had, and the limit is enforced where an
+    // account comes back, by the restore check below, so an archive can never
+    // be the first half of a swap. Refusing it left somebody who downgraded
+    // with a page of accounts they could read and could not tidy away. A
+    // restore had nothing to refuse here anyway: an archived account is never
+    // frozen.
+    // Asked for the state it is already in: nothing moves, so nothing is written.
+    if ((before.archivedAt !== null) === archived) {
+      return {
+        ...accountView(before, await currentBalance(tx, actor, id)),
+        frozen: (await accountFreeze(tx, actor)).frozen.has(id),
+      };
+    }
     if (archived && (await activeStagedAccountReferenceCount(tx, actor, id)) > 0) {
       throw conflict(
         "Resolve staged transactions that reference this account before archiving it.",
@@ -1214,7 +1242,7 @@ export async function setAccountArchived(
       after: serializeRow(updated),
     });
     if (archived) await markFittingAccountsActive(tx, actor);
-    // A frozen account never reaches here, and a restored one has just been
+    // Archived now, which is never frozen, or restored, which has just been
     // written active into a place that was free.
     return { ...accountView(updated, await currentBalance(tx, actor, updated.id)), frozen: false };
   });
@@ -1239,12 +1267,12 @@ export async function deleteAccount(
       .limit(1);
     if (!before) throw notFound("Account not found");
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
-    // After the version, before anything is written. A frozen account refuses
-    // every change, not only the ones that move money: a rename is a change,
-    // and an opening-balance edit posts twice.
-    assertAccountsWritable(await accountFreeze(tx, actor), [id]);
+    // No freeze check, for the reason `setAccountArchived` gives: a frozen
+    // account held no place, so deleting it frees none for anything else.
     if (before.archivedAt) {
-      throw conflict("Archived accounts cannot be deleted. Unarchive this account first.");
+      // "Restore", the word the Accounts page uses for it. This said
+      // "Unarchive", which is a button nowhere in the product.
+      throw conflict(ARCHIVED_ACCOUNT_DELETE_REFUSAL);
     }
 
     const [{ count: transactionCount }] = await tx

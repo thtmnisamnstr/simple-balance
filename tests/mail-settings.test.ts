@@ -46,7 +46,32 @@ describe("reading the mail settings", () => {
         MAIL_FROM: "balance@example.com",
         SMTP_SSL: "yes",
       }),
-    ).toThrow();
+    ).toThrow(/SMTP_SSL must be true or false/);
+  });
+
+  /**
+   * A port that is not one stops the server, and the message names the
+   * variable. It said "expected number, received NaN" with nothing to say
+   * which of the deployment's settings had been mistyped.
+   */
+  it.each(["abc", "0", "65536", "587.5"])("refuses SMTP_PORT=%s by name", (value) => {
+    expect(() =>
+      parseMailSettings({
+        SMTP_HOST: "smtp.example.com",
+        MAIL_FROM: "balance@example.com",
+        SMTP_PORT: value,
+      }),
+    ).toThrow("SMTP_PORT must be a whole number between 1 and 65535");
+  });
+
+  it("takes any port a relay listens on", () => {
+    expect(
+      parseMailSettings({
+        SMTP_HOST: "smtp.example.com",
+        MAIL_FROM: "balance@example.com",
+        SMTP_PORT: "2525",
+      }),
+    ).toMatchObject({ port: 2525 });
   });
 
   it("takes a name on the from address, and rejects what a mail client would", () => {

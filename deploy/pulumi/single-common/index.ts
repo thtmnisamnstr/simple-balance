@@ -47,10 +47,9 @@ import type { DatabaseSettings, MachineSettings, Size } from "./cloud-init";
  */
 export const SIZES: Record<string, Size> = {
   // One household, and comfortably more than a ledger of a few thousand
-  // transactions needs. Both machines stay where they were, which is what keeps
-  // the pair inside Oracle's Always Free allowance: 4 OCPU and 8 GB of Ampere,
-  // and two 50 GB boot volumes beside two data volumes OCI raises to its own
-  // 50 GB floor, which is 200 GB to the byte.
+  // transactions needs. Both machines stay where they were. Oracle builds the
+  // database node larger than this, for the reason `OCI_DATABASE_SIZES` below
+  // gives.
   //
   // Sized for 2M transactions. At 4 GiB of memory that whole ledger fits in
   // cache — the crossover is about 2.8M — so there is nothing a larger machine
@@ -106,6 +105,40 @@ export const SIZES: Record<string, Size> = {
     workMem: "32MB",
     maintenanceWorkMem: "2GB",
     maxWalSize: "16GB",
+  },
+};
+
+/**
+ * The database half of a row as Oracle Cloud builds it, where that differs from
+ * the table above.
+ *
+ * Only `small`, and only because of what Oracle gives away. Since June 15, 2026
+ * the Always Free allowance is 1,500 OCPU-hours and 9,000 GB-hours of Ampere a
+ * month, which Oracle calls 2 OCPUs and 12 GB and which is half what it was,
+ * beside 200 GB of block storage. The `small` pair keeps the four cores it has
+ * always had, so about two of them are billed now, and its four volumes are
+ * still 200 GB to the byte. Memory is what the allowance still has room for:
+ * the application node's 4 GiB is about five times its measured peak, so the
+ * other 8 GB go to the machine that turns memory into index cache, which takes
+ * the ledger `small` holds entirely in cache from 2.8M transactions to 6.3M
+ * (`docs/deployment-sizing.md`'s own table) for nothing.
+ *
+ * AWS builds the table as written, because there the same 4 GiB is a
+ * `t4g.large` in place of a `t4g.medium` and is billed like anything else. The
+ * five settings move with the memory, at the ratios `medium` and `large` use: a
+ * quarter of it for `shared_buffers`, eleven sixteenths for
+ * `effective_cache_size`, and 64 MiB a GiB for `maintenance_work_mem`.
+ * `tests/deployment-sizing.test.ts` holds this to `docs/deployment-sizing.md`
+ * the way it holds the table.
+ */
+export const OCI_DATABASE_SIZES: Record<string, Omit<Size, "application">> = {
+  small: {
+    database: { vcpu: 2, memoryGib: 8, diskGib: 30 },
+    sharedBuffers: "2GB",
+    effectiveCacheSize: "5632MB",
+    workMem: "8MB",
+    maintenanceWorkMem: "512MB",
+    maxWalSize: "4GB",
   },
 };
 

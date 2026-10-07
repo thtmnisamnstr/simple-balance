@@ -247,6 +247,28 @@ describe("hardening, across every compose file", () => {
     }
     expect(unhardened).toEqual([]);
   });
+
+  /**
+   * `operations.md` §Hardening's second exception, held to exactly what it
+   * argues. Caddy's image runs as root and binds 80 and 443, so it keeps one
+   * capability back and nothing else, and takes the two flags that cost it
+   * nothing. An exception that can quietly grow a second capability is not an
+   * exception anybody argued.
+   */
+  it("gives Caddy back the one capability it binds its ports with, and nothing else", () => {
+    const caddy = composeFiles
+      .flatMap((file) => servicesOf(file.text).map((service) => ({ file: file.path, ...service })))
+      .filter((service) => /image:\s*\$\{CADDY_IMAGE|image:\s*caddy/.test(service.code));
+    expect(caddy.map((service) => service.file)).toEqual([
+      "deploy/compose/single/compose.caddy.yml",
+    ]);
+    const [service] = caddy;
+    expect(service!.code).toContain("cap_drop: [ALL]");
+    expect(service!.code).toContain("no-new-privileges");
+    expect([...service!.code.matchAll(/cap_add:\s*\[([^\]]*)\]/g)].map((m) => m[1])).toEqual([
+      "NET_BIND_SERVICE",
+    ]);
+  });
 });
 
 /**

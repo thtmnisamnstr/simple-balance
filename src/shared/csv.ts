@@ -1,6 +1,13 @@
 import Papa from "papaparse";
 import { z } from "zod";
-import { isoDateSchema, positiveDecimalStringSchema, type TransactionDraft } from "./domain.js";
+import {
+  idempotencyKeySchema,
+  isoDateSchema,
+  positiveDecimalStringSchema,
+  uuid,
+  type EntryType,
+  type TransactionDraft,
+} from "./domain.js";
 
 export const APP_CSV_FORMAT = "simple-balance-csv-1";
 
@@ -100,6 +107,27 @@ export function parseExportedLegs(value: string | undefined) {
     );
   return parsed.success ? parsed.data : null;
 }
+
+/**
+ * How an ambiguous date in a file is read, and which character a file's
+ * amounts use for decimals. One tuple each, so the stage schema, the parser and
+ * the import page cannot disagree about the set; each was spelled four or five
+ * times before, one of them a literal `z.enum` in a service.
+ */
+const csvDateFormats = ["YMD", "MDY", "DMY"] as const;
+export type CsvDateFormat = (typeof csvDateFormats)[number];
+const csvDecimalSeparators = [".", ","] as const;
+export type CsvDecimalSeparator = (typeof csvDecimalSeparators)[number];
+
+/**
+ * How an import matched a name in the file: to a category that exists, one
+ * it will create, one it will widen, or one left for a commit to decide. A
+ * payee is only ever matched or new.
+ */
+export const categoryResolutions = ["existing", "new", "updated", "deferred"] as const;
+export type CategoryResolution = (typeof categoryResolutions)[number];
+export const payeeResolutions = ["existing", "new"] as const;
+export type PayeeResolution = (typeof payeeResolutions)[number];
 
 export const csvMappingSchema = z
   .object({
@@ -213,7 +241,10 @@ export function previewCsv(csv: string, limit = 25): CsvPreview {
   };
 }
 
-export function parseLocalizedAmount(value: string, decimalSeparator: "." | ","): string | null {
+export function parseLocalizedAmount(
+  value: string,
+  decimalSeparator: CsvDecimalSeparator,
+): string | null {
   let unsigned = value.trim().replace(/[\u00a0\u202f]/g, " ");
   if (!unsigned) return null;
   let negative = false;
@@ -253,7 +284,7 @@ export function parseLocalizedAmount(value: string, decimalSeparator: "." | ",")
   return normalized;
 }
 
-function parseCsvDate(value: string, dateFormat: "YMD" | "MDY" | "DMY"): string | null {
+function parseCsvDate(value: string, dateFormat: CsvDateFormat): string | null {
   const trimmed = value.trim();
   if (dateFormat === "YMD") {
     return isoDateSchema.safeParse(trimmed).success ? trimmed : null;
@@ -270,8 +301,8 @@ function parseCsvDate(value: string, dateFormat: "YMD" | "MDY" | "DMY"): string 
 export type CsvNormalizeOptions = {
   mapping: CsvMapping;
   defaultAccountId: string;
-  dateFormat: "YMD" | "MDY" | "DMY";
-  decimalSeparator: "." | ",";
+  dateFormat: CsvDateFormat;
+  decimalSeparator: CsvDecimalSeparator;
 };
 
 export type NormalizedCsvRow = {
@@ -395,7 +426,7 @@ export function normalizeCsvRows(
 
     const debitReadable = debitPresent && (bothColumnsMapped || !debit!.startsWith("-"));
     const creditReadable = creditPresent && (bothColumnsMapped || !credit!.startsWith("-"));
-    let type: "deposit" | "withdrawal";
+    let type: EntryType;
     let amount: string | null;
     if (mapping.amount && signedAmount) {
       type = signedAmount.startsWith("-") ? "withdrawal" : "deposit";
@@ -536,3 +567,70 @@ export function rowsToCsv(
     ),
   ].join("\r\n");
 }
+
+/** What the preview reads: the file's text and nothing else. */
+export const csvPreviewInputSchema = z.object({
+  csv: z.string().min(1).describe("The file's text."),
+});
+
+export const csvStageInputSchema = z.object({
+  csv: z
+    .string()
+    .min(1)
+    .describe("The file's text, decoded. Send the whole file; rows are not streamed."),
+  fileName: z
+    .string()
+    .trim()
+    .min(1)
+    .max(240)
+    .describe(
+      "What the file was called. Recorded on the import batch so somebody can tell one import from another later.",
+    ),
+  idempotencyKey: idempotencyKeySchema,
+  defaultAccountId: uuid().describe(
+    "The account every row is posted against. Accounts are never read out of the file, so this is the only thing that decides where the rows land.",
+  ),
+  mapping: csvMappingSchema
+    .optional()
+    .describe(
+      "Which column holds which field. Not needed for a Simple Balance export, whose columns are already known.",
+    ),
+  dateFormat: z
+    .enum(csvDateFormats)
+    .default("YMD")
+    .describe(
+      "How to read an ambiguous date. 03/04/2026 is April 3 under DMY and March 4 under MDY, and nothing in the file says which, so getting this wrong misfiles rows silently rather than failing.",
+    ),
+  decimalSeparator: z
+    .enum(csvDecimalSeparators)
+    .default(".")
+    .describe(
+      "Whether the file writes 1.234,56 or 1,234.56. Wrong, an amount is misread by a factor of a thousand rather than refused.",
+    ),
+  dryRun: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Parse and validate the whole file, reporting what would be staged, without staging anything.",
+    ),
+});
+
+export const importBatchListQuerySchema = z.object({
+  cursor: z
+    .string()
+    .min(1)
+    .max(500)
+    .optional()
+    .describe(
+      "Resume token from a previous page, taken from `nextCursor`. This list only walks forward.",
+    ),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .default(25)
+    .describe(
+      "Batches per page, 1 to 100. Defaults to 25, lower than the other lists because each batch's staged count is worked out when the page is read.",
+    ),
+});

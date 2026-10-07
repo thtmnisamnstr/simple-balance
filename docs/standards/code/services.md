@@ -103,7 +103,9 @@ cross-tenant read, which is the one class of bug in this product that cannot be
 apologized for.
 
 *Checked by:* `tests/integration/tenant-isolation.integration.test.ts`, which
-walks the surface with two users and asserts neither can see the other, and
+walks the services with two users and asserts neither can see the other;
+`tests/integration/tenant-isolation-routes.integration.test.ts`, which does the
+same over every route that names a record, read from the router; and
 `tests/service-write-scope.test.ts` for the half that suite is structurally
 blind to. A read that forgets the owner shows somebody another tenant's row and
 two users will find it; a *write* that forgets the owner can only be caught
@@ -121,13 +123,17 @@ This is why `tests/mcp-parity.test.ts` can compare the two transports service by
 service at all — there is something to compare because neither transport holds
 logic of its own.
 
-Five lines in the two transports do reach the database, and none of them is
-bookkeeping: the readiness probe's `select 1`, the first-account claim's
-advisory lock — which `AGENTS.md` requires to be taken outside the application
-pool — two reads of Better Auth's own tables behind the consent screen, which is
+Seven lines in the two transports do reach the database, and they are five
+things, none of them bookkeeping: the readiness probe's `select 1`, the
+first-account claim's advisory lock — which `AGENTS.md` requires to be taken
+outside the application pool, and which takes two statements on its own client
+— two reads of Better Auth's own tables behind the consent screen, which is
 reachable from a session and has no MCP counterpart, and the transaction an MCP
 tool call is made idempotent inside. Each is named in the test below with its
-reason, so a sixth has to be argued for rather than merely added.
+reason, so another has to be argued for rather than merely added. The test
+counted five lines because its patterns could not see a query run through a
+transaction handle or on a client by another name; it reads any builder on any
+receiver now, which is how the lock's two statements were found.
 
 *Checked by:* `tests/transport-database-access.test.ts`. It cannot ask the
 question this rule asks — would both surfaces need this line? — so it asks the
@@ -155,7 +161,7 @@ server to send the count, and a server that sends none gets no sentence.
 
 There is a second shape, for when the browser has no business previewing at all.
 Rather than send the data and a rule for using it, **send nothing and let the
-absence be the answer.** `getAdPlacement` (`src/server/services/billing.ts:2539`)
+absence be the answer.** `getAdPlacement` (`src/server/services/billing.ts:2582`)
 returns the publisher and slot ids, or `null`: a session belonging to somebody
 who should see no advertising simply carries no ad configuration, so the page
 has nothing to render a slot from. `AdSlot` (`src/client/ads.tsx:70`) has no
@@ -232,9 +238,9 @@ nothing is left alone rather than exempted by name. `transaction ?? getDb()` is
 the whole shape for a read: take the caller's connection when there is one, and
 never open a boundary the caller did not ask for.
 
-Eight places in this directory open a transaction directly — whether spelled
+Nine places in this directory open a transaction directly — whether spelled
 `getDb().transaction` or through a `db` alias, which is the same decision made
-harder to grep — and none of the eight advertises the parameter, so nothing is
+harder to grep — and none of the nine advertises the parameter, so nothing is
 being ignored. Six are the original argument: three reads that want every query
 on one snapshot (`getTransaction`, `listAllTransactions`, and
 `listTransactions`' hydration pass), two entry points the scheduler calls, which
@@ -245,21 +251,28 @@ claims the row — and `deleteOwnAccount`, which is reachable only from a browse
 session and ends the tenant whose work anything composing with it would be
 doing.
 
-Billing added the other two, and both argue it where they are written rather
+Billing added the other three, and each argues it where it is written rather
 than here — `beginBillingOperation` cites this rule by name
-(`src/server/services/billing.ts:585-596`). The seventh carries a reason none of
+(`src/server/services/billing.ts:586-597`). The seventh carries a reason none of
 the first six has, and it is the one to copy: **the row has to be durable before
 the network call.** `beginBillingOperation` records the intent to call Stripe
 and commits it, because a process that dies mid-call otherwise leaves no record
 of the key it already spent, and the retry spends a second one. The eighth is
 `setSubscription`'s inner transaction, which holds `lockBillingState` from the
 read to the store so a second press cannot create a second subscription, and
-lets the lock go before re-reading what Stripe then said. A ninth has to argue
-that nothing will ever want to compose with it, or — like these two — that
-composing with it is exactly what must not happen.
+lets the lock go before re-reading what Stripe then said. The ninth is
+`confirmPaymentSetup`'s, which holds the same lock from reading the grant to
+paying what is owed, so a subscribe and a card replacement for one person cannot
+both be collecting at once; it warms the price check before taking the lock, so
+the only calls it holds the lock across are the two that charge. Both of these
+hold a pooled connection across a network call, which `docs/capacity.md` names
+the first thing to run out — the trade is a slower request against somebody
+charged twice. A tenth has to argue that nothing will ever want to compose with
+it, or — like these three — that composing with it is exactly what must not
+happen.
 
 The parameter is not decoration. The MCP transport passes its transaction in
-(`src/server/mcp.ts:307-340`, and every `runIdempotentMcpMutation` call under it)
+(`src/server/mcp.ts:310-343`, and every `runIdempotentMcpMutation` call under it)
 so that
 its idempotency record, the mutation and the audit events land on one connection
 and commit together. Take it away and an agent's write could record its
@@ -289,7 +302,7 @@ numbers above are today's and the test is what keeps the rule.
 **Binding**, for a write that changes something somebody edited. The caller sends
 the version it read; the service compares, throws `staleVersion` if it moved,
 and bumps on success
-(`updateAccount`, `src/server/services/accounts.ts:1050`).
+(`updateAccount`, `src/server/services/accounts.ts:1064`).
 
 This said "everywhere, no exceptions" for a release, and that was false in both
 halves by the time it was written. `setActiveAccounts` takes no expected version
@@ -311,6 +324,31 @@ correct.
 
 `staleVersion` carries `currentVersion` so a client can offer "reload and try
 again" rather than "something went wrong". See `errors.md`.
+
+**And a write that changes nothing is not a write.** After the version check,
+every update compares what it would store with what is stored and, when they
+agree, returns the row as it is: no new version, no audit entry, no posting
+(`patchChangesNothing` and `sameStoredValue`, `src/server/services/helpers.ts`).
+Until the 0.2.0 sandbox smoke test, saving an entry unchanged moved its version
+from 1 to 2, and a bumped version is not harmless: every other form and every
+mass-edit fingerprint holding the record is now stale and refuses its next
+save, over a change nobody made. The comparison reads values the way a screen
+does — amounts as numbers, blank and absent as the same thing, a JSON column by
+content — because a column hands back eighteen places and a request as many as
+somebody typed. A transaction compares its legs by id as well
+(`changesNothing`, `src/server/services/transactions.ts`), since a leg sent
+without one is a new leg even when its figures agree. Asking a record for the
+state it is already in — archiving an archived account, deleting a deleted
+entry — is the same nothing, and a mass edit writes only the rows its patch
+changes, reports those rows' versions unmoved, and counts only the changed ones
+in `updatedCount`. Checked by
+`tests/integration/unchanged-edits.integration.test.ts`, which saves every
+record a form edits without changing it, and by `tests/unchanged-writes.test.ts`,
+which finds every exported service function that bumps a version — any
+`version: … + 1`, where it used to know six operands by name and so never saw
+`existing.version + 1` — and requires it to compare first or be named with the
+reason its writes always change something: a merge, and the queue's delete and
+commit.
 
 *Checked by:* `tests/integration/mcp-tools.integration.test.ts`, "tells an agent
 to read the row again, and hands it the version to use", which sends a version
@@ -353,14 +391,14 @@ the caller supplied, it needs a key.
 
 The mechanism is worth understanding rather than copying. `getIdempotent` looks
 the key up **and hashes the request**
-(`src/server/services/helpers.ts:91-122`).
+(`src/server/services/helpers.ts:146-177`).
 Same key and same request returns the stored response. Same key and a
 *different* request is a `conflict`, because the caller has reused a key for
 something else and silently returning the old answer would be worse than
 refusing.
 
 The hash is over a canonicalized payload
-(`src/server/services/helpers.ts:168`):
+(`src/server/services/helpers.ts:223`):
 keys sorted, `undefined` dropped, dates as ISO strings. Without that, two
 identical requests whose JSON key order differed would hash differently and the
 retry would be refused.
@@ -398,7 +436,7 @@ it.
 **Binding.** Anything that decides "does this name already exist?" takes an
 advisory lock on that namespace first, and there are five namespaces:
 accounts, categories, payees, templates and recurrences
-(`src/server/services/helpers.ts:307-368`). Otherwise two concurrent requests
+(`src/server/services/helpers.ts:362-423`). Otherwise two concurrent requests
 both read "no", and both create.
 
 Accounts were the fifth and were added late, which is the point of listing them.
@@ -411,6 +449,16 @@ sites would not have found it: nothing named a lock that did not exist.
 
 The lock is per user and per namespace, so it serializes the smallest thing that
 has to be serialized.
+
+**What "already exists" means is the same in all five.** A name is compared
+folded — case and spacing ignored, `normalizeHumanName` in
+`src/shared/names.ts` — and accounts were the one namespace that compared
+exactly, so "Checking" and "CHECKING" could sit side by side as two accounts
+nobody could tell apart in a picker. They now compare folded too, inside the
+lock (`assertAccountNameAvailable`, `src/server/services/accounts.ts`). In the
+service rather than by a unique index on the folded name, because a deployment
+that already holds two such accounts would fail the migration that added one;
+this way they keep both and can rename either.
 
 **The account lock now serializes two different questions, and the heading only
 names one of them.** The second is "is there a free place?", which a plan that
@@ -427,20 +475,33 @@ name would skip it correctly and still be wrong.
 Two more rules ride on the locks, and both live in comments a new path will not
 stumble on by itself. First, the order is fixed: all account locks in sorted id
 order, then the account namespace, then the category namespace, then the payee
-namespace (`src/server/services/helpers.ts:290-295`), with the template and
+namespace (`src/server/services/helpers.ts:345-350`), with the template and
 recurrence locks after those. Two writers that take the same locks in
 different orders deadlock under concurrency, and nothing but the order stops
 it. Second, the category lock is not only for paths deciding a name: a write
 that merely *references* a category takes it too, because a category delete
 counts references before it archives, and a create sitting between its
 ownership check and its insert is invisible to that count — the recurrence
-lands naming a dead category (`src/server/services/recurrences.ts:528-536`,
+lands naming a dead category (`src/server/services/recurrences.ts:536-548`,
 and the same guard in `transaction-templates.ts` and `budgets.ts`). A new write
 that names or references a category needs the lock even though no name is
 being invented.
 
+The same holds for an account, and was missed until 0.2.1. `deleteAccount`
+counts what names an account under that account's reference lock, and a
+template or a recurrence checked the accounts it named under no lock at all, so
+an account deleted while a recurrence naming it was being created left the
+recurrence proposing flagged rows for good. Both now take the reference lock
+first, ahead of the category lock, which is where every entry takes it. And
+rows come after every namespace: voiding and restoring an entry took the
+duplicate fingerprint and wrote the row before `prepareTransaction` reached the
+namespaces, the reverse of a mass edit or a payee merge holding them and waiting
+on that row, and voiding took no account lock at all, so it raced archiving the
+same account. A commit now writes its staged rows in id order too, the order a
+delete locks them in.
+
 A sixth lock now sits in that range and is **not** part of the ordering.
-`lockBillingState` (`src/server/services/helpers.ts:343-359`) is the same
+`lockBillingState` (`src/server/services/helpers.ts:398-414`) is the same
 mechanism for a different purpose: it serializes the read-decide-write in
 `reconcileSubscription`, because Stripe guarantees no ordering between
 deliveries and two replicas holding snapshots of one subscription would
@@ -451,7 +512,12 @@ billing tables and the ledger tables have no reason to be written in one
 transaction. Adding it to the order would be the easy mistake and would license
 exactly the transaction that must not exist.
 
-*Checked by:* `tests/integration/duplicate-lock.integration.test.ts` for the
+*Checked by:* `tests/integration/lock-order.integration.test.ts` for the order,
+recorded through the real lock functions on an edit off a category, a void, and
+a recurrence and a template naming an account and a category;
+`tests/service-transactions.test.ts` for the two orders no recorder can see,
+read from the source — the duplicate fingerprint in `setTransactionDeleted` and
+the commit's row order. `tests/integration/duplicate-lock.integration.test.ts` for the
 mechanism, from a second connection under a 400ms statement timeout: a blocked
 waiter either expires or does not, and it expires. That is the duplicate
 fingerprint lock rather than a name. `tests/name-locks.test.ts` holds the rule
@@ -602,9 +668,9 @@ instances. The class is `human`: no program knows which paths are siblings.
 
 **Binding.** The largest guard added in 0.2.0 is the account freeze, and it is
 built the only way a guard over a plan can be: `accountFreeze(tx, actor)`
-(`src/server/services/accounts.ts:788`) reads the entitlement **on the caller's
+(`src/server/services/accounts.ts:802`) reads the entitlement **on the caller's
 transaction**, and `assertAccountsWritable(freeze, ids)`
-(`src/server/services/accounts.ts:842`) refuses against what that read said.
+(`src/server/services/accounts.ts:856`) refuses against what that read said.
 Fifteen declarations across five modules take the freeze, and ten of them call
 the assertion.
 
@@ -615,7 +681,7 @@ at a moment no code observes, and a deployment that stops selling answers
 written on the way down would go on saying what it said then, and that last case
 would lock paying customers out of their own books. `ledger_account.active` is
 the person's choice and nothing else; `frozenAccountIds`
-(`src/shared/domain.ts:3550`) combines it with the entitlement at read time.
+(`src/shared/domain.ts:3713`) combines it with the entitlement at read time.
 
 The obvious alternative is to resolve the entitlement once at the edge — in the
 route, or in a middleware — and pass the answer down. It is wrong for the reason
@@ -633,7 +699,7 @@ repairable instead of killing the batch it arrived in. It is also what archiving
 already throws, and a frozen account is the same kind of no.
 
 **The pool-side read is a second function, not an optional parameter.**
-`readAccountFreeze(actor)` (`src/server/services/accounts.ts:778`) exists for
+`readAccountFreeze(actor)` (`src/server/services/accounts.ts:792`) exists for
 `getAccount`, which holds no transaction. Giving `accountFreeze` an optional
 `tx` would have been one function instead of two, and it is exactly the shape
 2.1's second half forbids: a helper handed a transaction must never be able to
@@ -674,20 +740,20 @@ Nine update statements in this directory take it, in seven declarations, and
 every one argues it in a comment beside the write. They cross-cite each other,
 which is how you can tell it is one decision made once:
 
-- `setActiveAccounts` (`src/server/services/accounts.ts:915`) — "`active` is not
+- `setActiveAccounts` (`src/server/services/accounts.ts:929`) — "`active` is not
   part of `accountUpdateSchema` and nothing edits it through that path, so a
   bump here would invalidate the expected version in every form somebody had
   open for a reason that has nothing to do with what they were editing."
-- `markFittingAccountsActive` (`src/server/services/accounts.ts:870`) — the same
+- `markFittingAccountsActive` (`src/server/services/accounts.ts:884`) — the same
   column from the other direction, and it says "like `setActiveAccounts`".
-- `proposeDueOccurrences` (`src/server/services/recurrences.ts:313`) — "a tick
+- `proposeDueOccurrences` (`src/server/services/recurrences.ts:316`) — "a tick
   advancing a watermark is not a change to what they configured".
 - The four reference rewrites in the two merges
-  (`src/server/services/categories.ts:1184`, `:1266`,
+  (`src/server/services/categories.ts:1181`, `:1263`,
   `src/server/services/payees.ts:458`) — "a merge relabels what a recurrence
   points at without changing what somebody configured". 2.6 owns why the
   rewrites happen at all; this is why they are silent.
-- `deleteCategoryGroup` (`src/server/services/category-groups.ts:274`) — and
+- `deleteCategoryGroup` (`src/server/services/category-groups.ts:281`) — and
   this one `AGENTS.md` states outright: the foreign key never bumped it, so
   bumping it would make a Citus cluster refuse an edit a single node accepts.
 
@@ -728,14 +794,14 @@ function that opened it is the one that releases it.**
 **Metrics.** `ledger_writes_total` names the books rather than the traffic, so a
 count standing for a write that rolled back is a lie about the books. Every
 service counts through `countAfterCommit`
-(`src/server/services/helpers.ts:150`), which counts immediately when the
+(`src/server/services/helpers.ts:205`), which counts immediately when the
 service opened its own transaction and otherwise queues; the MCP transport
 flushes with `flushDeferredCounts` after `getDb().transaction` resolves
-(`src/server/mcp.ts:338`). Six call sites, in `transactions.ts` and
-`staging.ts`.
+(`src/server/mcp.ts:341`). Seven call sites, in `transactions.ts`, `staging.ts`
+and `import-export.ts`, which counts the rows a CSV import staged.
 
 The keying is the part a new author gets wrong, and the source says so where it
-is written (`src/server/services/helpers.ts:142`): the queue is a
+is written (`src/server/services/helpers.ts:197`): the queue is a
 `WeakMap<DbTransaction, …>`. **A module-level queue would be shared between
 concurrent requests and one request could flush another's counts** — the worse
 bug in place of the one being fixed. Two requests hold two transaction objects,
@@ -746,12 +812,12 @@ collected whether anybody flushed it or not.
 nothing in it, so it is sent after the transaction that earned it commits, never
 inside it (`AGENTS.md`). `proposeDueOccurrences` collects what to announce
 through a callback and `runDueRecurrences` sends it outside, awaited rather than
-left running (`src/server/services/recurrences.ts:410`); the reminder sweep
+left running (`src/server/services/recurrences.ts:413`); the reminder sweep
 sends after `claimDueNotification`'s transaction has moved the watermark and
 committed.
 
 **A follow-up write, and a follow-up read.** `deferSubscriptionRead`
-(`src/server/services/billing.ts:2228`) stamps a failed attempt *after* the
+(`src/server/services/billing.ts:2271`) stamps a failed attempt *after* the
 locked write it follows has let its lock go, "so it can land where the locked
 write above timed out". And `setActiveAccounts` returns `listAccounts(actor)`
 from outside its own transaction, because `listAccounts` reads through the pool
@@ -774,7 +840,11 @@ that may never have happened.
 
 *Checked by:* `tests/services-guide.test.ts`, "a metric about the books waits
 for the commit", which holds the two halves a program can see: every
-`ledgerWrites.inc` in this directory is inside a `countAfterCommit` callback,
+increment of a metric a service imports is inside a `countAfterCommit`
+callback — every one, after `csv_rows_staged` was counted straight inside
+`stageCsv` while the check asked only about `ledgerWrites` — except the
+idempotency replay count, which is traffic rather than the books and is named
+with that reason,
 and the deferred queue is keyed on the transaction rather than on a module-level
 collection. Mail is held by `tests/integration/notifications.integration.test.ts`
 — "writes when it proposes, and says what it proposed", "says nothing on a tick
@@ -811,13 +881,13 @@ The test sites are almost all integration tests awaiting one request at a
 time, which is a different thing from a service resolving names in order. Some
 of the 58 here are opportunities. At least one is load-bearing:
 
-```
+```ts
 Legs resolve one at a time rather than in a batch, so that two legs naming
 the same new category end up on one category rather than two: the second
 lookup sees what the first created.
 ```
 
-(`src/server/services/categories.ts:195-197`, the docstring on
+(`src/server/services/categories.ts:182-184`, the docstring on
 `resolveDraftCategory` rather than the signature under it.)
 
 Run those in parallel and a split naming "Groceries" twice creates two
@@ -851,16 +921,20 @@ is the same string for the same value.
 `parseFloat(` reaching a value whose name is money. Refusing the conversion
 outright would be the wrong rule and the first run said so: every site in the
 services is a count — periods, entries, staged rows — and a count is a number.
-So it is the vocabulary that decides, which means somebody adding a money word
-to the codebase has to add it to the list, and that is the honest limit of what
-a source read can settle here.
+So it is the vocabulary that decides, read word by word through camelCase and
+underscores so `sourceAmount` and `opening_balance` are money as well as
+`amount` — it matched whole names, and missed every compound — and the
+contract's own fields are derived rather than listed: every field
+`src/shared/domain.ts` builds from `DECIMAL_DIGITS`, which is how `rolloverCap`
+is money with no money word in it. A money word nobody has used yet still has
+to be added to the list, and that is the honest limit of a source read.
 
 ## 4. Naming a category, and why it is in this guide
 
 **Binding**, because it is the rule most recently got wrong.
 
 Resolving a category by name never widens the category it finds
-(`src/server/services/categories.ts:155`).
+(`src/server/services/categories.ts:142`).
 Widening to `both` was correct while an entry could only name a category of its
 own direction. It stopped being correct when a category running against the
 direction became a refund, and it stopped quietly: `both` agrees with whichever
@@ -869,7 +943,7 @@ instead of lowering the spending.
 
 Where the direction genuinely cannot decide — a name with nothing behind it
 yet — the caller says so with `categoryKind`
-(`src/server/services/categories.ts:210`),
+(`src/server/services/categories.ts:197`),
 and that field is ignored when the category already exists, because that one has
 an answer already.
 

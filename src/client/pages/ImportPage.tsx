@@ -2,7 +2,15 @@ import { Link } from "../router.js";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, FileSpreadsheet, FlaskConical, Upload } from "lucide-react";
 import { type ChangeEvent, useMemo, useRef, useState } from "react";
-import { csvCell, isAppExportCsv, type CsvMapping } from "../../shared/csv.js";
+import {
+  csvCell,
+  isAppExportCsv,
+  type CsvDateFormat,
+  type CsvDecimalSeparator,
+  type CsvMapping,
+  type CategoryResolution,
+  type PayeeResolution,
+} from "../../shared/csv.js";
 import {
   PROGRESS_STREAM_MIN_ROWS,
   type CategoryKind,
@@ -26,6 +34,8 @@ import {
   Button,
   EmptyState,
   Field,
+  formatCount,
+  Note,
   PageHeader,
   progressLabel,
   ProgressBar,
@@ -54,13 +64,13 @@ type StageResult = {
       resolvedName: string;
       categoryId: string | null;
       kind: CategoryKind;
-      resolution: "existing" | "new" | "updated" | "deferred";
+      resolution: CategoryResolution;
       unarchived: boolean;
     }[];
     payees: {
       inputPayee: string;
       resolvedPayee: string;
-      resolution: "existing" | "new";
+      resolution: PayeeResolution;
     }[];
   };
 };
@@ -100,19 +110,21 @@ function inferMapping(headers: string[]): Partial<CsvMapping> {
 
 function MappingField({
   label,
+  hint,
   value,
   headers,
   required,
   onChange,
 }: {
   label: string;
+  hint?: string;
   value?: string;
   headers: string[];
   required?: boolean;
   onChange: (value: string) => void;
 }) {
   return (
-    <Field label={label}>
+    <Field label={label} hint={hint}>
       <Select
         required={required}
         value={value ?? ""}
@@ -136,8 +148,8 @@ export default function ImportPage() {
   const [preview, setPreview] = useState<CsvPreview | null>(null);
   const [mapping, setMapping] = useState<Partial<CsvMapping>>({});
   const [defaultAccountId, setDefaultAccountId] = useState("");
-  const [dateFormat, setDateFormat] = useState<"YMD" | "MDY" | "DMY">("YMD");
-  const [decimalSeparator, setDecimalSeparator] = useState<"." | ",">(".");
+  const [dateFormat, setDateFormat] = useState<CsvDateFormat>("YMD");
+  const [decimalSeparator, setDecimalSeparator] = useState<CsvDecimalSeparator>(".");
   const [result, setResult] = useState<StageResult | null>(null);
   const [resultReading, setResultReading] = useState("");
   const stageIdempotencyKey = useRef(newIdempotencyKey());
@@ -194,7 +206,13 @@ export default function ImportPage() {
       setFileName(name);
       setPreview(parsed);
       setMapping(inferMapping(parsed.headers));
-      setDefaultAccountId((current) => current || writableAccounts[0]?.id || "");
+      // Chosen for them only when there is nothing to choose between. Picking
+      // the alphabetically first of several put a file one press away from
+      // landing in an account nobody had named — and the queue would then
+      // file every row there.
+      setDefaultAccountId(
+        (current) => current || (writableAccounts.length === 1 ? writableAccounts[0]!.id : ""),
+      );
       setResult(null);
       setResultReading("");
       stageIdempotencyKey.current = newIdempotencyKey();
@@ -293,7 +311,7 @@ export default function ImportPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Import"
+        eyebrow="Review queue"
         title="Import a CSV"
         description={
           appExport
@@ -315,7 +333,7 @@ export default function ImportPage() {
         <EmptyState
           icon={FileSpreadsheet}
           title="Every account is frozen"
-          body="A CSV needs an account its rows can be posted against, and a frozen account accepts no rows until you make it one of the active ones or upgrade."
+          body="A CSV needs an account its rows can be posted against, and a frozen account accepts no rows. One comes back into use when an account in use is archived or deleted, or if you upgrade."
           action={
             <Link className="button button-primary" to="/accounts">
               Go to Accounts
@@ -363,7 +381,7 @@ export default function ImportPage() {
                     <p>
                       Detected{" "}
                       <strong>{preview.delimiter === "\t" ? "tab" : preview.delimiter}</strong>{" "}
-                      delimiter and {preview.headers.length} columns.
+                      delimiter and {formatCount(preview.headers.length)} columns.
                     </p>
                   </div>
                 </div>
@@ -380,9 +398,13 @@ export default function ImportPage() {
                   <div className={appExport ? undefined : "two-columns"}>
                     <Field label="Account">
                       <Select
+                        required
                         value={defaultAccountId}
                         onChange={(event) => setDefaultAccountId(event.target.value)}
                       >
+                        <option value="" disabled>
+                          Choose an account
+                        </option>
                         {writableAccounts.map((account) => (
                           <option key={account.id} value={account.id}>
                             {account.name} ({account.currency})
@@ -470,7 +492,7 @@ export default function ImportPage() {
                           <Select
                             value={decimalSeparator}
                             onChange={(event) =>
-                              setDecimalSeparator(event.target.value as "." | ",")
+                              setDecimalSeparator(event.target.value as CsvDecimalSeparator)
                             }
                           >
                             <option value=".">1,234.56</option>
@@ -478,10 +500,28 @@ export default function ImportPage() {
                           </Select>
                         </Field>
                       </div>
+                      {/* Guessed from four headings and sent, and until 0.2.1 never
+                          shown: a reference column under any other heading could
+                          not be chosen, and a wrong guess could not be undone,
+                          which an agent's mapping could do both of. */}
+                      <div className="two-columns">
+                        <MappingField
+                          label="Bank reference"
+                          hint="The column your bank identifies each transaction by, which stops the same statement being imported twice. Leave it Not mapped if that column repeats from row to row."
+                          headers={preview.headers}
+                          value={mapping.externalId}
+                          onChange={(externalId) =>
+                            setMapping((value) => ({ ...value, externalId }))
+                          }
+                        />
+                      </div>
+                      {/* An instruction, not an error: nothing has been submitted,
+                          so it is a note beside the mapping rather than a red
+                          `alert` that interrupted a screen reader the moment a
+                          file was chosen (`web.md` 8.2, 12.4). The buttons that
+                          cannot run yet already carry it as their reason. */}
                       {!hasAmounts ? (
-                        <Alert>
-                          Map a signed amount column or one or both debit/credit columns.
-                        </Alert>
+                        <Note>Map a signed amount column or one or both debit/credit columns.</Note>
                       ) : null}
                     </>
                   )}
@@ -544,9 +584,9 @@ export default function ImportPage() {
                 {result && (result.importBatchId || !stale) ? (
                   <>
                     <Alert kind={result.invalidCount ? "info" : "success"}>
-                      <strong>{result.validCount}</strong> ready and{" "}
-                      <strong>{result.invalidCount}</strong> needing attention out of{" "}
-                      {result.rowCount} rows.
+                      <strong>{formatCount(result.validCount)}</strong> ready and{" "}
+                      <strong>{formatCount(result.invalidCount)}</strong> needing attention out of{" "}
+                      {formatCount(result.rowCount)} rows.
                       {result.importBatchId ? (
                         <>
                           {" "}
@@ -566,7 +606,7 @@ export default function ImportPage() {
                               }),
                             }}
                           >
-                            Review these {result.rowCount} rows
+                            Review these {formatCount(result.rowCount)} rows
                           </Link>
                           .
                         </>
@@ -623,10 +663,11 @@ export default function ImportPage() {
                 // Says what is on screen rather than what came back: twelve rows
                 // are rendered out of a sample of twenty-five out of the file.
                 <Badge tone="blue">
-                  {Math.min(interpreted.sample.length, PREVIEW_ROWS)} of {interpreted.rowCount} rows
+                  {Math.min(interpreted.sample.length, PREVIEW_ROWS)} of{" "}
+                  {formatCount(interpreted.rowCount)} rows
                 </Badge>
               ) : preview ? (
-                <Badge tone="blue">{preview.rows.length} sampled</Badge>
+                <Badge tone="blue">{formatCount(preview.rows.length)} sampled</Badge>
               ) : null}
             </header>
             {/* Both preview tables are reachable, like every other scrolling
@@ -672,7 +713,7 @@ export default function ImportPage() {
                       const issue = row.issues[0]?.message;
                       return (
                         <tr key={index}>
-                          <td>{date ? formatDate(date) : "—"}</td>
+                          <td className="nowrap">{date ? formatDate(date) : "—"}</td>
                           {/* The payee heads the row, as it does in the queue
                               these same rows land in two clicks later. The
                               interpreted preview's columns are fixed, so one
@@ -685,11 +726,11 @@ export default function ImportPage() {
                           <td>{summary.account}</td>
                           <td>
                             {legs.length ? (
-                              <div className="transaction-payee">
+                              <div className="cell-with-badge">
                                 <span>
                                   {categoryLabel(largest?.categoryId, largest?.categoryName)}
                                 </span>
-                                <Badge tone="blue">Split · {legs.length}</Badge>
+                                <Badge tone="blue">Split · {formatCount(legs.length)}</Badge>
                               </div>
                             ) : (
                               categoryLabel(
@@ -764,7 +805,7 @@ export default function ImportPage() {
                     </tbody>
                   </table>
                 </div>
-                <p className="field-hint">Run a dry run to see how these rows will be read.</p>
+                <Note>Run a dry run to see how these rows will be read.</Note>
               </>
             ) : (
               <EmptyState

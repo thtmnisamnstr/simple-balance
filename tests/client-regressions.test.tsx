@@ -14,7 +14,7 @@ import type {
   Transaction,
 } from "../src/client/api.js";
 import { TransactionBrowser } from "../src/client/TransactionBrowser.js";
-import { AccountForm, TransactionForm } from "../src/client/forms.js";
+import { AccountForm, TransactionForm, draftFromTransaction } from "../src/client/forms.js";
 import StagingPage from "../src/client/pages/StagingPage.js";
 import { BrowserRouter } from "../src/client/router.js";
 import { TimezoneProvider } from "../src/client/timezone.js";
@@ -107,7 +107,7 @@ describe("account opening balances", () => {
     );
 
     expect(screen.getByLabelText("Starting balance type")).toHaveValue("credit");
-    expect(screen.getByLabelText("Starting amount")).toHaveValue("42.50");
+    expect(screen.getByLabelText(/^Starting amount/)).toHaveValue("42.50");
     fireEvent.submit(container.querySelector("form")!);
 
     await waitFor(() => {
@@ -148,15 +148,50 @@ describe("account opening balances", () => {
     );
 
     const form = within(container);
-    expect(form.getByLabelText("Starting amount")).toHaveValue("500");
+    expect(form.getByLabelText(/^Starting amount/)).toHaveValue("500.00");
     fireEvent.change(form.getByLabelText("Account type"), {
       target: { value: "checking" },
     });
-    expect(form.getByLabelText("Opening balance")).toHaveValue("-500");
+    expect(form.getByLabelText(/^Opening balance/)).toHaveValue("-500.00");
     fireEvent.submit(container.querySelector("form")!);
 
     await waitFor(() => {
-      expect(requestBody?.openingBalance).toBe("-500");
+      expect(requestBody?.openingBalance).toBe("-500.00");
+    });
+  });
+});
+
+describe("an edit form's amounts", () => {
+  it("open at the currency's decimals rather than the stored scale", () => {
+    // The opening balance arrives at the column's full scale and a
+    // transaction's amount arrives canonical, so the two edit forms opened on
+    // "3250.000000000000000000" and on "12.5".
+    const client = queryClient();
+    client.setQueryData(["accounts"], []);
+    render(
+      <QueryClientProvider client={client}>
+        <TimezoneProvider timezone="UTC">
+          <AccountForm
+            account={{ ...checkingAccount, openingBalance: "3250.000000000000000000" }}
+            defaultCurrency="USD"
+            onDone={() => undefined}
+          />
+        </TimezoneProvider>
+      </QueryClientProvider>,
+    );
+    expect(screen.getByLabelText(/^Opening balance/)).toHaveValue("3250.00");
+
+    const draft = draftFromTransaction({
+      ...groceryTransaction,
+      sourceAmount: "12.5",
+      legs: [
+        { id: "a", categoryId: groceriesCategory.id, amount: "10", note: null },
+        { id: "b", categoryId: groceriesCategory.id, amount: "2.5", note: null },
+      ],
+    } as Transaction);
+    expect(draft).toMatchObject({
+      amount: "12.50",
+      legs: [{ amount: "10.00" }, { amount: "2.50" }],
     });
   });
 });
@@ -828,8 +863,13 @@ describe("staged queue type filter", () => {
       </QueryClientProvider>,
     );
 
-    // An empty queue nobody has narrowed says so, rather than blaming a filter.
-    expect(await screen.findByText("Nothing staged")).toBeInTheDocument();
+    // An empty queue nobody has narrowed says so, rather than blaming a filter
+    // — and says it of the range in view, because a row dated outside July is
+    // hidden by the range and "Nothing staged" would be false about it.
+    expect(await screen.findByText("Nothing staged in this range")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Widen the date range to see rows dated outside it/),
+    ).toBeInTheDocument();
     expect(requestedTypes.every((type) => type === null)).toBe(true);
 
     fireEvent.change(screen.getByLabelText("Filter by type"), {
@@ -931,11 +971,17 @@ describe("staged queue pagination", () => {
 
     expect(await screen.findByText("First page")).toBeInTheDocument();
     expect(screen.queryByText("Second page")).not.toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "first.csv (1)" })).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: "second.csv (1)" })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("option", { name: /^first\.csv · Jul 30, 2026, .+ · 1 of 1 rows staged$/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: /^second\.csv · .+ · 1 of 1 rows staged$/ }),
+    ).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Load older batches" }));
-    expect(await screen.findByRole("option", { name: "second.csv (1)" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("option", { name: /^second\.csv · .+ · 1 of 1 rows staged$/ }),
+    ).toBeInTheDocument();
     expect(requestedBatchCursors.filter((cursor) => cursor === "older-batch")).toHaveLength(1);
 
     fireEvent.click(screen.getByRole("button", { name: "Page 2" }));
@@ -948,7 +994,51 @@ describe("staged queue pagination", () => {
         name: "Select all staged transactions on this page",
       }),
     );
-    expect(screen.getByText("1 selected")).toBeInTheDocument();
+    expect(screen.getByText("1 staged transaction selected")).toBeInTheDocument();
+  });
+
+  /**
+   * `web.md` 12.3: a dead control says why. A staged row with an issue had its
+   * Commit disabled and nothing pointing at the reason, while the status cell
+   * beside it already showed the issue.
+   */
+  it("says why a row with an issue cannot be committed", async () => {
+    window.history.replaceState(null, "", "/staged?start=2026-07-01&end=2026-07-31");
+    const row = {
+      ...staged(
+        "66666666-6666-4666-8666-666666666666",
+        "Needs an account",
+        "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      ),
+      validationIssues: [
+        { field: "draft.fromAccountId", message: "Choose the account the money comes from" },
+      ],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input), window.location.origin);
+        if (url.pathname === "/api/v1/staged-transactions") {
+          return Response.json({ items: [row], nextCursor: null });
+        }
+        if (url.pathname === "/api/v1/accounts") return Response.json([checkingAccount]);
+        return Response.json(
+          url.pathname === "/api/v1/import-batches" ? { items: [], nextCursor: null } : [],
+        );
+      }),
+    );
+    render(
+      <QueryClientProvider client={queryClient()}>
+        <TimezoneProvider timezone="UTC">
+          <BrowserRouter>
+            <StagingPage />
+          </BrowserRouter>
+        </TimezoneProvider>
+      </QueryClientProvider>,
+    );
+    const commit = await screen.findByRole("button", { name: /^Commit (?!selected)/ });
+    expect(commit).toBeDisabled();
+    expect(commit).toHaveAccessibleDescription("Choose the account the money comes from");
   });
 
   it("reuses a staged-commit key when a lost response is retried", async () => {
@@ -1017,7 +1107,7 @@ describe("staged queue pagination", () => {
     );
     const page = within(container);
     const commitButton = await page.findByRole("button", {
-      name: "Commit staged transaction",
+      name: /^Commit (?!selected)/,
     });
     fireEvent.click(commitButton);
     // The sentence alone, with nothing appended. A refusal earns "Nothing was

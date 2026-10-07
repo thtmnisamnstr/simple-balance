@@ -150,6 +150,22 @@ describe("reviewing two records of one payment", () => {
   });
 
   /**
+   * Which way each moved, in the figure itself. The page asks whether two
+   * records are one payment, and a deposit and a withdrawal of the same amount
+   * read identically unsigned (`web.md` 10.1).
+   */
+  it("signs both sides' amounts", async () => {
+    stub({
+      first: stagedSide,
+      second: { ...committedSide, committed: { ...committedSide.committed, type: "deposit" } },
+    } as StagedDuplicateReview);
+    renderReview();
+    const staged = await screen.findByLabelText("Staged row under review");
+    expect(staged).toHaveTextContent("−$42.50");
+    expect(screen.getByLabelText("Committed transaction")).toHaveTextContent("+$42.50");
+  });
+
+  /**
    * The way out of a duplicate is to drop the copy that has not been recorded
    * yet, so the committed side offers no delete at all rather than one that
    * refuses.
@@ -158,9 +174,9 @@ describe("reviewing two records of one payment", () => {
     stub({ first: stagedSide, second: committedSide } as StagedDuplicateReview);
     renderReview();
     await screen.findByLabelText("Staged row under review");
-    expect(screen.getAllByRole("button", { name: /drop this staged row/i })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: /delete this staged row/i })).toHaveLength(1);
     expect(screen.getByLabelText("Committed transaction").textContent).toMatch(
-      /not dropped from here/i,
+      /not deleted from here/i,
     );
   });
 
@@ -172,7 +188,7 @@ describe("reviewing two records of one payment", () => {
     stub({ first: stagedSide, second: older } as StagedDuplicateReview);
     renderReview();
     await screen.findByLabelText("Staged row under review");
-    expect(screen.getAllByRole("button", { name: /drop this staged row/i })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: /delete this staged row/i })).toHaveLength(2);
   });
 
   /**
@@ -190,8 +206,8 @@ describe("reviewing two records of one payment", () => {
     renderReview();
     await screen.findByLabelText("Staged row under review");
 
-    fireEvent.click(screen.getByRole("button", { name: /drop this staged row/i }));
-    fireEvent.click(await screen.findByRole("button", { name: "Drop it" }));
+    fireEvent.click(screen.getByRole("button", { name: /delete this staged row/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete staged row" }));
 
     await vi.waitFor(() => expect(window.location.pathname).toBe("/staged/duplicates/staged-2"));
     expect(screen.queryByText(/not found/i)).toBeNull();
@@ -208,8 +224,8 @@ describe("reviewing two records of one payment", () => {
     renderReview();
     await screen.findByLabelText("Staged row under review");
 
-    fireEvent.click(screen.getByRole("button", { name: /drop this staged row/i }));
-    fireEvent.click(await screen.findByRole("button", { name: "Drop it" }));
+    fireEvent.click(screen.getByRole("button", { name: /delete this staged row/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete staged row" }));
 
     // Not bounced silently back to the list: the run ended, and it says so.
     expect(await screen.findByText(/no duplicates left to review/i)).toBeInTheDocument();

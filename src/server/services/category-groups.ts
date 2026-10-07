@@ -11,7 +11,7 @@ import {
   type CategoryGroupRow,
 } from "../db/schema.js";
 import { conflict, duplicate, notFound, staleVersion, validationError } from "./errors.js";
-import { lockCategoryNamespace, writeAudit } from "./helpers.js";
+import { lockCategoryNamespace, patchChangesNothing, writeAudit } from "./helpers.js";
 
 /**
  * One level of grouping over categories, and the budget that reads it.
@@ -158,6 +158,9 @@ export async function updateCategoryGroup(
     if (before.version !== parsed.expectedVersion) {
       throw staleVersion({ currentVersion: before.version });
     }
+    if (patchChangesNothing(before, { name: parsed.name?.trim(), policy: parsed.policy })) {
+      return groupView(before, await groupCategoryCount(tx, actor, id));
+    }
     // A group that holds a budget of its own cannot become one that is its
     // categories added up: the budget would stop being read and nothing on the
     // page would say why. Refused with the way out rather than silently.
@@ -234,14 +237,18 @@ export async function updateCategoryGroup(
     // read happens outside this transaction and so returns the row as it was,
     // version and all, and on a one-connection pool it would be waiting for the
     // connection this transaction is holding.
-    const [counted] = await tx
-      .select({
-        count: sql<number>`count(*)::int`,
-      })
-      .from(categories)
-      .where(and(eq(categories.userId, actor.userId), eq(categories.groupId, id)));
-    return groupView(updated, counted?.count ?? 0);
+    return groupView(updated, await groupCategoryCount(tx, actor, id));
   });
+}
+
+async function groupCategoryCount(tx: DbTransaction, actor: Actor, id: string) {
+  const [counted] = await tx
+    .select({
+      count: sql<number>`count(*)::int`,
+    })
+    .from(categories)
+    .where(and(eq(categories.userId, actor.userId), eq(categories.groupId, id)));
+  return counted?.count ?? 0;
 }
 
 export async function deleteCategoryGroup(

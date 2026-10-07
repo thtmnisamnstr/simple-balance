@@ -299,7 +299,7 @@ describe("the host firewall, which is the half the cloud's does not cover", () =
     // the rest, so the security list opens the cloud and the host still
     // refuses: the machine comes up healthy and every connection times out.
     const platform = readProgram("deploy/pulumi/oci-single/platform.ts");
-    const commands = /export const DATABASE_PLATFORM_COMMANDS = \[[\s\S]*?\n\];/.exec(platform);
+    const commands = /const DATABASE_PLATFORM_COMMANDS = \[[\s\S]*?\n\];/.exec(platform);
     expect(commands, "the database node's platform commands").not.toBeNull();
     expect(commands![0]).toContain("--dport 5432 -j ACCEPT");
     expect(commands![0]).toContain("netfilter-persistent save");

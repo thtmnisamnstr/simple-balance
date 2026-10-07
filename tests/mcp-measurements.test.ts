@@ -169,9 +169,17 @@ describe("what mcp.md says it measured", () => {
     expect(number(outputs!)).toBe(composition.outputs);
   });
 
+  /**
+   * Asking, or saying the way back — not merely sounding final. The rule is
+   * that a tool says so AND asks, and this accepted "permanent" and "restore"
+   * on their own, so `delete_category` ("Permanently delete…") and
+   * `delete_account` passed while asking nobody, and `archive_category` passed
+   * on the verb in its own name. A tool that can be walked back says how; every
+   * other one says to confirm.
+   */
   it("counts destructive tools that carry a confirm-or-undo word", () => {
     const destructive = tools.filter((tool) => tool.annotations?.["destructiveHint"]);
-    const CONFIRM = /(confirm|undo|cannot be undone|permanent|irreversible|restore)/i;
+    const CONFIRM = /(confirm|can be undone)/i;
     const carrying = destructive.filter((tool) => CONFIRM.test(tool.description ?? ""));
     expect(carrying).toHaveLength(
       claimed(/Measured: (\d+) of the \d+\s+`destructiveHint` tools carry a confirm-or-undo word/),
@@ -263,7 +271,7 @@ describe("what mcp.md says it measured", () => {
   });
 
   /**
-   * The two that cannot be undone say so in words.
+   * The ones that cannot be undone say so in words.
    *
    * `ToolAnnotations` has three booleans and no fourth field, so
    * `destructiveHint` covers both "posts a reversal you can undo" and "there is
@@ -271,17 +279,37 @@ describe("what mcp.md says it measured", () => {
    * call. `mcp.md` records the split; the description is the only channel that
    * can carry it, so a tool in the unrecoverable class has to spell it out.
    *
-   * Named rather than derived from the annotation, because the annotation is
-   * identical on the wire by design: inventing a field the specification does
-   * not have would be worse than a list of two.
+   * Read from the registrations rather than from `tools/list`, because the
+   * annotation is identical on the wire by design: inventing a field the
+   * specification does not have would be worse than reading the source.
    *
-   * **Two, and the first draft of this list had four.** The other two are
-   * recoverable and their own descriptions said so before anybody checked:
-   * deleting posts a reversal that `set_transaction_deleted` puts back, and a
-   * revoked agent can be authorized again from a browser. Writing the list
-   * first and reading the descriptions second is what caught it.
+   * **It was a list of two, and that was wrong the other way.** The first draft
+   * had four, and two of them were recoverable: deleting a transaction posts a
+   * reversal that `set_transaction_deleted` puts back, and a revoked agent can
+   * be authorized again from a browser. Settling on the two merges then took
+   * "a delete is a reversal" for a rule about every delete, which is true of a
+   * transaction alone, and the server's instructions told every agent so. Nine
+   * deletes remove their row outright and said nothing about it. So the class
+   * is now read from the source, and every delete tool has to be in it or be
+   * one of the two that can be walked back.
    */
-  const UNRECOVERABLE = ["merge_categories", "merge_payees"];
+  const UNRECOVERABLE = (() => {
+    const source = readFileSync(new URL("../src/server/mcp.ts", import.meta.url), "utf8");
+    return source
+      .split(/\n      "(?=[a-z_]+",\n      \{)/)
+      .filter((registration) => registration.includes("annotations: unrecoverableAnnotations"))
+      .map((registration) => registration.slice(0, registration.indexOf('"')));
+  })();
+  const RECOVERABLE_DELETES = ["bulk_delete_transactions", "set_transaction_deleted"];
+
+  it("puts every delete that removes its row in the class", () => {
+    expect(UNRECOVERABLE).toEqual(expect.arrayContaining(["merge_categories", "merge_payees"]));
+    const deletes = tools
+      .map((tool) => tool.name)
+      .filter((name) => /(^|_)delete_/.test(name) && !RECOVERABLE_DELETES.includes(name));
+    expect(deletes.length).toBeGreaterThan(5);
+    expect(deletes.filter((name) => !UNRECOVERABLE.includes(name))).toEqual([]);
+  });
 
   it("says so in words where a client cannot be told in a field", () => {
     const NO_WAY_BACK = /(cannot be undone|no undo|permanent|irreversible)/i;
@@ -330,9 +358,11 @@ describe("what mcp.md says it measured", () => {
   const NOT_A_TOOL: string[] = [
     // Stored values rather than tools, each named by a description because the
     // choice it stands for has no default: how a category group is budgeted,
-    // and what a forecast is projected from.
+    // and what a forecast is projected from — both of the bases that are not
+    // the default, since the description has to say what each one adds.
     "sum_of_children",
     "recurring_and_budgets",
+    "recurring_and_history",
   ];
 
   it("never sends an agent to a tool that does not exist", () => {
@@ -357,6 +387,31 @@ describe("what mcp.md says it measured", () => {
     // Occurrences, not descriptions: one description naming two tools counts
     // twice, so this floor sits above the fourteen above it rather than at it.
     expect(mentions).toBeGreaterThanOrEqual(19);
+  });
+
+  /**
+   * And marks it as one. `mcp.md` §Descriptions: backticks mark an identifier,
+   * "because an identifier set in prose is an identifier a model retypes
+   * wrong". The rule stood on an enumeration of the ten descriptions that used
+   * backticks, and nothing looked at the ones that did not: ten named another
+   * tool in bare prose. A tool's name is the one identifier this can find
+   * without a judgment, so every one is held to it.
+   */
+  it("sets every tool it names in backticks", () => {
+    const registered = new Set(tools.map((tool) => tool.name));
+    const bare: string[] = [];
+    let marked = 0;
+    for (const tool of tools) {
+      for (const match of (tool.description ?? "").matchAll(
+        /(`?)\b([a-z][a-z0-9]*(?:_[a-z0-9]+)+)\b(`?)/g,
+      )) {
+        if (!registered.has(match[2]!)) continue;
+        if (match[1] === "`" && match[3] === "`") marked += 1;
+        else bare.push(`${tool.name} names ${match[2]} in bare prose`);
+      }
+    }
+    expect(bare).toEqual([]);
+    expect(marked).toBeGreaterThanOrEqual(19);
   });
 
   it("counts enums on each side", () => {
@@ -515,17 +570,26 @@ describe("what mcp.md says it measured", () => {
    * A version is the other way a tool earns the annotation, so a mutating tool
    * carrying `expectedVersion` instead is counted as covered rather than as a
    * defect. Both are named in the guide's own sentence.
+   *
+   * **What it could not see:** a tool with an `input` field was covered
+   * whatever that field held. The exemption was for the version an update
+   * carries inside `input` — `update_account` and every update shaped like it
+   * take `{ id, input: { …, expectedVersion } }` — and it accepted the field rather
+   * than the version in it, so an update whose `input` carried no version and
+   * which took no key passed. It reads the version where an update keeps it
+   * now, one level down and nowhere deeper.
    */
   it("counts mutating tools and the idempotency keys they carry", () => {
-    const properties = (tool: (typeof tools)[number]) =>
-      (tool.inputSchema as { properties?: Record<string, unknown> })?.properties ?? {};
+    type Properties = Record<string, { properties?: Record<string, unknown> } | undefined>;
+    const properties = (tool: (typeof tools)[number]): Properties =>
+      (tool.inputSchema as { properties?: Properties })?.properties ?? {};
     const mutating = tools.filter((tool) => !tool.annotations?.["readOnlyHint"]);
     const withKey = mutating.filter((tool) => properties(tool)["idempotencyKey"] !== undefined);
     /**
      * The one tool whose `idempotentHint` is true for a different reason.
      *
      * Every other mutating tool is idempotent because a key or a version
-     * makes a replay recognisable. `set_active_accounts` is idempotent
+     * makes a replay recognizable. `set_active_accounts` is idempotent
      * because the request states the whole of what it sets: sending the same
      * list twice leaves exactly the state the first call left, which is what
      * makes a PUT a PUT. A key here would be ceremony that changes nothing,
@@ -541,7 +605,7 @@ describe("what mcp.md says it measured", () => {
         properties(tool)["idempotencyKey"] === undefined &&
         properties(tool)["expectedVersion"] === undefined &&
         properties(tool)["expectedVersions"] === undefined &&
-        properties(tool)["input"] === undefined,
+        properties(tool)["input"]?.properties?.["expectedVersion"] === undefined,
     );
     expect(mutating.length).toBe(
       claimed(/Measured: (\d+)\s+mutating tools, \d+ with `idempotencyKey`/),

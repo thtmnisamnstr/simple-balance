@@ -23,6 +23,7 @@ import {
   getIdempotent,
   lockCategoryNamespace,
   lockIdempotencyKey,
+  patchChangesNothing,
   serializeRow,
   setIdempotent,
   writeAudit,
@@ -69,25 +70,11 @@ function categoryKindForDraft(draft: TransactionDraft): CategoryKind {
   return "both";
 }
 
-/**
- * The kind a category ends up with when an entry names it by name.
- *
- * Widening to `both` was right while an entry could only ever name a category
- * of its own direction: the only way to accept "Groceries" on a deposit was to
- * say Groceries covers both. It stopped being right when a category running
- * against the direction became a refund, and it stopped quietly. Widening
- * destroys the very signal that makes an entry a refund, and it does it
- * permanently: `both` agrees with whichever direction it is handed, so every
- * later refund into that category credits income instead of lowering the
- * spending, and the budget it was supposed to move never moves again.
- *
- * So income against expense keeps what is already there. That pairing is a
- * refund, not an ambiguity. Only a pairing that genuinely says the category is
- * used both ways widens, and the plain way to get one of those is to say so.
- */
-
 /** Live categories first, then a stable order, so a match never depends on row order. */
-export function preferredCategory(left: CategoryRow, right: CategoryRow) {
+export function preferredCategory(
+  left: Pick<CategoryRow, "archivedAt" | "name" | "id">,
+  right: Pick<CategoryRow, "archivedAt" | "name" | "id">,
+) {
   if (Boolean(left.archivedAt) !== Boolean(right.archivedAt)) {
     return left.archivedAt ? 1 : -1;
   }
@@ -568,6 +555,7 @@ export async function updateCategory(
       .limit(1);
     if (!before) throw notFound("Category not found");
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
+    if (patchChangesNothing(before, changes)) return serializeRow(before);
     if (changes.name !== undefined) {
       await assertNormalizedNameAvailable(tx, actor, changes.name, id);
     }
@@ -620,6 +608,8 @@ export async function setCategoryArchived(
       .limit(1);
     if (!before) throw notFound("Category not found");
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
+    // Asked for the state it is already in: nothing moves, so nothing is written.
+    if ((before.archivedAt !== null) === archived) return serializeRow(before);
     if (archived && (await activeStagedCategoryReferenceCount(tx, actor, id)) > 0) {
       throw conflict(
         "Resolve staged transactions that reference this category before archiving it.",
@@ -802,12 +792,19 @@ export async function deleteCategory(
     const { transactionCount, stagedCount, recurrenceCount, templateCount } =
       await countCategoryUses(tx, actor, id);
     if (transactionCount || stagedCount || recurrenceCount || templateCount) {
-      throw conflict("This category is in use. Archive it instead of deleting it.", {
-        transactionCount,
-        stagedTransactionCount: stagedCount,
-        recurrenceCount,
-        templateCount,
-      });
+      // The advice depends on where the category already is: "archive it
+      // instead" was returned for an archived one too, a move it had made.
+      throw conflict(
+        before.archivedAt
+          ? "This category is still in use, so it cannot be deleted. It is archived already, which keeps it out of every picker."
+          : "This category is in use. Archive it instead of deleting it.",
+        {
+          transactionCount,
+          stagedTransactionCount: stagedCount,
+          recurrenceCount,
+          templateCount,
+        },
+      );
     }
     const deleted = await tx
       .delete(categories)

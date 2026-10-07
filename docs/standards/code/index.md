@@ -149,7 +149,7 @@ leaves out:
 | `restriction` | 5,085 | Declined. |
 
 **Those are the numbers the decision was made on, and they are not today's.**
-Re-measured with `npx oxlint -A all -D <category>`, 2026-10-01: correctness 70,
+Re-measured with `npx oxlint -A all -D <category>`, 2026-10-01: correctness 69,
 `suspicious` 3,189, `perf` 950, `pedantic` 4,012, `style` 44,493, `restriction`
 12,429. Five of those six are dated rather than held, which `writing.md` §A
 measured number carries a test or a date allows only because holding a figure
@@ -157,11 +157,11 @@ that moves with every file added would teach people to bump it without reading.
 The sixth is held, and it is the only one anybody acts on. The two columns do
 not measure the same rule set, which is most of the movement between them:
 
-- **`correctness` reads 70, and `npm run lint` still reads zero.** That command
-  overrides every exception `.oxlintrc.json` writes down, and the 70 are
+- **`correctness` reads 69, and `npm run lint` still reads zero.** That command
+  overrides every exception `.oxlintrc.json` writes down, and the 69 are
   exactly those exceptions: `prefer-tag-over-role` 29,
   `no-noninteractive-tabindex` 14, `no-autofocus` 11,
-  `control-has-associated-label` 8, `no-control-regex` 4,
+  `control-has-associated-label` 7, `no-control-regex` 4,
   `label-has-associated-control` 3, `anchor-has-content` 1. The category is
   denied and clean; this is what denying it with exceptions looks like from
   outside.
@@ -210,9 +210,9 @@ thing they ever see:
 
 One `eslint` rule is off. **`no-control-regex`** flags a regular expression that
 matches control characters, and all four sites here exist *to reject* them: two
-sanitize user input (`src/shared/domain.ts:323-324`), one is the CSV-injection
-defense (`src/shared/csv.ts:482`), and one scrubs a CSP report before it reaches
-the log (`src/server/api.ts:1275`), where the body is attacker-controlled and a
+sanitize user input (`src/shared/domain.ts:350-351`), one is the CSV-injection
+defense (`src/shared/csv.ts:513`), and one scrubs a CSP report before it reaches
+the log (`src/server/api.ts:1269`), where the body is attacker-controlled and a
 newline would let one report write several log lines with a forged error among
 them. The rule exists to catch a control character written by accident; every
 one of these was written on purpose, and the code that strips control characters
@@ -225,11 +225,11 @@ codebase rather than about accessibility:
 
 | Rule | Why off |
 | --- | --- |
-| `jsx-a11y/label-has-associated-control` | Cannot see through `Field`, which wraps every control (`src/client/components.tsx:517`). Every site it flagged was correctly labeled. |
+| `jsx-a11y/label-has-associated-control` | Cannot see through `Field`, which wraps every control (`src/client/components.tsx:633`). Every site it flagged was correctly labeled. |
 | `jsx-a11y/control-has-associated-label` | Same, and it also flags `<option>` inside `<datalist>`, which needs no label. |
-| `jsx-a11y/prefer-tag-over-role` | Twenty-nine sites in five shapes, and the two this row named are six of them: five `<svg role="img">`, which is the recommended way to expose an SVG, and one `<summary role="button">` whose comment already explains itself (`src/client/components.tsx:779`). Of the rest, five `role="status"` sit on a loading line and four `role="group"` on a date bar — and **fourteen `role="region"`, the largest shape by far, are the named scroll region the narrowed rule one table down exists for.** That is the case this row has to answer and never did: there is no tag to prefer. `web.md` §9.6 requires `tabIndex={0}`, `role="region"` and a name on anything that scrolls sideways, so for half these sites the rule is asking for an element HTML does not have. |
+| `jsx-a11y/prefer-tag-over-role` | Twenty-nine sites in five shapes, and the two this row named are six of them: five `<svg role="img">`, which is the recommended way to expose an SVG, and one `<summary role="button">` whose comment already explains itself (`src/client/components.tsx:983`). Of the rest, five `role="status"` sit on a loading line and four `role="group"` on a date bar — and **fourteen `role="region"`, the largest shape by far, are the named scroll region the narrowed rule one table down exists for.** That is the case this row has to answer and never did: there is no tag to prefer. `web.md` §9.6 requires `tabIndex={0}`, `role="region"` and a name on anything that scrolls sideways, so for half these sites the rule is asking for an element HTML does not have. |
 | `jsx-a11y/anchor-has-content` | Content arrives through `children`, which it cannot follow. |
-| `jsx-a11y/no-autofocus` | **Contested.** jsx-a11y bans it; WCAG does not. This product autofocuses two things: the first field of a form somebody deliberately opened, and the inline editor a click on a staged-list cell just summoned. Eleven sites, all one of those two shapes — four inline editors on the staging page and seven form fields, two of which are the pass-through props that carry the flag into the payee and category pickers (`src/client/forms.tsx:344`, `:645`) rather than fresh decisions. In both shapes focus lands where the person's own gesture was already headed. |
+| `jsx-a11y/no-autofocus` | **Contested.** jsx-a11y bans it; WCAG does not. This product autofocuses two things: the first field of a form somebody deliberately opened, and the inline editor a click on a staged-list cell just summoned. Eleven sites, all one of those two shapes — four inline editors on the staging page and seven form fields, two of which are the pass-through props that carry the flag into the payee and category pickers (`src/client/forms.tsx:364`, `:684`) rather than fresh decisions. In both shapes focus lands where the person's own gesture was already headed. The one page that lays forms out rather than opening one — the duplicate review, a transaction form on each side — passes `autoFocus={false}` to both: nobody opened them, and each claiming focus left the cursor in whichever rendered last, halfway down the page. |
 
 One is denied but reconfigured rather than silenced, and it is here because a
 rule that is *narrowed* is the same kind of decision as one turned off:
@@ -240,8 +240,8 @@ rule that is *narrowed* is the same kind of decision as one turned off:
 
 Two more are denied but disabled at two individual sites, each carrying its
 reason in the code: `jsx-a11y/no-static-element-interactions` at
-`src/client/forms.tsx:549`, and both that and `click-events-have-key-events` at
-`src/client/components.tsx:786`. Both are elements catching events that bubble
+`src/client/forms.tsx:576`, and both that and `click-events-have-key-events` at
+`src/client/components.tsx:990`. Both are elements catching events that bubble
 from real controls inside them.
 
 *Checked by:* `npm run lint`, in `npm run verify`, for the rules themselves;
@@ -287,13 +287,14 @@ reads all of them while the formatter has never been pointed at one. The two
 `*Checked by:*` footers above say `npm run lint` and `npm run format:check`
 in the same breath, which reads as one toolchain over one tree.
 
-**It is a live divergence rather than a latent one.** Five of those files fail a
-format check today: `scripts/capacity/load.mjs`, `scripts/capacity/schedule.mjs`,
-`scripts/ralph/git-guard.mjs`, `scripts/ralph/runner.mjs`, and
-`scripts/set-version.mjs` — the tool the release procedure runs first
-(`docs/upgrades.md:1268`). The infrastructure half is the reason nothing has
-broken: all thirteen Pulumi modules happen to be clean, so the gap has stayed
-invisible while `npm run verify` went on passing. `typescript.md` §3.5 records
+**It was a live divergence rather than a latent one, until 0.2.1.** Five of
+those files failed a format check — `scripts/capacity/load.mjs`,
+`scripts/capacity/schedule.mjs`, `scripts/ralph/git-guard.mjs`,
+`scripts/ralph/runner.mjs`, and `scripts/set-version.mjs`, the tool the release
+procedure runs first (`docs/upgrades.md:1514`) — while all thirteen Pulumi
+modules happened to be clean, so the gap stayed invisible while
+`npm run verify` went on passing. The five are formatted now, and the test
+below holds every file the command does not reach to the formatter anyway. `typescript.md` §3.5 records
 the same gap from the other end, in the row of its comparison table that reads
 `oxfmt` / yes / **no**.
 
@@ -304,14 +305,17 @@ the run dies with `Syntax error: unexpected indicator` and exits 2 before
 checking anything. So widening this is a real decision with two forms — name the
 TypeScript and JavaScript explicitly, or grow `.oxfmtrc.json`'s ignore list to
 cover the templates — and not a one-word fix. Until one is taken, the honest
-statement is that the formatter covers `src`, `tests` and the root configs, and
-that the five files above are unformatted on purpose only in the sense that
-nobody has formatted them.
+statement is that `npm run format` covers `src`, `tests` and the root configs,
+and that everything outside them is held to it by a test rather than by the
+command.
 
 *Checked by:* `tests/code-index-guide.test.ts`, which reads the scope out of the
 `format` command itself and holds every count in this section to what that
 leaves out — including the direction, so widening the command fails the test
-until this section stops describing a gap that has closed. It also runs oxfmt
+until this section stops describing a gap that has closed — and runs
+`oxfmt --check` over every TypeScript and JavaScript file outside it, `.d.mts`
+declarations included. It used to pin the five failing files by name, so
+formatting them failed it and a sixth only had to be listed. It also runs oxfmt
 over the chart templates, because the paragraph above is the whole argument for
 why widening is not free, and a tool that learned to skip them would retire it.
 
@@ -352,7 +356,7 @@ agreeing with `typescript.md`.
 
 ## What `npm run verify` now runs
 
-```
+```text
 typecheck → lint → format:check → test → build
 ```
 

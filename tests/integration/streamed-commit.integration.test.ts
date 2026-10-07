@@ -279,7 +279,6 @@ integration("a commit that reports its own progress", () => {
     await commitStages(
       { userId: ownerId, source: "web" },
       { ...body, idempotencyKey: "phase-sequence-key" },
-      undefined,
       { onProgress: (event) => seen.push({ ...event }) },
     );
 

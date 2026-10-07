@@ -93,13 +93,48 @@ describe("what the auth policy sees as a social callback", () => {
   // matched, so it fell through to the general check.
   it("checks the Google link on a session created by the callback", async () => {
     const { mayCreateSession } = await policy();
-    expect(await mayCreateSession("user-1", "/callback/:id", [{ providerId: "google" }])).toBe(
-      true,
-    );
+    expect(await mayCreateSession("/callback/:id", [{ providerId: "google" }])).toBe(true);
     expect(
-      await mayCreateSession("user-1", "/callback/:id", [
-        { providerId: "credential", password: "x" },
-      ]),
+      await mayCreateSession("/callback/:id", [{ providerId: "credential", password: "x" }]),
     ).toBe(false);
+  });
+});
+
+/**
+ * A Better Auth database hook never reads through the application pool.
+ *
+ * AGENTS.md: the hook runs inside the sign-up transaction, which on a
+ * one-connection pool holds the only connection, so a pool read waits for
+ * itself. A read through the adapter the hook is handed runs on that same
+ * connection and is the one allowed. `mayCreateSession` used to fall back to
+ * `getDb()` when the hook passed no accounts; this holds the hooks and every
+ * function they call by name in `auth-policy.ts` to that.
+ */
+describe("a Better Auth database hook", () => {
+  it("decides without the application pool", async () => {
+    const { readFileSync } = await import("node:fs");
+    const auth = readFileSync("src/server/auth.ts", "utf8");
+    const start = auth.indexOf("databaseHooks:");
+    expect(start, "auth.ts has no databaseHooks block to check").toBeGreaterThan(-1);
+    let depth = 0;
+    let end = auth.indexOf("{", start);
+    for (; end < auth.length; end += 1) {
+      if (auth[end] === "{") depth += 1;
+      if (auth[end] === "}" && --depth === 0) break;
+    }
+    const hooks = auth.slice(start, end);
+    const policy = readFileSync("src/server/auth-policy.ts", "utf8");
+    const called = [...hooks.matchAll(/\b(may\w+|is\w+Authorized)\(/g)].map((match) => match[1]!);
+    expect(
+      called.length,
+      "the hooks call no policy function, so this checked nothing",
+    ).toBeGreaterThan(1);
+    const bodies = called.map((name) => {
+      const at = policy.indexOf(`function ${name}(`);
+      if (at === -1) return "";
+      const next = policy.indexOf("\nexport ", at + 1);
+      return policy.slice(at, next === -1 ? undefined : next);
+    });
+    for (const text of [hooks, ...bodies]) expect(text).not.toMatch(/\bgetDb\(/);
   });
 });

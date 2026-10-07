@@ -44,11 +44,21 @@ import {
   type SubscriptionResult,
   type Session,
 } from "../api.js";
-import { Alert, Badge, Button, Note, PageHeader, SettingsTabs, Skeleton } from "../components.js";
+import {
+  Alert,
+  Badge,
+  Button,
+  ConfirmDialog,
+  Note,
+  PageHeader,
+  SettingsTabs,
+  Skeleton,
+  useConfirm,
+} from "../components.js";
 import { newIdempotencyKey } from "../idempotency.js";
 import { formatTimestamp } from "../money.js";
 import { useTimezone } from "../timezone.js";
-import { usePaintedTheme } from "../theme.js";
+import { usePaintedTheme, type Resolved } from "../theme.js";
 import type { BillingInterval } from "../../shared/domain.js";
 
 type PlanSubscription = NonNullable<BillingStatus["subscription"]>;
@@ -441,7 +451,7 @@ function fieldMetrics(): FieldMetrics {
  * A token that comes back empty is left out, so Stripe falls back to its own
  * value instead of being handed a blank one.
  */
-function stripeAppearance(painted: "light" | "dark", metrics: FieldMetrics) {
+function stripeAppearance(painted: Resolved, metrics: FieldMetrics) {
   const root = window.getComputedStyle(document.documentElement);
   return {
     theme: painted === "dark" ? ("night" as const) : ("stripe" as const),
@@ -918,6 +928,8 @@ export function PlanPage({
   const paymentHeadingId = useId();
   const paymentPanel = useRef<HTMLElement>(null);
   const queryClient = useQueryClient();
+  // Before every early return below, as every hook here has to be.
+  const confirmCharge = useConfirm<BillingInterval>();
   const [pending, setPending] = useState<PendingConfirmation | null>(null);
   // Which button was pressed, not merely that one was. Set as each press goes
   // out and cleared by that mutation's `onSettled`, so it is non-null only
@@ -1283,6 +1295,24 @@ export function PlanPage({
   const press = (interval: BillingInterval, purpose: PaymentPurpose, id: Press) => {
     setPressed(id);
     choose.mutate({ interval, purpose, action: actionFor(interval).kind });
+  };
+  /**
+   * Asked first only where the press itself charges a card.
+   *
+   * Moving from monthly to annual bills the difference the moment it is
+   * pressed, and every other change here waits: a move to monthly is
+   * scheduled for the renewal and a cancellation runs to the end of the
+   * period, and both are undone on this same tab with one more press. So a
+   * confirmation stands in front of the one press that spends money now, and
+   * nowhere else — least of all in front of canceling, which has to stay as
+   * easy as subscribing was.
+   */
+  const pressPlan = (interval: BillingInterval, id: Press) => {
+    if (actionFor(interval).kind === "upgrade") {
+      confirmCharge.ask(interval, () => press(interval, "upgrade", id));
+      return;
+    }
+    press(interval, "upgrade", id);
   };
   // A subscription waiting for its first payment. Stripe holds it for 23 hours
   // and then expires it, so this state is not rare — it is what a closed tab or
@@ -1683,7 +1713,7 @@ export function PlanPage({
             {limit !== null && billing.accountsUsed !== null ? (
               <p>
                 {billing.accountsUsed} of {limit} places in use. Archiving or deleting an account
-                frees its place, and a frozen account can then take it.
+                frees its place{frozen > 0 ? ", and a frozen account can then take it" : ""}.
               </p>
             ) : null}
 
@@ -1933,7 +1963,7 @@ export function PlanPage({
                     in the other. Letting it go has its own button now. */}
                 {offered.includes("yearly") ? (
                   <Button
-                    onClick={() => press("yearly", "upgrade", "yearly")}
+                    onClick={() => pressPlan("yearly", "yearly")}
                     loading={working === "yearly"}
                     aria-describedby={renewalTermsId}
                     disabled={annualButton.disabled || anyPending}
@@ -1953,7 +1983,7 @@ export function PlanPage({
                 {offered.includes("monthly") ? (
                   <Button
                     variant="secondary"
-                    onClick={() => press("monthly", "upgrade", "monthly")}
+                    onClick={() => pressPlan("monthly", "monthly")}
                     loading={working === "monthly"}
                     aria-describedby={renewalTermsId}
                     disabled={monthlyButton.disabled || anyPending}
@@ -2090,6 +2120,17 @@ export function PlanPage({
       <Note>
         Signed in as {session.user.email}. Receipts and invoices come from Stripe by email.
       </Note>
+      <ConfirmDialog
+        open={confirmCharge.open}
+        title="Switch to the annual plan now?"
+        description={`The annual plan${
+          yearly ? ` (${yearly})` : ""
+        } starts today. What is left of this month is credited against it, the difference is charged to your payment method now, and the plan then renews every year.`}
+        confirmLabel="Switch and pay the difference"
+        confirmVariant="primary"
+        onConfirm={confirmCharge.confirm}
+        onCancel={confirmCharge.cancel}
+      />
     </>
   );
 }

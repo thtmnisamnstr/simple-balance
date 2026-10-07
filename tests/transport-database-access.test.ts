@@ -10,15 +10,16 @@ import { sourceFiles } from "./support/source.js";
  * line by a program. What can be asked is the thing that goes wrong when the
  * rule is broken: a transport reaching for the database on its own. Every
  * ledger read and write already goes through `src/server/services`, so a query
- * in `api.ts` or `mcp.ts` is either one of the five below or a decision that
+ * in `api.ts` or `mcp.ts` is either one of the seven below or a decision that
  * has escaped the layer both surfaces share.
  *
- * The five are listed with the reason each is not that. None of them is
- * bookkeeping: two are Better Auth's own tables behind the consent screen,
- * which is reachable from a session and has no MCP counterpart, one is the
- * readiness probe, one is the first-account lock that `AGENTS.md` requires to
- * live outside the application pool, and one is the transaction an MCP tool
- * call is made idempotent inside.
+ * The seven are five things, listed with the reason each is not that. None of
+ * them is bookkeeping: two are Better Auth's own tables behind the consent
+ * screen, which is reachable from a session and has no MCP counterpart, one is
+ * the readiness probe, one is the first-account lock that `AGENTS.md` requires
+ * to live outside the application pool — three lines, the connection and the
+ * two statements taken on it — and one is the transaction an MCP tool call is
+ * made idempotent inside.
  *
  * Matching is by a snippet of the line rather than by line number, so ordinary
  * edits above them do not fail this.
@@ -45,6 +46,18 @@ const ALLOWED = [
   },
   {
     file: "src/server/api.ts",
+    snippet: "select pg_try_advisory_lock($1) as acquired",
+    because:
+      "The same lock, taken on the connection the entry above opened. An entry of its own " +
+      "because a line is vouched for from itself downwards, never by the line above it.",
+  },
+  {
+    file: "src/server/api.ts",
+    snippet: "select pg_advisory_unlock($1)",
+    because: "The same lock, released on the same connection.",
+  },
+  {
+    file: "src/server/api.ts",
     snippet: "value: verification.value",
     because:
       "The pending authorize request, as Better Auth stored it. The consent screen is " +
@@ -64,9 +77,51 @@ const ALLOWED = [
   },
 ] as const;
 
-/** A line that reaches the database rather than a service. */
-const REACHES_DATABASE =
-  /\bgetDb\(\)|\bgetPool\(\)|getAuthBootstrapLockPool\(\)|\bdb\.(?:select|insert|update|delete|execute|transaction)\b/;
+/** A line that opens a handle on the database rather than calling a service. */
+const OPENS_DATABASE = /\bgetDb\(\)|\bgetPool\(\)|getAuthBootstrapLockPool\(\)/;
+
+/**
+ * Every Drizzle builder, and every raw statement, on whatever receiver.
+ *
+ * The pattern this replaced named `db.` and nothing else, so a builder reached
+ * through a transaction handle — `tx.select(`, `tx.execute(`, or the same on
+ * whatever name a callback binds the transaction to — walked past it. That is
+ * the shape a query takes inside the one transaction `mcp.ts` is allowed to
+ * open, which made it the likeliest escape and the one the check could not see.
+ * It could not see `client.query(` either, which is how the bootstrap lock
+ * talks to PostgreSQL, and why the lock is three entries above rather than one.
+ *
+ * So the receiver is not part of the match. A method name is, and the leading
+ * dot: a chained `.select(` on a line of its own has no receiver on that line at
+ * all, which is the commonest way a Drizzle query is formatted here.
+ */
+const BUILDER =
+  /\.\s*(?:select|selectDistinct|selectDistinctOn|insert|update|delete|execute|transaction|query|batch|with|\$with|\$count|refreshMaterializedView)\s*(?:<[^>]*>)?\s*\(|\.query\.\w+\.find(?:First|Many)\s*\(/g;
+
+/**
+ * Receivers whose methods share a builder's name and touch no database.
+ *
+ * Matched exactly, so a new receiver is reported rather than guessed at: a
+ * false alarm here costs one line in this list, and a guess costs the check.
+ */
+const NOT_A_DATABASE = [
+  {
+    receiver: "app",
+    because: "The Hono application. `app.delete(` registers a route; it deletes nothing.",
+  },
+  {
+    receiver: "c.req",
+    because: "Hono's request. `c.req.query(` reads the query string a client sent.",
+  },
+  {
+    receiver: "headers",
+    because: "A `Headers` object. `headers.delete(` drops a header from a response.",
+  },
+] as const;
+
+/** The receiver a call on this line was made on, or `""` for a chained one. */
+const receiverBefore = (line: string, at: number) =>
+  /([\w$]+(?:\(\))?(?:\s*\.\s*[\w$]+(?:\(\))?)*)\s*$/.exec(line.slice(0, at))?.[1] ?? "";
 
 describe("a transport", () => {
   const transports = sourceFiles("src/server").filter((file) =>
@@ -80,27 +135,37 @@ describe("a transport", () => {
     ]);
   });
 
+  // Worked out once, because both directions below read the same answer.
+  const excused = new Set<string>();
+  const reaching = transports.flatMap((file) => {
+    const lines = file.code.split("\n");
+    return [...lines.entries()].flatMap(([index, line]) => {
+      const builders = [...line.matchAll(BUILDER)].filter((call) => {
+        const receiver = receiverBefore(line, call.index);
+        if (!NOT_A_DATABASE.some((known) => known.receiver === receiver)) return true;
+        excused.add(receiver);
+        return false;
+      });
+      if (!OPENS_DATABASE.test(line) && builders.length === 0) return [];
+      // A query is spread over the lines that build it, and what identifies
+      // it is usually the column list rather than the `getDb()` that opens
+      // it. So the statement is the matched line and the few after it, which
+      // is enough to reach a `select({ … })` and short enough that the next
+      // statement cannot vouch for this one.
+      const statement = lines.slice(index, index + 6).join("\n");
+      const entry = ALLOWED.find(
+        (known) => known.file === file.path && statement.includes(known.snippet),
+      );
+      // The line is reported as written rather than as blanked, so a failure
+      // can be pasted into a search.
+      return [
+        { where: `${file.path}:${index + 1} ${file.text.split("\n")[index]?.trim()}`, entry },
+      ];
+    });
+  });
+
   it("reaches the database only where somebody has said why", () => {
-    const unexplained: string[] = [];
-    for (const file of transports) {
-      const lines = file.code.split("\n");
-      for (const [index, line] of lines.entries()) {
-        if (!REACHES_DATABASE.test(line)) continue;
-        // A query is spread over the lines that build it, and what identifies
-        // it is usually the column list rather than the `getDb()` that opens
-        // it. So the statement is the matched line and the few after it, which
-        // is enough to reach a `select({ … })` and short enough that the next
-        // statement cannot vouch for this one.
-        const statement = lines.slice(index, index + 6).join("\n");
-        const covered = ALLOWED.some(
-          (entry) => entry.file === file.path && statement.includes(entry.snippet),
-        );
-        // The line is reported as written rather than as blanked, so a failure
-        // can be pasted into a search.
-        if (!covered)
-          unexplained.push(`${file.path}:${index + 1} ${file.text.split("\n")[index]?.trim()}`);
-      }
-    }
+    const unexplained = reaching.filter((line) => !line.entry).map((line) => line.where);
     expect(
       unexplained,
       "A transport is querying the database. If both surfaces would need it, it belongs in " +
@@ -109,15 +174,23 @@ describe("a transport", () => {
     ).toEqual([]);
   });
 
-  it("still has every line the list claims", () => {
-    // The other direction: an entry left behind after its line went is a reason
-    // nobody can check, and the next reader has to guess whether it is stale.
-    for (const entry of ALLOWED) {
-      const file = transports.find((candidate) => candidate.path === entry.file);
-      expect(file?.code, `${entry.file} is not one of the transports`).toBeDefined();
-      expect(file!.code, `${entry.file} no longer contains ${entry.snippet}`).toContain(
-        entry.snippet,
-      );
-    }
+  /**
+   * The other direction, and the scan's own proof that it still matches.
+   *
+   * This used to ask only whether each snippet was still in the file, which
+   * stays true however blind the pattern becomes: a `REACHES_DATABASE` that
+   * matched nothing would have passed both tests. Asking that each entry still
+   * excuses a line the scan *found* is what fails when the matcher goes quiet,
+   * and an entry left behind after its line went is a reason nobody can check.
+   */
+  it("still finds every line the list claims", () => {
+    const stale = ALLOWED.filter((entry) => !reaching.some((line) => line.entry === entry)).map(
+      (entry) => `${entry.file} ${entry.snippet}`,
+    );
+    expect(stale).toEqual([]);
+    const unused = NOT_A_DATABASE.filter((known) => !excused.has(known.receiver)).map(
+      (known) => known.receiver,
+    );
+    expect(unused, "a receiver nothing calls a builder-named method on any more").toEqual([]);
   });
 });

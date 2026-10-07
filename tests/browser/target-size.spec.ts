@@ -1,5 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
+import { randomUUID } from "node:crypto";
+import { reportNames } from "../../src/shared/domain.js";
 import { todayIn } from "../../src/shared/recurrence-dates.js";
+import { answerPlanStatus, pagesToVisit, type Fill } from "./support/routes.js";
 
 /**
  * SC 2.5.8 Target Size (Minimum), level AA, measured by a layout engine.
@@ -91,6 +94,63 @@ async function seedOneRow(page: Page) {
   await expect(page.getByText(payee).first()).toBeVisible();
 }
 
+/** A write through the real API, as the signed-in page, with the Origin the guard checks. */
+async function post(page: Page, path: string, data: unknown) {
+  const response = await page.request.post(path, {
+    data,
+    headers: { Origin: new URL(page.url()).origin },
+  });
+  expect(response.status(), await response.text()).toBeLessThan(300);
+  return (await response.json()) as { id: string };
+}
+
+/**
+ * Something for every detail page to show, and the ids that reach them.
+ *
+ * Through the API, because the forms are not what this measures: a category,
+ * a template, and an entry with a staged copy of itself, which is what puts a
+ * pair in the duplicate review. The pair has a payee of its own so the
+ * register check below still counts the controls of the row `seedOneRow`
+ * made. Every report kind comes from `reportNames`, the list the report tabs
+ * are drawn from.
+ */
+async function seedDetails(page: Page): Promise<Fill> {
+  const accounts = (await (await page.request.get("/api/v1/accounts")).json()) as {
+    id: string;
+    name: string;
+  }[];
+  const accountId = accounts.find((one) => one.name === account)!.id;
+  const category = await post(page, "/api/v1/categories", {
+    name: `Groceries ${Date.now()}`,
+    kind: "expense",
+  });
+  const template = await post(page, "/api/v1/transaction-templates", {
+    name: `Weekly shop ${Date.now()}`,
+    draft: { type: "withdrawal", payee, fromAccountId: accountId },
+  });
+  const pair = { type: "withdrawal", date: today, payee: "Corner Bakery", amount: "6.50" };
+  await post(page, "/api/v1/transactions", {
+    idempotencyKey: randomUUID(),
+    draft: { ...pair, fromAccountId: accountId },
+  });
+  const staged = await post(page, "/api/v1/staged-transactions", {
+    idempotencyKey: randomUUID(),
+    draft: { ...pair, fromAccountId: accountId },
+  });
+  return {
+    params: {
+      accountId: [accountId],
+      categoryId: [category.id],
+      templateId: [template.id],
+      id: [staged.id],
+      report: reportNames,
+    },
+    // The payee page reads its subject from the query, and without one it is
+    // a register filtered to a payee called nothing.
+    search: { "/payees/transactions": `?name=${encodeURIComponent(payee)}` },
+  };
+}
+
 /** A measured target: where the browser put it, and how to name it in a failure. */
 type Target = { label: string; x: number; y: number; width: number; height: number };
 
@@ -173,42 +233,63 @@ function failures(found: readonly Target[]): string[] {
 }
 
 test.describe("every target in a browser", () => {
+  /**
+   * On every page the router serves, which this did not use to mean.
+   *
+   * The pages were `/transactions`, `/accounts` and `/settings`, by hand, so
+   * the rule `web.md` 13.4 makes about every target was measured on three of
+   * twenty-six pages and a crowded row anywhere else — a report's options, a
+   * detail page's header, the duplicate review's two forms — was never asked
+   * about. The population now comes from the route table, each parameter
+   * filled by `seedDetails`, and a route nobody can fill fails `pagesToVisit`
+   * rather than being skipped.
+   */
   test("is 24 by 24, or spaced so its 24px circle meets no other", async ({ page }) => {
+    test.setTimeout(300_000);
+    await answerPlanStatus(page);
     await signUp(page);
     await seedOneRow(page);
+    const pages = pagesToVisit(await seedDetails(page));
+    // Found what it was meant to find, because an unreadable route table is
+    // an empty population and passes every claim made over it.
+    expect(pages.length, "the route table was read").toBeGreaterThan(20);
+    expect(pages.map((visit) => visit.pattern)).toContain("/settings/plan");
 
-    for (const path of ["/transactions", "/accounts", "/settings"]) {
-      await page.goto(path);
+    for (const { pattern, url } of pages) {
+      await page.goto(url);
       // The nav is the last thing to render on a cold route, and measuring
       // before it arrives measures a page that is still laying itself out.
       await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
+      // And a detail page's body arrives after its own request, so a page
+      // measured before that is its skeleton.
+      await page.waitForLoadState("networkidle");
 
       const wide = await targets(page);
       // A selector that matched nothing would report every page perfectly
       // accessible. Each of these screens carries a nav, a heading row and at
       // least one form control.
-      expect(wide.length, `${path} has targets to measure`).toBeGreaterThan(8);
+      expect(wide.length, `${url} has targets to measure`).toBeGreaterThan(8);
       // And reached past the navigation into the page itself. A count alone is
       // satisfied by the sidebar, which every screen has and which is not what
       // this is about: the dense row is. The seeded entry is the one thing this
       // spec put on the screen, so its own controls are what proves the
       // selector got that far — three of them, the row checkbox, the payee link
       // and the row's action menu.
-      if (path === "/transactions") {
+      if (pattern === "/transactions") {
         expect(
           wide.filter((target) => target.label.includes(payee)).length,
           "the seeded row's own controls were measured",
         ).toBeGreaterThan(2);
       }
-      expect(failures(wide), `${path} at desktop width`).toEqual([]);
+      expect(failures(wide), `${url} at desktop width`).toEqual([]);
 
       await page.setViewportSize({ width: 390, height: 844 });
       // Retried, because a resize is not laid out when `setViewportSize`
       // returns and the first read would measure the width that has gone.
       await expect(async () => {
         const narrow = await targets(page);
-        expect(narrow.length, `${path} has targets to measure at 390px`).toBeGreaterThan(8);
-        expect(failures(narrow), `${path} at 390px`).toEqual([]);
+        expect(narrow.length, `${url} has targets to measure at 390px`).toBeGreaterThan(8);
+        expect(failures(narrow), `${url} at 390px`).toEqual([]);
       }).toPass();
       await page.setViewportSize({ width: 1280, height: 800 });
     }

@@ -258,8 +258,10 @@ describe("bounded request bodies", () => {
       body: "123456789",
     });
     expect(response.status).toBe(413);
+    // The limit as a field as well as in the sentence: `http.md` §Errors, so a
+    // client learns the number without parsing English for it.
     expect(await response.json()).toMatchObject({
-      error: { code: "PAYLOAD_TOO_LARGE" },
+      error: { code: "PAYLOAD_TOO_LARGE", details: { limit: 8 } },
     });
   });
 

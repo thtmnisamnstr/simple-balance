@@ -104,6 +104,31 @@ function inlineUnions() {
  */
 const COINCIDENCE = new Set<string>([]);
 
+/** Every `z.enum` written as a literal array of strings. */
+function literalEnums() {
+  const found: { where: string; members: string[] }[] = [];
+  for (const relative of SOURCES) {
+    const source = readFileSync(relative, "utf8");
+    for (const match of source.matchAll(/\.enum\(\s*\[([^\]]*)\]/g)) {
+      if (match[1]!.replaceAll(/"[^"]*"|[\s,]/g, "") !== "") continue;
+      const members = [...match[1]!.matchAll(/"([^"]+)"/g)].map((one) => one[1]!);
+      if (members.length < 2) continue;
+      const at = source.slice(0, match.index).split("\n").length;
+      found.push({ where: `${relative}:${at}`, members });
+    }
+  }
+  return found;
+}
+
+/**
+ * Two sets that share their words without being one set. A key here is the
+ * members sorted and joined by a space, and it has to be argued.
+ */
+const SHARED_WORDS: Record<string, string> = {
+  "archive delete":
+    "An account card's row actions and a category row's: each page's own, decided by what that page offers, which happens to be the same two words today.",
+};
+
 describe("a closed set", () => {
   it("is not also spelled as a bare union somewhere else", () => {
     const byMembers = tuples();
@@ -127,6 +152,48 @@ describe("a closed set", () => {
           `${union.where} spells out ${byMembers.get(key(union.members))!.join(", ")}: ${union.text}`,
       );
     expect(restated).toEqual([]);
+  });
+
+  /**
+   * And a set nobody wrote a tuple for, spelled more than once.
+   *
+   * The two checks above ask whether a union restates a tuple that exists, so
+   * a set with no tuple could be spelled any number of times — and five were,
+   * across a service, its MCP output schema and the client. A member added to
+   * the service alone then fails the tool with an output validation error,
+   * which is how `staged_status` went wrong. Every spelling counts: a type
+   * alias, an inline union and a `z.enum` of literals. A key list inside
+   * `Pick` or `Omit` does not, because it names properties rather than values.
+   */
+  it("is spelled once even where nothing has written its tuple", () => {
+    const tupled = tuples();
+    const spellings = new Map<string, string[]>();
+    const add = (members: readonly string[], where: string) =>
+      spellings.set(key(members), [...(spellings.get(key(members)) ?? []), where]);
+    for (const union of unions()) add(union.members, union.where);
+    for (const union of inlineUnions()) {
+      const [relative, line] = union.where.split(":") as [string, string];
+      const before = readFileSync(relative, "utf8").split("\n")[Number(line) - 1] ?? "";
+      if (/\b(?:Pick|Omit)<[^<>]*,\s*"/.test(before)) continue;
+      add(union.members, union.where);
+    }
+    for (const literal of literalEnums()) add(literal.members, literal.where);
+    expect(spellings.size, "no spellings found, so this examined nothing").toBeGreaterThan(20);
+    const twice = [...spellings]
+      .filter(([members, where]) => where.length > 1 && !tupled.has(members))
+      .filter(([members]) => !(members in SHARED_WORDS))
+      .map(([members, where]) => `{${members}} at ${where.join(", ")}`);
+    expect(twice, "give the set one tuple, or one named type, and use it").toEqual([]);
+  });
+
+  it("names a shared-words exception only while the words are still shared", () => {
+    const counted = new Map<string, number>();
+    for (const union of [...unions(), ...inlineUnions(), ...literalEnums()]) {
+      counted.set(key(union.members), (counted.get(key(union.members)) ?? 0) + 1);
+    }
+    for (const members of Object.keys(SHARED_WORDS)) {
+      expect(counted.get(members) ?? 0, `${members} is no longer spelled twice`).toBeGreaterThan(1);
+    }
   });
 
   /**

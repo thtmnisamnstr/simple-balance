@@ -21,7 +21,11 @@ import {
   stagedStatuses,
   transactionTypes,
   uuid,
+  duplicateSideKinds,
+  budgetGroupLimitSources,
+  budgetLimitSources,
 } from "../shared/domain.js";
+import { categoryResolutions, payeeResolutions } from "../shared/csv.js";
 
 const uuidSchema = uuid();
 
@@ -323,7 +327,9 @@ export const stagedTransactionResultSchema = z
     validationIssues: z.array(validationIssueSchema),
     duplicateOfId: uuidSchema
       .nullable()
-      .describe("A committed transaction this row was matched against on import, or null."),
+      .describe(
+        "A committed transaction this row repeats exactly, or null. Worked out whenever the row is written, whoever proposed it — an import, a recurrence, an agent or an edit — and it is the strict match: committing the row is refused with DUPLICATE unless allowDuplicates is sent.",
+      ),
     // Nullable because null means "not worked out", not "no": only the list
     // query compares a row against the rest of the queue, so every other tool
     // returns null here. Declaring it as a plain boolean would make those
@@ -367,7 +373,7 @@ export const stagedTransactionResultSchema = z
  * third and the tool would be refused.
  */
 const duplicateReviewSideSchema = z.object({
-  kind: z.enum(["staged", "committed"]),
+  kind: z.enum(duplicateSideKinds),
   staged: stagedTransactionResultSchema.nullable(),
   committed: transactionResultSchema.nullable(),
 });
@@ -562,7 +568,7 @@ const csvReferenceResolutionSchema = z.object({
       resolvedName: z.string(),
       categoryId: uuidSchema.nullable(),
       kind: z.enum(categoryKinds),
-      resolution: z.enum(["existing", "new", "updated", "deferred"]),
+      resolution: z.enum(categoryResolutions),
       unarchived: z.boolean(),
     }),
   ),
@@ -570,7 +576,7 @@ const csvReferenceResolutionSchema = z.object({
     z.object({
       inputPayee: z.string(),
       resolvedPayee: z.string(),
-      resolution: z.enum(["existing", "new"]),
+      resolution: z.enum(payeeResolutions),
     }),
   ),
 });
@@ -1023,7 +1029,7 @@ export const budgetReportResultSchema = z.object({
               .describe("What the categories in the group spent between them, signed."),
             remaining: nullableStringSchema,
             source: z
-              .enum(["entry", "plan", "sum", "none"])
+              .enum(budgetGroupLimitSources)
               .describe(
                 "Where the limit came from. `sum` means it is the group's categories added up rather than a budget somebody set on the group.",
               ),
@@ -1051,7 +1057,7 @@ export const budgetReportResultSchema = z.object({
             "What is left to spend, counting anything carried in: available minus actual, which is the limit minus actual for a budget that does not roll over. Negative is over. Null when there is no limit.",
           ),
           source: z
-            .enum(["entry", "plan", "none"])
+            .enum(budgetLimitSources)
             .describe("Which record produced the limit, so a change reaches the right one."),
           carriedIn: nullableStringSchema.describe(
             "What earlier periods left to this one, or null when this budget does not roll over. Negative is a debt handed forward by a period that overspent.",

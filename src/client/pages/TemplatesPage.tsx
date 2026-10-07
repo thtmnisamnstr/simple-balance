@@ -12,7 +12,6 @@ import {
   Field,
   Input,
   Modal,
-  Note,
   PageHeader,
   Pagination,
   RowMenu,
@@ -20,18 +19,26 @@ import {
   Select,
   SelectionBar,
   SelectionCheckbox,
-  selectionCount,
+  formatCount,
   Skeleton,
   SortableHeader,
   type SortState,
+  Textarea,
   useConfirm,
 } from "../components.js";
-import { formatDate, formatTime, compareMoney, formatMoney, movementSign } from "../money.js";
+import {
+  formatDate,
+  formatTime,
+  compareMoney,
+  formatMoney,
+  moneyLabel,
+  movementSign,
+} from "../money.js";
 import { TemplateForm } from "../forms.js";
 import { Link, useLocation } from "../router.js";
 import { allTimeSearch } from "../date-range.js";
 import { newIdempotencyKey } from "../idempotency.js";
-import type { TransactionTemplateBulkPatch } from "../../shared/domain.js";
+import type { TransactionTemplateBulkPatch, DraftAccountField } from "../../shared/domain.js";
 import { emptyScreen, waysOut } from "../list-filters.js";
 
 const PAGE_SIZE = 25;
@@ -56,10 +63,12 @@ type TemplateSortField =
 const BULK_FIELDS = [
   { key: "type", label: "Type", clearable: false },
   { key: "payee", label: "Payee", clearable: true },
-  { key: "fromAccountId", label: "Source account", clearable: true },
-  { key: "toAccountId", label: "Destination account", clearable: true },
+  { key: "fromAccountId", label: "From account", clearable: true },
+  { key: "toAccountId", label: "To account", clearable: true },
   { key: "amount", label: "Amount", clearable: true },
   { key: "categoryId", label: "Category", clearable: true },
+  { key: "description", label: "Description", clearable: true },
+  { key: "notes", label: "Notes", clearable: true },
 ] as const;
 
 type BulkField = (typeof BULK_FIELDS)[number]["key"];
@@ -78,7 +87,7 @@ const sideForType: Record<string, "fromAccountId" | "toAccountId" | "both"> = {
   transfer: "both",
 };
 
-function accountAllowed(field: "fromAccountId" | "toAccountId", type: string) {
+function accountAllowed(field: DraftAccountField, type: string) {
   const side = sideForType[type];
   return side === "both" || side === field;
 }
@@ -144,6 +153,8 @@ export default function TemplatesPage() {
   const [editing, setEditing] = useState<TransactionTemplate | null>(null);
   const [creating, setCreating] = useState(false);
   const [bulkEditing, setBulkEditing] = useState(false);
+  // A value the panel refuses before sending, in the panel's own words.
+  const [bulkProblem, setBulkProblem] = useState("");
   const [notice, setNotice] = useState("");
   const [actions, setActions] = useState<Record<BulkField, BulkAction>>({
     type: "leave",
@@ -152,6 +163,8 @@ export default function TemplatesPage() {
     toAccountId: "leave",
     amount: "leave",
     categoryId: "leave",
+    description: "leave",
+    notes: "leave",
   });
   const [values, setValues] = useState<Record<BulkField, string>>({
     type: "withdrawal",
@@ -160,6 +173,8 @@ export default function TemplatesPage() {
     toAccountId: "",
     amount: "",
     categoryId: "",
+    description: "",
+    notes: "",
   });
   const removal = useConfirm<TransactionTemplate>();
   const bulkRemoval = useConfirm<number>();
@@ -285,8 +300,11 @@ export default function TemplatesPage() {
           idempotencyKey: newIdempotencyKey(),
         }),
       ),
+    onMutate: () => setNotice(""),
     onSuccess: (result) =>
-      afterBulk(`${result.changedCount} template${result.changedCount === 1 ? "" : "s"} changed.`),
+      afterBulk(
+        `${formatCount(result.changedCount)} template${result.changedCount === 1 ? "" : "s"} changed.`,
+      ),
   });
 
   const bulkDelete = useMutation({
@@ -298,8 +316,11 @@ export default function TemplatesPage() {
           idempotencyKey: newIdempotencyKey(),
         }),
       ),
+    onMutate: () => setNotice(""),
     onSuccess: (result) =>
-      afterBulk(`${result.changedCount} template${result.changedCount === 1 ? "" : "s"} deleted.`),
+      afterBulk(
+        `${formatCount(result.changedCount)} template${result.changedCount === 1 ? "" : "s"} deleted.`,
+      ),
   });
 
   const deletion = useMutation({
@@ -308,23 +329,37 @@ export default function TemplatesPage() {
         ...json({ expectedVersion: template.version }),
         method: "DELETE",
       }),
-    onSuccess: async () => {
+    // The row and the menu that deleted it go together, so focus fell to
+    // `<body>` with nothing on screen saying the delete had happened
+    // (`web.md` 13.3). The page's notice takes focus, as a bulk delete's does.
+    // And it is cleared when the next press starts, because it is about the
+    // last one: left up, it sat beside the next delete's refusal.
+    onMutate: () => setNotice(""),
+    onSuccess: async (_result, template) => {
       clearSelection();
+      setNotice(`Template “${template.name}” deleted.`);
       await queryClient.invalidateQueries({
         queryKey: ["transaction-templates"],
       });
     },
   });
 
+  // The one currency every selected template's account shares, which is the
+  // only one the mass edit's "New amount" can honestly name. A mixed selection
+  // names none rather than guessing, the way a row with no account does.
+  const selectedCurrencies = new Set(selectedTemplates.map((template) => currencyFor(template)));
+  const selectionCurrency =
+    selectedCurrencies.size === 1 ? ([...selectedCurrencies][0] ?? undefined) : undefined;
   const selectedTypes = new Set(
     selectedTemplates.map((template) =>
       actions.type === "set" ? values.type : template.draft.type,
     ),
   );
-  const sideUnavailable = (field: "fromAccountId" | "toAccountId") =>
+  const sideUnavailable = (field: DraftAccountField) =>
     [...selectedTypes].some((type) => type && !accountAllowed(field, type));
 
   const resetBulkForm = () => {
+    setBulkProblem("");
     setActions({
       type: "leave",
       payee: "leave",
@@ -332,6 +367,8 @@ export default function TemplatesPage() {
       toAccountId: "leave",
       amount: "leave",
       categoryId: "leave",
+      description: "leave",
+      notes: "leave",
     });
     setValues({
       type: "withdrawal",
@@ -340,6 +377,8 @@ export default function TemplatesPage() {
       toAccountId: "",
       amount: "",
       categoryId: "",
+      description: "",
+      notes: "",
     });
   };
 
@@ -360,11 +399,27 @@ export default function TemplatesPage() {
 
   const submitBulkEdit = (event: FormEvent) => {
     event.preventDefault();
+    setBulkProblem("");
     const patch: Record<string, unknown> = {};
     for (const field of BULK_FIELDS) {
       const action = actions[field.key];
       if (action === "leave") continue;
-      patch[field.key] = action === "clear" ? null : values[field.key];
+      if (action === "clear") {
+        patch[field.key] = null;
+        continue;
+      }
+      // Trimmed, and refused here when nothing is left. Spaces get past
+      // `required`, and the server refuses an empty value with a sentence
+      // written for an agent — send null to clear — which names nothing on
+      // this panel. Clear is the control that means it.
+      const value = values[field.key].trim();
+      if (!value) {
+        setBulkProblem(
+          `Enter the new ${field.label.toLowerCase()}, or choose Clear to leave it blank.`,
+        );
+        return;
+      }
+      patch[field.key] = value;
     }
     if (!Object.keys(patch).length) return;
     bulkEdit.mutate(patch as TransactionTemplateBulkPatch);
@@ -401,7 +456,16 @@ export default function TemplatesPage() {
         }
       />
 
-      {actionError ? <Alert>{actionError.message}</Alert> : null}
+      {/* Named where it came from one row, and taking focus either way: the
+          press came from a menu or a bar that has gone, and the confirmation
+          before it has closed. */}
+      {actionError ? (
+        <Alert takeFocus>
+          {deletion.error && deletion.variables
+            ? `“${deletion.variables.name}” was not deleted. ${deletion.error.message}`
+            : actionError.message}
+        </Alert>
+      ) : null}
       {notice ? (
         <Alert kind="success" takeFocus>
           {notice}
@@ -434,22 +498,22 @@ export default function TemplatesPage() {
             clearSelection();
           }}
         >
-          <option value="">Every type</option>
-          <option value="deposit">Deposit</option>
-          <option value="withdrawal">Withdrawal</option>
-          <option value="transfer">Transfer</option>
+          <option value="">All types</option>
+          <option value="deposit">Deposits</option>
+          <option value="withdrawal">Withdrawals</option>
+          <option value="transfer">Transfers</option>
         </Select>
       </div>
 
       {selectedIds.length ? (
         <SelectionBar
-          summary={`${selectionCount(selectedIds.length)} template${
+          summary={`${formatCount(selectedIds.length)} template${
             selectedIds.length === 1 ? "" : "s"
           } selected`}
         >
           {selectedIds.length < filtered.length ? (
             <Button type="button" variant="secondary" onClick={selectAllMatching}>
-              {`Select all ${selectionCount(filtered.length)} matching`}
+              {`Select all ${formatCount(filtered.length)} matching`}
             </Button>
           ) : null}
           <Button
@@ -498,7 +562,7 @@ export default function TemplatesPage() {
           }
         />
       ) : (
-        <section className="panel">
+        <div className="table-card">
           <div className="table-wrap" tabIndex={0} role="region" aria-label="Transaction templates">
             <table className="data-table">
               <caption className="sr-only">Transaction templates</caption>
@@ -507,6 +571,7 @@ export default function TemplatesPage() {
                   <th scope="col" className="checkbox-cell">
                     <SelectionCheckbox
                       aria-label="Select all templates on this page"
+                      data-selection-home
                       checked={visible.length > 0 && pageSelected.length === visible.length}
                       indeterminate={
                         pageSelected.length > 0 && pageSelected.length < visible.length
@@ -576,9 +641,11 @@ export default function TemplatesPage() {
                       <td>{account ? account : <span className="template-blank">blank</span>}</td>
                       <td>
                         {template.draft.legs?.length ? (
-                          <div className="transaction-payee">
+                          <div className="cell-with-badge">
                             <span>{categoryLabel(categories.data, template) ?? "Unavailable"}</span>
-                            <Badge tone="blue">Split · {template.draft.legs.length}</Badge>
+                            <Badge tone="blue">
+                              Split · {formatCount(template.draft.legs.length)}
+                            </Badge>
                           </div>
                         ) : template.draft.categoryId ? (
                           (category ?? "Unavailable")
@@ -626,17 +693,17 @@ export default function TemplatesPage() {
                         </Link>
                         {template.stagedTransactionCount ? (
                           <span className="table-subtitle">
-                            {`${template.transactionCount ?? 0} committed · ${template.stagedTransactionCount} pending`}
+                            {`${formatCount(template.transactionCount ?? 0)} committed · ${formatCount(template.stagedTransactionCount)} staged`}
                           </span>
                         ) : null}
                       </td>
                       <td>
                         {template.notification ? (
-                          <div className="transaction-payee">
+                          <div className="cell-with-badge">
                             <Badge tone={template.notification.repeats ? "blue" : undefined}>
                               {template.notification.repeats ? "Repeating" : "Once"}
                             </Badge>
-                            <span className="table-subtitle">
+                            <span className="table-subtitle nowrap">
                               {template.notification.nextNotificationDate
                                 ? `${formatDate(template.notification.nextNotificationDate)} at ${formatTime(template.notification.time)}`
                                 : template.notification.repeats
@@ -679,7 +746,7 @@ export default function TemplatesPage() {
             onPageChange={setPage}
             itemLabel="templates"
           />
-        </section>
+        </div>
       )}
 
       <Modal
@@ -719,7 +786,7 @@ export default function TemplatesPage() {
 
       <Modal
         open={bulkEditing}
-        title={`Edit ${selectedIds.length} template${selectedIds.length === 1 ? "" : "s"}`}
+        title={`Edit ${formatCount(selectedIds.length)} template${selectedIds.length === 1 ? "" : "s"}`}
         description="A field left alone keeps what each template already holds."
         onClose={() => setBulkEditing(false)}
         footer={
@@ -734,25 +801,37 @@ export default function TemplatesPage() {
               loading={bulkEdit.isPending}
               disabledReason="Change at least one field above."
             >
-              Save changes
+              Apply changes
             </Button>
           </>
         }
       >
         <form id="template-bulk-edit-form" className="bulk-edit-form" onSubmit={submitBulkEdit}>
-          {bulkEdit.error ? <Alert>{bulkEdit.error.message}</Alert> : null}
+          {bulkProblem ? <Alert takeFocus>{bulkProblem}</Alert> : null}
+          {bulkEdit.error ? <Alert takeFocus>{bulkEdit.error.message}</Alert> : null}
           <div className="bulk-edit-fields">
             {BULK_FIELDS.map((field) => {
               const action = actions[field.key];
               const isAccount = field.key === "fromAccountId" || field.key === "toAccountId";
-              const blocked =
-                isAccount && sideUnavailable(field.key as "fromAccountId" | "toAccountId");
+              const blocked = isAccount && sideUnavailable(field.key as DraftAccountField);
               return (
                 <div
                   key={field.key}
                   className={action === "leave" ? "bulk-edit-field" : "bulk-edit-field enabled"}
                 >
-                  <Field label={field.label}>
+                  {/* The reason "Set to" is dead goes in the field's hint, so the
+                      select points at it. It was a `Note` after the field,
+                      beside a control that never said why it offered less. */}
+                  <Field
+                    label={field.label}
+                    hint={
+                      blocked
+                        ? field.key === "fromAccountId"
+                          ? "A deposit has no source account, so this cannot be set for everything selected."
+                          : "A withdrawal has no destination account, so this cannot be set for everything selected."
+                        : undefined
+                    }
+                  >
                     <Select
                       className="bulk-edit-action"
                       value={action}
@@ -776,13 +855,6 @@ export default function TemplatesPage() {
                       ) : null}
                     </Select>
                   </Field>
-                  {blocked ? (
-                    <Note>
-                      {field.key === "fromAccountId"
-                        ? "A deposit has no source account, so this cannot be set for everything selected."
-                        : "A withdrawal has no destination account, so this cannot be set for everything selected."}
-                    </Note>
-                  ) : null}
                   {field.key === "type" ? (
                     <Select
                       aria-label="New type"
@@ -834,9 +906,24 @@ export default function TemplatesPage() {
                         </option>
                       ))}
                     </Select>
+                  ) : field.key === "notes" ? (
+                    <Textarea
+                      aria-label="New notes"
+                      rows={3}
+                      value={values.notes}
+                      disabled={action !== "set"}
+                      required={action === "set"}
+                      onChange={(event) =>
+                        setValues((current) => ({ ...current, notes: event.target.value }))
+                      }
+                    />
                   ) : (
                     <Input
-                      aria-label={`New ${field.label.toLowerCase()}`}
+                      aria-label={
+                        field.key === "amount"
+                          ? moneyLabel("New amount", selectionCurrency)
+                          : `New ${field.label.toLowerCase()}`
+                      }
                       inputMode={field.key === "amount" ? "decimal" : undefined}
                       value={values[field.key]}
                       disabled={action !== "set"}
@@ -858,6 +945,7 @@ export default function TemplatesPage() {
 
       <ConfirmDialog
         open={removal.open}
+        confirmLabel="Delete template"
         title="Delete this template?"
         description={
           removal.value
@@ -870,7 +958,8 @@ export default function TemplatesPage() {
 
       <ConfirmDialog
         open={bulkRemoval.open}
-        title={`Delete ${bulkRemoval.value ?? 0} template${bulkRemoval.value === 1 ? "" : "s"}?`}
+        confirmLabel="Delete templates"
+        title={`Delete ${formatCount(bulkRemoval.value ?? 0)} template${bulkRemoval.value === 1 ? "" : "s"}?`}
         description="They are removed together. Transactions already made from them are untouched."
         onCancel={bulkRemoval.cancel}
         onConfirm={bulkRemoval.confirm}

@@ -42,12 +42,27 @@ export class ApiClientError extends Error {
    * summary gets the whole set.
    */
   messages: string[];
+  /**
+   * The same sentences with the field each is about, as a dotted path in the
+   * request body (`draft.payee`, `name`). Kept beside `messages` rather than
+   * instead of it so a `Field` can show its own sentence inline and the
+   * summary can link to that field — GOV.UK's contract, which needed the path
+   * this used to drop once it had deduplicated on it.
+   */
+  issues: { path: string; message: string }[];
 
-  constructor(code: string, message: string, details?: unknown, messages?: string[]) {
+  constructor(
+    code: string,
+    message: string,
+    details?: unknown,
+    messages?: string[],
+    issues: { path: string; message: string }[] = [],
+  ) {
     super(message);
     this.code = code;
     this.details = details;
     this.messages = messages?.length ? messages : [message];
+    this.issues = issues;
   }
 }
 
@@ -68,6 +83,36 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     );
   }
   return response.json() as Promise<T>;
+}
+
+/**
+ * A file the server writes, saved the way a link would save it, except that a
+ * refusal is read as one.
+ *
+ * The export was a plain link, so a refusal — an export over the row cap, a
+ * session that had lapsed — opened the JSON envelope as a page of raw text in
+ * place of the app, and the sentence naming the remedy was there only for
+ * somebody willing to read braces. Fetched instead, a refusal throws the same
+ * `ApiClientError` every other call does and the page shows its sentence. The
+ * filename is the server's, from `Content-Disposition`, so the dated name it
+ * picks in the person's own timezone survives the detour.
+ */
+export async function download(path: string): Promise<void> {
+  const response = await fetch(path, { credentials: "include" });
+  if (!response.ok) {
+    throw refusalFrom(
+      await response.json().catch(() => null),
+      response.statusText,
+      response.status,
+    );
+  }
+  const named = /filename="([^"]+)"/.exec(response.headers.get("Content-Disposition") ?? "");
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = named?.[1] ?? "export.csv";
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 /**
@@ -110,18 +155,21 @@ function refusalFrom(payload: unknown, fallbackMessage: string, status?: number)
   // summary exists for. Only an exact repeat — the same path refused twice, by
   // a regex and then a refinement — is dropped.
   const seen = new Set<string>();
-  const messages: string[] = [];
+  const kept: { path: string; message: string }[] = [];
   for (const issue of issues) {
-    const key = `${issue.path.join(".")} ${issue.message}`;
+    const path = issue.path.join(".");
+    const key = `${path} ${issue.message}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    messages.push(issue.message);
+    kept.push({ path, message: issue.message });
   }
+  const messages = kept.map((issue) => issue.message);
   return new ApiClientError(
     envelope?.error?.code ?? (status === undefined ? "HTTP_ERROR" : `HTTP_${status}`),
     messages[0] ?? envelope?.error?.message ?? fallbackMessage,
     details,
     messages,
+    kept,
   );
 }
 
@@ -131,8 +179,18 @@ function refusalFrom(payload: unknown, fallbackMessage: string, status?: number)
  * An `ApiClientError` kept the whole set; anything else — a network failure, a
  * thrown string — has one sentence and no `details` to have carried more.
  */
-export const errorMessages = (error: unknown): string[] =>
+const errorMessages = (error: unknown): string[] =>
   error instanceof ApiClientError ? error.messages : error instanceof Error ? [error.message] : [];
+
+/**
+ * Every sentence with the field it is about, or with no field where the failure
+ * named none — a network error, a duplicate-name conflict, anything that is not
+ * a Zod issue. One entry per sentence, in the order `errorMessages` gives.
+ */
+export const errorIssues = (error: unknown): { path: string | null; message: string }[] =>
+  error instanceof ApiClientError && error.issues.length
+    ? error.issues
+    : errorMessages(error).map((message) => ({ path: null, message }));
 
 /**
  * A stream that stopped without saying how it went. Client-side, deliberately:
@@ -290,7 +348,7 @@ export type PlanPrice = {
    * the amount. Stripe's word rather than the setting's, so a price configured
    * in the wrong slot cannot be labeled as the one it is not.
    */
-  interval: "month" | "year" | null;
+  interval: StripeInterval | null;
 };
 
 /**
@@ -455,7 +513,14 @@ export type UserAuthState = {
   googleLinked: boolean;
 };
 
-import type { Theme } from "../shared/domain.js";
+import type {
+  Theme,
+  EntryType,
+  DuplicateSideKind,
+  BudgetGroupLimitSource,
+  BudgetLimitSource,
+  StripeInterval,
+} from "../shared/domain.js";
 export type { Theme } from "../shared/domain.js";
 
 export type Preferences = {
@@ -670,7 +735,7 @@ export type TransactionBulkEditPatch = {
   accountId?: string;
   description?: string | null;
   notes?: string | null;
-  type?: "deposit" | "withdrawal";
+  type?: EntryType;
 };
 
 export type StagedTransaction = {
@@ -689,14 +754,27 @@ export type StagedTransaction = {
   importBatchId?: string | null;
   recurrenceId?: string | null;
   occurrenceDate?: string | null;
-  rawData?: {
-    recurrence?: {
-      recurrenceId: string;
-      recurrenceName: string;
-      occurrenceDate: string;
-    };
-  } | null;
+  /**
+   * The row as it arrived: a CSV line's cells by heading, whatever an agent
+   * proposing the row attached, or a recurrence's name. Shown on the staged
+   * row's form as it arrived; nothing reads it back into the entry.
+   */
+  rawData?:
+    | (Record<string, unknown> & {
+        recurrence?: {
+          recurrenceId: string;
+          recurrenceName: string;
+          occurrenceDate: string;
+        };
+      })
+    | null;
   version: number;
+  /**
+   * Always `staged` on any row this client reads: the queue lists only rows
+   * still waiting, so `committedTransactionId` — the transaction a committed
+   * row became — is not declared here. It answers a question about a row that
+   * has left the queue, which only an agent reading one by id can be holding.
+   */
   status: StagedStatus;
   createdAt: string;
 };
@@ -719,13 +797,9 @@ export type StagedBulkEditPatch = {
   accountId?: string;
   description?: string | null;
   notes?: string | null;
-  type?: "deposit" | "withdrawal";
+  type?: EntryType;
 };
 
-/**
- * A saved starting point for the transaction form. The draft is partial on
- * purpose: a key that is not there is a field the person left for later.
- */
 /**
  * A reminder to make this template's transaction, or null when there is none.
  *
@@ -756,6 +830,10 @@ export type TemplateNotification = {
   nextNotificationDate: string | null;
 };
 
+/**
+ * A saved starting point for the transaction form. The draft is partial on
+ * purpose: a key that is not there is a field the person left for later.
+ */
 export type TransactionTemplate = {
   transactionCount?: number;
   stagedTransactionCount?: number;
@@ -922,7 +1000,7 @@ export type StagedDuplicateReview = {
 };
 
 export type DuplicateReviewSide = {
-  kind: "staged" | "committed";
+  kind: DuplicateSideKind;
   staged: StagedTransaction | null;
   committed: Transaction | null;
 };
@@ -939,6 +1017,9 @@ export type AuditEvent = {
    */
   entityId: string;
   operation: string;
+  /** The record before and after, as stored. Read only to name it on screen. */
+  before?: unknown;
+  after?: unknown;
   createdAt: string;
 };
 
@@ -947,6 +1028,12 @@ export type AuditEvent = {
 // than keeping a second copy of either that can drift.
 export type { CsvPreview, CsvSampleRow } from "../shared/csv.js";
 
+/**
+ * `cursorAvailable` is never read in the browser. Both lists that carry it draw
+ * page numbers, so whether an ordering could be resumed with a cursor is a
+ * question this client never asks; an agent walking a list asks it on every
+ * page.
+ */
 export type { PaginatedPage, Page };
 
 export type BudgetPeriodUnitName = BudgetPeriodUnit;
@@ -1004,7 +1091,7 @@ export type BudgetReportRow = {
   limit: string | null;
   actual: string;
   remaining: string | null;
-  source: "entry" | "plan" | "none";
+  source: BudgetLimitSource;
   /** Null when this budget does not carry anything forward. */
   carriedIn: string | null;
   available: string | null;
@@ -1049,7 +1136,7 @@ export type BudgetGroupRow = {
   limit: string | null;
   actual: string;
   remaining: string | null;
-  source: "entry" | "plan" | "sum" | "none";
+  source: BudgetGroupLimitSource;
   carriedIn: string | null;
   available: string | null;
   carriedOut: string | null;

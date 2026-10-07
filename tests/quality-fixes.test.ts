@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { compareMoney, formatDate, moneyUnits } from "../src/client/money.js";
 import { bulkStageFilterSchema, stageListQuerySchema } from "../src/shared/domain.js";
+import { sourceFiles, topLevelDeclarations } from "./support/source.js";
 
 /**
  * A balance is a decimal string carrying up to eighteen fractional digits, which
@@ -161,26 +162,137 @@ describe("every staged filter the schema accepts is one the query applies", () =
  * the language and names a bounded integer in four places here, so including it
  * measures naming rather than arithmetic.
  */
-const MONEY_WORDS =
-  /\b(amount|balance|spent|received|remaining|limit|available|assigned|carried|funded|total|net|opening|closing|rate|price|debit|credit)\b/i;
+const MONEY_WORDS = new Set([
+  "amount",
+  "balance",
+  "spent",
+  "received",
+  "remaining",
+  "limit",
+  "available",
+  "assigned",
+  "carried",
+  "funded",
+  "total",
+  "net",
+  "opening",
+  "closing",
+  "rate",
+  "price",
+  "debit",
+  "credit",
+]);
+
+/**
+ * Every field the shared contract validates as a `numeric(44,18)` decimal
+ * string, read out of `src/shared/domain.ts` rather than listed here.
+ *
+ * The vocabulary above is the server's own words; this is the contract's, and
+ * it is the half no word list can keep up with. `rolloverCap` is money and has
+ * no money word in it, so it reaches the check only by being found. The
+ * schemas are the ones whose pattern is built from `DECIMAL_DIGITS` — the one
+ * place those digits are written — and the ones that start from one of those,
+ * in declaration order, which is the order a module-level `const` has to be
+ * read in anyway.
+ */
+const DECIMAL_FIELDS: readonly (readonly string[])[] = (() => {
+  const domain = sourceFiles("src/shared").find((file) => file.path === "src/shared/domain.ts")!;
+  const schemas = new Set<string>();
+  for (const declaration of topLevelDeclarations(domain)) {
+    const startsFrom = /=\s*([\w$]+)/.exec(declaration.body)?.[1];
+    const builtOnDigits =
+      declaration.name !== "DECIMAL_DIGITS" && /\bDECIMAL_DIGITS\b/.test(declaration.body);
+    if (builtOnDigits || (startsFrom && schemas.has(startsFrom))) schemas.add(declaration.name);
+  }
+  const fields = new Set<string>();
+  // One wrapping call allowed, which is `blankToAbsent(…)` today.
+  for (const [, field, schema] of domain.code.matchAll(
+    /\b([A-Za-z_$][\w$]*)\s*:\s*(?:[\w$]+\(\s*)?([\w$]+)\b/g,
+  )) {
+    if (schemas.has(schema!)) fields.add(field!);
+  }
+  return [...fields].map(wordsOf);
+})();
+
+/**
+ * An identifier as the words it is made of, whichever way it was joined.
+ *
+ * The old matcher was `\b(amount|…)\b`, and a word boundary does not fall
+ * inside an identifier: `sourceAmount`, `destination_amount`, `openingBalance`
+ * and `targetAmount` all walked past it, which is most of the money names the
+ * contract publishes. Splitting on case and on underscores makes `opening_balance`
+ * and `openingBalance` the same two words, so the server's snake_case rows and
+ * the contract's camelCase fields are held to one rule.
+ */
+function wordsOf(identifier: string): string[] {
+  return identifier
+    .replace(/([a-z\d])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .toLowerCase()
+    .split(/[\s_$]+/)
+    .filter(Boolean);
+}
+
+/**
+ * Whether an expression names money anywhere in it.
+ *
+ * Any word of any identifier, not only the last one, because `balanceAfter`,
+ * `carriedIn` and `spentThisPeriod` are money on the server and their money
+ * word is not where English puts the noun. The cost is that a count whose name
+ * carries a money word — `totalCount` — is refused too, and the remedy for that
+ * is the name: a count is better called what it counts.
+ */
+const namesMoney = (expression: string) =>
+  [...expression.matchAll(/[A-Za-z_$][\w$]*/g)].some(([identifier]) => {
+    const words = wordsOf(identifier);
+    const spaced = ` ${words.join(" ")} `;
+    return (
+      words.some((word) => MONEY_WORDS.has(word)) ||
+      DECIMAL_FIELDS.some((field) => spaced.includes(` ${field.join(" ")} `))
+    );
+  });
 
 describe("money on the server", () => {
-  it("never travels through a JavaScript number", async () => {
-    const { globSync } = await import("node:fs");
+  it("finds the contract's money fields where the contract declares them", () => {
+    // Discovery asserted on its own, because an empty list passes every claim
+    // made over it: a `DECIMAL_DIGITS` renamed away would find nothing here.
+    const found = DECIMAL_FIELDS.map((words) => words.join(" "));
+    expect(found).toEqual(expect.arrayContaining(["rollover cap", "opening balance"]));
+    expect(found.length).toBeGreaterThan(5);
+  });
+
+  it("knows a money name in every spelling the code joins one with", () => {
+    for (const name of [
+      "row.amount",
+      "row.sourceAmount",
+      "row.destination_amount",
+      "plan.openingBalance",
+      "OPENING_BALANCE",
+      "plan.rolloverCap",
+      "row.rollover_cap",
+      "nextRolloverCap",
+      "entry.targetAmount",
+      "row.balanceAfter",
+    ])
+      expect(namesMoney(name), name).toBe(true);
+    for (const name of ["row.stagedCount", "row.periods", "value", "octet", "weight.split"])
+      expect(namesMoney(name), name).toBe(false);
+  });
+
+  it("never travels through a JavaScript number", () => {
     const floats: string[] = [];
     let converted = 0;
-    for (const path of globSync("src/server/**/*.ts")) {
-      const lines = (await readFile(path, "utf8")).split("\n");
-      lines.forEach((line, index) => {
-        // Comments talk about `Number(...)`; only code converts with it.
-        if (/^\s*(?:\/\/|\*|\/\*)/.test(line)) return;
+    // Comments blanked rather than skipped by their first character, so one
+    // trailing a line of code is not read as a conversion either.
+    for (const file of sourceFiles("src/server")) {
+      for (const [index, line] of file.code.split("\n").entries()) {
         for (const call of line.matchAll(/\b(?:Number|parseFloat)\s*\(([^)]*)/g)) {
           converted += 1;
           // `Number.isSafeInteger` and friends are the guard, not a conversion.
           if (/^\s*$/.test(call[1]!)) continue;
-          if (MONEY_WORDS.test(call[1]!)) floats.push(`${path}:${index + 1} ${call[0]!.trim()})`);
+          if (namesMoney(call[1]!)) floats.push(`${file.path}:${index + 1} ${call[0]!.trim()})`);
         }
-      });
+      }
     }
     // A walk that converted nothing would pass by looking at nothing.
     expect(converted).toBeGreaterThan(5);

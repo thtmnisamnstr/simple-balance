@@ -23,6 +23,7 @@ import {
   subscriptionAction,
   type SubscriptionAction,
   subscriptionPutSchema,
+  type StripeInterval,
 } from "../../shared/domain.js";
 import { billingEnabled, getConfig } from "../config.js";
 import { getDb, type DbTransaction, withTransaction } from "../db/client.js";
@@ -388,8 +389,8 @@ export async function reconcileSubscription(
  * `applySetupIntentSucceeded` is that case. What must never happen is the
  * claim committing first.
  *
- * The Stripe fetch happens *before* the transaction opens, so no database lock
- * is ever held across a network call.
+ * The Stripe fetch happens *before* the transaction opens, so a webhook holds no
+ * database lock across a network call.
  *
  * Two replicas handed the same delivery serialize here rather than racing: the
  * primary key makes the second wait for the first to commit, and it then finds
@@ -1030,7 +1031,7 @@ type PlanPrice = {
   readonly id: string;
   readonly unitAmount: number | null;
   readonly currency: string;
-  readonly interval: "month" | "year" | null;
+  readonly interval: StripeInterval | null;
 };
 
 /** What the plan tab reads. Entirely from this deployment's own tables, bar the two prices. */
@@ -1422,7 +1423,8 @@ export type SubscriptionResult = {
  * which case it is from a status it may have read a moment ago.
  *
  * The decision and the Stripe calls that act on it run under a per-user lock,
- * and this is the one place in this file that holds one across a network call.
+ * and this is one of the two places in this file that hold one across a network
+ * call; `confirmPaymentSetup`'s payment is the other, for the same reason.
  * The alternative is two concurrent requests each creating a subscription for
  * the same person, which is somebody charged twice and no constraint able to
  * say so.
@@ -1847,8 +1849,10 @@ export async function confirmPaymentSetup(
       // own schedule — but not a payment the bank wants authenticated, which
       // waits for the person — so a failure is reported, never thrown: the
       // part the person asked for, the new card, has happened.
-      let invoice: OwedInvoiceOutcome = "none";
-      let declineMessage: string | null = null;
+      let outcome: { invoice: OwedInvoiceOutcome; declineMessage: string | null } = {
+        invoice: "none",
+        declineMessage: null,
+      };
       if (row) {
         // Except where collecting it would be a sale this deployment is not
         // making. Attaching the card is not a sale and is never refused, which
@@ -1874,40 +1878,62 @@ export async function confirmPaymentSetup(
         // leaving this open would have let somebody who was granted a plan
         // pay a full year for it by replacing their card, with the tab, the
         // grant note and every test still saying Premium.
-        const refused = sellsSomething({ kind: "resume" }, row.status)
-          ? ((await saleRefusal()) ??
-            (planIsGranted(await getEntitlement(actor)) ? planGranted() : null))
-          : null;
-        if (refused) {
-          // Reported as `none` rather than thrown: the card is attached and
-          // pinned, which is what was asked for, and `declined` would say a
-          // payment was tried and refused when none was attempted. Nothing is
-          // owed that this deployment will collect.
-          log.warn("billing.invoice.sale_refused", {
-            status: row.status,
-            reason: refused.message,
-          });
-        } else {
-          let invoiceId: string | null = null;
-          try {
-            invoiceId = await openStripeInvoiceFor(row.stripeSubscriptionId);
-            if (invoiceId) {
-              await payStripeInvoice(invoiceId, `${stripeKey}:invoice`);
-              invoice = "paid";
-            }
-          } catch (error) {
-            log.warn("billing.invoice.retry_failed", { error: String(error) });
-            // Not knowing whether anything is owed is not "nothing owed": where
-            // the row says money is, it is still owed.
-            if (invoiceId || owesPayment(row.status)) {
-              const refusal = invoicePaymentRefusal(error);
-              invoice = refusal.outcome;
-              declineMessage = refusal.message;
+        // The decision and the payment on one transaction holding the billing
+        // lock, as `setSubscription` makes its own (`services.md` 2.8): the
+        // grant is read at the moment the card is charged rather than before
+        // the Stripe calls above, and a subscribe and a card replacement for
+        // the same person cannot both be collecting at once. Everything inside
+        // reaches Stripe and not the pool, so nothing in it waits on this lock;
+        // `resync` takes the lock itself and so runs after it is let go.
+        //
+        // The price check is warmed first, outside the lock, because it reaches
+        // Stripe whenever its cache has gone stale and a call there is a call
+        // made while a pooled connection and the lock are held. Under the lock
+        // it then reads the cache, and the only calls the lock is held across
+        // are the two that find and pay what is owed, which have to be.
+        if (sellsSomething({ kind: "resume" }, row.status)) await saleRefusal();
+        outcome = await getDb().transaction(async (tx) => {
+          await lockBillingState(tx, actor.userId);
+          let invoice: OwedInvoiceOutcome = "none";
+          let declineMessage: string | null = null;
+          const locked = (await currentSubscription(actor, tx)) ?? row;
+          const refused = sellsSomething({ kind: "resume" }, locked.status)
+            ? ((await saleRefusal()) ??
+              (planIsGranted(await getEntitlement(actor, tx)) ? planGranted() : null))
+            : null;
+          if (refused) {
+            // Reported as `none` rather than thrown: the card is attached and
+            // pinned, which is what was asked for, and `declined` would say a
+            // payment was tried and refused when none was attempted. Nothing is
+            // owed that this deployment will collect.
+            log.warn("billing.invoice.sale_refused", {
+              status: locked.status,
+              reason: refused.message,
+            });
+          } else {
+            let invoiceId: string | null = null;
+            try {
+              invoiceId = await openStripeInvoiceFor(row.stripeSubscriptionId);
+              if (invoiceId) {
+                await payStripeInvoice(invoiceId, `${stripeKey}:invoice`);
+                invoice = "paid";
+              }
+            } catch (error) {
+              log.warn("billing.invoice.retry_failed", { error: String(error) });
+              // Not knowing whether anything is owed is not "nothing owed": where
+              // the row says money is, it is still owed.
+              if (invoiceId || owesPayment(locked.status)) {
+                const refusal = invoicePaymentRefusal(error);
+                invoice = refusal.outcome;
+                declineMessage = refusal.message;
+              }
             }
           }
-        }
+          return { invoice, declineMessage };
+        });
         await resync(actor.userId, row.stripeSubscriptionId);
       }
+      const { invoice, declineMessage } = outcome;
       return { attached: true, paidInvoice: invoice === "paid", invoice, declineMessage };
     },
   );

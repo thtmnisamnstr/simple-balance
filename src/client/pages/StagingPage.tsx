@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { isoDateSchema } from "../../shared/domain.js";
+import { isoDateSchema, type EntryType } from "../../shared/domain.js";
 import {
   api,
   ApiClientError,
@@ -51,13 +51,15 @@ import {
   Select,
   SelectionBar,
   SelectionCheckbox,
-  selectionCount,
+  formatCount,
   Skeleton,
   SortableHeader,
   type SortState,
+  TransferCategory,
   useConfirm,
 } from "../components.js";
-import { formatDate, formatMoney, movementSign } from "../money.js";
+import { formatDate, formatMoney, formatTimestamp, moneyLabel, movementSign } from "../money.js";
+import { useTimezone } from "../timezone.js";
 import {
   CategoryPicker,
   PayeeInput,
@@ -94,7 +96,13 @@ import {
   type BulkEditValues,
 } from "../bulk-edit.js";
 import { useDebounced } from "../debounce.js";
-import { emptyScreen, waysOut } from "../list-filters.js";
+import { emptyScreen, waysOut, noAccountReason } from "../list-filters.js";
+import { transactionTypeLabels } from "./TemplatesPage.js";
+
+/** The four cells a staged row edits in place. */
+type InlineField = "date" | "payee" | "category" | "amount";
+/** What a staged row's own buttons do to it. */
+type RowAction = "commit" | "delete";
 
 function stageSummary(stage: StagedTransaction, accounts: Account[]) {
   return summarizeStagedDraft(stage.draft, accounts);
@@ -126,6 +134,7 @@ function retainedIdempotencyKey(keys: Map<string, string>, payload: unknown) {
 }
 
 export default function StagingPage() {
+  const timezone = useTimezone();
   // Keyed by id and holding the row, so a selection that spans pages keeps the
   // versions and validation flags the bulk actions need after paging away.
   const [selected, setSelected] = useState<Map<string, StagedTransaction>>(() => new Map());
@@ -184,9 +193,10 @@ export default function StagingPage() {
     { set: Boolean(validity), clear: "clear the status filter" },
     { set: Boolean(accountId), clear: "clear the account filter" },
     { set: Boolean(importBatchId), clear: "clear the import batch filter" },
-    { set: Boolean(recurrenceId), clear: "show everything rather than one recurrence" },
+    { set: Boolean(recurrenceId), clear: "show everything rather than one recurring transaction" },
   ]);
   const payeeListId = useId();
+  const issueIdPrefix = useId();
   const { start, end } = useDateRange();
   const queryClient = useQueryClient();
   const bulkCommitKeys = useRef(new Map<string, string>());
@@ -314,7 +324,7 @@ export default function StagingPage() {
   const [commitProgress, setCommitProgress] = useState<ProgressEvent | null>(null);
 
   const bulkMutation = useMutation({
-    mutationFn: (action: "commit" | "delete") => {
+    mutationFn: (action: RowAction) => {
       const expectedVersions = Object.fromEntries(
         selectedRows.map((stage) => [stage.id, stage.version]),
       );
@@ -353,6 +363,12 @@ export default function StagingPage() {
       bulkCommitKeys.current.clear();
       // Counted before the selection is emptied, and said out loud, because
       // the bar that held the button has gone by the time this renders.
+      //
+      // Counted from the selection rather than read off the reply, which is
+      // why the reply's per-row halves go unread (`web.md` 11.9): a delete's
+      // `deletedIds` and a commit's `committed[].stagedId` each name exactly
+      // the rows selected, since both are all-or-nothing, and the queue is
+      // read again below, which is where each row's absence is shown.
       const rows = selectedRows.length;
       setBulkOutcome(
         `${rows.toLocaleString()} staged ${rows === 1 ? "row" : "rows"} ${
@@ -419,11 +435,22 @@ export default function StagingPage() {
           : bulkEnabled.payee && !bulkValues.payee.trim()
             ? "Give the payee a name."
             : accountChangeBlocked
-              ? "These rows are in more than one currency, so the account cannot change."
+              ? // Each cause its own sentence. This read "These rows are in more
+                // than one currency", copied from the register, and a staged
+                // edit refuses for none of the register's currency reasons: it
+                // was false on the ordinary path of turning the field on
+                // before choosing an account.
+                accountChangeUnavailable
+                ? "Account cannot be edited across the selection while a transfer is in it."
+                : accountNeedsType
+                  ? "Some selected rows have no type yet. Turn on Change type to set an account on them."
+                  : "Choose an account."
               : categoryChangeBlocked
                 ? "A split cannot be flattened into one category."
                 : typeChangeBlocked
-                  ? "A transfer cannot become a deposit or a withdrawal."
+                  ? selectionContainsTransfers
+                    ? "A transfer cannot become a deposit or a withdrawal."
+                    : "A split cannot change direction, because each leg's category was chosen for the way it runs."
                   : undefined;
 
   const bulkEditMutation = useMutation<
@@ -444,12 +471,16 @@ export default function StagingPage() {
       setBulkEditing(false);
       setBulkEditKey(null);
       setSelected(new Map());
+      // The counts, not the rows. The reply's `items` carry each row's
+      // `issueCount` and `possiblyDuplicate`, and the queue read again below
+      // shows both on the row itself — its issues and its duplicate badge —
+      // which is where somebody looks for them rather than in a sentence.
       setBulkEditNotice(
-        `${result.updatedCount} staged row${
+        `${formatCount(result.updatedCount)} staged row${
           result.updatedCount === 1 ? "" : "s"
-        } updated. ${result.validCount} ready to commit, ${
-          result.invalidCount
-        } still needing attention.`,
+        } updated. ${formatCount(result.validCount)} ready to commit, ${formatCount(
+          result.invalidCount,
+        )} still needing attention.`,
       );
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["staged"] }),
@@ -595,7 +626,7 @@ export default function StagingPage() {
    */
   const [inline, setInline] = useState<{
     id: string;
-    field: "date" | "payee" | "category" | "amount";
+    field: InlineField;
     value: string;
     categoryName: string;
   } | null>(null);
@@ -625,7 +656,7 @@ export default function StagingPage() {
     }: {
       stage: StagedTransaction;
       draft: Record<string, unknown>;
-      field: "date" | "payee" | "category" | "amount";
+      field: InlineField;
     }) =>
       api(`/api/v1/staged-transactions/${stage.id}`, {
         ...json({ draft, expectedVersion: stage.version }),
@@ -721,7 +752,7 @@ export default function StagingPage() {
   };
   const openInline = (
     stage: StagedTransaction,
-    field: "date" | "payee" | "category" | "amount",
+    field: InlineField,
     value: string,
     categoryName = "",
   ) => {
@@ -734,11 +765,11 @@ export default function StagingPage() {
     if (inline) focusAfterInline.current = { id: inline.id, field: inline.field };
     setInline(null);
   };
-  const inlineFor = (stage: StagedTransaction, field: "date" | "payee" | "category" | "amount") =>
+  const inlineFor = (stage: StagedTransaction, field: InlineField) =>
     inline && inline.id === stage.id && inline.field === field ? inline : null;
 
   const rowMutation = useMutation({
-    mutationFn: ({ stage, action }: { stage: StagedTransaction; action: "commit" | "delete" }) => {
+    mutationFn: ({ stage, action }: { stage: StagedTransaction; action: RowAction }) => {
       if (action === "delete") {
         return api("/api/v1/staged-transactions/bulk-delete", {
           ...json({
@@ -760,6 +791,10 @@ export default function StagingPage() {
         }),
       });
     },
+    // Cleared as each press starts: an import is a run of rows from one payee,
+    // and "Amazon committed." a second time is a sentence an alert already
+    // showing it neither announces again nor gives focus to.
+    onMutate: () => setRowOutcome(null),
     onSuccess: async (_result, { stage, action }) => {
       /*
        * 13.3, and the shape `web.md` 9.8 names: committing a row runs straight
@@ -811,14 +846,14 @@ export default function StagingPage() {
                 offered rather than assumed, and it says how much of it there is. */}
             {duplicateCount.data ? (
               <Link className="button button-secondary" to="/staged/duplicates">
-                <CopyCheck size={16} /> Review {duplicateCount.data} possible
+                <CopyCheck size={16} /> Review {formatCount(duplicateCount.data)} possible
                 {duplicateCount.data === 1 ? " duplicate" : " duplicates"}
               </Link>
             ) : null}
             <Button
               onClick={() => setEditing("new")}
               disabled={!accounts.data?.length}
-              disabledReason={accounts.isPending ? undefined : "Create an account first."}
+              disabledReason={noAccountReason(accounts)}
             >
               <Plus size={16} /> Stage transaction
             </Button>
@@ -884,14 +919,19 @@ export default function StagingPage() {
         >
           <option value="">All batches</option>
           {batches.map((batch) => (
+            // When it arrived and how much of it is still here, because the
+            // file name alone is the same every month: two "checking.csv"
+            // imports read identically, and the one to filter by was a guess.
             <option key={batch.id} value={batch.id}>
-              {batch.fileName} ({batch.stagedCount})
+              {`${batch.fileName} · ${formatTimestamp(batch.createdAt, timezone)} · ${formatCount(
+                batch.stagedCount,
+              )} of ${formatCount(batch.rowCount)} rows staged`}
             </option>
           ))}
         </Select>
         {recurrenceId ? (
           <Button variant="ghost" onClick={() => setRecurrenceId("")}>
-            Showing one recurrence · show everything
+            Showing one recurring transaction · show everything
           </Button>
         ) : null}
         {batchPages.hasNextPage ? (
@@ -911,12 +951,20 @@ export default function StagingPage() {
           queue where selecting everything stops at the ten-thousand cap. */}
       {selectedRows.length ? (
         <SelectionBar
+          // Always the explicit sentence, because this selection is always
+          // explicit: staged commits name their rows. `web.md` 9.5 keeps "All
+          // N matching selected" for the register's filtered selection, which
+          // carries a server count and fingerprint, and this bar said it about
+          // a list of ids — and said a bare "N selected" otherwise, where the
+          // other two bars say what was selected.
           summary={
             allMatchingSelected && totalMatching > stages.length
-              ? selectedRows.length < totalMatching
-                ? `${selectionCount(selectedRows.length)} of ${selectionCount(totalMatching)} matching selected`
-                : `All ${selectionCount(selectedRows.length)} matching staged transactions selected`
-              : `${selectionCount(selectedRows.length)} selected`
+              ? `${formatCount(selectedRows.length)} of ${formatCount(totalMatching)} matching staged transaction${
+                  totalMatching === 1 ? "" : "s"
+                } selected`
+              : `${formatCount(selectedRows.length)} staged transaction${
+                  selectedRows.length === 1 ? "" : "s"
+                } selected`
           }
         >
           <>
@@ -927,7 +975,7 @@ export default function StagingPage() {
                 loading={selectingAll}
                 onClick={() => void selectAllMatching()}
               >
-                {`Select all ${selectionCount(selectableTotal)} matching`}
+                {`Select all ${formatCount(selectableTotal)} matching`}
               </Button>
             ) : null}
             {/* One mutation runs both actions, so each button asks which one is
@@ -1036,379 +1084,400 @@ export default function StagingPage() {
         </Alert>
       ) : null}
       {stages.length ? (
-        <div className="table-card" tabIndex={0} role="region" aria-label="Staged transactions">
-          <table className="data-table">
-            <caption className="sr-only">Staged transactions</caption>
-            <thead>
-              <tr>
-                <th scope="col" className="checkbox-cell">
-                  <SelectionCheckbox
-                    aria-label="Select all staged transactions on this page"
-                    checked={allSelected}
-                    indeterminate={someSelected && !allSelected}
-                    onChange={(event) => {
-                      const next = new Map(selected);
-                      for (const stage of selectableRows) {
-                        if (event.target.checked) {
-                          // The same cap the per-row boxes enforce. Without it
-                          // this one control pushed the selection past the
-                          // limit, and the server then refused the whole bulk
-                          // request with a message about a cap the page had
-                          // claimed to be respecting.
-                          if (!next.has(stage.id) && next.size >= MAX_BULK_STAGES) break;
-                          next.set(stage.id, stage);
-                        } else {
-                          next.delete(stage.id);
+        <div className="table-card">
+          <div className="table-wrap" tabIndex={0} role="region" aria-label="Staged transactions">
+            <table className="data-table">
+              <caption className="sr-only">Staged transactions</caption>
+              <thead>
+                <tr>
+                  <th scope="col" className="checkbox-cell">
+                    <SelectionCheckbox
+                      aria-label="Select all staged transactions on this page"
+                      data-selection-home
+                      checked={allSelected}
+                      indeterminate={someSelected && !allSelected}
+                      onChange={(event) => {
+                        const next = new Map(selected);
+                        for (const stage of selectableRows) {
+                          if (event.target.checked) {
+                            // The same cap the per-row boxes enforce. Without it
+                            // this one control pushed the selection past the
+                            // limit, and the server then refused the whole bulk
+                            // request with a message about a cap the page had
+                            // claimed to be respecting.
+                            if (!next.has(stage.id) && next.size >= MAX_BULK_STAGES) break;
+                            next.set(stage.id, stage);
+                          } else {
+                            next.delete(stage.id);
+                          }
                         }
-                      }
-                      setSelected(next);
-                    }}
+                        setSelected(next);
+                      }}
+                    />
+                  </th>
+                  <SortableHeader
+                    field="date"
+                    label="Date"
+                    lean="descending"
+                    sort={sort}
+                    onSort={applySort}
                   />
-                </th>
-                <SortableHeader
-                  field="date"
-                  label="Date"
-                  lean="descending"
-                  sort={sort}
-                  onSort={applySort}
-                />
-                <SortableHeader field="payee" label="Payee" sort={sort} onSort={applySort} />
-                <SortableHeader field="account" label="Account" sort={sort} onSort={applySort} />
-                <SortableHeader field="category" label="Category" sort={sort} onSort={applySort} />
-                <SortableHeader field="status" label="Status" sort={sort} onSort={applySort} />
-                <SortableHeader
-                  field="amount"
-                  label="Amount"
-                  lean="descending"
-                  className="align-right"
-                  sort={sort}
-                  onSort={applySort}
-                />
-                <th scope="col">
-                  <span className="sr-only">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {stages.map((stage) => {
-                const draft = stage.draft;
-                const summary = stageSummary(stage, accounts.data ?? []);
-                const date = stagedString(draft.date);
-                const payee = stagedString(draft.payee).trim() || "Incomplete row";
-                // 8.10 rule 6: a trigger's accessible name leads with its
-                // visible text, and this cell's visible text is the payee. The
-                // three sibling triggers build the same shape from an
-                // expression that wraps; this one is a plain string, so it is
-                // named here instead — which is also what keeps the dash off an
-                // `aria-label=` line, where `common.md` reads one as a label
-                // nobody finished deciding.
-                const payeeTriggerName = `${payee} — edit the payee of ${payee}`;
-                const description = stagedString(draft.description).trim();
-                const type = stagedString(draft.type).trim() || "Unknown type";
-                return (
-                  <tr key={stage.id}>
-                    <td className="checkbox-cell">
-                      <input
-                        aria-label={`Select ${payee}`}
-                        type="checkbox"
-                        checked={selected.has(stage.id)}
-                        disabled={!selected.has(stage.id) && selected.size >= MAX_BULK_STAGES}
-                        onChange={(event) => {
-                          const next = new Map(selected);
-                          if (event.target.checked) next.set(stage.id, stage);
-                          else next.delete(stage.id);
-                          setSelected(next);
-                        }}
-                      />
-                    </td>
-                    <td>
-                      {inlineFor(stage, "date") ? (
-                        <Input
-                          type="date"
-                          autoFocus
-                          aria-label={`Date of ${payee}`}
-                          value={inline!.value}
-                          onChange={(event) => setInline({ ...inline!, value: event.target.value })}
-                          onBlur={() => commitInline(stage)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") commitInline(stage);
-                            if (event.key === "Escape") cancelInline();
+                  <SortableHeader field="payee" label="Payee" sort={sort} onSort={applySort} />
+                  <SortableHeader field="account" label="Account" sort={sort} onSort={applySort} />
+                  <SortableHeader
+                    field="category"
+                    label="Category"
+                    sort={sort}
+                    onSort={applySort}
+                  />
+                  <SortableHeader field="status" label="Status" sort={sort} onSort={applySort} />
+                  <SortableHeader
+                    field="amount"
+                    label="Amount"
+                    lean="descending"
+                    className="align-right"
+                    sort={sort}
+                    onSort={applySort}
+                  />
+                  <th scope="col">
+                    <span className="sr-only">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {stages.map((stage) => {
+                  const draft = stage.draft;
+                  const summary = stageSummary(stage, accounts.data ?? []);
+                  const date = stagedString(draft.date);
+                  const payee = stagedString(draft.payee).trim() || "Incomplete row";
+                  // 8.10 rule 6: a trigger's accessible name leads with its
+                  // visible text, and this cell's visible text is the payee. The
+                  // four were joined with an em dash, and this one was written
+                  // here rather than at its attribute because that kept the dash
+                  // off an `aria-label=` line, where `common.md` refuses one —
+                  // which is the rule being stepped around rather than kept. A
+                  // comma is the join a label takes.
+                  const payeeTriggerName = `${payee}, edit the payee of ${payee}`;
+                  const description = stagedString(draft.description).trim();
+                  const type = stagedString(draft.type).trim() || "Unknown type";
+                  return (
+                    <tr key={stage.id}>
+                      <td className="checkbox-cell">
+                        <input
+                          aria-label={`Select ${payee}`}
+                          type="checkbox"
+                          checked={selected.has(stage.id)}
+                          disabled={!selected.has(stage.id) && selected.size >= MAX_BULK_STAGES}
+                          onChange={(event) => {
+                            const next = new Map(selected);
+                            if (event.target.checked) next.set(stage.id, stage);
+                            else next.delete(stage.id);
+                            setSelected(next);
                           }}
                         />
-                      ) : (
-                        <button
-                          type="button"
-                          className="inline-edit"
-                          aria-label={`${
-                            date && isoDateSchema.safeParse(date).success
-                              ? formatDate(date)
-                              : date || "No date"
-                          } — edit the date of ${payee}`}
-                          data-inline-trigger={`date:${stage.id}`}
-                          onClick={() => openInline(stage, "date", date)}
-                        >
-                          {date
-                            ? isoDateSchema.safeParse(date).success
-                              ? formatDate(date)
-                              : date
-                            : "—"}
-                        </button>
-                      )}
-                    </td>
-                    <th scope="row">
-                      {inlineFor(stage, "payee") ? (
-                        <PayeeInput
-                          autoFocus
-                          ariaLabel={`Payee of ${payee}`}
-                          value={inline!.value}
-                          onChange={(next: string) => setInline({ ...inline!, value: next })}
-                          onCommit={(finalValue: string) =>
-                            commitInline(stage, { value: finalValue })
-                          }
-                          onCancel={cancelInline}
-                        />
-                      ) : (
-                        <button
-                          type="button"
-                          className="inline-edit"
-                          aria-label={payeeTriggerName}
-                          data-inline-trigger={`payee:${stage.id}`}
-                          onClick={() => openInline(stage, "payee", stagedString(draft.payee))}
-                        >
-                          <strong>{payee}</strong>
-                        </button>
-                      )}
-                      <small className="table-subtitle">{description || type}</small>
-                      {stage.recurrenceId ? (
+                      </td>
+                      <td className="nowrap">
+                        {inlineFor(stage, "date") ? (
+                          <Input
+                            type="date"
+                            autoFocus
+                            aria-label={`Date of ${payee}`}
+                            value={inline!.value}
+                            onChange={(event) =>
+                              setInline({ ...inline!, value: event.target.value })
+                            }
+                            onBlur={() => commitInline(stage)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") commitInline(stage);
+                              if (event.key === "Escape") cancelInline();
+                            }}
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            className="inline-edit"
+                            aria-label={`${
+                              date && isoDateSchema.safeParse(date).success
+                                ? formatDate(date)
+                                : date || "No date"
+                            }, edit the date of ${payee}`}
+                            data-inline-trigger={`date:${stage.id}`}
+                            onClick={() => openInline(stage, "date", date)}
+                          >
+                            {date
+                              ? isoDateSchema.safeParse(date).success
+                                ? formatDate(date)
+                                : date
+                              : "—"}
+                          </button>
+                        )}
+                      </td>
+                      <th scope="row">
+                        {inlineFor(stage, "payee") ? (
+                          <PayeeInput
+                            autoFocus
+                            ariaLabel={`Payee of ${payee}`}
+                            value={inline!.value}
+                            onChange={(next: string) => setInline({ ...inline!, value: next })}
+                            onCommit={(finalValue: string) =>
+                              commitInline(stage, { value: finalValue })
+                            }
+                            onCancel={cancelInline}
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            className="inline-edit"
+                            aria-label={payeeTriggerName}
+                            data-inline-trigger={`payee:${stage.id}`}
+                            onClick={() => openInline(stage, "payee", stagedString(draft.payee))}
+                          >
+                            <strong>{payee}</strong>
+                          </button>
+                        )}
                         <small className="table-subtitle">
-                          {`Proposed by ${
-                            // The name is kept on the row rather than joined,
-                            // because a proposal outlives the recurrence that
-                            // made it and still has to say where it came from.
-                            stage.rawData?.recurrence?.recurrenceName ?? "a recurrence"
-                          }${
-                            stage.occurrenceDate ? ` for ${formatDate(stage.occurrenceDate)}` : ""
-                          }`}
+                          {description || transactionTypeLabels[type] || type}
                         </small>
-                      ) : null}
-                    </th>
-                    <td>{summary.account}</td>
-                    <td>
-                      {stagedLegs(draft.legs).length ? (
-                        // A split's categories live on its legs, so the modal
-                        // is the honest editor: an inline cell could only lie
-                        // about which leg it was changing.
-                        <div className="transaction-payee">
-                          {/* `.subtle` here and nowhere else on this row: the
+                        {stage.recurrenceId ? (
+                          <small className="table-subtitle">
+                            {`Proposed by ${
+                              // The name is kept on the row rather than joined,
+                              // because a proposal outlives the recurrence that
+                              // made it and still has to say where it came from.
+                              stage.rawData?.recurrence?.recurrenceName ?? "a recurring transaction"
+                            }${
+                              stage.occurrenceDate ? ` for ${formatDate(stage.occurrenceDate)}` : ""
+                            }`}
+                          </small>
+                        ) : null}
+                      </th>
+                      <td>{summary.account}</td>
+                      <td>
+                        {stagedLegs(draft.legs).length ? (
+                          // A split's categories live on its legs, so the modal
+                          // is the honest editor: an inline cell could only lie
+                          // about which leg it was changing.
+                          <div className="cell-with-badge">
+                            {/* `.subtle` here and nowhere else on this row: the
                               two inline-edit cells below render the same word as
                               a button's own label, where it takes the button's
                               color. This one is plain text and matches the
                               transactions list, which is the page a person
                               compares it against. */}
-                          {categoryNames.get(
-                            largestStagedLeg(stagedLegs(draft.legs))?.categoryId ?? "",
-                          ) ? (
-                            <span>
-                              {categoryNames.get(
-                                largestStagedLeg(stagedLegs(draft.legs))?.categoryId ?? "",
-                              )}
-                            </span>
-                          ) : (
-                            <span className="subtle">Uncategorized</span>
-                          )}
-                          <Badge tone="blue">Split · {stagedLegs(draft.legs).length}</Badge>
-                        </div>
-                      ) : type === "transfer" ? (
-                        // A transfer files under no category by design.
-                        "—"
-                      ) : inlineFor(stage, "category") ? (
-                        <span
-                          // A grouping for the picker's input and list, so a
-                          // blur can tell "left the editor" from "moved
-                          // within it". The real control is the input inside;
-                          // this wrapper only listens to events bubbling from
-                          // it, which is the shape code/index.md's two named
-                          // jsx-a11y exceptions already carry. Enter is
-                          // deliberately NOT a commit here: picking from the
-                          // datalist lands on Enter too, and committing on
-                          // the keydown raced the picked value — creating a
-                          // category named by the half-typed prefix. Blur is
-                          // the commit gesture; Escape cancels.
-                          role="presentation"
-                          onBlur={(event) => {
-                            if (!event.currentTarget.contains(event.relatedTarget)) {
-                              commitInline(stage);
-                            }
-                          }}
-                          onKeyDown={(event) => {
-                            if (event.key === "Escape") cancelInline();
-                          }}
-                        >
-                          <CategoryPicker
-                            categories={categories.data ?? []}
-                            categoryId={inline!.value}
-                            categoryName={inline!.categoryName}
-                            ariaLabel={`Category of ${payee}`}
-                            autoFocus
-                            onChange={(nextId: string, nextName: string) =>
-                              setInline({ ...inline!, value: nextId, categoryName: nextName })
-                            }
-                          />
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          className="inline-edit"
-                          aria-label={`${
-                            categoryNames.get(stagedString(draft.categoryId)) ??
-                            (stagedString(draft.categoryName).trim() || "Uncategorized")
-                          } — edit the category of ${payee}`}
-                          data-inline-trigger={`category:${stage.id}`}
-                          onClick={() =>
-                            openInline(
-                              stage,
-                              "category",
-                              stagedString(draft.categoryId),
+                            {categoryNames.get(
+                              largestStagedLeg(stagedLegs(draft.legs))?.categoryId ?? "",
+                            ) ? (
+                              <span>
+                                {categoryNames.get(
+                                  largestStagedLeg(stagedLegs(draft.legs))?.categoryId ?? "",
+                                )}
+                              </span>
+                            ) : (
+                              <span className="subtle">Uncategorized</span>
+                            )}
+                            <Badge tone="blue">
+                              Split · {formatCount(stagedLegs(draft.legs).length)}
+                            </Badge>
+                          </div>
+                        ) : type === "transfer" ? (
+                          // A transfer files under no category by design.
+                          <TransferCategory />
+                        ) : inlineFor(stage, "category") ? (
+                          <span
+                            // A grouping for the picker's input and list, so a
+                            // blur can tell "left the editor" from "moved
+                            // within it". The real control is the input inside;
+                            // this wrapper only listens to events bubbling from
+                            // it, which is the shape code/index.md's two named
+                            // jsx-a11y exceptions already carry. Enter is
+                            // deliberately NOT a commit here: picking from the
+                            // datalist lands on Enter too, and committing on
+                            // the keydown raced the picked value — creating a
+                            // category named by the half-typed prefix. Blur is
+                            // the commit gesture; Escape cancels.
+                            role="presentation"
+                            onBlur={(event) => {
+                              if (!event.currentTarget.contains(event.relatedTarget)) {
+                                commitInline(stage);
+                              }
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === "Escape") cancelInline();
+                            }}
+                          >
+                            <CategoryPicker
+                              categories={categories.data ?? []}
+                              categoryId={inline!.value}
+                              categoryName={inline!.categoryName}
+                              ariaLabel={`Category of ${payee}`}
+                              autoFocus
+                              onChange={(nextId: string, nextName: string) =>
+                                setInline({ ...inline!, value: nextId, categoryName: nextName })
+                              }
+                            />
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="inline-edit"
+                            aria-label={`${
                               categoryNames.get(stagedString(draft.categoryId)) ??
-                                stagedString(draft.categoryName),
-                            )
-                          }
-                        >
-                          {categoryNames.get(stagedString(draft.categoryId)) ??
-                            (stagedString(draft.categoryName).trim() || "Uncategorized")}
-                        </button>
-                      )}
-                    </td>
-                    <td>
-                      {stage.validationIssues.length ? (
-                        <Badge tone="red">Needs attention</Badge>
-                      ) : isPossibleDuplicate(stage) ? (
-                        // A link rather than a label: the useful next step is
-                        // seeing the two side by side, and the badge is where
-                        // somebody's eye already is.
-                        <Link
-                          className="duplicate-badge-link"
-                          to={`/staged/duplicates/${stage.id}`}
-                        >
-                          <Badge tone="amber">
-                            {stage.duplicateOfId || stage.likelyDuplicateOfId
-                              ? "Already recorded"
-                              : "Repeats another row"}
-                          </Badge>
-                        </Link>
-                      ) : (
-                        <Badge tone="green">Ready</Badge>
-                      )}
-                      {stage.validationIssues.length ? (
-                        <div className="issue-tooltip">
-                          <CircleAlert size={13} />
-                          {stage.validationIssues[0].message}
-                        </div>
-                      ) : null}
-                    </td>
-                    <td className={`align-right money ${movementSign(draftType(stage)).className}`}>
-                      {inlineFor(stage, "amount") ? (
-                        <Input
-                          inputMode="decimal"
-                          autoFocus
-                          aria-label={
-                            summary.currency
-                              ? `Amount of ${payee} in ${summary.currency}`
-                              : `Amount of ${payee}`
-                          }
-                          pattern="(0|[1-9][0-9]{0,25})(\.[0-9]{1,18})?"
-                          value={inline!.value}
-                          onChange={(event) => setInline({ ...inline!, value: event.target.value })}
-                          onBlur={() => commitInline(stage)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") commitInline(stage);
-                            if (event.key === "Escape") cancelInline();
-                          }}
-                        />
-                      ) : (type === "deposit" || type === "withdrawal") &&
-                        !stagedLegs(draft.legs).length ? (
-                        // A split's total is its legs' business and a
-                        // transfer carries two amounts; both edit in the
-                        // modal, where the other half is on screen.
+                              (stagedString(draft.categoryName).trim() || "Uncategorized")
+                            }, edit the category of ${payee}`}
+                            data-inline-trigger={`category:${stage.id}`}
+                            onClick={() =>
+                              openInline(
+                                stage,
+                                "category",
+                                stagedString(draft.categoryId),
+                                categoryNames.get(stagedString(draft.categoryId)) ??
+                                  stagedString(draft.categoryName),
+                              )
+                            }
+                          >
+                            {categoryNames.get(stagedString(draft.categoryId)) ??
+                              (stagedString(draft.categoryName).trim() || "Uncategorized")}
+                          </button>
+                        )}
+                      </td>
+                      <td>
+                        {stage.validationIssues.length ? (
+                          <Badge tone="red">Needs attention</Badge>
+                        ) : isPossibleDuplicate(stage) ? (
+                          // A link rather than a label: the useful next step is
+                          // seeing the two side by side, and the badge is where
+                          // somebody's eye already is.
+                          <Link
+                            className="duplicate-badge-link"
+                            to={`/staged/duplicates/${stage.id}`}
+                          >
+                            <Badge tone="amber">
+                              {stage.duplicateOfId || stage.likelyDuplicateOfId
+                                ? "Already recorded"
+                                : "Repeats another row"}
+                            </Badge>
+                          </Link>
+                        ) : (
+                          <Badge tone="green">Ready</Badge>
+                        )}
+                        {stage.validationIssues.length ? (
+                          <div className="issue-tooltip" id={`${issueIdPrefix}-${stage.id}`}>
+                            <CircleAlert size={13} />
+                            {stage.validationIssues[0].message}
+                          </div>
+                        ) : null}
+                      </td>
+                      <td
+                        className={`align-right money ${movementSign(draftType(stage)).className}`}
+                      >
+                        {inlineFor(stage, "amount") ? (
+                          <Input
+                            inputMode="decimal"
+                            autoFocus
+                            aria-label={moneyLabel(`Amount of ${payee}`, summary.currency)}
+                            pattern="(0|[1-9][0-9]{0,25})(\.[0-9]{1,18})?"
+                            value={inline!.value}
+                            onChange={(event) =>
+                              setInline({ ...inline!, value: event.target.value })
+                            }
+                            onBlur={() => commitInline(stage)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") commitInline(stage);
+                              if (event.key === "Escape") cancelInline();
+                            }}
+                          />
+                        ) : (type === "deposit" || type === "withdrawal") &&
+                          !stagedLegs(draft.legs).length ? (
+                          // A split's total is its legs' business and a
+                          // transfer carries two amounts; both edit in the
+                          // modal, where the other half is on screen.
+                          <button
+                            type="button"
+                            className="inline-edit inline-edit-money"
+                            aria-label={`${
+                              summary.amount && summary.currency
+                                ? formatMoney(summary.amount, summary.currency)
+                                : "No amount"
+                            }, edit the amount of ${payee}`}
+                            data-inline-trigger={`amount:${stage.id}`}
+                            onClick={() => openInline(stage, "amount", stagedString(draft.amount))}
+                          >
+                            {summary.amount && summary.currency ? (
+                              <>
+                                {movementSign(draftType(stage)).sign}
+                                {formatMoney(summary.amount, summary.currency)}
+                              </>
+                            ) : (
+                              "—"
+                            )}
+                          </button>
+                        ) : summary.amount && summary.currency ? (
+                          <>
+                            {movementSign(draftType(stage)).sign}
+                            {formatMoney(summary.amount, summary.currency)}
+                          </>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td className="row-actions">
+                        {/* A dead Commit points at the issue that stops it, which
+                          the status cell already shows (`web.md` 12.3). It
+                          was disabled with nothing saying why, while the
+                          register's frozen-row icons beside it said theirs. */}
                         <button
-                          type="button"
-                          className="inline-edit inline-edit-money"
-                          aria-label={`${
-                            summary.amount && summary.currency
-                              ? formatMoney(summary.amount, summary.currency)
-                              : "No amount"
-                          } — edit the amount of ${payee}`}
-                          data-inline-trigger={`amount:${stage.id}`}
-                          onClick={() => openInline(stage, "amount", stagedString(draft.amount))}
-                        >
-                          {summary.amount && summary.currency ? (
-                            <>
-                              {movementSign(draftType(stage)).sign}
-                              {formatMoney(summary.amount, summary.currency)}
-                            </>
-                          ) : (
-                            "—"
-                          )}
-                        </button>
-                      ) : summary.amount && summary.currency ? (
-                        <>
-                          {movementSign(draftType(stage)).sign}
-                          {formatMoney(summary.amount, summary.currency)}
-                        </>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                    <td className="row-actions">
-                      <button
-                        aria-label="Commit staged transaction"
-                        disabled={Boolean(stage.validationIssues.length)}
-                        onClick={() => {
-                          // Only a possible repeat needs asking about.
-                          if (isPossibleDuplicate(stage)) {
-                            duplicate.ask(stage, () =>
-                              rowMutation.mutate({ stage, action: "commit" }),
-                            );
-                          } else {
-                            rowMutation.mutate({ stage, action: "commit" });
+                          aria-label={`Commit ${payee}`}
+                          disabled={Boolean(stage.validationIssues.length)}
+                          title={stage.validationIssues[0]?.message}
+                          aria-describedby={
+                            stage.validationIssues.length
+                              ? `${issueIdPrefix}-${stage.id}`
+                              : undefined
                           }
-                        }}
-                      >
-                        <CheckCheck size={16} />
-                      </button>
-                      <button
-                        aria-label="Edit staged transaction"
-                        onClick={() => setEditing(stage)}
-                      >
-                        <Pencil size={16} />
-                      </button>
-                      <button
-                        aria-label="Delete staged transaction"
-                        onClick={() => {
-                          rowRemoval.ask(stage, () =>
-                            rowMutation.mutate({ stage, action: "delete" }),
-                          );
-                        }}
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                      <RowMenu label={`Actions for ${payee}`}>
-                        <button onClick={() => setCloning(stage)}>
-                          <Copy size={15} /> Clone transaction
+                          onClick={() => {
+                            // Only a possible repeat needs asking about.
+                            if (isPossibleDuplicate(stage)) {
+                              duplicate.ask(stage, () =>
+                                rowMutation.mutate({ stage, action: "commit" }),
+                              );
+                            } else {
+                              rowMutation.mutate({ stage, action: "commit" });
+                            }
+                          }}
+                        >
+                          <CheckCheck size={16} />
                         </button>
-                        <button onClick={() => setSavingTemplate(stage)}>
-                          <LayoutTemplate size={15} /> Save as template
+                        <button aria-label={`Edit ${payee}`} onClick={() => setEditing(stage)}>
+                          <Pencil size={16} />
                         </button>
-                        <button onClick={() => setSavingRecurrence(stage)}>
-                          <Repeat size={15} /> Save as recurring transaction
+                        <button
+                          aria-label={`Delete ${payee}`}
+                          onClick={() => {
+                            rowRemoval.ask(stage, () =>
+                              rowMutation.mutate({ stage, action: "delete" }),
+                            );
+                          }}
+                        >
+                          <Trash2 size={16} />
                         </button>
-                      </RowMenu>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                        <RowMenu label={`Actions for ${payee}`}>
+                          <button onClick={() => setCloning(stage)}>
+                            <Copy size={15} /> Clone transaction
+                          </button>
+                          <button onClick={() => setSavingTemplate(stage)}>
+                            <LayoutTemplate size={15} /> Save as template
+                          </button>
+                          <button onClick={() => setSavingRecurrence(stage)}>
+                            <Repeat size={15} /> Save as recurring transaction
+                          </button>
+                        </RowMenu>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
           <Pagination
             page={stagePages.data?.page ?? page}
             pageSize={stagePages.data?.pageSize ?? stages.length}
@@ -1432,11 +1501,25 @@ export default function StagingPage() {
           // here with nothing matching is the *common* case rather than an
           // edge. It said "Nothing staged" either way, which tells somebody who
           // has just imported four hundred rows that their import did nothing.
-          title={narrowed ? "Nothing here matches those filters" : "Nothing staged"}
+          //
+          // And "Nothing staged" only when the range hides nothing. The queue
+          // opens on this month, so a row dated earlier was off screen while
+          // the title said the queue was empty — beside a header counting
+          // duplicates across all of it. The range is still not a filter
+          // (`web.md` 12.1); it is named as the way out.
+          title={
+            narrowed
+              ? "Nothing here matches those filters"
+              : start || end
+                ? "Nothing staged in this range"
+                : "Nothing staged"
+          }
           body={
             narrowed
               ? waysOut([...ways, "widen the date range"])
-              : "Imported rows, drafts you save for later, and anything an agent prepares land here."
+              : `${
+                  start || end ? "Widen the date range to see rows dated outside it. " : ""
+                }Imported rows, drafts you save for later, and anything an agent prepares land here.`
           }
         />
       )}
@@ -1506,7 +1589,7 @@ export default function StagingPage() {
           <>
             <Button
               type="button"
-              variant="secondary"
+              variant="ghost"
               onClick={closeBulkEditor}
               disabled={bulkEditMutation.isPending}
             >
@@ -1526,22 +1609,24 @@ export default function StagingPage() {
       >
         <form id="staged-bulk-edit-form" className="bulk-edit-form" onSubmit={submitBulkEdit}>
           <p className="bulk-edit-selection-summary">
-            {`${selectedRows.length} selected staged row${
+            {`${formatCount(selectedRows.length)} selected staged row${
               selectedRows.length === 1 ? "" : "s"
             } will be edited.`}
           </p>
 
-          {bulkEditMutation.error ? <Alert>{bulkEditMutation.error.message}</Alert> : null}
+          {bulkEditMutation.error ? (
+            <Alert takeFocus>{bulkEditMutation.error.message}</Alert>
+          ) : null}
 
           {selectionContainsTransfers ? (
             <Alert kind="info">
-              This selection contains {selectedTransferCount} transfer
+              This selection contains {formatCount(selectedTransferCount)} transfer
               {selectedTransferCount === 1 ? "" : "s"}. You can change common details, but Account
               and Type are unavailable for transfers.
             </Alert>
           ) : selectedUntypedCount ? (
             <Alert kind="info">
-              {selectedUntypedCount} selected row
+              {formatCount(selectedUntypedCount)} selected row
               {selectedUntypedCount === 1 ? " does" : "s do"} not say whether money came in or went
               out. Change Type in the same edit to set an account on{" "}
               {selectedUntypedCount === 1 ? "it" : "them"}.
@@ -1570,6 +1655,11 @@ export default function StagingPage() {
               enabled={bulkEnabled.categoryId}
               disabled={categoryChangeUnavailable}
               onToggle={(on) => setBulkEnabled((current) => ({ ...current, categoryId: on }))}
+              hint={
+                categoryChangeUnavailable
+                  ? "Category cannot be edited across the selection while a split row is in it, because a split already files its money by category."
+                  : undefined
+              }
             >
               <Select
                 aria-label="New category"
@@ -1589,12 +1679,6 @@ export default function StagingPage() {
                   </option>
                 ))}
               </Select>
-              {categoryChangeUnavailable ? (
-                <small>
-                  Category cannot be mass edited when a split row is selected, because a split
-                  already files its money by category.
-                </small>
-              ) : null}
             </BulkEditToggle>
 
             <BulkEditToggle
@@ -1602,6 +1686,13 @@ export default function StagingPage() {
               enabled={bulkEnabled.accountId}
               disabled={accountChangeUnavailable}
               onToggle={(on) => setBulkEnabled((current) => ({ ...current, accountId: on }))}
+              hint={
+                accountChangeUnavailable
+                  ? "Account cannot be edited across the selection while a transfer is in it."
+                  : bulkEnabled.accountId && accountNeedsType
+                    ? "Some selected rows have no type yet. Turn on Change type to set an account on them."
+                    : undefined
+              }
             >
               <Select
                 aria-label="New account"
@@ -1628,14 +1719,6 @@ export default function StagingPage() {
                     </option>
                   ))}
               </Select>
-              {accountChangeUnavailable ? (
-                <small>Account cannot be mass edited when a transfer is selected.</small>
-              ) : bulkEnabled.accountId && accountNeedsType ? (
-                <small>
-                  Some selected rows have no type yet. Turn on Change type to set an account on
-                  them.
-                </small>
-              ) : null}
             </BulkEditToggle>
 
             <BulkEditDescriptionField
@@ -1657,6 +1740,13 @@ export default function StagingPage() {
               enabled={bulkEnabled.type}
               disabled={typeChangeUnavailable}
               onToggle={(on) => setBulkEnabled((current) => ({ ...current, type: on }))}
+              hint={
+                typeChangeUnavailable
+                  ? selectionContainsTransfers
+                    ? "Type cannot be edited across the selection while a transfer is in it."
+                    : "Type cannot be edited across the selection while a split row is in it, because every leg's category was chosen for the direction this entry runs in."
+                  : undefined
+              }
             >
               <Select
                 aria-label="New transaction type"
@@ -1665,30 +1755,24 @@ export default function StagingPage() {
                 onChange={(event) =>
                   setBulkValues((current) => ({
                     ...current,
-                    type: event.target.value as "deposit" | "withdrawal",
+                    type: event.target.value as EntryType,
                   }))
                 }
               >
                 <option value="deposit">Deposit</option>
                 <option value="withdrawal">Withdrawal</option>
               </Select>
-              {typeChangeUnavailable ? (
-                <small>
-                  {selectionContainsTransfers
-                    ? "Type cannot be mass edited when a transfer is selected."
-                    : "Type cannot be mass edited when a split row is selected, because every leg's category was chosen for the direction this entry runs in."}
-                </small>
-              ) : null}
             </BulkEditToggle>
           </div>
         </form>
       </Modal>
       <ConfirmDialog
         open={bulkRemoval.open}
+        confirmLabel="Delete staged rows"
         title="Delete these staged rows?"
         description={
           bulkRemoval.value
-            ? `${bulkRemoval.value} row${bulkRemoval.value === 1 ? "" : "s"} will be removed from the queue. Nothing has been committed yet, so no balance changes.`
+            ? `${formatCount(bulkRemoval.value)} row${bulkRemoval.value === 1 ? "" : "s"} will be removed from the queue. Nothing has been committed yet, so no balance changes.`
             : undefined
         }
         onConfirm={bulkRemoval.confirm}
@@ -1697,6 +1781,7 @@ export default function StagingPage() {
 
       <ConfirmDialog
         open={rowRemoval.open}
+        confirmLabel="Delete staged row"
         title="Delete this staged row?"
         description="It is removed from the queue. Nothing has been committed, so no balance changes."
         onConfirm={rowRemoval.confirm}
@@ -1707,7 +1792,8 @@ export default function StagingPage() {
         open={duplicate.open}
         title="Commit this anyway?"
         description="This looks like a transaction you already have. Committing it will record a second one."
-        confirmLabel="Commit"
+        confirmLabel="Commit anyway"
+        confirmVariant="primary"
         onConfirm={duplicate.confirm}
         onCancel={duplicate.cancel}
       />

@@ -61,7 +61,7 @@ than warning about.
 | --- | --- | --- |
 | `AUTH_MODE` | `local` | Which sign-in methods are offered. See below. |
 | `ALLOWED_EMAILS` | unset | Who may register. Unset admits nobody but the first account. See below. |
-| `SETUP_TOKEN` | generated | The one-time code that claims a fresh instance. At least 16 characters if you set it; a shorter one refuses to start. Left unset, one is generated and printed to the startup log. It is a secret, so it also takes a `SETUP_TOKEN_FILE`; see below. |
+| `SETUP_TOKEN` | generated | The one-time code that claims a fresh instance. At least 16 characters if you set it. A shorter one refuses to start while no account exists, which is the only time the code is read, and is warned about at every other start. Left unset, one is generated and printed to the startup log. It is a secret, so it also takes a `SETUP_TOKEN_FILE`; see below. |
 | `PORT` | `3000` | The port inside the container. Change it and your published port mapping has to follow. |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, or `error`. It governs this product's own lines as well as the auth library's, so `error` really is quiet. The auth library writes through the same gate, each line tagged `[Better Auth]`, with every email address in what it writes replaced by `[email address]` — at `info` it used to log the address of every sign-up that named an existing account — and a failure inside one of its routes is logged like any other, as the statement that failed without the values it was given. A few notices about the library's own setup still go straight to the console; none carries anything from a request. `debug` adds a line per HTTP request, per MCP tool call, per message sent and per scheduler tick that found nothing due; `info` keeps startup, mail, shutdown and the ticks that actually proposed or reminded. A refusal at startup is reported whatever it is set to, and so is the first-run setup code. |
 | `TRUST_PROXY` | `false` | Turn it on when a reverse proxy sits in front and replaces `X-Forwarded-For`. See the reverse proxy section; getting it wrong costs per-visitor rate limiting. |
@@ -91,7 +91,7 @@ setting somebody may want to state rather than only inherit. So zero is accepted
 in silence, and anything unreadable warns and keeps everything — falling back to
 *off* rather than to a window, since the other direction would prune on a typo.
 
-All six are read at startup, before anything is served, so the warning is in
+All seven are read at startup, before anything is served, so the warning is in
 front of whoever just deployed rather than in a log nobody opens until the day
 it matters. They used to be read at the moment they were wanted, which is a
 combination with no symptom at all: `CSV_MAX_ROWS=1O000`, typed with a letter O,
@@ -106,8 +106,10 @@ The rest refuse to start for the same reason. `NODE_ENV`, `AUTH_MODE`,
 the values they accept and nothing else: comparing to one string is what turns
 every other spelling into the default with no symptom at all, and for
 `RECURRENCE_SCHEDULER` that default would be a schedule quietly not running.
-`PORT` has to be a port. `DATABASE_POOL_SIZE` has a ceiling of its own because
-too many connections takes the database down rather than this process.
+`PORT` and `SMTP_PORT` have to be ports. `DATABASE_POOL_SIZE` is not among
+them: it has a ceiling of its own, because too many connections takes the
+database down rather than this process, and a value past it warns and runs at
+its default like the bounded integers above.
 
 ### Limits you cannot change
 
@@ -433,7 +435,7 @@ certificate and its key go to the database node in its own cloud-init; the CA
 certificate, which is public, goes to the application node in its own. The
 generated `DATABASE_URL` is
 
-```
+```text
 postgresql://simple_balance:<password>@<the node's internal DNS name>:5432/simple_balance?sslmode=verify-full&sslrootcert=/var/lib/simple-balance/tls/db-ca.pem
 ```
 
@@ -623,7 +625,7 @@ deployment with `RECURRENCE_SCHEDULER=false` on every replica sends none of them
 | `SMTP_HOST` | unset | The submission server. Setting it turns mail on. |
 | `MAIL_FROM` | unset | The address messages come from. `balance@example.com`, or `Simple Balance <balance@example.com>`. Required alongside `SMTP_HOST`. |
 | `MAIL_REPLY_TO` | unset | Where a reply should go, if not to `MAIL_FROM`. Same two forms. |
-| `SMTP_PORT` | `587`, or `465` when `SMTP_SSL` is true | |
+| `SMTP_PORT` | `587`, or `465` when `SMTP_SSL` is true | The submission port, a whole number from 1 to 65535. Anything else refuses to start and names this variable. Set it only for a relay on a port of its own, such as 2525. |
 | `SMTP_SSL` | `false` | True for a connection encrypted from the first byte, which is what 465 expects. False starts on 587 and upgrades with STARTTLS, which is what nearly every provider wants. |
 | `SMTP_USERNAME` | unset | Set with `SMTP_PASSWORD` or not at all. |
 | `SMTP_PASSWORD` | unset | Never sent unencrypted; see below. |

@@ -222,7 +222,7 @@ describe("the templates screen", () => {
     fireEvent.change(screen.getByLabelText("New payee"), {
       target: { value: "New landlord" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply changes" }));
 
     await waitFor(() => expect(posts).toHaveLength(1));
     expect(posts[0]!.path).toBe("/api/v1/transaction-templates/bulk-edit");
@@ -254,13 +254,65 @@ describe("the templates screen", () => {
     fireEvent.change(screen.getByLabelText("Amount"), {
       target: { value: "clear" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply changes" }));
 
     await waitFor(() => expect(posts).toHaveLength(1));
     const patch = (posts[0]!.body as { patch: Record<string, unknown> }).patch;
     expect(patch).toEqual({ amount: null });
     expect("payee" in patch).toBe(false);
     expect("categoryId" in patch).toBe(false);
+  });
+
+  /**
+   * The two fields the agent's tool always took and this panel did not. The
+   * parity register carried them as "declared rather than argued" — a gap with
+   * nothing behind it but that nobody had added the controls.
+   */
+  it("sets a description and notes across the selection", async () => {
+    const posts = stubApi([rent, coffee]);
+    await renderPage([rent, coffee]);
+
+    fireEvent.click(screen.getByLabelText("Select Rent"));
+    fireEvent.click(screen.getByLabelText("Select Coffee"));
+    fireEvent.click(screen.getByRole("button", { name: /Edit selected/ }));
+    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "set" } });
+    fireEvent.change(screen.getByLabelText("New description"), {
+      target: { value: "Monthly" },
+    });
+    fireEvent.change(screen.getByLabelText("Notes"), { target: { value: "clear" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply changes" }));
+
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect((posts[0]!.body as { patch: unknown }).patch).toEqual({
+      description: "Monthly",
+      notes: null,
+    });
+  });
+
+  // Spaces get past `required`, and the server refuses an empty value in words
+  // written for an agent — "send null to clear" — which name nothing on this
+  // panel. So the panel trims, and says it in its own words when nothing is left.
+  it("trims what it sends, and refuses a value of nothing but spaces in its own words", async () => {
+    const posts = stubApi([rent, coffee]);
+    await renderPage([rent, coffee]);
+
+    fireEvent.click(screen.getByLabelText("Select Rent"));
+    fireEvent.click(screen.getByLabelText("Select Coffee"));
+    fireEvent.click(screen.getByRole("button", { name: /Edit selected/ }));
+    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "set" } });
+    fireEvent.change(screen.getByLabelText("New description"), { target: { value: "   " } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply changes" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Enter the new description, or choose Clear to leave it blank.",
+    );
+    expect(posts).toHaveLength(0);
+
+    fireEvent.change(screen.getByLabelText("New description"), {
+      target: { value: "  Monthly  " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply changes" }));
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect((posts[0]!.body as { patch: unknown }).patch).toEqual({ description: "Monthly" });
   });
 
   it("will not offer a source account when a deposit is selected", async () => {
@@ -271,7 +323,7 @@ describe("the templates screen", () => {
     fireEvent.click(screen.getByLabelText("Select Salary"));
     fireEvent.click(screen.getByRole("button", { name: /Edit selected/ }));
 
-    const sourceAction = screen.getByLabelText("Source account");
+    const sourceAction = screen.getByLabelText("From account");
     const setOption = within(sourceAction).getByRole("option", {
       name: "Set to",
     });
@@ -325,7 +377,7 @@ describe("the templates screen", () => {
     fireEvent.click(screen.getByLabelText("Select Rent"));
     fireEvent.click(screen.getByRole("button", { name: /Delete selected/ }));
     const dialog = within(screen.getByText("Delete 1 template?").closest("dialog")!);
-    fireEvent.click(dialog.getByRole("button", { name: "Delete" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Delete templates" }));
 
     await waitFor(() => expect(posts).toHaveLength(1));
     expect(posts[0]!.path).toBe("/api/v1/transaction-templates/bulk-delete");
@@ -375,7 +427,7 @@ describe("the templates screen", () => {
     fireEvent.change(screen.getByLabelText("New payee"), {
       target: { value: "Nope" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply changes" }));
 
     // Inside the dialog, because the page banner sits behind an open one.
     const dialog = await screen.findByRole("dialog");
@@ -393,20 +445,20 @@ describe("the templates screen", () => {
     fireEvent.click(screen.getByRole("button", { name: /Edit selected/ }));
     const dialog = within(screen.getByRole("dialog"));
 
-    fireEvent.change(dialog.getByLabelText("Source account"), {
+    fireEvent.change(dialog.getByLabelText("From account"), {
       target: { value: "set" },
     });
-    fireEvent.change(dialog.getByLabelText("New source account"), {
+    fireEvent.change(dialog.getByLabelText("New from account"), {
       target: { value: checking.id },
     });
-    expect(dialog.getByLabelText("Source account")).toHaveValue("set");
+    expect(dialog.getByLabelText("From account")).toHaveValue("set");
 
     // A deposit has no source account, so the choice cannot survive the switch.
     fireEvent.change(dialog.getByLabelText("Type"), { target: { value: "set" } });
     fireEvent.change(dialog.getByLabelText("New type"), {
       target: { value: "deposit" },
     });
-    expect(dialog.getByLabelText("Source account")).toHaveValue("leave");
+    expect(dialog.getByLabelText("From account")).toHaveValue("leave");
   });
 
   it("waits for accounts before naming any of them unavailable", async () => {
@@ -472,7 +524,7 @@ describe("the templates screen", () => {
     // happen to fall in the current month. The assertion is on the query
     // string rather than on the path for that reason.
     expect(used).toHaveAttribute("href", `/templates/${rent.id}?preset=all-time`);
-    expect(within(rowFor("Rent")).getByText("4 committed · 2 pending")).toBeInTheDocument();
+    expect(within(rowFor("Rent")).getByText("4 committed · 2 staged")).toBeInTheDocument();
 
     // A template nothing came from reads zero rather than being left out, and
     // its link pins the range too: a count of zero is still a claim about

@@ -1,6 +1,7 @@
 import { and, eq, getTableColumns, inArray, sql } from "drizzle-orm";
 import type { Actor } from "../../shared/domain.js";
 import {
+  draftAccountFields,
   MAX_TRANSACTION_TEMPLATES,
   transactionTemplateBulkDeleteSchema,
   transactionTemplateBulkEditSchema,
@@ -11,6 +12,7 @@ import {
   type TransactionTemplateBulkPatch,
   type TransactionTemplateBulkResult,
   type TransactionTemplateBulkSelection,
+  type DraftAccountField,
   type TemplateNotification,
   type TransactionTemplateDraft,
 } from "../../shared/domain.js";
@@ -31,9 +33,11 @@ import {
 } from "./notifications.js";
 import {
   getIdempotent,
+  lockAccountReferences,
   lockCategoryNamespace,
   lockIdempotencyKey,
   lockTransactionTemplateNamespace,
+  patchChangesNothing,
   serializeRow,
   setIdempotent,
   writeAudit,
@@ -67,6 +71,13 @@ async function assertNameAvailable(
       duplicateTemplateId: existing.id,
     });
   }
+}
+
+/** The accounts a draft names, for the reference lock that comes before the rest. */
+function draftAccountIds(draft: Pick<TransactionTemplateDraft, DraftAccountField>) {
+  return draftAccountFields
+    .map((field) => draft[field])
+    .filter((value): value is string => Boolean(value));
 }
 
 /**
@@ -223,27 +234,13 @@ async function writeNotification(
       ),
     );
   if (notification === null) return null;
-  const rule = {
-    frequency: notification.frequency,
-    interval: notification.interval ?? 1,
-    anchorDate: notification.anchorDate,
-    monthPolicy: notification.monthPolicy ?? "last_day",
-    weekendPolicy: notification.weekendPolicy ?? "allow",
-    position: notification.position ?? null,
-  } as const;
+  const rule = ruleOfNotification(notification);
   // Saving the template again must not re-send what has already gone. The row is
   // replaced whole, so without this the watermark is replaced too and a reminder
-  // sent last week is owed again the moment somebody edits the payee.
-  //
-  // Compared after defaults are applied, never against the incoming object: a
-  // one-time reminder legitimately omits the interval and both policies, so the
-  // raw shapes differ every time even when nothing changed. A schedule that
-  // really did change starts afresh, which is what somebody moving the date is
-  // asking for.
-  const unchanged =
-    existing !== undefined &&
-    existing.notifyAt === notification.time &&
-    sameRule(notificationRuleOf(existing), rule);
+  // sent last week is owed again the moment somebody edits the payee. A schedule
+  // that really did change starts afresh, which is what somebody moving the date
+  // is asking for.
+  const unchanged = notificationChangesNothing(existing ?? null, notification);
   const [created] = await tx
     .insert(templateNotifications)
     .values({
@@ -261,11 +258,44 @@ async function writeNotification(
       // in the past is somebody asking to be told about something they have
       // already missed, and the sweep collapses a backlog to one message, so it
       // costs one mail and answers the question they were asking.
-      lastNotifiedDate: unchanged ? existing.lastNotifiedDate : null,
-      nextNotificationDate: unchanged ? existing.nextNotificationDate : firstNotificationDate(rule),
+      lastNotifiedDate: unchanged && existing ? existing.lastNotifiedDate : null,
+      nextNotificationDate:
+        unchanged && existing ? existing.nextNotificationDate : firstNotificationDate(rule),
     })
     .returning();
   return created;
+}
+
+/** A reminder's schedule with the defaults a one-time reminder leaves out filled in. */
+function ruleOfNotification(notification: TemplateNotification) {
+  return {
+    frequency: notification.frequency,
+    interval: notification.interval ?? 1,
+    anchorDate: notification.anchorDate,
+    monthPolicy: notification.monthPolicy ?? "last_day",
+    weekendPolicy: notification.weekendPolicy ?? "allow",
+    position: notification.position ?? null,
+  } as const;
+}
+
+/**
+ * Whether saving this reminder would leave the stored one as it is.
+ *
+ * Compared after defaults are applied, never against the incoming object: a
+ * one-time reminder legitimately omits the interval and both policies, so the
+ * raw shapes differ every time even when nothing changed.
+ */
+function notificationChangesNothing(
+  existing: NotificationRow | null,
+  notification: TemplateNotification | null | undefined,
+) {
+  if (notification === undefined) return true;
+  if (notification === null) return existing === null;
+  return (
+    existing !== null &&
+    existing.notifyAt === notification.time &&
+    sameRule(notificationRuleOf(existing), ruleOfNotification(notification))
+  );
 }
 
 /** Two reminder rules, compared field by field with the position flattened. */
@@ -398,9 +428,12 @@ async function lockSelectedTemplates(
   const byId = new Map(rows.map((row) => [row.id, row]));
   const missing = ids.filter((id) => !byId.has(id));
   if (missing.length) {
-    throw notFound("Some of those templates are unavailable", {
-      templateIds: missing,
-    });
+    throw notFound(
+      "Some of those templates were not found; they may have been deleted. Reload the list and try again.",
+      {
+        templateIds: missing,
+      },
+    );
   }
   const stale = selection.items.filter(
     (item) => byId.get(item.id)!.version !== item.expectedVersion,
@@ -711,6 +744,12 @@ export async function createTransactionTemplate(
     // counts zero template references while this transaction sits between its
     // ownership check and its insert, and the template lands naming a dead
     // category — the exact state deleteCategory's guard exists to prevent.
+    //
+    // And the accounts before both, which is the first step of the order
+    // helpers.ts mandates and the lock `deleteAccount` counts references
+    // under: without it an account deleted while this was being created left a
+    // template naming an account that is gone.
+    await lockAccountReferences(tx, actor, draftAccountIds(parsed.draft));
     if (parsed.draft.categoryId || parsed.draft.legs?.some((leg) => leg.categoryId)) {
       await lockCategoryNamespace(tx, actor);
     }
@@ -757,6 +796,7 @@ export async function updateTransactionTemplate(
   const { expectedVersion, ...changes } = parsed;
   return withTransaction(transaction, async (tx) => {
     // Same order as the create, for the same race.
+    if (changes.draft) await lockAccountReferences(tx, actor, draftAccountIds(changes.draft));
     if (changes.draft?.categoryId || changes.draft?.legs?.some((leg) => leg.categoryId)) {
       await lockCategoryNamespace(tx, actor);
     }
@@ -770,13 +810,19 @@ export async function updateTransactionTemplate(
     if (before.version !== expectedVersion) {
       throw staleVersion({ currentVersion: before.version });
     }
+    const beforeNotification = (await readNotifications(tx, actor, [id])).get(id) ?? null;
+    if (
+      patchChangesNothing(before, { name: changes.name, draft: changes.draft }) &&
+      notificationChangesNothing(beforeNotification, changes.notification)
+    ) {
+      return templateView(before, beforeNotification);
+    }
     if (changes.name !== undefined) {
       await assertNameAvailable(tx, actor, changes.name, id);
     }
     if (changes.draft !== undefined) {
       await assertReferencesAreOwned(tx, actor, changes.draft);
     }
-    const beforeNotification = (await readNotifications(tx, actor, [id])).get(id) ?? null;
     const notification = await writeNotification(tx, actor, id, changes.notification);
     const [updated] = await tx
       .update(transactionTemplates)

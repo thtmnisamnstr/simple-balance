@@ -1,6 +1,6 @@
 import Stripe from "stripe";
-import type { PlanChangeInvoice } from "../shared/domain.js";
-import { getConfig, stripeMode } from "./config.js";
+import type { PlanChangeInvoice, StripeInterval } from "../shared/domain.js";
+import { getConfig, stripeMode, type StripeKeyMode } from "./config.js";
 import { log } from "./log.js";
 import { stripeDuration, stripeRequests } from "./metrics.js";
 
@@ -607,7 +607,7 @@ export async function scheduleStripeSubscriptionPrice(
   input: {
     readonly subscriptionId: string;
     readonly priceId: string;
-    readonly interval: "month" | "year";
+    readonly interval: StripeInterval;
   },
   idempotencyKey: string,
 ): Promise<string> {
@@ -1233,7 +1233,7 @@ export type StripePriceFacts = {
    * the prices are right, and when they do not the label is the one that would
    * have lied: a swapped pair read "$3.00 a year" off a price billing monthly.
    */
-  readonly interval: "month" | "year" | null;
+  readonly interval: StripeInterval | null;
 };
 
 /**
@@ -1319,7 +1319,7 @@ export function planPriceProblems(input: {
   readonly yearlyId: string;
   readonly monthly: PriceShape | null;
   readonly yearly: PriceShape | null;
-  readonly keyMode: "live" | "test" | undefined;
+  readonly keyMode: StripeKeyMode | undefined;
   readonly selling: boolean;
 }): string[] {
   const problems: string[] = [];
@@ -1405,7 +1405,7 @@ export function planPriceProblems(input: {
  */
 export type PriceCheck = {
   readonly problems: readonly string[];
-  readonly confirmedMode: "live" | "test" | null;
+  readonly confirmedMode: StripeKeyMode | null;
 };
 
 /**
