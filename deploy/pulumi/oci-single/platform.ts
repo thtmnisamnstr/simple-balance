@@ -394,9 +394,9 @@ export type NameExists = (host: string) => Promise<boolean>;
  * than the failure: the resolver that answered no — the operator's router,
  * then macOS's own cache — keeps that answer for the zone's negative TTL,
  * 300 seconds, after the name exists, so the next `pulumi up` fails the same
- * way. Hence `exists` asks OCI's own nameservers rather than the machine's
- * resolver: the first lookup the provider makes is then one that succeeds, and
- * nothing on the way has a no to remember.
+ * way. Hence `exists` asks every one of OCI's own nameservers rather than the
+ * machine's resolver: the first lookup the provider makes is then one that
+ * succeeds, and nothing on the way has a no to remember.
  */
 export async function waitForDnsName(
   host: string,
@@ -447,6 +447,20 @@ const NOT_YET = new Set(["ENOTFOUND", "ENODATA", "ESERVFAIL"]);
  * the new name goes to them directly, from a resolver of its own that caches
  * nothing.
  *
+ * Every nameserver is asked on its own, and the name exists only when none of
+ * them still says there is no such name. They do not learn a new name
+ * together: on 2026-10-07 us-sanjose-1's five Oracle nameservers had a new
+ * vault's name while its six Akamai ones answered NXDOMAIN for minutes more.
+ * One resolver handed all eleven asks whichever it tries first, so 0.2.1 heard
+ * yes from an Oracle one and made the key, the operator's router asked an
+ * Akamai one, and the `up` failed exactly as 0.2.0's had.
+ *
+ * Only that denial holds the key back once another nameserver has the name.
+ * A recursive resolver believes an NXDOMAIN and remembers it, but takes a
+ * failure or an empty answer from one nameserver as a reason to ask the next,
+ * so a nameserver that fails for good — and one asked alone has no other to
+ * fall back on — would otherwise stop every `up` for fifteen minutes.
+ *
  * Only an answer is a "not yet". A question that could not be asked — a
  * timeout, a refusal, nameservers with no address to send to — is a yes, which
  * is what 0.2.0 assumed: the key is made and the provider does its own lookup.
@@ -454,7 +468,9 @@ const NOT_YET = new Set(["ENOTFOUND", "ENODATA", "ESERVFAIL"]);
  * first, and many networks — corporate ones, VPNs, DNS-over-HTTPS setups — let
  * nothing reach port 53 but their own resolver. There every question timed
  * out, each was read as "not yet", and an `up` that changed nothing waited
- * fifteen minutes and then failed where 0.2.0 had succeeded.
+ * fifteen minutes and then failed where 0.2.0 had succeeded. So a nameserver
+ * that cannot be asked has no vote, and when none can be, the name is taken to
+ * exist.
  */
 export function authoritativeNameExists(
   load: () => Promise<AuthoritativeDns> = () => import("node:dns/promises"),
@@ -473,27 +489,44 @@ export function authoritativeNameExists(
       const addresses = (
         await Promise.all(servers.map((ns) => resolve4(ns).catch(() => [])))
       ).flat();
-      if (addresses.length === 0) return true;
-      const resolver = new Resolver({ timeout: 5_000, tries: 2 });
-      resolver.setServers(addresses);
-      const notYet = (error: unknown) =>
-        NOT_YET.has((error as { code?: string } | null)?.code ?? "");
-      try {
-        await resolver.resolveCname(host);
-        return true;
-      } catch (error) {
-        // No such name is a no; no CNAME is not, because the name may be an A
-        // record, which the next question is about.
-        if ((error as { code?: string } | null)?.code === "ENOTFOUND") return false;
-        if (!notYet(error)) return true;
-      }
-      return resolver.resolve4(host).then(
-        (found) => found.length > 0,
-        (error) => !notYet(error),
+      const answers = await Promise.all(
+        addresses.map((address) => {
+          const resolver = new Resolver({ timeout: 5_000, tries: 2 });
+          resolver.setServers([address]);
+          return askNameserver(resolver, host);
+        }),
       );
+      if (answers.includes("no such name")) return false;
+      return answers.includes("found") || !answers.includes("not yet");
     }
     // No zone's nameservers could be found at all, which is a network that
     // cannot ask rather than a name that is not there.
     return true;
   };
+}
+
+type NameserverAnswer = "found" | "no such name" | "not yet" | "unasked";
+
+function answerFromError(error: unknown): NameserverAnswer {
+  const code = (error as { code?: string } | null)?.code ?? "";
+  if (code === "ENOTFOUND") return "no such name";
+  return NOT_YET.has(code) ? "not yet" : "unasked";
+}
+
+async function askNameserver(
+  resolver: InstanceType<AuthoritativeDns["Resolver"]>,
+  host: string,
+): Promise<NameserverAnswer> {
+  try {
+    await resolver.resolveCname(host);
+    return "found";
+  } catch (error) {
+    // No such name is a no; no CNAME is not, because the name may be an A
+    // record, which the next question is about.
+    const answer = answerFromError(error);
+    if (answer !== "not yet") return answer;
+  }
+  return resolver
+    .resolve4(host)
+    .then((found) => (found.length > 0 ? "found" : "not yet"), answerFromError);
 }

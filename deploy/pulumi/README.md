@@ -259,8 +259,8 @@ deploy/pulumi/
   oci-single/index.ts   VCN, a public subnet and a private one, two security
                         lists, two block volumes, a NAT gateway, an
                         ephemeral public IP on the application node only
-                        (promote it to reserved in the console to outlive
-                        the instance), two Ampere A1 shapes
+                        (it lasts as long as the instance; OCI cannot make
+                        it reserved), two Ampere A1 shapes
   oci-single/platform.ts  the disk floor, the availability domain and when
                         a data volume refuses a new one, the region, the
                         metadata it sends, the database node's own firewall
@@ -752,10 +752,12 @@ which on Oracle Cloud is refused before the machine or the volume is touched.
 is now a ledger on one of those two volumes, which is why the protection is on
 by default and why a backup lives on the other machine.
 On Oracle Cloud a replaced application node also comes up on a new
-public address; the database node has none to change. Promoting the old one to reserved keeps it in the tenancy but
-does not move it: delete the new instance's ephemeral address and assign the
-reserved one to its private IP in the console, or point the A record at the new
-one — see [DNS](../../docs/deployment-profiles.md#dns). Both programs pin the
+public address; the database node has none to change. The old address cannot be
+kept, because OCI never turns an ephemeral address into a reserved one. A
+reserved address swapped in by hand earlier stays in the tenancy but does not
+move: delete the new instance's ephemeral address and assign the reserved one to
+its private IP in the console, or point the A record at the new one — see
+[DNS](../../docs/deployment-profiles.md#dns). Both programs pin the
 machine image with `ignoreChanges` for the opposite reason: without it a new
 Canonical build every few weeks would replace the instance on every `pulumi up`,
 which costs an outage nobody asked for.

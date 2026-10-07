@@ -420,6 +420,15 @@ describe("the single-machine programs, as the Pulumi README describes them", () 
     // the root disk, and a promoted reserved IP as following a replacement.
     expect(readme).not.toMatch(/resizing — change `size`, deploy — destroys/);
     expect(readme).not.toMatch(/unless it has been\s+promoted to reserved/);
+    // Nor can it be promoted at all: OCI never turns an ephemeral address into
+    // a reserved one, so a reserved one is always a new address.
+    for (const path of [
+      "deploy/pulumi/README.md",
+      "deploy/pulumi/oci-single/index.ts",
+      "docs/deployment-profiles.md",
+    ]) {
+      expect(read(path), path).not.toMatch(/promot\w*\s[^.]{0,60}?\bto\s+reserved/i);
+    }
     expect(readme).toContain("**Resizing is not a rebuild.**");
     expect(readme).toMatch(/Two things take the volume\s+with it: `pulumi destroy`/);
     // A new machine brings back the stack's image and not the schema an

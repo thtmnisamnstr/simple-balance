@@ -5,9 +5,23 @@ keep, so upgrading is swapping it for a newer one.
 
 ## Before you upgrade to 0.2.2
 
-Nothing has landed for 0.2.2 yet. This note is written as work lands rather
-than when the release is cut, and it is here, empty, because a missing heading
-and an unwritten note look the same from the outside.
+This note is written as work lands rather than when the release is cut.
+
+**Nothing to do by hand.** Both changes are to `oci-single`, and a stack that is
+already up plans no change.
+
+**`oci-single` waits for every one of its vault's nameservers.** 0.2.1's wait
+for a new settings vault's hostname stopped at the first nameserver that had
+it, so the first `pulumi up` of a new stack could still fail with `no such host`
+when the operator's resolver asked one that did not have it yet. The wait now
+lasts until none of them says there is no such name, which in us-sanjose-1 is a
+few minutes more. Its fifteen-minute limit, and what it says when that runs out,
+are unchanged.
+
+**The application node's address cannot be made reserved, and the documents no
+longer say it can.** OCI fixes a public IP's type when it creates it. If you
+need an address that outlives the instance, a reserved one swapped in from the
+console is a new address, and the A record has to follow it.
 
 ## Before you upgrade to 0.2.1
 
