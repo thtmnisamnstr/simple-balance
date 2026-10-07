@@ -1,6 +1,6 @@
 {
   "name": "simple-balance-pulumi",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Pulumi programs that stand up Simple Balance: the split deployment on EKS and GKE, and the single-machine profile on EC2 and OCI compute.",
   "license": "AGPL-3.0-only",
   "private": true,

@@ -83,9 +83,9 @@ Except where a line says otherwise, this applies to all four.
   build them:
 
   ```text
-  ghcr.io/thtmnisamnstr/simple-balance-server:0.2.0
-  ghcr.io/thtmnisamnstr/simple-balance-frontend:0.2.0
-  ghcr.io/thtmnisamnstr/simple-balance-scheduler:0.2.0
+  ghcr.io/thtmnisamnstr/simple-balance-server:0.2.1
+  ghcr.io/thtmnisamnstr/simple-balance-frontend:0.2.1
+  ghcr.io/thtmnisamnstr/simple-balance-scheduler:0.2.1
   ```
 
   Point `simple-balance:imageRepositoryPrefix` somewhere else only for a private

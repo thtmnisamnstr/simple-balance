@@ -3,6 +3,12 @@
 Everything persistent is in PostgreSQL. The container holds nothing you need to
 keep, so upgrading is swapping it for a newer one.
 
+## Before you upgrade to 0.2.2
+
+Nothing has landed for 0.2.2 yet. This note is written as work lands rather
+than when the release is cut, and it is here, empty, because a missing heading
+and an unwritten note look the same from the outside.
+
 ## Before you upgrade to 0.2.1
 
 **Nothing to do by hand.** No migration, no new setting, and nothing an

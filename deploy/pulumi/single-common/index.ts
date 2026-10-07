@@ -151,7 +151,7 @@ export const OCI_DATABASE_SIZES: Record<string, Omit<Size, "application">> = {
  * way. A lone "0.1.6" here would be invisible to both, and the programs would go
  * on deploying whatever release this file was written during.
  */
-export const DEFAULT_IMAGE = "ghcr.io/thtmnisamnstr/simple-balance:0.2.0";
+export const DEFAULT_IMAGE = "ghcr.io/thtmnisamnstr/simple-balance:0.2.1";
 const DEFAULT_TAG = DEFAULT_IMAGE.split(":")[1]!;
 
 export interface SingleSettings extends MachineSettings {

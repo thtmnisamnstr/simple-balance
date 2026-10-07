@@ -2,7 +2,7 @@
 
 Notable changes, newest first.
 
-## Unreleased
+## 0.2.1 - 2026-10-06
 
 Everything below except the `oci-single` fix came out of a full smoke test of a
 0.2.0 deployment — the browser app, the HTTP API, the MCP surface and billing

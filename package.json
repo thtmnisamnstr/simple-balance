@@ -1,6 +1,6 @@
 {
   "name": "simple-balance",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Personal finance that's simple. Every account on one page, with a running balance beside every row, so a total you doubt opens into the entries behind it.",
   "license": "AGPL-3.0-only",
   "private": true,
