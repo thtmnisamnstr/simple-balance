@@ -2,6 +2,31 @@
 
 Notable changes, newest first.
 
+## Unreleased
+
+### Fixed
+
+**The first `pulumi up` of a new `oci-single` stack no longer fails at the
+settings key, as 0.2.1's still could.** 0.2.1 waited for a new vault's
+management hostname before making the key in it, but stopped waiting as soon as
+one of the zone's nameservers had the name, and they do not get it together: in
+us-sanjose-1, Oracle's five had it minutes before Akamai's six did. A router
+that asked an Akamai one was told there was no such host, remembered it, and the
+`up` failed as 0.2.0's had. The program now asks every nameserver on its own and
+waits until none of them still says there is no such name. One that cannot be
+reached, or that fails rather than answering, has no say, so a network that
+lets nothing reach them waits for nothing, as before. A stack that is already up
+plans no change.
+
+**`oci-single` no longer says its public address can be made reserved.** The
+`nextSteps` output, the Pulumi README and `docs/deployment-profiles.md` said the
+application node's ephemeral address could be promoted to reserved in the OCI
+console to outlive the instance. OCI cannot do that: it fixes a public IP's type
+when it creates it, so a reserved address is always a new one, and the A record
+has to change with it. They now say the address lasts as long as the instance,
+which a routine `pulumi up` never replaces, and what swapping a reserved one in
+by hand involves.
+
 ## 0.2.1 - 2026-10-06
 
 Everything below except the `oci-single` fix came out of a full smoke test of a

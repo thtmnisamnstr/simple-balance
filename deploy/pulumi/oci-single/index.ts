@@ -1112,13 +1112,15 @@ if (databaseInstance && databaseVolume) {
  * `size` reshapes the instance and grows its volume in place — so the address
  * lasts until the instance itself is replaced: by a destroy, a new
  * `availabilityDomain`, a new image taken by lifting `ignoreChanges`, or
- * `pulumi up --replace`. An
- * operator who needs one that outlives the machine can promote this address to
- * reserved in the console, which OCI supports for an existing ephemeral IP, but
- * promoting it does not make it follow: the replacement comes up on a fresh
- * ephemeral address, for the same one-per-private-IP reason, and the reserved
- * one has to be moved onto it by hand. `../aws-single/` has no such constraint
- * and uses an Elastic IP.
+ * `pulumi up --replace`. Nothing makes this address outlive the machine: OCI
+ * fixes a public IP's type when it creates it, so an ephemeral address never
+ * becomes a reserved one. An operator who needs one that outlives the machine
+ * swaps a reserved address in by hand — the VNIC's IPv4 addresses, no public
+ * IP, then a reserved one — which is a new address, so the A record changes
+ * with it. Nor does it follow a replacement: that comes up on a fresh ephemeral
+ * address, for the same one-per-private-IP reason, and the reserved one has to
+ * be moved onto it by hand. `../aws-single/` has no such constraint and uses an
+ * Elastic IP.
  *
  * Only the application node is looked up this way. The database node's address
  * is a constant this program chose, so there is nothing to read back.
@@ -1205,8 +1207,8 @@ const databaseStep = database
 export const nextSteps = pulumi.interpolate`
 1. Point ${settings.hostname} at ${publicIpAddress} with an A record.
    Caddy cannot obtain a certificate until it resolves, and it retries until it does.
-   The address is ephemeral: promote it to reserved in the OCI console if the record
-   has to outlive this instance.
+   The address is ephemeral and lasts as long as this instance. OCI cannot make it
+   reserved: a reserved address is a new one, and the record would have to follow it.
 ${reach}
    Once in, wait for the first boot to finish:  sudo cloud-init status --wait
 ${databaseStep}

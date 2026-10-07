@@ -335,4 +335,73 @@ describe("asking Oracle's nameservers whether the vault's endpoint exists", () =
     );
     expect(await exists(host)).toBe(true);
   });
+
+  /**
+   * A zone whose nameservers disagree, as us-sanjose-1's did on 2026-10-07:
+   * Oracle's five had a new vault's name while Akamai's six still answered
+   * that there was no such name. Each address here answers for itself, and a
+   * resolver handed several asks the first, as c-ares does while it answers.
+   */
+  function zone(
+    answers: Record<string, "found" | "ENOTFOUND" | "ETIMEOUT" | "ESERVFAIL" | "ENODATA">,
+  ): () => Promise<AuthoritativeDns> {
+    const addresses = Object.keys(answers);
+    class Resolver {
+      private servers: string[] = [];
+      setServers(servers: string[]) {
+        this.servers = servers;
+      }
+      resolveCname = async () => {
+        const answer = answers[this.servers[0]!]!;
+        if (answer !== "found") throw coded(answer);
+        return ["shard.kms.example.test"];
+      };
+      resolve4 = () => Promise.reject(coded("ENODATA"));
+    }
+    return async () =>
+      ({
+        Resolver,
+        resolveNs: async () => addresses.map((_, i) => `ns${i}.example.test`),
+        resolve4: async (ns: string) => [addresses[Number(/\d+/.exec(ns)![0])]!],
+      }) as unknown as AuthoritativeDns;
+  }
+
+  it("says not yet while any nameserver still answers that there is no such name", async () => {
+    const exists = authoritativeNameExists(
+      zone({ "192.0.2.1": "found", "192.0.2.2": "ENOTFOUND", "192.0.2.3": "found" }),
+    );
+    expect(await exists(host)).toBe(false);
+  });
+
+  it("is not reassured by a nameserver it cannot reach", async () => {
+    const exists = authoritativeNameExists(
+      zone({ "192.0.2.1": "ETIMEOUT", "192.0.2.2": "ENOTFOUND" }),
+    );
+    expect(await exists(host)).toBe(false);
+  });
+
+  it("finds the name once every nameserver that answers has it", async () => {
+    const exists = authoritativeNameExists(
+      zone({ "192.0.2.1": "found", "192.0.2.2": "ETIMEOUT", "192.0.2.3": "found" }),
+    );
+    expect(await exists(host)).toBe(true);
+  });
+
+  it.each(["ESERVFAIL", "ENODATA"] as const)(
+    "is not held back by a nameserver that fails rather than denies the name (%s)",
+    async (failure) => {
+      const exists = authoritativeNameExists(zone({ "192.0.2.1": "found", "192.0.2.2": failure }));
+      expect(await exists(host)).toBe(true);
+    },
+  );
+
+  it.each(["ESERVFAIL", "ENODATA"] as const)(
+    "still says not yet when no nameserver has the name and one fails (%s)",
+    async (failure) => {
+      const exists = authoritativeNameExists(
+        zone({ "192.0.2.1": failure, "192.0.2.2": "ETIMEOUT" }),
+      );
+      expect(await exists(host)).toBe(false);
+    },
+  );
 });

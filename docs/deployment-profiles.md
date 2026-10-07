@@ -620,10 +620,12 @@ Docker. In practice it is stable for the life of the instance, because a later
 `pulumi up` leaves the instance alone and a new `size` reshapes it in place. An
 instance that is replaced — destroyed and built again, by hand or by a change
 that forces it — comes back on a new address, and the record has to follow it.
-Promoting the ephemeral address to reserved in the OCI console keeps it past
-the machine, but it does not follow a replacement: the new instance comes up
-on a fresh ephemeral address, and the reserved one has to be moved onto it by
-hand, or the record moved instead.
+OCI cannot make the ephemeral address reserved, because it fixes a public IP's
+type when it creates it. A reserved address can be swapped in from the console —
+the VNIC's IPv4 addresses, no public IP, then a reserved one — but it is a new
+address, so the record changes with it. Nor does it follow a replacement: the
+new instance comes up on a fresh ephemeral address, and the reserved one has to
+be moved onto it by hand, or the record moved instead.
 
 The name has to resolve **before** a certificate can be issued: Let's Encrypt
 proves the name by connecting to it. Caddy retries until it works, so the order
