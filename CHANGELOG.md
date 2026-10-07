@@ -38,6 +38,15 @@ resizes a running stack's database machine in place, which restarts it, and
 
 ### Fixed
 
+**Five security advisories are closed by this release** — two rated critical,
+two high and one medium. GitHub counts six alerts, because `proxy-addr` sits in
+both application lockfiles. `proxy-addr` moves to 2.0.8 in the application and
+its runtime image, where it arrives under the MCP SDK's Express and is never
+loaded, because the server runs on Hono. Under the Pulumi programs,
+`shell-quote` moves to 1.12.0 and `postcss-selector-parser` to 7.1.6. `sharp`
+moves to 0.35.5 and `source-map-js` to 1.2.2; both are used only to build and
+test, and neither is in an image.
+
 **Older activity no longer skips the rest of an import.** Every change one
 import or one mass edit makes is recorded at the same instant, and paging back
 through the activity history asked for entries earlier than that instant, so a

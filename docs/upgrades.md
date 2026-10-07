@@ -19,6 +19,14 @@ What follows is what moves under a client, found by a full smoke test
 of a 0.2.0 deployment and a sweep of every surface against the guides. No
 route, tool or CSV column is removed.
 
+**It closes five dependency advisories**, two of them rated critical.
+`proxy-addr` is inside the images, where it arrives under the MCP SDK's Express
+and is never loaded, because the server runs on Hono. `shell-quote` and
+`postcss-selector-parser` are under the Pulumi programs. `sharp` and
+`source-map-js` are used only to build and test, and reach no image. Nothing
+about this needs an action from you: the first ships inside the image, and the
+Pulumi ones are installed by `npm ci` in `deploy/pulumi`.
+
 **Four of the changes narrow what a client could do, which `writing.md`
 §Versioning counts as a break**, and they are named here rather than left to
 the list: a recurring transfer naming one account on both sides is refused; a
