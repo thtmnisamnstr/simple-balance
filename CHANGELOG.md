@@ -27,6 +27,12 @@ has to change with it. They now say the address lasts as long as the instance,
 which a routine `pulumi up` never replaces, and what swapping a reserved one in
 by hand involves.
 
+**The single-machine programs no longer send you looking for a setup code that
+was never printed.** Step 4 of `nextSteps` on `aws-single` and `oci-single` said
+to find the first-run setup code in the application's log. The server prints one
+only when `allowedEmails` turns somebody away, so under `*` the log has none and
+the sign-up form never asks for it. With `*`, step 4 now says to sign up.
+
 ## 0.2.1 - 2026-10-06
 
 Everything below except the `oci-single` fix came out of a full smoke test of a

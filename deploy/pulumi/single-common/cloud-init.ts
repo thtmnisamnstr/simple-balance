@@ -839,6 +839,19 @@ export function databaseUrl(host: string, password: string): string {
   );
 }
 
+/**
+ * Whether `simple-balance:allowedEmails` lets anybody register, read the way
+ * `parseRegistrationRule` in `src/server/config.ts` reads ALLOWED_EMAILS. The
+ * server prints a first-run setup code only when the rule turns somebody away,
+ * so under `*` there is none, and `nextSteps` must not send anyone to find it.
+ */
+export function admitsAnyone(allowedEmails: string): boolean {
+  return allowedEmails
+    .split(",")
+    .map((entry) => entry.trim())
+    .includes("*");
+}
+
 // ---------------------------------------------------------- the render ---
 
 /**

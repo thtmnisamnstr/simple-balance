@@ -691,8 +691,10 @@ pulumi -C oci-single up
 Both print a `nextSteps` output saying what is left, in order: the A record,
 reaching the application node, the database — which with a database node is
 "nothing to do", and without one is setting a `DATABASE_URL` in the stack and
-running firstboot — and then finding the one-time setup code in the
-application's log. The certificate arrives on its own once the name resolves;
+running firstboot — and then claiming the first account: signing up, when
+`allowedEmails` admits anyone, or else finding the one-time setup code in the
+application's log, which prints none under `*`. The certificate arrives on its
+own once the name resolves;
 Caddy keeps retrying until it does.
 
 Other outputs worth knowing: `databaseHostName` is the internal name in the

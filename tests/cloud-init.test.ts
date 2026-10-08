@@ -19,6 +19,7 @@ import {
   PLACEHOLDER_PASSWORD,
   SERVER_CERTIFICATE_PATH,
   SERVER_KEY_PATH,
+  admitsAnyone,
   awsUserDataBase64,
   cloudInit,
   databaseCloudInit,
@@ -890,6 +891,19 @@ describe("what replacing a single machine does to its data volume", () => {
   });
 });
 
+describe("whether allowedEmails admits anyone, read as the server reads it", () => {
+  it.each([
+    ["*", true],
+    [" you@example.com , * ", true],
+    ["", false],
+    [" , ", false],
+    ["you@example.com", false],
+    ["example.com,@example.org", false],
+  ])("%j admits anyone: %s", (allowedEmails, expected) => {
+    expect(admitsAnyone(allowedEmails)).toBe(expected);
+  });
+});
+
 describe("what the programs tell a person to do next", () => {
   for (const program of [
     "deploy/pulumi/oci-single/index.ts",
@@ -931,6 +945,16 @@ describe("what the programs tell a person to do next", () => {
         /simple-balance:env, and simple-balance:secrets[\s\S]{0,240}applies a change within five minutes/,
       );
       expect(text).not.toContain("env.local");
+    });
+
+    it(`${program} sends nobody looking for a setup code allowedEmails "*" never prints`, () => {
+      const text = steps(program);
+      expect(text).toMatch(
+        /admitsAnyone\(settings\.allowedEmails\)\s*\?\s*`4\. Sign up at https:\/\/\$\{settings\.hostname\}/,
+      );
+      const next = text.slice(text.indexOf("export const nextSteps"));
+      expect(next).toContain("${claimStep}");
+      expect(next).not.toContain("Find the setup code");
     });
 
     it(`${program} says the stack's own DATABASE_URL still wins over the generated one`, () => {

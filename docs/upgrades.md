@@ -7,8 +7,9 @@ keep, so upgrading is swapping it for a newer one.
 
 This note is written as work lands rather than when the release is cut.
 
-**Nothing to do by hand.** Both changes are to `oci-single`, and a stack that is
-already up plans no change.
+**Nothing to do by hand.** Every change is to the single-machine programs, and
+a stack that is already up plans no change beyond the text of its `nextSteps`
+output.
 
 **`oci-single` waits for every one of its vault's nameservers.** 0.2.1's wait
 for a new settings vault's hostname stopped at the first nameserver that had
