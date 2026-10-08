@@ -1129,7 +1129,7 @@ shutdown, is the slow half.** Migrations run at startup under advisory lock
 (`src/server/index.ts:28,78`; `src/server/scheduler.ts:73,101`), so readiness
 cannot open before they finish. The 0.1.5 notes record that the payee index
 "takes a moment to build while the container starts, before it opens readiness"
-(`docs/upgrades.md:1345-1347`). So the generous number is `--start-period`:
+(`docs/upgrades.md:1360-1362`). So the generous number is `--start-period`:
 300s in all three Node images, the same budget the compose recipe's
 `start_period` and the chart's startup probe give the same work, and the three
 are held to each other. It was 20s in the images, which reported a first start
@@ -1819,7 +1819,7 @@ the volume is unreadable by anybody, its owner included. A check that ran at
 first use would be a check that ran at the reboot.
 
 **Creating the key with the stack is refused, and the AWS program already states
-why** (`deploy/pulumi/aws-single/index.ts:138-159`): a key this program made
+why** (`deploy/pulumi/aws-single/index.ts:139-160`): a key this program made
 would have the *stack's* lifetime, and that is the wrong lifetime for the thing
 that decrypts a ledger. `pulumi destroy --exclude-protected` is this
 repository's own documented teardown and it deliberately keeps both data

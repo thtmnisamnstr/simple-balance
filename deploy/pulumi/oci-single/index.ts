@@ -7,6 +7,7 @@ import {
   PLACEHOLDER_CERTIFICATE,
   PLACEHOLDER_KEY,
   PLACEHOLDER_PASSWORD,
+  admitsAnyone,
   databaseUrl,
 } from "../single-common/cloud-init";
 import { databaseCertificates } from "../single-common/tls";
@@ -1204,6 +1205,10 @@ const databaseStep = database
    which starts the deployment and its nightly backup. Until then it is installed and
    stopped, and /etc/motd says so.`;
 
+const claimStep = admitsAnyone(settings.allowedEmails)
+  ? `4. Sign up at https://${settings.hostname}. allowedEmails admits anyone, so there is no setup code.`
+  : "4. Find the setup code:   sudo docker compose -f /opt/simple-balance/compose.yml logs app | grep -i setup";
+
 export const nextSteps = pulumi.interpolate`
 1. Point ${settings.hostname} at ${publicIpAddress} with an A record.
    Caddy cannot obtain a certificate until it resolves, and it retries until it does.
@@ -1212,7 +1217,7 @@ export const nextSteps = pulumi.interpolate`
 ${reach}
    Once in, wait for the first boot to finish:  sudo cloud-init status --wait
 ${databaseStep}
-4. Find the setup code:   sudo docker compose -f /opt/simple-balance/compose.yml logs app | grep -i setup
+${claimStep}
 5. Optional settings — SMTP, Stripe, AdSense and the PRIVACY_POLICY_URL it requires,
    TERMS_OF_USE_URL — are the stack's: simple-balance:env, and simple-balance:secrets
    with --secret for the secret ones, then 'pulumi up'. They are kept in OCI Vault
