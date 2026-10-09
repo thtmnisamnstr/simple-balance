@@ -13,7 +13,7 @@
   "dependencies": {
     "@pulumi/aws": "7.48.0",
     "@pulumi/eks": "4.4.0",
-    "@pulumi/gcp": "9.37.0",
+    "@pulumi/gcp": "10.0.0",
     "@pulumi/kubernetes": "4.34.2",
     "@pulumi/oci": "4.22.0",
     "@pulumi/pulumi": "3.265.0",
