@@ -216,7 +216,7 @@ client reads a missing `invoice` as unknown rather than as nothing owed.
 
 A read-only token can list grants and cannot revoke them, so a stolen
 `ledger:read` token cannot spend its last minutes locking out the agents it was
-stolen from (`src/server/api.ts:1825-1833`).
+stolen from (`src/server/api.ts:1835-1843`).
 
 ### Accounts
 
@@ -422,13 +422,13 @@ somebody remembering to add it.
   than simply make them.
 - **House, and the three inconsistencies that were here are gone.** The paths
   read the way the rules above say now:
-  `GET /api/v1/staged-transactions/{id}/duplicate` (`src/server/api.ts:2170`)
+  `GET /api/v1/staged-transactions/{id}/duplicate` (`src/server/api.ts:2180`)
   rather than a `staged` collection that existed nowhere else;
-  `POST /api/v1/staged-transactions/bulk-delete` (`src/server/api.ts:2086`)
+  `POST /api/v1/staged-transactions/bulk-delete` (`src/server/api.ts:2096`)
   rather than a `delete` that spelled the same operation as
-  `POST /api/v1/transactions/bulk-delete` (`src/server/api.ts:2025`)
+  `POST /api/v1/transactions/bulk-delete` (`src/server/api.ts:2035`)
   differently; and `POST /api/v1/accounts/{id}/archived` and
-  `POST /api/v1/categories/{id}/archived` (`src/server/api.ts:1869`, `:2002`),
+  `POST /api/v1/categories/{id}/archived` (`src/server/api.ts:1879`, `:2012`),
   which take `{"archived": boolean}` and are therefore the state sub-resource
   pattern, matching `POST /api/v1/transactions/{id}/deleted`.
 
@@ -469,10 +469,10 @@ fails UUID validation before any service runs. The caller gets a 422 about an id
 they never sent, for a path the published table says exists.
 
 The three that exist today are all registered the right way round —
-`PUT /api/v1/accounts/active` at `src/server/api.ts:1857` ahead of
-`PUT /api/v1/accounts/:id` at `:1860`, and `GET /api/v1/categories/duplicates`
-and `/summaries` at `:1879` and `:1882` ahead of `GET /api/v1/categories/:id`
-at `:1885`. The state-sub-resource bullet above is what keeps producing this
+`PUT /api/v1/accounts/active` at `src/server/api.ts:1867` ahead of
+`PUT /api/v1/accounts/:id` at `:1870`, and `GET /api/v1/categories/duplicates`
+and `/summaries` at `:1889` and `:1892` ahead of `GET /api/v1/categories/:id`
+at `:1895`. The state-sub-resource bullet above is what keeps producing this
 shape: a state that belongs to the collection rather than to one row is a
 literal segment under a path that already has a parameter route, so every
 future collection-level sub-resource adds another.
@@ -806,7 +806,7 @@ deprecation rather than a fix.
   output schema fails the call …".
 - **House.** `GET /api/v1/csv/export` is the only route whose *default*
   representation is not JSON: `text/csv; charset=utf-8; header=present` with a
-  `Content-Disposition` filename (`src/server/api.ts:2151-2163`). Its format is
+  `Content-Disposition` filename (`src/server/api.ts:2161-2173`). Its format is
   governed by [`csv.md`](csv.md). Two routes offer a second representation
   beside their JSON one, chosen by `Accept`; see
   [Streaming a response](#streaming-a-response).
@@ -889,7 +889,7 @@ code.
   way; a mistyped *id* should match it.
 - **House, and a gap.** A wrong method on an existing path should be 405 with
   `Allow`. Today it falls to the catch-all and is a 404
-  (`src/server/api.ts:2199-2201`). OWASP's REST guidance is to allowlist methods
+  (`src/server/api.ts:2209-2211`). OWASP's REST guidance is to allowlist methods
   and reject the rest with 405.
 - **House.** A 429 carries `Retry-After`. Neither of the two the process emits
   did. The setup-code limiter now sends the window it counts by, taken from the
@@ -1632,7 +1632,7 @@ edit, a mass delete, a commit, and a CSV import."
   that catches the tool handing a strict schema the key it added.
 - **House.** A filter selection is resolved first by the matching
   `bulk-selection` route, which returns the count and the fingerprint the write
-  must send back (`src/server/api.ts:2012-2019`, `:2076-2078`). The fingerprint
+  must send back (`src/server/api.ts:2022-2029`, `:2086-2088`). The fingerprint
   is a SHA-256 over the sorted `id:version` pairs, computed by one function so
   the transaction and staged paths cannot drift into accepting different sets
   (`src/server/services/helpers.ts:329-344`).
@@ -1904,8 +1904,8 @@ test, and a streamed commit has not been watched through the chart's ingress.
     `Access-Control-Allow-Origin`, not the status.
 - **House.** The single-page app never answers an API path. Three JSON 404
   catch-alls sit below every route their prefix owns and above the shell:
-  `/api/v1/*` (`src/server/api.ts:2199-2201`), `/.well-known/*` (`:1162-1164`)
-  and `/api/billing/*` (`:2208-2210`). Without them a mistyped path came back as
+  `/api/v1/*` (`src/server/api.ts:2209-2211`), `/.well-known/*` (`:1162-1164`)
+  and `/api/billing/*` (`:2218-2220`). Without them a mistyped path came back as
   200 `text/html`, which an API client parses as a syntax error and a person
   debugging reads as a working page.
 
@@ -1996,7 +1996,8 @@ way.
   should not be read as a third invariant: it is split rather than withheld.
   Identity, the plan's ceiling and how much of it is used are `whoami`, and the
   regional settings are `get_preferences`. What is left is which sign-in methods
-  the deployment offers, which is no business of an agent's
+  the deployment offers and which advertisement the page carries, AdSense or
+  the house ad, and neither is any business of an agent's
   (`tests/mcp-parity.test.ts:32-33`).
 - **House.** Signed out, `GET /api/v1/session` is a `401` like every other
   route here, and `GET /api/v1/session?optional=true` is `200 null`. The

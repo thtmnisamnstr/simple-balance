@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { reportNames } from "../../src/shared/domain.js";
 import { todayIn } from "../../src/shared/recurrence-dates.js";
-import { answerPlanStatus, pagesToVisit, type Fill } from "./support/routes.js";
+import { answerHouseAd, answerPlanStatus, pagesToVisit, type Fill } from "./support/routes.js";
 
 /**
  * SC 1.4.10 Reflow, level AA: no horizontal scrollbar on the document, at any
@@ -26,8 +26,17 @@ import { answerPlanStatus, pagesToVisit, type Fill } from "./support/routes.js";
  * **Why these widths.** The four breakpoints are 1050, 980, 780 and 560, and a
  * rule that is going to be missing is missing *between* two of them — which is
  * where this defect lived and why a test at 1440 and 390 would have stayed
- * green. So: each breakpoint, each breakpoint minus one pixel, and the middle of
+ * green. So: each breakpoint and the pixel either side of it, and the middle of
  * each gap, plus 320, which is the width the success criterion actually names.
+ * The pixel above matters as much as the one below: every block is a
+ * `max-width`, so 781 is the first width the 780 block has stopped applying to,
+ * and the narrowest a layout above it is ever asked to fit. The house ad is
+ * side by side there, beside the sidebar, at its most cramped.
+ *
+ * **Every page carries the house ad** but the plan tab, which never does. The
+ * ad sits on every page in the shell, so a width it overflows at is a width
+ * every page overflows at; the tier has no Stripe and would never be shown
+ * one, so the session is told to show it.
  *
  * **What is measured is the document, not a container.** A `.table-wrap`
  * scrolling sideways is the criterion's own exception for a data table and is
@@ -162,7 +171,7 @@ async function seedDetails(page: Page): Promise<Fill> {
 
 /** The four breakpoints, their edges, the gaps between them, and the floor. */
 const WIDTHS = [
-  320, 390, 480, 559, 560, 620, 700, 779, 780, 820, 900, 979, 980, 1049, 1050,
+  320, 390, 480, 559, 560, 561, 620, 700, 779, 780, 781, 820, 900, 979, 980, 981, 1049, 1050, 1051,
 ] as const;
 
 test.describe.configure({ mode: "serial" });
@@ -174,6 +183,7 @@ test.describe("every page reflows", () => {
   test.beforeAll(async ({ browser }) => {
     page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     await answerPlanStatus(page);
+    await answerHouseAd(page);
     await signUp(page);
     await seed(page);
     fill = await seedDetails(page);
@@ -202,10 +212,14 @@ test.describe("every page reflows", () => {
     expect(pages.length, "the route table was read").toBeGreaterThan(20);
     expect(pages.map((visit) => visit.pattern)).toContain("/settings/plan");
     const overflowing: string[] = [];
-    for (const { url } of pages) {
+    const advertised: string[] = [];
+    for (const { pattern, url } of pages) {
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.goto(url);
       await page.waitForLoadState("networkidle");
+      if (await page.getByRole("complementary", { name: "Advertisement" }).count()) {
+        advertised.push(pattern);
+      }
       for (const width of WIDTHS) {
         await page.setViewportSize({ width, height: 900 });
         // A frame, so the resize has been laid out before it is measured.
@@ -222,5 +236,9 @@ test.describe("every page reflows", () => {
       }
     }
     expect(overflowing, "these pages scroll sideways").toEqual([]);
+    // Measured with the ad on screen, or this said nothing about it.
+    expect(advertised, "the house ad was on every page but the plan tab").toEqual(
+      pages.map((visit) => visit.pattern).filter((pattern) => pattern !== "/settings/plan"),
+    );
   });
 });

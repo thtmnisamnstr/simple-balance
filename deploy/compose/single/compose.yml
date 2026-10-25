@@ -172,6 +172,7 @@ services:
       ADSENSE_BANNER_SLOT_ID: ${ADSENSE_BANNER_SLOT_ID:-}
       ADSENSE_FOOTER_SLOT_ID: ${ADSENSE_FOOTER_SLOT_ID:-}
       ADSENSE_CONSENT_MANAGED: ${ADSENSE_CONSENT_MANAGED:-false}
+      SB_HOUSE_AD: ${SB_HOUSE_AD:-false}
       # Optional, and linked from sign-in and every page whenever it is set;
       # required, as an absolute https:// address, the moment the AdSense ids
       # are set: the server refuses to start without it. This block once left

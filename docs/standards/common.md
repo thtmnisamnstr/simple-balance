@@ -379,7 +379,12 @@ commit subject and a comment: plain, declarative, specific.
   figure beside a figure and right as a digit. The first two are sentences and
   would read better in words. Say so in a review; do not grep for it, because
   there is nothing to find. Every one of these literals says `${limit}`, and the
-  violation exists only once a number has been substituted into it.
+  violation exists only once a number has been substituted into it. The house
+  ad is the one surface that states the limit and writes no number: it draws
+  it, as the free plan's tiles at rest beside two arriving, and
+  `tests/house-ad-ui.test.tsx`, "draws the free plan's limit, and the accounts
+  the paid plan adds", holds the tiles at rest to `MAX_FREE_ACCOUNTS`, so the
+  drawing cannot go on saying three after the limit moves.
 
 **Why the em-dash rule is scoped rather than absolute.** It used to read "No em
 dashes. They are a house preference and the codebase is consistent about it",
@@ -435,7 +440,7 @@ The membership test is the whole of it, and all four clauses have to hold:
 
 One value passes today. Stripe reports a subscription price as an integer count
 of the currency's smallest unit (`src/server/stripe.ts:1311`), the server hands
-it on untouched (`src/server/services/billing.ts:1225`), and `formatPrice`
+it on untouched (`src/server/services/billing.ts:1233`), and `formatPrice`
 (`src/client/pages/PlanPage.tsx:627-662`) divides it by the scale Stripe charged
 it in and formats it in the same breath. That scale is the one `Intl` already
 knows for every currency but four — ISK, UGX, HUF and TWD, which Stripe's own
@@ -454,7 +459,7 @@ deployment sells in a currency nobody tested. `STRIPE_CHARGE_DIGITS` is not
 that table: it is four entries long, it records where the vendor's documented
 scale departs from the currency's, and `Intl` still answers for every other
 currency. And it creates a second place the
-price lives, which is what `src/server/config.ts:337-338` already refuses for
+price lives, which is what `src/server/config.ts:360-361` already refuses for
 the ids by keeping only the id in configuration. An amount copied out of Stripe
 is the one that does not get charged, because Stripe charges what the price
 object says; the copy can only ever be the number the customer was shown.

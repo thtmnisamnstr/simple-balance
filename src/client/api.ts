@@ -316,6 +316,18 @@ export type Session = {
    * read as "no ads" there too.
    */
   ads?: AdPlacement | null;
+  /**
+   * Whether to show this product's own advertisement for the paid plan.
+   *
+   * The server decides, on the same rule as `ads` and one more: the plan it
+   * offers has to be for sale. Where it is true, `ads` is null, so the two never
+   * share a page and nothing here has to choose between them.
+   *
+   * Optional for the same reason `plan` is, and absent reads as false: a rolling
+   * update briefly serves this bundle against a server from the release before
+   * it, which never sends the field and never meant a house ad.
+   */
+  houseAd?: boolean;
 };
 
 /** The publisher and slot ids, as the deployment configured them. */

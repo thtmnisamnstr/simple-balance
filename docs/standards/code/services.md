@@ -165,11 +165,16 @@ server to send the count, and a server that sends none gets no sentence.
 
 There is a second shape, for when the browser has no business previewing at all.
 Rather than send the data and a rule for using it, **send nothing and let the
-absence be the answer.** `getAdPlacement` (`src/server/services/billing.ts:2582`)
-returns the publisher and slot ids, or `null`: a session belonging to somebody
-who should see no advertising simply carries no ad configuration, so the page
-has nothing to render a slot from. `AdSlot` (`src/client/ads.tsx:70`) has no
-entitlement logic in it, because there is nothing for it to decide.
+absence be the answer.** `getAdvertising`
+(`src/server/services/billing.ts:2657`) returns the publisher and slot ids or
+`null`, and whether to show the house ad: a session belonging to somebody who
+should see no advertising simply carries no ad configuration and `houseAd:
+false`, so the page has nothing to render a slot from. `AdSlot` and `HouseAd`
+(`src/client/ads.tsx:70`, `:195`) have no entitlement logic in them, because
+there is nothing for them to decide. The two answers are one function on
+purpose: the house ad takes AdSense's place for the person it is shown to, so
+deciding them apart would be two places to get "never both" wrong, and one
+entitlement read covers both.
 
 The obvious alternative — put the entitlement on the session and have the
 component check it — was tried first, and it fails in two ways that are both
@@ -194,7 +199,12 @@ reason would be this rule misapplied.
 service itself against a real database. The second exists only for the
 wound-down state, because that is the sole state where the two spellings of the
 condition differ — a gate inverted in the real function passed every other test
-in this repository, including the one that pins the rule's shape. The shared
+in this repository, including the one that pins the rule's shape. The house ad
+has the same pair, `house-ad.integration.test.ts` and
+`house-ad-wound-down.integration.test.ts`, and a third,
+`house-ad-precedence.integration.test.ts`, for "never both": it signs somebody
+up and reads the session over HTTP, and holds the AdSense ids back exactly
+while the house ad is shown. The shared
 rules are held where they are written: `tests/subscription-action.test.ts`
 ("when a change of plan takes effect", "whether the current period has been
 paid for") and `tests/entitlements.test.ts` ("names the moment the grace ends,
@@ -821,7 +831,7 @@ sends after `claimDueNotification`'s transaction has moved the watermark and
 committed.
 
 **A follow-up write, and a follow-up read.** `deferSubscriptionRead`
-(`src/server/services/billing.ts:2271`) stamps a failed attempt *after* the
+(`src/server/services/billing.ts:2279`) stamps a failed attempt *after* the
 locked write it follows has let its lock go, "so it can land where the locked
 write above timed out". And `setActiveAccounts` returns `listAccounts(actor)`
 from outside its own transaction, because `listAccounts` reads through the pool

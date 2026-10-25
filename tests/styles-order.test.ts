@@ -70,6 +70,31 @@ describe("the order of the stylesheet", () => {
     expect(widths).toEqual([1050, 980, 780, 560]);
   });
 
+  /**
+   * Every check above reads the top level, and only `@media`, so a width the
+   * four blocks do not name passes all of them from anywhere else. The house
+   * ad's prototype carried two `@container` rules, at 339 and 620px of
+   * column, that were breakpoints in all but name; the port moved both onto
+   * the existing blocks. A condition nested inside a block is registered by
+   * the block it qualifies, so the next one is a decision rather than a
+   * fifth step nobody counted.
+   */
+  it("adds no width condition outside the four blocks", () => {
+    expect(css.replaceAll(/\/\*[\s\S]*?\*\//g, ""), "no container query").not.toMatch(
+      /@container\b/,
+    );
+    const nested = constructs.flatMap((outer) =>
+      topLevel(outer.body)
+        .filter((inner) => inner.selector.startsWith("@"))
+        .map((inner) => `${outer.selector} ${inner.selector}`),
+    );
+    expect(nested, "web.md 15 names each condition nested in a block").toEqual([
+      // A window narrow and short at once: the house ad stops being pinned,
+      // because there it stacked with the mobile header over the ledger.
+      "@media (max-width: 780px) @media (max-height: 480px)",
+    ]);
+  });
+
   it("names the two at-rules that sit above the responsive body", () => {
     // Otherwise "nothing follows the responsive body" says nothing about a
     // preference block scattered through the component rules, which is the

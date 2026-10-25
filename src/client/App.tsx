@@ -51,7 +51,7 @@ import ImportPage from "./pages/ImportPage.js";
 import TemplateDetailPage from "./pages/TemplateDetailPage.js";
 import RecurrencesPage from "./pages/RecurrencesPage.js";
 import TemplatesPage from "./pages/TemplatesPage.js";
-import { AdSlot } from "./ads.js";
+import { AdSlot, HouseAd } from "./ads.js";
 import { PlanPage } from "./pages/PlanPage.js";
 import SettingsPage from "./pages/SettingsPage.js";
 import StagingPage from "./pages/StagingPage.js";
@@ -1087,6 +1087,18 @@ function Shell({ session }: { session: Session }) {
             `footerSlotId` being absent means. An addition to the first rather
             than a replacement. */}
         <AdSlot placement={ads} slotId={ads?.footerSlotId} label="Advertisement" />
+        {/* This product's own ad for its paid plan, in the banner's place: the
+            server never sends it alongside `ads`, so both units above render
+            nothing whenever it renders. Last in the column, which is what lets
+            the stylesheet pin it to the window's foot. Not on the plan tab.
+
+            Not behind the payee-name rule `ads` carries. That rule exists
+            because an AdSense request sends Google the page's address, and
+            this sends nothing anywhere. */}
+        <HouseAd
+          shown={!isPlanSurfacePath(location.pathname) && session.houseAd}
+          label="Advertisement"
+        />
       </div>
     </div>
   );

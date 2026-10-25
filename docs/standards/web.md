@@ -1,7 +1,7 @@
 # Web
 
 The browser app. A React 19 single-page app with a hand-rolled router, TanStack
-Query for server state, and 4,565 lines of hand-written CSS in
+Query for server state, and 5,088 lines of hand-written CSS in
 `src/client/styles.css`. No component library, no CSS framework, no token build
 step, and none is coming, so every rule here has to be reachable with plain CSS
 custom properties and components written by hand.
@@ -215,7 +215,11 @@ are resolved against the real tree from the parsed stylesheet. And
 `tests/contrast.test.ts` ("fades only a disabled control") refuses an
 `opacity` below one anywhere else unless it is named with what it fades and
 why that holds no text — the measurement the contrast checks above it cannot
-make, because a fade names neither a color nor a fill.
+make, because a fade names neither a color nor a fill. A keyframe step is named
+with its keyframes, `@keyframes house-ad-drop from` rather than `from`, since
+the house ad's entrance brought three steps that start transparent and a bare
+`from` names a step of every animation in the file: an entry for one would
+excuse the next fade written in any of them.
 
 What else carries the state differs by family, and none of it carries it alone
 any more. Both of the frozen surfaces show a **Frozen** badge — in the row's
@@ -314,7 +318,7 @@ The rule for this stylesheet: **`--line-strong` for a control edge,
 | `--green-fill` on `--track` | 5.42 | 3.73 |
 
 **Settled.** The reasoning is written out twice in the file, at
-`styles.css:995-1003` for `.input` and at `styles.css:3897-3903` for
+`styles.css:995-1003` for `.input` and at `styles.css:4315-4321` for
 `.chart-zero`, and it had been applied to two of the eighteen
 `border: 1px solid var(--line…)` rules. Six control edges have now joined them —
 `.pagination-step`, `.sort-direction`, `.bulk-edit-field`, `.transaction-type`,
@@ -401,11 +405,11 @@ section is a proposal, and says so.
 
 **House, and a proposal rather than a rule until the tokens exist.**
 
-Today: 303 padding, margin and gap declarations across **35 distinct pixel
+Today: 314 padding, margin and gap declarations across **35 distinct pixel
 values**, running 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
 19, 20, 21, 22, 24, 26, 28, 30, 32, 34, 35, 38, 42, 48, 55, 72, 248. `gap` alone
-takes 16 distinct single values, the commonest being 8px eighteen times, 10px
-and 12px thirteen each, 6px eleven and 24px nine. Nine, eleven, thirteen and
+takes 16 distinct single values, the commonest being 8px eighteen times, 12px
+fourteen, 10px thirteen, 6px eleven and 24px ten. Nine, eleven, thirteen and
 seventeen pixels are not decisions.
 
 Proposed ramp, nine steps, Carbon-shaped rather than GOV.UK-shaped because a
@@ -455,7 +459,7 @@ of what is here, and it is four steps plus a pill:
 
 ### 3.3 Type
 
-Today: 119 `font-size` declarations across nine pixel values (11, 12, 13, 14,
+Today: 122 `font-size` declarations across nine pixel values (11, 12, 13, 14,
 15, 16, 17, 20, 32) plus two `clamp()` expressions.
 
 Proposed: seven points, and GOV.UK's rule that a new style aligns to an existing
@@ -482,7 +486,7 @@ accounts.
 
 ### 3.4 Weight
 
-Today: **34 `font-weight` declarations carrying 14 distinct values**: 400, 500,
+Today: **36 `font-weight` declarations carrying 14 distinct values**: 400, 500,
 570, 600, 620, 630, 650, 660, 700, 720, 730, 750, 760, 780. That is very nearly
 a weight per component.
 
@@ -494,7 +498,7 @@ font ships. Most of the fourteen are indistinguishable on screen today.
 
 ### 3.5 Z-index
 
-Ten declarations across **eight distinct values**, and no ordering document
+Eleven declarations across **nine distinct values**, and no ordering document
 until this table. One of the two shared values was a real collision:
 `.merge-panel` and `.nav-scrim` were both 20, both can be on screen below 780px,
 and the scrim is written second — so it painted over the merge panel with
@@ -507,17 +511,22 @@ alone is chosen against:
 | --- | --- |
 | 1 | A decoration inside a card — the search icon (`styles.css:1995`), the sign-in art (`:3516`) |
 | 2 | A header sticking inside its own scroller — the modal header (`:2639`), the sign-in card (`:3228`) |
+| 5 | A bar pinned to the window's foot — the house ad's slot (`styles.css:3820`), over a card's decorations and under every popover, so the row menu opens over it from the last row in view |
 | 10 | A popover over the page — the row menu (`:1903`) |
-| 15 | The mobile header, below 780px (`:4347`) |
+| 15 | The mobile header, below 780px (`:4813`) |
 | 20 | A bar sticking over a list — the merge panel (`:3109`) |
-| 25 | The mobile nav scrim, which covers everything above except the drawer (`:4337`) |
+| 25 | The mobile nav scrim, which covers everything above except the drawer (`:4803`) |
 | 30 | The sidebar itself (`:362`) |
 | 40 | The skip link (`:3602`), above everything because it is the first thing a keyboard user meets |
 
 **Two of the eight were on neither the ladder nor the comment that reproduces
 it**, which is the failure this section was written about, one release on. The
-copy above `.sidebar` (`styles.css:348-358`) still carries six rungs: it was
+copy above `.sidebar` (`styles.css:348-358`) still lacks those two: it was
 written when 15 and 40 did not exist, and neither arrival was read against it.
+The ninth value, the house ad's 5, is the first to arrive the other way —
+chosen against this table, with its row, and added to the comment in the same
+change — and the comment carries seven rungs as a result, which is still two
+short.
 A ladder missing a quarter of its rungs is a ladder a new layer is chosen
 without. **So the table here is the complete one** and a test holds it that way;
 the in-file comment is a convenience beside the rule it belongs to, not the
@@ -544,18 +553,20 @@ one value unless they can never be on screen together — the sign-in surface is
 rendered instead of the app shell rather than over it, so a layer there and a
 layer in the app are free to coincide, and that is the one exception it carries.
 And `tests/web-guide.test.ts`, which reads every `z-index` out of the stylesheet
-and fails on a value with no row above, so a ninth layer cannot arrive the way
-the eighth did. It holds the declaration and value counts in the opening
+and fails on a value with no row above, so a layer cannot arrive the way the
+eighth did. It holds the declaration and value counts in the opening
 sentence to the same reading, because two numbers for one measurement is how
 this section came apart.
 
 ### 3.6 Breakpoints
 
 Four hardcoded max-widths, all four now contiguous at the foot of the
-stylesheet in descending order: 1050px (`styles.css:4268`), 980px
-(`styles.css:4299`), 780px (`styles.css:4306`) and 560px (`styles.css:4417`).
+stylesheet in descending order: 1050px (`styles.css:4686`), 980px
+(`styles.css:4765`), 780px (`styles.css:4772`) and 560px (`styles.css:4900`).
 Putting them in one place was section 7.3's doing; how many of them there should
-be is still this section's question.
+be is still this section's question. One height condition is nested inside the
+780px block, for the house ad (15), and qualifies that step rather than adding
+a fifth.
 
 Three named steps, and the 980px block folded into the 1050px one:
 
@@ -577,13 +588,24 @@ prevent.
 
 Today there are no motion tokens. Transitions are written inline at 120ms (six
 declarations), 140ms (one) and 180ms (the mobile drawer's `transform`, with
-`visibility` held until it ends on the way out, `styles.css:4312-4314`), and
+`visibility` held until it ends on the way out, `styles.css:4778-4780`), and
 there are two reduced-motion
 blocks: `styles.css:858-861`, which turns off the skeleton shimmer specifically
 and stays beside `.skeleton` on purpose rather than joining the responsive body
-(section 7.3), and `styles.css:4540-4549`, a blanket rule setting
+(section 7.3), and `styles.css:5054-5072`, a blanket rule setting
 `animation-duration`, `transition-duration` and `scroll-behavior` on
-everything.
+everything, followed since the house ad by a second rule that removes its
+entrance outright (4.1).
+
+The house ad's entrance is the first population the tokens would have had, and
+it is written in literals anyway: six beats of 800, 500 and 700ms, their delays
+on a 120ms step from 360ms to 2280ms, and one easing,
+`cubic-bezier(0.2, 0.7, 0.2, 1)`, for all six (`styles.css:4139-4169`).
+`tests/theme-tokens.test.ts` requires every `var()` to be a token declared in
+all three color blocks, and a step in one component's story is not a color, so
+the custom properties the prototype carried could not be committed. That is
+the split section 3.1 already names as the first step of every scale, and it
+is still the first step of this one.
 
 **The blanket rule had a defect, and it was user-visible.** It also sets
 `animation-iteration-count: 1 !important`, which froze the button's
@@ -605,6 +627,60 @@ block, which is the only way a blanket `!important` can be answered — so a thi
 endless animation added later has to say what it does under the preference
 rather than inheriting a freeze nobody chose. `tests/styles-order.test.ts` holds
 the two names the block contains.
+
+### 4.1 An entrance plays once, and only where it was asked for
+
+**House.** An animation that introduces something is opted into by the
+component, is at rest in its finished state with no animation applied, plays
+once per document load, and is never armed for somebody who asked for reduced
+motion. The house ad is the one entrance in the product, and every clause of
+that sentence is a defect it would otherwise have had.
+
+- **The finished picture is the unanimated one.** Every keyframe says only
+  where a thing starts (`styles.css:4178-4219`), so jsdom, a browser with no
+  `IntersectionObserver` and anybody who asked for reduced motion see the
+  finished ad because nothing armed it. The obvious alternative — the first
+  frame as the drawing's own geometry, and keyframes that carry it to the
+  finished one — leaves every one of those on the first frame, which in the
+  house ad is the free plan's picture with the two accounts it is selling
+  missing.
+- **Armed by the component, before the first paint.** `HouseAd` adds
+  `is-armed` in a layout effect and `is-playing` once a third of it is in view
+  (`ads.tsx:245-276`). A stylesheet that animated on its own would need a
+  `no-preference` block to keep still for reduced motion, and 7.3 keeps
+  preference blocks out of the component body; left to the blanket rule
+  instead, which shortens an animation and leaves its delay, an entrance holds
+  the new accounts invisible for up to two seconds and then snaps them in. And
+  only script can wait until the thing is seen, which is the point of an
+  entrance that runs once. Arming after a paint would show the finished
+  drawing and then take two accounts away.
+- **Never armed under reduced motion, and removed rather than shortened if the
+  preference arrives afterwards.** The second rule in the foot block
+  (`styles.css:5064-5071`) sets `animation: none` on the moving parts, so a
+  preference turned on mid-story ends it in the finished picture.
+- **Retired when the last beat ends or is cancelled** (`ads.tsx:265-270`).
+  Hiding an element discards its animations and showing it again starts them
+  over, so left armed the story replayed whenever the drawing came back across
+  the phone width — a window narrowed and widened, a phone turned, a page
+  zoomed — and whenever reduced motion was turned off again. So the sway must
+  stay the last beat: a beat after it would be cut off by the retirement.
+- **Nothing on a phone.** The drawing is not displayed below 561px, and an
+  element that is not displayed has no animations, so the bar there is words and
+  a button and nothing moves.
+
+*Checked by:* `tests/house-ad-ui.test.tsx` — "stays still where the browser
+cannot say when it is seen", "is armed before the first paint, and plays once
+enough of it is in view", "retires when the last beat ends or is cut short, and
+on no other beat" and "is never armed under reduced motion" — and
+`tests/browser/house-ad.spec.ts` against real animations: "plays once on
+arrival, and is at rest within three seconds", which counts six beats, each run
+once; "does not start over when the drawing is hidden and shown again", which
+resizes across the phone width, toggles reduced motion and hides the drawing
+mid-story; and "is the finished picture under reduced motion, and never armed".
+That the sway stays last is held by the comment beside it and by the six-beat
+count, which a seventh beat fails. *Not checked:* that a second entrance, if
+one is ever written, follows this rather than the stylesheet animating on its
+own — nothing finds an entrance by what it is.
 
 ## 5. The font stack
 
@@ -653,10 +729,10 @@ exported types.
 There is no list of what it contains, which is how `.settings-note` became the
 generic muted paragraph and `.section-title` grew two incompatible layouts.
 
-The table below is that list, plus one row — `AdSlot` — for a component that
-lives in `src/client/ads.tsx` rather than here and is in the inventory anyway,
-for the reason three paragraphs down. So the table carries one more row than the
-file has components, and the count above is the file's.
+The table below is that list, plus two rows — `AdSlot` and `HouseAd` — for
+components that live in `src/client/ads.tsx` rather than here and are in the
+inventory anyway, for the reason three paragraphs down. So the table carries two
+more rows than the file has components, and the count above is the file's.
 
 | Component | For |
 | --- | --- |
@@ -688,6 +764,7 @@ file has components, and the count above is the file's.
 | `TransferCategory` | A transfer's category cell: a dash, and the words a screen reader needs (6.2) |
 | `SettingsTabs` | The Settings section strip, and the one navigation in the app that reloads the document on purpose (6.1) |
 | `AdSlot` | One ad unit, in `src/client/ads.tsx` rather than here, and it renders nothing unless the server said to (6.1) |
+| `HouseAd` | This product's own ad for its paid plan, beside `AdSlot` and on the same terms; its drawing is `src/client/house-ad-art.tsx`, two SVGs inside one `aria-hidden` wrapper (4.1, 7.7) |
 
 Two members of the library live in `src/client/forms.tsx` rather than here:
 `PayeeInput` and `CategoryPicker`. Both are exported, both are used off their
@@ -700,18 +777,22 @@ check: a control absent from the inventory is a control the check cannot fire
 for, which is how `TransactionForm` carried a byte-for-byte copy of
 `PayeeInput` for a release.
 
-**One component lives outside this file on purpose.** `AdSlot`
-(`src/client/ads.tsx`) is the only control this product renders that a person
-did not ask for, and it is the only one whose markup belongs to somebody else:
-what fills it is Google's, inside an iframe this app cannot reach into. Keeping
-it beside the loader that fetches that vendor's script — rather than in the
-library beside `Button` and `Field` — is what makes "who renders an ad, and
-when" one file to read instead of two.
+**Two components live outside this file on purpose, and in one file
+together.** `AdSlot` and `HouseAd` (`src/client/ads.tsx`) are the only things
+this product renders that a person did not ask for. `AdSlot` is also the only
+one whose markup belongs to somebody else: what fills it is Google's, inside an
+iframe this app cannot reach into. Keeping both beside the loader that fetches
+that vendor's script — rather than in the library beside `Button` and `Field` —
+is what makes "who renders an ad, and when" one file to read instead of two.
+The house ad's drawing is a module of its own, `src/client/house-ad-art.tsx`,
+for 7.7's reason: it is the one part of an ad hidden from assistive technology,
+and `ads.tsx` is held to containing no `aria-hidden` at all.
 
-It renders `null` unless the server sent an `AdPlacement`, which it does not for
+Each renders `null` unless the server said to: `AdSlot` without an
+`AdPlacement`, `HouseAd` without the session's `houseAd`, and neither is sent to
 anybody entitled to more than a free plan. The gate is not in the browser at
-all: the page is simply never given the ids. That is deliberate, and the reason
-is in 6.2's terms — the decision is a server one and putting a copy of it here
+all: the page is simply never told yes. That is deliberate, and the reason is
+in 6.2's terms — the decision is a server one and putting a copy of it here
 would be a second place for it to be written differently.
 
 **One component here navigates by document load, and it is the only one.**
@@ -740,7 +821,9 @@ is argued; the sentence that used to sit here was not a description of a limit
 but the reason nobody looked for one.
 
 *Checked by:* `tests/web-guide.test.ts`, which asserts every export of
-`components.tsx` has a row and that the counts above match the file. It catches
+`components.tsx` has a row and that the counts above match the file, and that
+every component `ads.tsx` exports has one too — read from that file, so a third
+kind of unit cannot arrive unlisted. It catches
 an addition and a miscount — `Note` was promoted into the library with no row,
 which is exactly what 6.2's duplicate check needs one to fire against — and not
 a duplicate, which stays 17.3's.
@@ -982,7 +1065,7 @@ prevent is a *component rule after the responsive body*.
 
 The four breakpoints run in descending order at the foot of the file, each under
 the comment naming its constant, then the blanket reduced-motion block
-(`styles.css:4540-4549`), then the print block (`:4561-4565`) and nothing after
+(`styles.css:5054-5072`), then the print block (`:5084-5088`) and nothing after
 it. **Print is last and that is the rule, not an accident of when it arrived**:
 it is the one query that describes a different medium rather than a different
 width or preference, so anything it needs to undo has already been written.
@@ -996,6 +1079,17 @@ itself. The hazard this section exists to prevent is a *component* rule after
 the responsive body; the tail order is the second half of the same argument,
 because a media query adds no specificity there either.
 
+**A component's responsive rules go in the blocks that exist, and a condition
+that qualifies one of them nests inside it.** The house ad was the test of
+this. Its prototype carried two `@container` rules, at 339 and 620px of
+column, which are breakpoints in all but name, and every check here read past
+them because they are not `@media` and not at the top level. The port moved
+both onto the 1050, 780 and 560 blocks, at the cost of a wrap that depends on
+the font rather than on a measured column. The one condition it needed that no
+width could express — a window both narrow and short, where the bar stops
+being pinned (15) — is a `max-height` query nested inside the 780 block
+(`styles.css:4892-4896`), so it adds no step and qualifies the one it sits in.
+
 *Checked by:* `tests/styles-order.test.ts` asserts that every top-level
 construct from the first `@media (max-width` block onward is an at-rule, that
 the breakpoints read 1050, 980, 780, 560 in source order, and that the only
@@ -1003,7 +1097,9 @@ preference block above them is the skeleton's. It says nothing about the order
 of the at-rules after the first breakpoint, which is how the print block came to
 follow a block documented as last; `tests/web-guide.test.ts` holds that tail —
 the four widths, the reduced-motion block, the print block, in that order — and
-holds this paragraph to it.
+holds this paragraph to it. And "adds no width condition outside the four
+blocks", in `tests/styles-order.test.ts`, refuses a `@container` anywhere and
+holds every at-rule nested inside a block to a register, which names one.
 
 ### 7.4 The page stack
 
@@ -1147,7 +1243,7 @@ waiting has the longest set in the product, and it was 59px wider than an 820px
 window with its title squeezed onto two lines — which `reflow.spec.ts` never
 saw, because it visits Staged with nothing waiting. Below 780px each action
 takes an equal share of a full-width row with a floor at its own label
-(`styles.css:4383`): a zero basis always fits, so without the floor the row could not
+(`styles.css:4849`): a zero basis always fits, so without the floor the row could not
 wrap and "Review 2 possible duplicates" broke inside its own button.
 
 *Checked by:* `tests/browser/smoke-test-fixes.spec.ts` ("a page's header
@@ -1262,9 +1358,12 @@ both level A.** 6.1 settles who renders an ad and when. This settles where the
 slot goes, which is a different question and the one with a success criterion
 behind it.
 
-**Both units sit outside `<main>` and below it, each as its own labeled
-`<aside>`, and neither is hidden from assistive technology**
-(`App.tsx:1073-1089`, the markup at `ads.tsx:132-149`).
+**All three units sit outside `<main>` and below it, each as its own labeled
+`<aside>`, and none is hidden from assistive technology**
+(`App.tsx:1073-1101`, the markup at `ads.tsx:132-149` and `:314-346`). Two are
+AdSense's, the banner and the footer, and the third is the house ad, which the
+server never sends beside them, so a page carries AdSense or the house ad and
+never both.
 
 Three decisions, and each has an obvious alternative that is wrong for a
 different reason.
@@ -1282,8 +1381,8 @@ different reason.
 - **A labeled `aside` each, so it can be passed by landmark.** A bare `<div>`
   would leave the unit as unstructured content a reader has to walk through; a
   named complementary landmark is one jump. The label is passed in rather than
-  hard-coded, and it is the same word on both, because two differently-named
-  landmarks would read as two kinds of thing.
+  hard-coded, and it is the same word on all three, because differently-named
+  landmarks would read as different kinds of thing.
 - **Not hidden from assistive technology.** `aria-hidden` is deliberately absent
   and the code says so. Hiding an ad from a screen reader while showing it to
   everybody else reads as a kindness and is concealment: it is content, the
@@ -1291,19 +1390,94 @@ different reason.
   pass it. This is the alternative most likely to be proposed as an improvement,
   which is why the reason is written down rather than left in a diff.
 
-**A second operator-configured unit already exists** — `footerSlotId`, off
-unless an operator asked for it — so this is a shape rather than a fact about
-one slot. A third lands in the same position, under the same landmark rule, and
-inherits 1.2's answer from 6.4: there is no theming interface, so the obligation
-is the collapse rule, not a color.
+**This was written as a shape, and the third unit landed in it.**
+`footerSlotId` made it two, off unless an operator asked for it, and the house
+ad is the third: the same position, the same landmark, the same label. What it
+does not inherit is 6.4's answer, because its markup is this product's own and
+there is a theming interface — the stylesheet. It is drawn from the `--art-*`
+tokens the sign-in panel uses, declared in all three color blocks, so 1.2
+applies to it in full rather than through a collapse rule.
+
+**Only the first-party unit is pinned.** The house ad is the column's last
+child, and its slot sticks to the window's foot (`styles.css:3818-3824`):
+on screen while the page scrolls, resting below the content at the end of a
+long page, and on the window's foot under a short one, because the column
+becomes a flex column only while the bar is in it (`styles.css:3832-3835`) and
+`margin-top: auto` takes up the slack. Every other page keeps the block layout
+it had, and a page with the bar lays its content out exactly as a page without
+it. An AdSense unit is never pinned. A frame of somebody else's content that
+follows a person down a page showing their balances is a thing this product
+does not do, whatever the inventory, and the selector picks the house ad out by
+what the slot holds so that no AdSense slot can match it. The pinning answers to
+two other sections: the bar must never cover a focused control (9.7), and on a
+window both narrow and short it is not pinned at all (15).
 
 *Checked by:* `tests/ad-slot-ui.test.tsx` holds what the component renders —
 nothing at all without a placement, and a collapsed unit and slot when Google
-returns an unfilled one. `tests/web-guide.test.ts` holds the placement: that
-every `<AdSlot>` in the shell is written after `</main>`, and that the slot is a
-labeled `aside` carrying no `aria-hidden`. That second half is a source check
-rather than a rendered one on purpose — the defect is a slot moved up the file,
-and jsdom would report the same accessible name either side of the landmark.
+returns an unfilled one — and `tests/house-ad-ui.test.tsx` the same for the
+house ad, rendered in the real shell: below the page and outside the main
+landmark, absent on every spelling of the plan tab, and absent for `false` or a
+server that never sent the field. `tests/web-guide.test.ts` holds the placement:
+that every `<AdSlot>` and the one `<HouseAd>` in the shell are written after
+`</main>`, and that both `aside`s in `ads.tsx` are labeled and carry no
+`aria-hidden`. That half is a source check rather than a rendered one on purpose
+— the defect is a slot moved up the file, and jsdom would report the same
+accessible name either side of the landmark. `tests/browser/house-ad.spec.ts`
+holds the pinning against a real layout: "stays pinned while the page scrolls,
+and rests below the content at its end", "sits on the window's foot under a
+short page", and "moves nothing on the page, and changes nothing where it is
+absent", which compares every block's box with the bar and without it.
+
+### 7.8 A promotion of the paid plan
+
+**House.** Anything this product puts on a page to sell its own plan is shown
+by the server's decision, names the plan from `PLAN_LABELS`, names no price, and
+reaches the plan tab by a literal link. The house ad is the first such thing;
+it will not be the last, and each clause is a way the next one goes wrong.
+
+- **The server decides who sees it, on the predicate that decides every ad.**
+  The session says `houseAd: true` or false, from the same "a limited plan is
+  in force" rule as the AdSense placement (`code/services.md` 1.3, withhold
+  rather than gate), and the component holds no rule of its own. The obvious
+  alternative is to send the entitlement and let the page ask "not on Premium",
+  which differs from the rule only on a deployment that has stopped selling
+  while its subscribers are still charged — where it would advertise the plan
+  to the people paying for it.
+- **It is shown only where the plan can be bought.** Where the configured
+  Stripe prices do not fit the plans, the plan tab tells everybody the
+  deployment is not selling, and a promotion leading there promises what the
+  next page withdraws. `getAdvertising` reads the same in-memory verdict the
+  tab does, so asking costs no request.
+- **The plan's name comes from `PLAN_LABELS`.** `common.md` §A wire value and
+  the word a person reads makes it the one place a plan's name is written, and
+  `AGENTS.md` says so too. A promotion that typed "Premium" would go on saying
+  it the day the label changes, on the surface a customer sees most.
+- **No price, and no count.** The price is Stripe's and the plan tab reads it
+  from the configured ids, beside the renewal terms the law wants next to it
+  (`monetization.md` §Where the plan is managed); a bar has room for neither,
+  and a figure printed in it would be a second copy of one that changes at
+  Stripe without a deploy. The free plan's limit is drawn rather than written,
+  for the same reason: a number in the sentence is a second copy of
+  `MAX_FREE_ACCOUNTS`.
+- **A plain anchor with the path written out.** `href="/settings/plan"`, not
+  `Link`: the plan tab arrives under its own content security policy, so it has
+  to be entered by a document load, which is 6.1's reason for `SettingsTabs`. A
+  literal route is also what keeps it out of 13.6's population, which treats
+  any computed `href` as leaving the app.
+- **Never on the plan tab.** It is where the promotion leads and the page that
+  takes a card.
+
+*Checked by:* the server half against a real database —
+`tests/integration/house-ad.integration.test.ts`, every entitlement a free
+account and a subscriber can have, and "stands down while the prices do not
+fit the plans, and returns when they do" — and the page half by
+`tests/house-ad-ui.test.tsx`: "says it in one sentence, naming the plan from its
+label", which also refuses any digit in the region, "leads to the plan tab by
+loading it", and the shell cases, which hold it off every spelling of the plan
+tab. `tests/browser/house-ad.spec.ts`, "leads to the plan tab by loading the
+document, where it is not shown", follows the link in a real browser. *Not
+checked:* that a second promotion follows this rule. Nothing finds a promotion
+by what it is, so the next one is review.
 
 ## 8. Forms
 
@@ -2120,7 +2294,9 @@ hazards are sticky footers, sticky headers and non-modal dialogs, and the
 sufficient technique is CSS `scroll-padding`.
 
 There were **no `scroll-padding` or `scroll-margin` declarations anywhere in
-`styles.css`**, against eight sticky or fixed regions:
+`styles.css`**, against eight sticky or fixed regions. There are ten now, and
+the table used to list eight while the stylesheet held nine — the skip link was
+never on it:
 
 | Selector | Line | Position |
 | --- | --- | --- |
@@ -2130,8 +2306,10 @@ There were **no `scroll-padding` or `scroll-margin` declarations anywhere in
 | `.modal-header` | `styles.css:2637` | sticky |
 | `.import-preview` | `styles.css:2788` | sticky |
 | `.merge-panel` | `styles.css:3101` | sticky |
-| `.nav-scrim` | `styles.css:4335` | fixed |
-| `.mobile-header` | `styles.css:4345` | sticky |
+| `.skip-link` | `styles.css:3600` | fixed |
+| `.ad-slot:has(> .house-ad)` | `styles.css:3818` | sticky, to the foot |
+| `.nav-scrim` | `styles.css:4801` | fixed |
+| `.mobile-header` | `styles.css:4811` | sticky |
 
 `.merge-panel` was the live case. It exists because the list is long enough to
 scroll, which is the same condition that puts a focused row underneath it. Every
@@ -2141,13 +2319,43 @@ scroll container holding a sticky element sets `scroll-padding-top` (or
 There are two scroll containers, so there are two declarations: `html` carries
 `scroll-padding-top: 80px` (`styles.css:321`), which clears the mobile header
 and the merge panel alike, and `.modal-card` carries 64px
-(`styles.css:2634`) for the sticky `.modal-header` inside it. The other six
-regions are inside one of those two or are the container itself.
+(`styles.css:2634`) for the sticky `.modal-header` inside it. The others are
+inside one of those two, are the container itself, or are over the page only
+while it is inert — and one is the exception below.
 
-*Checked by:* `tests/page-stack.test.ts`, which pairs each sticky or fixed
-selector with the container that must carry the padding, so a ninth sticky
-region added with no container named is a failure rather than a row that
-scrolls under something.
+**House. A region pinned at a height it does not know keeps focus clear by
+measuring itself.** The house ad's bar sticks to the window's foot, so `html`
+needs a `scroll-padding-bottom` as tall as the bar — and the bar has no one
+height. Its title is two lines or three with the width, and a reader who widens
+the spacing of text, as SC 1.4.12 asks a page to allow, makes it taller still:
+from 72px to more than 120. So the padding is not a stylesheet declaration.
+`HouseAd` watches the bar with a `ResizeObserver` and writes its height plus
+16px to the root's own style, and takes it off again when the ad goes
+(`ads.tsx:295-309`). The obvious alternative was a figure in the stylesheet, the
+way `html` carries 80px for the headers above. The prototype did that, 88px or
+96 on a phone, and under widened text spacing its bar measured up to 158px, so a
+control tabbed to near the foot could end up under it. Two constraints decide
+how it is written: through the object model rather than a `style` attribute,
+which the content security policy refuses, and as the property itself rather
+than a custom property, because every `var()` in the stylesheet has to be a
+token. Where the bar is not pinned — a window narrow and short at once (15) — it
+covers nothing and the padding it leaves is harmless.
+
+*Checked by:* `tests/page-stack.test.ts`, "names what keeps focus clear of
+every region that sticks or is fixed", which pairs each sticky or fixed
+selector in the stylesheet with what clears it — `html`'s padding,
+`.modal-card`'s, the padding `ads.tsx` measures, or a reason nothing has to —
+and checks that the named padding exists. A new region with nothing named is a
+failure. This sentence said that before it was true: the test then asked only
+that the two scrollers carried padding, which is how the skip link was never in
+the table and the bar arrived as a tenth region with nothing failing. The
+measuring is held by `tests/house-ad-ui.test.tsx` — "keeps the bar's measured
+height free, and follows it as it changes", "gives the space back when the ad
+goes", and "leaves the document alone where the browser cannot measure the
+bar" — and the result by `tests/browser/house-ad.spec.ts`: "never leaves a
+control it tabs to under the bar", which parks a control under the bar before
+pressing Tab, and "keeps the room it leaves in step with its height", under
+widened text spacing.
 
 ## 10. Money and dates on screen
 
@@ -2321,7 +2529,7 @@ Series 3 at 3.64 light is the tightest and is the one to watch.
 Gridlines do not have to contrast with the data. The Understanding document for
 1.4.11 says data lines "should have 3:1 contrast against their background, but
 as there is little overlap with other lines they do not need to contrast with
-each other or the graduated lines". `.chart-grid` at `styles.css:3887-3895` is
+each other or the graduated lines". `.chart-grid` at `styles.css:4305-4313` is
 correctly faint and says why; `.chart-zero` is correctly held to 3:1 because it
 is where money in becomes money out, and says why.
 
@@ -2342,7 +2550,7 @@ where all adjacent colors clear 3:1 against each other, caps categories at four
 as best practice, and treats five and six as "only when essential". Read
 literally, that says this product should cut ten series to six.
 
-This product keeps ten, on measured grounds recorded at `styles.css:3960-3972`.
+This product keeps ten, on measured grounds recorded at `styles.css:4378-4390`.
 The previous six-color set had a worst dichromatic pair of 1.78 in CIEDE2000
 under simulated deuteranopia and protanopia, where the green and the pink were
 the same color; the current ten reach 5.6 in light and 4.7 in dark. Going from
@@ -2359,7 +2567,7 @@ it was not.** `BarChart` lays each series' bar at `index * barWidth` with no gap
 set `stroke: none`. Two touching bars at 1.05:1 had no visible boundary.
 
 The fix was geometry rather than a repainted palette: `.chart-bar` now carries a
-one-pixel `--surface` stroke (`styles.css:3916-3919`), which separates every
+one-pixel `--surface` stroke (`styles.css:4334-4337`), which separates every
 adjacent pair against the page they are drawn on and disturbs none of the
 measured dichromatic separation the ten-color set was chosen for.
 
@@ -2379,7 +2587,7 @@ light, which is three times better than the six it replaced and still not enough
 on its own.
 
 **The remedy the CSS comment named has landed.** Nine of the ten line series
-carry a `stroke-dasharray` (`styles.css:4021-4029`) and series 0 stays solid,
+carry a `stroke-dasharray` (`styles.css:4439-4447`) and series 0 stays solid,
 because that is what a single-series chart gets and what a plain line should look
 like. A dash pattern is orthogonal to hue, which is the whole point: two series
 that look alike to one reader are still two different lines. The patterns differ
@@ -3042,7 +3250,7 @@ The rules, in the order they matter:
 
 - **A bar is determinate or it is not shown.** `<progress>` with no `value` is
   indeterminate and animates in every engine, and the blanket reduced-motion
-  block at `styles.css:4540-4549` freezes it into a bar that reads as stuck.
+  block at `styles.css:5054-5062` freezes it into a bar that reads as stuck.
   That is section 4's spinner defect a second time, and a determinate bar is the
   fix for that class of failure rather than a new instance of it.
 - **A bar never appears before its total is a real count.** A commit does fixed
@@ -3096,7 +3304,7 @@ The rules, in the order they matter:
 - **Three bars now, and a fourth has to say which of them it is not.**
   `.progress-track` (`styles.css:1602`, `DashboardPage.tsx:282`) is a decorative
   share-of-total meter under a row that already states its figure.
-  `.budget-bar` (`styles.css:4231`, `BudgetsPage.tsx:1425`) is money, with an
+  `.budget-bar` (`styles.css:4649`, `BudgetsPage.tsx:1425`) is money, with an
   over state. `.progress-meter` is work in flight. Neither of the first two
   appeared in this guide before this section, which by 17.3's closing test was a
   defect in the guide.
@@ -3141,6 +3349,16 @@ simplification to one color reads as a regression rather than a tidy-up.
 Meeting SC 2.4.13 Focus Appearance (level AAA) is cheap here, a 2px perimeter at
 3:1, and meeting it does not move the target.
 
+**One control draws its ring in another color, and it is the house ad's
+button.** A ring is measured against what surrounds the control, and the bar is
+painted `--art-base`, the sign-in panel's green, in both themes. `--art-bar`
+measures 6.54:1 against `--art-base`, where the light `--focus-ring` measures
+2.36:1 — under the 3:1 SC 1.4.11 asks — so the bar's button sets its ring to
+`--art-bar` (`styles.css:3921-3923`). The dark theme's ring would have cleared
+the bar; one color in both themes is the simpler thing to keep true, and the
+mint is the bar's own accent, so the ring reads as part of it. A control on any
+later art panel takes the same exception for the same reason, and says so here.
+
 *Checked by:* `tests/contrast.test.ts`, which derives both ratios from the
 palette and holds them to the two figures printed above, read out of this
 sentence rather than copied — so a token that moves fails naming the row to
@@ -3148,7 +3366,10 @@ update, and so does a figure edited here that the palette does not support. It
 was the precision that was unheld rather than the criterion: the check beside it
 asks only that the pair clears 3:1, and `--focus-ring` can fall to 4.02:1 light
 while that stays green. The pointer this replaced sent a reader to 17.2 item 1,
-which is the spacing and radius scales.
+which is the spacing and radius scales. The exception's two figures are read
+out of its own sentence the same way, beside a check that the bar's button
+really draws its ring in `--art-bar` and that the ordinary ring really fails
+there, so the exception cannot outlive its reason.
 
 ### 13.2 `:focus-visible`, and what it covers
 
@@ -3525,12 +3746,12 @@ about how many steps this product has.
 
 | Step | What happens |
 | --- | --- |
-| 1050px | Card grids drop to two columns; the import and settings two-column layouts become one; `.import-preview` stops being sticky |
+| 1050px | Card grids drop to two columns; the import and settings two-column layouts become one; `.import-preview` stops being sticky; the house ad's title steps down to 14px and its drawing to four fifths |
 | 980px | The duplicate-review comparison drops to one column, and nothing else |
-| 780px | The sidebar translates off-screen and becomes a drawer with a scrim; a `.mobile-header` appears; the page header and its actions stack; the sign-in art panel is dropped |
-| 560px | Every card grid drops to one column; the date bar, filter bar, search box, bulk actions and selection bar stack; a panel header stacks its title above what is said about it; buttons go full width |
+| 780px | The sidebar translates off-screen and becomes a drawer with a scrim; a `.mobile-header` appears; the page header and its actions stack; the sign-in art panel is dropped; the house ad takes the page's narrower gutter, and on a window 480px tall or less stops being pinned |
+| 560px | Every card grid drops to one column; the date bar, filter bar, search box, bulk actions and selection bar stack; a panel header stacks its title above what is said about it; buttons go full width; the house ad drops its drawing and its eyebrow and takes a compact button |
 
-Two rules that follow:
+The rules that follow from them:
 
 - **A table does not reflow; it scrolls.** `.data-table` keeps its 760px
   `min-width` at every step, inside a container that scrolls and is keyboard
@@ -3561,6 +3782,30 @@ Two rules that follow:
   held open with `page.route` so the busy state lasts as long as the
   measuring. *Checked by:* `tests/browser/selection-bar.spec.ts` for the
   selection bar (12.3); every other bar is review.
+- **A window's height is a step only where its width already is one.** The
+  house ad stops being pinned on a window 480px tall or less, and only at 780px
+  wide or less (`styles.css:4892-4896`), which is a phone on its side or a
+  screen zoomed to 400%. There it stacked with the sticky mobile header above
+  and left the ledger a strip between the two — 45px of a 1280 by 720 screen at
+  400%. A short window wider than that has no sticky header to stack with, and
+  the bar pinned there covers about a sixth of it, so the condition qualifies
+  the 780 step rather than standing as a fifth (7.3). Unpinned, the bar still
+  rests on the window's foot under a short page and below the content of a long
+  one.
+- **Something drawn that does not fit gives up whole parts, never all of them a
+  little.** Between 781 and 1050px the sidebar takes 248px and the house ad is
+  at its most cramped beside it. Its drawing is a struck-out ad and a strip of
+  account tiles held against the button; where the strip is narrower than the
+  row, a mask snaps to the gap after whichever tile its edge falls across, so
+  the free plan's tiles drop out whole from the left, the tile carrying the
+  badge is never cut, and under widened text spacing the drawing can be the
+  struck-out ad alone. The words' floor is the title's own width, two halves
+  that each keep together, so above 560px the title stays two lines at any text
+  spacing. The obvious alternative, letting the drawing shrink to fit, took
+  every tile below the 30px that is as small as one is drawn
+  (`styles.css:4710-4718`); and a fade at the strip's edge narrower than a tile
+  left a cut tile's rounded edge standing beside the ad, while one wide enough
+  to hide it dimmed the next tile too.
 - **`dvh`, not `vh`, for anything full-height.** There were seven `100vh` uses
   and no `dvh`; on a mobile browser with a retracting toolbar `100vh` is taller
   than the viewport and the bottom of the page is unreachable until the toolbar
@@ -3570,7 +3815,7 @@ Two rules that follow:
   the same arithmetic stay, because nothing retracts horizontally.
 
 **There is a print stylesheet, and it holds one rule.**
-`@media print` at `styles.css:4561-4565` hides `.ad-slot`, because a statement
+`@media print` at `styles.css:5084-5088` hides `.ad-slot`, because a statement
 of accounts somebody prints or saves as a PDF is a record they may keep and hand
 on, and an advertisement in one is not a thing this product does. The block is
 last in the file for 7.3's reason, and that is where a second print rule goes —
@@ -3585,18 +3830,27 @@ both halves missing, which would have sent somebody to write a second print
 block rather than add to the one that is there.
 
 *Checked by:* `tests/browser/reflow.spec.ts` for the one half a layout engine
-can settle — every route, at each breakpoint, at each breakpoint minus one, in
+can settle — every route, at each breakpoint and the pixel either side of it, in
 the middle of each gap and at 320px, asserting the *document* never scrolls
-sideways (SC 1.4.10). It measures `document.documentElement` and not a
-container, because a `.data-table` scrolling inside `.table-wrap` is the rule
-directly above this one. `tests/styles-order.test.ts` for the breakpoint list
-and its order, and `tests/page-stack.test.ts` for the reflow rules a class can
-carry. The `dvh` half is one grep and is held there too.
-`tests/web-guide.test.ts` holds the print block — that there is exactly one,
-that it is last, and that what it hides is the ad slot — so "a print stylesheet
-exists" stays a fact rather than a sentence. What stays review is everything
-after "does not overflow": whether a page is *usable* at 320px, and whether a
-bar four lines deep still reads as one bar, are judgements about a screen.
+sideways (SC 1.4.10), with the house ad on every page but the plan tab, because
+a width it overflows at is a width every page overflows at. The pixel above each
+breakpoint is new with it: every block is a `max-width`, so 781 is the first
+width the 780 block has stopped applying to, and the bar is at its most cramped
+there. `tests/browser/house-ad.spec.ts` holds the bar's own steps — "fits at
+every width it changes shape at, in line with the page", "drops whole tiles
+where it narrows, never a part of one", which sweeps 76 widths with and without
+widened text spacing, "lights the drawing with no seam at its edges", and "is
+not pinned where the window is short as well as narrow". It measures
+`document.documentElement` and not a container, because a `.data-table`
+scrolling inside `.table-wrap` is the rule directly above this one.
+`tests/styles-order.test.ts` for the breakpoint list and its order, and
+`tests/page-stack.test.ts` for the reflow rules a class can carry. The `dvh`
+half is one grep and is held there too. `tests/web-guide.test.ts` holds the
+print block — that there is exactly one, that it is last, and that what it hides
+is the ad slot — so "a print stylesheet exists" stays a fact rather than a
+sentence. What stays review is everything after "does not overflow": whether a
+page is *usable* at 320px, and whether a bar four lines deep still reads as one
+bar, are judgements about a screen.
 
 ## 16. Words
 
@@ -3692,8 +3946,8 @@ is which.
 | `tests/theme-tokens.test.ts` | Three token blocks exist, share a key set, and the two dark ones parse to the same token map; the attribute block is last; `color-scheme` per block; no literal color outside the blocks; no undeclared or unused token; no text token used as a fill or fill token used as text; one token per series in both themes, all distinct; every `.chart-series-N` draws from its token; `.input` draws its fill and edge from `--field` and `--field-line`, `.input:disabled` exists and takes its fill from `--field-disabled`, and that fill differs from `--field` in every theme; the three button families that paint over the browser's disabled rendering declare `:disabled` with `not-allowed` and `.button:disabled`'s own opacity, no `:hover` rule on a family that ships disabled is left unnarrowed, and every element `src/client` renders `disabled` under a class of its own belongs to a family that answers (1.5) |
 | `tests/table-overflow.test.ts` | Every `.data-table` sits in a scrolling wrapper; `.table-wrap` carries `overflow-x` and none of the card chrome |
 | `tests/styles-skeleton.test.ts` | The shimmer animation belongs to `.skeleton` alone; every card paints its own background; every selector whose animation says `infinite` is answered by name under `prefers-reduced-motion` (4) |
-| `tests/styles-order.test.ts` | No top-level rule follows the responsive body; the four breakpoint blocks are contiguous and in descending order; the two preference blocks above them are named and so are the two selectors the motion one qualifies; no two independently-triggered layers share a `z-index` (3.5, 3.6, 4) |
-| `tests/contrast.test.ts` | Every rule painting text on a fill clears 4.5:1 (or 3:1 where the rule says it is large) in both themes, derived from the token values rather than quoted; the six published non-text pairs clear 3:1 (2.1, 2.2, 11.1) |
+| `tests/styles-order.test.ts` | No top-level rule follows the responsive body; the four breakpoint blocks are contiguous and in descending order; no `@container` anywhere, and every condition nested inside a block is registered; the two preference blocks above them are named and so are the two selectors the motion one qualifies; no two independently-triggered layers share a `z-index` (3.5, 3.6, 4, 7.3) |
+| `tests/contrast.test.ts` | Every rule painting text on a fill clears 4.5:1 (or 3:1 where the rule says it is large) in both themes, derived from the token values rather than quoted; the six published non-text pairs clear 3:1; the focus ring at the figures 13.1 prints, and the house ad's ring at the figures its exception prints, with the ordinary ring failing there (2.1, 2.2, 11.1, 13.1) |
 | `tests/modal-layout.test.ts` | `.modal` centers independently of the global margin reset |
 | `tests/error-summary-ui.test.tsx` | A refusal's every sentence is rendered, two fields sharing one sentence stay two lines, one field refused twice shows once, the summary takes focus and retakes it on an identical repeat, its heading is an `h3` under a dialog's `h2`, and a parser's own errors leave the app's sentence standing (8.3) |
 | `tests/radio-groups.test.tsx` | Every radio belongs to exactly one group; two forms on one page stay separate; the transaction type choice is one tab stop with arrow wraparound |
@@ -3703,7 +3957,7 @@ is which.
 | `tests/client-money.test.ts` | The money arithmetic every figure on screen is computed from |
 | `tests/row-menu.test.tsx` | The row menu's dismissal and focus return (13.3), and which way it opens (9.8) |
 | `tests/bulk-row-cap.test.ts` | The ten thousand row cap behind the selection contract (9.5) |
-| `tests/page-stack.test.ts` | The page's rhythm comes from `.content` and no page-level block carries a vertical margin or a negative one; no filter bar wraps a control in `Field`; every one of the fourteen scrolling table containers is a named, focusable region; the focus-indicator selectors cover every focusable element type and `.file-drop` carries `:focus-within`; every sticky or fixed region is paired with a container declaring `scroll-padding` (7.4, 7.5, 7.6, 9.5, 9.6, 13.2) |
+| `tests/page-stack.test.ts` | The page's rhythm comes from `.content` and no page-level block carries a vertical margin or a negative one; no filter bar wraps a control in `Field`; every one of the fourteen scrolling table containers is a named, focusable region; the focus-indicator selectors cover every focusable element type and `.file-drop` carries `:focus-within`; every sticky or fixed region is paired with what keeps focus clear of it — a scroller's `scroll-padding`, the padding the house ad measures, or a reason nothing has to (7.4, 7.5, 7.6, 9.5, 9.6, 9.7, 13.2) |
 | `tests/theme-tokens.test.ts` (chart palette) | `.chart-bar` declares a stroke, and not `none`, so two adjacent bars at 1.05:1 have an edge; nine of the ten line series carry a distinct dash rhythm and every dashed series' legend swatch carries the same one (11.2, 11.3) |
 | `tests/progress-bar-ui.test.tsx`, `tests/progress-frames.test.ts` | When a progress bar is drawn, what it says, and that it is removed rather than frozen (12.6) |
 | `tests/browser/progress-paint.spec.ts` | That the bar's fill is actually painted, in both themes, measured from the screenshot rather than from a computed style that does not resolve the pseudo-element (12.6, 17.2 item 7) |
@@ -3723,8 +3977,8 @@ is which.
 | `tests/chart-alternatives.test.tsx` | Every chart component call site has a real table beside it, with an `.sr-only` caption and scoped headers in a real render; a series keeps its color when the visible set shrinks (11.4, 11.6) |
 | `tests/raw-dates-on-screen.test.ts` | No date-shaped field reaches JSX text, an `aria-label` or a `title` without a formatter; which names are date-shaped is derived from the fields the client already formats, so no list goes stale (10.4) |
 | `tests/client-inline-edit-names.test.ts` | Every click-to-edit trigger's accessible name leads with its visible value, read through a brace-aware tag walk that follows one hop into a named `const` (8.10 rule 6) |
-| `tests/browser/reflow.spec.ts` | No route's document scrolls sideways, at each breakpoint, each breakpoint minus one, the middle of each gap and 320px — the band above 780px included, where the sidebar takes 248px and a check at phone and desktop widths sees nothing. "Every route" is the router's own table, read by `tests/browser/support/routes.ts` with ids its seed created and the report kinds `reportNames` lists — twenty-six URLs where a hand-kept list held thirteen and missed the plan tab, the duplicate review, a payee's entries and five of six reports (15) |
-| `tests/browser/target-size.spec.ts` | Every interactive target on every route the client's router declares — twenty-six URLs, read from `src/client/App.tsx` by `tests/browser/support/routes.ts` rather than listed — measured at desktop width and at 390px, against both branches of SC 2.5.8 — 24 by 24 outright, else centers 24 pixels apart (13.4, 13.5) |
+| `tests/browser/reflow.spec.ts` | No route's document scrolls sideways, at each breakpoint and the pixel either side of it, the middle of each gap and 320px, with the house ad on every page but the plan tab — the band above 780px included, where the sidebar takes 248px and a check at phone and desktop widths sees nothing. "Every route" is the router's own table, read by `tests/browser/support/routes.ts` with ids its seed created and the report kinds `reportNames` lists — twenty-six URLs where a hand-kept list held thirteen and missed the plan tab, the duplicate review, a payee's entries and five of six reports (15) |
+| `tests/browser/target-size.spec.ts` | Every interactive target on every route the client's router declares — twenty-six URLs, read from `src/client/App.tsx` by `tests/browser/support/routes.ts` rather than listed — measured at desktop width and at 390px, against both branches of SC 2.5.8 — 24 by 24 outright, else centers 24 pixels apart — with the house ad on every page but the plan tab and its button held to the first branch, since it has nothing near it to be spaced from (13.4, 13.5) |
 | `tests/recurrence-dates.test.ts`, `tests/locale-detection.test.ts` | The date and locale arithmetic every rendered date rests on (10.4) |
 | `tests/page-stack.test.ts` (continued) | A page-prefixed class is used on its own page, or is one of the registered components — in both spellings, and with the English singular, because stripping a trailing `s` made `categories` into `categorie` and examined no `.category-` class at all; every full-height rule measures `dvh`; every table cell gets tabular figures, and `.align-right` means alignment alone (6.3, 9.3, 15) |
 | `tests/pagination-focus.test.tsx` | A page turn gives focus back to the control that was pressed, or to the page number now current when that control has gone disabled (13.3) |
@@ -3733,10 +3987,11 @@ is which.
 | `tests/shell-focus.test.tsx`, `tests/browser/budgets.spec.ts` | The skip link is first and lands in `<main>`; a route change moves focus and resets scroll; the drawer makes the page behind it inert, moves focus in and out, and closes on Escape; a finished bulk action puts focus on the sentence saying so (13.3) |
 | `tests/plan-page-ui.test.tsx` | Every result on the plan tab is a sentence that takes focus, a form opening from a press takes it too, and a page load moves nothing (13.3); a form's action row and a modal's footer line up on the tops only while a reason shows, and a line of text in one keeps the buttons' height (12.3); while a payment form is open it is the only way to pay, every plan button disabled by its own refusal gives the reason the route would refuse with, and one disabled only because its sibling's press is in flight gives none |
 | `tests/frozen-accounts-ui.test.tsx`, `tests/ad-slot-ui.test.tsx` | A frozen account's disabled Edit and row actions each point at a reason while its Archive and Delete stay open, and its rows carry the badge that says so, beside a stylesheet that now dims and un-hovers both — and does not dim twice, which is asserted against the rendered tree in a voided row and an archived card (1.5, 12.3); an ad slot renders nothing and fetches nothing without a placement, and an unfilled unit and the slot around it are collapsed rather than left as a band (7.7) |
+| `tests/house-ad-ui.test.tsx`, `tests/browser/house-ad.spec.ts` | The house ad renders only when the session says so, is a labeled landmark below and outside `<main>`, never on the plan tab, reaches the plan tab by a document load and loads nothing; its entrance is armed before paint, never under reduced motion, plays once and retires on its last beat; the bar is pinned mid-scroll, rests below the content at the end, sits on the window's foot under a short page, is not pinned on a window narrow and short at once, drops whole tiles where it narrows, and leaves every block's box where it was; the room it leaves at the foot follows its measured height, and Tab never leaves a control under it (4.1, 7.7, 9.7, 15) |
 | `tests/legal-links-ui.test.tsx` | Both operator documents are linked where a person meets them, each opens a new tab, the sentence reshapes when only one is configured, and nothing is drawn when neither is (13.6) |
 | `tests/browser/selection-bar.spec.ts` | The selection bar with a reason showing, with none, and with a commit in flight, at nine widths: nothing past its edge, the count on one line where one fits and on the buttons' midline, its icon whole, no label wrapping inside a button, the working button its own width and the idle one not drawn as working (12.3, 15) |
 | `tests/browser/plan-buttons.spec.ts` | Two priced buttons keep the same top while one of them shows a reason, measured against a real layout engine at desktop width and at 390px where the reason wraps — the half 12.3 could not check (12.3, 13.5) |
-| `tests/web-guide.test.ts` | The numbers and lists this guide argues from, derived rather than recounted: the component inventory and its three counts (6.1), the ten inline `style` props (1.3), every `z-index` having a rung (3.5), the stylesheet's tail order and its one print block (7.3, 15), the `Field`, optional, `formatMoney`, `EmptyState`, `Skeleton`, computed-disabled and scrolling-container censuses (8.1, 8.4, 9.3, 9.6, 12.1, 12.2, 12.3), where an ad slot sits in the shell (7.7), and the shape of every link that leaves the app (13.6) |
+| `tests/web-guide.test.ts` | The numbers and lists this guide argues from, derived rather than recounted: the component inventory, its three counts and every unit `ads.tsx` exports (6.1), the ten inline `style` props (1.3), every `z-index` having a rung (3.5), the stylesheet's tail order and its one print block (7.3, 15), the `Field`, optional, `formatMoney`, `EmptyState`, `Skeleton`, computed-disabled and scrolling-container censuses (8.1, 8.4, 9.3, 9.6, 12.1, 12.2, 12.3), where an ad slot sits in the shell (7.7), and the shape of every link that leaves the app (13.6) |
 | `tests/ui-copy.test.ts` (vocabulary) | An account that has been put away is **archived**, never *closed*, in every literal and every run of JSX text in `src/client` and `src/shared`, with a named register for the control and accounting senses and one pattern for the frozen one (7.6) |
 | `tests/ui-copy.test.ts` | No banned word in any string a person reads, in all three of client, shared and server; every literal button label is a verb phrase or one of the four bare actions; the three bulk bars use the four sanctioned strings; no eyebrow repeats its title; a blank cell's dash is a fallback and never cell text; `Uncategorized` is styled once; every worked sentence in `common.md`'s table appears verbatim in `src`; every page rendering a list's empty state decides the screen through `emptyScreen` or carries a one-sentence argument for having no question to ask, and no `emptyScreen` call names a row count, the shared date range or the page's own subject; and an empty state sits behind its query's error rather than beside it, with three named exceptions (6.2, 12.1, 16) |
 
@@ -3762,7 +4017,7 @@ change is worth nothing if it can quietly fall behind.
 
 1. **No spacing, radius, size or weight literal outside the scales.** The same
    trick the color test uses, with an allow-list for `1px` borders, `0` and
-   percentages. This is the largest unmanaged surface in the stylesheet: 303
+   percentages. This is the largest unmanaged surface in the stylesheet: 314
    spacing declarations across 35 values. The census itself is now derived
    rather than recounted — `tests/standards-citations.test.ts` holds section 3's
    numbers to the file, which is what stopped this item and section 3.1 quoting

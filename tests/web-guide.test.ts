@@ -60,6 +60,7 @@ const WORDS: Record<number, string> = {
   8: "eight",
   9: "nine",
   10: "ten",
+  11: "eleven",
   13: "thirteen",
   14: "fourteen",
   16: "sixteen",
@@ -204,9 +205,18 @@ describe("web.md's component inventory", () => {
       .map((one) => one.name)
       .filter((name) => !listed.has(name));
     expect(missing, "every export of the library has a row in 6.1").toEqual([]);
-    // And the one row for a component that lives elsewhere, which is why the
-    // table is a row longer than the file and 6.1 says so.
-    expect(listed.has("AdSlot"), "AdSlot has a row although it lives in ads.tsx").toBe(true);
+    // And the rows for the components that live elsewhere, which is why the
+    // table is longer than the file and 6.1 says so: every component ads.tsx
+    // exports, read from the file, so a third kind of unit needs a row too.
+    const ads = client().find((file) => file.path === "src/client/ads.tsx");
+    const units = [...ads!.code.matchAll(/^export function ([A-Z][A-Za-z0-9_]*)/gm)].map(
+      (match) => match[1]!,
+    );
+    expect(units, "ads.tsx exports its units").toContain("AdSlot");
+    expect(
+      units.filter((name) => !listed.has(name)),
+      "every unit ads.tsx exports has a row although it lives outside components.tsx",
+    ).toEqual([]);
   });
 });
 
@@ -438,14 +448,23 @@ describe("web.md's rules about markup", () => {
     expect(closes, "that landmark closes").toBeGreaterThan(-1);
     const slots = tagsNamed(shell!.code, "AdSlot");
     expect(slots.length, "the shell renders ad slots").toBeGreaterThan(0);
+    // The house ad is the third unit 7.7 anticipated, and lands under the same
+    // rule: it takes the banner's place, so it is written beside the slots.
+    const house = tagsNamed(shell!.code, "HouseAd");
+    expect(house.length, "the shell renders the house ad").toBe(1);
     expect(
-      slots.filter((slot) => slot.at < closes).map((slot) => slot.tag),
-      "every AdSlot is written after </main>",
+      [...slots, ...house].filter((slot) => slot.at < closes).map((slot) => slot.tag),
+      "every ad unit is written after </main>",
     ).toEqual([]);
 
     const ads = client().find((file) => file.path === "src/client/ads.tsx");
-    const aside = tagsNamed(ads!.code, "aside")[0];
-    expect(aside?.tag, "the slot is a labeled complementary landmark").toMatch(/aria-label=/);
+    // Every aside the file renders, one per kind of unit, so a second kind
+    // cannot arrive unlabeled behind a first that is.
+    const asides = tagsNamed(ads!.code, "aside");
+    expect(asides.length, "ads.tsx renders both kinds of unit").toBe(2);
+    for (const aside of asides) {
+      expect(aside.tag, "each unit is a labeled complementary landmark").toMatch(/aria-label=/);
+    }
     // Absence, deliberately: hiding an ad from a screen reader while showing it
     // to everybody else reads as a kindness and is concealment, and it is the
     // change most likely to be proposed as an improvement.

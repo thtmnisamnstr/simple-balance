@@ -389,7 +389,10 @@ and `secret.stripeWebhookSecret`. The `ADSENSE_*` ids go in `config.extraEnv`
 too, with `PRIVACY_POLICY_URL` beside them, because the server refuses to start
 with AdSense configured and no policy to link to. `PRIVACY_POLICY_URL` and
 `TERMS_OF_USE_URL` are optional otherwise and go there as well; either is linked
-from the sign-in screen and every page once it is set.
+from the sign-in screen and every page once it is set. `SB_HOUSE_AD`, this
+product's own advertisement for the paid plan, goes in `config.extraEnv` too,
+and needs nothing below: it loads nothing, so nginx has no policy to widen for
+it.
 
 nginx serves every page here, so it decides the content security policy each
 arrives with, and Stripe's payment form and AdSense each need a wider one than

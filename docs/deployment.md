@@ -276,6 +276,10 @@ connection to Stripe.
 | `ADSENSE_BANNER_SLOT_ID` | unset | The ad unit shown once in the application shell. Ten digits. Set with the client id or not at all. |
 | `ADSENSE_FOOTER_SLOT_ID` | unset | A second unit at the bottom of the page. Off unless you set it, and an addition to the banner rather than a replacement, so setting it alone refuses to start. |
 | `ADSENSE_CONSENT_MANAGED` | `false` | Whether a certified consent platform is collecting consent. Off by default, and then every ad request forces non-personalized ads, which Google serves without a platform at all. Set it to `true` only if you want personalized ads, and only once you have published a European regulations message in AdSense's own **Privacy and messaging** — free, part of your account, and delivered by the ad tag this app already loads, so nothing is added here. It then stops forcing the flag and lets the platform's answer decide. Visitors in the EEA, the UK and Switzerland need that message whichever you choose; this setting only decides whether its answer can turn personalized ads on. Nothing in this software can check the platform exists. See `monetization.md`. |
+| `SB_HOUSE_AD` | `false` | Shows a free account this product's own advertisement for the paid plan instead of anybody else's: a bar pinned to the foot of the window, one sentence and a button that opens the plan tab, never on the plan tab itself, never to a subscriber and never on paper. Only where a plan is for sale (`SB_BILLING_ENABLED=true`, Stripe configured) and the configured prices fit the plans; otherwise nobody sees it, and a production process warns at every start when billing is off. It loads nothing from another site, so it needs no `PRIVACY_POLICY_URL`, serves no `/ads.txt`, needs nothing on the split deployment's frontend, and keeps `default-src 'self'` and the `same-origin` referrer. With the AdSense ids also set, a free account shown it is shown no AdSense unit; the AdSense settings still widen the policy and serve `/ads.txt` until they are unset, and the process warns at every start that they do. See `monetization.md`. |
+
+The first four rows are AdSense, and the cost and the privacy policy below are
+theirs; the house ad, the last row, needs neither.
 
 **Know what this costs before turning it on.** AdSense publishes no list of the
 hosts it loads from, so serving it means widening this app's content security
@@ -291,11 +295,12 @@ paid account, and never on the plan and billing tab.
 `PRIVACY_POLICY_URL`, above, is required beside these: the server refuses to
 start with the AdSense ids set and no policy to link to.
 
-**And ads are shown only where a plan is for sale.** An ad goes to an account on
-a limited plan, and nobody is on one unless `SB_BILLING_ENABLED` is `true` with
-Stripe configured. Set these without it and the policy is still widened on every
-page and `/ads.txt` is still served, but nobody is shown an ad; a production
-process says so at every start, as a warning rather than a refusal.
+**And ads are shown only where a plan is for sale**, both kinds. An ad goes to
+an account on a limited plan, and nobody is on one unless `SB_BILLING_ENABLED`
+is `true` with Stripe configured. Set the AdSense ids without it and the policy
+is still widened on every page and `/ads.txt` is still served, but nobody is
+shown an ad; a production process says so at every start, as a warning rather
+than a refusal, and it says the same of the house ad.
 
 ### Keeping a secret out of the environment
 
@@ -882,7 +887,7 @@ port. Its settings all have working defaults:
 | `SB_MAX_UPLOAD_SIZE` | `61m` | The largest request body nginx will pass. A CSV arrives as a JSON string rather than as a file upload, and the API sizes its own limit for those routes at `CSV_MAX_BYTES` x 6 plus 64 KiB to cover worst-case JSON escaping. Keep this above that number, or a CSV the API would accept is refused before it reaches it. At the default `CSV_MAX_BYTES` of 10 MB that means at least `61m`. |
 | `SB_BILLING_CONFIGURED` | `false` | Whether Stripe is configured. nginx serves the plan and billing tab's document in this shape, so it decides which content security policy that page arrives with, and Stripe's payment form needs the wider one. Configured, not selling: an operator who has stopped selling still has subscribers who must be able to replace an expired card. The compose recipe derives it from `STRIPE_PUBLISHABLE_KEY`, and the Helm chart from a `STRIPE_PUBLISHABLE_KEY` in `config.extraEnv` or from `frontend.billingConfigured`, which is for a key kept in an `existingSecret`, so the two cannot disagree. |
 | `SB_CSP_REPORT_ONLY` | `false` | Whether that page reports its policy instead of enforcing it. Only meaningful with `SB_BILLING_CONFIGURED`, and only for that page. Set it on the server as well, which is what registers `POST /api/csp-report` for the reports to land on. |
-| `SB_ADS_CONFIGURED` | `false` | Whether this deployment serves advertising. nginx serves every document in this shape, so it decides the policy they arrive with, and AdSense needs a much wider one — scripts, frames and connections to any HTTPS origin, plus `unsafe-eval`. Set it with the server's own `ADSENSE_*` settings or neither; the compose recipe derives it from `ADSENSE_CLIENT_ID`, and the Helm chart from an `ADSENSE_CLIENT_ID` in `config.extraEnv` or from `frontend.adsConfigured`, which is for an id kept in an `existingSecret`. |
+| `SB_ADS_CONFIGURED` | `false` | Whether this deployment serves AdSense. nginx serves every document in this shape, so it decides the policy they arrive with, and AdSense needs a much wider one — scripts, frames and connections to any HTTPS origin, plus `unsafe-eval`. Set it with the server's own `ADSENSE_*` settings or neither; the compose recipe derives it from `ADSENSE_CLIENT_ID`, and the Helm chart from an `ADSENSE_CLIENT_ID` in `config.extraEnv` or from `frontend.adsConfigured`, which is for an id kept in an `existingSecret`. The house ad, `SB_HOUSE_AD`, is the server's alone and leaves this off: it loads nothing, so there is nothing to widen. |
 | `SB_TRUSTED_PROXY_CIDR` | `127.0.0.1` | Which addresses this nginx will believe about where a request came from. Everything it proxies carries `X-Forwarded-For` set to the address it saw, and behind anything terminating TLS that address is the terminator — the same value for every visitor. With `TRUST_PROXY` on, the API then counts every sign-in attempt against one allowance, and one stranger can spend it for everybody. Set it to the address or range the terminator connects from — an ingress controller's pod CIDR under Kubernetes, the load balancer's subnet on a VM — or to several, separated by commas or spaces, when more than one proxy connects. Name the proxies' ranges and nothing wider: this decides whose word is taken for an address, so a range that includes callers lets a caller choose their own. Every entry has to be an IPv4 or IPv6 address, a CIDR, or `unix:`, and anything else — a host name, a short form such as `10.0.0`, an empty value — stops the container before nginx starts, with a line naming the entry, because nginx would otherwise resolve a name at startup and trust whatever it answered, and read `10.0.0` as `10.0.0.0`, without a word. The default is the off position rather than a trusted range: nothing reaches the container from loopback, so a deployment that sets nothing behaves exactly as it did before this setting existed, and a single address or CIDR renders exactly the configuration it did before a list was accepted. |
 | `SB_REAL_IP_RECURSIVE` | `off` | Whether nginx walks `X-Forwarded-For` from the right past every address above and takes the first one that is not among them, rather than taking the last entry outright. Leave it off behind a terminator that *replaces* the header, which is what nginx with `$remote_addr`, Caddy, and ingress-nginx unless `use-forwarded-headers` and `compute-full-forwarded-for` are both on all do: the last entry is then the visitor. Turn it on only behind a chain whose every hop *appends* and is in the list — Google's load balancer appends `<client-ip>,<load-balancer-ip>` — so nginx walks past the trusted hops to the address the outermost of them wrote and never reads anything a caller wrote before it. Takes `on` or `off`, and `true` or `false` meaning the same, in any case; empty is off, and any other value stops the container. A `/0` entry above with this on stops it too, since the walk would then end at whatever a caller put first. |
 
@@ -994,7 +999,7 @@ These have to line up:
   and `simple-balance:realIpRecursive` replace either choice.
   `deploy/pulumi/README.md` has the detail, and only a frontend image of 0.2.0
   or later reads either setting.
-- **`SB_ADS_CONFIGURED` on the frontend**, if you serve advertising, for the
+- **`SB_ADS_CONFIGURED` on the frontend**, if you serve AdSense, for the
   same reason: nginx decides the policy every other page arrives with, and
   AdSense needs a much wider one. The Helm chart derives it from an
   `ADSENSE_CLIENT_ID` in `config.extraEnv`, and `frontend.adsConfigured` turns it

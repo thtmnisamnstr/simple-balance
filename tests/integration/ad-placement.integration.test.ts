@@ -24,12 +24,16 @@ const originalEnvironment = Object.fromEntries(
   Object.keys(adEnvironment).map((key) => [key, process.env[key]]),
 );
 Object.assign(process.env, adEnvironment);
+// Unset rather than left to whatever ran before: with the house ad on, the
+// free account below would be shown it in place of the AdSense ids.
+const originalHouseAd = process.env.SB_HOUSE_AD;
+delete process.env.SB_HOUSE_AD;
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
 import { getDb } from "../../src/server/db/client.js";
 import { billingOverrides, billingSubscriptions, user } from "../../src/server/db/schema.js";
-import { getAdPlacement } from "../../src/server/services/billing.js";
+import { getAdPlacement, getAdvertising } from "../../src/server/services/billing.js";
 import { scratchDatabase } from "./support/scratch-database.js";
 
 const connection = process.env.TEST_DATABASE_URL;
@@ -84,6 +88,8 @@ integration("which sessions carry ad configuration", () => {
     for (const [key, value] of Object.entries(originalEnvironment)) {
       if (value === undefined) delete process.env[key];
     }
+    if (originalHouseAd === undefined) delete process.env.SB_HOUSE_AD;
+    else process.env.SB_HOUSE_AD = originalHouseAd;
   });
 
   it("hands the ids to somebody on the free plan", async () => {
@@ -153,5 +159,22 @@ integration("which sessions carry ad configuration", () => {
     const actor = await seed("ads-canceled");
     await subscribe(actor.userId, "canceled");
     expect(await getAdPlacement(actor)).not.toBeNull();
+  });
+
+  /**
+   * The house ad is off unless an operator turns it on, so a deployment that
+   * set nothing new hands a free account exactly the AdSense ids it always did
+   * and no house ad beside them.
+   */
+  it("shows no house ad where SB_HOUSE_AD is not set", async () => {
+    const actor = await seed("ads-no-house-ad");
+    expect(await getAdvertising(actor)).toEqual({
+      ads: {
+        clientId: "ca-pub-1234567890123456",
+        bannerSlotId: "9876543210",
+        consentManaged: false,
+      },
+      houseAd: false,
+    });
   });
 });

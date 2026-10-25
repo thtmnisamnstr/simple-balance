@@ -7,18 +7,28 @@ keep, so upgrading is swapping it for a newer one.
 
 This note is written as work lands rather than when the release is cut.
 
-**Nothing to do by hand unless you want metrics exported, or you had
-`METRICS_ENABLED=true` on 0.2.1 with no `METRICS_TOKEN`.** No migration, no new
-setting anybody has to set, and nothing turns itself on: a deployment that sets
-nothing new renders, starts and serves what it did, a stack that sets nothing
-new plans no change beyond the text of its `nextSteps` output, and a chart
-upgraded with the values it had renders the same objects. Everything new is a
-metrics collector that is off until asked for, the series the application
-publishes about itself, and two holes in `/metrics` closed.
+**Nothing to do by hand unless you want metrics exported or the house ad
+shown, or you had `METRICS_ENABLED=true` on 0.2.1 with no `METRICS_TOKEN`.** No
+migration, no new setting anybody has to set, and nothing turns itself on: a
+deployment that sets nothing new renders, starts and serves what it did, a stack
+that sets nothing new plans no change beyond the text of its `nextSteps` output,
+and a chart upgraded with the values it had renders the same objects.
+Everything new is a metrics collector that is off until asked for, the series
+the application publishes about itself, two holes in `/metrics` closed, an
+advertisement for Premium of this product's own that is off until asked for,
+and twenty-one dependency advisories closed.
 
 ### What runs automatically
 
 **No migration.** Nothing in the schema changes.
+
+**Twenty-one dependency advisories are closed** by the packages this release
+installs. Five ship in the image and move with it: `zod`, which validates every
+request body, `nodemailer` and `fast-uri`, and `body-parser` and `ip-address`,
+which arrive under the MCP SDK's Express and are never loaded. `ip-address` and
+`undici` move under the Pulumi programs too, and `npm ci` in `deploy/pulumi`
+installs them. The rest are used only to build and test. The changelog names
+each; nothing about any of them needs an action from you.
 
 **The application answers `/metrics` at exactly that path.** A request whose
 target only resolves to it — `/api/..\metrics`, `/health/..\metrics` — is a 404,
@@ -52,6 +62,16 @@ platform's probes, plus one check as each process starts listening, which is
 also what keeps `ready` from reading 0 before the first probe.
 
 ### What changed under you
+
+**`GET /api/v1/session` carries `houseAd`, and `advertises` can be true with no
+AdSense.** `houseAd` is a new field, always sent, and true only for somebody
+shown the house ad, when `ads` is null. `advertises` on `GET /api/v1/billing` is
+true where AdSense is configured, as before, and also where the house ad is on
+and the plan is for sale. With `SB_HOUSE_AD` unset, which is every deployment
+upgrading, `houseAd` is false for everybody and `advertises` answers exactly
+what it did. A 0.2.1 browser bundle against this server and this bundle
+against a 0.2.1 server both show no house ad, so a rolling update needs no
+particular order.
 
 **`/metrics` was reachable from the internet in two shapes, and both are
 closed.** Each needed `METRICS_ENABLED=true` and no `METRICS_TOKEN`; with a
@@ -277,6 +297,57 @@ when a Secret it did not build does, so rotating the headers — the program's
 Secret is one of those — is `kubectl -n <namespace> rollout restart
 deploy/simple-balance-collector` after the `up`.
 
+### What you do by hand, to show the house ad
+
+Only to turn it on, and only where the plan is already on sale —
+`SB_BILLING_ENABLED=true` with Stripe configured. Without that nobody is shown
+it, and the process says so at every start. `docs/monetization.md` §The house
+ad, the first-party alternative has what it shows, to whom, and what it does
+not do. Doing none of this changes nothing.
+
+**Moving from AdSense is setting the one and unsetting the other.** Setting
+`SB_HOUSE_AD` alone already takes the place of every AdSense unit a free account
+sees, but the AdSense settings go on widening the content security policy and
+serving `/ads.txt` for as long as they are set, and the process warns at every
+start while both are. Unset all four `ADSENSE_*` together: an
+`ADSENSE_FOOTER_SLOT_ID` left on its own refuses to start, as it always has.
+`PRIVACY_POLICY_URL` can stay. Nothing requires it any more, and it is still
+linked from sign-in and every page.
+
+**A stack built by `aws-single`, `oci-single`, `aws`, `gcp` or `oci`.** From the
+stack's directory, with `pulumi` run from a checkout of this release, whose
+programs know the setting:
+
+```sh
+pulumi config set --path 'simple-balance:env.SB_HOUSE_AD' true
+# Moving from AdSense: remove whichever of the four the stack sets.
+pulumi config rm --path 'simple-balance:env.ADSENSE_CLIENT_ID'
+pulumi config rm --path 'simple-balance:env.ADSENSE_BANNER_SLOT_ID'
+pulumi config rm --path 'simple-balance:env.ADSENSE_FOOTER_SLOT_ID'
+pulumi config rm --path 'simple-balance:env.ADSENSE_CONSENT_MANAGED'
+pulumi up
+```
+
+On a `single` machine the settings timer picks the change up within five
+minutes and restarts the deployment once; `sudo systemctl restart
+simple-balance` does it at once. On a cluster the `up` changes the chart's
+values and the API and scheduler roll, and the frontend's `SB_ADS_CONFIGURED`
+goes back to false with `ADSENSE_CLIENT_ID`, because the chart derives one from
+the other.
+
+**The chart, by hand.** `SB_HOUSE_AD: "true"` under `config.extraEnv`, and the
+`ADSENSE_*` entries taken out of it, then upgrade with the values file you
+installed with. If the AdSense ids were in an `existingSecret` and you set
+`frontend.adsConfigured`, set it back to `false` and take them out of that
+Secret.
+
+**A `single` deployment installed by hand, the split recipe, or one container.**
+`SB_HOUSE_AD=true` in `/opt/simple-balance/.env`, `deploy/compose/.env`, or the
+container's environment, the `ADSENSE_*` lines deleted from the same place, then
+`sudo systemctl restart simple-balance` on a `single` machine or `docker compose
+up -d` for the split recipe. The split recipe derives the frontend's
+`SB_ADS_CONFIGURED` from `ADSENSE_CLIENT_ID`, so it follows.
+
 ### What to check afterwards
 
 `/health/ready`, as with any upgrade. On a `single` machine with the new
@@ -314,6 +385,22 @@ The collector's own series arrive as `service.name` `collector` at
 `127.0.0.1:8888`, not as `otelcol` under a new instance at every restart, which
 is what its default self-description would have made them; its `target_info`
 is dropped to keep that name.
+
+With the house ad on, the log at start says nothing about `SB_HOUSE_AD`. A line
+saying `SB_BILLING_ENABLED` is not true means nobody is shown it; a line saying
+AdSense is configured means the `ADSENSE_*` settings are still in force. Once
+they are gone, every page is back on the strict policy and the stricter
+referrer, and `/ads.txt` names nobody:
+
+```sh
+curl -sI https://your-host/ | grep -i -E '^(content-security-policy|referrer-policy):'
+curl -s https://your-host/ads.txt | grep -c DIRECT
+```
+
+The first shows `script-src 'self';` with nothing after it, no `frame-src` or
+`font-src` at all, and `same-origin`; the second prints 0. Signed in as a free
+account, every page but **Settings > Plan and billing** has the bar at the foot
+of the window, and that tab says the free plan comes with ads on the page.
 
 ## Before you upgrade to 0.2.1
 

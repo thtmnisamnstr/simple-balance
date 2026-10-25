@@ -176,7 +176,7 @@ import {
   confirmPaymentSetup,
   createPaymentSetup,
   isNoteworthyEvent,
-  getAdPlacement,
+  getAdvertising,
   getBillingStatus,
   setSubscription,
   setSubscriptionCancellation,
@@ -1699,8 +1699,11 @@ const created = <T extends { id: string }>(
 const includeArchivedFlag = (c: Context) =>
   queryBooleanSchema.parse(c.req.query("includeArchived") ?? false);
 
-app.get("/api/v1/session", async (c) =>
-  c.json({
+app.get("/api/v1/session", async (c) => {
+  // Both halves of one decision, read once: the house ad takes the AdSense
+  // slot for whoever it is shown to, so the two fields are never set together.
+  const advertising = await getAdvertising(c.get("actor"));
+  return c.json({
     user: c.get("authUser"),
     preferences: await getPreferences(c.get("actor")),
     auth: await getUserAuthState(c.get("authUser").id),
@@ -1718,9 +1721,16 @@ app.get("/api/v1/session", async (c) =>
     // configuration at all — the page cannot show them an ad by mistake because
     // it was never told how. Absent is the safe reading, which is the direction
     // a bug in this should fail.
-    ads: await getAdPlacement(c.get("actor")),
-  }),
-);
+    ads: advertising.ads,
+    // Whether to show this product's own advertisement for the paid plan, and
+    // always sent, false included. A field of its own rather than a kind of
+    // `ads`: a bundle from the release before reads `ads` as an AdSense
+    // placement and nothing else, so it ignores this name rather than being
+    // handed a shape it was never written to tell apart, and a bundle meeting
+    // a server from before reads the field's absence as no.
+    houseAd: advertising.houseAd,
+  });
+});
 /**
  * The plan tab's five routes, registered only where Stripe is configured.
  *

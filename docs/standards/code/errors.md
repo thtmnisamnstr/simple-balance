@@ -33,7 +33,7 @@ returns the row (`src/server/services/budgets.ts:568`, `:945` and
 doubting something established moments earlier — the route's own registration,
 the actor's user row, a customer row whose insert had just lost a conflict, and
 a subscription Stripe cannot return without a price
-(`src/server/services/billing.ts:679`, `:993`, `:1022` and `:1601`). The reason
+(`src/server/services/billing.ts:679`, `:993`, `:1022` and `:1609`). The reason
 each cannot happen is written beside it in the test rather than copied here.
 
 So the rule is not "never throw a bare `Error` here". It is "never throw one for
@@ -61,7 +61,7 @@ use the constructor that names the situation.
 | `validationError` | 422 | The request is well-formed and asks for something impossible. |
 
 **The transport is the named exception, and it is two lines.**
-`src/server/api.ts` constructs `AppError` directly at `:1771` and `:1789`, and
+`src/server/api.ts` constructs `AppError` directly at `:1781` and `:1799`, and
 both carry a code no service raises at all: `FORBIDDEN` and
 `REAUTHENTICATION_REQUIRED` belong to the two operations that are reachable
 from a session and never from a token, which is exactly the pair `AGENTS.md`
@@ -82,7 +82,7 @@ So the rule is scoped rather than absolute: a service uses the constructors, and
 the transport may name a status the service half has no word for. It was four
 lines rather than two, and shrinking it is what the other two paragraphs of this
 section used to be about. The already-configured-password site was byte-for-byte
-what `conflict()` produces and now calls it (`src/server/api.ts:1780`). The malformed-body guard
+what `conflict()` produces and now calls it (`src/server/api.ts:1790`). The malformed-body guard
 was a `VALIDATION_ERROR` **400** where the constructor is 422 by definition,
 which is why it could not use one — it is now a `TransportError`
 (`src/server/api.ts:1654`, the class at `src/server/services/errors.ts:13-23`),
@@ -225,7 +225,7 @@ Six throw sites carry one today and the shape recurs: the archive restore meets
 the same ceiling from the other side
 (`src/server/services/accounts.ts:1204`), the frozen-account refusal is the same
 argument under a 422 (`src/server/services/accounts.ts:861`), and the two in
-`closeBillingForDeletion` (`src/server/services/billing.ts:2006` and `:2013`)
+`closeBillingForDeletion` (`src/server/services/billing.ts:2014` and `:2021`)
 give a person the move each cause leaves them — whoever runs the server, where
 the keys cannot vouch for Stripe's answer, and a retry in a few minutes, where
 Stripe could not be reached — while naming the cause, and whether retrying

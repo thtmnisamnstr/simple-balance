@@ -943,7 +943,10 @@ and nothing about anybody's ledger leaves the deployment. `docs/monetization.md`
 states the cost to the operator in their own words before they turn it on, and
 `docs/standards/operations.md` §One process, one database counts what the browser
 reaches separately from what the server does, precisely because they are
-different promises to different people.
+different promises to different people. A second kind is built and unreleased:
+the house ad, this product's own advertisement for its paid plan, off unless
+`SB_HOUSE_AD` is set, on the same placement rule, and loading nothing from
+anywhere, so there is no third party in it at all.
 
 The part of the original position that stands is the part that was really load
 bearing: this product does not sell what it knows about anybody. An operator

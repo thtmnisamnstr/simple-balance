@@ -47,7 +47,43 @@ Stripe request failed, by Stripe's own classification; and whether the mail
 relay and Stripe passed the checks each process makes of them. No label names
 a person, an account or an amount, and every one is a closed set.
 
+**A free account can be shown this product's own advertisement for Premium
+instead of anybody else's.** `SB_HOUSE_AD=true` puts a bar across the foot of
+the window: the plan's name, one line saying what it adds, and a button that
+opens the plan tab, beside a small drawing of the free plan's three accounts,
+two more dropping in and an ad struck out. It is for an operator who wants the
+free plan to point at the paid one without a third party's script running on
+pages that show somebody's balances. It loads nothing from anywhere, so it
+widens no content security policy, serves no `/ads.txt`, needs no privacy
+policy and no consent notice, and records nothing about who saw it. Who sees it
+is decided the way AdSense is — never a subscriber, never on the plan tab, at
+sign-in or on paper, and never on a deployment that has stopped selling — and it
+stands down while the configured Stripe prices do not fit the plans, because the
+tab it leads to then sells nothing. With AdSense configured as well, a free
+account sees the house ad and no AdSense unit, and the process says at every
+start that the AdSense settings go on widening the policy until they are unset.
+
+The bar is pinned while the page scrolls, 72 pixels or less on a desktop and
+about 60 on a phone, where it is the words and the button alone. It rests below
+the content at the end of a page, sits on the window's foot under a short one,
+and is not pinned at all on a window both narrow and short, where it would have
+left the ledger a strip under the mobile header. Keyboard focus is scrolled
+clear of it at whatever height it is, including with widened text spacing. Its
+drawing moves once per page load, for three seconds, never on a phone and never
+for anybody whose system asks for reduced motion. It cannot be dismissed, and an
+AdSense unit is never pinned. Nothing changes on a deployment that does not set
+it.
+
 ### Changed
+
+**The plan tab's sentence about ads follows either kind of ad.** It names the
+advertising Premium takes away wherever AdSense is configured, and now also
+where the house ad is on and the plan is for sale, so the tab says what the bar
+says. `GET /api/v1/billing` reports that as `advertises`. `GET /api/v1/session`
+gains `houseAd`, always sent, and true only for somebody the house ad is shown
+to; `ads` is null whenever it is. A browser bundle from 0.2.1 ignores the new
+field, and this release's bundle reads its absence as no, so neither half of a
+rolling update shows anybody an ad by mistake.
 
 **`simple_balance_db_transaction_duration_seconds` times every transaction.** It
 timed the ones that went through one helper, and started before the connection
@@ -107,6 +143,27 @@ system accounts and uid 1000 as they were: at every boot on AWS, and saved with
 the host firewall on Oracle Cloud, whose image restores it before Docker
 starts. A machine built before this release needs the rule by hand before
 metrics are turned on; `docs/upgrades.md` has the line for each cloud.
+
+**Twenty-one dependency advisories are closed — four rated high, fourteen
+moderate and three low.** Five of the packages ship in the application's image,
+and three of those are loaded. `zod` moves to 4.6.7: it validates every request
+body the server accepts, and before 4.6.6 a long enough list that failed
+validation made it allocate without limit (high). Request bodies were already
+capped in size before they reach it, which bounded that rather than closing it.
+`nodemailer` moves to 10.2.1, closing three ways its address parser read text
+inside a quoted string or a comment as a further recipient; it parses the
+addresses this deployment sends mail to, where a mail server is configured.
+`fast-uri` moves to 3.1.9, closing four in URI parsing, and is loaded with the
+MCP SDK's schema validator. `body-parser` 2.4.0 (high) and `ip-address` 10.7.5
+arrive in the image under the MCP SDK's Express and its rate limiter, and are
+never loaded, because the server runs on Hono. Under the Pulumi programs
+`ip-address` moves too, with `undici` 6.29.1, both in the Pulumi CLI's own
+package fetching on the operator's machine. The rest are used only to build and
+test and are in no image: `vite` 8.3.5 closes six, three of them in the editor
+launcher its development server bundles, one of those rated high; `vitest`
+4.1.12 closes two in its mocking server; and `undici` 8.12.3, under jsdom,
+closes three. GitHub had raised seven alerts, all of them `vite` and `vitest`,
+and `npm audit` found the rest. The upgrade is the whole fix.
 
 ### Fixed
 

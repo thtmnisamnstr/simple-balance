@@ -349,13 +349,13 @@ a {
    chosen against nothing:
      1  a decoration inside a card (a search icon, the auth art)
      2  a header sticking inside its own scroller (a modal header, the auth card)
+     5  a bar pinned to the window's foot (the house ad), under every popover
      10 a popover over the page (the row menu)
      20 a bar sticking over a list (the merge panel)
      25 the mobile nav scrim, which covers everything above except the drawer
      30 the sidebar itself
-   20 and 25 used to both be 20, and both can be on screen below 780px: the
-   scrim was written second, so it painted over the merge panel and nothing in
-   either rule said why. */
+   20 and 25 were once both 20, and both show below 780px: the scrim, written
+   second, painted over the merge panel, and neither rule said why. */
 .sidebar {
   position: fixed;
   inset: 0 auto 0 0;
@@ -3773,8 +3773,8 @@ input[type="radio"] {
    — because the component renders `null` for them and a reserved box cannot
    tell the difference.
 
-   No vertical margin, because 7.4: the distance between two blocks in the page
-   stack is the container's to decide, and `.main-column` already sets it. */
+   No margin and no gutter. `.main-column` sets no gap, so the space above is
+   `.content`'s bottom padding, and the house ad's bar sits flush under it. */
 .ad-slot {
   overflow: hidden;
   max-width: 100%;
@@ -3789,15 +3789,433 @@ input[type="radio"] {
    unfilled responsive unit kept its 280px: a blank band at the foot of the
    page, which is the reserved box the rule above refuses by another route.
 
-   The slot goes with it, because an empty `<aside>` is still a block in
-   `.main-column`'s stack and would keep the stack's gap on both sides of
-   nothing. The landmark goes too, which is right: there is no ad to skip. */
+   The slot goes with it. An empty `<aside>` takes no space, since nothing
+   around it sets a gap, but it is still a landmark a screen reader lists by
+   name, and an "Advertisement" with nothing in it is not one to keep. */
 .ad-slot ins.adsbygoogle[data-ad-status="unfilled"] {
   display: none !important;
 }
 
 .ad-slot:has(> ins.adsbygoogle[data-ad-status="unfilled"]) {
   display: none;
+}
+
+/* The house ad: this product's own advertisement for its paid plan, as a bar
+   pinned to the foot of the window.
+
+   Pinned rather than placed. The slot is the column's last child, so sticking
+   to the window's foot keeps it on screen over a long page and lets it come to
+   rest in its own place below the last of the content, where it covers
+   nothing. Only the house ad's slot, picked out by what it holds, and never an
+   AdSense one: a unit that follows somebody down the page is a thing this
+   product does with its own ad, not with a frame of somebody else's content.
+
+   Layer 5 on the ladder: over a card's decorations, under the row menu, which
+   is fixed and has to open over the bar from the last row in view, and under
+   the mobile header, the merge panel, the scrim and the sidebar. Modals are in
+   the top layer. `overflow: visible`, because the slot's clip is there for
+   AdSense's frames and here it would cut the bar's shadow. */
+.ad-slot:has(> .house-ad) {
+  position: sticky;
+  z-index: 5;
+  bottom: 0;
+  margin-top: auto;
+  overflow: visible;
+}
+
+/* The column, as a flex column only while the house ad is in it, so the
+   `margin-top: auto` above can take up a short page's slack and put the bar
+   on the window's foot rather than halfway up it. Every other page keeps the
+   block layout it had. `.content` lays out the same either way, because it
+   sets its own width and centring, and the column's height is already at
+   least the window's. */
+.main-column:has(> .ad-slot > .house-ad) {
+  display: flex;
+  flex-direction: column;
+}
+
+/* The sign-in screen's art panel, flush across the column: the base green
+   edge to edge, square because it is the window's foot rather than a card on
+   the page, a lit hairline along the top that draws the edge on the dark
+   ground, and a shadow cast upward so the page reads as passing under it.
+   It clips the drawing, so the rings and the arriving accounts are cut by
+   its top edge rather than by a box inside it. */
+.house-ad {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  border-top: 1px solid var(--art-hairline);
+  color: var(--on-accent);
+  background: var(--art-base);
+  box-shadow: 0 -6px 20px -8px var(--shadow-overlay);
+}
+
+/* The page's own content box, so the words start on the content's left edge
+   and the button ends on its right. The words take whatever the drawing and
+   the button leave, and never less than two lines of the title need; past
+   that the drawing gives way, and the words do not. */
+.house-ad-bar {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  width: min(1240px, 100%);
+  min-height: 71px;
+  margin: 0 auto;
+  padding: 0 42px;
+}
+
+/* The floor is the words' own width, not a length: `auto` is the longer
+   half of the title, which keeps together, so it is two lines' worth at any
+   text spacing. A length was two lines only at the default. Under the text
+   spacing SC 1.4.12 asks a page to survive, the title widened and a fixed
+   170px did not, so it went to four lines and the pinned bar to 178px while
+   the drawing kept all of its room. */
+.house-ad-words {
+  display: flex;
+  min-width: auto;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.house-ad-eyebrow {
+  color: var(--on-art-muted);
+  font-size: 11px;
+  font-weight: 760;
+  letter-spacing: 0.13em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+/* One line where the column holds it, two where it does not, broken where
+   the halves meet, and two lines and the eyebrow still fit the bar's 71px.
+   Balanced for a phone, where the halves wrap like any words. */
+.house-ad-title {
+  color: var(--on-accent);
+  font-size: 17px;
+  font-weight: 720;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  text-wrap: balance;
+}
+
+.house-ad-half {
+  white-space: nowrap;
+}
+
+/* Mint on the bar rather than the page's green button, which disappears on
+   it: 6.5:1. The focus ring is mint too, because the light theme's ring is
+   2.4:1 on this green, under the 3:1 a ring needs. */
+.house-ad .button-primary.house-ad-cta {
+  flex: none;
+  color: var(--art-base);
+  background: var(--art-bar);
+  box-shadow: none;
+}
+
+/* Outranks `.button-primary:hover:not(…)`, which is (0,3,0). */
+.house-ad .button-primary.house-ad-cta:hover {
+  background: var(--on-accent);
+}
+
+.house-ad .button-primary.house-ad-cta:focus-visible {
+  outline-color: var(--art-bar);
+}
+
+/* The drawing's box, the bar's full height and held against the button,
+   with the panel's light painted on it. Both glows are measured from its
+   right-hand edge, where the accounts the paid plan adds always are, so the
+   light stays behind them however much of the row there is room for. Each
+   one's radius is its distance from that edge, so it ends exactly there and
+   the button sits on the plain base with no seam beside it. The first layer
+   is the bar's own green fading out over 24px, which takes the light down
+   into the base at the box's left-hand end: beside the sidebar the strip can
+   leave the box narrower than the light, which the box would otherwise cut
+   off in a straight line. That layer disappears into the bar only because
+   `.house-ad` is painted the same green. It never gets narrower than the
+   struck-out ad. */
+.house-ad-art {
+  position: relative;
+  display: flex;
+  min-width: 62px;
+  flex: 0 1 auto;
+  align-self: stretch;
+  align-items: center;
+  background:
+    linear-gradient(to right, var(--art-base), transparent 24px),
+    radial-gradient(ellipse 56px 30px at calc(100% - 56px) 50%, var(--art-glow-a), transparent),
+    radial-gradient(ellipse 124px 34px at calc(100% - 124px) 54%, var(--art-glow-b), transparent);
+}
+
+/* The panel's dot grid, behind the drawing only and fading out toward the
+   words: spread under the words, one dot took the panel's muted copy from
+   6.4:1 to 5.9:1.
+
+   Three layers and no z-index, which this stylesheet keeps for the page's own
+   ladder. The box's light is its background; this grid is positioned and
+   paints over that; and both drawings are positioned and later in the
+   document, so they paint over both. */
+.house-ad-art::before {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(var(--art-hairline) 1px, transparent 1px);
+  background-position: right 3px center;
+  background-size: 14px 14px;
+  content: "";
+  mask-image: linear-gradient(to right, transparent, black 45%);
+}
+
+/* The struck-out ad, which never gives way: it is the half of the title the
+   accounts do not say. */
+.house-ad-banner {
+  position: relative;
+  width: 62px;
+  height: 58px;
+  flex: none;
+  overflow: visible;
+}
+
+/* The accounts, as a strip held against the button. Where the bar is too
+   narrow for the whole row, the strip narrows from its left-hand end and the
+   free plan's accounts drop out there whole, rather than every tile
+   shrinking until none reads. The accounts the paid plan adds are at the
+   right-hand end, so they go last: the first arrival goes only in the
+   twenty-odd pixels above 781, beside the sidebar, where there is room for
+   one tile, and the badge's tile is never cut. Where the strip cannot hold
+   even that one whole, which only a reader's widened text spacing brings
+   about, the drawing is the struck-out ad alone.
+
+   The drawing is placed rather than laid out, because a box narrower than
+   what it holds lays it out from its left, and it is exempt from the reset's
+   `max-width: 100%`, which would shrink every tile to fit rather than drop
+   any.
+
+   Whole tiles or none, by the mask. A fade at the strip's edge narrower than
+   a tile left a cut one's rounded edge and veil standing beside the
+   struck-out ad, and one wide enough to hide that dimmed the next tile as
+   well. So the mask is clear from the strip's left-hand end to the gap after
+   whichever tile that end falls across, and black from there, with a hard
+   stop (`black 0`) that lands in a gap and so cuts only the orbit's hairline.
+
+   One line per tile, bank to chart, both figures measured from the strip's
+   right-hand end: the second is the tile's left edge, with its hairline and
+   its tilt, and the first is the gap after it. While the strip is narrower
+   than the second figure the line is where that gap falls; otherwise the
+   multiplier sends it far below zero and `max` passes over it. A tile
+   already wholly out of the strip has its gap further along, so its line is
+   smaller, and the largest is always the tile the edge falls across. The
+   chart's line, with no gap after it, clears the whole strip. The figures
+   are the drawing's own: tile centres 44 units apart at a scale of one, and
+   the gaps midway between them. */
+.house-ad-strip {
+  position: relative;
+  width: 250px;
+  min-width: 0;
+  flex: 0 1 auto;
+  align-self: stretch;
+  overflow: hidden;
+  mask-image: linear-gradient(
+    to right,
+    transparent
+      max(
+        min(100% - 187px, (229.5px - 100%) * 10000),
+        min(100% - 143px, (185.5px - 100%) * 10000),
+        min(100% - 99px, (141.5px - 100%) * 10000),
+        min(100% - 55px, (97.5px - 100%) * 10000),
+        min(100%, (53.5px - 100%) * 10000)
+      ),
+    black 0
+  );
+}
+
+.house-ad-strip svg {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 250px;
+  max-width: none;
+  height: 58px;
+  margin: auto 0;
+  overflow: visible;
+}
+
+/* The drawing, in the sign-in panel's vocabulary and nothing else: hairline
+   rings, frosted tiles, muted bars and one bright mint. Hairlines stay one
+   pixel at any size, as the app's own card edges do. */
+.house-ad-orbit {
+  fill: none;
+  stroke: var(--art-hairline);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+
+.house-ad-veil {
+  fill: var(--art-veil);
+  stroke: var(--art-hairline);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+
+/* The bar's own green, to cut a shape out of what is behind it: the dimmer
+   over the ad, and the margin that separates the badge from its tile. */
+.house-ad-knockout {
+  fill: var(--art-base);
+}
+
+.house-ad-mint {
+  fill: var(--art-bar);
+}
+
+.house-ad-muted {
+  fill: var(--on-art-muted);
+}
+
+.house-ad-stroke {
+  fill: none;
+  stroke: var(--on-accent);
+  stroke-width: 10;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.house-ad-stroke-muted {
+  fill: none;
+  stroke: var(--on-art-muted);
+  stroke-width: 6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The logo's own weight: two units on its 24-unit grid. */
+.house-ad-glyph {
+  fill: none;
+  stroke: var(--on-accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.house-ad-glyph-on-mint {
+  fill: none;
+  stroke: var(--art-base);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The house ad's entrance, which runs once and is at rest by three seconds.
+
+   Every keyframe says only where a thing starts, so where it ends is its own
+   geometry, and the picture with no animation applied is the finished one.
+   The free plan's accounts and the ad never move: the first frame is already
+   that plan's picture, and only what the paid plan adds arrives.
+
+   Nothing animates until `HouseAd` arms it, and that is the reduced-motion
+   rule as much as the blanket block at the foot of this file is: the blanket
+   block shortens an animation and leaves its delay, so an entrance it reached
+   would hold the new accounts invisible for up to two seconds and then snap
+   them in. Armed, it is paused on its first frame; playing once in view;
+   and disarmed again when the last beat ends, which is what keeps a drawing
+   hidden and shown again from starting over.
+
+   Each beat is written out, delay and duration with it, rather than set
+   through custom properties: every `var()` in this file has to be a token in
+   all three color blocks, and a step in a story is not one. The delays run in
+   120ms steps, the strike and the sway are shorter than the 800ms arrivals,
+   and one easing serves all six: a quick start and a long settle. */
+.house-ad-moves {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* The second new tile turns about the badge's centre, (17, -16) in the tile's
+   own units, measured from the corner of its 38 by 38 box. After
+   `.house-ad-moves`, which it overrides at the same specificity. */
+.house-ad-sway {
+  transform-origin: 36px 3px;
+}
+
+.house-ad:is(.is-armed, .is-playing) .house-ad-arrive-first {
+  animation: house-ad-drop 800ms cubic-bezier(0.2, 0.7, 0.2, 1) 360ms both;
+}
+
+.house-ad:is(.is-armed, .is-playing) .house-ad-arrive-second {
+  animation: house-ad-drop 800ms cubic-bezier(0.2, 0.7, 0.2, 1) 480ms both;
+}
+
+/* The dash pattern goes with the animation: one dash the path's whole length
+   (`pathLength="1"`), and an offset of 1.02 rather than 1, because a round cap
+   on a dash of no length is a dot, and the strike showed one before it drew. */
+.house-ad:is(.is-armed, .is-playing) .house-ad-strike {
+  stroke-dasharray: 1 2;
+  animation: house-ad-draw 500ms cubic-bezier(0.2, 0.7, 0.2, 1) 1080ms both;
+}
+
+/* Fades to the rect's own `opacity="0.5"`, after the strike has drawn. */
+.house-ad:is(.is-armed, .is-playing) .house-ad-dim {
+  animation: house-ad-fade 800ms cubic-bezier(0.2, 0.7, 0.2, 1) 1320ms both;
+}
+
+.house-ad:is(.is-armed, .is-playing) .house-ad-badge {
+  animation: house-ad-pop 800ms cubic-bezier(0.2, 0.7, 0.2, 1) 1440ms both;
+}
+
+/* Last, and only once the badge has landed, so nothing moves under a thing
+   that is itself still moving. Last is load-bearing too: `HouseAd` disarms
+   the whole story when this beat ends, so a beat after it would be cut off. */
+.house-ad:is(.is-armed, .is-playing) .house-ad-sway {
+  animation: house-ad-sway 700ms cubic-bezier(0.2, 0.7, 0.2, 1) 2280ms both;
+}
+
+/* (0,4,0), over the (0,3,0) of the shorthands above, which reset it. */
+.house-ad.is-armed:not(.is-playing) .house-ad-moves {
+  animation-play-state: paused;
+}
+
+/* From 56 units up, which at the bar's size is above its top edge: the two
+   accounts arrive through the hairline, from the page above. */
+@keyframes house-ad-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-56px);
+  }
+  65% {
+    opacity: 1;
+    transform: translateY(6px);
+  }
+}
+
+@keyframes house-ad-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes house-ad-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  70% {
+    transform: scale(1.06);
+  }
+}
+
+@keyframes house-ad-draw {
+  from {
+    stroke-dashoffset: 1.02;
+  }
+}
+
+/* One sway, damped, and done: out under the pin, a little back. */
+@keyframes house-ad-sway {
+  35% {
+    transform: rotate(4deg);
+  }
+  75% {
+    transform: rotate(-1.5deg);
+  }
 }
 
 
@@ -4289,6 +4707,54 @@ polyline.chart-line {
   .import-preview {
     position: static;
   }
+  /* The house ad, where the sidebar is up and the window is not wide. The
+     title a size down, so its two halves are 140px of words at a 781 window
+     and leave the strip room for the badge's tile, with the eyebrow still
+     over them inside the bar's 71px. The drawing at four fifths, which makes
+     a tile 30px: as small as one is drawn. Narrower than the whole row, the
+     strip drops tiles rather than shrinking them further. The light and the
+     mask are measured again for the smaller drawing, from the same
+     right-hand edge: its height decides its scale, 0.793, and centres it
+     with 0.86px to spare at either end. */
+  .house-ad-bar {
+    gap: 20px;
+  }
+  .house-ad-title {
+    font-size: 14px;
+    line-height: 1.25;
+  }
+  .house-ad-art {
+    min-width: 50px;
+    background:
+      linear-gradient(to right, var(--art-base), transparent 24px),
+      radial-gradient(ellipse 45px 24px at calc(100% - 45px) 50%, var(--art-glow-a), transparent),
+      radial-gradient(ellipse 99px 28px at calc(100% - 99px) 54%, var(--art-glow-b), transparent);
+  }
+  .house-ad-banner {
+    width: 50px;
+    height: 46px;
+  }
+  .house-ad-strip,
+  .house-ad-strip svg {
+    width: 200px;
+  }
+  .house-ad-strip {
+    mask-image: linear-gradient(
+      to right,
+      transparent
+        max(
+          min(100% - 149px, (183px - 100%) * 10000),
+          min(100% - 114px, (148px - 100%) * 10000),
+          min(100% - 79px, (113.5px - 100%) * 10000),
+          min(100% - 44.5px, (78.5px - 100%) * 10000),
+          min(100%, (43.5px - 100%) * 10000)
+        ),
+      black 0
+    );
+  }
+  .house-ad-strip svg {
+    height: 46px;
+  }
 }
 
 /* 980px, which is not one of the three named steps: it is the only rule
@@ -4411,6 +4877,23 @@ polyline.chart-line {
   .auth-card {
     padding: 32px 10px;
   }
+  /* The house ad's box is the page's, in `.content`'s narrower gutter. */
+  .house-ad-bar {
+    padding: 0 18px;
+  }
+  /* And not pinned where the window is short as well as narrow, which is a
+     phone on its side and any screen zoomed to 400%. Here the bar would
+     stack with the sticky header above, and the two left a 1280 by 720
+     screen at 400% with 45px of ledger between them. Unpinned it still
+     rests on the window's foot under a short page and after the content of
+     a long one, as it does where the browser cannot pin it at all. Only at
+     this width, because a short desktop window has no header to stack with:
+     pinned there it covers a sixth of the window, not three quarters. */
+  @media (max-height: 480px) {
+    .ad-slot:has(> .house-ad) {
+      position: static;
+    }
+  }
 }
 
 /* --break-mobile: 560px */
@@ -4532,6 +5015,37 @@ polyline.chart-line {
   .record-list-card .record-row > div:nth-child(2) {
     display: none;
   }
+  /* The house ad on a phone: the words and the button, and no drawing. The
+     bar is on screen for the whole visit, so every pixel it takes is a pixel
+     less of the ledger on every screen, every time; a drawing whose tiles
+     still read would add about 40px to that, and one that fits would be
+     tiles too small to read. No drawing is no motion, too: an element that
+     is not displayed has no animations to run. The eyebrow goes as well, its
+     one word being in the button.
+
+     The button is the compact one, 33px tall at the app's button type, so its
+     words keep one line and leave the title two at 390px. The title's halves
+     wrap like any words here, and the words have no floor: beside the button
+     at 320px either half kept together is wider than the room there is. */
+  .house-ad-bar {
+    gap: 12px;
+    min-height: 0;
+    padding: 12px 18px;
+  }
+  .house-ad-words {
+    min-width: 0;
+  }
+  .house-ad-half {
+    white-space: normal;
+  }
+  .house-ad-art,
+  .house-ad-eyebrow {
+    display: none;
+  }
+  .house-ad .button-primary.house-ad-cta {
+    min-height: 33px;
+    padding: 6px 10px;
+  }
 }
 
 /* Last, because it qualifies everything above it. The skeleton's own
@@ -4545,6 +5059,15 @@ polyline.chart-line {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+
+  /* The house ad's entrance, removed rather than shortened. `HouseAd` never
+     arms it under this preference, so this is for a preference turned on
+     after it was armed: the rule above leaves every delay in place, which
+     would hold the new accounts invisible and then snap them in. With no
+     animation the drawing is its finished self. */
+  .house-ad-moves {
+    animation: none !important;
   }
 }
 

@@ -385,8 +385,10 @@ billing** tab either. The rest of this section is for a deployment that does
 sell them.
 
 There are two plans, and only accounts and advertising set them apart. **Free**
-keeps three accounts usable at a time and may show an advertisement below the
-page. **Premium** keeps every account usable and shows none. Everything else in
+keeps three accounts usable at a time and may show an advertisement: below the
+page, or a bar across the foot of the window offering Premium, depending on what
+the deployment's operator chose. **Premium** keeps every account usable and
+shows none. Everything else in
 this guide — budgets, imports, reports, recurring transactions, the MCP server —
 is the same on both, because what you pay for is the use of every account, not
 a feature held back.

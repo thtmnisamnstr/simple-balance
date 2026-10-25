@@ -1,8 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
-import { reportNames } from "../../src/shared/domain.js";
+import { PLAN_LABELS, reportNames } from "../../src/shared/domain.js";
 import { todayIn } from "../../src/shared/recurrence-dates.js";
-import { answerPlanStatus, pagesToVisit, type Fill } from "./support/routes.js";
+import { answerHouseAd, answerPlanStatus, pagesToVisit, type Fill } from "./support/routes.js";
 
 /**
  * SC 2.5.8 Target Size (Minimum), level AA, measured by a layout engine.
@@ -30,6 +30,10 @@ import { answerPlanStatus, pagesToVisit, type Fill } from "./support/routes.js";
  * jsdom computes.
  *
  * Both widths, because a phone is where rows wrap and where spacing fails.
+ *
+ * With the house ad on every page but the plan tab, because it is in the shell
+ * under every page and its button is a target like any other. The tier has no
+ * Stripe and would never be shown it, so the session is told to show it.
  */
 
 const person = {
@@ -214,6 +218,22 @@ async function targets(page: Page): Promise<Target[]> {
  * Rounded to a tenth of a pixel before comparing, because a browser lays out in
  * fractions and 23.999 is not a defect anybody can see or anybody authored.
  */
+/**
+ * The house ad's one target, found by its words, and held to the size branch
+ * outright: it is a call to action on its own in a panel, with nothing near it
+ * to be spaced from, so a pass on spacing would only mean it had shrunk.
+ */
+function houseAdCta(found: readonly Target[], where: string) {
+  const cta = found.filter((target) => target.label.endsWith(`"Upgrade to ${PLAN_LABELS.plus}"`));
+  expect(cta, `${where} carries the house ad's button`).toHaveLength(1);
+  expect(cta[0]!.width, `${where}: the house ad's button is wide enough`).toBeGreaterThanOrEqual(
+    24,
+  );
+  expect(cta[0]!.height, `${where}: the house ad's button is tall enough`).toBeGreaterThanOrEqual(
+    24,
+  );
+}
+
 function failures(found: readonly Target[]): string[] {
   const small = found.filter((target) => target.width < 23.9 || target.height < 23.9);
   const reported: string[] = [];
@@ -247,6 +267,7 @@ test.describe("every target in a browser", () => {
   test("is 24 by 24, or spaced so its 24px circle meets no other", async ({ page }) => {
     test.setTimeout(300_000);
     await answerPlanStatus(page);
+    await answerHouseAd(page);
     await signUp(page);
     await seedOneRow(page);
     const pages = pagesToVisit(await seedDetails(page));
@@ -282,6 +303,8 @@ test.describe("every target in a browser", () => {
         ).toBeGreaterThan(2);
       }
       expect(failures(wide), `${url} at desktop width`).toEqual([]);
+      const advertised = pattern !== "/settings/plan";
+      if (advertised) houseAdCta(wide, `${url} at desktop width`);
 
       await page.setViewportSize({ width: 390, height: 844 });
       // Retried, because a resize is not laid out when `setViewportSize`
@@ -290,6 +313,7 @@ test.describe("every target in a browser", () => {
         const narrow = await targets(page);
         expect(narrow.length, `${url} has targets to measure at 390px`).toBeGreaterThan(8);
         expect(failures(narrow), `${url} at 390px`).toEqual([]);
+        if (advertised) houseAdCta(narrow, `${url} at 390px`);
       }).toPass();
       await page.setViewportSize({ width: 1280, height: 800 });
     }

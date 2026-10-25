@@ -149,6 +149,10 @@ x-app-config: &app-config
   ADSENSE_BANNER_SLOT_ID: ${ADSENSE_BANNER_SLOT_ID:-}
   ADSENSE_FOOTER_SLOT_ID: ${ADSENSE_FOOTER_SLOT_ID:-}
   ADSENSE_CONSENT_MANAGED: ${ADSENSE_CONSENT_MANAGED:-false}
+  # The house ad, this product's own advertisement for the paid plan. It loads
+  # nothing from anywhere, so unlike the AdSense ids above it changes no
+  # policy and the frontend is told nothing about it.
+  SB_HOUSE_AD: ${SB_HOUSE_AD:-false}
   # Optional, and linked from sign-in and every page whenever it is set;
   # required, as an absolute https:// address, the moment the AdSense ids are
   # set, and both processes refuse to start without it. This block once left it

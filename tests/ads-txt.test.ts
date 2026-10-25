@@ -56,4 +56,27 @@ describe("the authorized-sellers file", () => {
     // inventory.
     expect(await response.text()).not.toContain("f08c47fec0942fa0");
   });
+
+  /**
+   * The house ad is this product's own and loads nothing from anywhere, so a
+   * deployment showing only it has no inventory to authorize and no third party
+   * to open the policy for. Compared header for header with a deployment that
+   * advertises nothing at all, because "strict enough" is not a property a
+   * test can check and "the same as no ads" is.
+   */
+  it("does not exist, and widens nothing, on a deployment showing only the house ad", async () => {
+    delete process.env.SB_HOUSE_AD;
+    const plain = await (await freshApp(false)).request("http://localhost/ads.txt");
+    process.env.SB_HOUSE_AD = "true";
+    const server = await freshApp(false);
+    const response = await server.request("http://localhost/ads.txt");
+
+    expect(await response.text()).not.toContain("f08c47fec0942fa0");
+    const policy = response.headers.get("content-security-policy");
+    expect(policy).toBe(plain.headers.get("content-security-policy"));
+    expect(policy).toContain("script-src 'self';");
+    expect(policy).not.toContain("font-src");
+    expect(policy).not.toContain("frame-src");
+    expect(response.headers.get("referrer-policy")).toBe("same-origin");
+  });
 });
