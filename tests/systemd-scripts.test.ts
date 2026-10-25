@@ -928,10 +928,20 @@ describe("simple-balance-env, which builds the .env Compose reads", () => {
     /** The file the settings used to be typed into, which must not be read. */
     local?: string;
     env?: string;
+    /** Whether collector.yaml is on the machine, as every one built since it existed has it. */
+    collector?: boolean;
+    /** Whether compose.yml defines the collector, which every one since it existed does. */
+    composeCollector?: boolean;
   }) {
     const compose = mkdtempSync(path.join(tmpdir(), "sb-compose-"));
     const state = mkdtempSync(path.join(tmpdir(), "sb-state-"));
     dirs.push(compose, state);
+    if (parts.collector !== false) writeFileSync(path.join(compose, "collector.yaml"), "{}\n");
+    // As cloud-init writes it, comments gone and the services' indent kept.
+    writeFileSync(
+      path.join(compose, "compose.yml"),
+      `services:\n  app:\n    image: app\n${parts.composeCollector === false ? "" : "  collector:\n    image: otel\n"}`,
+    );
     if (parts.base !== undefined) writeFileSync(path.join(compose, "env.base"), parts.base);
     if (parts.db !== undefined) writeFileSync(path.join(compose, "env.db"), parts.db);
     if (parts.env !== undefined) writeFileSync(path.join(compose, ".env"), parts.env);
@@ -1136,6 +1146,125 @@ describe("simple-balance-env, which builds the .env Compose reads", () => {
     });
     expect(box.run().stderr).toBe("");
   });
+
+  /**
+   * Metrics export, which a stack turns on with one setting and Compose needs
+   * two more to act on: the profile that starts the collector, and the switch
+   * that gives it the application's figures. Derived here because neither can
+   * be said in the stack and Compose cannot derive the switch without
+   * rendering it empty, which the server refuses.
+   */
+  const DERIVED = "# --- derived from SB_METRICS_EXPORT_ENDPOINT ---\n";
+
+  it("derives the profile and METRICS_ENABLED from an export endpoint, after everything else", () => {
+    const box = machine({
+      base: "A=1\n",
+      secrets: "AUTH_SECRET=abc\n",
+      settings:
+        "SB_METRICS_EXPORT_ENDPOINT='https://otlp.nr-data.net'\n" +
+        `SB_METRICS_EXPORT_HEADERS='{"api-key":"x"}'\n`,
+    });
+    const result = box.run();
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(box.env()).toBe(
+      "A=1\nAUTH_SECRET=abc\n" +
+        "# --- the stack's settings, from the cloud's secret store ---\n" +
+        "SB_METRICS_EXPORT_ENDPOINT='https://otlp.nr-data.net'\n" +
+        `SB_METRICS_EXPORT_HEADERS='{"api-key":"x"}'\n` +
+        `${DERIVED}COMPOSE_PROFILES=metrics\nMETRICS_ENABLED=true\n`,
+    );
+    expect(statSync(path.join(box.compose, ".env")).mode & 0o777).toBe(0o600);
+  });
+
+  it("derives nothing without an endpoint, so a deployment that set nothing folds as it did", () => {
+    for (const settings of ["", "SB_METRICS_EXPORT_ENDPOINT=''\n", "METRICS_ENABLED='true'\n"]) {
+      const box = machine({ base: "A=1\n", secrets: "AUTH_SECRET=abc\n", settings });
+      const result = box.run();
+      expect(result.stderr, settings).toBe("");
+      expect(box.env(), settings).not.toContain("COMPOSE_PROFILES");
+      expect(box.env(), settings).not.toContain("derived from");
+    }
+  });
+
+  it("keeps a METRICS_ENABLED the stack chose, and says what an explicit false costs", () => {
+    const box = machine({
+      base: "A=1\n",
+      secrets: "AUTH_SECRET=abc\n",
+      settings: "SB_METRICS_EXPORT_ENDPOINT='https://otlp.nr-data.net'\nMETRICS_ENABLED='false'\n",
+    });
+    const result = box.run();
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain("METRICS_ENABLED is not true");
+    expect(box.env()).toContain(`${DERIVED}COMPOSE_PROFILES=metrics\n`);
+    expect(box.env().match(/^METRICS_ENABLED=.*$/gm)).toEqual(["METRICS_ENABLED='false'"]);
+
+    // And an explicit true, in any case, is the same as derived: nothing added.
+    const chosen = machine({
+      base: "A=1\n",
+      secrets: "AUTH_SECRET=abc\n",
+      settings: "SB_METRICS_EXPORT_ENDPOINT='https://otlp.nr-data.net'\nMETRICS_ENABLED='True'\n",
+    });
+    expect(chosen.run().stderr).toBe("");
+    expect(chosen.env().match(/^METRICS_ENABLED=.*$/gm)).toEqual(["METRICS_ENABLED='True'"]);
+  });
+
+  it("derives nothing while collector.yaml is missing, and says so, rather than failing the start", () => {
+    // A machine whose files were only partly brought up to date. The profile
+    // on would bind a file that is not there and refuse the whole `up`, so an
+    // export endpoint would stop the application as well as the collector.
+    const box = machine({
+      base: "A=1\n",
+      secrets: "AUTH_SECRET=abc\n",
+      settings: "SB_METRICS_EXPORT_ENDPOINT='https://otlp.nr-data.net'\n",
+      collector: false,
+    });
+    const result = box.run();
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain(`${box.compose} has no collector.yaml`);
+    expect(box.env()).not.toContain("COMPOSE_PROFILES");
+    expect(box.env()).not.toContain("METRICS_ENABLED");
+    expect(box.env()).not.toContain("derived from");
+
+    // And the same machine once the file is there derives as any other.
+    writeFileSync(path.join(box.compose, "collector.yaml"), "{}\n");
+    expect(box.run().stderr).toBe("");
+    expect(box.env()).toContain(`${DERIVED}COMPOSE_PROFILES=metrics\nMETRICS_ENABLED=true\n`);
+  });
+
+  it("derives nothing over a compose.yml from before the collector, though collector.yaml came", () => {
+    // The other half of a partial upgrade. The profile on over a compose.yml
+    // that does not define the service is a project Compose refuses, and
+    // METRICS_ENABLED=true beside a Caddyfile that old would publish /metrics.
+    const box = machine({
+      base: "A=1\n",
+      secrets: "AUTH_SECRET=abc\n",
+      settings: "SB_METRICS_EXPORT_ENDPOINT='https://otlp.nr-data.net'\n",
+      composeCollector: false,
+    });
+    const result = box.run();
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain("or a compose.yml with no collector, so no collector starts");
+    expect(box.env()).not.toContain("COMPOSE_PROFILES");
+    expect(box.env()).not.toContain("METRICS_ENABLED");
+  });
+
+  it("leaves a COMPOSE_PROFILES the machine was given as it is", () => {
+    // Whoever wrote it decided which profiles run; the fold adds the metrics
+    // profile only to a file that names none.
+    for (const profiles of ["debug", "debug,metrics"]) {
+      const box = machine({
+        base: `A=1\nCOMPOSE_PROFILES=${profiles}\n`,
+        secrets: "AUTH_SECRET=abc\n",
+        settings: "SB_METRICS_EXPORT_ENDPOINT='https://otlp.nr-data.net'\n",
+      });
+      expect(box.run().stderr, profiles).toBe("");
+      expect(box.env().match(/^COMPOSE_PROFILES=.*$/gm), profiles).toEqual([
+        `COMPOSE_PROFILES=${profiles}`,
+      ]);
+      expect(box.env(), profiles).toContain(`${DERIVED}METRICS_ENABLED=true\n`);
+    }
+  });
 });
 
 describe("the database machine's first-boot script", () => {
@@ -1227,6 +1356,57 @@ describe("the database machine's first-boot script", () => {
     expect(code).toMatch(/chown "\$SB_POSTGRES_UID:\$SB_POSTGRES_GID" "\$SB_PGDATA_DIR"/);
     expect(code).toMatch(/chown "\$SB_POSTGRES_UID:\$SB_POSTGRES_GID" "\$tls\/server\.key"/);
     expect(code).toMatch(/chmod 0600 "\$tls\/server\.key"/);
+  });
+
+  it("gives node-exporter its own copy of the key, owned by the uid it runs as", () => {
+    // A copy, because PostgreSQL's key cannot take a second reader: owned by
+    // the database user it must be 0600, and an ACL reads to PostgreSQL as the
+    // group access it refuses. So the original keeps its shape exactly, and
+    // the exporter reads a file of its own.
+    expect(code).toMatch(/chown "\$SB_POSTGRES_UID:\$SB_POSTGRES_GID" "\$tls\/server\.key"/);
+    expect(code).toMatch(/chmod 0600 "\$tls\/server\.key"/);
+    const uid = /^SB_EXPORTER_UID=(\d+)$/m.exec(code)?.[1];
+    expect(uid, "the script names the exporter's uid").toBeDefined();
+    // The uid compose.postgres.yml runs node-exporter as, which the copy is
+    // useless without: the same number, written twice and held here.
+    const compose = read("deploy/compose/single/compose.postgres.yml");
+    const service = compose.slice(compose.indexOf("\n  node-exporter:\n"));
+    expect(service, "compose.postgres.yml runs a node-exporter").not.toBe(compose);
+    expect(/^ {4}user: "(\d+):(\d+)"$/m.exec(service)?.slice(1)).toEqual([uid, uid]);
+    // Neither of the two numbers that would have needed no copy. 999 is
+    // PostgreSQL's, and node-exporter mounts the host's root, so as 999 it could
+    // read the cluster; 65534 is nobody, every unprivileged daemon's fallback,
+    // and a key it owned would be readable by all of them.
+    expect(uid).not.toBe("999");
+    expect(uid).not.toBe("65534");
+    // Below systemd's dynamic users, which start at 61184, and above anything
+    // useradd hands out, which stops at 60000.
+    expect(Number(uid)).toBeGreaterThan(60_000);
+    expect(Number(uid)).toBeLessThan(61_184);
+
+    const stanza =
+      /\nif \[ -f "\$tls\/server\.key" \] && \[ -f "\$tls\/server\.crt" \]; then\n([\s\S]*?)\nfi\n/.exec(
+        code,
+      );
+    expect(stanza, "the copy is made only when both halves are there").not.toBeNull();
+    expect(stanza![1]).toContain(
+      'install -d -o "$SB_EXPORTER_UID" -g "$SB_EXPORTER_UID" -m 0700 "$exporter_tls"',
+    );
+    expect(stanza![1]).toContain(
+      'install -o "$SB_EXPORTER_UID" -g "$SB_EXPORTER_UID" -m 0600 "$tls/server.key" "$exporter_tls/server.key"',
+    );
+    expect(stanza![1]).toContain(
+      'install -o root -g root -m 0644 "$tls/server.crt" "$exporter_tls/server.crt"',
+    );
+    // Where compose.postgres.yml mounts it from, beside the compose file.
+    expect(code).toContain('exporter_tls="$SB_COMPOSE_DIR/node-exporter-tls"');
+    expect(service).toContain("source: ./node-exporter-tls\n");
+    // Made on every run and before the deployment starts, so the rotation the
+    // machine's header describes — replace the two files, run this script —
+    // replaces the copy too.
+    expect(code.indexOf("$exporter_tls/server.key")).toBeLessThan(
+      code.lastIndexOf("systemctl restart simple-balance.service"),
+    );
   });
 
   it("builds .env with the same script a restart runs, not a copy of it", () => {
@@ -1350,18 +1530,29 @@ describe("the path of the database's CA certificate", () => {
   it("is mounted into the application at the path it has on the host, read-only", () => {
     // The whole of the overlay, so a source that differs from its target, a
     // mount that can be written, or one Docker would make when it is missing
-    // each fail here by name.
+    // each fail here by name. The collector takes the same directory for the
+    // database machine's node-exporter, behind its profile, and names the file
+    // only when there is a database machine to check against it.
+    const mount = [
+      "    volumes:",
+      "      - type: bind",
+      `        source: ${DIR}`,
+      `        target: ${DIR}`,
+      "        read_only: true",
+      "        bind:",
+      "          create_host_path: false",
+    ];
     expect(code(read("deploy/compose/single/compose.db-tls.yml"))).toBe(
       [
         "services:",
         "  app:",
-        "    volumes:",
-        "      - type: bind",
-        `        source: ${DIR}`,
-        `        target: ${DIR}`,
-        "        read_only: true",
-        "        bind:",
-        "          create_host_path: false",
+        ...mount,
+        "",
+        "  collector:",
+        '    profiles: ["metrics"]',
+        "    environment:",
+        `      SB_METRICS_DATABASE_CA_FILE: \${SB_METRICS_DATABASE_TARGET:+${DIR}/db-ca.pem}`,
+        ...mount,
         "",
       ].join("\n"),
     );
@@ -1373,7 +1564,10 @@ describe("the path of the database's CA certificate", () => {
     // DATABASE_URL says. In compose.yml, that was every such deployment.
     const compose = code(read("deploy/compose/single/compose.yml"));
     expect(compose).not.toContain(DIR);
-    const app = compose.slice(compose.indexOf("\n  app:\n"));
+    const from = compose.indexOf("\n  app:\n");
+    const next = compose.slice(from + 1).search(/\n {2}[a-z-]+:\n/);
+    const app = compose.slice(from, next === -1 ? undefined : from + 1 + next);
+    expect(app).toContain("    image: ghcr.io/thtmnisamnstr/simple-balance:");
     expect(app).not.toMatch(/^ {4}volumes:/m);
   });
 
@@ -1492,6 +1686,36 @@ describe("the units", () => {
    * path nothing had told the operator to create. Nothing starts: not the
    * application, not Caddy, and on the database machine not PostgreSQL.
    */
+  /**
+   * Turning export on is the one start that has to pull an image, and it runs
+   * unattended, five minutes after `pulumi up`. In one `up`, a registry that
+   * did not answer refused the whole project after ExecStop had removed the
+   * application, and nothing retried a failed oneshot. So the books come up on
+   * their own first, waited for, and only the second `up`, which adds the
+   * metrics profile, is allowed to fail.
+   */
+  it("starts the books before the metrics, and lets only the metrics fail", () => {
+    const starts = read("deploy/systemd/simple-balance.service")
+      .split("\n")
+      .filter((line) => line.startsWith("ExecStart="));
+    expect(starts).toEqual([
+      "ExecStart=/usr/bin/env COMPOSE_PROFILES= /usr/bin/docker compose up -d --wait",
+      "ExecStart=-/usr/bin/docker compose up -d --wait",
+    ]);
+    // `metrics` is the only profile the books' first `up` leaves out, so it has
+    // to be the only one there is.
+    for (const file of [
+      "deploy/compose/single/compose.yml",
+      "deploy/compose/single/compose.postgres.yml",
+      "deploy/compose/single/compose.caddy.yml",
+      "deploy/compose/single/compose.db-tls.yml",
+    ]) {
+      for (const [, profiles] of read(file).matchAll(/^\s+profiles: (.*)$/gm)) {
+        expect(profiles, file).toBe('["metrics"]');
+      }
+    }
+  });
+
   it("installs every program it runs, in both of its own install recipes", () => {
     const unit = read("deploy/systemd/simple-balance.service");
     const header = unit.slice(0, unit.indexOf("[Unit]"));

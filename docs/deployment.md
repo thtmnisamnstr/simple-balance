@@ -74,8 +74,8 @@ than warning about.
 | `RECURRENCE_CATCH_UP_LIMIT` | `50` | Most occurrences one recurrence catches up in one tick. Nothing is dropped; a tick that hits the cap comes straight back rather than waiting out the interval. Ceiling 500. |
 | `RECURRENCE_CLAIM_LIMIT` | `500` | Most recurrences examined in one tick. Ceiling 5000. |
 | `IDEMPOTENCY_RETENTION_HOURS` | `0`, meaning forever | How long a used idempotency key keeps replaying. Every create, commit and bulk write stores a copy of its response so a retried request answers the same way twice; nothing prunes those copies unless you set this, and on a busy deployment the table outgrows the ledger. Zero, unset or empty all mean keep everything, which is what every release before this one did. A window is safe because the record makes a retry *quiet* rather than safe: a repeated create still meets the duplicate check, a repeated commit finds its rows already committed, and a repeated bulk write carries a count and fingerprint that no longer match. Ceiling 8760, one year. Needs `RECURRENCE_SCHEDULER` on somewhere, since the sweep rides its tick. |
-| `METRICS_ENABLED` | `false` | Whether this process answers `GET /metrics` in Prometheus' text format. Off unless you ask for it. |
-| `METRICS_TOKEN` | unset | A bearer token `GET /metrics` demands before it answers. Optional; unset means anybody who can reach the port can scrape it. It is a secret, so it also takes a `METRICS_TOKEN_FILE`; see below. |
+| `METRICS_ENABLED` | `false` | Whether this process answers `GET /metrics` in Prometheus' text format, at exactly that path. Off unless you ask for it — or unless the metrics collector is turned on where something derives it: a machine one of the single-machine programs built, the chart, and the cluster programs. By hand it is set beside the collector; see [metrics](#metrics). |
+| `METRICS_TOKEN` | unset | A bearer token `GET /metrics` demands before it answers, and the one the metrics collector sends. Optional; unset means anybody who can reach the port can scrape it. It is a secret, so it also takes a `METRICS_TOKEN_FILE`; see below. |
 | `SB_CSP_REPORT_ONLY` | `false` | Rehearses the plan and billing tab's content security policy instead of enforcing it: that page reports what would have been blocked and blocks nothing, and `POST /api/csp-report` is registered for the reports. Every other page goes on enforcing, and that includes every page that can carry an ad, so this rehearses nothing about advertising: an ad the policy refuses shows up as a content security policy violation in the browser's console, on a page showing one. For the hour after turning billing on; the process warns at every start while it is set. In the split deployment set it on the frontend container too — nginx serves that document, so its copy is the one that decides. |
 
 `CSV_MAX_BYTES`, `CSV_MAX_ROWS`, `DATABASE_POOL_SIZE`,
@@ -749,11 +749,19 @@ Terminate TLS at the proxy and forward the original scheme and host.
 
 ```caddyfile
 simple-balance.example.com {
+  # Metrics are for a scraper on the machine, never for the site's address.
+  @metrics path /metrics /metrics/*
+  respond @metrics 404
   reverse_proxy 127.0.0.1:3000
 }
 ```
 
 ```nginx
+# Metrics are for a scraper on the machine, never for the site's address.
+location = /metrics {
+    return 404;
+}
+
 location / {
     # nginx defaults to 1 MiB, which refuses CSV imports this document
     # advertises at up to 10 MB. See SB_MAX_UPLOAD_SIZE below for the sizing.
@@ -780,6 +788,13 @@ location / {
 Caddy needs neither line: it streams by default and does not time a slow
 response out. The frontend image's own nginx already sets both
 (`deploy/docker/nginx.conf.template`).
+
+The `/metrics` refusal matters only with `METRICS_ENABLED` on, and then it is
+the difference between numbers for a scraper and numbers for anybody. Both
+proxies match it after decoding the path and folding repeated slashes, so
+`/%6detrics` and `//metrics` are refused with it, and the application answers
+nothing at a path that only resolves to `/metrics` whatever is in front of it.
+A 404 rather than a 403, because "forbidden" says there is something to find.
 
 Then set `TRUST_PROXY=true`. Sign-in attempts are counted per client address,
 and with this off that address is the far end of the connection, which behind a
@@ -912,7 +927,9 @@ error, so it says so in one line at startup instead. Given them, it opens a
 connection to the relay at startup and logs the address it will be sending as,
 or logs the refusal and goes on proposing. Those two lines are the difference
 between a scheduler that is working and one that was never handed the settings,
-which otherwise look identical. The chart and the compose file both hand it the
+which otherwise look identical; with metrics on,
+`simple_balance_dependency_up{dependency="smtp"}` says the same as a number,
+and is absent where no relay was given. The chart and the compose file both hand it the
 same configuration the API gets, so neither needs anything extra; a deployment
 assembled by hand does. It runs one entrypoint of its own and always ticks: the
 `RECURRENCE_SCHEDULER` flag decides whether the API replicas tick too, and a pod
@@ -1033,12 +1050,19 @@ process that never came up rather than one answering `503`.
 
 Point your orchestrator at readiness.
 
+Both processes count every check they answer, as
+`simple_balance_readiness_checks_total` and `simple_balance_ready`, and run one
+as they start listening; a scrape never asks the database anything to report
+them.
+
 A process with the scheduler switched off is not an unhealthy one, so readiness
 says nothing about it. What tells you the scheduler has stopped is the Recurring
 page: a recurrence past its due date with nothing proposed means whatever runs
 the schedule is not running. Reminders give no such signal — an email that never
 arrived looks like an email nobody sent — so the Recurring page is the one place
-to look for both.
+in the product to look for both. With metrics on, the scheduler says it too:
+[what to alert on](#the-scheduler) has the two rules, one for nothing running it
+and one for a sweep that has stopped finishing.
 
 On `SIGTERM` the process stops accepting connections, closes the HTTP server,
 and drains the database pool before exiting.
@@ -1056,6 +1080,13 @@ reports requests, MCP tool calls, ledger writes and its connection pool, and the
 scheduler reports ticks, proposals, reminders and mail. Scraping only the API
 watches the process that does none of the scheduled work.
 
+It answers that exact path and nothing that only resolves to it. A request for
+`/api/..\metrics` is a 404, as though there were no such route, and that is a
+fix rather than a nicety: the frontend nginx reads a backslash as an ordinary
+character and proxied that request as an `/api` path, so in 0.2.1 a deployment
+behind it with metrics on and no token served its numbers to anybody who typed
+the address.
+
 Nothing in a metric names a person. No label carries a user, an email, an
 account or an amount, and a path with an id in it is counted under the route
 pattern rather than the path, so `/api/v1/accounts/{id}` is one series and not
@@ -1068,11 +1099,18 @@ So `METRICS_TOKEN` is there when the port is reachable by anything you do not
 control. Set it, and the endpoint answers only a request carrying
 `Authorization: Bearer <token>`; leave it unset behind a private network and
 `kubernetes-pods` style discovery scrapes it with no configuration at all. Set
-it in production without one and the startup log says so once. The bundled
-frontend nginx does **not** proxy `/metrics`: a scrape goes to the API service
-directly, so the browser's hostname never exposes it.
+it in production without one and the startup log says so once. Neither proxy
+this project ships passes `/metrics` on: the frontend nginx has no such
+location, and the `single` profile's Caddyfile answers it 404 before it proxies
+anything — which it did not do in 0.2.1, so there too metrics on and no token
+published them. A proxy of your own wants the same refusal, and
+[the reverse proxy section](#reverse-proxy) has it for both.
 
-A Prometheus job for the two containers, with a token:
+There are two ways to read it. Point a Prometheus you already run at it, with
+the job below; or turn on [the collector](#the-collector) every profile here can
+run, which scrapes it and sends the result to New Relic or to anything else that
+takes OTLP or Prometheus remote write. A Prometheus job for the two containers,
+with a token:
 
 ```yaml
 scrape_configs:
@@ -1085,37 +1123,606 @@ scrape_configs:
 
 Every name starts `simple_balance_`, the runtime's included: heap, event-loop
 lag and garbage collection arrive as `simple_balance_process_*` and
-`simple_balance_nodejs_*`, because `prom-client`'s default set is collected under
-the same prefix rather than beside it. `simple_balance_build_info` carries the
-version as a label, so a scrape says which build produced it. Every series carries `component="api"` or
-`component="scheduler"`, so a split deployment can tell the two apart and a
-single container reports both under `api`.
+`simple_balance_nodejs_*`, because `prom-client`'s default set is collected
+under the same prefix rather than beside it. `simple_balance_build_info` carries
+the version as a label, so a scrape says which build produced it. Every series
+carries `component="api"` or `component="scheduler"`, so a split deployment can
+tell the two apart and a single container reports both under `api` — [which
+process a series comes from](#which-process-a-series-comes-from) says what that
+does to an alert.
 
-Five things are worth alerting on, and they are the ones that fail silently
-today:
+### The collector
 
-- `simple_balance_db_pool_connections{state="waiting"}` above zero for more than
-  a moment. A request waiting there has already been admitted and is queued
-  behind somebody else's transaction, which is what `DATABASE_POOL_SIZE` being
-  too small looks like from outside.
-- `simple_balance_scheduler_ticks_total{outcome="failed"}` increasing. A tick
-  that throws is caught and the next one is armed, so nothing stops and nothing
-  gets proposed.
-- The absence of `simple_balance_scheduler_ticks_total` altogether, on a
-  deployment that expects a schedule. That is `RECURRENCE_SCHEDULER` off
-  everywhere, which is the one misconfiguration whose symptom is a year of
-  missing rent.
-- `simple_balance_mail_messages_total{outcome="failed"}` increasing, or
-  `{outcome="skipped"}` on a deployment that thinks it has a mail server.
-- `simple_balance_build_info` changing, or disagreeing between the API and the
-  scheduler. A split deployment upgraded halfway is two versions against one
-  database, which is the state the schema contract is written for and the one
-  nobody notices without asking.
+One OpenTelemetry Collector per deployment, off unless asked for. It scrapes the
+application's `/metrics` with its token, the machine it runs on through
+node-exporter, and itself, and sends all of it to one backend over OTLP or
+Prometheus remote write. Which backend is settings and nothing else, so moving
+from New Relic to Grafana Cloud is two values and a restart.
 
-The migration counters are the exception: a startup migration that fails takes
-the process down before it serves anything, so nothing is ever scraped with
-`outcome="failed"` on it. Readiness is what tells you, and the counters are for
-reading afterward — how long the wait for the lock was on a rolling deploy.
+It is the core distribution, `otel/opentelemetry-collector:0.162.0`, pinned by
+tag and digest, and it was chosen over Prometheus in agent mode because it
+measured lighter: scraping the same series, 51.7 MiB resident against 72.3, and
+0.75% of a core against 1.46% ([what it costs](#what-it-costs)). It keeps
+nothing: no volume, no write-ahead log, a queue in memory and no more, a
+read-only root filesystem and no capabilities. A restart loses at most the batch
+it was holding. node-exporter is the other half, one per machine in the Compose
+shapes, mounting the host's root read-only and serving nothing past the machine.
+
+**The application does not use OpenTelemetry, and that is a decision rather than
+a gap.** It instruments itself with `prom-client` and serves the Prometheus text
+format; the collector is what speaks OTLP, from outside the process. Do not
+replace one with the other on the way to a backend that wants OTLP — this
+already sends it — and
+[architecture](architecture.md#metrics-and-why-the-process-does-not-speak-otlp)
+has the reason the SDK stays out.
+
+#### Turning it on
+
+**The `single` profile, installed by hand.** Four lines in the application
+machine's `.env`, which go together. The last is the credential, which a backend
+that needs none goes without:
+
+```sh
+COMPOSE_PROFILES=metrics
+METRICS_ENABLED=true
+SB_METRICS_EXPORT_ENDPOINT=https://otlp.nr-data.net
+SB_METRICS_EXPORT_HEADERS='{"api-key":"<your New Relic ingest license key>"}'
+```
+
+then `docker compose up -d --wait`. The profile is what starts the collector and
+node-exporter; `METRICS_ENABLED` is what gives the collector the application's
+own figures, and Compose cannot derive it from the endpoint without rendering it
+empty when neither is set, which the application refuses. Left off, the
+collector sends the machine's figures and none of the application's. The
+database machine's node-exporter is a step of its own, taken on that machine —
+[`deploy/compose/single/README.md`](../deploy/compose/single/README.md#metrics)
+has it — and `SB_METRICS_DATABASE_TARGET` then names it here. On an AWS or
+Oracle Cloud machine, keep the collector and node-exporter off the instance
+metadata address first, for the reason
+[`deployment-profiles.md`](deployment-profiles.md#the-firewall) gives, and keep
+the rule across a reboot however that machine keeps its firewall — on Oracle's
+image, `sudo netfilter-persistent save` after it:
+
+```sh
+sudo iptables -I OUTPUT -d 169.254.169.254 -m owner --uid-owner 10000-65534 -j REJECT
+```
+
+**The `single` profile, built by `aws-single` or `oci-single`.** Two settings in
+the stack and a `pulumi up`:
+
+```sh
+pulumi config set --path 'simple-balance:env.SB_METRICS_EXPORT_ENDPOINT' https://otlp.nr-data.net
+pulumi config set --secret --path 'simple-balance:secrets.SB_METRICS_EXPORT_HEADERS'
+# {"api-key":"<your New Relic ingest license key>"}, typed at the prompt
+pulumi up
+```
+
+The machine derives the profile and `METRICS_ENABLED=true` itself, the program
+names its own database node as the target and opens 9100 to it from the
+application node alone, and the settings timer restarts the deployment onto the
+collector within about five minutes. A stack whose machines were built before
+this release needs files on both machines first, because `pulumi up` never
+rewrites a running machine;
+[`upgrades.md`](upgrades.md#before-you-upgrade-to-022) has them, and
+[`deploy/pulumi/README.md`](../deploy/pulumi/README.md#exporting-metrics) the
+rest.
+
+**The split recipe, `compose.distributed.yml`.** The same four lines in
+`deploy/compose/.env`, then `docker compose -f
+deploy/compose/compose.distributed.yml up -d --wait`.
+
+**The Helm chart.** `collector.enabled`, an endpoint, and the credential in a
+Secret of its own:
+
+```sh
+kubectl -n simple-balance create secret generic simple-balance-metrics-export \
+  --from-literal=SB_METRICS_EXPORT_HEADERS='{"api-key":"<license key>"}'
+helm upgrade --install simple-balance deploy/helm/simple-balance \
+  --reset-then-reuse-values \
+  --set collector.enabled=true \
+  --set collector.export.endpoint=https://otlp.nr-data.net \
+  --set collector.export.existingSecret=simple-balance-metrics-export
+```
+
+The chart turns `METRICS_ENABLED` on with the collector, and the collector needs
+naming in no NetworkPolicy; [its
+README](../deploy/helm/simple-balance/README.md#the-collector-this-chart-can-run)
+has the values and why `--reuse-values` is refused here.
+
+**The cluster programs, `aws`, `gcp` and `oci`.** The same two `pulumi config`
+lines as the single-machine programs. The program puts the headers in a Secret
+only the collector reads, turns the chart's collector on, and the API and the
+scheduler roll once, because `METRICS_ENABLED` changes under them.
+
+Turning it off is the endpoint coming out of the stack, or out of `.env`. By
+hand, `docker compose --profile metrics down` first: a `down` that does not name
+the profile leaves that profile's containers running. On the database machine
+it is `docker compose rm --stop --force node-exporter`, never a `down`, which
+would take PostgreSQL with it.
+
+#### Its settings
+
+The collector's, not the application's: neither process reads them.
+`COMPOSE_PROFILES` is Compose's own and is not here either.
+
+| Variable | What it does |
+| --- | --- |
+| `SB_METRICS_EXPORT_ENDPOINT` | Where everything goes. Unset means off. For OTLP a base URL, to which the exporter adds `/v1/metrics` itself: New Relic's is `https://otlp.nr-data.net`, or `https://otlp.eu01.nr-data.net` in the EU. For remote write the whole write URL. `http://` or `https://` and a host; the Pulumi programs and the chart refuse anything else before it reaches a machine. On the chart, `collector.export.endpoint`. |
+| `SB_METRICS_EXPORT_PROTOCOL` | Unset means `otlp`, which is OTLP over HTTP, protobuf, gzipped. The other value is `prometheus_remote_write`. Anything else is a refusal at the collector's start naming `forward/<value>`, and a refusal at plan time or render time before that. On the chart, `collector.export.protocol`. |
+| `SB_METRICS_EXPORT_HEADERS` | The backend's credential, as a JSON object of header names to values: `{"api-key":"<license key>"}`. A secret: in `simple-balance:secrets` on a stack, single-quoted in a `.env` so a `$` in it survives Compose, and on the chart either `collector.export.headers` or a Secret named in `collector.export.existingSecret`. Never in the Secret the API and the scheduler read, because every key of that one is in their environment. Unset sends no headers. |
+| `SB_METRICS_SCRAPE_INTERVAL` | How often, in minutes and seconds: unset means `30s`, and `1m30s` is how a longer one is written. Always under five minutes, for New Relic's reason [below](#sending-to-new-relic). The Pulumi programs and the chart refuse `5m` or more; Compose does not check. On the chart, `collector.scrapeInterval`. |
+| `SB_METRICS_ENVIRONMENT` | `deployment.environment.name` on every series, which is what tells two deployments apart in one account. Unset means `production`. On the chart, `collector.environment`. |
+| `SB_METRICS_DATABASE_TARGET` | The `single` profile's database machine, as `host:9100`, scraped over TLS and checked against the CA `compose.db-tls.yml` mounts, so the host has to be one the database's certificate names — the host in `DATABASE_URL`, or the machine's private address. The single-machine programs set it themselves for a database node they built, and refuse it from the stack then; with `databaseNode: false` it is yours to name or to leave unset, which scrapes nothing there. The cluster programs refuse it. |
+
+`METRICS_TOKEN` is read by the collector as well as by the application, and sent
+as a bearer token on every scrape of the application.
+
+### Sending to New Relic
+
+New Relic is the backend this was designed around, and it is two values. No
+real New Relic account has received any of it yet — `docs/acceptance.md`
+carries that as outstanding — so the first export is also the first check, and
+step 4 is how to make it.
+
+1. **The key is the license key**, the one New Relic's API keys page lists as
+   `INGEST - LICENSE`. Its OTLP documentation asks for that key in particular,
+   and not a User key, which starts `NRAK-`.
+2. **The endpoint is regional.** `https://otlp.nr-data.net` in the US,
+   `https://otlp.eu01.nr-data.net` in the EU. Port 443 takes OTLP over HTTP,
+   which is what this sends and what New Relic recommends across the public
+   internet.
+3. **The key travels in an `api-key` header**, so the headers setting is
+   `{"api-key":"<license key>"}`.
+4. **Check it arrived**, after one scrape interval, in New Relic's query
+   builder: every target should read 1.
+
+   ```sql
+   FROM Metric SELECT latest(up) FACET service.name, service.instance.id SINCE 10 minutes ago
+   ```
+
+**Remote write is the alternative**, for a reason of your own:
+`SB_METRICS_EXPORT_PROTOCOL=prometheus_remote_write`, the endpoint
+`https://metric-api.newrelic.com/prometheus/v1/write?prometheus_server=simple-balance`
+— `metric-api.eu.newrelic.com` in the EU — and the same key as a bearer token,
+`{"Authorization":"Bearer <license key>"}`. `prometheus_server` becomes an
+attribute on every point, which is how New Relic tells two remote-write sources
+apart.
+
+**OTLP is the default for two reasons, and a third that holds less than it
+sounds.** A histogram arrives as New Relic's `distribution` type, so
+`percentile()` and `histogram()` work on it directly; over remote write the same
+histogram arrives as one `count` series per bucket and a `summary` for its sum,
+which NRQL cannot take a percentile of. And it is about a quarter of the bytes:
+the collector sent 1.1 MB of OTLP in twelve minutes where Prometheus sent 4.8 MB
+by remote write, scraping the same 3,700 series every fifteen seconds (October
+24, 2026). The third is reset detection. New Relic tells a counter that
+restarted from one that went wrong by the start time an OTLP point carries; the
+collector's Prometheus receiver stopped setting one in 0.142, and the processor
+that adds it back is only in the contrib distribution. So a restart reads as it
+does over remote write — the counter drops, New Relic takes the drop as a reset,
+and the rate carries on — and New Relic may record the drop as an integration
+error, which after a restart is expected rather than a fault. Not observed
+against an account.
+
+**Why the interval stays under five minutes.** New Relic turns a cumulative
+counter into a rate by remembering the last value of each series, and it forgets
+a series that has been silent for five minutes: the next point is treated as the
+series beginning again, and the increase across the gap is lost. Thirty seconds
+leaves room for several missed scrapes. Two minutes is about as long as is safe,
+because one failed scrape at two minutes is four minutes of silence.
+
+**What New Relic calls each thing.** The collector's Prometheus receiver turns a
+scrape job into `service.name` and the address it scraped into
+`service.instance.id`, and New Relic makes an OpenTelemetry service entity per
+`service.name`:
+
+| Profile | `service.name` |
+| --- | --- |
+| `single` | `simple-balance` (the API and the scheduler, one process), `node`, `node-database`, `collector` |
+| `compose.distributed.yml` | `simple-balance-api`, `simple-balance-scheduler`, `node`, `collector` |
+| The chart | `simple-balance-api`, `simple-balance-scheduler`, `collector`, with a `pod` attribute on the first two |
+
+Every point also carries `deployment.environment.name`. Two deployments sending
+to one account arrive under the same entity names, so set
+`SB_METRICS_ENVIRONMENT` differently on each and filter on it. The collector's
+own series are `otelcol_*`, and over OTLP they have no `_total` suffix — 0.152
+dropped it — where remote write adds it back.
+
+Counters arrive as `cumulativeCount`, which `sum()` reads as the increase over
+the window, so `rate(sum(simple_balance_http_requests_total), 1 minute)` is
+requests a minute. Histograms arrive as `distribution`, gauges as `gauge`. The
+NRQL below is written for that, which is to say for OTLP.
+
+### Sending somewhere else
+
+The same two settings, and the protocol where it is not OTLP. The collector
+appends `/v1/metrics` to an OTLP endpoint, which is why some of these end
+where they do.
+
+| Backend | `SB_METRICS_EXPORT_PROTOCOL` | `SB_METRICS_EXPORT_ENDPOINT` | `SB_METRICS_EXPORT_HEADERS` |
+| --- | --- | --- | --- |
+| New Relic | `otlp` | `https://otlp.nr-data.net` | `{"api-key":"<license key>"}` |
+| New Relic, remote write | `prometheus_remote_write` | `https://metric-api.newrelic.com/prometheus/v1/write?prometheus_server=simple-balance` | `{"Authorization":"Bearer <license key>"}` |
+| Grafana Cloud | `otlp` | `https://otlp-gateway-<region>.grafana.net/otlp` | `{"Authorization":"Basic <base64 of instance id:token>"}` |
+| Grafana Mimir, your own | `otlp` | `http://<mimir>/otlp` | none, or `{"X-Scope-OrgID":"<tenant>"}` where it is multi-tenant |
+| Prometheus, your own | `prometheus_remote_write` | `http://<prometheus>:9090/api/v1/write`, with `--web.enable-remote-write-receiver` | none |
+| VictoriaMetrics | `otlp` | `http://<victoriametrics>:8428/opentelemetry` | none |
+| Honeycomb | `otlp` | `https://api.honeycomb.io`, or `https://api.eu1.honeycomb.io` | `{"x-honeycomb-team":"<key>","x-honeycomb-dataset":"<dataset>"}` |
+| Chronosphere | `otlp` | `https://<tenant>.chronosphere.io/data/opentelemetry` | `{"API-Token":"<token>"}` |
+| SigNoz Cloud | `otlp` | `https://ingest.<region>.signoz.cloud:443` | `{"signoz-ingestion-key":"<key>"}` |
+| Elastic Cloud | `otlp` | The managed OTLP endpoint its console shows | `{"Authorization":"ApiKey <key>"}` |
+
+Each row is from that vendor's own documentation, read on October 24, 2026.
+What has actually been sent to is a Prometheus and a plain OTLP receiver, each
+checked for the headers it was handed — not New Relic, and not any other row
+here. Mimir's tenant header is the one detail its page did not confirm.
+
+**A few are not settings alone, and it is better to know before choosing one.**
+
+- **Datadog and Dynatrace** accept delta temporality only, and drop the
+  cumulative counters and histograms a Prometheus scrape produces. They need the
+  `cumulative_to_delta` processor in the pipeline, which is in the contrib
+  distribution and not in the core one this runs.
+- **Amazon Managed Service for Prometheus** takes remote write signed with
+  SigV4, which is the `sigv4auth` extension — contrib again.
+- **Google Cloud's managed Prometheus**, over `telemetry.googleapis.com`, wants
+  the `googleclientauth` extension — contrib — and Google's guide adds the
+  `metric_start_time` processor beside it.
+- **Splunk Observability** takes OTLP at `/v2/datapoint/otlp` rather than at
+  `/v1/metrics`, which is a `metrics_endpoint` line in the exporter rather than
+  a different image.
+
+For the first three, swap the image for contrib — the same version, built by the
+same project, `otel/opentelemetry-collector-contrib:0.162.0`, whose digest on
+October 24, 2026 was
+`sha256:39923a8e431bd1f57be82411999d389fcfe40857492e4365456d97a4c1f74be6` — in
+the `collector` service's `image:` line, or in the chart's `collector.image`
+values, and add the component to that deployment's copy of `collector.yaml` or
+the chart's ConfigMap template. Both are edits to a file this project ships, so
+they are yours to carry through an upgrade. Contrib measured 79.6 MiB where core
+measured 51.7, which is still inside the 128 MiB the container is given and
+nearer to it.
+
+### What is scraped, and what is not
+
+| Profile | Job | What it reads |
+| --- | --- | --- |
+| `single` | `simple-balance` | The application, at the loopback port `compose.yml` publishes it on, with the token |
+| `single` | `node` | The application machine: CPU, memory, load, pressure, filesystems, disks and its own network interfaces |
+| `single` | `node-database` | The database machine's node-exporter, over the private network and TLS, checked against the database's own CA. Only when `SB_METRICS_DATABASE_TARGET` names it |
+| `compose.distributed.yml` | `simple-balance-api` | Every `server` container, each a target of its own by DNS |
+| `compose.distributed.yml` | `simple-balance-scheduler` | Both `scheduler` replicas, the same way |
+| `compose.distributed.yml` | `node` | The machine, with no network figures, because node-exporter there sits on the recipe's network rather than the host's and would report its own one interface as the machine's |
+| The chart | `simple-balance-api`, `simple-balance-scheduler` | Every API and scheduler pod of this release, found by watching pods in its own namespace and nothing wider |
+| Every shape | `collector` | Itself: what it accepted, refused and sent, its queue and its memory, at `127.0.0.1:8888` |
+
+**Not scraped, on purpose.** The edge — Caddy, the frontend nginx, the cloud's
+load balancer — because what reaches the application is already counted by the
+application, by route, status and duration, and an edge's own figures would mean
+another listener for a question already answered from the inside. PostgreSQL,
+Patroni and Citus, because the application's pool is its view of the database —
+how long a connection takes to get, how long a transaction holds it, how many
+are waiting — and the database's own metrics would need a monitoring role and an
+exporter or the contrib distribution. Kubernetes nodes, kubelet and the
+cluster's own objects, which EKS, GKE and OKE already measure in their own
+monitoring. The `single` profile's database machine *is* scraped for its disk,
+memory and CPU, because there the machine is this project's and nothing else is
+watching it. Each is the owner's decision rather than an omission, and adding
+one is a job of your own in `collector.yaml`.
+
+### Which process a series comes from
+
+The scheduler runs in a different process depending on the profile, and every
+series it writes carries the `component` of the process it runs in:
+
+| Profile | Where the scheduler runs | Its series carry |
+| --- | --- | --- |
+| A single container, or `single` | Inside the API process | `component="api"`, and on `single` the job `simple-balance` |
+| `compose.distributed.yml` | Two `scheduler` containers | `component="scheduler"` |
+| The chart | The scheduler Deployment | `component="scheduler"` |
+
+So an alert on a scheduler series written against `component="scheduler"`
+never fires on `single`, and one written against `component="api"` fires on
+`single` and nowhere else.
+`simple_balance_scheduler_enabled` is the series written for exactly this: it is
+1 in whichever processes run the schedule and 0 in the rest, so its sum across a
+deployment is the answer on every profile. The alerts below aggregate
+`component` away for the same reason.
+
+### What it costs
+
+Measured on October 24, 2026 on Docker Desktop for arm64, which runs containers
+in a Linux VM; a cloud machine has fewer cores and disks for node-exporter to
+report and will read lower.
+
+| | Memory | CPU |
+| --- | --- | --- |
+| The collector, scraping about 3,700 series every fifteen seconds for ten minutes | 51.7 MiB at the median | 0.75% of a core, on average |
+| Prometheus 3.13 in agent mode, the same series | 72.3 MiB | 1.46% |
+| The collector, contrib distribution, the same series | 79.6 MiB | 0.71% |
+| The collector on the `single` profile, every job every fifteen seconds, OTLP | 42.8 MiB, 49 MiB at peak | 0.36% |
+| The same, remote write | 43.2 MiB | 2.06% |
+| node-exporter, the application machine | 11.3 MiB | 1% or less |
+| node-exporter, the database machine, serving TLS | 32 MiB, of which 21 is page cache the kernel can reclaim; 41 MiB at peak | 1% or less |
+| The collector in a Kubernetes cluster, two API and two scheduler pods | 31 MiB working set | about 0.003 of a core |
+
+Every container is limited: the collector to 128 MiB, with `GOMEMLIMIT=80MiB`
+and its memory limiter refusing data above 80 MiB of heap and collecting hard at
+100, node-exporter to 48 MiB with
+`GOMEMLIMIT=38MiB`, and on the chart the collector requests 64Mi and 10m and is
+limited to 128Mi and 200m. On the `single` profile all of it fits beside the
+application on the machine it already has, so turning it on adds no machine and
+no line to the bill; [`deployment-costs.md`](deployment-costs.md#metrics) has
+the egress and what New Relic's free tier makes of the volume.
+
+### What to alert on
+
+Profile-agnostic, so one set of rules serves every shape. Each PromQL rule
+aggregates away the labels that differ between profiles — `component`,
+`instance`, and `pod` where the chart adds one — with `sum without` for a count
+and `max without` or `min without` for a reading, and where a figure lives in
+one process on one profile and another on the next, `job` goes too. A label that
+is absent costs nothing to aggregate away. The PromQL is written for the labels
+remote write produces; the NRQL for OTLP into New Relic, where a query sums
+across everything it does not `FACET`, which is the same aggregation by default.
+Thresholds are starting points rather than readings from a production fleet.
+
+None of these rules has run against a live backend yet. The metric names are
+checked against the source and against a real scrape, and the NRQL against New
+Relic's documentation of how OTLP data is stored and queried. Four queries lean
+on functions that documentation does not show on metric data —
+`aggregationendtime()`, `derivative()` and `uniqueCount()` of a label — and each
+of those is marked where it appears.
+
+#### Down
+
+Every target the collector scrapes reports `up`, and the application's own
+readiness is `simple_balance_ready`, 1 when its last check reached the database.
+Neither can say the collector itself has stopped, because then nothing arrives
+at all: that is a loss-of-signal condition in New Relic, and an outside check of
+`/health/ready` at the public address is the one alert that does not depend on
+the collector or on anything inside the deployment.
+
+```promql
+up{job=~"simple-balance.*|node.*|collector"} == 0                    # for 5m
+simple_balance_ready == 0                                            # for 5m
+absent_over_time(up{job="collector"}[10m])
+sum without (component, instance, pod) (rate(otelcol_exporter_send_failed_metric_points_total[15m])) > 0
+```
+
+```sql
+FROM Metric SELECT latest(up) FACET service.name, service.instance.id   -- below 1 for 5 minutes
+FROM Metric SELECT latest(simple_balance_ready) FACET service.instance.id   -- below 1 for 5 minutes
+FROM Metric SELECT count(up) WHERE service.name = 'collector'   -- loss of signal after 10 minutes
+```
+
+The outside check is a New Relic synthetic monitor, or any uptime service, on
+`https://<your host>/health/ready`, which both proxies pass through.
+
+#### Restarts
+
+```promql
+changes(simple_balance_process_start_time_seconds[1h]) > 2   # more than two in an hour is a crash loop
+```
+
+```sql
+FROM Metric SELECT max(simple_balance_process_start_time_seconds) - min(simple_balance_process_start_time_seconds)
+FACET service.instance.id SINCE 1 hour ago   -- above 0 is a restart inside the hour
+```
+
+On the chart a replaced pod is a new instance rather than a restarted one, so
+the cluster's own count of container restarts is the better reading there.
+
+#### Errors
+
+A 5xx share, and an internal-error share, both leaving out the health probes
+and the scrape, which would otherwise be most of an idle deployment's traffic.
+`simple_balance_internal_errors_total` is the one to page on: it counts failures
+nobody meant on every surface — a streamed commit that failed after its 200, an
+MCP tool that failed inside a JSON-RPC reply, an auth task in the background —
+and never a refusal the caller can act on. It misses one: a tool whose result
+fails its own output schema, which the MCP SDK raises after the tool has
+returned, so it reads as `outcome="tool_error"` on
+`simple_balance_mcp_requests_total` beside an `ok` on
+`simple_balance_mcp_tool_calls_total`.
+
+```promql
+sum without (component, instance, pod, method, route, status) (
+  rate(simple_balance_http_requests_total{status=~"5..", route!~"/health/.*|/metrics"}[5m]))
+/ sum without (component, instance, pod, method, route, status) (
+  rate(simple_balance_http_requests_total{route!~"/health/.*|/metrics"}[5m]))
+> 0.01
+
+sum without (component, instance, pod, surface) (rate(simple_balance_internal_errors_total[5m]))
+/ sum without (component, instance, pod, method, route, status) (
+  rate(simple_balance_http_requests_total{route!~"/health/.*|/metrics"}[5m]))
+> 0.001
+```
+
+```sql
+FROM Metric SELECT filter(sum(simple_balance_http_requests_total), WHERE status LIKE '5%') * 100
+  / sum(simple_balance_http_requests_total)
+WHERE route NOT LIKE '/health/%' AND route != '/metrics'   -- above 1 for 10 minutes
+
+FROM Metric SELECT sum(simple_balance_internal_errors_total) * 100
+  / filter(sum(simple_balance_http_requests_total), WHERE route NOT LIKE '/health/%' AND route != '/metrics')
+  -- above 0.1 for 10 minutes
+```
+
+#### Latency
+
+From the histogram's buckets, leaving out the probes, the scrape, the shell
+page, and the two streamed writes — a commit and a CSV stage, which take as long
+as the rows they carry and would otherwise be the 95th percentile on their own.
+The capacity run answered its busiest hour at 130 ms.
+
+```promql
+histogram_quantile(0.95,
+  sum without (component, instance, pod, method, route) (
+    rate(simple_balance_http_request_duration_seconds_bucket{
+      route!~"/health/.*|/metrics|spa_shell|/api/v1/staged-transactions/commit|/api/v1/csv/stage"}[5m])))
+> 1
+```
+
+```sql
+FROM Metric SELECT percentile(simple_balance_http_request_duration_seconds, 95)
+WHERE route NOT LIKE '/health/%'
+  AND route NOT IN ('/metrics', 'spa_shell', '/api/v1/staged-transactions/commit', '/api/v1/csv/stage')
+  -- above 1 for 10 minutes
+```
+
+New Relic interpolates within a bucket the way `histogram_quantile` does, so
+either figure is an estimate between two bucket bounds.
+
+#### Saturation
+
+Requests in flight, the pool, the event loop and memory. `in_flight` counts the
+scrape that reads it, so an idle API reads 1. A request waiting for a pool
+connection has already been admitted and is queued behind somebody else's
+transaction, which is what `DATABASE_POOL_SIZE` being too small looks like from
+outside, and the acquire histogram sees every such wait where the gauge sees
+only the ones in progress at a scrape.
+
+```promql
+max without (component, instance, pod) (simple_balance_http_requests_in_flight) > 20     # for 10m
+max without (component, instance, pod) (simple_balance_db_pool_connections{state="waiting"}) > 0   # for 5m
+histogram_quantile(0.95, sum without (component, instance, pod) (
+  rate(simple_balance_db_pool_acquire_duration_seconds_bucket[5m]))) > 0.1
+sum without (component, instance, pod) (increase(simple_balance_db_pool_errors_total[15m])) > 0
+max without (component, instance, pod) (simple_balance_nodejs_eventloop_lag_p99_seconds) > 0.2   # for 10m
+predict_linear(simple_balance_process_resident_memory_bytes[6h], 24 * 3600) > 1024 * 1024 * 1024
+```
+
+```sql
+FROM Metric SELECT max(simple_balance_http_requests_in_flight)   -- above 20 for 10 minutes
+FROM Metric SELECT max(simple_balance_db_pool_connections) WHERE state = 'waiting'   -- above 0 for 5 minutes
+FROM Metric SELECT percentile(simple_balance_db_pool_acquire_duration_seconds, 95)   -- above 0.1
+FROM Metric SELECT sum(simple_balance_db_pool_errors_total)   -- above 0
+FROM Metric SELECT max(simple_balance_nodejs_eventloop_lag_p99_seconds)   -- above 0.2 for 10 minutes
+FROM Metric SELECT derivative(simple_balance_process_resident_memory_bytes, 1 hour)
+FACET service.instance.id SINCE 6 hours ago   -- not run against an account
+```
+
+The memory ceiling is the chart's 1 GiB limit for the API; the `single`
+profile's application has no container limit, so there the machine's own
+memory alert below is the one that matters.
+
+#### The scheduler
+
+Whether anything runs it, and whether each of its four sweeps — recurrences,
+reminders, idempotency and billing — has finished lately. A sweep switched off
+still counts as finished, so a deployment that sells nothing is not a stuck
+billing sweep; one that threw leaves its last timestamp where it was, and the
+gap grows. `simple_balance_scheduler_tick_interval_seconds` publishes the
+interval, so the rule is three intervals whatever `RECURRENCE_TICK_SECONDS`
+says.
+
+```promql
+sum without (component, instance, pod, job) (simple_balance_scheduler_enabled) == 0
+time() - max without (component, instance, pod, job) (simple_balance_scheduler_last_success_timestamp_seconds)
+  > 3 * scalar(max(simple_balance_scheduler_tick_interval_seconds))
+sum without (component, instance, pod, job) (increase(simple_balance_scheduler_ticks_total{outcome="failed"}[1h])) > 0
+```
+
+```sql
+FROM Metric SELECT max(simple_balance_scheduler_enabled)   -- below 1: nothing runs the schedule
+FROM Metric SELECT aggregationendtime() / 1000 - max(simple_balance_scheduler_last_success_timestamp_seconds)
+FACET sweep   -- above 900, three of the default 300-second ticks; not run against an account
+FROM Metric SELECT filter(sum(simple_balance_scheduler_ticks_total), WHERE outcome = 'failed')   -- above 0
+```
+
+In NRQL `max` across every process is the same question as the PromQL sum: 1
+anywhere means something runs the schedule.
+
+#### Dependencies
+
+Mail, Stripe and the webhook. `simple_balance_dependency_up` is 1 when the last
+check a process made of a dependency passed and 0 when it failed, and absent for
+a dependency the deployment does not use — no relay configured is a supported
+deployment, not a broken one. `smtp` and `stripe_access` are checked as the
+process starts, so a relay fixed since then still reads 0 until a restart, and
+`mail_messages_total` is where to read whether mail is going out;
+`stripe_prices` follows every price check the process makes. A failed Stripe
+request says why: `api` and `connection` are Stripe, `authentication` and
+`permission` are this deployment's key. A webhook delivery whose signature did
+not verify is either a webhook secret that is wrong or somebody probing the
+one public route whose body an unauthenticated caller writes, and a billing
+sweep that counts `written` has repaired what a webhook should have done.
+
+```promql
+min without (component, instance, pod) (simple_balance_dependency_up) == 0
+sum without (component, instance, pod) (increase(simple_balance_mail_messages_total{outcome="failed"}[1h])) > 0
+sum without (component, instance, pod, operation) (
+  increase(simple_balance_stripe_request_failures_total{reason=~"api|connection|authentication|permission|approval_required"}[30m])) > 0
+sum without (component, instance, pod) (
+  increase(simple_balance_billing_webhook_deliveries_total{outcome="signature_refused"}[1h])) > 0
+sum without (component, instance, pod, job) (increase(simple_balance_billing_sweeps_total{outcome="written"}[1d])) > 0
+```
+
+```sql
+FROM Metric SELECT min(simple_balance_dependency_up) FACET dependency   -- below 1
+FROM Metric SELECT filter(sum(simple_balance_mail_messages_total), WHERE outcome = 'failed')   -- above 0
+FROM Metric SELECT sum(simple_balance_stripe_request_failures_total)
+WHERE reason IN ('api', 'connection', 'authentication', 'permission', 'approval_required') FACET reason
+FROM Metric SELECT sum(simple_balance_billing_webhook_deliveries_total) FACET outcome
+FROM Metric SELECT filter(sum(simple_balance_billing_sweeps_total), WHERE outcome = 'written') SINCE 1 day ago
+```
+
+`outcome="skipped"` on `mail_messages_total` is a message with no relay to send
+it, which is right on a deployment without mail and a misconfiguration on one
+that thinks it has some.
+
+#### Version skew
+
+`simple_balance_build_info` is 1, with the version as a label. Two versions at
+once is a split deployment upgraded halfway, two versions against one database,
+which is the state the schema contract is written for and the one nobody notices
+without asking.
+
+```promql
+count without (version) (count without (component, instance, pod, job) (simple_balance_build_info)) > 1
+```
+
+```sql
+FROM Metric SELECT uniqueCount(version) WHERE metricName = 'simple_balance_build_info'
+  -- above 1; not run against an account
+```
+
+#### The machines
+
+From node-exporter, on each machine the Compose shapes run: space left, memory
+left, the OOM killer, and CPU busy, stolen or making work wait. The data volume
+fills with dumps on the application machine and with the ledger on the database
+machine, which is why space is also predicted rather than only measured.
+
+```promql
+node_filesystem_avail_bytes / node_filesystem_size_bytes < 0.1
+predict_linear(node_filesystem_avail_bytes[6h], 24 * 3600) < 0
+node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.1
+increase(node_vmstat_oom_kill[1h]) > 0
+1 - avg without (cpu, mode) (rate(node_cpu_seconds_total{mode="idle"}[5m])) > 0.9   # for 15m
+avg without (cpu, mode) (rate(node_cpu_seconds_total{mode="steal"}[5m])) > 0.1
+rate(node_pressure_cpu_waiting_seconds_total[5m]) > 0.2
+```
+
+```sql
+FROM Metric SELECT latest(node_filesystem_avail_bytes) / latest(node_filesystem_size_bytes)
+FACET service.name, mountpoint   -- below 0.1
+FROM Metric SELECT latest(node_memory_MemAvailable_bytes) / latest(node_memory_MemTotal_bytes)
+FACET service.name   -- below 0.1
+FROM Metric SELECT max(node_vmstat_oom_kill) - min(node_vmstat_oom_kill) FACET service.name   -- above 0
+FROM Metric SELECT 1 - filter(rate(sum(node_cpu_seconds_total), 1 second), WHERE mode = 'idle') / uniqueCount(cpu)
+WHERE metricName = 'node_cpu_seconds_total' FACET service.name   -- above 0.9; not run against an account
+```
+
+`node_vmstat_oom_kill` is a gauge over OTLP rather than a counter, because
+node-exporter publishes it untyped, hence the difference rather than a `sum`.
+
+The migration counters are not on this list on purpose: a startup migration
+that fails takes the process down before it serves anything, so nothing is
+ever scraped with `outcome="failed"` on it. Readiness is what tells you, and the
+counters are for reading afterward — how long the wait for the lock was on a
+rolling deploy.
 
 ## Backups
 

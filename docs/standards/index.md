@@ -119,7 +119,7 @@ plausible wrong line.
 | [`mcp.md`](mcp.md) | The agent surface: tools, schemas, descriptions, errors, scope, context cost. |
 | [`http.md`](http.md) | `/api/v1` as a public contract: resources, bodies, errors, pagination, versioning. |
 | [`csv.md`](csv.md) | The import and export format, and what makes a round trip lossless. |
-| [`operations.md`](operations.md) | Mail, configuration, and everything an operator runs: the images this project publishes, the two machines of the `single` profile, and the Helm chart at its two shapes. |
+| [`operations.md`](operations.md) | Mail, configuration, and everything an operator runs: the images this project publishes, the two machines of the `single` profile, the Helm chart at its two shapes, and the metrics collector any of them can run. |
 | [`writing.md`](writing.md) | Documentation, the changelog, decisions, the README. |
 | [`code/`](code/index.md) | The source itself: eight guides, plus the toolchain the whole repository is checked with. |
 | `docs/product/` | **Governed, not governing.** This repository's published description of itself, which the marketing site at smpl.money reads. `writing.md` for its shape and cadence; `AGENTS.md` for its contract. |
@@ -166,7 +166,7 @@ branch: the exception used to cover a one-command trial alone, and now covers a
 production machine as well. The `single` profile's database runs the official
 `postgres` entrypoint, which starts as root to chown PGDATA before dropping
 privilege, so that service declares no `user`, no `read_only` and no `cap_drop`
-(`deploy/compose/single/compose.postgres.yml:248-253`). Two misses, two guides,
+(`deploy/compose/single/compose.postgres.yml:250-255`). Two misses, two guides,
 two shapes, and the table making both claims linked to neither.
 
 **The obvious alternative is to let each guide record its own miss**, which is

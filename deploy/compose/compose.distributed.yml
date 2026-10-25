@@ -3,7 +3,7 @@
 # proxies everything the API owns; and the recurrence scheduler. It is the shape
 # deploy/helm/simple-balance/ deploys, on one machine and without Kubernetes.
 #
-#   cp deploy/compose/.env.example deploy/compose/.env
+#   install -m 0600 deploy/compose/.env.example deploy/compose/.env
 #   docker compose -f deploy/compose/compose.distributed.yml up -d --build
 #
 # One container is still the supported way to run this; see docs/deployment.md.
@@ -130,7 +130,9 @@ x-app-config: &app-config
   # reports requests and ledger writes, the scheduler reports ticks, proposals
   # and mail. Neither port is published to the host by this file and the
   # frontend does not proxy /metrics, so a scraper has to be on this network —
-  # which is why METRICS_TOKEN is optional here.
+  # which is why METRICS_TOKEN is optional here. The `collector` service at
+  # the bottom of this file is that scraper, and it sends the token when there
+  # is one.
   METRICS_ENABLED: ${METRICS_ENABLED:-false}
   # Monetization, off unless an operator sets it. The boolean carries a real
   # default rather than `:-` because an empty string is not `true` or `false`
@@ -436,6 +438,98 @@ services:
       # against an empty database this waits behind every migration too.
       start_period: 300s
       retries: 5
+
+  # ---------------------------------------------------------------- metrics ---
+  #
+  # The two services below start only with the `metrics` profile, and without
+  # it this file runs exactly the four it ran before they existed. To turn
+  # them on, set COMPOSE_PROFILES=metrics, METRICS_ENABLED=true and
+  # SB_METRICS_EXPORT_ENDPOINT in .env; .env.example has the block. All three,
+  # because Compose cannot derive the second from the third — `:+true` nested
+  # in METRICS_ENABLED's default renders empty with neither set, and both
+  # processes refuse an empty one — and with METRICS_ENABLED off the collector
+  # sends the machine's figures and none of the application's, saying so only
+  # in its own log. Turning them off is `docker compose --profile metrics down`
+  # before the profile leaves .env: a `down` that does not name a profile
+  # leaves that profile's containers running.
+  #
+  # The collector is the `single` profile's, pointed at this shape;
+  # collector.distributed.yaml says what it scrapes, and the Helm chart runs a
+  # third copy of the same pipeline.
+  collector:
+    # The core distribution, pinned by tag and by digest: the same image the
+    # `single` profile runs, and deploy/compose/single/compose.yml has why.
+    image: otel/opentelemetry-collector:0.162.0@sha256:310a800ad69ee430e7c541796852a242c9c7db97aaad4daa5ccf843c525fbdb2
+    profiles: ["metrics"]
+    restart: unless-stopped
+    environment:
+      SB_METRICS_EXPORT_ENDPOINT: ${SB_METRICS_EXPORT_ENDPOINT:-}
+      SB_METRICS_EXPORT_PROTOCOL: ${SB_METRICS_EXPORT_PROTOCOL:-otlp}
+      SB_METRICS_EXPORT_HEADERS: ${SB_METRICS_EXPORT_HEADERS:-}
+      SB_METRICS_SCRAPE_INTERVAL: ${SB_METRICS_SCRAPE_INTERVAL:-30s}
+      SB_METRICS_ENVIRONMENT: ${SB_METRICS_ENVIRONMENT:-production}
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+      GOMEMLIMIT: 80MiB
+    volumes:
+      - type: bind
+        source: ./collector.distributed.yaml
+        target: /etc/otelcol/config.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+    # No ports. It reaches the server and the scheduler on this network, which
+    # is the only way to them, and it sends outward; nothing has to reach it.
+    user: "10001:10001"
+    <<: *hardening
+    read_only: true
+    mem_limit: 128m
+    # This file sets no logging elsewhere, and the two services it bundles for
+    # a trial are the ones that run for as long as somebody leaves it up, so
+    # these two keep the `single` profile's rotation.
+    logging: &metrics-logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  node-exporter:
+    image: prom/node-exporter:v1.12.1@sha256:1b4e4438faca4dd7e001dd445d161a4a2091b0fededa84093b3a8dfeae1f1be0
+    profiles: ["metrics"]
+    restart: unless-stopped
+    # deploy/compose/single/compose.yml argues each collector. The differences
+    # here are two, and both come from staying on this network, where the
+    # collector can reach it: no netdev, because inside a network namespace of
+    # its own it would report this container's one interface as the
+    # machine's; and the default listener, which no port mapping publishes.
+    command:
+      - --path.rootfs=/host
+      - --path.udev.data=/host/run/udev/data
+      - --web.disable-exporter-metrics
+      - --collector.disable-defaults
+      - --collector.cpu
+      - --collector.meminfo
+      - --collector.loadavg
+      - --collector.pressure
+      - --collector.vmstat
+      - --collector.stat
+      - --collector.uname
+      - --collector.time
+      - --collector.filesystem
+      - --collector.filesystem.fs-types-include=^(ext[234]|xfs|btrfs)$$
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run|etc)($$|/)
+      - --collector.diskstats
+    environment:
+      GOMEMLIMIT: 38MiB
+    volumes:
+      - type: bind
+        source: /
+        target: /host
+        read_only: true
+    user: "65534:65534"
+    <<: *hardening
+    read_only: true
+    mem_limit: 48m
+    logging: *metrics-logging
 
 volumes:
   postgres-data:

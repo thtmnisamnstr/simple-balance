@@ -5,9 +5,9 @@ keeping.
 
 | Tier | Files | Runs with | Needs |
 | --- | --- | --- | --- |
-| Unit (node) | 208 | `npm test` | nothing |
+| Unit (node) | 219 | `npm test` | nothing |
 | Unit (jsdom) | 63 | `npm test` | nothing |
-| Integration | 80 | `npm test` **or** `npm run test:integration` | PostgreSQL |
+| Integration | 82 | `npm test` **or** `npm run test:integration` | PostgreSQL |
 | Browser | 7 | `npm run test:browser` | PostgreSQL, Chromium |
 
 **`npm test` collects the integration tier too**, which surprises people and is
@@ -23,15 +23,15 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 273 pass, 78 skip | **2,966 pass, 907 skip** |
-| `npm test`, database set | 351 pass | **3,873 pass** |
-| `npm run test:integration` | 80 pass | 910 pass |
+| `npm test`, no database | 284 pass, 80 skip | **3,188 pass, 918 skip** |
+| `npm test`, database set | 364 pass | **4,106 pass** |
+| `npm run test:integration` | 82 pass | 921 pass |
 
-The integration tier reports 910 tests on its own and 907 skips inside a
+The integration tier reports 921 tests on its own and 918 skips inside a
 database-less `npm test`, and the three-test difference is not an error: three
 cases in that tier need no database and so run either way. They are counted
-among the 2,966 rather than among the skips, which is why the two rows add up
-to 3,873 both times.
+among the 3,188 rather than among the skips, which is why the two rows add up
+to 4,106 both times.
 
 The third row is three tests larger than the first row's skip count, and the
 odd ones out are worth knowing. `bulk-transactions-mcp.integration.test.ts` has
@@ -42,7 +42,7 @@ question about the router rather than about a ledger. All three run on every
 `npm test`, database or not, and that file therefore counts as passing rather
 than skipped in the first row.
 
-The first row is what CI and `npm run verify` see, and 2,966 is the number that
+The first row is what CI and `npm run verify` see, and 3,188 is the number that
 actually gates a change by default. The second is what a developer with a local
 PostgreSQL sees, and it is strictly better. Reporting the second as though it
 were the first overstates what the gate covers, which is a mistake worth naming
@@ -397,7 +397,7 @@ There is no general check of the population half either, and the reason is worth
 stating rather than leaving as an absence. Every sweep that discovers one does
 assert it today, in one of two shapes: a floor with a named member where the
 tree is expected to grow, and an exact list where it is not —
-`tests/transport-database-access.test.ts:132` names the two transports outright,
+`tests/transport-database-access.test.ts:127` names the two transports outright,
 and `tests/forecast-boundary.test.ts:48` names everything allowed to import the
 forecast. A grep that knew only the first shape would call both of those silent,
 and a rule that fires on a correct test is a rule people turn off. Which shape a

@@ -5,7 +5,7 @@ import {
   oAuthProtectedResourceMetadata,
   withMcpAuth,
 } from "better-auth/plugins";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { Hono, type Context, type Handler } from "hono";
 import { getCookie } from "hono/cookie";
 import { secureHeaders } from "hono/secure-headers";
@@ -56,13 +56,26 @@ import {
 } from "./http-security.js";
 import { handleMcpRequest } from "./mcp.js";
 import {
+  AUTH_ROUTES,
+  authRequests,
   billingWebhookDeliveries,
+  CSP_DIRECTIVES,
+  cspViolations,
   httpDuration,
   httpRequests,
+  httpRequestsAborted,
+  httpRequestsInFlight,
+  internalErrors,
+  rateLimited,
   setMetricsComponent,
   startDefaultMetrics,
+  type AuthOutcome,
+  type AuthRoute,
+  type CspDirective,
+  type InternalErrorSurface,
 } from "./metrics.js";
 import { serveMetrics } from "./metrics-route.js";
+import { answerReadiness } from "./readiness.js";
 import { runAsBootstrapClaim } from "./registration-context.js";
 import { APP_VERSION } from "../shared/version.js";
 import { acceptsFrames, streamProgress } from "./stream.js";
@@ -217,6 +230,17 @@ type Variables = {
    * sub-millisecond 200.
    */
   streamSettled?: Promise<void>;
+  /**
+   * Set where the browser app is served, once it has answered: the shell, or
+   * a file at the bundle's root beside it.
+   *
+   * Both answer under `/*`, the same as middleware mounted on everything and
+   * the same as a path nothing matched, so the matched pattern alone cannot
+   * say that this request was a page load. Set only after a file went out, so
+   * a request the bundle had nothing for is counted as what it then is: a
+   * path that matched nothing.
+   */
+  servedShell?: true;
 };
 
 type AppEnv = { Variables: Variables };
@@ -280,6 +304,7 @@ startDefaultMetrics();
  */
 app.use("*", async (c, next) => {
   const stop = httpDuration.startTimer();
+  httpRequestsInFlight.inc();
   const startedAt = Date.now();
   // Deferred rather than awaited, and that distinction is the whole of it. A
   // streamed route hands its response back before a byte of it is written, and
@@ -287,9 +312,20 @@ app.use("*", async (c, next) => {
   // until the last frame, which is the one thing the stream exists to avoid.
   // So the measurement waits and the response does not.
   const record = () => {
+    // First, and here rather than beside the `inc` in a `finally` of its own:
+    // this is the one place that runs exactly once per request and, for a
+    // stream, only after the last frame. Anything later in this function
+    // throwing would otherwise leave the request in flight forever, and a
+    // gauge that only climbs reads as load nobody is generating.
+    httpRequestsInFlight.dec();
     const labels = { method: c.req.method, route: routeLabel(c) };
     stop(labels);
     httpRequests.inc({ ...labels, status: String(c.res.status) });
+    // Read now, before the adapter writes a byte of an ordinary response, so
+    // what this counts is a caller who left while the handler was still
+    // working — a proxy that gave up, a closed tab — and never one whose
+    // connection dropped after a complete answer was already on its way.
+    if (c.req.raw.signal.aborted) httpRequestsAborted.inc({ route: labels.route });
     // The one line that says a request happened, in the channel that is on by
     // default. `/metrics` answers only where a deployment asked for it, and an
     // aggregate cannot answer "what did that browser just do" anyway.
@@ -326,17 +362,89 @@ app.use("*", async (c, next) => {
  * `*` before any route ran — which is where a 413 from the body limit lands.
  * Labeling both "unmatched" put a refused CSV upload in the same series as a
  * typo, so the prefix decides between them, from a fixed list.
+ *
+ * And it is `/*` a third time where the single container serves the browser
+ * app: the shell for every page path, and the icon and theme script beside
+ * it at the bundle's root, `/` among them. Those are the browser app loading
+ * rather than a miss, and on a deployment serving its own pages they were
+ * most of what `unmatched` counted, beside the requests nothing answered at
+ * all. They are `spa_shell` instead, which leaves `unmatched` meaning what it
+ * says: a method no route takes, or a refusal before any route ran. A GET for
+ * a page that does not exist is still `spa_shell`, because the shell answers
+ * it and the browser app, not this process, is what knows its pages. After
+ * the prefixes rather than before them, so a
+ * stale link to a hashed asset that the shell answered is still counted as
+ * the asset request it was, as it always has been. The split deployment never
+ * reaches any of it: nginx serves the browser app there, and this process
+ * never sees a page load at all.
  */
 const KNOWN_PREFIXES = ["api", "mcp", "health", ".well-known", "metrics", "assets"] as const;
 
-function routeLabel(c: Context) {
+function routeLabel(c: Context<AppEnv>) {
   const matched = c.req.routePath;
   if (matched !== "/*") return matched;
   const prefix = c.req.path.split("/")[1] ?? "";
-  return KNOWN_PREFIXES.includes(prefix as (typeof KNOWN_PREFIXES)[number])
-    ? `/${prefix}/*`
-    : "unmatched";
+  if (KNOWN_PREFIXES.includes(prefix as (typeof KNOWN_PREFIXES)[number])) return `/${prefix}/*`;
+  return c.get("servedShell") ? "spa_shell" : "unmatched";
 }
+
+/**
+ * The `AUTH_ROUTES` entry a request path belongs to, or the catch-all's own
+ * pattern when it is none of them.
+ *
+ * Matched segment by segment rather than by prefix, so `/api/auth/callback/:id`
+ * takes any provider name and nothing longer, and a parameter takes exactly
+ * one segment and never an empty one. What arrives is the caller's path and
+ * may be anything at all — the reset link puts a token in it — and what leaves
+ * is always one of a fixed list, so neither a token nor a probe for paths that
+ * do not exist can become a series.
+ */
+const AUTH_ROUTE_SEGMENTS = AUTH_ROUTES.filter((route) => route !== "/api/auth/*").map(
+  (route) => [route, route.split("/")] as const,
+);
+
+function authRouteLabel(path: string): AuthRoute {
+  const segments = path.split("/");
+  const found = AUTH_ROUTE_SEGMENTS.find(
+    ([, pattern]) =>
+      pattern.length === segments.length &&
+      pattern.every((part, index) =>
+        part.startsWith(":") ? segments[index] !== "" : part === segments[index],
+      ),
+  );
+  return found?.[0] ?? "/api/auth/*";
+}
+
+/** The status class an auth answer fell in, with a 429 apart from the other refusals. */
+function authOutcome(status: number): AuthOutcome {
+  if (status >= 500) return "error";
+  if (status === 429) return "rate_limited";
+  if (status >= 400) return "refused";
+  if (status >= 300) return "redirected";
+  return "ok";
+}
+
+/**
+ * Every request under `/api/auth`, by the endpoint it named and how it ended.
+ *
+ * Mounted here, above the body limit and the auth routes' own guards, for the
+ * reason the timing middleware is mounted above everything: a sign-in refused
+ * for its size or its origin is still a sign-in somebody attempted, and a wave
+ * of them is what this exists to show. Counted after `next()`, from the status
+ * that went out, and never in a Better Auth database hook — a hook sees a
+ * sign-up that may still roll back, and runs on the one connection the sign-up
+ * transaction holds.
+ */
+app.use("/api/auth/*", async (c, next) => {
+  await next();
+  const { status } = c.res;
+  authRequests.inc({ route: authRouteLabel(c.req.path), outcome: authOutcome(status) });
+  // Better Auth's limiter is the only thing under this prefix that sets
+  // `X-Retry-After`. The setup code's limiter sets the standard header alone
+  // and is counted where it refuses, so the non-standard header is what tells
+  // the two 429s apart without either having to know about the other.
+  if (status === 429 && c.res.headers.has("X-Retry-After")) rateLimited.inc({ limiter: "auth" });
+});
 
 // Registered only when it was asked for, so a deployment that never set
 // `METRICS_ENABLED` has no such route rather than a route that refuses.
@@ -366,8 +474,16 @@ app.use("*", async (context, next) => {
  * `error` frame instead. Both renderings come from here so the code, the
  * sentence and the details cannot drift apart between them — the same reason
  * the two transports share a service rather than a shape.
+ *
+ * `surface` says which of the two this is, for the one branch that counts. A
+ * failed stream is a 200 in `http_requests_total`, so without the name an
+ * internal error there would land in the same series as a 500 and the two
+ * could not be told apart by anybody asking which kind of request is failing.
  */
-export function errorEnvelope(error: unknown): { envelope: ApiErrorEnvelope; status: number } {
+export function errorEnvelope(
+  error: unknown,
+  surface: Extract<InternalErrorSurface, "http" | "stream">,
+): { envelope: ApiErrorEnvelope; status: number } {
   if (error instanceof TransportError) {
     return {
       envelope: { error: { code: error.code, message: error.message } },
@@ -416,6 +532,10 @@ export function errorEnvelope(error: unknown): { envelope: ApiErrorEnvelope; sta
   // holding the rule while the other one did not is how a bound parameter would
   // still have reached the log.
   log.failure("Request failed", error);
+  // Only this branch. A refusal above is somebody's request being wrong, and
+  // counting those here would make a rise mean a form somebody kept
+  // submitting as easily as a bug or a dependency that went away.
+  internalErrors.inc({ surface });
   return {
     envelope: { error: { code: "INTERNAL_ERROR", message: INTERNAL_ERROR_MESSAGE } },
     status: 500,
@@ -423,7 +543,7 @@ export function errorEnvelope(error: unknown): { envelope: ApiErrorEnvelope; sta
 }
 
 app.onError((error, c) => {
-  const { envelope, status } = errorEnvelope(error);
+  const { envelope, status } = errorEnvelope(error, "http");
   return c.json(envelope, status as 400);
 });
 
@@ -431,21 +551,10 @@ app.onError((error, c) => {
 // endpoint during a rolling deploy is "which build is answering", and the
 // alternative is reading it off an image tag that may not be what is running.
 app.get("/health/live", (c) => c.json({ status: "ok", version: APP_VERSION }));
-// Deliberately one statement against the database, and nothing else.
-//
-// It does not check configuration, the migrations or the scheduler, and adding
-// any of those would take a working server out of rotation for a condition that
-// cannot change while it runs. The migration guarantee is ordering rather than
-// a probe: `runMigrations()` is awaited before the server listens, so a process
-// answering this route at all is a process that got past them.
-app.get("/health/ready", async (c) => {
-  try {
-    await getDb().execute(sql`select 1`);
-    return c.json({ status: "ready", version: APP_VERSION });
-  } catch {
-    return c.json({ status: "not_ready", version: APP_VERSION }, 503);
-  }
-});
+// The scheduler's copy of the same route, from one function, so the two
+// processes count readiness the same way; `readiness.ts` says what the check
+// deliberately leaves out.
+app.get("/health/ready", answerReadiness);
 
 app.use("/api/auth/*", async (c, next) => {
   // These answer with a cookie for authorization and hand back session tokens,
@@ -552,6 +661,10 @@ app.post("/api/auth/sign-up/email", async (c) => {
   // a wrong code is refused above without its handler being called.
   const setupCaller = countableClientAddress(c.req.raw, c, getConfig().trustProxy);
   if (!(await setupCodeAttempts.take(setupCaller))) {
+    // Counted here because this is the only place that knows which limiter
+    // refused. The auth counter above sees a 429 and nothing that says it
+    // was the code being guessed rather than a password.
+    rateLimited.inc({ limiter: "setup_code" });
     // The whole window rather than what is left of it. The remaining time is
     // known only to whichever replica counted the first attempt, so a local
     // reading can be shorter than the truth and would send the caller back for
@@ -1270,6 +1383,27 @@ const field = (value: unknown) => {
 };
 
 /**
+ * The directive a violation report names, as one of `CSP_DIRECTIVES`.
+ *
+ * The effective directive first, in both spellings, because that is the one a
+ * browser names on its own terms — `script-src-elem` — where the older
+ * `violated-directive` may carry the whole directive with its sources after
+ * it. Only the first word is read, and only an exact match from the list
+ * becomes a label: whatever else is posted here, however it is spelled, is
+ * `other`, so the caller chooses which of a fixed set of series moves and
+ * never what a series is called.
+ */
+function cspDirectiveLabel(violation: Record<string, unknown>): CspDirective {
+  const named =
+    violation["effective-directive"] ??
+    violation["effectiveDirective"] ??
+    violation["violated-directive"];
+  if (typeof named !== "string") return "other";
+  const directive = named.trim().split(/\s/, 1)[0]!.toLowerCase();
+  return CSP_DIRECTIVES.find((known) => known === directive) ?? "other";
+}
+
+/**
  * Where a browser posts what the policy would have blocked.
  *
  * Registered only while `SB_CSP_REPORT_ONLY` is on, the way `/metrics` and the
@@ -1298,6 +1432,7 @@ if (getConfig().cspReportOnly) {
     for (const body of bodies) {
       const violation = body as Record<string, unknown> | null;
       if (!violation) continue;
+      cspViolations.inc({ directive: cspDirectiveLabel(violation) });
       // Three fields and no more. A report also carries the full URL of the
       // document, which on this app is a path that can name an account or a
       // transaction id, and the source file and line of whatever triggered it.
@@ -1968,7 +2103,7 @@ const wantsFrames = (c: Context<AppEnv>) => acceptsFrames(c.req.header("Accept")
  * frame — and the browser reads the code, which every refusal on these two
  * paths already has.
  */
-const framedRefusal = (error: unknown) => errorEnvelope(error).envelope;
+const framedRefusal = (error: unknown) => errorEnvelope(error, "stream").envelope;
 
 app.post("/api/v1/staged-transactions/commit", async (c) => {
   const input = commitStageSchema.parse(await body(c));
@@ -2098,6 +2233,15 @@ if (getConfig().isProduction && existsSync("./dist/client")) {
     if (!c.res.headers.has("Cache-Control")) {
       c.res.headers.set("Cache-Control", "no-cache");
     }
+    // Everything below this answers under `/*`: the bundle's root files —
+    // `/` itself is `index.html` served from there — and the shell fallback.
+    // A request that got past every route to here and came back under that
+    // pattern without a refusal was answered by the browser app, so the
+    // request counter is told so rather than filing it as a path nothing
+    // matched. Read off the outcome rather than set inside each handler,
+    // because both are `serveStatic` and neither says whether it found a file
+    // except by answering.
+    if (c.req.routePath === "/*" && c.res.status < 400) c.set("servedShell", true);
   });
   // Anything the build actually produced at the root of the client bundle:
   // the icon, and whatever is added beside it later. Without this the only

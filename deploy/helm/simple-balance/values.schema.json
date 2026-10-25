@@ -257,6 +257,42 @@
           ]
         }
       }
+    },
+    "collectorImage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "registry",
+        "repository",
+        "tag",
+        "digest",
+        "pullPolicy"
+      ],
+      "properties": {
+        "registry": {
+          "type": "string",
+          "minLength": 1
+        },
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tag": {
+          "type": "string",
+          "minLength": 1
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "pullPolicy": {
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ]
+        }
+      }
     }
   },
   "properties": {
@@ -763,6 +799,118 @@
         }
       }
     },
+    "collector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "image",
+        "export",
+        "scrapeInterval",
+        "environment"
+      ],
+      "allOf": [
+        {
+          "$ref": "#/definitions/scheduling"
+        }
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "image": {
+          "$ref": "#/definitions/collectorImage"
+        },
+        "export": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "endpoint",
+            "protocol"
+          ],
+          "properties": {
+            "endpoint": {
+              "type": "string",
+              "pattern": "^$|^https?://[^\\s/?#]+([/?#]\\S*)?$",
+              "description": "Where metrics are sent: a base URL for OTLP, such as https://otlp.nr-data.net, or the whole write URL for remote write."
+            },
+            "protocol": {
+              "enum": [
+                "otlp",
+                "prometheus_remote_write"
+              ]
+            },
+            "headers": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "existingSecret": {
+              "type": "string"
+            },
+            "existingSecretKey": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "scrapeInterval": {
+          "type": "string",
+          "pattern": "^([0-9]+m[0-9]+s|[0-9]+m|[0-9]+s)$",
+          "description": "A Prometheus duration in minutes and seconds, such as 30s or 1m30s, under five minutes."
+        },
+        "environment": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resources": {
+          "$ref": "#/definitions/resources"
+        },
+        "podSecurityContext": {
+          "$ref": "#/definitions/securityContext"
+        },
+        "containerSecurityContext": {
+          "$ref": "#/definitions/securityContext"
+        },
+        "serviceAccount": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "create"
+          ],
+          "properties": {
+            "create": {
+              "type": "boolean"
+            },
+            "name": {
+              "type": "string"
+            },
+            "annotations": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "podAnnotations": {
+          "type": "object"
+        },
+        "podLabels": {
+          "type": "object"
+        },
+        "nodeSelector": {
+          "type": "object"
+        },
+        "tolerations": {
+          "type": "array"
+        },
+        "affinity": {
+          "type": "object"
+        }
+      }
+    },
     "ingress": {
       "type": "object",
       "additionalProperties": false,
@@ -865,6 +1013,14 @@
           "type": "array",
           "items": {
             "type": "object"
+          }
+        },
+        "apiServerPorts": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
           }
         }
       }

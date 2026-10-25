@@ -141,6 +141,16 @@ const frontendImageOnly = [
  * takes 18 by setting both of them after a dump and restore.
  */
 const bundledDatabaseOnly = ["POSTGRES_PASSWORD", "POSTGRES_IMAGE", "POSTGRES_DATA_MOUNT"];
+/**
+ * Compose's own settings, which the Compose CLI reads from `.env` and no
+ * container is ever passed. `COMPOSE_PROFILES=metrics` is how a hand install
+ * starts the metrics collector, so the two compose examples offer it beside
+ * the settings it goes with, and `deploy/compose/README.md` documents it
+ * beside the files it switches. Compose's variable rather than this product's,
+ * which is the `bundledDatabaseOnly` argument again: putting it in this
+ * product's tables would make them less true.
+ */
+const composeOwn = ["COMPOSE_PROFILES"];
 
 /**
  * A drifted example file is worse than no example file, because it is believed.
@@ -166,7 +176,8 @@ describe("what the example files and the deployment tables say about each other"
     (file) => {
       const tables = documented();
       const undocumented = [...mentionedIn(file)].filter(
-        (name) => !tables.has(name) && !bundledDatabaseOnly.includes(name),
+        (name) =>
+          !tables.has(name) && !bundledDatabaseOnly.includes(name) && !composeOwn.includes(name),
       );
 
       expect(tables.size).toBeGreaterThan(0);
@@ -174,10 +185,14 @@ describe("what the example files and the deployment tables say about each other"
     },
   );
 
+  // The `single` profile's application example counts as an example here,
+  // because a setting only that profile has — the database machine's metrics
+  // target is one — has nowhere else to be shown.
   it("shows an example of every variable the tables document", () => {
     const examples = new Set([
       ...mentionedIn(".env.example"),
       ...mentionedIn("deploy/compose/.env.example"),
+      ...mentionedIn("deploy/compose/single/.env.example"),
     ]);
     const unexampled = [...documented()].filter(
       (name) => !examples.has(name) && !frontendImageOnly.includes(name),
@@ -193,12 +208,13 @@ describe("what the example files and the deployment tables say about each other"
     const examples = new Set([
       ...mentionedIn(".env.example"),
       ...mentionedIn("deploy/compose/.env.example"),
+      ...mentionedIn("deploy/compose/single/.env.example"),
     ]);
     for (const name of frontendImageOnly) {
       expect(documented(), name).toContain(name);
       expect(examples, name).not.toContain(name);
     }
-    for (const name of bundledDatabaseOnly) {
+    for (const name of [...bundledDatabaseOnly, ...composeOwn]) {
       expect(examples, name).toContain(name);
       expect(documented(), name).not.toContain(name);
     }
@@ -227,6 +243,8 @@ describe("what the compose example promises and the compose file delivers", () =
    * reaches a process at all.
    */
   const databaseOnly = ["POSTGRES_PASSWORD", "POSTGRES_DATA_DIR"];
+  /** Read by the Compose CLI itself, so no compose file names it to be passed on. */
+  const readByCompose = ["COMPOSE_PROFILES"];
 
   /**
    * Every example file under `deploy/compose/`, paired with the compose files
@@ -265,7 +283,9 @@ describe("what the compose example promises and the compose file delivers", () =
     (_label, recipe) => {
       const undelivered = [...mentionedIn(recipe.example)].filter(
         (name) =>
-          !databaseOnly.includes(name) && !new RegExp(`\\b${name}[:}]`).test(recipe.delivered),
+          !databaseOnly.includes(name) &&
+          !readByCompose.includes(name) &&
+          !new RegExp(`\\b${name}[:}]`).test(recipe.delivered),
       );
 
       expect(undelivered).toEqual([]);
@@ -481,11 +501,23 @@ describe("what the server reads and every compose file that runs it passes", () 
         file.services.map((service) => `${service.name}: ${service.kind}`),
       ]),
     ).toEqual([
+      // The metrics collector and node-exporter are "other": somebody else's
+      // images, held to their own rules by tests/collector-config.test.ts.
       [
         "deploy/compose/compose.distributed.yml",
-        ["postgres: database", "server: server", "frontend: frontend", "scheduler: server"],
+        [
+          "postgres: database",
+          "server: server",
+          "frontend: frontend",
+          "scheduler: server",
+          "collector: other",
+          "node-exporter: other",
+        ],
       ],
-      ["deploy/compose/single/compose.yml", ["app: server"]],
+      [
+        "deploy/compose/single/compose.yml",
+        ["app: server", "collector: other", "node-exporter: other"],
+      ],
     ]);
   });
 

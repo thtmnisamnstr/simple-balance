@@ -1,13 +1,14 @@
 # Simple Balance's application machine: everything but the database.
 #
 # The application container docs/deployment.md calls the supported way to run
-# this, and nothing else. No PostgreSQL here, and that is the point of the
-# machine rather than a gap in it — losing this one loses no data. Point
+# this, and — only when the `metrics` profile is on — the two services at the
+# bottom of this file that watch it. No PostgreSQL here, and that is the point
+# of the machine rather than a gap in it — losing this one loses no data. Point
 # DATABASE_URL at the database machine beside it, which compose.postgres.yml in
 # this same directory runs, or at a managed service, or at a server you already
 # keep.
 #
-#   cp deploy/compose/single/.env.example deploy/compose/single/.env
+#   install -m 0600 deploy/compose/single/.env.example deploy/compose/single/.env
 #   $EDITOR deploy/compose/single/.env
 #   docker compose -f deploy/compose/single/compose.yml up -d
 #
@@ -139,10 +140,24 @@ services:
       RECURRENCE_CLAIM_LIMIT: "500"
       IDEMPOTENCY_RETENTION_HOURS: ${IDEMPOTENCY_RETENTION_HOURS:-}
 
-      # Off unless asked for, and unpublished either way: nothing maps a host
-      # port to it and no terminator in this profile proxies /metrics, so a
-      # scraper has to be on this network. Set METRICS_TOKEN as well if you put
-      # one there.
+      # Off unless asked for, and never public. The Caddyfile refuses /metrics
+      # before it proxies anything, so the one way in is the loopback port
+      # above, which is how the `collector` service below reaches it from the
+      # host's network. That took a fix: for a release the Caddyfile proxied
+      # every path while this comment said no terminator here did, so turning
+      # this on without a token published it. A terminator of your own has to
+      # refuse it the same way. METRICS_TOKEN is still worth setting: the
+      # collector sends it as a bearer token, and nothing else on the machine
+      # then reads the numbers.
+      #
+      # An export endpoint turns this on by itself on a machine a cloud
+      # program built, because simple-balance-env writes METRICS_ENABLED=true
+      # into .env when the stack sets SB_METRICS_EXPORT_ENDPOINT and not this.
+      # By hand it is set beside the profile; .env.example has the three
+      # together. This line cannot derive it: `:+true` nested inside this
+      # default renders empty when neither is set, and the server refuses an
+      # empty METRICS_ENABLED, so the deployment that set nothing would be the
+      # one that stopped starting.
       METRICS_ENABLED: ${METRICS_ENABLED:-false}
       METRICS_TOKEN: ${METRICS_TOKEN:-}
 
@@ -200,3 +215,172 @@ services:
       # deployment restarts in the middle of one.
       start_period: 300s
       retries: 5
+
+  # ---------------------------------------------------------------- metrics ---
+  #
+  # The two services below start only when the `metrics` profile is on, and
+  # with it off this file runs exactly what it ran before they existed:
+  # `docker compose config --services` names `app` alone. They watch the
+  # machine and the application and send what they read to one backend, which
+  # SB_METRICS_EXPORT_ENDPOINT names; collector.yaml beside this file says what
+  # is scraped and how it is sent.
+  #
+  # The profile is the switch and the endpoint is the setting, and on a machine
+  # a cloud program built simple-balance-env turns one into the other: an
+  # endpoint in the stack's settings writes COMPOSE_PROFILES=metrics into .env,
+  # with METRICS_ENABLED=true above, unless .env already names either. A hand
+  # install sets all three in .env itself.
+  #
+  # Turning it off by hand is `docker compose --profile metrics down` before
+  # the profile leaves .env, because a `down` that does not name a profile
+  # leaves that profile's containers running. The unit's ExecStop runs before
+  # simple-balance-env rewrites .env, so on a cloud machine the `down` still
+  # names it.
+  #
+  # Both run on the host's network rather than this project's, and the reason
+  # is node-exporter's: a network namespace of its own would report the traffic
+  # of that namespace — its own one interface — as the machine's, and the host's
+  # network is the only place the machine's own NIC is visible. The collector
+  # then has to be there too, to reach a listener that is on loopback so that
+  # nothing off the machine can. Neither publishes a port, both listen on
+  # 127.0.0.1 alone, and nothing about the application's own network changes.
+  #
+  # What the host's network does hand them is the instance metadata address,
+  # and on either cloud what answers there is the machine's identity, which
+  # reads every stack secret. On AWS a hop limit of 1 keeps containers from it,
+  # and a container on the host's network is no hop away; Oracle Cloud has no
+  # hop limit at all. So both programs refuse 169.254.169.254 to the users
+  # below — IMDS_BLOCK in deploy/pulumi/single-common/cloud-init.ts, run at
+  # every boot on AWS and saved with the host firewall on Oracle Cloud — and a
+  # hand install on a cloud machine wants the same rule.
+  collector:
+    # The core distribution, which has the Prometheus receiver, both
+    # exporters and nothing this needs beyond them: smaller than contrib, and
+    # measured at 51.7 MiB resident where contrib took 79.6 and Prometheus in
+    # agent mode 72.3 with a write-ahead log to keep somewhere. Pinned by tag
+    # and by digest, so the image a machine pulls is the one that was measured
+    # and a re-pushed tag cannot change it.
+    image: otel/opentelemetry-collector:0.162.0@sha256:310a800ad69ee430e7c541796852a242c9c7db97aaad4daa5ccf843c525fbdb2
+    profiles: ["metrics"]
+    restart: unless-stopped
+    network_mode: host
+    # Each name collector.yaml reads, and nothing it does not. Defaults here
+    # rather than in .env, beside the reason; SB_METRICS_EXPORT_HEADERS
+    # carries the backend's credential, so it lives with the secrets.
+    environment:
+      SB_METRICS_EXPORT_ENDPOINT: ${SB_METRICS_EXPORT_ENDPOINT:-}
+      SB_METRICS_EXPORT_PROTOCOL: ${SB_METRICS_EXPORT_PROTOCOL:-otlp}
+      SB_METRICS_EXPORT_HEADERS: ${SB_METRICS_EXPORT_HEADERS:-}
+      SB_METRICS_SCRAPE_INTERVAL: ${SB_METRICS_SCRAPE_INTERVAL:-30s}
+      SB_METRICS_ENVIRONMENT: ${SB_METRICS_ENVIRONMENT:-production}
+      SB_METRICS_DATABASE_TARGET: ${SB_METRICS_DATABASE_TARGET:-}
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+      # Where the application is published, read from the same two settings
+      # its `ports:` line is, so the scrape follows the port wherever it moves.
+      APP_BIND_ADDRESS: ${APP_BIND_ADDRESS:-127.0.0.1}
+      APP_PORT: ${APP_PORT:-3000}
+      # Below the 128m limit, so the Go runtime collects before the kernel
+      # kills; collector.yaml's memory_limiter has the arithmetic.
+      GOMEMLIMIT: 80MiB
+    volumes:
+      # Where the image reads its configuration from by default, so no
+      # command is needed; the digest above is what keeps that default from
+      # moving. create_host_path off, so a machine missing the file is a
+      # refusal at `up` that names it. Docker would otherwise make an empty
+      # directory called collector.yaml, and the collector would fail to read
+      # it with a message about a directory.
+      - type: bind
+        source: ./collector.yaml
+        target: /etc/otelcol/config.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+    # The image's own user, stated: non-root is this file's property rather
+    # than whatever a later image happens to declare.
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    logging: *logging
+
+  node-exporter:
+    image: prom/node-exporter:v1.12.1@sha256:1b4e4438faca4dd7e001dd445d161a4a2091b0fededa84093b3a8dfeae1f1be0
+    profiles: ["metrics"]
+    restart: unless-stopped
+    network_mode: host
+    command:
+      # The host's root, read-only, for the filesystem collector, which takes
+      # the space of each mount from the mount itself. The whole root rather
+      # than the mounts one by one, because which mounts a machine has is the
+      # machine's business — the data volume is one, a hand install may have
+      # more — and read-only as nobody, so it reads what any unprivileged user
+      # on the machine could. /proc and /sys need no mount: their CPU, memory,
+      # pressure and disk files are the kernel's and the same in every
+      # container, and their network files follow the network namespace,
+      # which is the host's.
+      - --path.rootfs=/host
+      - --path.udev.data=/host/run/udev/data
+      # Loopback, on the host's network: the collector beside it, and nothing
+      # off this machine.
+      - --web.listen-address=127.0.0.1:9100
+      # Its own Go and process series, which nobody here is watching it for.
+      - --web.disable-exporter-metrics
+      # Chosen rather than defaulted. The defaults are some forty collectors,
+      # and every one is series sent and paid for; these are the questions a
+      # two-machine deployment is actually asked.
+      - --collector.disable-defaults
+      # Busy, by mode: steal says the provider took the CPU back, iowait that
+      # the disk is the limit rather than the code.
+      - --collector.cpu
+      # Available memory. The application node peaked at 745 MiB under the
+      # capacity run, on a machine sized at four times that, so this is the
+      # line to watch as the ledgers on it grow.
+      - --collector.meminfo
+      # Three series, and the oldest question anybody asks of a machine.
+      - --collector.loadavg
+      # Time stalled waiting for CPU, memory or I/O, which a utilization
+      # figure averages away: a machine at 40% CPU can still be making every
+      # request wait.
+      - --collector.pressure
+      # The OOM killer's own count, and major faults: a container killed for
+      # memory shows here and nowhere else.
+      - --collector.vmstat
+      # Boot time, so a reboot is a step in a line rather than a guess, and
+      # processes blocked on I/O.
+      - --collector.stat
+      # One series naming the kernel and the host, so two machines' figures
+      # can be told apart in a backend that knows nothing about this profile.
+      - --collector.uname
+      # This machine's clock beside the collector's: "today" in somebody's
+      # timezone is read off it, and so is every posting's date.
+      - --collector.time
+      # Space left, on the boot disk the container logs and images fill and
+      # on the data volume. Real filesystems only, and nothing under /etc,
+      # where Docker bind-mounts this container's own hosts, hostname and
+      # resolv.conf from the root disk: each would read as a second copy of it.
+      - --collector.filesystem
+      - --collector.filesystem.fs-types-include=^(ext[234]|xfs|btrfs)$$
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run|etc)($$|/)
+      # Reads, writes and time spent on each disk, the boot disk and the data
+      # volume alike.
+      - --collector.diskstats
+      # Bytes, errors and drops on the machine's own NICs, by name: Docker's
+      # bridges and every container's veth would otherwise add a set each.
+      - --collector.netdev
+      - --collector.netdev.device-include=^(eth|en).+$$
+    environment:
+      GOMEMLIMIT: 38MiB
+    volumes:
+      # rprivate, Docker's default, rather than the rslave upstream suggests:
+      # every mount it needs is there before the unit starts, and a host whose
+      # root is not a shared mount refuses rslave outright. The short form is
+      # safe for this one: the root always exists, so there is nothing for
+      # Docker to create in its place.
+      - /:/host:ro
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 48m
+    logging: *logging

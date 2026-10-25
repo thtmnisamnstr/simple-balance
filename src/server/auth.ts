@@ -19,6 +19,7 @@ import { getDb } from "./db/client.js";
 import * as schema from "./db/schema.js";
 import { user } from "./db/schema.js";
 import { log } from "./log.js";
+import { internalErrors } from "./metrics.js";
 
 /**
  * What this deployment asks Google for, said once.
@@ -141,6 +142,12 @@ function createAuthInstance() {
         handler: (promise: Promise<unknown>) => {
           void promise.catch((error) => {
             log.failure("A background auth task failed", error);
+            // The response went out before this ran, so nothing else will
+            // ever report it: no status carries it, and the person who asked
+            // for the link sees the same "check your inbox" either way. A
+            // relay that refuses is counted by `sendMail` itself, which does
+            // not throw, so what arrives here is something nobody meant.
+            internalErrors.inc({ surface: "auth_background" });
           });
         },
       },

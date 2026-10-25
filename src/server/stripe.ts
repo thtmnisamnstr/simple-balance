@@ -2,7 +2,13 @@ import Stripe from "stripe";
 import type { PlanChangeInvoice, StripeInterval } from "../shared/domain.js";
 import { getConfig, stripeMode, type StripeKeyMode } from "./config.js";
 import { log } from "./log.js";
-import { stripeDuration, stripeRequests } from "./metrics.js";
+import {
+  dependencyUp,
+  stripeDuration,
+  stripeRequestFailures,
+  stripeRequests,
+  type StripeFailureReason,
+} from "./metrics.js";
 
 /**
  * The only module in this product that talks to Stripe.
@@ -73,7 +79,8 @@ export function getStripe(): Stripe {
  * request, so the label set is closed and no identifier can leak into it.
  *
  * `report` is off only for the startup probe, which says what it found in one
- * line of its own rather than one per resource.
+ * line of its own rather than one per resource. What it turns off is the line:
+ * the probe's failures are counted like any other call's.
  */
 async function measured<T>(operation: string, run: () => Promise<T>, report = true): Promise<T> {
   const stop = stripeDuration.startTimer({ operation });
@@ -83,6 +90,7 @@ async function measured<T>(operation: string, run: () => Promise<T>, report = tr
     return result;
   } catch (error) {
     stripeRequests.inc({ operation, outcome: "failed" });
+    stripeRequestFailures.inc({ operation, reason: failureReason(error) });
     if (report) reportKeyRefusal(operation, error);
     throw error;
   } finally {
@@ -91,20 +99,61 @@ async function measured<T>(operation: string, run: () => Promise<T>, report = tr
 }
 
 /**
- * The two ways Stripe refuses a call because of the key rather than the
- * request, as it spells them in `code`.
+ * Each error class the SDK throws from a call, by the name it writes into the
+ * error's `type`, and the reason `stripe_request_failures_total` files it under.
+ *
+ * Read off `type` rather than tested with `instanceof`, as the key check below
+ * always was. The SDK sets it to the class's own name on every error it builds,
+ * and the package ships an ESM and a CommonJS build of every class, so a
+ * second copy loaded by anything in the tree would answer `instanceof` false
+ * and file a card decline under `other`.
  */
-const keyRefusals = new Set(["more_permissions_required", "approval_required"]);
+const failureClasses = new Map<string, StripeFailureReason>([
+  ["StripeCardError", "card"],
+  ["StripeInvalidRequestError", "invalid_request"],
+  ["StripeAuthenticationError", "authentication"],
+  ["StripePermissionError", "permission"],
+  // One refusal under two names: the first is what a v1 call throws, the
+  // second what the SDK builds for a v2 one.
+  ["StripeRateLimitError", "rate_limit"],
+  ["RateLimitError", "rate_limit"],
+  ["StripeIdempotencyError", "idempotency"],
+  ["StripeConnectionError", "connection"],
+  ["StripeAPIError", "api"],
+]);
+
+/**
+ * Why a call failed, from the error's class and code and never its message,
+ * which can quote a customer or an amount.
+ *
+ * The two codes come first because they are the two ways Stripe refuses a call
+ * over the key rather than the request, and they cut across the classes.
+ * `approval_required` is a write held for a person to approve, and no new key
+ * clears it, so it is not filed with a missing permission even when it arrives
+ * as one. Anything else is `other`: a class of the SDK's that no call here
+ * throws, or an error it did not build at all, which is a fault in the code
+ * around the call rather than an answer from Stripe.
+ */
+function failureReason(error: unknown): StripeFailureReason {
+  const code = (error as { code?: unknown } | null)?.code;
+  const type = (error as { type?: unknown } | null)?.type;
+  if (code === "approval_required") return "approval_required";
+  if (code === "more_permissions_required") return "permission";
+  return (typeof type === "string" ? failureClasses.get(type) : undefined) ?? "other";
+}
 
 /**
  * Whether Stripe refused this because of what the key is allowed, rather than
  * anything about the request. Beside `measured` because every failed call is
  * asked it there, and the startup probe asks it too.
+ *
+ * Read off `failureReason` rather than kept as a test of its own, so the line
+ * `reportKeyRefusal` writes and the reason the failure is counted under cannot
+ * come to disagree about which failures were the key's.
  */
 function isKeyRefusal(error: unknown): boolean {
-  const code = (error as { code?: unknown } | null)?.code;
-  const type = (error as { type?: unknown } | null)?.type;
-  return (typeof code === "string" && keyRefusals.has(code)) || type === "StripePermissionError";
+  const reason = failureReason(error);
+  return reason === "permission" || reason === "approval_required";
 }
 
 /**
@@ -1424,6 +1473,12 @@ export function lastPriceCheck(): PriceCheck | undefined {
 
 function recordPriceCheck(check: PriceCheck) {
   priceCheck = check;
+  // Every verdict, not only the one at boot, because the point of sale refuses
+  // on whichever is newest, and a gauge that kept the first would read 1 beside
+  // a deployment refusing every sale. Here rather than beside the log line
+  // below, which is said only on a change. A read that never reached Stripe
+  // writes nothing, as it leaves `priceCheck` alone, for the same reason.
+  dependencyUp.set({ dependency: "stripe_prices" }, check.problems.length === 0 ? 1 : 0);
   const summary = check.problems.join(" ");
   if (summary === reportedPriceCheck) return;
   const first = reportedPriceCheck === undefined;
@@ -1586,10 +1641,15 @@ const accessProbes: readonly (readonly [string, string, (stripe: Stripe) => Prom
  * cannot be reached is a warning that it could not look. A standard `sk_` key
  * holds every permission, so it is not asked at all.
  *
- * Returns the resources it found the key cannot read, for a caller that wants
- * them; nothing depends on the answer.
+ * Returns the resources it found the key cannot read, or null where it found
+ * none refused but could not ask about every one — Stripe unreachable, a key
+ * it did not recognize, or one list that timed out. The two are kept apart
+ * because `dependency_up{dependency="stripe_access"}` is the one thing that
+ * depends on the answer, and an empty list there would read as a key that
+ * passed a check nobody made. Nothing else depends on it: the log says the
+ * same either way.
  */
-export async function checkStripeAccess(): Promise<string[]> {
+export async function checkStripeAccess(): Promise<string[] | null> {
   const { billing } = getConfig();
   if (!billing || !billing.secretKey.startsWith("rk_")) return [];
   const stripe = getStripe();
@@ -1621,7 +1681,9 @@ export async function checkStripeAccess(): Promise<string[]> {
   if (refused.length === 0 && unchecked.length === 0) {
     log.info("STRIPE_SECRET_KEY can read everything this deployment uses at Stripe.");
   }
-  return refused;
+  // A refusal found is an answer even where another probe went unanswered;
+  // nothing found and something unasked is not one.
+  return refused.length === 0 && unchecked.length > 0 ? null : refused;
 }
 
 /** Dropped between tests, and by nothing else. */

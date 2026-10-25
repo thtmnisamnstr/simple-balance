@@ -89,7 +89,7 @@ held in check by a rule written against it, which is a decision rather than a
 coordinate, and nothing about the token rule covers it.
 
 The count matters beyond tidiness: it is what
-`src/server/http-security.ts:217-221` reasons about when it declines
+`src/server/http-security.ts:218-222` reasons about when it declines
 `'unsafe-inline'`. Ten is also why the list is enumerated rather than
 summarized — the argument rests on every member being accounted for, and the
 tenth sat outside an enumeration that read as complete for a release.
@@ -3817,7 +3817,7 @@ change is worth nothing if it can quietly fall behind.
 `eslint-plugin-jsx-a11y` used to be item 7 here and has been removed rather than
 demoted: it is enabled at `.oxlintrc.json:15` with 38 rules, and the two this
 item wanted are off **by name with recorded reasons** at
-`docs/standards/code/index.md:228-229`, because neither can see through `Field`.
+`docs/standards/code/index.md:234-235`, because neither can see through `Field`.
 `code/index.md` owns that decision and has made it; listing shipped-and-refused
 work under "worth building" is how a backlog stops being one.
 

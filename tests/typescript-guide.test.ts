@@ -59,6 +59,7 @@ const WORDS: Record<string, number> = {
   fifteen: 15,
   sixteen: 16,
   eighteen: 18,
+  twenty: 20,
 };
 
 /**

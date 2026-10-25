@@ -274,7 +274,10 @@ if (databaseEgress === "ssm") {
 
 /**
  * What the database node runs before its very first `apt-get`, which on either
- * IPv6 way out is one rewrite and under `nat` is nothing at all.
+ * IPv6 way out is one rewrite and under `nat` is nothing at all. The metadata
+ * rule both machines run at every boot is not one of these: the two
+ * `UserDataBase64` functions in `./platform.ts` add `IMDS_EXPORTER_BLOCK`
+ * themselves, so it is in the measurement and the render alike.
  *
  * Here rather than at the render below because the pre-flight measurement a
  * few lines down has to measure the document that will actually be sent: a
@@ -316,6 +319,7 @@ if (database) {
       serverCertificate: PLACEHOLDER_CERTIFICATE,
       serverKey: PLACEHOLDER_KEY,
       bootCommands: databaseBootCommands,
+      metrics: settings.metrics !== undefined,
     },
     PLACEHOLDER_VOLUME_ID,
   );
@@ -644,7 +648,8 @@ const securityGroup = new aws.ec2.SecurityGroup(name, {
 
 /**
  * The database node's firewall: one inbound rule, and it is the whole of the
- * machine's exposure.
+ * machine's exposure — with a second, for 9100 from the same source, while the
+ * stack exports metrics.
  *
  * The source is the application node's security group rather than its CIDR,
  * which is the difference between a rule that stays true and one that has to be
@@ -689,6 +694,24 @@ const databaseSecurityGroup = database
                 protocol: "tcp",
                 fromPort: 22,
                 toPort: 22,
+                securityGroups: [securityGroup.id],
+              },
+            ]
+          : []),
+        // The node-exporter on this machine, while the stack exports metrics
+        // and only then: the collector on the application node scrapes it
+        // over TLS, and with export off nothing listens there. Sourced from
+        // the application node's security group for the reason 5432 is. This
+        // one arrives through `pulumi up` on a stack whose machines already
+        // exist, which nothing in their user data does; AWS has no host
+        // firewall in front of it, so it is the whole of the opening here.
+        ...(settings.metrics
+          ? [
+              {
+                description: "Host metrics (node-exporter, TLS), from the application node",
+                protocol: "tcp",
+                fromPort: 9100,
+                toPort: 9100,
                 securityGroups: [securityGroup.id],
               },
             ]
@@ -907,7 +930,7 @@ const settingsSecret = new aws.secretsmanager.Secret(`${name}-settings`, {
 
 new aws.secretsmanager.SecretVersion(`${name}-settings`, {
   secretId: settingsSecret.id,
-  secretString: settings.appSettingsFile,
+  secretString: single.appSettingsFile(settings, database ? databaseDnsName : undefined),
 });
 
 /**
@@ -1235,8 +1258,9 @@ const attachment = new aws.ec2.VolumeAttachment(
  *
  * No public address at all — the subnet does not hand one out and this asks for
  * none, so there are two independent reasons rather than one — and one inbound
- * rule, for 5432 from the application node's security group. It is reached for
- * a shell through Session Manager, which needs neither.
+ * rule, for 5432 from the application node's security group, with 9100 from the
+ * same group while the stack exports metrics. It is reached for a shell through
+ * Session Manager, which needs neither.
  *
  * Its user data carries the server certificate, the server's private key and
  * the application role's password, and none of the three is the dangerous one:
@@ -1265,6 +1289,7 @@ const databaseUserData =
               serverCertificate,
               serverKey,
               bootCommands: databaseBootCommands,
+              metrics: settings.metrics !== undefined,
             },
             volumeId,
           ),

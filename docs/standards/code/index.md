@@ -57,7 +57,7 @@ Four mechanisms, and every rule names exactly one:
 | `test` | A named test fails. |
 | `human` | Nothing catches it. A rule marked `human` is a candidate for deletion, and the count below is a number that should be going down. |
 
-**There are 46 `human` rules across the eight guides** — 41 in the seven that
+**There are 48 `human` rules across the eight guides** — 43 in the seven that
 enforce something, and five in `comments.md`, which argues rather than enforces
 and says so. **It went down in 0.2.0, for the first time, and by being worked on
 rather than by being unstated** — which is the whole point of keeping it.
@@ -70,8 +70,14 @@ nobody coming back here. It held the total only: the split either side of the
 dash is two more numbers in prose, and the total staying still while both halves
 moved is exactly what it looks like when nobody recounts them.
 `tests/code-index-guide.test.ts` now holds the split, and the per-guide figure
-four paragraphs down, against the same row count — so the two halves can no
+five paragraphs down, against the same row count — so the two halves can no
 longer cancel.
+
+**Then it went up by two with the metrics work, for the reason given next.**
+`observability.md` gained seven rules and two of them nothing a test can hold:
+that a shipped metric's labels are a contract with dashboards nobody here can
+see, and that the application declines the OpenTelemetry SDK. Five of the seven
+arrived with tests, and the two that could not are rows rather than silences.
 
 **It went up, and that is the honest direction.** It was 26, then seven became
 tests in one pass and it read 19 — and 19 was wrong, because 34 of the 67
@@ -212,7 +218,7 @@ One `eslint` rule is off. **`no-control-regex`** flags a regular expression that
 matches control characters, and all four sites here exist *to reject* them: two
 sanitize user input (`src/shared/domain.ts:350-351`), one is the CSV-injection
 defense (`src/shared/csv.ts:513`), and one scrubs a CSP report before it reaches
-the log (`src/server/api.ts:1269`), where the body is attacker-controlled and a
+the log (`src/server/api.ts:1382`), where the body is attacker-controlled and a
 newline would let one report write several log lines with a forged error among
 them. The rule exists to catch a control character written by accident; every
 one of these was written on purpose, and the code that strips control characters
@@ -291,7 +297,7 @@ in the same breath, which reads as one toolchain over one tree.
 those files failed a format check — `scripts/capacity/load.mjs`,
 `scripts/capacity/schedule.mjs`, `scripts/ralph/git-guard.mjs`,
 `scripts/ralph/runner.mjs`, and `scripts/set-version.mjs`, the tool the release
-procedure runs first (`docs/upgrades.md:1543`) — while all thirteen Pulumi
+procedure runs first (`docs/upgrades.md:1834`) — while all thirteen Pulumi
 modules happened to be clean, so the gap stayed invisible while
 `npm run verify` went on passing. The five are formatted now, and the test
 below holds every file the command does not reach to the formatter anyway. `typescript.md` §3.5 records
@@ -299,7 +305,7 @@ the same gap from the other end, in the row of its comparison table that reads
 `oxfmt` / yes / **no**.
 
 **The obvious alternative is `oxfmt --check .`, and it does not work.** oxfmt
-parses YAML, the Helm chart is nineteen Go-templated YAML files
+parses YAML, the Helm chart is twenty-three Go-templated YAML files
 (`deploy/helm/simple-balance/templates/`), and `{{- if .Values… }}` is not YAML:
 the run dies with `Syntax error: unexpected indicator` and exits 2 before
 checking anything. So widening this is a real decision with two forms — name the

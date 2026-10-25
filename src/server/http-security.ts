@@ -4,6 +4,7 @@ import { secureHeaders } from "hono/secure-headers";
 import { MAX_BULK_SELECTION_ENTRIES } from "../shared/domain.js";
 import { configuredCsvMaxBytes } from "./config-limits.js";
 import { log } from "./log.js";
+import { rateLimitStoreFailures } from "./metrics.js";
 
 /**
  * What every response from this process carries, and the one place it is
@@ -698,6 +699,12 @@ export function createAttemptLimiter(options: {
         // better than the alternative here, which is refusing every sign-in on
         // a deployment whose database is having a bad minute.
         log.failure("The shared attempt limiter could not be reached", error);
+        // Counted as well as logged, because the weaker bound is silent in
+        // every other way: nothing is refused that would not have been, so a
+        // deployment can run on it for a day with the log the only witness.
+        // Not in `clear` below, whose failure leaves a stale count that expires
+        // with its window rather than a bound that has quietly changed.
+        rateLimitStoreFailures.inc();
         return true;
       }
     },

@@ -123,17 +123,21 @@ This is why `tests/mcp-parity.test.ts` can compare the two transports service by
 service at all — there is something to compare because neither transport holds
 logic of its own.
 
-Seven lines in the two transports do reach the database, and they are five
-things, none of them bookkeeping: the readiness probe's `select 1`, the
-first-account claim's advisory lock — which `AGENTS.md` requires to be taken
-outside the application pool, and which takes two statements on its own client
-— two reads of Better Auth's own tables behind the consent screen, which is
-reachable from a session and has no MCP counterpart, and the transaction an MCP
-tool call is made idempotent inside. Each is named in the test below with its
-reason, so another has to be argued for rather than merely added. The test
-counted five lines because its patterns could not see a query run through a
-transaction handle or on a client by another name; it reads any builder on any
-receiver now, which is how the lock's two statements were found.
+Six lines in the two transports do reach the database, and they are four things,
+none of them bookkeeping: the first-account claim's advisory lock — which
+`AGENTS.md` requires to be taken outside the application pool, and which takes
+two statements on its own client — two reads of Better Auth's own tables behind
+the consent screen, which is reachable from a session and has no MCP
+counterpart, and the transaction an MCP tool call is made idempotent inside.
+Each is named in the test below with its reason, so another has to be argued for
+rather than merely added. The readiness probe's `select 1` was a fifth until it
+moved to `src/server/readiness.ts`, which both entrypoints answer
+`/health/ready` with and which is not a transport; its entry left the test's
+list in the same change, so the list cannot go on excusing a line that is no
+longer there. The test counted five lines because its patterns could not see a
+query run through a transaction handle or on a client by another name; it reads
+any builder on any receiver now, which is how the lock's two statements were
+found.
 
 *Checked by:* `tests/transport-database-access.test.ts`. It cannot ask the
 question this rule asks — would both surfaces need this line? — so it asks the
@@ -225,7 +229,7 @@ export async function createBudgetPlan(actor: Actor, input: unknown, transaction
 
 `withTransaction` joins the caller's transaction when it is given one and opens
 its own when it is not
-(`src/server/db/client.ts:116`). 48 declarations here take that parameter. 45 of
+(`src/server/db/client.ts:126`). 48 declarations here take that parameter. 45 of
 them are mutations, and every one of those 45 goes through the helper, which is
 the claim worth making and not the same one as the count of the parameter.
 
@@ -272,7 +276,7 @@ it, or — like these three — that composing with it is exactly what must not
 happen.
 
 The parameter is not decoration. The MCP transport passes its transaction in
-(`src/server/mcp.ts:310-343`, and every `runIdempotentMcpMutation` call under it)
+(`src/server/mcp.ts:323-356`, and every `runIdempotentMcpMutation` call under it)
 so that
 its idempotency record, the mutation and the audit events land on one connection
 and commit together. Take it away and an agent's write could record its
@@ -797,7 +801,7 @@ service counts through `countAfterCommit`
 (`src/server/services/helpers.ts:205`), which counts immediately when the
 service opened its own transaction and otherwise queues; the MCP transport
 flushes with `flushDeferredCounts` after `getDb().transaction` resolves
-(`src/server/mcp.ts:341`). Seven call sites, in `transactions.ts`, `staging.ts`
+(`src/server/mcp.ts:354`). Seven call sites, in `transactions.ts`, `staging.ts`
 and `import-export.ts`, which counts the rows a CSV import staged.
 
 The keying is the part a new author gets wrong, and the source says so where it

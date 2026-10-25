@@ -213,6 +213,12 @@ the check at startup or, if Stripe could not be reached then, the first one
 after it that could. Putting the plan on sale is the separate step
 `SB_BILLING_ENABLED=true` takes — read §Turning selling on before you take it.
 
+With metrics on, both checks are numbers as well as log lines:
+`simple_balance_dependency_up` reads 1 or 0 for `stripe_prices`, after every
+price check, and for `stripe_access`, from the probe at startup — 0 there also
+when Stripe could not be asked, and 1 for a standard key, which is never
+asked.
+
 ### Going live, or changing Stripe account
 
 Nothing made in one mode exists in the other: a live key cannot see a test
@@ -429,7 +435,13 @@ startup while Stripe is configured and its own copy is off.
 
 To see it working, watch `simple_balance_billing_sweeps_total` — `written`
 climbs when the sweep is repairing something and stays flat when there is
-nothing to repair. `off` means the deployment sells nothing.
+nothing to repair. `off` means the deployment sells nothing. The webhook's own
+half is `simple_balance_billing_webhook_deliveries_total`, by what the handler
+did with each delivery, where `signature_refused` is a webhook secret that does
+not match the endpoint's, or somebody probing the route; and
+`simple_balance_stripe_request_failures_total` says why a call to Stripe failed
+— `api` and `connection` are Stripe, `authentication` and `permission` are the
+key. `docs/deployment.md` §What to alert on has the rules.
 
 A subscription Stripe cannot answer about is tried again after the same twelve
 hours as everything else, rather than first on every tick: the sweep stamps it

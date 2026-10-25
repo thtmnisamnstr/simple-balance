@@ -4,6 +4,110 @@ Notable changes, newest first.
 
 ## Unreleased
 
+### Added
+
+**Metrics can be sent to New Relic, or to any backend that takes OTLP or
+Prometheus remote write, with no Prometheus of your own.** Every deployment
+profile can run an OpenTelemetry Collector beside the application, off until
+asked for. It scrapes the application's `/metrics` with its token, and on the
+Compose shapes each machine's CPU, memory, disks and network through
+node-exporter — the `single` profile's database machine included, over TLS with
+the database's own certificate — and sends the lot to one backend. Which backend
+is two settings, an endpoint and a header holding its credential, so leaving New
+Relic for Grafana Cloud or a Prometheus you run is a settings change and a
+restart. On the single-machine and cluster Pulumi programs the endpoint alone
+turns it on; by hand it is four lines in `.env`, or `collector.enabled` on the
+chart. It keeps nothing — no volume, no write-ahead log, a read-only filesystem
+— and on the `single` profile it fits on the application node it already has, so
+there is no machine to add and nothing on the bill. It is the collector rather
+than Prometheus in agent mode because it measured lighter on the same series:
+51.7 MiB against 72.3, and its OTLP about a quarter of the bytes Prometheus sent
+by remote write. The edge proxies, PostgreSQL and a cluster's nodes are not
+scraped, on purpose; `docs/deployment.md` says why, and gives the alerts worth
+setting in both PromQL and New Relic's NRQL.
+
+The application itself does not use OpenTelemetry, by decision rather than by
+omission. It keeps counting with `prom-client` and serving Prometheus' text
+format; the collector is what speaks OTLP, from outside the process, which
+leaves the request path as cheap as it was.
+
+**The application says more about itself.** Several things that failed quietly
+now have a number. Requests in flight, including a stream until its last frame;
+how a streamed write ended, since a commit that failed on its last row was a
+`200`; failures nobody meant on every surface in one series, where an MCP tool
+or a stream that failed looked like success; readiness, in the scheduler too;
+the auth routes by route and outcome, and each rate limiter's refusals; log
+lines at warning and error, counted whether or not `LOG_LEVEL` prints them;
+MCP messages refused before any tool ran; transactions committed and rolled
+back; how long a request waited for a database connection, and connections
+lost; the time each scheduler sweep last finished, and whether this process
+runs the schedule at all, which is the question that could not be answered
+when the scheduler ran inside the API; how long the mail relay takes; why a
+Stripe request failed, by Stripe's own classification; and whether the mail
+relay and Stripe passed the checks each process makes of them. No label names
+a person, an account or an amount, and every one is a closed set.
+
+### Changed
+
+**`simple_balance_db_transaction_duration_seconds` times every transaction.** It
+timed the ones that went through one helper, and started before the connection
+was acquired, so a full pool looked like slow transactions. It now covers every
+transaction the application opens on its pool — MCP writes, the scheduler's
+sweeps, billing, and the auth library's own — from `begin` to commit or
+rollback, and the wait for a connection has a histogram of its own. Expect its
+count to rise and its values to fall under contention; a dashboard built on it
+reads a different thing.
+
+**Some existing series gain values.** A page load the browser app answered is
+counted under `route="spa_shell"` rather than `unmatched`, which is left to the
+requests no route answered. The pool gauge reports its ceiling as `state="max"`.
+The request, tool, transaction and tick histograms gain buckets at ten and fifty
+milliseconds, Stripe's at thirty and sixty seconds, and the tick's at one, two
+and five minutes, so the requests worth looking at no longer all land in the
+last bucket. Nothing is renamed and no value is removed.
+
+**A `single` machine's unit starts the application before the metrics.** It runs
+`docker compose up` twice: the books first, waited for, and then the collector
+wherever it is turned on, with a failure there logged and not fatal. Turning
+export on is the one start that has to pull an image, unattended, and a
+registry that did not answer would otherwise have stopped the site. A machine
+built before this keeps the unit it has until it is copied.
+
+**Every hand-install recipe installs `.env` readable by its owner alone.** They
+copied it at the mode a checkout gives a file, which lets every user on the
+machine read the passwords in it — and on the database machine the new
+node-exporter reads the host's root as an unprivileged user.
+
+### Security
+
+**`/metrics` could be read from the internet behind the frontend nginx.** With
+`METRICS_ENABLED` on and no `METRICS_TOKEN`, a request for `/api/..\metrics`
+reached it: nginx reads a backslash as an ordinary character and proxied the
+request as an `/api` path, and the application resolved it to `/metrics`. That
+was the split recipe and the chart, whose documentation said the frontend never
+proxies the path. The application now answers only a request for exactly
+`/metrics`, whatever is in front of it, and the upgrade is the whole fix.
+
+**`/metrics` could be read from the internet behind the `single` profile's
+Caddy.** In the same configuration its Caddyfile proxied every path while the
+comment beside the setting said nothing in that profile did. The Caddyfile now
+answers the path 404 before proxying anything, so an existing machine needs the
+new file copied in, or a token set; `docs/upgrades.md` has how.
+
+**The metrics exporters cannot reach the instance metadata address on
+`aws-single` or `oci-single`.** The collector and node-exporter this release
+adds share the host's network, and what answers at 169.254.169.254 is the
+machine's own identity, which on the application node can read every stack
+secret, Stripe's key and the auth secret among them. On AWS they would sit
+inside the hop limit that keeps containers from the role, and on Oracle Cloud
+there is no hop limit at all to keep them from the instance principal's
+certificate and key. New machines on both clouds refuse the address to every
+user from 10000 to 65534, which covers the exporters and leaves root, the
+system accounts and uid 1000 as they were: at every boot on AWS, and saved with
+the host firewall on Oracle Cloud, whose image restores it before Docker
+starts. A machine built before this release needs the rule by hand before
+metrics are turned on; `docs/upgrades.md` has the line for each cloud.
+
 ### Fixed
 
 **The first `pulumi up` of a new `oci-single` stack no longer fails at the

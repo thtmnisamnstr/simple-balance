@@ -217,7 +217,7 @@ DATABASE_POOL_SIZE: {{ $c.databasePoolSize | int64 | quote }}
 RECURRENCE_TICK_SECONDS: {{ $c.recurrence.tickSeconds | int64 | quote }}
 RECURRENCE_CATCH_UP_LIMIT: {{ $c.recurrence.catchUpLimit | int64 | quote }}
 RECURRENCE_CLAIM_LIMIT: {{ $c.recurrence.claimLimit | int64 | quote }}
-METRICS_ENABLED: {{ $c.metrics.enabled | quote }}
+METRICS_ENABLED: {{ if or $c.metrics.enabled (include "simple-balance.collectorEnabled" .) }}"true"{{ else }}"false"{{ end }}
 {{- with $c.allowedEmails }}
 ALLOWED_EMAILS: {{ . | quote }}
 {{- end }}
@@ -821,4 +821,124 @@ Every Citus group this release runs: 0 is the coordinator, the rest are workers.
 {{- $groups = append $groups (add1 $i) -}}
 {{- end -}}
 {{- toJson $groups -}}
+{{- end }}
+
+{{/*
+Whether this release runs the metrics collector, as "true" or nothing. Read
+through here rather than as .Values.collector.enabled, because a values file
+that removes the block with `collector: null` would otherwise stop the render
+with a nil pointer inside the ConfigMap every pod reads — and that ConfigMap
+rendered before the collector existed.
+
+That ConfigMap asks because METRICS_ENABLED is derived on with the collector,
+the way the frontend's billing and ads switches are derived from their keys: a
+collector scraping pods that do not serve /metrics sends `up 0` and nothing
+else, and nothing in any pod says why. Never derived off, so a release that
+turned metrics on for a scraper of its own keeps them on, and with the
+collector left off the line renders exactly what every earlier release did.
+The explanation lives here rather than beside that line so that everything
+after it keeps the line numbers the guides cite.
+*/}}
+{{- define "simple-balance.collectorEnabled" -}}
+{{- if (.Values.collector | default dict).enabled }}true{{ end -}}
+{{- end }}
+
+{{- define "simple-balance.collectorName" -}}
+{{- include "simple-balance.componentName" (dict "root" . "component" "collector") }}
+{{- end }}
+
+{{- define "simple-balance.collectorServiceAccountName" -}}
+{{- if .Values.collector.serviceAccount.create }}
+{{- default (include "simple-balance.collectorName" .) .Values.collector.serviceAccount.name }}
+{{- else }}
+{{- required "collector.serviceAccount.name is required when collector.serviceAccount.create is false: the collector finds the pods it scrapes through the Kubernetes API, so it cannot run as the release's own account, which mounts no token." .Values.collector.serviceAccount.name }}
+{{- end }}
+{{- end }}
+
+{{/*
+The collector's image, by tag and digest together. The digest is what the
+runtime pulls; the tag is there so a person reading the pod can tell which
+release it is without looking the digest up.
+*/}}
+{{- define "simple-balance.collectorImage" -}}
+{{- $image := .Values.collector.image -}}
+{{- printf "%s/%s:%s@%s" $image.registry $image.repository $image.tag $image.digest -}}
+{{- end }}
+
+{{/*
+The Secret holding the export headers, or nothing when there are none to send.
+An operator's own when one is named; otherwise the one this chart builds from
+collector.export.headers. Never the Secret the API and the scheduler read: every
+key of that one lands in their environment, and the backend's credential has no
+business in a pod that does not send to it.
+*/}}
+{{- define "simple-balance.collectorHeadersSecret" -}}
+{{- $export := .Values.collector.export -}}
+{{- if $export.existingSecret }}{{ $export.existingSecret }}{{ else if $export.headers }}{{ include "simple-balance.collectorName" . }}{{ end -}}
+{{- end }}
+
+{{/*
+The port the export endpoint is reached on, which is the one port the
+collector's NetworkPolicy opens to the internet. Worked out from the URL rather
+than asked for, because asking would be a second statement of a fact the URL
+already makes, and the two would disagree the first time somebody moved
+backends. An explicit port wins; otherwise the scheme's.
+*/}}
+{{- define "simple-balance.collectorExportPort" -}}
+{{- $endpoint := .Values.collector.export.endpoint -}}
+{{- $authority := regexReplaceAll "^[a-zA-Z][a-zA-Z0-9+.-]*://([^/?#]*).*$" $endpoint "${1}" -}}
+{{- $hostPort := regexReplaceAll "^.*@" $authority "" -}}
+{{- $explicit := regexFind ":[0-9]+$" $hostPort | trimPrefix ":" -}}
+{{- if $explicit }}{{ $explicit }}{{ else if hasPrefix "https://" (lower $endpoint) }}443{{ else }}80{{ end -}}
+{{- end }}
+
+{{/*
+Which Secret the collector reads METRICS_TOKEN from: the last one the API and
+the scheduler read, because a later `envFrom` source wins a duplicate key and so
+that is where the token the pods check comes from whenever it is there at all.
+`validateCollector` refuses the one arrangement where it could be somewhere
+else.
+*/}}
+{{- define "simple-balance.collectorTokenSecret" -}}
+{{- last (fromJsonArray (include "simple-balance.secretRefs" .)) -}}
+{{- end }}
+
+{{/*
+What the collector cannot start with, or would start with and be wrong, checked
+while the render can still say so. Each of these is otherwise a pod that
+crashloops with the reason in its own log, or one that runs and sends nothing
+useful.
+*/}}
+{{- define "simple-balance.validateCollector" -}}
+{{- if include "simple-balance.collectorEnabled" . }}
+{{- $collector := .Values.collector }}
+{{- if not $collector.export.endpoint }}
+{{- fail "collector.enabled needs collector.export.endpoint: the collector scrapes in order to send, and with nowhere to send it refuses to start. For New Relic over OTLP that is https://otlp.nr-data.net, or https://otlp.eu01.nr-data.net in the EU." }}
+{{- end }}
+{{- if and $collector.export.headers $collector.export.existingSecret }}
+{{- fail "collector.export.headers and collector.export.existingSecret are both set. Put the headers in one place: the existing Secret, or the map that this chart writes into a Secret of its own." }}
+{{- end }}
+{{/*
+Under five minutes, which the schema cannot say: New Relic forgets a series
+silent for five minutes, and every rate built on it. The schema has already
+held this to minutes and seconds, so those are the only units to add up.
+*/}}
+{{- $interval := $collector.scrapeInterval | toString }}
+{{- $minutes := regexFind "^[0-9]+m" $interval | trimSuffix "m" | default "0" | int }}
+{{- $seconds := regexFind "[0-9]+s$" $interval | trimSuffix "s" | default "0" | int }}
+{{- $total := add (mul $minutes 60) $seconds }}
+{{- if or (le $total 0) (ge $total 300) }}
+{{- fail (printf "collector.scrapeInterval is %s, and it has to be more than nothing and under 5m: New Relic forgets a series that has been silent for five minutes, and every rate built on it." $interval) }}
+{{- end }}
+{{/*
+The one arrangement where the token the pods check and the token the collector
+sends could differ. With database.enabled the pods read the chart's Secret and
+then the operator's, so a secret.metricsToken here would be checked by the pods
+unless the operator's Secret carries one too — and the collector cannot tell
+from a render which of the two is in force.
+*/}}
+{{- if and .Values.secret.create .Values.secret.existingSecret .Values.secret.metricsToken }}
+{{- fail (printf "collector.enabled with secret.metricsToken and secret.existingSecret both set. The pods read %s second, so a METRICS_TOKEN there would win over secret.metricsToken and the collector could not know which one to send. Put METRICS_TOKEN in %s and leave secret.metricsToken empty." .Values.secret.existingSecret .Values.secret.existingSecret) }}
+{{- end }}
+{{- end }}
 {{- end }}

@@ -242,7 +242,7 @@ convention expects.
 answer: that the list items stay at the five that earned their shape, and that
 the lines running past 80 columns do not grow past where they already are.
 *Not checked:* that the top heading matches `package.json`. That is a hand step
-in the release recipe at `docs/upgrades.md:1597`, step 4, "Date the
+in the release recipe at `docs/upgrades.md:1888`, step 4, "Date the
 `## Unreleased` heading in `CHANGELOG.md`", and it has already been the subject
 of a commit ("Date 0.1.4 the day it is cut"). Nor is whether an entry describes
 a change somebody would notice, which is the judgement this section is mostly
@@ -361,12 +361,12 @@ publish runs `npm run verify` first, so an unwritten note now stops the release
 rather than reaching an operator mid-upgrade. *Also checked:* the frozen
 migration list, which `tests/migrations.test.ts` holds to what is on disk.
 *Not checked:* the changelog heading, a hand step in the release recipe at
-`docs/upgrades.md:1597`, and which release a migration is attributed to, which
+`docs/upgrades.md:1888`, and which release a migration is attributed to, which
 is prose inside a list a test can only check the membership of.
 
 ## Upgrade notes
 
-**Binding, quoting `AGENTS.md:338-390`, the frozen migration list:** "Every
+**Binding, quoting `AGENTS.md:346-398`, the frozen migration list:** "Every
 migration that has shipped is frozen" and "Never edit or regenerate one:
 someone's database has already run it, and changing it would leave their schema
 and its recorded history disagreeing." What follows is the documentation the
@@ -376,7 +376,7 @@ end of the bullet — it grew, and the number did not.
 
 **House, the shape.** A `## Before you upgrade to X.Y.Z` section, and its first
 sentence tells an operator whether they can stop reading. The 0.1.6 note at
-`docs/upgrades.md:1256-1257` is the model: "Nothing refuses to start that 0.1.5
+`docs/upgrades.md:1547-1548` is the model: "Nothing refuses to start that 0.1.5
 accepted, and nothing about an existing configuration has to change. Five
 things are worth knowing." The 0.1.4 section is the other model, because the
 answer there was different: "0.1.4 refuses to start on three configurations
@@ -505,7 +505,7 @@ The reasoning, which is what the next person should argue with:
 So, taking Nygard's Status field and immutability rule without the ceremony:
 
 - **House. A recorded decision names the release it was made in.** The exemplar
-  is `AGENTS.md:338-390`, the frozen migration list, which names every migration
+  is `AGENTS.md:346-398`, the frozen migration list, which names every migration
   and the release it shipped in, and is the most reliable section in the file
   for exactly that reason.
 - **House. A reversal edits the old text to say it is superseded, and says by
@@ -539,7 +539,7 @@ with `docs/guide.md` keeping the explanations.
   it said where the section sits, which is the shape of error an ordered list
   invites: it reads as complete and nobody counts it against the file.
 - **The license is stated in the README, not only in `LICENSE`.** For an AGPL
-  project the license is a term of use. `README.md:288-298` names it, links it,
+  project the license is a term of use. `README.md:295-305` names it, links it,
   and explains what section 13 adds, including for versions published under the
   older license.
 - **No badge wall.** There are none today.
@@ -1039,7 +1039,7 @@ that moved them "fixed" the history into something false: one landed on prose
 it claims is a closing fence. So a number quoted as it once was is written
 `` `AGENTS.md`:289-326 ``, the line outside the backticks, which no check and
 no repoint pass reads as a pointer — and a citation meant to be followed is
-written as one span, `` `AGENTS.md:338` ``, and is repointed when it drifts.
+written as one span, `` `AGENTS.md:346` ``, and is repointed when it drifts.
 
 *Checked by:* `tests/standards-citations.test.ts`, as far as a test can go: that
 the file exists, that the lines are inside it, that a range does not run
@@ -1132,7 +1132,7 @@ edit.
   browser-only surface if anything here is.
 - **No `CONTRIBUTING.md`**, on a published AGPL project that accepts dependabot
   pull requests. The README carries a `## Contributing` section
-  (`README.md:228`) and `tests/docs-conventions.test.ts` holds it to not
+  (`README.md:235`) and `tests/docs-conventions.test.ts` holds it to not
   answering the question by pointing at the invariants file, so the half that
   was missing is the separate document a forge links to from a pull request
   form. Whether pull requests are taken at all is the owner's answer to give,

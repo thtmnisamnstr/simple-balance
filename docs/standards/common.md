@@ -434,7 +434,7 @@ The membership test is the whole of it, and all four clauses have to hold:
   everything else.
 
 One value passes today. Stripe reports a subscription price as an integer count
-of the currency's smallest unit (`src/server/stripe.ts:1262`), the server hands
+of the currency's smallest unit (`src/server/stripe.ts:1311`), the server hands
 it on untouched (`src/server/services/billing.ts:1225`), and `formatPrice`
 (`src/client/pages/PlanPage.tsx:627-662`) divides it by the scale Stripe charged
 it in and formats it in the same breath. That scale is the one `Intl` already

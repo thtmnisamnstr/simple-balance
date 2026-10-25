@@ -7,9 +7,117 @@ keep, so upgrading is swapping it for a newer one.
 
 This note is written as work lands rather than when the release is cut.
 
-**Nothing to do by hand.** Every change is to the single-machine programs, and
-a stack that is already up plans no change beyond the text of its `nextSteps`
-output.
+**Nothing to do by hand unless you want metrics exported, or you had
+`METRICS_ENABLED=true` on 0.2.1 with no `METRICS_TOKEN`.** No migration, no new
+setting anybody has to set, and nothing turns itself on: a deployment that sets
+nothing new renders, starts and serves what it did, a stack that sets nothing
+new plans no change beyond the text of its `nextSteps` output, and a chart
+upgraded with the values it had renders the same objects. Everything new is a
+metrics collector that is off until asked for, the series the application
+publishes about itself, and two holes in `/metrics` closed.
+
+### What runs automatically
+
+**No migration.** Nothing in the schema changes.
+
+**The application answers `/metrics` at exactly that path.** A request whose
+target only resolves to it — `/api/..\metrics`, `/health/..\metrics` — is a 404,
+as though there were no such route, whatever sits in front.
+
+**More series, and nothing renamed.** With `METRICS_ENABLED` on, a scrape
+carries these as well, every one named `simple_balance_…` and each labeled from
+a closed set:
+`http_requests_in_flight`, `http_stream_outcomes_total`,
+`http_requests_aborted_total`, `csp_violations_total`,
+`internal_errors_total`, `readiness_checks_total`, `ready`,
+`auth_requests_total`, `rate_limited_total`, `rate_limit_store_failures_total`,
+`log_messages_total`, `mcp_requests_total`, `db_transactions_total`,
+`db_pool_acquire_duration_seconds`, `db_pool_errors_total`,
+`scheduler_enabled`, `scheduler_tick_interval_seconds`,
+`scheduler_last_success_timestamp_seconds`, `mail_send_duration_seconds`,
+`stripe_request_failures_total` and `dependency_up`. A labeled one has no
+samples until the first thing it counts happens. `docs/deployment.md` §What to
+alert on says which of them to watch.
+
+**Three of them read in ways worth knowing before an alert is written on one.**
+`dependency_up` is 1 when the last check a process made of a dependency passed,
+0 when it failed, and absent for a dependency the deployment does not use.
+`smtp` and `stripe_access` are checked as the process starts and not again, so
+a relay fixed since then reads 0 until a restart; `stripe_prices` follows every
+price check. A startup check that could not reach its dependency reads 0, and
+so does `stripe_access` when Stripe could not be asked; a standard `sk_…` key
+reads 1 without being asked. `http_requests_in_flight` counts the scrape that
+reads it, so an idle API reads 1. And `readiness_checks_total` moves with the
+platform's probes, plus one check as each process starts listening, which is
+also what keeps `ready` from reading 0 before the first probe.
+
+### What changed under you
+
+**`/metrics` was reachable from the internet in two shapes, and both are
+closed.** Each needed `METRICS_ENABLED=true` and no `METRICS_TOKEN`; with a
+token, a request still needed it.
+
+- **Behind the frontend nginx** — the split recipe and the chart. nginx reads a
+  backslash as an ordinary character, so it proxied `/api/..\metrics` as an
+  `/api` path, and the application resolved it to `/metrics` and answered. The
+  0.2.2 image refuses it, so this one closes with the image and nothing else.
+- **Behind the `single` profile's Caddy.** Its Caddyfile proxied every path,
+  `/metrics` included, while the comment in `compose.yml` said no terminator
+  there did. 0.2.2's Caddyfile answers it 404 before proxying anything. The
+  image cannot close this one, because the request Caddy forwards is exactly
+  `/metrics`, and a machine keeps the Caddyfile it was built with — so copy
+  0.2.2's to `/opt/simple-balance/Caddyfile` and
+  `sudo systemctl restart simple-balance`, or set a token.
+  A proxy of your own wants the same refusal; `docs/deployment.md` §Reverse
+  proxy has it for Caddy and nginx.
+
+**Some series read differently.** None is renamed and no label value is removed,
+but a dashboard reading one of these will see it move:
+
+- **New label values.** `route="spa_shell"` on `http_requests_total` and
+  `http_request_duration_seconds` for a page load the single-page app answered,
+  the bundle-root files included; those were `unmatched`, which now means a
+  method no route takes or a request refused before any route ran.
+  `db_pool_connections` gains `state="max"`, the pool's ceiling.
+- **New buckets.** `le="0.01"` and `le="0.05"` on
+  `http_request_duration_seconds`, `mcp_tool_duration_seconds`,
+  `db_transaction_duration_seconds` and `scheduler_tick_duration_seconds`;
+  `le="30"` and `le="60"` on `stripe_request_duration_seconds`; and `le="60"`,
+  `le="120"` and `le="300"` on the tick histogram, whose help text now says it
+  times all four sweeps together. Every bucket that existed still does.
+- **`db_transaction_duration_seconds` covers every transaction.** It timed the
+  ones that went through one helper, from before the connection was acquired. It
+  now times every transaction on the application's pool — MCP writes, the
+  scheduler's sweeps, billing, and the auth library's own — from `begin` to
+  `commit` or `rollback`, and the wait for a connection is
+  `db_pool_acquire_duration_seconds` instead. Expect its count to rise, and its
+  values to fall when the pool is contended.
+
+**The unit on a `single` machine starts in two steps.** Its first `up` starts
+everything outside the `metrics` profile and waits for it, and a second adds the
+collector wherever `.env` turns it on, with a failure there logged and not
+fatal, so an image registry that does not answer costs the metrics and not the
+site. Without the profile the second `up` adds nothing. A machine keeps the unit
+it was built with until it is copied, below.
+
+**`.env` is installed `0600` in every hand-install recipe**, rather than copied
+at the `0644` a checkout has. It holds the passwords, and on the database
+machine the new node-exporter reads the host's root as an unprivileged user.
+An existing hand install is worth `sudo chmod 0600 /opt/simple-balance/.env` on
+both machines; a machine a program built already has it.
+
+**On `aws-single` and `oci-single`, new machines keep the metrics exporters off
+the instance metadata address.** The collector and node-exporter share the
+host's network, and what answers at that address is the machine's own identity,
+which on the application node reads every stack secret. On AWS the hop limit
+that keeps containers away from the role does not reach a container on the
+host's network. On Oracle Cloud there is no hop limit at all, and the instance
+principal's certificate and key would hand them the settings secret, Stripe's
+key and the auth secret among it. Both machines on both clouds now refuse the
+address to every user from 10000 to 65534: AWS's at every boot, Oracle's saved
+with the host firewall their image already keeps. A machine built before this
+release does not have the rule, which matters only once metrics are on, and the
+steps below add it.
 
 **`oci-single` waits for every one of its vault's nameservers.** 0.2.1's wait
 for a new settings vault's hostname stopped at the first nameserver that had
@@ -23,6 +131,189 @@ are unchanged.
 longer say it can.** OCI fixes a public IP's type when it creates it. If you
 need an address that outlives the instance, a reserved one swapped in from the
 console is a new address, and the A record has to follow it.
+
+### What you do by hand, to export metrics
+
+Only to turn the collector on, and each profile's own page has the long version:
+`docs/deployment.md` §Metrics for all of them. Doing none of this changes
+nothing.
+
+**A `single` stack built by `aws-single` or `oci-single` before this release.**
+`pulumi up` never rewrites a running machine, so the files arrive by hand, in
+this order: nothing then refuses for a file that is not there yet, and the
+firewall opens only once something listens behind it. Run `pulumi` from a
+checkout of this release.
+
+1. **The application node.** Copy these from the checkout, keeping the
+   `image:` line the machine's own `compose.yml` already has:
+
+   | From | To | Mode |
+   | --- | --- | --- |
+   | `deploy/compose/single/compose.yml`, `compose.db-tls.yml`, `Caddyfile`, `collector.yaml` | `/opt/simple-balance/` | 0644 |
+   | `deploy/systemd/simple-balance-env` | `/usr/local/sbin/simple-balance-env` | 0700 |
+   | `deploy/systemd/simple-balance.service` | `/etc/systemd/system/simple-balance.service` | 0644 |
+
+   then `sudo systemctl daemon-reload`. Nothing changes at runtime yet but the
+   Caddyfile, at the next restart.
+
+2. **Both machines, on either cloud**, the metadata rule new machines get,
+   before anything on them runs on the host's network. The database node is
+   reached over the shell step 3 uses.
+
+   On AWS it lasts until the machine reboots, so keep it the way that machine
+   keeps its firewall, or reapply it after a reboot:
+
+   ```sh
+   sudo iptables -I OUTPUT -d 169.254.169.254 -m owner --uid-owner 10000-65534 -j REJECT
+   ```
+
+   On Oracle Cloud, save it with the firewall the image already keeps, as a new
+   machine does, and netfilter-persistent restores it at every boot before
+   Docker starts. Once per machine, because a second run saves a second copy:
+
+   ```sh
+   sudo sh -c 'iptables -I OUTPUT -d 169.254.169.254 -m owner --uid-owner 10000-65534 -j REJECT && netfilter-persistent save'
+   ```
+
+   Then check it on each Oracle machine. The first line asks for the instance's
+   id as the collector's user and should fail at once rather than print an
+   OCID. The second asks for New Relic's address as that same user and must
+   print one: on Oracle Cloud the metadata address is also the DNS server, and
+   the rule refuses every port on it, so the collector's lookups only work
+   because they go to `systemd-resolved` on the loopback, which asks upstream as
+   a system account below the range. A machine where it prints nothing would
+   scrape and never send. The third, on the application node only, is the
+   settings refresh the timer runs every five minutes, run now: it reads the
+   settings secret through that same address, as the OCI CLI image's own user,
+   below the range, and it should return without a word.
+
+   ```sh
+   sudo setpriv --reuid 10001 --regid 10001 --clear-groups curl -sS -m 5 -H 'Authorization: Bearer Oracle' http://169.254.169.254/opc/v2/instance/id
+   sudo setpriv --reuid 10001 --regid 10001 --clear-groups getent hosts otlp.nr-data.net
+   sudo systemctl start simple-balance-settings
+   ```
+
+3. **The database node**, over the shell `deploy/pulumi/README.md` describes:
+
+   | From | To | Mode |
+   | --- | --- | --- |
+   | `deploy/compose/single/compose.postgres.yml`, `node-exporter-web.yml` | `/opt/simple-balance/` | 0644 |
+   | `deploy/systemd/simple-balance-db-firstboot` | `/usr/local/sbin/simple-balance-db-firstboot` | 0700 |
+   | `deploy/systemd/simple-balance.service` | `/etc/systemd/system/simple-balance.service` | 0644 |
+
+   then `sudo systemctl daemon-reload`, and turn its node-exporter on without
+   restarting PostgreSQL. The `iptables` line is Oracle Cloud's, whose image
+   ships a host firewall the security list does not reach; on AWS the security
+   group is the whole firewall.
+
+   ```sh
+   echo COMPOSE_PROFILES=metrics | sudo tee -a /opt/simple-balance/env.base
+   sudo sh -c 'iptables -I INPUT 1 -p tcp --dport 9100 -j ACCEPT && netfilter-persistent save'
+   sudo install -d -o 61000 -g 61000 -m 0700 /opt/simple-balance/node-exporter-tls
+   sudo install -o root -g root -m 0644 /opt/simple-balance/db-tls/server.crt /opt/simple-balance/node-exporter-tls/server.crt
+   sudo install -o 61000 -g 61000 -m 0600 /opt/simple-balance/db-tls/server.key /opt/simple-balance/node-exporter-tls/server.key
+   sudo /usr/local/sbin/simple-balance-env
+   cd /opt/simple-balance && sudo docker compose -f compose.postgres.yml up -d --wait
+   ```
+
+   PostgreSQL's configuration renders the same, so that `up` creates
+   node-exporter and leaves the database running. The key is copied rather than
+   shared because PostgreSQL refuses a key file of its own that anybody else can
+   read, and uid 61000 sits between Ubuntu's last ordinary uid and systemd's
+   dynamic range, so no account on the machine is ever given it. `sudo
+   /usr/local/sbin/simple-balance-db-firstboot` makes the same copy and restarts
+   the deployment, PostgreSQL with it, for a few seconds.
+
+4. **The stack.**
+
+   ```sh
+   pulumi config set --path 'simple-balance:env.SB_METRICS_EXPORT_ENDPOINT' https://otlp.nr-data.net
+   pulumi config set --secret --path 'simple-balance:secrets.SB_METRICS_EXPORT_HEADERS'
+   # {"api-key":"<your New Relic ingest license key>"}, typed at the prompt
+   pulumi preview
+   pulumi up
+   ```
+
+   The preview shows one new rule — 9100 into the database node, from the
+   application subnet on Oracle Cloud and from the application node's security
+   group on AWS — a new version of the settings secret, and no instance
+   replaced. Within about five minutes the settings timer restarts the
+   application node onto the collector, node-exporter and
+   `SB_METRICS_DATABASE_TARGET`; `sudo systemctl restart simple-balance` does it
+   at once. A stack that also sets `METRICS_ENABLED=false` keeps it, and the
+   machine says at every start that the collector is sending none of the
+   application's figures.
+
+**A `single` deployment installed by hand.** Copy `collector.yaml`,
+`compose.yml`, `compose.db-tls.yml`, the `Caddyfile` and the unit to the
+application machine, and `compose.postgres.yml`, `node-exporter-web.yml` and the
+unit to the database machine, with `sudo systemctl daemon-reload` on each. Then
+the four lines in `.env` that `deploy/compose/single/README.md` §Metrics gives,
+and the database machine's half from the same section. On AWS or Oracle
+Cloud, the metadata rule from step 2 above goes on both machines first, kept
+the way that step says for each.
+
+**The split recipe.** Take the new `compose.distributed.yml` and
+`collector.distributed.yaml`, and set the same four lines in
+`deploy/compose/.env`.
+
+**The chart.** Create a Secret holding the headers, then upgrade with
+`--reset-then-reuse-values` (Helm 3.14 or later) or with the values file you
+installed with. Not `--reuse-values`: that carries 0.2.1's defaults, which have
+no `collector.image`, and the schema refuses the upgrade before anything
+changes. A release whose `METRICS_TOKEN` is in `secret.metricsToken` beside an
+`existingSecret` moves the token into that Secret first, because the render
+refuses a token that could come from two places. Nothing has to be named in a
+NetworkPolicy. The API and the scheduler roll once, because `METRICS_ENABLED`
+changes under them — the chart turns it on with the collector, over an explicit
+`false` too.
+
+**The cluster programs, `aws`, `gcp` and `oci`.** The two `pulumi config` lines
+from the stack step above and a `pulumi up`, which builds a Secret named
+`simple-balance-metrics-export`, adds the collector, and rolls the API and the
+scheduler once. A stack that sets `SB_METRICS_DATABASE_TARGET` is refused; take
+it out. The chart rolls the collector when `secret.metricsToken` changes and not
+when a Secret it did not build does, so rotating the headers — the program's
+Secret is one of those — is `kubectl -n <namespace> rollout restart
+deploy/simple-balance-collector` after the `up`.
+
+### What to check afterwards
+
+`/health/ready`, as with any upgrade. On a `single` machine with the new
+Caddyfile in place, the site's own address answers `/metrics` with a 404:
+
+```sh
+curl -s -o /dev/null -w '%{http_code}\n' https://your-host/metrics
+```
+
+Behind the frontend nginx the same request gets the app's own page, as it always
+did, because nginx never had the path to proxy; the backslash route there is
+closed by the image and has no check of its own to run.
+
+With the collector on, on the application machine: `curl -fsS 127.0.0.1:13133`
+reports the collector's health, `journalctl -u simple-balance | grep
+collector.yaml` is empty — a line there means the machine is missing the file or
+a `compose.yml` that runs the collector, and no collector started — and the
+database machine's exporter answers over TLS with the CA the application already
+trusts:
+
+```sh
+curl -fsS --cacert /var/lib/simple-balance/tls/db-ca.pem \
+  https://<the host in SB_METRICS_DATABASE_TARGET>:9100/metrics | head
+```
+
+On the chart, `kubectl -n <namespace> get deploy <fullname>-collector` —
+`simple-balance-collector` for a release named `simple-balance` — reads 1/1. In
+New Relic, after one scrape interval, every target reads 1:
+
+```sql
+FROM Metric SELECT latest(up) FACET service.name, service.instance.id SINCE 10 minutes ago
+```
+
+The collector's own series arrive as `service.name` `collector` at
+`127.0.0.1:8888`, not as `otelcol` under a new instance at every restart, which
+is what its default self-description would have made them; its `target_info`
+is dropped to keep that name.
 
 ## Before you upgrade to 0.2.1
 

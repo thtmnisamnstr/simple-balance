@@ -588,11 +588,14 @@ describe("counting attempts against a caller", () => {
         "\n",
       );
       lines.forEach((line, index) => {
-        // A comment mentioning the number is not a route answering with it.
-        if (/^\s*(\/\/|\*)/.test(line)) return;
+        // A comment mentioning the number is not a route answering with it, and
+        // neither is a comparison: the auth metrics read a status somebody else
+        // already answered with, and answer with nothing themselves.
+        if (/^\s*(\/\/|\/?\*)/.test(line)) return;
         if (!/(?:^|[^\d])429(?:[^\d]|$)/.test(line)) return;
-        // Either side, because the header is set before `c.json` names the
-        // status and the mirror reads the status before setting the header.
+        if (/[!=]==\s*429\b/.test(line)) return;
+        // Either side, because the header can be set before or after the line
+        // that names the status.
         const near = lines.slice(Math.max(0, index - 12), index + 12).join("\n");
         if (!near.includes("Retry-After")) missing.push(`${relative}:${index + 1}`);
       });

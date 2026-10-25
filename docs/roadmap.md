@@ -915,6 +915,17 @@ categorization among the things a manual-entry user genuinely misses. If the
 staging queue plus a stage-scoped agent turns out not to cover it in practice,
 this is the entry to revisit first.
 
+**OpenTelemetry inside the application.** Metrics reach New Relic, or any
+other backend, through a collector that scrapes the Prometheus text format the
+process already serves, so moving the process itself onto the OpenTelemetry SDK
+would buy the same series again at the cost of an export pipeline in the
+request path and the backend's credential in every process. Decided in October
+2026, for the release after 0.2.1; `docs/architecture.md` §Metrics, and why the
+process does not speak OTLP has the argument. The counter-argument is real:
+traces are a signal the text format cannot carry, and if this product ever
+needs one request followed across the API, the database and Stripe, the SDK is
+the way to get it and this is the entry to revisit.
+
 **Lead generation, and anything that monetizes the data.** Not a product
 decision.
 

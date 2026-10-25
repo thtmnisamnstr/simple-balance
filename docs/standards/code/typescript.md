@@ -36,7 +36,7 @@ rather than leaving to whoever next runs a sweep.
 *Checked by:* `npm run typecheck`, which is `tsconfig.json` and
 `tsconfig.server.json` (`package.json:25`) and reaches no further. The
 infrastructure half is a separate compiler run in a separate CI job
-(`.github/workflows/verify.yml:441-445`); `npm run verify` does not include it.
+(`.github/workflows/verify.yml:584-588`); `npm run verify` does not include it.
 
 ### 1.2 `erasableSyntaxOnly`, and the two classes it changed
 
@@ -75,7 +75,7 @@ erases just as well.
 
 **Contested.** The flag is good advice in general and wrong here. All three
 sites it flags are Hono middleware
-(`src/server/api.ts:1481`, `src/server/http-security.ts:484` and `:950`),
+(`src/server/api.ts:1616`, `src/server/http-security.ts:485` and `:957`),
 where a `MiddlewareHandler` returns a `Response` to answer the request or
 nothing at all to let the next handler run. "Returns on some paths and not
 others" is the contract, not a mistake.
@@ -327,10 +327,10 @@ load-bearing by `AGENTS.md`:
   is what `tests/product-facts.test.ts:61` asserts and what the marketing site
   reads through `docs/product/facts.json`. Annotating `Record<Plan, string>`
   would do the first and lose the second.
-- `authReporting` (`src/server/auth.ts:75-98`) returns the logger and error
+- `authReporting` (`src/server/auth.ts:76-99`) returns the logger and error
   handler Better Auth is configured with, checked against
   `Pick<BetterAuthOptions, "logger" | "onAPIError">` without being flattened
-  into it. `src/server/auth.ts:121` spreads the result and
+  into it. `src/server/auth.ts:122` spreads the result and
   `tests/auth-log.test.ts:379` destructures `.onAPIError` off it — which the
   library's own type makes optional, so an annotation would stop that
   compiling.
@@ -340,7 +340,7 @@ The second use is worth recording as it went. `securityHeaderOptions` used
 a different key from an enforcing one — and a `satisfies` on a value that is one
 of two shapes narrows to whichever branch was written, so reading the other one
 stopped compiling for callers. It carries an explicit return type now
-(`src/server/http-security.ts:210`). That is the line where `satisfies` stops
+(`src/server/http-security.ts:211`). That is the line where `satisfies` stops
 being the better tool: it is for checking a literal without widening it, not for
 describing a value that has more than one shape.
 
@@ -371,7 +371,7 @@ fact the published types are missing:
 
 | Where | The one property | The fact the types are missing |
 | --- | --- | --- |
-| `src/server/stripe.ts:352` | `current_period_end` | Stripe moved the period boundary onto the subscription's items; an account on an older API version still sends it on the subscription. |
+| `src/server/stripe.ts:401` | `current_period_end` | Stripe moved the period boundary onto the subscription's items; an account on an older API version still sends it on the subscription. |
 | `src/client/ads.tsx:115` | `requestNonPersonalizedAds` | Google's tag takes the flag on the queue array itself, which is typed as an array. |
 | `src/shared/domain.ts:24` | `pattern` | Zod's registry types the value as a string, and `undefined` is what *removes* the key from the emitted JSON Schema. |
 
@@ -429,16 +429,16 @@ in a `.ts` file is correct, and dropping the extension breaks the server build
 and nothing else, which is the worst kind of break: the client bundler forgives
 it, so it passes locally.
 
-**The infrastructure programs invert it, and are correct.** All eighteen relative
+**The infrastructure programs invert it, and are correct.** All twenty relative
 imports under `deploy/pulumi` drop the extension —
 `import * as sb from "../common"` at `deploy/pulumi/aws/index.ts:6` is the
 shape — because that project sets `"moduleResolution": "node"`
 (`deploy/pulumi/tsconfig.json:5`) and emits CommonJS, where an extension-less
 specifier is what resolves. The rationale above reaches NodeNext and Bundler and
-stops there, so a mechanical sweep that "fixed" those eighteen would break five
+stops there, so a mechanical sweep that "fixed" those twenty would break five
 programs that compile today. §3.5 is why there are two answers at all.
 
-Four of the eighteen are inside files the application's own compiler reads
+Four of the twenty are inside files the application's own compiler reads
 (1.4), so one program typechecks both conventions at once. That is not a
 problem — Bundler resolution accepts an extension-less relative specifier — but
 it is why this rule was stated repository-wide for a release without failing
@@ -534,7 +534,7 @@ own carve-out.
 
 ### 3.5 The Pulumi programs are a second TypeScript program
 
-**House**, and mechanized. `deploy/pulumi` is 8,266 lines of first-party
+**House**, and mechanized. `deploy/pulumi` is 8,938 lines of first-party
 TypeScript that this guide did not know existed. It is not a corner: 0.2.0 took
 it from two stacks to five — `aws`, `gcp`, `oci`, `aws-single`, `oci-single` —
 and
@@ -552,7 +552,7 @@ for keeping them:
 | Declined here, on there | — | `noImplicitReturns` (§1.3) |
 | On here, absent there | `erasableSyntaxOnly`, `verbatimModuleSyntax`, `noImplicitOverride`, `noFallthroughCasesInSwitch`, `allowUnreachableCode: false`, `allowUnusedLabels: false` | — |
 | Typecheck | `npm run typecheck`, two projects | `npm run typecheck` inside `deploy/pulumi`, five projects |
-| In `npm run verify` | yes | no — a separate CI job (`.github/workflows/verify.yml:441-445`) |
+| In `npm run verify` | yes | no — a separate CI job (`.github/workflows/verify.yml:584-588`) |
 | `oxlint` | yes | yes, same config |
 | `oxfmt` | yes | not by the command — `npm run format` is `oxfmt src tests *.ts` (`package.json:28`) — but by `tests/code-index-guide.test.ts`, which holds every file the command misses to `oxfmt --check` |
 

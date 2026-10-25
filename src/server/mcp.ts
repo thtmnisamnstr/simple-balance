@@ -87,7 +87,15 @@ import {
   listTransactionTemplates,
   updateTransactionTemplate,
 } from "./services/transaction-templates.js";
-import { mcpToolCalls, mcpToolDuration } from "./metrics.js";
+import {
+  internalErrors,
+  MCP_RPC_METHODS,
+  mcpRequests,
+  mcpToolCalls,
+  mcpToolDuration,
+  type McpRpcMethod,
+  type McpRpcOutcome,
+} from "./metrics.js";
 import { AppError, zodIssues, INTERNAL_ERROR_MESSAGE } from "./services/errors.js";
 import {
   flushDeferredCounts,
@@ -277,6 +285,11 @@ async function runTool(fn: () => Promise<unknown>) {
   } catch (error) {
     if (!(error instanceof AppError) && !(error instanceof ZodError)) {
       log.failure("Unexpected MCP tool error", error);
+      // The one branch that answers `INTERNAL_ERROR`, and the only place the
+      // difference is still known. By the reply it is gone: a refusal and a bug
+      // both come back as `isError: true` over a 200, which is all
+      // `mcp_tool_calls_total` and `mcp_requests_total` can see.
+      internalErrors.inc({ surface: "mcp" });
     }
     // An agent can only correct a call it can see the fault in. A schema
     // failure names the field and what was wrong with it; reporting it as an
@@ -2103,7 +2116,7 @@ const stepUpScope = (required: LedgerTier) => `openid profile email offline_acce
 async function scopeChallenge(
   request: Request,
   scopes: Set<string>,
-): Promise<{ response: Response | null; forward: Request }> {
+): Promise<{ response: Response | null; forward: Request; refused?: readonly unknown[] }> {
   // A bodyless request carries no call to inspect, and rebuilding one with an
   // empty body would change what the transport sees.
   if (request.method !== "POST" || request.body === null) {
@@ -2131,7 +2144,8 @@ async function scopeChallenge(
     // shape its own client expects.
     return { response: null, forward };
   }
-  for (const entry of Array.isArray(payload) ? payload : [payload]) {
+  const entries: readonly unknown[] = Array.isArray(payload) ? payload : [payload];
+  for (const entry of entries) {
     const call = entry as { method?: unknown; id?: unknown; params?: { name?: unknown } };
     if (call?.method !== "tools/call") continue;
     const name = call.params?.name;
@@ -2168,6 +2182,7 @@ async function scopeChallenge(
         },
       ),
       forward,
+      refused: entries,
     };
   }
   return { response: null, forward };
@@ -2196,14 +2211,153 @@ function methodNotAllowed() {
   );
 }
 
+/**
+ * The methods that are a label of their own, which is every name in the
+ * vocabulary but its two buckets.
+ *
+ * Derived rather than listed, so a method added to `MCP_RPC_METHODS` is
+ * recognized here by existing. The buckets are left out because they are not
+ * methods: a client that sends `"other"` or `"notification"` as a method has
+ * named something this server does not serve, and lands where any such name
+ * does.
+ */
+const NAMED_RPC_METHODS: ReadonlySet<string> = new Set(
+  MCP_RPC_METHODS.filter((method) => method !== "notification" && method !== "other"),
+);
+
+/**
+ * A JSON-RPC method as a label: mapped onto the closed set and never copied.
+ *
+ * The method is a string the client writes, so copying it into the label would
+ * let a client mint a series for every string it cared to send.
+ */
+function rpcMethodLabel(method: unknown): McpRpcMethod {
+  if (typeof method !== "string") return "other";
+  if (method.startsWith("notifications/")) return "notification";
+  return NAMED_RPC_METHODS.has(method) ? (method as McpRpcMethod) : "other";
+}
+
+/**
+ * A JSON-RPC error code by the name `mcp_requests_total` gives it. -32700,
+ * -32600 and -32602 are mapped ahead of the SDK, which sends none of the three
+ * today; `MCP_RPC_OUTCOMES` says why they stay.
+ */
+function rpcErrorOutcome(code: unknown): McpRpcOutcome {
+  if (code === -32_700 || code === -32_600) return "invalid_request";
+  if (code === -32_601) return "method_not_found";
+  if (code === -32_602) return "invalid_params";
+  return "error";
+}
+
+/** A message that expects no reply, by the status the whole body was answered with. */
+const statusOutcome = (status: number): McpRpcOutcome =>
+  status < 400 ? "ok" : status < 500 ? "invalid_request" : "error";
+
+/**
+ * Watch one request's messages arrive and its replies leave, and count them
+ * once it has been answered.
+ *
+ * Both halves are read off the transport rather than out of the bodies. The
+ * transport has already parsed the request into messages and is handed each
+ * reply as an object before it serializes them, so this parses nothing. A
+ * `stage_csv` body is tens of megabytes and an `export_transactions_csv` reply
+ * is a whole CSV, and reading either again to learn one method name and one
+ * error code is the second parse `scopeChallenge` goes out of its way to skip.
+ * The SDK keeps an `onmessage` that was set before `connect` and calls it ahead
+ * of its own (`Protocol.connect`), so setting it here observes the messages
+ * without replacing what handles them; `send` is wrapped on the instance for
+ * the same reason `registerTool` is above.
+ *
+ * Nothing in a message is trusted. A method is mapped onto the closed set, a
+ * reply is matched to its request by id, and a field that is missing or of the
+ * wrong type reads as "not that".
+ *
+ * A request is counted by its reply: an error code by name, a `tools/call`
+ * result carrying `isError` as `tool_error`, anything else `ok`. A message that
+ * expects no reply — a notification, or a client's own response — is answered
+ * by the status alone. A body that never became a message — not JSON, not
+ * JSON-RPC, a batch over the transport's limit, the wrong `Accept` header or
+ * content type — is refused by the transport with nothing handed to the
+ * server, carries no method anybody can read, and is counted once as `other`.
+ * An empty batch is the one body with no messages that is not refused, and is
+ * counted not at all, since it held nothing to count.
+ */
+function countRpcMessages(transport: WebStandardStreamableHTTPServerTransport) {
+  const received: { id: unknown; method: McpRpcMethod }[] = [];
+  const answered = new Map<unknown, McpRpcOutcome>();
+  transport.onmessage = (message) => {
+    const entry = message as { id?: unknown; method?: unknown };
+    received.push({
+      // Only a request is answered by id. A client's own response carries an
+      // id too, and matching it to a reply would read the server's answer to
+      // some other message as its outcome.
+      id: entry.method === undefined ? undefined : entry.id,
+      method: rpcMethodLabel(entry.method),
+    });
+  };
+  const send = transport.send.bind(transport);
+  transport.send = (message, options) => {
+    const reply = message as {
+      id?: unknown;
+      method?: unknown;
+      result?: { isError?: unknown };
+      error?: { code?: unknown };
+    };
+    if (reply.method === undefined && reply.id !== undefined) {
+      answered.set(
+        reply.id,
+        reply.error === undefined
+          ? reply.result?.isError === true
+            ? "tool_error"
+            : "ok"
+          : rpcErrorOutcome(reply.error.code),
+      );
+    }
+    return send(message, options);
+  };
+  return function settle(status: number) {
+    if (received.length === 0) {
+      if (status >= 400) mcpRequests.inc({ rpc_method: "other", outcome: statusOutcome(status) });
+      return;
+    }
+    for (const { id, method } of received) {
+      // A request with no reply is one the transport gave up on, which only a
+      // throw does: every reply is in before `handleRequest` resolves in JSON
+      // mode, because that is when it builds the body.
+      const outcome = id === undefined ? statusOutcome(status) : (answered.get(id) ?? "error");
+      mcpRequests.inc({ rpc_method: method, outcome });
+    }
+  };
+}
+
 export async function handleMcpRequest(request: Request, actor: Actor, scopes: Set<string>) {
   if (request.method !== "POST") return methodNotAllowed();
-  const { response, forward } = await scopeChallenge(request, scopes);
-  if (response) return response;
+  const { response, forward, refused } = await scopeChallenge(request, scopes);
+  if (response) {
+    // Every message in the body, and not only the call that tripped it: the
+    // 403 is the answer each of them got, and none of them reached the server.
+    for (const entry of refused ?? []) {
+      mcpRequests.inc({
+        rpc_method: rpcMethodLabel((entry as { method?: unknown } | null)?.method),
+        outcome: "insufficient_scope",
+      });
+    }
+    return response;
+  }
   const transport = new WebStandardStreamableHTTPServerTransport({
     enableJsonResponse: true,
   });
-  const server = createMcpServer(actor, scopes);
-  await server.connect(transport);
-  return transport.handleRequest(forward);
+  const settle = countRpcMessages(transport);
+  // A 500 until something says otherwise, so a throw from anywhere below is
+  // counted as the `error` it is rather than missing from the series.
+  let status = 500;
+  try {
+    const server = createMcpServer(actor, scopes);
+    await server.connect(transport);
+    const answer = await transport.handleRequest(forward);
+    status = answer.status;
+    return answer;
+  } finally {
+    settle(status);
+  }
 }

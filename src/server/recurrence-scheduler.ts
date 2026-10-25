@@ -13,8 +13,12 @@ import {
   idempotencySweeps,
   recurrenceOccurrences,
   reminderSweeps,
+  schedulerEnabled,
+  schedulerLastSuccess,
   schedulerTickDuration,
+  schedulerTickInterval,
   schedulerTicks,
+  type SchedulerSweep,
 } from "./metrics.js";
 
 /**
@@ -92,6 +96,32 @@ function defaultSchedule(callback: () => void, milliseconds: number): Timer {
   return { clear: () => clearTimeout(timer), unref: () => timer.unref() };
 }
 
+/**
+ * Marks one sweep as having run to the end, in the seconds Prometheus' `time()`
+ * answers in, so `time()` minus it is how long ago with no conversion. In
+ * milliseconds that difference is a large negative number that never crosses
+ * a threshold, and the alert written against it never fires.
+ *
+ * Called inside each sweep's own `try`, after it resolved, and never from a
+ * `finally`: a sweep that threw on every tick would otherwise read as fresh
+ * forever, which is the stopped scheduler this exists to show. Per sweep rather
+ * than once per tick for the same reason one level down. The four share a tick
+ * and each has its own `try`, so a reminder sweep that has failed for a week
+ * sits beside proposals that succeed every five minutes, and one stamp at the
+ * end of the tick would call that tick healthy.
+ *
+ * A sweep that returned because it is switched off — retention left at
+ * forever, billing where nothing is sold — is stamped like one that did work.
+ * It ran to the end, and left unstamped it reads as a sweep that stopped on the
+ * day the process started, to the same staleness alert written for the other
+ * three: every deployment that sells nothing would page for it. How often each
+ * sweep finds itself off is `idempotency_sweeps_total` and
+ * `billing_sweeps_total`, as `off`.
+ */
+function ranToTheEnd(sweep: SchedulerSweep) {
+  schedulerLastSuccess.set({ sweep }, Date.now() / 1000);
+}
+
 export function createRecurrenceScheduler(
   options: RecurrenceSchedulerOptions = {},
 ): RecurrenceScheduler {
@@ -107,7 +137,19 @@ export function createRecurrenceScheduler(
     logger = log,
   } = options;
 
-  if (!enabled) return { enabled: false, stop: async () => {} };
+  // Said either way, because which process runs this differs by profile and
+  // nothing else says which. A single machine runs it inside the API, so its
+  // ticks arrive under `component="api"`; a split deployment turns it off there
+  // and runs it in a process of its own. An alert pinned to one component is
+  // silent on the other profile, and the sum of this across a deployment is
+  // not: zero is a deployment where nothing is proposing anything.
+  if (!enabled) {
+    schedulerEnabled.set(0);
+    schedulerTickInterval.set(0);
+    return { enabled: false, stop: async () => {} };
+  }
+  schedulerEnabled.set(1);
+  schedulerTickInterval.set(tickSeconds);
 
   let stopping = false;
   let timer: Timer | undefined;
@@ -134,6 +176,7 @@ export function createRecurrenceScheduler(
         recurrenceOccurrences.inc({ outcome: "failed" }, summary.failed);
         recurrenceOccurrences.inc({ outcome: "notified" }, summary.notified);
         if (summary.capped) recurrenceOccurrences.inc({ outcome: "capped" });
+        ranToTheEnd("recurrences");
         // Reminders ride the same tick rather than a loop of their own. They are
         // due on a schedule of the same shape, read by a query of the same shape,
         // and a second timer would be a second thing to configure, a second
@@ -151,6 +194,7 @@ export function createRecurrenceScheduler(
           reminderSweeps.inc({ outcome: "failed" }, reminders.failed);
           sent = reminders.sent;
           sweepFailed = reminders.failed;
+          ranToTheEnd("reminders");
         } catch (error) {
           reminderSweeps.inc({ outcome: "swept_failed" });
           logger.failure("Template reminder sweep failed", error);
@@ -175,6 +219,7 @@ export function createRecurrenceScheduler(
             if (pruned.capped) idempotencySweeps.inc({ outcome: "capped" });
           }
           sweptRecords = pruned.swept;
+          ranToTheEnd("idempotency");
         } catch (error) {
           idempotencySweeps.inc({ outcome: "failed" });
           logger.failure("Idempotency retention sweep failed", error);
@@ -200,6 +245,7 @@ export function createRecurrenceScheduler(
             if (billing.capped) billingSweeps.inc({ outcome: "capped" });
           }
           reconciled = billing.written + billing.failed;
+          ranToTheEnd("billing");
         } catch (error) {
           billingSweeps.inc({ outcome: "swept_failed" });
           logger.failure("Billing reconciliation sweep failed", error);

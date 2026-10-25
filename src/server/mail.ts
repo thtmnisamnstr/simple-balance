@@ -1,6 +1,6 @@
 import { createTransport, type Transporter } from "nodemailer";
 import { getConfig, type MailSettings } from "./config.js";
-import { mailMessages } from "./metrics.js";
+import { mailMessages, mailSendDuration } from "./metrics.js";
 import { log } from "./log.js";
 
 /**
@@ -149,6 +149,9 @@ export async function sendMail(message: Message) {
     mailMessages.inc({ outcome: "skipped" });
     return false;
   }
+  // After the skip: timing it would make a deployment with no relay read as one
+  // whose relay answers instantly.
+  const stopTimer = mailSendDuration.startTimer();
   try {
     await sender.sendMail({
       from: mail.from,
@@ -182,6 +185,11 @@ export async function sendMail(message: Message) {
     );
     mailMessages.inc({ outcome: "failed" });
     return false;
+  } finally {
+    // Refusals too: a relay that never answers takes the transport's whole
+    // bound to fail and one refusing credentials fails at once, and the failure
+    // count reads the same for both.
+    stopTimer();
   }
 }
 

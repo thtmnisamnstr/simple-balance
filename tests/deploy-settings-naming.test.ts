@@ -46,7 +46,9 @@ const exampleFiles = [
  * `deploy/helm` and `deploy/docker` are outside, and not by oversight. The
  * chart invents no application setting — its ConfigMap takes whatever keys the
  * operator's values supply — and the names its templates do spell are Patroni's
- * and libpq's, which no reader of this file would be deciding about.
+ * and libpq's, which no reader of this file would be deciding about, and the
+ * metrics collector's, which are the `SB_METRICS_*` names the compose recipes
+ * spell too, and so held here through them, beside Go's `GOMEMLIMIT`.
  */
 const recipeFiles = [
   ...globSync("deploy/compose/**/*.yml", { cwd: root }),
@@ -115,6 +117,12 @@ const platformConventions: Record<string, string> = {
   PORT: "the convention every container platform listens for",
   DATABASE_URL: "the twelve-factor spelling",
   LOG_LEVEL: "generic enough that a sidecar or a base image may set it",
+  COMPOSE_PROFILES:
+    "Compose's own: the CLI reads it from .env to decide which profiled services start, " +
+    "and the metrics collector is one",
+  GOMEMLIMIT:
+    "the Go runtime's own: the collector and node-exporter are Go programs, and their memory " +
+    "ceiling is set the way every Go program's is",
 };
 
 /**

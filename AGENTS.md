@@ -10,7 +10,15 @@
 - Treat `src/server/api.ts` and `src/server/mcp.ts` as transport adapters.
 - Keep the browser UI in `src/client`; server calculations are authoritative.
 - PostgreSQL is the only persistent dependency. Do not add Redis, SQLite, an
-  object store, sidecar, or writable-volume requirement.
+  object store, sidecar, or writable-volume requirement. The metrics collector a
+  deployment can run, and node-exporter beside it on a machine, are not one:
+  they start only where a deployment names somewhere to send metrics, the
+  application never calls either and runs the same with them gone, and neither
+  keeps anything — no volume, no write-ahead log, a queue in memory — so turning
+  them off loses the figures in flight and nothing else. The collector speaks
+  the backend's protocol, OTLP by default, so the application does not have to:
+  the application keeps `prom-client` and its text endpoint, and does not take
+  the OpenTelemetry SDK (`docs/standards/code/observability.md` §1.16).
 
 ## Non-negotiable ledger invariants
 
@@ -434,8 +442,10 @@
   account name or an amount. A metric is read by whoever can reach the scrape
   endpoint, which is not the person whose ledger it counts, and the same rule
   keeps the cardinality bounded — a path with an id in it is counted under its
-  route pattern, never under the path. `/metrics` is off unless asked for and
-  registered rather than refusing, so a deployment that never set
+  route pattern, never under the path. It holds on the way out too: what a
+  collector adds to a series names the deployment, the job and the address or
+  pod it scraped, and never anything of anybody's. `/metrics` is off unless
+  asked for and registered rather than refusing, so a deployment that never set
   `METRICS_ENABLED` has no such route.
 
 ## Standards
@@ -457,7 +467,7 @@ disagreement rather than quietly losing it.
 Two habits from those guides are worth knowing before the first edit, because
 both look like mistakes:
 
-- **Comments are dense on purpose** — 26.6% of non-blank lines in `src`. They
+- **Comments are dense on purpose** — 27.3% of non-blank lines in `src`. They
   carry why the obvious alternative is wrong. Do not tidy them away.
   (`docs/standards/code/comments.md`.)
 - **Some loops must not be parallelized.** Legs resolve one at a time so two

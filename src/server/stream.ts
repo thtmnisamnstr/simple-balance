@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import { stream } from "hono/streaming";
+import { httpStreamOutcomes, type StreamOutcome } from "./metrics.js";
 import {
   encodeProgressFrame,
   PROGRESS_MEDIA_TYPE,
@@ -88,6 +89,10 @@ export function streamProgress<T>(
   const settled = new Promise<void>((resolve) => {
     settle = resolve;
   });
+  // Read now, while the handler that called this is the one running. Every
+  // caller is a registered route, so this is its pattern and never the path,
+  // and it is the same value the request counter's label is built from.
+  const route = c.req.routePath;
 
   const response = stream(c, async (writer) => {
     // Mutable on purpose, and read by the pump rather than pushed to it. This
@@ -135,6 +140,10 @@ export function streamProgress<T>(
       await pump;
     };
 
+    // Assigned only once the terminal frame is written, so a throw between the
+    // work finishing and the result going out is counted as the error it
+    // became rather than as the result it nearly was.
+    let outcome: StreamOutcome = "error";
     try {
       const value = await work((event) => {
         latest = event;
@@ -144,10 +153,20 @@ export function streamProgress<T>(
       // left showing a number the result contradicts.
       await flush();
       await write({ type: "result", value });
+      outcome = "result";
     } catch (error) {
       await stop();
-      await write({ type: "error", error: renderError(error) });
+      const envelope = renderError(error);
+      await write({ type: "error", error: envelope });
+      // Read off what the caller was told rather than off the error's class.
+      // `INTERNAL_ERROR` is the one code that says "nothing you can change",
+      // which is the line between a person correcting a form and a bug, and
+      // the renderer is already where that line is drawn for the 500.
+      outcome = envelope.error.code === "INTERNAL_ERROR" ? "error" : "refused";
     } finally {
+      // Before `settle`, so whoever is waiting on it — the request timer — runs
+      // after the outcome is counted rather than racing it.
+      httpStreamOutcomes.inc({ route, outcome });
       // Nothing may throw past here. Hono's own handler for an unhandled throw
       // in this callback writes to `console`, and nothing outside the
       // configuration layer may name it.

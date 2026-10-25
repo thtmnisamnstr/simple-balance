@@ -368,3 +368,76 @@ describe("what the work leaves in the log", () => {
     expect(info).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * How many lines said somebody should look, whether or not they printed.
+ *
+ * Most of what this product degrades on rather than fails on says so only in
+ * the log — a sweep that threw, an idle connection dropped, a Stripe key
+ * refused — and a log has no rate. Counted before the gate, because the gate is
+ * about what an operator wants to read: a deployment that set `LOG_LEVEL=error`
+ * to quiet its warnings has not stopped having them.
+ */
+describe("the lines the gate counts", () => {
+  /** The logger and the counter it records into, from one fresh module graph. */
+  async function countingLog(level: string) {
+    process.env.LOG_LEVEL = level;
+    const log = await freshLog();
+    const { logMessages } = await import("../src/server/metrics.js");
+    const counted = async () =>
+      Object.fromEntries(
+        (await logMessages.get()).values.map((sample) => [sample.labels.level, sample.value]),
+      );
+    return { log, counted };
+  }
+
+  it("counts a warning the level drops, beside an error it prints", async () => {
+    const { log, counted } = await countingLog("error");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    log.warn("Stripe could not be reached to check the prices.");
+    log.error("Recurrence scheduler tick failed");
+
+    expect(warn).not.toHaveBeenCalled();
+    expect(error).toHaveBeenCalledOnce();
+    expect(await counted()).toEqual({ warn: 1, error: 1 });
+  });
+
+  /**
+   * `failure` and `fromLibrary` both end in `warn` or `error`, so a count at
+   * each would count their lines twice, and a count at neither would leave
+   * every caught database error and every line Better Auth writes uncounted.
+   */
+  it("counts a line once, however it reached the gate", async () => {
+    const { log, counted } = await countingLog("debug");
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    log.failure(
+      "Billing reconciliation sweep failed",
+      Object.assign(new Error("insert failed"), { query: "insert into billing_subscription" }),
+    );
+    log.fromLibrary("Better Auth", "warn", "Sign-up attempt for existing email: a@example.com");
+    log.fromLibrary("Better Auth", "error", new Error("state mismatch"));
+
+    expect(await counted()).toEqual({ warn: 1, error: 2 });
+  });
+
+  it("counts nothing below a warning, and not the line that is not a level", async () => {
+    const { log, counted } = await countingLog("debug");
+    for (const level of ["debug", "info", "warn"] as const) {
+      vi.spyOn(console, level).mockImplementation(() => {});
+    }
+
+    log.debug("GET /health/live 200 in 1ms");
+    log.info("Listening on port 3000");
+    log.announce("First-run setup code: abc");
+    log.warn("METRICS_TOKEN is not set");
+
+    // The warning is the presence that makes the absence mean something: with
+    // nothing counted at all, an empty result is also what an unwired counter
+    // reads.
+    expect(await counted()).toEqual({ warn: 1 });
+  });
+});

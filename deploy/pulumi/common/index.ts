@@ -2,7 +2,13 @@ import * as path from "path";
 
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
-import { type AppSettings, chartConfig, readAppSettings } from "./app-settings";
+import {
+  type AppSettings,
+  COLLECTOR_SECRET_SETTINGS,
+  chartConfig,
+  metricsExport,
+  readAppSettings,
+} from "./app-settings";
 
 export const chartPath = path.resolve(__dirname, "..", "..", "helm", "simple-balance");
 
@@ -145,6 +151,8 @@ const CLUSTER_OWNED = {
   RECURRENCE_SCHEDULER: "the chart decides it per workload: off in the API, on in the scheduler",
   TRUST_PROXY:
     "the ingress and the frontend are in front of the API, and false there would put every visitor on one sign-in allowance",
+  SB_METRICS_DATABASE_TARGET:
+    "a cluster has no database machine for it to name: the chart's collector scrapes the API and scheduler pods, and the database's own metrics are outside what it collects",
 } as const;
 
 /**
@@ -458,14 +466,20 @@ export function simpleBalance(args: AppArgs): App {
   if (settings.setupToken) {
     credentialData.SETUP_TOKEN = settings.setupToken;
   }
+  // The collector's credential is the one stack secret that stays out of this
+  // Secret, because every key of this one becomes an environment variable in
+  // every API and scheduler pod, and those never send a byte to the backend it
+  // unlocks. It gets a Secret of its own below, read by the collector alone.
+  const collectorSecretNames = new Set<string>(COLLECTOR_SECRET_SETTINGS);
   for (const [name, value] of Object.entries(settings.app.secret)) {
+    if (collectorSecretNames.has(name)) continue;
     credentialData[name] = pulumi.secret(value);
   }
 
   // The chart hands every key of this Secret to the API and the scheduler as an
   // environment variable, so it carries the credentials and nothing else — the
   // four this program has keys for, and whatever the stack put in
-  // `simple-balance:secrets`. It is
+  // `simple-balance:secrets` apart from the collector's. It is
   // built here rather than by the chart because chart values end up in the
   // release's own Secret and in its history; these two never leave the Pulumi
   // config, which holds them encrypted.
@@ -477,6 +491,28 @@ export function simpleBalance(args: AppArgs): App {
     },
     { provider, parent: namespace },
   );
+
+  // Metrics export, when the stack sets an endpoint, which is the whole of
+  // turning it on — the rule `metricsExport` shares with the single machines.
+  // Unset, nothing below is created and the chart is handed exactly the values
+  // it was handed before, so an existing stack plans no change.
+  const metrics = metricsExport(settings.app);
+
+  // The headers, which carry the backend's license key, in a Secret only the
+  // collector reads. Built here rather than handed to the chart as values for
+  // the reason the Secret above is: chart values land in the release's own
+  // Secret and in Helm's history, and these never leave the Pulumi config,
+  // which holds them encrypted.
+  const collectorCredentials = metrics?.headers
+    ? new k8s.core.v1.Secret(
+        "simple-balance-metrics-export",
+        {
+          metadata: { name: `${releaseName}-metrics-export`, namespace: namespace.metadata.name },
+          stringData: { SB_METRICS_EXPORT_HEADERS: pulumi.secret(metrics.headers) },
+        },
+        { provider, parent: namespace },
+      )
+    : undefined;
 
   const image = (component: string) => ({
     repository: `${settings.imageRepositoryPrefix}/simple-balance-${component}`,
@@ -562,6 +598,27 @@ export function simpleBalance(args: AppArgs): App {
           image: image("scheduler"),
           autoscaling: { enabled: true, maxReplicas: settings.schedulerMaxReplicas },
         },
+        // Every value spelled out rather than left to the chart's defaults,
+        // because `metricsExport` has already filled each one in from the
+        // compose files' defaults, and a stack's own choice must not depend on
+        // two copies of a default agreeing. `config.metrics.enabled` needs
+        // nothing here: the chart turns it on with the collector.
+        ...(metrics
+          ? {
+              collector: {
+                enabled: true,
+                export: {
+                  endpoint: metrics.endpoint,
+                  protocol: metrics.protocol,
+                  ...(collectorCredentials
+                    ? { existingSecret: collectorCredentials.metadata.name }
+                    : {}),
+                },
+                scrapeInterval: metrics.scrapeInterval,
+                environment: metrics.environment,
+              },
+            }
+          : {}),
         ingress: {
           enabled: true,
           className: args.ingressClassName,
@@ -571,7 +628,15 @@ export function simpleBalance(args: AppArgs): App {
         },
       },
     },
-    { provider, parent: namespace, dependsOn: [credentials, ...(args.dependsOn ?? [])] },
+    {
+      provider,
+      parent: namespace,
+      dependsOn: [
+        credentials,
+        ...(collectorCredentials ? [collectorCredentials] : []),
+        ...(args.dependsOn ?? []),
+      ],
+    },
   );
 
   return { namespace, credentials, release, ingressName };

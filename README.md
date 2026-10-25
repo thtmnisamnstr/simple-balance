@@ -119,15 +119,18 @@ Everything is configured through environment variables. Copy the example and fil
 it in:
 
 ```sh
-cp .env.example .env
+install -m 0600 .env.example .env
 ```
 
-`DATABASE_URL` and `AUTH_SECRET` are required, and `APP_BASE_URL` must be your
-public HTTPS origin in production. Point `DATABASE_URL` at a PostgreSQL 15 or
-newer server and Simple Balance handles the rest on startup: it creates the
-database if the server does not have it, builds the schema if the database is
-empty, and does nothing if it is already current. Generate the secret with
-`openssl rand -base64 32` and keep it — changing it signs everyone out.
+`install -m 0600` rather than `cp`, because the file will hold the database
+password and the signing secret, and a copy would be readable by every user on
+the machine. `DATABASE_URL` and `AUTH_SECRET` are required, and `APP_BASE_URL`
+must be your public HTTPS origin in production. Point `DATABASE_URL` at a
+PostgreSQL 15 or newer server and Simple Balance handles the rest on startup: it
+creates the database if the server does not have it, builds the schema if the
+database is empty, and does nothing if it is already current. Generate the
+secret with `openssl rand -base64 32` and keep it — changing it signs everyone
+out.
 
 ```sh
 docker run -d --name simple-balance --restart unless-stopped \
@@ -173,6 +176,10 @@ their own. They cannot see yours and you cannot see theirs.
 the connection pool, and the schedule's own ticks and mail. It is off until you
 ask, no label names a person or an amount, and `METRICS_TOKEN` puts a bearer
 token in front of it where the port is reachable by anything you do not control.
+The deployment profiles in `deploy/` can also run a collector that reads it,
+and the machines it runs on, and sends both to New Relic or any backend that
+takes OTLP or Prometheus remote write — which backend is two settings, and
+"Metrics" in [deployment](docs/deployment.md) has them.
 
 To move to a newer image, pull it, stop and remove the container, and start it
 again with the same command. Your database is untouched, and migrations run at

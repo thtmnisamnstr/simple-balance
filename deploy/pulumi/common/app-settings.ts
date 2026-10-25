@@ -100,6 +100,58 @@ export const SECRET_SETTINGS = [
 ] as const;
 
 /**
+ * Every name the metrics collector reads, which the application does not.
+ *
+ * A third list rather than more names in the first, because the first is held
+ * to exactly what `src/server` reads and these are read by a different
+ * program: `deploy/compose/single/collector.yaml` and its two siblings, through
+ * the `collector` service in each compose file. They ride the same two maps and
+ * the same settings file because they are the same kind of thing to an
+ * operator — a deployment's setting, some of them secret — and a fourth stack
+ * key would be one more place to look. `tests/collector-config.test.ts` derives
+ * this list from the compose files the way `tests/app-settings.test.ts` derives
+ * the first one from the server, so a setting the collector gains is refused by
+ * every stack until it is named here, and one it loses is not quietly accepted.
+ *
+ * Setting SB_METRICS_EXPORT_ENDPOINT is the whole of turning export on; the
+ * rest have defaults, which `COLLECTOR_DEFAULTS` copies from the compose files.
+ * SB_METRICS_DATABASE_TARGET is the single-machine programs' to decide, from
+ * the database node they built, and a cluster has no such node: both kinds of
+ * program name it in their `OwnedSettings`.
+ */
+export const COLLECTOR_SETTINGS = [
+  "SB_METRICS_DATABASE_TARGET",
+  "SB_METRICS_ENVIRONMENT",
+  "SB_METRICS_EXPORT_ENDPOINT",
+  "SB_METRICS_EXPORT_HEADERS",
+  "SB_METRICS_EXPORT_PROTOCOL",
+  "SB_METRICS_SCRAPE_INTERVAL",
+] as const;
+
+/**
+ * The collector's secret: the headers, which carry the backend's credential —
+ * a New Relic license key is the whole of what it takes to write into that
+ * account. Secret in the same sense as `SECRET_SETTINGS`, and refused in `env`
+ * for the same reason.
+ */
+export const COLLECTOR_SECRET_SETTINGS = ["SB_METRICS_EXPORT_HEADERS"] as const;
+
+/** What SB_METRICS_EXPORT_PROTOCOL may say: the collector's pipeline has these two. */
+export const METRICS_EXPORT_PROTOCOLS = ["otlp", "prometheus_remote_write"] as const;
+
+/**
+ * The defaults the compose files give the collector, for a program that has
+ * to hand the chart a value rather than leave a name unset. Copied, so
+ * `tests/collector-config.test.ts` holds each to the `${NAME:-default}` it
+ * copies.
+ */
+export const COLLECTOR_DEFAULTS = {
+  SB_METRICS_EXPORT_PROTOCOL: "otlp",
+  SB_METRICS_SCRAPE_INTERVAL: "30s",
+  SB_METRICS_ENVIRONMENT: "production",
+} as const;
+
+/**
  * A name a program decides itself, and why — written to finish the sentence
  * "cannot be set here: ...".
  */
@@ -133,6 +185,11 @@ const NAME = /^[A-Z][A-Z0-9_]*$/;
  *   map would silently override the key that the stack's own documentation
  *   says decides it.
  *
+ * - **A collector setting the collector would refuse** — a protocol it has no
+ *   pipeline for, an interval of five minutes or more, headers that are not a
+ *   map. On the machine each one is a collector that will not start, found in
+ *   its own log; here it is a plan that names the setting.
+ *
  * Values are strings; a YAML number or boolean is accepted and written as its
  * text, because `pulumi config set --path` stores `true` as a boolean and
  * nobody setting `SB_BILLING_ENABLED` should have to know that.
@@ -140,8 +197,8 @@ const NAME = /^[A-Z][A-Z0-9_]*$/;
 export function readAppSettings(env: unknown, secrets: unknown, owned: OwnedSettings): AppSettings {
   const plain = asMap(env, "simple-balance:env");
   const secret = asMap(secrets, "simple-balance:secrets");
-  const known = new Set<string>(SERVER_SETTINGS);
-  const secretNames = new Set<string>(SECRET_SETTINGS);
+  const known = new Set<string>([...SERVER_SETTINGS, ...COLLECTOR_SETTINGS]);
+  const secretNames = new Set<string>([...SECRET_SETTINGS, ...COLLECTOR_SECRET_SETTINGS]);
 
   for (const [map, where] of [
     [plain, "env"],
@@ -155,9 +212,9 @@ export function readAppSettings(env: unknown, secrets: unknown, owned: OwnedSett
       }
       if (!known.has(name)) {
         throw new Error(
-          `simple-balance:${where}.${name} is not a setting the application reads, so it would reach ` +
-            "the machine and be ignored there. Check the spelling against docs/deployment.md, or remove " +
-            `it: pulumi config rm --path 'simple-balance:${where}.${name}'`,
+          `simple-balance:${where}.${name} is not a setting the application or its metrics collector ` +
+            "reads, so it would reach the machine and be ignored there. Check the spelling against " +
+            `docs/deployment.md, or remove it: pulumi config rm --path 'simple-balance:${where}.${name}'`,
         );
       }
       const reason = owned[name];
@@ -186,7 +243,104 @@ export function readAppSettings(env: unknown, secrets: unknown, owned: OwnedSett
     }
   }
 
+  checkCollectorSettings({ ...plain, ...secret });
   return { plain, secret };
+}
+
+/**
+ * The collector's values, refused here where the collector would refuse them.
+ *
+ * Only the shapes the collector cannot start with, and the one interval it
+ * would start with and be wrong at: an empty value is the same as unset, and
+ * the endpoint is checked for a scheme and a host and nothing more, because
+ * what a backend answers at it is the backend's business. The interval and
+ * the endpoint are held to the chart's own patterns, in `values.schema.json`,
+ * on every profile: a cluster program hands both to the chart unchanged, and
+ * a value the schema refuses is refused there in the middle of a Helm rollout
+ * and named as a chart value rather than as the stack's setting.
+ */
+function checkCollectorSettings(all: Readonly<Record<string, string>>): void {
+  const protocol = all.SB_METRICS_EXPORT_PROTOCOL;
+  if (protocol && !(METRICS_EXPORT_PROTOCOLS as readonly string[]).includes(protocol)) {
+    throw new Error(
+      `simple-balance:env.SB_METRICS_EXPORT_PROTOCOL is ${METRICS_EXPORT_PROTOCOLS.join(" or ")}. ` +
+        `Got "${protocol}", which the collector has no pipeline for and would refuse at startup.`,
+    );
+  }
+
+  const interval = all.SB_METRICS_SCRAPE_INTERVAL;
+  if (interval) {
+    const seconds = durationSeconds(interval);
+    if (seconds === undefined || seconds <= 0) {
+      throw new Error(
+        `simple-balance:env.SB_METRICS_SCRAPE_INTERVAL is a duration in minutes and seconds, such as 30s or 1m30s. Got "${interval}".`,
+      );
+    }
+    // New Relic converts a cumulative counter to a rate by remembering its
+    // last value, and forgets a series that has been silent for five minutes.
+    // An interval that long is a collector that starts, sends, and loses every
+    // rate, which is worse than one that refuses.
+    if (seconds >= 300) {
+      throw new Error(
+        `simple-balance:env.SB_METRICS_SCRAPE_INTERVAL is "${interval}", and it has to be under 5m: ` +
+          "New Relic forgets a series silent for five minutes, and every rate built on it.",
+      );
+    }
+  }
+
+  const endpoint = all.SB_METRICS_EXPORT_ENDPOINT;
+  if (endpoint && !/^https?:\/\/[^\s/?#]+(?:[/?#]\S*)?$/.test(endpoint)) {
+    throw new Error(
+      "simple-balance:env.SB_METRICS_EXPORT_ENDPOINT is an http:// or https:// URL, such as " +
+        `https://otlp.nr-data.net. Got "${endpoint}".`,
+    );
+  }
+
+  // Never echoed: it carries the backend's credential.
+  const headers = all.SB_METRICS_EXPORT_HEADERS;
+  if (headers) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(headers);
+    } catch {
+      parsed = undefined;
+    }
+    const isMap =
+      typeof parsed === "object" &&
+      parsed !== null &&
+      !Array.isArray(parsed) &&
+      Object.values(parsed).every((value) => typeof value === "string");
+    if (!isMap) {
+      throw new Error(
+        "simple-balance:secrets.SB_METRICS_EXPORT_HEADERS is a JSON object of header names to text " +
+          `values, such as {"api-key":"<license key>"}. The value is not one, and is not printed here.`,
+      );
+    }
+  }
+
+  const target = all.SB_METRICS_DATABASE_TARGET;
+  if (target && !/^(?:[A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\]):\d{1,5}$/.test(target)) {
+    throw new Error(
+      `simple-balance:env.SB_METRICS_DATABASE_TARGET is host:port, such as db.internal:9100. Got "${target}".`,
+    );
+  }
+}
+
+/**
+ * A duration in minutes and seconds — `30s`, `1m`, `1m30s` — in seconds, or
+ * undefined when it is not one.
+ *
+ * The chart's grammar, `collector.scrapeInterval` in `values.schema.json`,
+ * rather than the whole of Prometheus' — whose `ms`, `h`, `d`, `w` and `y` the
+ * chart refuses — and for every profile rather than the cluster's alone, so a
+ * stack's settings mean the same thing on either kind of program. What it
+ * leaves out is nothing an interval under five minutes needs.
+ */
+function durationSeconds(text: string): number | undefined {
+  const match = /^(?:(\d+)m)?(?:(\d+)s)?$/.exec(text);
+  if (!match || text === "") return undefined;
+  const [, m, s] = match.map((part) => Number(part ?? 0));
+  return m! * 60 + s!;
 }
 
 function asMap(value: unknown, key: string): Record<string, string> {
@@ -247,6 +401,44 @@ export function settingsEnvFile(settings: AppSettings): string {
   return `# Written by Pulumi from simple-balance:env and simple-balance:secrets.\n${lines.join("\n")}\n`;
 }
 
+/** Metrics export as a stack configured it, with the compose files' defaults filled in. */
+export interface MetricsExport {
+  readonly endpoint: string;
+  readonly protocol: (typeof METRICS_EXPORT_PROTOCOLS)[number];
+  readonly scrapeInterval: string;
+  readonly environment: string;
+  /** The JSON header map, from `secrets`; absent for a backend that needs none. */
+  readonly headers?: string;
+  /** `host:port`, when the stack names one; the single programs decide it instead. */
+  readonly databaseTarget?: string;
+}
+
+/**
+ * Whether a stack exports metrics, and how — undefined when it does not.
+ *
+ * The one question every program asks of these settings: the single-machine
+ * programs to decide whether to open the database node's exporter port and own
+ * SB_METRICS_DATABASE_TARGET, the cluster programs to decide whether the chart
+ * runs a collector at all. An endpoint is what turns it on, and nothing else
+ * does, which is the same rule `simple-balance-env` applies on the machine; a
+ * protocol or a header map with no endpoint is a setting for a collector that
+ * does not run.
+ */
+export function metricsExport(settings: AppSettings): MetricsExport | undefined {
+  const all: Readonly<Record<string, string>> = { ...settings.plain, ...settings.secret };
+  const endpoint = all.SB_METRICS_EXPORT_ENDPOINT ?? "";
+  if (endpoint === "") return undefined;
+  const or = (name: keyof typeof COLLECTOR_DEFAULTS) => all[name] || COLLECTOR_DEFAULTS[name];
+  return {
+    endpoint,
+    protocol: or("SB_METRICS_EXPORT_PROTOCOL") as MetricsExport["protocol"],
+    scrapeInterval: or("SB_METRICS_SCRAPE_INTERVAL"),
+    environment: or("SB_METRICS_ENVIRONMENT"),
+    ...(all.SB_METRICS_EXPORT_HEADERS ? { headers: all.SB_METRICS_EXPORT_HEADERS } : {}),
+    ...(all.SB_METRICS_DATABASE_TARGET ? { databaseTarget: all.SB_METRICS_DATABASE_TARGET } : {}),
+  };
+}
+
 /** The chart's `config` values a stack's plain settings become. */
 export interface ChartConfig {
   authMode?: string;
@@ -270,9 +462,26 @@ export interface ChartConfig {
  * the order the chart happens to emit. Each is converted to the type the
  * chart's schema declares, and refused here when it is not one, because the
  * schema's own refusal arrives in the middle of a Helm rollout.
+ *
+ * The collector's settings go nowhere from here. They are not the
+ * application's, and `extraEnv` is the application's ConfigMap; a program
+ * hands them to the chart's collector from `metricsExport` instead. What they
+ * do decide here is `metrics.enabled`, in the one case the stack left it
+ * unsaid: an export endpoint with no METRICS_ENABLED means a collector scraping
+ * a /metrics that is not there, so it is written as true, and the values say
+ * what the pods will run with. That is belt and braces, because the chart
+ * turns /metrics on whenever its collector runs and never derives it off
+ * (`_helpers.tpl`). So a METRICS_ENABLED=false the stack set beside an
+ * endpoint is passed to the chart as it is, and the chart overrides it. A
+ * single machine is the one place it holds: `simple-balance-env` keeps the
+ * false there and says so at every start.
  */
 export function chartConfig(plain: Readonly<Record<string, string>>): ChartConfig {
   const out: ChartConfig = { extraEnv: {} };
+  const collector = new Set<string>(COLLECTOR_SETTINGS);
+  if (plain.SB_METRICS_EXPORT_ENDPOINT && plain.METRICS_ENABLED === undefined) {
+    out.metrics = { enabled: true };
+  }
   const whole = (name: string, value: string) => {
     if (!/^\d+$/.test(value)) {
       throw new Error(`simple-balance:env.${name} is a whole number. Got "${value}".`);
@@ -286,6 +495,7 @@ export function chartConfig(plain: Readonly<Record<string, string>>): ChartConfi
     return value === "true";
   };
   for (const [name, value] of Object.entries(plain)) {
+    if (collector.has(name)) continue;
     switch (name) {
       case "AUTH_MODE":
         out.authMode = value;

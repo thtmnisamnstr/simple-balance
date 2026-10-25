@@ -111,6 +111,21 @@ integration("the scheduler process", () => {
     expect(text).toContain("nodejs_eventloop_lag_seconds");
   });
 
+  it("says on its own scrape that it runs the scheduler and reached its database", async () => {
+    // One scrape, not a poll. The scheduler and its gauges are made in the tick
+    // the port opens, ahead of the readiness check rather than behind it, so no
+    // request — the probe the setup waited on included — can land between them.
+    const sample = (text: string, name: string, value: string) =>
+      new RegExp(`^${name}\\{[^}]*component="scheduler"[^}]*\\} ${value}$`, "m").test(text);
+    const text = await (await fetch(`http://127.0.0.1:${port}/metrics`)).text();
+    expect(sample(text, "simple_balance_scheduler_enabled", "1")).toBe(true);
+    expect(sample(text, "simple_balance_scheduler_tick_interval_seconds", "3600")).toBe(true);
+    expect(sample(text, "simple_balance_ready", "1")).toBe(true);
+    expect(text).toMatch(
+      /^simple_balance_readiness_checks_total\{[^}]*outcome="ready"[^}]*\} [1-9]\d*$/m,
+    );
+  });
+
   it("still answers the probes a Deployment configures", async () => {
     const live = await fetch(`http://127.0.0.1:${port}/health/live`);
     expect(live.status).toBe(200);

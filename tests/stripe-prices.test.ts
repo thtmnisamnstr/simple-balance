@@ -284,6 +284,47 @@ describe("reading the prices, and keeping the verdict", () => {
     }
   });
 
+  /**
+   * The point of sale refuses on the newest verdict, so the number an alert
+   * reads has to follow it rather than the one the process started with: a
+   * price archived after boot otherwise read 1 beside a deployment refusing
+   * every sale. An unreachable read changes neither, for the reason above.
+   */
+  it("keeps dependency_up on the newest verdict, as the point of sale does", async () => {
+    answers.set("price_monthly", recurring("price_monthly", "month"));
+    answers.set("price_yearly", recurring("price_yearly", "year"));
+    const { fetchPlanPrices, resetPlanPriceCache } = await load();
+    const { registry } = await import("../src/server/metrics.js");
+    const up = async () =>
+      (await registry.getMetricsAsJSON())
+        .find((metric) => metric.name === "simple_balance_dependency_up")
+        ?.values.find((value) => value.labels.dependency === "stripe_prices")?.value;
+    const quiet = (["error", "warn", "info"] as const).map((level) =>
+      vi.spyOn(console, level).mockImplementation(() => {}),
+    );
+    try {
+      await fetchPlanPrices();
+      expect(await up()).toBe(1);
+
+      resetPlanPriceCache();
+      answers.set("price_monthly", recurring("price_monthly", "year"));
+      await fetchPlanPrices();
+      expect(await up()).toBe(0);
+
+      resetPlanPriceCache();
+      answers.set("price_monthly", new Error("connect ETIMEDOUT"));
+      await expect(fetchPlanPrices()).rejects.toThrow(/ETIMEDOUT/);
+      expect(await up()).toBe(0);
+
+      resetPlanPriceCache();
+      answers.set("price_monthly", recurring("price_monthly", "month"));
+      await fetchPlanPrices();
+      expect(await up()).toBe(1);
+    } finally {
+      for (const spy of quiet) spy.mockRestore();
+    }
+  });
+
   it("says a mismatch once, at error, rather than on every refresh", async () => {
     answers.set("price_monthly", recurring("price_monthly", "month", { type: "one_time" }));
     answers.set("price_yearly", recurring("price_yearly", "year"));
@@ -400,6 +441,11 @@ describe("what a restricted key may read, asked at startup", () => {
     }
   });
 
+  /**
+   * Null rather than an empty list, because an empty list is what a key that
+   * can read everything answers, and `dependency_up{dependency="stripe_access"}`
+   * read the two alike: 1 for a check that never ran.
+   */
   it("says it could not look when Stripe does not answer, and never throws", async () => {
     for (const list of Object.values(lists)) list.mockRejectedValue(new Error("connect ETIMEDOUT"));
     const error = spy("error");
@@ -407,9 +453,24 @@ describe("what a restricted key may read, asked at startup", () => {
     try {
       await expect(
         withKey("rk_test_access", async () => (await load()).checkStripeAccess()),
-      ).resolves.toEqual([]);
+      ).resolves.toBeNull();
       expect(error).not.toHaveBeenCalled();
       expect(warn).toHaveBeenCalledWith(expect.stringContaining("could not be asked"));
+    } finally {
+      error.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
+  it("names a refusal it found even where another probe went unanswered", async () => {
+    lists.invoices.mockRejectedValue(lacking());
+    lists.customers.mockRejectedValue(new Error("connect ETIMEDOUT"));
+    const error = spy("error");
+    const warn = spy("warn");
+    try {
+      await expect(
+        withKey("rk_test_access", async () => (await load()).checkStripeAccess()),
+      ).resolves.toEqual(["Invoices"]);
     } finally {
       error.mockRestore();
       warn.mockRestore();

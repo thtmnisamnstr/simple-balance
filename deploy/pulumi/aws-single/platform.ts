@@ -1,4 +1,9 @@
-import { awsUserDataBase64, cloudInit, databaseCloudInit } from "../single-common/cloud-init";
+import {
+  IMDS_BLOCK,
+  awsUserDataBase64,
+  cloudInit,
+  databaseCloudInit,
+} from "../single-common/cloud-init";
 import type {
   ApplicationDatabase,
   DatabaseCloudInitArgs,
@@ -41,6 +46,32 @@ export const PLACEHOLDER_VOLUME_ID = "vol-0123456789abcdef0";
  */
 export const AWS_CLI_IMAGE = "public.ecr.aws/aws-cli/aws-cli:2.37.9";
 
+/**
+ * The metadata rule, `IMDS_BLOCK` in `../single-common/cloud-init.ts`, as a
+ * boot command on both machines. That file argues the range and the rule;
+ * this is why AWS needs it and how AWS keeps it.
+ *
+ * Every machine here sets IMDSv2's hop limit to 1, and that is what keeps a
+ * container off the instance's credentials: its answer dies on the one hop
+ * from the host to the bridge. A container on the host's network is not a hop
+ * away, so for the metrics collector and node-exporter the limit is no limit
+ * at all, and without this they could ask for the role's credentials — on the
+ * application node, Secrets Manager's copy of every stack secret. What does
+ * read the metadata here is below the range: root — cloud-init, the SSM agent,
+ * and the settings fetch's CLI, which runs as the image's root — the system
+ * accounts below 1000, ec2-instance-connect among them, which reads the
+ * metadata to authorize a key, and `ubuntu` at 1000.
+ *
+ * In the boot stage because that runs at every boot, and nothing on these
+ * machines saves a firewall rule across one; it also runs before Docker has
+ * started anything. `|| true` for the reason `IPV6_APT_REWRITE` carries one: a
+ * failed boot command stops cloud-init before the database exists, and
+ * `iptables` is in every Ubuntu image this program boots. Oracle's machines
+ * send the same rule without either, saved with their firewall instead,
+ * because their image does keep one.
+ */
+export const IMDS_EXPORTER_BLOCK = `${IMDS_BLOCK} || true`;
+
 /** The instance's `userDataBase64`: the cloud-init, gzipped, checked against EC2's cap. */
 export function userDataBase64(
   settings: MachineSettings,
@@ -49,16 +80,31 @@ export function userDataBase64(
   settingsSource?: SettingsSource,
 ): string {
   return awsUserDataBase64(
-    cloudInit({ settings, dataDevice: dataDevice(volumeId), database, settingsSource }),
+    cloudInit({
+      settings,
+      dataDevice: dataDevice(volumeId),
+      database,
+      settingsSource,
+      bootCommands: [IMDS_EXPORTER_BLOCK],
+    }),
   );
 }
 
-/** The database instance's `userDataBase64`, measured against the same cap. */
+/**
+ * The database instance's `userDataBase64`, measured against the same cap,
+ * with the metadata rule after whatever boot commands the egress choice needs.
+ */
 export function databaseUserDataBase64(
   args: Omit<DatabaseCloudInitArgs, "dataDevice">,
   volumeId: string,
 ): string {
-  return awsUserDataBase64(databaseCloudInit({ ...args, dataDevice: dataDevice(volumeId) }));
+  return awsUserDataBase64(
+    databaseCloudInit({
+      ...args,
+      dataDevice: dataDevice(volumeId),
+      bootCommands: [...(args.bootCommands ?? []), IMDS_EXPORTER_BLOCK],
+    }),
+  );
 }
 
 /**

@@ -10,16 +10,18 @@ import { sourceFiles } from "./support/source.js";
  * line by a program. What can be asked is the thing that goes wrong when the
  * rule is broken: a transport reaching for the database on its own. Every
  * ledger read and write already goes through `src/server/services`, so a query
- * in `api.ts` or `mcp.ts` is either one of the seven below or a decision that
+ * in `api.ts` or `mcp.ts` is either one of the six below or a decision that
  * has escaped the layer both surfaces share.
  *
- * The seven are five things, listed with the reason each is not that. None of
+ * The six are four things, listed with the reason each is not that. None of
  * them is bookkeeping: two are Better Auth's own tables behind the consent
  * screen, which is reachable from a session and has no MCP counterpart, one is
- * the readiness probe, one is the first-account lock that `AGENTS.md` requires
- * to live outside the application pool — three lines, the connection and the
- * two statements taken on it — and one is the transaction an MCP tool call is
- * made idempotent inside.
+ * the first-account lock that `AGENTS.md` requires to live outside the
+ * application pool — three lines, the connection and the two statements taken
+ * on it — and one is the transaction an MCP tool call is made idempotent
+ * inside. The readiness probe's `select 1` was a fifth until it moved to
+ * `src/server/readiness.ts`, which both entrypoints share and which is not a
+ * transport.
  *
  * Matching is by a snippet of the line rather than by line number, so ordinary
  * edits above them do not fail this.
@@ -30,13 +32,6 @@ import { sourceFiles } from "./support/source.js";
  * exactly what the check exists to catch.
  */
 const ALLOWED = [
-  {
-    file: "src/server/api.ts",
-    snippet: "getDb().execute(sql`select 1`)",
-    because:
-      "The readiness probe. Whether the pool answers is a question about this process, " +
-      "and there is no service function that would mean anything.",
-  },
   {
     file: "src/server/api.ts",
     snippet: "getAuthBootstrapLockPool().connect()",

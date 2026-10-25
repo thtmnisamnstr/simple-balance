@@ -146,6 +146,36 @@ second and would win, pointing the application at a database this cluster is not
 the one running.
 {{- end }}
 {{- end }}
+{{- if include "simple-balance.collectorEnabled" . }}
+
+Metrics. {{ include "simple-balance.collectorName" . }} scrapes every API and scheduler pod of this
+release every {{ .Values.collector.scrapeInterval }} and sends what it reads to {{ .Values.collector.export.endpoint }}
+over {{ .Values.collector.export.protocol }}, as deployment.environment.name={{ .Values.collector.environment }}. /metrics
+is on in both tiers because the collector is.
+
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "simple-balance.collectorName" . }}
+
+A backend that refuses the credential, or cannot be reached, shows there and in
+the collector's own otelcol_exporter_send_failed_metric_points, never as a
+restart: restarting would fix neither.
+{{- /* The policy closes /metrics only where it names the scheduler's peers: with
+none named it admits every pod in the cluster to the scheduler's one port,
+/metrics included. A token in an existing Secret is invisible to this render,
+so that case is warned about with the condition named rather than not at all. */}}
+{{- $np := .Values.networkPolicy }}
+{{- $schedulerClosed := and $np.enabled (or $np.probeSourceCidrs $np.schedulerIngressFrom) }}
+{{- if not (or $schedulerClosed .Values.secret.metricsToken) }}
+
+NOTE: {{ if .Values.secret.existingSecret }}unless {{ .Values.secret.existingSecret }} carries METRICS_TOKEN,
+{{ end -}}
+nothing asks for a token, and {{ if $np.enabled }}the scheduler's NetworkPolicy names no peers{{ else }}networkPolicy.enabled is off{{ end }},
+so any pod in the cluster can read /metrics on the {{ if $np.enabled }}scheduler pods{{ else }}API and scheduler pods{{ end }}.
+Nothing in it names a person, but it says how busy this deployment is: set
+METRICS_TOKEN {{ if .Values.secret.existingSecret }}in {{ .Values.secret.existingSecret }}{{ else }}with secret.metricsToken{{ end }}, and the collector sends it
+{{- if $np.enabled }}, or name
+networkPolicy.schedulerIngressFrom or probeSourceCidrs{{ end }}.
+{{- end }}
+{{- end }}
 {{- if .Values.database.enabled }}
 
 This release runs its own PostgreSQL: {{ add1 (int .Values.database.workers) }} Citus group(s) of
