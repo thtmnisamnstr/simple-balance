@@ -66,8 +66,8 @@ demonstrated: an unlisted document has no reader and no mode written down
 anywhere, which is exactly the state this rule exists to stop a document being
 created in.
 
-**House, and the reason the skills are not a sixteenth guide.** This set is
-fifteen guides and two indexes; the sentence here said "a tenth guide" while the
+**House, and the reason the skills are not a seventeenth guide.** This set is
+sixteen guides and two indexes; the sentence here said "a tenth guide" while the
 set stood at fifteen, which is the same failure as the table above and the
 reason both now answer to a test. Six procedures repeat — bringing the documents
 back to true after work lands, sweeping the product against the guides,
@@ -229,9 +229,10 @@ convention expects.
   headings; leave it.
 - **A change a person would notice gets an entry.** "Notice" means one of four
   things: behavior on a screen, a value on the wire in any of the three
-  contracts, something an operator configures, or something that changes at
-  startup. A refactor with none of those is not an entry. This is the rule that
-  decides, and it decides at commit time, not at release time.
+  contracts or in a Simple Balance file, something an operator configures, or
+  something that changes at startup. A refactor with none of those is not an
+  entry. This is the rule that decides, and it decides at commit time, not at
+  release time.
 - **An entry says why, not only what.** The entry that reads well a year later
   is the one carrying the reason, including the limits: "ten categorical colors
   cannot all be told apart by somebody with dichromatic vision" is the model.
@@ -242,7 +243,7 @@ convention expects.
 answer: that the list items stay at the five that earned their shape, and that
 the lines running past 80 columns do not grow past where they already are.
 *Not checked:* that the top heading matches `package.json`. That is a hand step
-in the release recipe at `docs/upgrades.md:1975`, step 4, "Date the
+in the release recipe at `docs/upgrades.md:2003`, step 4, "Date the
 `## Unreleased` heading in `CHANGELOG.md`", and it has already been the subject
 of a commit ("Date 0.1.4 the day it is cut"). Nor is whether an entry describes
 a change somebody would notice, which is the judgement this section is mostly
@@ -263,7 +264,7 @@ and nothing else, so `npm run set-version 0.2.0-rc.1` succeeded, the suite
 stayed green, and the build loop then refused to start on an error two steps
 from its cause. The schema now carries the same pattern as the other two.
 
-This product is not a library, so "breaking" has to be defined against the four
+This product is not a library, so "breaking" has to be defined against the five
 things somebody can depend on:
 
 | Surface | A breaking change is |
@@ -271,15 +272,17 @@ things somebody can depend on:
 | HTTP `/api/v1` | A field removed or renamed, an accepted input narrowed, a status or error code changed for an unchanged request, a default changed. [`http.md`](http.md#what-counts-as-a-breaking-change) holds the full list and the deprecation policy this obliges. |
 | MCP | A tool removed or renamed, a required argument added, a scope widened for an existing tool, an output field removed. |
 | CSV | A recognized column removed from `APP_CSV_COLUMNS`, or an existing column's meaning changed. Adding a column is not breaking and column order is not part of the contract; [`csv.md`](csv.md#6-the-columns) says why. |
+| The Simple Balance file | A published format token no longer read, a field it carries removed or given a new meaning, or a field added that a file without it cannot be read past. A new field arrives optional under the same token; anything else is a new token, and every release goes on reading every token ever published, because somebody's file written today has to import into a copy upgraded years later. [`ledger-file.md`](ledger-file.md#11-changing-the-format) says how. |
 | The deployment | A configuration variable renamed, removed, or made required; a refusal to start on a configuration the previous version accepted; a new external dependency; a raised floor on PostgreSQL or Node. |
 
 **A surface's own version and the release version answer different questions**,
-which is why two of the four carry a version of their own. `/api/v1` and
-`simple-balance-csv-1` say *which* contract a caller is holding, so a client can
-detect the break; the release version says *when* it happened, so an operator can
-avoid it. A break in a wire contract moves both. Nothing here means a wire
-contract versions instead of the release, and the MCP surface, which carries no
-version at all, has only the release number to say so.
+which is why three of the five carry a version of their own. `/api/v1`,
+`simple-balance-csv-1` and `simple-balance-ledger-1` say *which* contract a
+caller is holding, so a client can detect the break; the release version says
+*when* it happened, so an operator can avoid it. A break in a wire contract
+moves both. Nothing here means a wire contract versions instead of the release,
+and the MCP surface, which carries no version at all, has only the release
+number to say so.
 
 The schema is not on that list, and deliberately. A migration is never a
 breaking change under this scheme, because migrations run forward on their own
@@ -361,7 +364,7 @@ publish runs `npm run verify` first, so an unwritten note now stops the release
 rather than reaching an operator mid-upgrade. *Also checked:* the frozen
 migration list, which `tests/migrations.test.ts` holds to what is on disk.
 *Not checked:* the changelog heading, a hand step in the release recipe at
-`docs/upgrades.md:1975`, and which release a migration is attributed to, which
+`docs/upgrades.md:2003`, and which release a migration is attributed to, which
 is prose inside a list a test can only check the membership of.
 
 ## Upgrade notes
@@ -376,7 +379,7 @@ end of the bullet — it grew, and the number did not.
 
 **House, the shape.** A `## Before you upgrade to X.Y.Z` section, and its first
 sentence tells an operator whether they can stop reading. The 0.1.6 note at
-`docs/upgrades.md:1634-1635` is the model: "Nothing refuses to start that 0.1.5
+`docs/upgrades.md:1662-1663` is the model: "Nothing refuses to start that 0.1.5
 accepted, and nothing about an existing configuration has to change. Five
 things are worth knowing." The 0.1.4 section is the other model, because the
 answer there was different: "0.1.4 refuses to start on three configurations
@@ -860,7 +863,7 @@ What is checked:
 
 | Correspondence | Checked by |
 | --- | --- |
-| Every MCP tool name appears in `docs/mcp.md` | `tests/mcp-parity.test.ts:314-324`, by name rather than by count, "so the failure says which" |
+| Every MCP tool name appears in `docs/mcp.md` | `tests/mcp-parity.test.ts:316-326`, by name rather than by count, "so the failure says which" |
 | Every pinned image tag in the tree matches the release, *and* is a file `set-version` rewrites | `tests/version.test.ts:232-262`, which finds them by sweeping the repository rather than by holding a list — the list had gone stale once, leaving a third file deploying the release it was written during |
 | The product backlog's version matches the manifest | `tests/version.test.ts:321-323` |
 | `docs/deployment.md`'s settings tables against `.env.example` and `deploy/compose/.env.example`, both directions | `tests/env-example.test.ts`, which documents every variable an example names and shows an example of every variable the tables document, and holds its own two exception lists to being genuinely exceptional. Two of the four example files are outside this row: `deploy/compose/single/.env.example` and `deploy/compose/single/.env.postgres.example` arrived with the `single` profile, and no table on the deployment page describes either |

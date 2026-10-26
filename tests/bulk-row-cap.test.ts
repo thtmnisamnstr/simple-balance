@@ -146,4 +146,55 @@ describe("the export cap against the import cap", () => {
     expect(exportSide).toContain("export one range at a time");
     expect(importSide).toContain("imported one range at a time");
   });
+
+  /**
+   * The Simple Balance file has the same two sides with one more reader. The
+   * download goes out at the export cap, like the CSV; an agent gets one
+   * import part's worth a call, because a tool's reply is serialized twice and
+   * cannot stream, and a file of one part is one it can hand straight to an
+   * import. The refusal names the same remedy, so a person or an agent meeting
+   * it knows to narrow by date rather than to give up.
+   */
+  it("lets a Simple Balance file out at the export cap, and an agent one part at a time", async () => {
+    const read = (path: string) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
+    const [route, tool, service] = await Promise.all([
+      read("src/server/api.ts"),
+      read("src/server/mcp.ts"),
+      read("src/server/services/ledger-file.ts"),
+    ]);
+    expect(route).toMatch(/exportLedgerFile\([^;]*?maxRows: CSV_EXPORT_MAX_ROWS/s);
+    expect(tool).toMatch(
+      /exportLedgerFile\(actor, input, \{\s*maxRows: MAX_BULK_SELECTION_ENTRIES,/,
+    );
+    expect(service).toContain("export one range at a time");
+  });
+
+  /**
+   * Rows do not bound the activity history, whose events carry a whole record
+   * twice, so a file has a second limit on the history's bytes, chosen per
+   * transport like the row cap and smaller for an agent for the same reason.
+   * Its refusal names the one remedy that works, a range, which narrows the
+   * history as well as the entries.
+   */
+  it("bounds a Simple Balance file's history by its bytes too, and names the way out", async () => {
+    const read = (path: string) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
+    const [route, tool, service] = await Promise.all([
+      read("src/server/api.ts"),
+      read("src/server/mcp.ts"),
+      read("src/server/services/ledger-file.ts"),
+    ]);
+    const limits = await import("../src/server/config-limits.js");
+    expect(route).toMatch(
+      /exportLedgerFile\([^;]*?maxHistoryBytes: LEDGER_FILE_HISTORY_MAX_BYTES/s,
+    );
+    expect(tool).toMatch(
+      /exportLedgerFile\([^;]*?maxHistoryBytes: MCP_LEDGER_FILE_HISTORY_MAX_BYTES/s,
+    );
+    expect(limits.MCP_LEDGER_FILE_HISTORY_MAX_BYTES).toBeLessThan(
+      limits.LEDGER_FILE_HISTORY_MAX_BYTES,
+    );
+    expect(service).toContain(
+      "Narrow the activity history with a start and end date, and export one range at a time.",
+    );
+  });
 });

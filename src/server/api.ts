@@ -167,6 +167,9 @@ import {
   revokeConnectedApp,
 } from "./services/connected-apps.js";
 import { CSV_MEDIA_TYPE } from "../shared/csv.js";
+import { CSV_EXPORT_MAX_ROWS, LEDGER_FILE_HISTORY_MAX_BYTES } from "./config-limits.js";
+import { LEDGER_FILE_MEDIA_TYPE, parseLedgerFileQuery } from "../shared/ledger-file.js";
+import { exportLedgerFile } from "./services/ledger-file.js";
 import { todayIn } from "../shared/recurrence-dates.js";
 import { getPreferences, setPreferences } from "./services/preferences.js";
 import {
@@ -2170,6 +2173,19 @@ app.get("/api/v1/csv/export", async (c) => {
   const { timezone } = await getPreferences(actor);
   c.header("Content-Disposition", `attachment; filename="transactions-${todayIn(timezone)}.csv"`);
   return c.body(result.csv);
+});
+// The Simple Balance file, beside the CSV export because it is the same kind of
+// thing: a read, buffered and handed over as a download. The service dates the
+// file name itself, by today where the person lives, since it has already read
+// their timezone inside the snapshot and a second read here could disagree.
+app.get("/api/v1/ledger-file", async (c) => {
+  const result = await exportLedgerFile(c.get("actor"), parseLedgerFileQuery(query(c)), {
+    maxRows: CSV_EXPORT_MAX_ROWS,
+    maxHistoryBytes: LEDGER_FILE_HISTORY_MAX_BYTES,
+  });
+  c.header("Content-Type", LEDGER_FILE_MEDIA_TYPE);
+  c.header("Content-Disposition", `attachment; filename="${result.fileName}"`);
+  return c.body(result.ledgerFile);
 });
 
 app.get("/api/v1/summary", async (c) =>

@@ -3,7 +3,7 @@
 `src/server/services` is where the rules live. Everything above it — the HTTP
 routes, the MCP tools, the scheduler — is transport.
 
-388 top-level declarations across 25 modules, 183 of them exported functions.
+422 top-level declarations across 26 modules, 189 of them exported functions.
 This guide is what they have in common.
 
 Every count on this page is `topLevelDeclarations` (`tests/support/source.ts`)
@@ -16,23 +16,23 @@ guarantees is unambiguous. Measure the same way or the numbers will not match.
 ### 1.1 A service function takes an actor first
 
 **Binding.** Three shapes, and which one a function has says what it is. All
-three rows count the same 388 declarations — everything at the top level of the
+three rows count the same 422 declarations — everything at the top level of the
 directory, exported or not — because the second shape is mostly not exported and
 a table that counted only entry points would report the helpers as a handful:
 
 | First parameter | What it is | Count |
 | --- | --- | --- |
-| `actor: Actor` | A public entry point. Scopes every query by `actor.userId`. | 111 |
-| `tx: DbTransaction` | A helper that runs inside somebody else's transaction. Takes `actor` second when it needs scoping. | 81 |
-| anything else | Mostly a pure function — `canonicalDecimal`, `encodeCursor`, `categoryKindForDraft` — touching no database and needing no actor. | 196 |
+| `actor: Actor` | A public entry point. Scopes every query by `actor.userId`. | 115 |
+| `tx: DbTransaction` | A helper that runs inside somebody else's transaction. Takes `actor` second when it needs scoping. | 86 |
+| anything else | Mostly a pure function — `canonicalDecimal`, `encodeCursor`, `categoryKindForDraft` — touching no database and needing no actor. | 221 |
 
 The three add up because they are one population read one way. Splitting them
-by export tells you something the totals hide: 97 of the 111 are exported and 36
-of the 81 are, which is the shape working. An entry point is reachable and a
+by export tells you something the totals hide: 98 of the 115 are exported and 35
+of the 86 are, which is the shape working. An entry point is reachable and a
 helper mostly is not.
 
-The third row is the one to read carefully, because *mostly* is doing work: 177
-of the 196 touch no database at all, and the other 19 do. Most of those are the
+The third row is the one to read carefully, because *mostly* is doing work: 202
+of the 221 touch no database at all, and the other 19 do. Most of those are the
 second row under another name:
 `selectBulkFilterRows(executor: Database | DbTransaction, …)` and
 `legsByTransaction(db, …)` are helpers whose first parameter is spelled to admit
@@ -51,10 +51,10 @@ second way and is worth the
 warning: `applySetupIntentSucceeded` was in the test's list and not in this
 table, because the sweep's body reader mistook a parameter's object type for a
 function body and never classified it — so the split above counted it among the
-177 while the table simply had no row. A number taken from a sweep is only as
-good as what the sweep can see. The table below is the list, and the test reads
-it, which is why the ones that arrived with billing could not repeat the first
-mistake.
+ones touching no database while the table had no row. A number taken from a
+sweep is only as good as what the sweep can see. The table below is the list,
+and the test reads it, which is why the ones that arrived with billing could not
+repeat the first mistake.
 
 | Entry point | Why it has no actor |
 | --- | --- |
@@ -286,7 +286,7 @@ it, or — like these three — that composing with it is exactly what must not
 happen.
 
 The parameter is not decoration. The MCP transport passes its transaction in
-(`src/server/mcp.ts:323-356`, and every `runIdempotentMcpMutation` call under it)
+(`src/server/mcp.ts:283-316`, and every `runIdempotentMcpMutation` call under it)
 so that
 its idempotency record, the mutation and the audit events land on one connection
 and commit together. Take it away and an agent's write could record its
@@ -811,7 +811,7 @@ service counts through `countAfterCommit`
 (`src/server/services/helpers.ts:205`), which counts immediately when the
 service opened its own transaction and otherwise queues; the MCP transport
 flushes with `flushDeferredCounts` after `getDb().transaction` resolves
-(`src/server/mcp.ts:354`). Seven call sites, in `transactions.ts`, `staging.ts`
+(`src/server/mcp.ts:314`). Seven call sites, in `transactions.ts`, `staging.ts`
 and `import-export.ts`, which counts the rows a CSV import staged.
 
 The keying is the part a new author gets wrong, and the source says so where it

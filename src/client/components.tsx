@@ -1554,11 +1554,13 @@ export function EmptyState({
    * document wherever it is used. `<h3>` is right under a page `<h1>` and a
    * section `<h2>`, and wrong where the empty state *is* the page's content —
    * the duplicate review's "nothing left to review" is the answer to the whole
-   * screen, not a subsection of it. Same reasoning as `ErrorSummary`'s.
+   * screen, not a subsection of it, and `<h4>` where it fills a panel whose
+   * own heading is an `<h3>`, as the CSV import's File preview does inside its
+   * section. Same reasoning as `ErrorSummary`'s.
    */
-  level?: 2 | 3;
+  level?: 2 | 3 | 4;
 }) {
-  const Heading = level === 2 ? "h2" : "h3";
+  const Heading = level === 2 ? "h2" : level === 4 ? "h4" : "h3";
   return (
     <div className={`empty-state ${compact ? "empty-state-compact" : ""}`}>
       <div className="empty-icon">

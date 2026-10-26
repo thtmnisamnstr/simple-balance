@@ -5,10 +5,10 @@ keeping.
 
 | Tier | Files | Runs with | Needs |
 | --- | --- | --- | --- |
-| Unit (node) | 219 | `npm test` | nothing |
-| Unit (jsdom) | 64 | `npm test` | nothing |
-| Integration | 85 | `npm test` **or** `npm run test:integration` | PostgreSQL |
-| Browser | 8 | `npm run test:browser` | PostgreSQL, Chromium |
+| Unit (node) | 223 | `npm test` | nothing |
+| Unit (jsdom) | 65 | `npm test` | nothing |
+| Integration | 87 | `npm test` **or** `npm run test:integration` | PostgreSQL |
+| Browser | 9 | `npm run test:browser` | PostgreSQL, Chromium |
 
 **`npm test` collects the integration tier too**, which surprises people and is
 worth stating plainly. `vitest.config.ts:21` excludes four things and only two
@@ -23,15 +23,15 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 285 pass, 83 skip | **3,222 pass, 935 skip** |
-| `npm test`, database set | 368 pass | **4,157 pass** |
-| `npm run test:integration` | 85 pass | 938 pass |
+| `npm test`, no database | 290 pass, 85 skip | **3,423 pass, 964 skip** |
+| `npm test`, database set | 375 pass | **4,387 pass** |
+| `npm run test:integration` | 87 pass | 967 pass |
 
-The integration tier reports 938 tests on its own and 935 skips inside a
+The integration tier reports 967 tests on its own and 964 skips inside a
 database-less `npm test`, and the three-test difference is not an error: three
 cases in that tier need no database and so run either way. They are counted
-among the 3,222 rather than among the skips, which is why the two rows add up
-to 4,157 both times.
+among the 3,423 rather than among the skips, which is why the two rows add up
+to 4,387 both times.
 
 The third row is three tests larger than the first row's skip count, and the
 odd ones out are worth knowing. `bulk-transactions-mcp.integration.test.ts` has
@@ -42,7 +42,7 @@ question about the router rather than about a ledger. All three run on every
 `npm test`, database or not, and that file therefore counts as passing rather
 than skipped in the first row.
 
-The first row is what CI and `npm run verify` see, and 3,222 is the number that
+The first row is what CI and `npm run verify` see, and 3,423 is the number that
 actually gates a change by default. The second is what a developer with a local
 PostgreSQL sees, and it is strictly better. Reporting the second as though it
 were the first overstates what the gate covers, which is a mistake worth naming
@@ -99,9 +99,9 @@ two assumptions with nothing watching.
 
 ### 1.2 The browser tier is small on purpose
 
-**House.** Eight files, one worker, against a real API and a real PostgreSQL.
+**House.** Nine files, one worker, against a real API and a real PostgreSQL.
 `budgets.spec.ts` is the one that drives flows — twenty-three tests of a person
-getting through the budgets page — and the other seven are each here rather than
+getting through the budgets page — and the other eight are each here rather than
 in jsdom for the reason 1.1 gives: what they assert is something only a layout,
 paint or focus engine computes. `plan-buttons.spec.ts` measures an offset
 between two buttons, `progress-paint.spec.ts` reads a progress bar's pixels,
@@ -115,9 +115,14 @@ the window's foot and moves: where the bar sits mid-scroll, at a page's end and
 under a short page, whether Tab ever leaves a control under it, whether its
 entrance plays once and stays finished, and the pixels of its drawing at every
 width it narrows through, decoded from screenshots — none of which a page
-without layout, scrolling or animations can see. The tier is slow and it is the
-only one that proves the whole stack works, so it covers a path per capability
-rather than a case per branch. `tests/testing-guide-counts.test.ts` holds the
+without layout, scrolling or animations can see. `ledger-file-export.spec.ts`
+holds what the export form is only once a browser runs its markup: the arrow
+keys choosing inside a radio group and Tab leaving it, Enter in a date field
+submitting the one form, and a real download saved under the name the response
+gave — and the exact query string each of those sends, because the route that
+reads it is a half of the stack the page cannot see. The tier is slow and it is
+the only one that proves the whole stack works, so it covers a path per
+capability rather than a case per branch. `tests/testing-guide-counts.test.ts` holds the
 first of those numbers to the file it counts, because it sat at eleven while the
 file grew to eighteen and nothing noticed; the others are held by nothing finer
 than the tier table above.
@@ -125,22 +130,36 @@ than the tier table above.
 Everything it asserts that a cheaper tier could assert is a test in the wrong
 place.
 
-**One spec does not drive the whole stack, and that is the boundary.** `plan-buttons.spec.ts:110` intercepts the one response the plan tab
-reads and answers it from the spec. The reason is not convenience: a priced
-button exists only at a price Stripe gave, so reaching that state for real needs
-a Stripe account, its keys in the server's environment, and a subscription
-already running against them — and the last of those charges a card. Everything
+**Two specs do not drive the whole stack, and that is the boundary.**
+`plan-buttons.spec.ts:110` intercepts the one response the plan tab reads and
+answers it from the spec, and `ledger-file-export.spec.ts` answers the export
+route. The second's reason is the simpler one: what it asks is what the page
+sends and does with the answer, and the file the server builds is the
+integration tier's to check, through the same route
+(`tests/integration/ledger-file-export-route.integration.test.ts`). The
+first's takes longer, and it is not convenience: a priced button exists only at
+a price Stripe gave, so reaching that state for real needs a Stripe account, its
+keys in the server's environment, and a subscription already running against
+them — and the last of those charges a card. Everything
 below the response is the real server, the real stylesheet and the real
 components, which is the half the measurement is about.
 
-The rule above is hardest to apply to exactly this spec, so it is worth saying
-where the line falls. `tests/plan-page-ui.test.tsx` already reads the fix out of
+The rule above is hardest to apply to `plan-buttons.spec.ts`, so it is worth
+saying where the line falls. `tests/plan-page-ui.test.tsx` already reads the fix out of
 the stylesheet and already fakes the same response; what it cannot do is ask the
 browser where the two buttons ended up, because jsdom has no layout engine
 (1.1). So the browser spec earns its place by the measurement and by nothing
 else, and a faked response is the cheapest way to reach the state it measures —
 not a second, worse copy of the jsdom test. A spec that faked a response and
 then asserted what the page said about it would be in the wrong place.
+
+The export spec's last test stands on that line from the other side. It answers
+the route with a refusal and asserts the sentence the page shows, which
+`tests/import-export-page.test.tsx` already holds ("shows the row cap's
+sentence, which names the way out"). What it adds is that a real browser saves
+nothing when the fetch is refused — jsdom has no downloads to fail to start —
+and that is its whole claim to the tier: without that assertion it would be the
+jsdom test again, slower.
 
 **Holding a request is not faking one.** `selection-bar.spec.ts` intercepts the
 staged commit too, and answers nothing: it holds the request open while it
@@ -277,7 +296,7 @@ read a figure that is true of what it created and is also a property of
 something larger:
 
 - `rollover.from` is the earliest `activeFrom` across *every* plan the actor
-  holds (`src/server/services/budgets.ts:1111`). The forecast tests anchor one
+  holds (`src/server/services/budgets.ts:1117`). The forecast tests anchor one
   in 2020 to give a stepped chain a base, so shuffled ahead of it the carry
   origin answered 2020.
 - `period.unfunded` is null when nobody anywhere set a funding order, which the

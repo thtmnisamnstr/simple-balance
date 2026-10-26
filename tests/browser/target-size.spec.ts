@@ -316,6 +316,33 @@ test.describe("every target in a browser", () => {
         if (advertised) houseAdCta(narrow, `${url} at 390px`);
       }).toPass();
       await page.setViewportSize({ width: 1280, height: 800 });
+
+      if (pattern === "/import") await measureExportStates(page);
     }
   });
 });
+
+/**
+ * The export form's other half, which the page does not open on.
+ *
+ * `/import` loads on Everything, so the visit above measured the kinds
+ * checklist and nothing else. Some accounts brings a checklist of accounts in
+ * columns, a three-way radio row, a box under it and two date fields — the
+ * densest arrangement of 15px controls on the page, which is where the spacing
+ * branch is decided.
+ */
+async function measureExportStates(page: Page) {
+  const form = page.getByRole("region", { name: "Export a Simple Balance file" });
+  await form.getByRole("radio", { name: /Some accounts/ }).check();
+  await form.getByRole("radio", { name: "In a date range" }).check();
+  await expect(form.getByRole("checkbox", { name: new RegExp(account) })).toBeVisible();
+  await expect(form.getByRole("checkbox", { name: "Include deleted transactions" })).toBeVisible();
+  await expect(form.getByLabel("End date")).toBeVisible();
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expect(async () => {
+      expect(failures(await targets(page)), `/import, Some accounts, at ${width}px`).toEqual([]);
+    }).toPass();
+  }
+  await page.setViewportSize({ width: 1280, height: 800 });
+}

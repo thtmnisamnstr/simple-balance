@@ -62,7 +62,7 @@ and whether the user still has an authentication method enabled by the current
 ## Scopes
 
 - `ledger:read`: accounts, categories, payees, transactions, staging,
-  summaries, CSV export, and audit history.
+  summaries, CSV export, the Simple Balance file export, and audit history.
 - `ledger:stage`: read access plus staged transaction and CSV-stage mutations.
 - `ledger:write`: every ledger operation, including direct and staged commits.
 
@@ -752,6 +752,47 @@ makes the category.
 With `ledger:write` each one is written to the audit log as `create_from_csv` or
 `update_from_csv`, so they are visible in Activity and can be merged or deleted
 afterward.
+
+## The Simple Balance file
+
+`export_ledger_file` writes the whole ledger, or some of its accounts, as one
+JSON document in the `simple-balance-ledger-1` format: accounts, categories and
+groups, entries with their splits and both sides of every transfer, templates
+with their reminders, recurring transactions, budgets, rows waiting in Staged
+transactions, and the person's settings. Records name each other by name rather
+than by id, so the file means the same thing in another copy of Simple Balance.
+It is the format for moving a ledger between copies; a CSV is still the format
+for a spreadsheet or another tool. This release exports only: reading a file
+back into a ledger, from the page or from a tool, arrives in a later release,
+and the file already carries everything that will need.
+
+It takes the same selection the export section of **Import and export** builds.
+`kinds` says which kinds of record travel whole, and a record of a kind left out
+still travels as a reference — a name, and what is needed to find it — wherever
+something in the file names it. `accountIds` narrows the file to those accounts,
+archived ones included, and the entries touching them, each once, so a transfer
+between two of them is one entry; with accounts chosen, `kinds` may name only
+`accounts`, `categories`, `entries` and `deletedEntries`, and `categories` means
+only the ones those entries name. `history` adds the activity log, which nothing
+reads back. An account id that is not one of this person's is `NOT_FOUND`.
+
+`start` and `end` narrow the entries by their date and the activity history by
+the days its events happened where the person lives. With entries in a range,
+every account the file carries whole also carries what its postings held the
+day before `start` as `carriedForward`, whenever it was opened, so the file
+still adds up. Each
+account's `balance` is a check as of `throughDate` — today, or `end` when that
+is earlier — and is left out when entries were not asked for, or when the
+range starts after today, because nothing in it has happened yet.
+
+The result is the file as text in `ledgerFile`, exactly what the browser
+downloads, with `rowCount` and the `fileName` the browser would save it under.
+Pass the text on unchanged: those bytes are what a later import will check. A
+call carries at most 10,000 rows — entries, staged rows, budget amounts and
+history events together — and at most 4 MiB of activity history. A larger one
+is refused with both numbers in the details and a sentence saying which way out
+works for what was asked, usually a date range at a time. The browser's download
+allows 100,000 rows and 16 MiB.
 
 ## Audit history
 

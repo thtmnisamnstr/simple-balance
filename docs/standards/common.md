@@ -305,6 +305,7 @@ table's sense, and whether the "Not" column is honest, stays review.
 | **Forecast** | A projection of what the books would hold if the future arrived as scheduled. | A balance. Money dated in the future has not moved. |
 | **Recurring transaction** | A saved shape and a schedule that proposes a staged row on its due date. `recurrence` on the wire and in tool names, and the same two words on every screen, in every tool title and in the reminder mail. Like a staged transaction, it is named for what it makes rather than for being one. | Something that posts. A *recurrence* in a heading or a button: the Recurring page said that while every page pointing at it said this. |
 | **Template** | A saved shape with no schedule. | A recurring transaction. |
+| **Simple Balance file** | One JSON document holding a whole ledger, or some of its accounts, for moving it to another copy of this product. `simple-balance-ledger-1` on the wire and the *ledger file* in code; [`ledger-file.md`](ledger-file.md) is its format. | An archive, a backup or a CSV. Archiving retires an account, a backup is the operator's dump of the whole database, and a CSV is for a spreadsheet or another tool. What reads one back is never a *restore*, which already brings back an archived account or a deleted entry. |
 | **Plan** | What a sign-in is entitled to and billed for: free or paid. `plus` on the wire, **Premium** on screen. | A budget plan, which is always written out in full. |
 | **Entitlement** | What a plan permits, worked out from the plan and the moment rather than stored (`resolveEntitlement`, `src/shared/domain.ts:3577`). | A plan. An entitlement follows from one and changes with nobody present, which is why no column holds it. |
 | **Frozen** | A live account a plan's limit leaves closed to every change to what it holds: fully readable, counted in every balance, summary and report, and still free to be archived, or deleted while nothing is on it. | Archived. An archived account already refuses writes, is outside the limit, and uses up no place. |
@@ -517,7 +518,7 @@ only. There is no reverse lookup from a label to a wire value, because a label
 is not an identifier.
 
 **One gap is open and named here rather than implied.** `whoami` returns the
-plan as a bare wire value (`src/server/mcp-output-schemas.ts:680-681`) and its
+plan as a bare wire value (`src/server/mcp-output-schemas.ts:707-708`) and its
 description never says the screen reads a different word, so an agent explaining
 why a write was refused says "plus" about a product that sells Premium. That is
 the defect `AGENTS.md` records one level down from a route-by-route parity

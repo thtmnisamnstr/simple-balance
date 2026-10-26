@@ -35,6 +35,10 @@ const NOT_A_NUMBER: Record<string, string> = {
   bucket: "A bucket name — week, month, quarter, year.",
   "parsed.periodUnit": "A period unit, the same closed set.",
   'named.join(" and ")': "Field names, joined.",
+  "capNouns(kinds)":
+    "What a Simple Balance file's cap counts, in words: entries, staged rows and so on.",
+  "capWayOut(kinds)":
+    "The move that gets under that cap, in words, built from the kinds that were asked for.",
 };
 
 /**

@@ -97,7 +97,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
  * filename is the server's, from `Content-Disposition`, so the dated name it
  * picks in the person's own timezone survives the detour.
  */
-export async function download(path: string): Promise<void> {
+export async function download(path: string, fallbackName = "export.csv"): Promise<void> {
   const response = await fetch(path, { credentials: "include" });
   if (!response.ok) {
     throw refusalFrom(
@@ -110,7 +110,7 @@ export async function download(path: string): Promise<void> {
   const url = URL.createObjectURL(await response.blob());
   const link = document.createElement("a");
   link.href = url;
-  link.download = named?.[1] ?? "export.csv";
+  link.download = named?.[1] ?? fallbackName;
   link.click();
   URL.revokeObjectURL(url);
 }

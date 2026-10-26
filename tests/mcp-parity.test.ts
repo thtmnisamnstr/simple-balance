@@ -43,6 +43,8 @@ const BROWSER_ONLY: Record<string, string> = {
     "The other half of that one: it names a SetupIntent only Stripe's browser SDK can have confirmed. An agent has no way to reach the state this reports.",
   "GET /api/v1/csv/export":
     "Reachable as export_transactions_csv. The route differs only in returning a file download with a dated filename.",
+  "GET /api/v1/ledger-file":
+    "Reachable as export_ledger_file, which returns the same file as text. The route differs in serving it as a download, and the tool caps a call at 10,000 rows where the route allows 100,000.",
 };
 
 /** What each REST route needs a tool to be reachable through. */

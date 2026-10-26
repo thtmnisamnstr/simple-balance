@@ -78,6 +78,12 @@ const IMPOSSIBLE = [
       "The insert lost its conflict, which means a row exists; only a delete between the two statements could empty it, and nothing deletes one but account deletion, which cannot run for somebody mid-request.",
   },
   {
+    where: "src/server/services/ledger-file.ts",
+    message: "A Simple Balance file failed its own reader",
+    because:
+      "Every record in it was read from rows the API's own create schemas accepted, and the reader holds them to those same schemas, so a refusal is a defect in the exporter rather than anything the caller sent. A 422 would tell somebody their export request was wrong when it was the export.",
+  },
+  {
     where: "src/server/services/billing.ts",
     message: "Stripe returned a subscription with no items",
     because:

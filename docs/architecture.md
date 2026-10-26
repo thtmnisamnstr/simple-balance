@@ -30,7 +30,7 @@ contract breaks, which is not the same as when the app does.
 
 | Path | What is in it |
 | --- | --- |
-| `src/shared` | Zod contracts, money and date primitives, CSV normalization. Imported by both sides. |
+| `src/shared` | Zod contracts, money and date primitives, CSV normalization, and the Simple Balance file's format. Imported by both sides. |
 | `src/server/services` | The ledger itself: tenancy, concurrency, idempotency, postings, summaries, staging, import/export, audit. |
 | `src/server/api.ts` | HTTP transport. Resolves the user from Better Auth and calls services. |
 | `src/server/mcp.ts` | MCP transport. Exposes tools and filters them by OAuth scope. |

@@ -2,7 +2,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { createMcpServer, withoutUserId } from "../src/server/mcp.js";
+import { createMcpServer } from "../src/server/mcp.js";
+import { withoutUserId } from "../src/server/services/helpers.js";
 import { actorSources, serviceErrorCodes } from "../src/shared/domain.js";
 import {
   auditEventResultSchema,

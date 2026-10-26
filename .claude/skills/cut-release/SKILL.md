@@ -107,8 +107,9 @@ update.
 ## 2. Choose the number
 
 Semantic Versioning 2.0.0, per `docs/standards/writing.md` §Versioning. This
-product is not a library, so "breaking" is defined against four surfaces — HTTP
-`/api/v1`, MCP, CSV and the deployment — and that section holds the table.
+product is not a library, so "breaking" is defined against five surfaces — HTTP
+`/api/v1`, MCP, CSV, the Simple Balance file and the deployment — and that
+section holds the table.
 
 A migration is **never** a breaking change under this scheme: migrations run
 forward on their own at startup and every shipped one is frozen. What a

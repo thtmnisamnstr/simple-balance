@@ -31,6 +31,7 @@ import {
   idempotencyKeySchema,
   isoDateSchema,
   listQuerySchema,
+  MAX_BULK_SELECTION_ENTRIES,
   payeeListQuerySchema,
   payeeMergeSchema,
   recurrenceCreateSchema,
@@ -48,6 +49,7 @@ import {
   uuid,
 } from "../shared/domain.js";
 import { getConfig } from "./config.js";
+import { MCP_LEDGER_FILE_HISTORY_MAX_BYTES } from "./config-limits.js";
 import { apiRequestBodyLimit } from "./http-security.js";
 import { getDb, type DbTransaction } from "./db/client.js";
 import {
@@ -102,6 +104,7 @@ import {
   getIdempotent,
   lockIdempotencyKey,
   setIdempotent,
+  withoutUserId,
 } from "./services/helpers.js";
 import {
   exportTransactionsCsv,
@@ -109,6 +112,8 @@ import {
   listActiveImportBatches,
   stageCsv,
 } from "./services/import-export.js";
+import { exportLedgerFile } from "./services/ledger-file.js";
+import { ledgerFileSelectionSchema } from "../shared/ledger-file.js";
 import {
   csvPreviewInputSchema,
   csvStageInputSchema,
@@ -179,6 +184,7 @@ import {
   categorySummaryResultSchema,
   committedStagesResultSchema,
   csvExportResultSchema,
+  ledgerFileExportResultSchema,
   csvStageResultSchema,
   deletedEntityResultSchema,
   deletedStagesResultSchema,
@@ -216,52 +222,6 @@ import {
   recurrenceViewResultSchema,
   transactionTemplateResultSchema,
 } from "./mcp-output-schemas.js";
-
-/**
- * Keys whose contents are somebody else's, not this server's.
- *
- * `preview_csv` returns rows keyed by the uploaded file's own headers, so a
- * file with a `userId` column is a person's data rather than this server's
- * constant. Dropping those cells would leave the tool that exists to diagnose a
- * malformed file lying about the file it was called to diagnose, while
- * `headers` still listed the column.
- *
- * A staged row's `rawData` is the same thing one step later: the record the
- * draft was read from, keyed by that file's headers, and on
- * `create_staged_transaction` it is whatever the caller sent. Walking into it
- * would let an agent stage a row and read back a different one.
- */
-const OWNER_ID_OPAQUE_KEYS = new Set(["rows", "rawData"]);
-
-/**
- * The owner id, gone from every reply.
- *
- * One walk rather than seventy-one per-tool mappings: every row a tool returns
- * belongs to the actor that authorized the connection, so `userId` is one
- * constant repeated on every row of every page, and `AGENTS.md`'s "Never accept
- * a public `userId`" means no next call can ever send it back. The output
- * schemas no longer declare it either, and the two halves have to move
- * together, because it is the client that holds them to each other: the SDK
- * client compiles the published JSON Schema and validates every reply against
- * it, so a schema still declaring `userId` as `required` would refuse a payload
- * that had lost it, and a payload still carrying one would break the closed
- * objects that publish `additionalProperties: false`. The server's own check is
- * the Zod schema, which is not strict and would quietly strip a stray key
- * rather than fail, so it cannot be relied on to notice either.
- *
- * Audit `before`/`after` snapshots lose the same constant, which is display
- * only: the stored row and the HTTP surface are untouched.
- */
-export const withoutUserId = (node: unknown): unknown => {
-  if (Array.isArray(node)) return node.map(withoutUserId);
-  if (node === null || typeof node !== "object") return node;
-  const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
-    if (key === "userId") continue;
-    out[key] = OWNER_ID_OPAQUE_KEYS.has(key) ? value : withoutUserId(value);
-  }
-  return out;
-};
 
 const toolResult = (result: unknown) => {
   // The round trip runs first and the walk second. A `Date` reaches here as an
@@ -459,6 +419,7 @@ export const TOOL_SCOPES: ReadonlyMap<string, LedgerTier> = new Map<string, Ledg
   ["get_report", "ledger:read"],
   ["get_account_register", "ledger:read"],
   ["export_transactions_csv", "ledger:read"],
+  ["export_ledger_file", "ledger:read"],
   ["list_audit_events", "ledger:read"],
   ["list_connected_agents", "ledger:read"],
   ["list_category_groups", "ledger:read"],
@@ -1102,6 +1063,31 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         annotations: readAnnotations,
       },
       (input) => runTool(() => exportTransactionsCsv(actor, input)),
+    );
+    server.registerTool(
+      "export_ledger_file",
+      {
+        title: "Export a Simple Balance file",
+        description:
+          "Export the ledger, or some of its accounts, as a Simple Balance file: one JSON document (simple-balance-ledger-1) holding accounts, categories and groups, entries with their splits, templates, recurring transactions, budgets, staged rows and settings, every reference by name, so it can move to another copy of Simple Balance. One call carries at most 10,000 rows — entries, staged rows, budget amounts and history events together — and at most 4 MiB of activity history, so export a larger ledger, or a long activity history, a date range at a time. The file comes back as text; pass it on unchanged.",
+        // The page's own selection, as is: the route parses the same schema out
+        // of its query string, so an agent can ask for exactly what the page
+        // can and nothing it cannot.
+        inputSchema: ledgerFileSelectionSchema,
+        outputSchema: mcpOutputSchema(ledgerFileExportResultSchema),
+        annotations: readAnnotations,
+      },
+      // One import part's worth rather than the route's hundred thousand. The
+      // reply is serialized twice, as structured content and as its text
+      // mirror, with no streaming to spread it out, and a file of one part is
+      // one an agent can hand straight to an import.
+      (input) =>
+        runTool(() =>
+          exportLedgerFile(actor, input, {
+            maxRows: MAX_BULK_SELECTION_ENTRIES,
+            maxHistoryBytes: MCP_LEDGER_FILE_HISTORY_MAX_BYTES,
+          }),
+        ),
     );
     server.registerTool(
       "list_audit_events",

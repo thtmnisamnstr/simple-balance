@@ -540,6 +540,33 @@ export const csvExportResultSchema = z.object({
   rowCount: z.number().int().nonnegative(),
 });
 
+/**
+ * A Simple Balance file as a tool returns it: the text, not the document.
+ *
+ * Publishing the file's own schema here would put tens of kilobytes into every
+ * tier's `tools/list` for one tool, and tie the measurements pinned in
+ * `docs/standards/mcp.md` to the format. Text is also what an import checks:
+ * the bytes it reads are the bytes this returned, with nothing re-encoded on
+ * the way through an agent.
+ */
+export const ledgerFileExportResultSchema = z.object({
+  ledgerFile: z
+    .string()
+    .describe(
+      "The file itself, exactly the text the browser downloads: a simple-balance-ledger-1 JSON document. Text rather than structured content, so the bytes an import checks are the bytes that were exported; pass it on unchanged.",
+    ),
+  rowCount: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe(
+      "Entries, staged rows and budget amounts in the file — what one import part is capped at. Activity events count toward this call's cap but not here, because no import reads them back.",
+    ),
+  fileName: z
+    .string()
+    .describe("The name the browser saves this file under, dated by today where the person lives."),
+});
+
 export const auditEventResultSchema = z
   .object({
     id: uuidSchema,

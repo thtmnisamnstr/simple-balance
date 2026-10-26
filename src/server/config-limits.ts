@@ -29,6 +29,32 @@ export const MAX_CSV_CONFIGURATION_ROWS = MAX_BULK_SELECTION_ENTRIES;
  * rather than either number moving.
  */
 export const CSV_EXPORT_MAX_ROWS = 100_000;
+
+/**
+ * The most activity-history text one Simple Balance file carries, counted as
+ * the bytes of the events' before and after snapshots, beside the row cap
+ * rather than instead of it.
+ *
+ * The row cap bounds everything else in the file because every other row is
+ * about the same size. The history's are not: an event about an edited
+ * split is two kilobytes against an entry's couple of hundred bytes, so a
+ * hundred thousand of them is a two-hundred-megabyte file, and building one
+ * was measured taking a server with the heap Node gives a one-gibibyte
+ * container past it — every tenant's requests with it. The worst file the two
+ * limits allow together, a hundred thousand events filling sixteen mebibytes
+ * of snapshots, came to 33 MiB and peaked under 400 MiB resident in that heap.
+ * A longer history goes out a date range at a time, which the refusal says.
+ */
+export const LEDGER_FILE_HISTORY_MAX_BYTES = 16 * 1024 * 1024;
+
+/**
+ * The same bound for an agent, a quarter of the download's, for the reason its
+ * row cap is a tenth: a tool's reply is serialized twice with no streaming. At
+ * this size the history adds about as much to a reply as its row cap's worth
+ * of entries already does.
+ */
+export const MCP_LEDGER_FILE_HISTORY_MAX_BYTES = 4 * 1024 * 1024;
+
 export const DEFAULT_DATABASE_POOL_SIZE = 10;
 const MAX_DATABASE_POOL_SIZE = 100;
 const DEFAULT_RECURRENCE_TICK_SECONDS = 300;

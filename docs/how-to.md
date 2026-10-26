@@ -13,6 +13,7 @@ the way they do; this page only tells you *what to do*.
 - [Split one receipt across categories](#split-one-receipt-across-categories)
 - [Fix a mistake](#fix-a-mistake)
 - [Import a bank file](#import-a-bank-file)
+- [Take your ledger with you](#take-your-ledger-with-you)
 - [Save time with templates](#save-time-with-templates)
 - [Set up recurring transactions](#set-up-recurring-transactions)
 - [Budgeting, from nothing](#budgeting-from-nothing)
@@ -156,9 +157,10 @@ category side to divide.
 ## Import a bank file
 
 1. Download a CSV statement from your bank.
-2. Open **Import CSV**, choose the file, and match the columns: which one is
-   the date, the amount (or debit/credit pair), the payee. Press **Dry run**
-   to see how each row will be read before anything is saved.
+2. Open **Import and export** and, under **Import a CSV**, choose the file and
+   match the columns: which one is the date, the amount (or debit/credit
+   pair), the payee. Press **Dry run** to see how each row will be read before
+   anything is saved.
 3. Press **Stage all rows**. They land in **Staged**, a review queue where
    nothing counts toward balances yet.
 4. Press the **Review these N rows** link, look the batch over, fix anything
@@ -187,8 +189,50 @@ Transactions. Categories and payees named by the file are matched
 case-insensitively and created if new.
 
 A file exported from Simple Balance itself (Transactions → **Export CSV**)
-needs no column mapping at all, and survives the round trip exactly: splits,
-both sides of a conversion, everything.
+needs no column mapping at all: choose the account it goes into and stage it.
+Splits, both amounts of a conversion, and descriptions a spreadsheet would
+mangle all come back as they left. The accounts do not travel in a CSV, so a
+transfer arrives in **Staged** asking which account its other side is. To move
+a whole ledger, with its accounts, budgets and templates, use a Simple Balance
+file instead.
+
+## Take your ledger with you
+
+A Simple Balance file is one file holding everything you have written in this
+ledger, for keeping or for moving to another copy of Simple Balance — one you
+run yourself, or the service.
+
+1. Open **Import and export**. The export is the second section, **Export a
+   Simple Balance file**.
+2. Under **What to export**, choose **Everything** for the whole ledger, or
+   **Some accounts** for the ones you pick.
+3. For **Everything**, untick any kind of record you do not want. Every box
+   starts ticked but **Activity history**, which is kept in the file and cannot
+   be imported. **Transactions from** is **All time** unless you choose a
+   **Date range**.
+4. For **Some accounts**, tick up to 100 of them — archived ones are listed
+   too — and choose how much of each to take under **With their
+   transactions**: **No, account details only**, **All of them**, or **In a
+   date range**.
+5. Press **Export file**. It downloads as `simple-balance-` and today's date,
+   or `simple-balance-accounts-` and the date for chosen accounts.
+
+Anything you leave out still travels by name wherever something in the file
+refers to it, so unticking budgets does not break the categories they were
+about, and a transfer to an account you did not choose names that account and
+nothing more. A transfer between two accounts you did choose is in the file
+once. With a date range, each account carries what it held the day before the
+range starts, so its balance in the file still adds up.
+
+One file holds up to 100,000 transactions, staged rows, budget amounts and
+history events together. A larger ledger is refused with a sentence saying what
+to narrow — usually a date range at a time.
+
+**Importing a Simple Balance file arrives in a later release.** This one makes
+the file and cannot yet read one back. The format is fixed now so that the
+release which imports it will read files made today; the copy you move to will
+need that release. For a spreadsheet of your transactions, Transactions →
+**Export CSV** is still the one to use.
 
 ## Save time with templates
 

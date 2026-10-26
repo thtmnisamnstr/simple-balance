@@ -115,8 +115,8 @@ entry when it changes what a maintainer can rely on; a pure refactor does not.
 
 ## 6. The upgrade note
 
-If anything touched a surface in `writing.md`'s four-surface table — HTTP, MCP,
-CSV, deployment — `docs/upgrades.md` needs it under
+If anything touched a surface in `writing.md`'s five-surface table — HTTP, MCP,
+CSV, the Simple Balance file, deployment — `docs/upgrades.md` needs it under
 `## Before you upgrade to X.Y.Z` for the **next** version.
 
 Write it even when the answer is that nothing changed: a missing heading and an

@@ -155,7 +155,7 @@ leaves out:
 | `restriction` | 5,085 | Declined. |
 
 **Those are the numbers the decision was made on, and they are not today's.**
-Re-measured with `npx oxlint -A all -D <category>`, 2026-10-01: correctness 69,
+Re-measured with `npx oxlint -A all -D <category>`, 2026-10-01: correctness 71,
 `suspicious` 3,189, `perf` 950, `pedantic` 4,012, `style` 44,493, `restriction`
 12,429. Five of those six are dated rather than held, which `writing.md` §A
 measured number carries a test or a date allows only because holding a figure
@@ -163,12 +163,12 @@ that moves with every file added would teach people to bump it without reading.
 The sixth is held, and it is the only one anybody acts on. The two columns do
 not measure the same rule set, which is most of the movement between them:
 
-- **`correctness` reads 69, and `npm run lint` still reads zero.** That command
-  overrides every exception `.oxlintrc.json` writes down, and the 69 are
+- **`correctness` reads 71, and `npm run lint` still reads zero.** That command
+  overrides every exception `.oxlintrc.json` writes down, and the 71 are
   exactly those exceptions: `prefer-tag-over-role` 29,
   `no-noninteractive-tabindex` 14, `no-autofocus` 11,
-  `control-has-associated-label` 7, `no-control-regex` 4,
-  `label-has-associated-control` 3, `anchor-has-content` 1. The category is
+  `control-has-associated-label` 7, `label-has-associated-control` 5,
+  `no-control-regex` 4, `anchor-has-content` 1. The category is
   denied and clean; this is what denying it with exceptions looks like from
   outside.
 
@@ -218,7 +218,7 @@ One `eslint` rule is off. **`no-control-regex`** flags a regular expression that
 matches control characters, and all four sites here exist *to reject* them: two
 sanitize user input (`src/shared/domain.ts:350-351`), one is the CSV-injection
 defense (`src/shared/csv.ts:513`), and one scrubs a CSP report before it reaches
-the log (`src/server/api.ts:1382`), where the body is attacker-controlled and a
+the log (`src/server/api.ts:1385`), where the body is attacker-controlled and a
 newline would let one report write several log lines with a forged error among
 them. The rule exists to catch a control character written by accident; every
 one of these was written on purpose, and the code that strips control characters
@@ -231,7 +231,7 @@ codebase rather than about accessibility:
 
 | Rule | Why off |
 | --- | --- |
-| `jsx-a11y/label-has-associated-control` | Cannot see through `Field`, which wraps every control (`src/client/components.tsx:633`). Every site it flagged was correctly labeled. |
+| `jsx-a11y/label-has-associated-control` | Cannot see through `Field`, which wraps every control (`src/client/components.tsx:633`), nor through the radio card, which wraps its control and puts its words one element deeper, a name in `<strong>` and a sentence in `<small>` (`src/client/forms.tsx:2507`, `src/client/pages/ImportPage.tsx:1133`). Every site it flagged was correctly labeled. |
 | `jsx-a11y/control-has-associated-label` | Same, and it also flags `<option>` inside `<datalist>`, which needs no label. |
 | `jsx-a11y/prefer-tag-over-role` | Twenty-nine sites in five shapes, and the two this row named are six of them: five `<svg role="img">`, which is the recommended way to expose an SVG, and one `<summary role="button">` whose comment already explains itself (`src/client/components.tsx:983`). Of the rest, five `role="status"` sit on a loading line and four `role="group"` on a date bar — and **fourteen `role="region"`, the largest shape by far, are the named scroll region the narrowed rule one table down exists for.** That is the case this row has to answer and never did: there is no tag to prefer. `web.md` §9.6 requires `tabIndex={0}`, `role="region"` and a name on anything that scrolls sideways, so for half these sites the rule is asking for an element HTML does not have. |
 | `jsx-a11y/anchor-has-content` | Content arrives through `children`, which it cannot follow. |
@@ -297,7 +297,7 @@ in the same breath, which reads as one toolchain over one tree.
 those files failed a format check — `scripts/capacity/load.mjs`,
 `scripts/capacity/schedule.mjs`, `scripts/ralph/git-guard.mjs`,
 `scripts/ralph/runner.mjs`, and `scripts/set-version.mjs`, the tool the release
-procedure runs first (`docs/upgrades.md:1921`) — while all thirteen Pulumi
+procedure runs first (`docs/upgrades.md:1949`) — while all thirteen Pulumi
 modules happened to be clean, so the gap stayed invisible while
 `npm run verify` went on passing. The five are formatted now, and the test
 below holds every file the command does not reach to the formatter anyway. `typescript.md` §3.5 records

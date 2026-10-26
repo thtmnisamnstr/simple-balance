@@ -1,9 +1,12 @@
 # CSV
 
-The import and export format. This is the only way a ledger leaves this product
-in bulk, so it is the thing that makes the product non-captive, and it is the
-one interface whose reader is usually somebody debugging rather than somebody
-building. That is why it has its own file.
+The import and export format for entries, and the one this product shares with
+everything outside it: a spreadsheet, a bank's statement, another finance tool.
+It is half of what makes the product non-captive — the other half is the
+Simple Balance file, which moves a whole ledger between copies of this product
+and has [a guide of its own](ledger-file.md) — and it is the one interface whose
+reader is usually somebody debugging rather than somebody building. That is why
+it has its own file.
 
 Read [`common.md`](common.md) first. Money, dates, error sentences, the glossary
 and the voice are settled there and are not repeated here. What is here is what
@@ -12,7 +15,7 @@ importer all have opinions about.
 
 Everything is grounded in three places: `src/shared/csv.ts`, which both the
 browser preview and the server use, `src/server/services/import-export.ts`,
-which reads and writes files, and `src/server/api.ts:2136-2173`, which is the
+which reads and writes files, and `src/server/api.ts:2139-2176`, which is the
 transport: preview, stage, the batch list and export. That range named the
 progress-frame helpers and the commit route for a release, two screens above
 the routes this file is about. It is the failure
@@ -23,8 +26,27 @@ a document disagreeing with itself has already said which half to check.
 
 ## 1. Why CSV, and why no apology
 
-**House.** CSV is the interchange format. There is no second one and no plan for
-one.
+**House.** CSV is the interchange format: the one a file shares with tools that
+are not this product. There is no second one and no plan for one.
+
+The Simple Balance file is not a second interchange format, and the difference
+is the reader. Nothing outside this product reads it or writes it; it is this
+product's own record of a ledger — accounts, budgets, templates and all — for
+moving that ledger between two copies of it, and its rules are in
+[`ledger-file.md`](ledger-file.md). What this section rules out is a second way
+of trading files with somebody else's software, which is what every format
+below would be.
+
+Nor was this format stretched to carry a whole ledger, and the reason is in two
+of its own rules. One transaction is one row (section 7), so an account, a
+budget or a template has no row to be, and the recognition set is frozen
+(section 6), so the columns that would describe one could never be required. A
+ZIP of a CSV per kind was the other way, and it needed a zip reader in the
+browser as well as the server, a recognition set and a column table per kind,
+and JSON in the cells of every nested record — a spreadsheet holding a second
+format anyway. So the ledger got a file of its own, and this one is unchanged
+by it: what it reads and writes, and every file it ever wrote, are exactly as
+they were.
 
 Every alternative needs a gatekeeper. OFX is at Banking version 2.3 under the
 FDX OFX Work Group and needs a bank relationship. QFX is proprietary; Quicken's
@@ -116,7 +138,7 @@ The departures, all on the read side, all deliberate:
 - **UTF-8, always.** The export is a JavaScript string, served with a
   `charset=utf-8` media type (`CSV_MEDIA_TYPE`, `src/shared/csv.ts:26`). The
   import is a string by the time it reaches us: the browser decodes the file
-  with `file.text()` (`src/client/pages/ImportPage.tsx:200`) and an API or MCP
+  with `file.text()` (`src/client/pages/ImportPage.tsx:216`) and an API or MCP
   caller sends a JSON string, which is UTF-8 by definition. Nothing in this product reads a byte
   stream, so there is no encoding to guess and no `encoding` directive of the
   kind hledger has. **House.**
@@ -189,7 +211,7 @@ was responsible for — and the defect is in this guide, not in the code.
 
 **Settled.** The download filename is dated in the person's own timezone,
 through `todayIn(timezone)` like every other "today" in this product
-(`src/server/api.ts:2161-2173`). It used to read the server clock, so somebody
+(`src/server/api.ts:2164-2176`). It used to read the server clock, so somebody
 at UTC+13 downloading at 09:00 got yesterday's date on the file — the one thing
 a dated filename exists to get right.
 
@@ -199,7 +221,7 @@ a dated filename exists to get right.
 
 Papa Parse guesses the delimiter and the preview reports what it guessed, both
 in the API response (`CsvPreview.delimiter`, `src/shared/csv.ts:195-242`) and on
-screen (`src/client/pages/ImportPage.tsx:381-385`). The import screen says so
+screen (`src/client/pages/ImportPage.tsx:410-414`). The import screen says so
 before a file is chosen: "Comma, semicolon, and tab delimiters are detected
 automatically."
 
@@ -925,7 +947,7 @@ be.
 - **No saved, reusable import configuration.** hledger has a rules file, Firefly
   III has a saved configuration, Actual remembers a mapping. Here the browser
   infers a mapping from header aliases each time
-  (`src/client/pages/ImportPage.tsx:78-109`), and `import_batch.mapping` is
+  (`src/client/pages/ImportPage.tsx:94-125`), and `import_batch.mapping` is
   stored for the record rather than for reuse
   (`src/server/services/import-export.ts:903`). The inference is also
   browser-only: an MCP caller composes the mapping itself.
@@ -940,7 +962,9 @@ be.
 - **No concatenating several columns into one field.** Firefly III allows it.
   One column feeds one field here.
 - **No multiplier or amount flip.** Actual has both.
-- **No second file format.** No QIF, no OFX, no camt.053. See section 1.
+- **No second interchange format.** No QIF, no OFX, no camt.053. See section 1,
+  which also says why the Simple Balance file is not one: it moves a ledger
+  between copies of this product and nothing else reads it.
 
 *Not checked mechanically.* This section records what other tools do and what
 this format deliberately lacks. There is no rule here to enforce; it exists so a

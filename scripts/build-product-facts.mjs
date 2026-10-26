@@ -67,6 +67,7 @@ const declared = {
     "Unlimited transactions and unlimited currencies",
     "CSV import with format detection and duplicate review",
     "CSV export, including multi-currency round trips",
+    "Simple Balance file export of the whole ledger or chosen accounts, budgets, templates and recurring transactions included",
     "Budgets per category or group, with carry-over",
     "Recurring transactions that propose themselves",
     "Transaction templates",

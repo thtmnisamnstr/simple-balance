@@ -471,6 +471,7 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
       preview_csv: { csv: "date,payee,amount\n2026-01-01,Shop,5.00" },
       preview_bulk_transaction_selection: { filter: { includeDeleted: false } },
       preview_bulk_staged_selection: { filter: {} },
+      export_ledger_file: { kinds: ["accounts", "entries", "staged", "budgets", "recurrences"] },
     };
 
     const dropped: string[] = [];

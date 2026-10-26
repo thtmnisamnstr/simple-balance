@@ -159,7 +159,7 @@ describe("what the product says", () => {
         wrong.push(`${path}: "${label}"`);
       }
     }
-    // Thirty-nine of ninety-seven `<Button>` uses have a literal child; the
+    // Thirty-nine of ninety-eight `<Button>` uses have a literal child; the
     // rest compute their label from state and need rendering to read. That is
     // the scope, and it is the scope because the failure this catches — a bare
     // verb — is one somebody types as a literal.

@@ -498,3 +498,55 @@ export async function pruneIdempotencyRecords(
     );
   return { swept: doomed.length, capped: doomed.length === IDEMPOTENCY_SWEEP_BATCH };
 }
+
+/**
+ * Keys whose contents are somebody else's, not this server's.
+ *
+ * `preview_csv` returns rows keyed by the uploaded file's own headers, so a
+ * file with a `userId` column is a person's data rather than this server's
+ * constant. Dropping those cells would leave the tool that exists to diagnose a
+ * malformed file lying about the file it was called to diagnose, while
+ * `headers` still listed the column.
+ *
+ * A staged row's `rawData` is the same thing one step later: the record the
+ * draft was read from, keyed by that file's headers, and on
+ * `create_staged_transaction` it is whatever the caller sent. Walking into it
+ * would let an agent stage a row and read back a different one.
+ */
+const OWNER_ID_OPAQUE_KEYS = new Set(["rows", "rawData"]);
+
+/**
+ * The owner id, gone from every reply.
+ *
+ * One walk rather than seventy-one per-tool mappings: every row a tool returns
+ * belongs to the actor that authorized the connection, so `userId` is one
+ * constant repeated on every row of every page, and `AGENTS.md`'s "Never accept
+ * a public `userId`" means no next call can ever send it back. The output
+ * schemas no longer declare it either, and the two halves have to move
+ * together, because it is the client that holds them to each other: the SDK
+ * client compiles the published JSON Schema and validates every reply against
+ * it, so a schema still declaring `userId` as `required` would refuse a payload
+ * that had lost it, and a payload still carrying one would break the closed
+ * objects that publish `additionalProperties: false`. The server's own check is
+ * the Zod schema, which is not strict and would quietly strip a stray key
+ * rather than fail, so it cannot be relied on to notice either.
+ *
+ * Audit `before`/`after` snapshots lose the same constant, which is display
+ * only: the stored row and the HTTP surface are untouched.
+ *
+ * Here rather than in `src/server/mcp.ts`, where it began, because a Simple
+ * Balance file's activity history is the second reader. That history leaves
+ * the deployment altogether, and the id it would carry names a person on a
+ * copy the file is about to stop belonging to; one walk for both is what keeps
+ * the file and the tool from disagreeing about which keys are somebody's data.
+ */
+export const withoutUserId = (node: unknown): unknown => {
+  if (Array.isArray(node)) return node.map(withoutUserId);
+  if (node === null || typeof node !== "object") return node;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    if (key === "userId") continue;
+    out[key] = OWNER_ID_OPAQUE_KEYS.has(key) ? value : withoutUserId(value);
+  }
+  return out;
+};

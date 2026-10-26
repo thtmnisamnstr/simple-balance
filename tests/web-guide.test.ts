@@ -67,12 +67,14 @@ const WORDS: Record<number, string> = {
   20: "twenty",
   23: "twenty-three",
   24: "twenty-four",
+  25: "twenty-five",
   27: "twenty-seven",
   28: "twenty-eight",
   30: "thirty",
   31: "thirty-one",
   35: "thirty-five",
   36: "thirty-six",
+  37: "thirty-seven",
 };
 
 const word = (count: number): string => {

@@ -104,6 +104,36 @@ ledger imports into another, or into somebody else's, or into a fresh install. A
 transfer names a second account, which is a choice the import screen cannot make,
 so those rows arrive in the queue asking for it.
 
+A CSV carries transactions and nothing else — no accounts, budgets, templates or
+recurring transactions — so it was never a way to move a ledger, only its
+entries. **Import and export** also makes a **Simple Balance file**: one file
+holding everything you wrote, accounts and their opening balances, categories
+and groups, every transaction with its splits and both sides of every
+transfer, templates with their reminders, recurring transactions, budgets, rows
+still waiting in Staged transactions, and your regional defaults and theme once
+you have chosen them. Records name each other by name rather than by an id that
+means something in only one copy, so the file means the same thing in a copy you
+run yourself and in the service.
+
+Take everything, with a box for each kind of record, or some accounts — their
+details alone, or with their transactions, all of them or a date range. Anything
+left out still travels by name wherever something in the file refers to it, so
+the file is never broken by what you unticked. A transfer between two accounts
+you chose is in it once, and one to an account you did not choose names that
+account and nothing more. A date range keeps a long ledger's file small, and
+each account in it carries what it held the day before the range, so its
+figures still add up. The activity history can come along too, unticked to
+begin with: it is kept in the file, and nothing ever reads it back.
+
+What stays behind is what another copy works out for itself or should never
+have: postings and balances, which are worked out from the entries rather than
+copied, and your sign-in, your connected agents and your plan.
+
+**Reading a file back arrives in a later release.** This one makes the file
+and cannot yet bring one into a ledger. The format is fixed now so that the
+release which imports it will read a file made today, and the copy you move to
+will need that release.
+
 ## Templates
 
 A transaction you enter often can be saved as a template from any row and picked
@@ -464,4 +494,5 @@ an agent can and cannot do is in [MCP](mcp.md).
 
 Leaving is yours to do. Settings deletes the account and everything in it, after
 counting what that is and asking you to type your address. Nothing is kept, and
-no agent can do it for you.
+no agent can do it for you. A Simple Balance file from **Import and export**
+taken first is the copy of it you keep.

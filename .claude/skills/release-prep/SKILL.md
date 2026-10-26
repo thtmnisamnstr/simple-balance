@@ -35,7 +35,7 @@ and 5 each walk it.
 `AGENTS.md` states it as an invariant and `docs/standards/writing.md` §Versioning
 argues it: **a release upgrades cleanly from the one before it.** Not "breaks
 only where documented" — does not break. Read that section for the reasoning
-before judging anything; it holds the four-surface table below and the list of
+before judging anything; it holds the five-surface table below and the list of
 what the rule rules out.
 
 This is first because a break found here is not a patch, it is a different
@@ -50,6 +50,7 @@ Check the diff against each surface:
 | HTTP `/api/v1` | A field removed or renamed, an accepted input narrowed, a status or error code changed for an unchanged request, a default changed |
 | MCP | A tool removed or renamed, a required argument added, a scope widened, an output field removed |
 | CSV | A recognized column removed from `APP_CSV_COLUMNS`, or an existing column's meaning changed |
+| The Simple Balance file | A published format token no longer read, a field removed or given a new meaning, or a field added that a file without it cannot be read past |
 | Deployment | A configuration variable renamed, removed, or made required; a refusal to start on a configuration the previous version accepted; a new external dependency; a raised floor on PostgreSQL or Node |
 
 The three shapes a fix almost always takes:

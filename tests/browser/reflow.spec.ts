@@ -241,4 +241,72 @@ test.describe("every page reflows", () => {
       pages.map((visit) => visit.pattern).filter((pattern) => pattern !== "/settings/plan"),
     );
   });
+
+  /**
+   * The export form on Import and export, in the states the walk above never
+   * reaches.
+   *
+   * The walk opens `/import` as it loads, on Everything with no range, which is
+   * the narrowest the form ever is. What it holds grows with what is chosen —
+   * two date fields and the sentence under them, a checklist of every account
+   * with a badge on the archived ones, a refusal summary at the top — and
+   * section 15 asks for a bar to be measured with each of its contents present.
+   * An archived account with a name that has no break in it is the list at its
+   * widest. At the widths the request names: the floor, a phone, the first
+   * pixel the sidebar is back, the wide step, and a desktop.
+   */
+  test("with the export form in every state it can take", async () => {
+    test.setTimeout(120_000);
+    const long = `JointHouseholdEverydayChecking${Date.now()}`;
+    const archived = await post(page, "/api/v1/accounts", {
+      name: long,
+      type: "checking",
+      currency: "EUR",
+      openingDate: today,
+      openingBalance: "0",
+    });
+    const response = await page.request.post(`/api/v1/accounts/${archived.id}/archived`, {
+      data: { expectedVersion: 1, archived: true },
+      headers: { Origin: new URL(page.url()).origin },
+    });
+    expect(response.status(), await response.text()).toBeLessThan(300);
+
+    const measure = async (state: string) => {
+      const overflowing: string[] = [];
+      for (const width of [320, 390, 781, 1050, 1440]) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.evaluate(
+          () => new Promise((resolve) => requestAnimationFrame(() => resolve(null))),
+        );
+        const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+          scrollWidth: document.documentElement.scrollWidth,
+          clientWidth: document.documentElement.clientWidth,
+        }));
+        if (scrollWidth > clientWidth) {
+          overflowing.push(`${state} at ${width}px: document is ${scrollWidth}px wide`);
+        }
+      }
+      return overflowing;
+    };
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/import");
+    const form = page.getByRole("region", { name: "Export a Simple Balance file" });
+    await form.getByRole("radio", { name: "Date range" }).check();
+    await form.getByLabel("Start date").fill("2026-06-30");
+    await form.getByLabel("End date").fill("2026-01-01");
+    const overflowing = await measure("Everything, with a range");
+    // The shared schema's refusal, which the page shows before asking.
+    await form.getByRole("button", { name: "Export file" }).click();
+    await expect(form.getByRole("alert")).toContainText("The range cannot end before it starts");
+    overflowing.push(...(await measure("Everything, with a refusal")));
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await form.getByRole("radio", { name: /Some accounts/ }).check();
+    await form.getByRole("radio", { name: "In a date range" }).check();
+    await expect(form.getByRole("checkbox", { name: new RegExp(long) })).toBeVisible();
+    await expect(form.getByText("Archived", { exact: true })).toBeVisible();
+    overflowing.push(...(await measure("Some accounts, with a range")));
+    expect(overflowing, "the export form scrolls the page sideways").toEqual([]);
+  });
 });

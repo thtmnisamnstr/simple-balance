@@ -6,6 +6,39 @@ Notable changes, newest first.
 
 ### Added
 
+**A whole ledger, or some of its accounts, can be exported as one Simple
+Balance file.** A CSV carries transactions and nothing else, so moving between a
+copy you run yourself and the service meant rebuilding every account, budget,
+template and recurring transaction by hand, and picking the other account of
+every transfer again. The menu's Import CSV is now **Import and export**, at the
+same address, and below the CSV import it makes one JSON file in the
+`simple-balance-ledger-1` format: accounts with their opening balances and the
+day each was archived, categories and groups, every transaction with its splits
+and both sides of every transfer, deleted ones too unless you untick them,
+templates with their reminders, recurring transactions, budgets, rows still
+waiting in Staged transactions, and your regional defaults and theme once you
+have chosen them. Records name each other by name rather than by id, so the
+file means the same thing in another copy, and a kind you leave out still
+travels by name wherever something refers to it, so unticking one breaks
+nothing. **Some accounts** takes up to a hundred of them, with their details
+alone, all their transactions, or a date range, and a transfer between two of
+them is in the file once. A ranged file carries what each account held the day
+before it starts, and a file with transactions gives every account a balance
+check worked out from its postings. The activity history can come along,
+unticked to begin with, and is never read back.
+
+Agents get the same file from `export_ledger_file`, and
+`GET /api/v1/ledger-file` serves it as a download. One download holds up to
+100,000 rows and 16 MiB of activity history, and one agent's call 10,000 rows
+and 4 MiB, because a tool's reply cannot stream; a larger export is refused
+with both numbers and the way out that works for what was asked, usually a date
+range at a time. Exporting writes nothing, not even a line in the activity log.
+The page's two empty states, no account yet and every account frozen, now cover
+only the CSV import, so the export is there for somebody with either. Importing
+the file arrives in a later release: this one only makes it, and its format is
+fixed now so the release that reads it will read a file made today. The CSV
+import and export are exactly as they were.
+
 **Metrics can be sent to New Relic, or to any backend that takes OTLP or
 Prometheus remote write, with no Prometheus of your own.** Every deployment
 profile can run an OpenTelemetry Collector beside the application, off until

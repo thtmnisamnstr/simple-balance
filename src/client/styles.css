@@ -1307,7 +1307,7 @@ input[type="radio"] {
   border-radius: 11px;
 }
 
-.empty-state-compact h3 {
+.empty-state-compact :is(h3, h4) {
   font-size: 14px;
 }
 
@@ -1315,7 +1315,7 @@ input[type="radio"] {
   margin-bottom: 0;
 }
 
-.empty-state h3 {
+.empty-state :is(h3, h4) {
   margin-bottom: 7px;
   font-size: 16px;
 }
@@ -2733,7 +2733,7 @@ input[type="radio"] {
   font-weight: 760;
 }
 
-.step-heading h2 {
+.step-heading h3 {
   margin-bottom: 2px;
   font-size: 14px;
 }
@@ -4680,6 +4680,64 @@ polyline.chart-line {
   margin-bottom: 14px;
   color: var(--muted);
   font-size: 13px;
+}
+
+/* One of the two sections of Import and export: its heading, then what it
+   holds. The page's 24px separates the two sections, and this is half that so
+   a heading sits with the card it names rather than floating between two. */
+.import-section {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+/* The export form. A grid with a `minmax(0, 1fr)` track rather than
+   `.panel-stack`, because a grid item takes its min-content width and an
+   account name with no space in it would otherwise push past the card. */
+.ledger-export {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+}
+
+/* SC 2.5.8 Target Size, on the spacing branch, for the reason
+   `.active-account-choices` records: a checkbox is 15 by 15. Its 8px was not
+   enough here. Those rows sit in list items and take the body's line height;
+   the kinds checklist's labels are only as tall as their 12px text, so 8px
+   left the centers 23px apart at desktop width and `target-size.spec.ts`
+   failed on it. 12px puts them 27px apart, and 29px at 390px, measured in
+   Chromium. */
+.ledger-export-choices {
+  display: grid;
+  gap: 12px;
+}
+
+.ledger-export-choices .check-label {
+  overflow-wrap: anywhere;
+}
+
+/* As many columns as fit, because somebody with forty accounts would otherwise
+   scroll past a single column of them to reach the question under it. The
+   `min()` lets one column narrower than 240px stand at 320px rather than
+   pushing the page sideways (SC 1.4.10). */
+.ledger-export-accounts {
+  grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
+  column-gap: 24px;
+}
+
+/* "Include deleted transactions" under Transactions, lined up with the words
+   of the box it narrows: the box is 15px and `.check-label` puts 7px after it. */
+.ledger-export-nested {
+  padding-left: 22px;
+}
+
+/* Two date fields kept near a date's width. At the card's full width each
+   would be half of it, a field 600px wide for ten characters. Lined up on the
+   inputs: a hint or a refusal puts lines above one date alone, and with the
+   default stretch the other date's input grew to fill the taller row instead. */
+.ledger-export-range {
+  max-width: 520px;
+  align-items: end;
 }
 
 /* --break-wide: 1050px */

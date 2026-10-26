@@ -143,6 +143,7 @@ describe("the order tools come back in", () => {
     "get_report",
     "get_account_register",
     "export_transactions_csv",
+    "export_ledger_file",
     "list_audit_events",
     "list_connected_agents",
     "list_category_groups",

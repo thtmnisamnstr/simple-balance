@@ -168,7 +168,7 @@ export type TransactionType = (typeof transactionTypes)[number];
  * beside the field while the service turns the same sentence into a 422.
  */
 export type EntrySide =
-  | { ok: true; counterKind: "income" | "expense"; reversal: boolean }
+  | { ok: true; counterKind: CounterKind; reversal: boolean }
   | { ok: false; message: string };
 
 export function resolveEntrySide(type: EntryType, namedKinds: Iterable<CategoryKind>): EntrySide {
@@ -350,7 +350,7 @@ export const idempotencyKeySchema = z
 const forbiddenAnywhere = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u;
 const forbiddenOnOneLine = /[\u0000-\u001F\u007F]/u;
 
-const oneLine = <T extends z.ZodString>(schema: T) =>
+export const oneLine = <T extends z.ZodString>(schema: T) =>
   schema.refine(
     (value) => !forbiddenOnOneLine.test(value),
     "Text cannot contain line breaks or control characters",
@@ -370,8 +370,8 @@ const freeText = <T extends z.ZodString>(schema: T) =>
  * characters", reached by typing a space where a category name goes, since
  * every one of these is trimmed before it is measured.
  */
-const enter = (what: string) => ({ error: () => `Enter ${what}` });
-const atMost = (what: string, max: number) => ({
+export const enter = (what: string) => ({ error: () => `Enter ${what}` });
+export const atMost = (what: string, max: number) => ({
   error: () => `${what} must be ${max.toLocaleString("en-US")} characters or fewer`,
 });
 /**
@@ -406,7 +406,7 @@ export const MAX_TRANSACTION_LEGS = 50;
  * `amount` is unsigned. Direction belongs to the entry — every leg of a
  * withdrawal is money out — so a signed leg could only ever contradict it.
  */
-const transactionLegSchema = z
+export const transactionLegSchema = z
   .object({
     id: uuid()
       .optional()
@@ -816,7 +816,7 @@ const emptyListToAbsent = <T extends z.ZodTypeAny>(schema: T) =>
  * Legs carry no id, because nothing resyncs a template: the stored list is the
  * whole of what it remembers, and the order is the order it was typed in.
  */
-const transactionTemplateLegSchema = z
+export const transactionTemplateLegSchema = z
   .object({
     categoryId: blankToAbsent(uuid()).describe(
       "Which existing category this share of the split goes to. One that no longer resolves is cleared with a notice when the template is used, so the leg reads as unfinished rather than showing an empty picker holding a dead id.",
@@ -2829,7 +2829,7 @@ export const MAX_RECURRENCE_INTERVAL = 366;
  * is required: legs are how the total is divided, and a division with a part
  * missing is not something a person can complete from the queue.
  */
-const recurrenceLegSchema = z
+export const recurrenceLegSchema = z
   .object({
     categoryId: uuid()
       .optional()
@@ -4414,3 +4414,60 @@ export type OwedInvoiceOutcome = (typeof owedInvoiceOutcomes)[number];
  */
 const planChangeInvoices = ["none", "paid", "owed"] as const;
 export type PlanChangeInvoice = (typeof planChangeInvoices)[number];
+
+/**
+ * The two counter-accounts the other half of a deposit or a withdrawal can land
+ * on, which is the answer `resolveEntrySide` gives.
+ *
+ * A tuple rather than the inline union `EntrySide` used to spell, because a
+ * Simple Balance file records which of the two an entry's postings actually hit
+ * (`postedAs`), and a second spelling of the pair in the file's schema would be
+ * the same set written twice: a third counter-side added to one and not the
+ * other would typecheck and then refuse every file that used it.
+ *
+ * Down here rather than beside `resolveEntrySide` so that adding it moved none
+ * of the lines the guides cite in this file.
+ */
+export const counterKinds = ["income", "expense"] as const;
+export type CounterKind = (typeof counterKinds)[number];
+
+/**
+ * A person's regional settings and theme, as a write states them whole.
+ *
+ * In `src/shared` rather than beside the service that stores them, because a
+ * Simple Balance file carries them and the browser checks a file before
+ * anything is sent: a timezone the import page accepted and the server then
+ * refused would be the preview showing something the server refuses, which
+ * `AGENTS.md` rules out by making the two one function. The service imports it
+ * from here, so `set_preferences` publishes exactly the schema it did.
+ *
+ * The timezone is checked by asking `Intl` to use it, which is the same
+ * question every date this product works out asks later. A name `Intl` does
+ * not know would be stored and then fail on the first "what day is it" anybody
+ * asked.
+ */
+export const preferencesSchema = z.object({
+  timezone: z
+    .string()
+    .min(1)
+    .max(100)
+    .refine((value) => {
+      try {
+        new Intl.DateTimeFormat("en", { timeZone: value });
+        return true;
+      } catch {
+        return false;
+      }
+    }, "Timezone is not recognized")
+    .describe(
+      "An IANA timezone name such as America/New_York. It decides what today means everywhere a date is worked out: which day an open-ended range stops at, and which day an entry dated today lands on.",
+    ),
+  defaultCurrency: currencyCodeSchema.describe(
+    "The currency a new account and a new entry start in. It is a default and nothing else: it changes no figure already recorded, and the person may change it whenever they like.",
+  ),
+  theme: z
+    .enum(themes)
+    .describe(
+      "system, light or dark. `system` follows the person's own machine and is the only one that keeps following it when they change it. Set it only when asked to: it is what their screen looks like and you cannot see it.",
+    ),
+});

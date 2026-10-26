@@ -6,6 +6,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Account, Category, Session } from "../src/client/api.js";
 import { RecurrenceForm, TemplateForm, TransactionForm } from "../src/client/forms.js";
+import { LedgerFileExport } from "../src/client/pages/ImportPage.js";
 import SettingsPage from "../src/client/pages/SettingsPage.js";
 import { BrowserRouter } from "../src/client/router.js";
 import { TimezoneProvider } from "../src/client/timezone.js";
@@ -404,6 +405,10 @@ describe("radio groups", () => {
       />,
     ],
     ["SettingsPage", "the settings page", <SettingsPage key="SettingsPage" session={session} />],
+    // Rendered as it opens, on Everything. The third group is under Some
+    // accounts; the source sweep above holds it, and
+    // `tests/import-export-page.test.tsx` names it by its question.
+    ["LedgerFileExport", "the export form", <LedgerFileExport key="LedgerFileExport" />],
   ] as const;
 
   /**

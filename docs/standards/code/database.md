@@ -304,7 +304,7 @@ A stored `periodStart` is therefore a **name for a period**, not a boundary to
 compare dates against.
 
 The read side widens spending to whole periods at **both** ends
-(`src/server/services/budgets.ts:1196`):
+(`src/server/services/budgets.ts:1202`):
 
 ```sql
 and p.date >= date_trunc(${unit}, ${queryStart}::date)::date

@@ -280,7 +280,13 @@ export type BudgetReportView = {
 
 const ZERO = "0";
 
-function planView(row: BudgetPlanRow, target: BudgetTargetName): BudgetPlanView {
+/**
+ * Exported for the Simple Balance file, which writes a plan's parameters under
+ * these same names. One stored percentage answers to two of them depending on
+ * the rule, and a second copy of that choice is one that could make a file say
+ * a plan grows by a share of income when the page says it steps up.
+ */
+export function planView(row: BudgetPlanRow, target: BudgetTargetName): BudgetPlanView {
   return {
     id: row.id,
     categoryId: row.categoryId,

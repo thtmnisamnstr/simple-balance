@@ -16,7 +16,8 @@ and a chart upgraded with the values it had renders the same objects.
 Everything new is a metrics collector that is off until asked for, the series
 the application publishes about itself, two holes in `/metrics` closed, an
 advertisement for Premium of this product's own that is off until asked for,
-and twenty-one dependency advisories closed.
+an export of a whole ledger as one Simple Balance file, with a route and an MCP
+tool of its own, and twenty-one dependency advisories closed.
 
 ### What runs automatically
 
@@ -62,6 +63,31 @@ platform's probes, plus one check as each process starts listening, which is
 also what keeps `ready` from reading 0 before the first probe.
 
 ### What changed under you
+
+**Import CSV is now Import and export, at the same address.** The sidebar
+label and the page's heading changed; the path is still `/import`, so a bookmark
+or a link in somebody's notes still lands there. The CSV import is first on the
+page and behaves exactly as it did, and the CSV export on Transactions, its
+route, its columns and every file it ever wrote are untouched. Below the import
+is the new export, a Simple Balance file of the whole ledger or of chosen
+accounts. A file this release makes cannot be read back anywhere yet: importing
+one arrives in a later release, and the copy it moves to will need that one.
+
+**One new route and one new tool, both reads.** `GET /api/v1/ledger-file`
+(`ledger:read`) answers with the file as `application/json`, an attachment named
+for the day where the person lives; a 0.2.1 client never calls it, and the
+export changed no route that client does call. `export_ledger_file` is registered with the read tools, so
+every token holding any ledger scope lists one more tool, and `tools/list` is
+4,442 characters longer at every tier. It writes nothing, so it needs no scope a
+token did not already have.
+
+**The download is buffered, like the CSV export.** One file holds at most
+100,000 rows and 16 MiB of activity history, counted before anything large is
+read and refused past either with both numbers; the largest file the two limits
+allow together came to 33 MiB and peaked under 400 MiB resident in the heap a
+1 GiB container gives Node. Its query string stays under 4 KiB at the most
+accounts one export may name, inside the 8 KiB request line nginx reads by
+default, so no proxy in front of it needs a change.
 
 **`GET /api/v1/session` carries `houseAd`, and `advertises` can be true with no
 AdSense.** `houseAd` is a new field, always sent, and true only for somebody
@@ -350,8 +376,10 @@ up -d` for the split recipe. The split recipe derives the frontend's
 
 ### What to check afterwards
 
-`/health/ready`, as with any upgrade. On a `single` machine with the new
-Caddyfile in place, the site's own address answers `/metrics` with a 404:
+`/health/ready`, as with any upgrade. Signed in, **Import and export** shows the
+CSV import and, below it, **Export a Simple Balance file**; **Export file**
+saves `simple-balance-` and today's date as a `.json` file. On a `single`
+machine with the new Caddyfile in place, the site's own address answers `/metrics` with a 404:
 
 ```sh
 curl -s -o /dev/null -w '%{http_code}\n' https://your-host/metrics

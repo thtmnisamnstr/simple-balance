@@ -42,7 +42,7 @@
       "tier": "A",
       "rank": 4,
       "name": "Your records stay yours",
-      "plain": "Run it on your own machine and nobody else has a copy. Export every transaction to a spreadsheet whenever you want.",
+      "plain": "Run it on your own machine and nobody else has a copy. Export every transaction to a spreadsheet whenever you want, or the whole ledger, budgets and templates included, as one Simple Balance file.",
       "why": "It is a record of everything somebody spends money on.",
       "screen": "/settings",
       "screenshot": "settings"
