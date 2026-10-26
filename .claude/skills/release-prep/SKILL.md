@@ -1,13 +1,19 @@
 ---
 name: release-prep
-description: Prepare the branch for a release without cutting one. Audits for upgrade-breaking changes, runs an adversarial defect hunt, removes dead code, brings the docs' measured numbers back to true, runs all three test tiers, commits and pushes, and reports readiness. Use when asked to clean up, prep for a release, get things ready to cut, or "commit and push, don't cut a version".
+description: Prepare the branch for a release, or a pull request for merging, without cutting a version. Audits for upgrade-breaking changes, runs an adversarial defect hunt, then runs guides-update, guides-comply and design-review in that order, removes dead code, rebuilds the product kit, brings the docs and their measured numbers back to true, runs all three test tiers, commits and pushes, and reports readiness. Use when asked to clean up, prep for a release or a merge, get things ready to cut, or "commit and push, don't cut a version".
 ---
 
 # Prepare a release without cutting it
 
-Nine phases, in this order. The order is load-bearing: each phase can invalidate
-the phases before it, so running them out of sequence means running them twice.
+Thirteen phases, in this order: nine numbered ones and four lettered ones that
+run another skill (3a `guides-update`, 3b `guides-comply`, 3c `design-review`,
+4a `product-kit`). The order is load-bearing: each phase can invalidate the
+phases before it, so running them out of sequence means running them twice.
 That happened four times in the session this skill came from.
+
+This is the one procedure to run before a pull request merges, as well as
+before a release. It runs the other four skills itself, so they are not steps
+somebody has to remember beside it.
 
 **Never cut the version.** No `set-version`, no changelog date, no tag, not even
 locally. That is `cut-release`, and it needs a go-ahead given in the current
@@ -95,7 +101,36 @@ name, restore it, watch it pass. A check nobody has seen fail is a check that
 may not be able to fail. Several in this repository could not, each found
 exactly this way; `git log --oneline --grep "able to fail"` has the history.
 
-## 4. Dead code — after the fixes, because fixes orphan code
+## 3a. Bring the guides true for this branch — before sweeping against them
+
+Run the **`guides-update`** skill. Phase 3b holds the whole product to the
+guides, so the guides have to describe this branch first. Swept against a guide
+that still describes the code from before the branch, a pattern the branch
+introduced on purpose reads as a violation, and the sweep "fixes" it back to the
+old one. Phase 5 runs `guides-update` again for what 3b, 3c, 4 and 4a change.
+
+## 3b. Sweep the whole product against the guides
+
+Run the **`guides-comply`** skill. Phases 1 and 2 walk the diff; this walks
+everything — every page section, route, tool and service against every rule —
+because a change can break a rule in code it never touched (a shared component,
+a token, a helper), and because the guides record rules nothing checks yet,
+which this sweep ranks and turns into checks. It is the expensive phase, and it
+is not the one to skip to save time. Its own last step updates the guides for
+what it fixed.
+
+## 3c. Review the browser app, section by section
+
+Run the **`design-review`** skill whenever the diff touches `src/client/` or the
+stylesheet. A diff that touched neither cannot have changed a page; say so in
+the report as the reason it did not run, rather than leaving it out silently.
+It comes after 3b because the sweep's fixes can change pages, and before 4a
+because the product kit photographs what this phase leaves.
+
+## 4. Dead code — after every fix, because fixes orphan code
+
+Phases 3, 3b and 3c all fix things, and each fix can leave something behind
+that nothing calls any more.
 
 ```sh
 npx knip --no-config-hints
@@ -157,8 +192,9 @@ Two things decide whether this phase has work in it:
   the marketing site will keep advertising something that is gone or miss
   something new.
 
-It sits here rather than at the end because the kit's output is a document,
-and phase 5 is where documents are brought back to true.
+It sits after 3c because the design review's fixes change what it photographs,
+and before 5 because the kit's output is a document and phase 5 is where
+documents are brought back to true.
 
 **The marketing site reads the kit from `main` once `main` carries it, and
 until then from the branch of the open release pull request**, and it works
@@ -170,7 +206,9 @@ kit is on rather than assuming the next person infers it.
 
 Do not do this inline — run the **`guides-update`** skill, which owns it. It
 covers the guides, `AGENTS.md`, `CHANGELOG.md` and `docs/upgrades.md`, and it
-ends where phase 6 begins.
+ends where phase 6 begins. This is its second run: 3a brought the documents true
+for the branch as it arrived, and this one covers what 3b, 3c, 4 and 4a changed
+since — usually little, which is the point of having run it first.
 
 ## 6. Recount — last of the document work, and never earlier
 
@@ -270,7 +308,10 @@ Say plainly what is true:
 - Whether `docs/product/` was rebuilt, and that the marketing site does not
   see it until this merges.
 - All three tiers and all fourteen checks green.
-- What the audits found, what was fixed, and what was rejected and why.
+- What the audits found, what was fixed, and what was rejected and why —
+  `guides-comply`'s sweep and the checks it built included.
+- What `design-review` found and fixed, or that no page changed and so it did
+  not run.
 - Anything deliberately left, and why.
 
 `docs/acceptance.md` is where the standing version of that last pair lives: one

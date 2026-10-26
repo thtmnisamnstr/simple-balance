@@ -516,8 +516,11 @@ the order and the traps do not have to be rediscovered:
   the guides, and mechanize rules nothing checks.
 - `design-review` — review the browser app against `docs/standards/web.md`,
   comparing each section across pages rather than reading a page at a time.
-- `release-prep` — upgrade-safety audit, adversarial audit, dead code, recount,
-  three test tiers, commit and push. Cuts nothing.
+- `release-prep` — the one procedure before a merge or a release:
+  upgrade-safety audit, adversarial audit, then `guides-update`,
+  `guides-comply` and `design-review` in that order, dead code, `product-kit`,
+  `guides-update` again, recount, three test tiers, commit and push. Cuts
+  nothing.
 - `cut-release` — the procedure in `docs/upgrades.md`, and only on an explicit
   go-ahead.
 - `product-kit` — rebuild `docs/product/`: the tiered feature list, and a

@@ -539,7 +539,7 @@ with `docs/guide.md` keeping the explanations.
   it said where the section sits, which is the shape of error an ordered list
   invites: it reads as complete and nobody counts it against the file.
 - **The license is stated in the README, not only in `LICENSE`.** For an AGPL
-  project the license is a term of use. `README.md:325-335` names it, links it,
+  project the license is a term of use. `README.md:327-337` names it, links it,
   and explains what section 13 adds, including for versions published under the
   older license.
 - **No badge wall.** There are none today.
