@@ -245,12 +245,42 @@ how the source is written; read the one for the surface you are touching. Every
 rule in both says how it is checked, so a rule you have not broken is one you
 can prove you have not.
 
-Six procedures that repeat are written down in [`.claude/skills/`](.claude/skills):
-bringing the documents back to true after work lands, sweeping the product
-against the guides, reviewing the browser app, rebuilding the product kit in
-`docs/product/` that the marketing site reads, preparing a release, and cutting
-one. They hold the order the steps go in and the traps in them, and they cite
-the guides rather than restating them, so the rules still live in one place.
+Six procedures that repeat are written down in [`.claude/skills/`](.claude/skills),
+each holding the order its steps go in and the traps in them. They cite the
+guides rather than restating them, so the rules still live in one place.
+
+### Before a pull request merges
+
+Run them in this order. A later step can change what an earlier one checked,
+so running them out of order means running the earlier ones again.
+
+1. **`design-review`**, only when the change touched a page. It compares each
+   section across every page against `docs/standards/web.md` and fixes what it
+   finds, and those fixes are code the steps after it have to see.
+2. **`guides-comply`**, for a large change or before a release rather than on
+   every pull request. It sweeps the whole product against the guides, fixes
+   what violates them, and builds checks for the rules nothing enforces yet.
+3. **`guides-update`**, every time. It brings the guides, `AGENTS.md`,
+   `CHANGELOG.md` and `docs/upgrades.md` back to true for what the branch
+   changed.
+4. **`release-prep`**, every time, and last. It audits upgrade safety, hunts
+   for defects, removes dead code, rebuilds the product kit in `docs/product/`
+   through `product-kit`, runs `guides-update` again for its own fixes,
+   recounts the guides' measured numbers, runs all three test tiers, commits,
+   pushes, and waits for every check to go green. It never merges and never
+   cuts a version.
+
+Then merge the pull request yourself once every check is green. No skill
+merges.
+
+`product-kit` is not a step of its own here, because `release-prep` runs it.
+Run it alone only to refresh the marketing site's screenshots or feature list
+between releases.
+
+`cut-release` comes after the merge, from `main`, and only when you decide to
+ship a version and name it. It settles open Dependabot pull requests, sets the
+version everywhere, dates the changelog, freezes the release's migrations, then
+tags and publishes.
 
 `npm run verify` is typecheck, lint, format, tests and build, and it has to pass.
 Add a test for the behavior you changed: this repository tests heavily and a
