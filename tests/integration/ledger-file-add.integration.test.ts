@@ -1466,7 +1466,7 @@ integration("adding a Simple Balance file to a ledger", () => {
       ],
     });
     expect(record(made, "account", "Savings").message).toContain(
-      "it opens at zero on the day of the first entry naming it",
+      "it opens at zero on the day of the first transaction naming it",
     );
 
     const ofSavings = await chosen(ids.savings);

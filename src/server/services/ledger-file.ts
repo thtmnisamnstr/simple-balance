@@ -1250,8 +1250,8 @@ const ADD_OPERATION = "create_from_ledger_file";
  * The cap is `MAX_BULK_SELECTION_ENTRIES`, the number a mass edit, a mass
  * delete, a commit and a CSV import share, because a part that staged more
  * rows than one commit can clear would be a cap doing damage. The splitter
- * never cuts a part over it; a file somebody made by hand can be, and is
- * refused with the way round it.
+ * never cuts a part over it; a hand-made file, or a browser download handed
+ * whole to an agent, can be, and is refused with `splitLedgerFile`'s rules.
  */
 function readPart(text: string): LedgerFile {
   const parsed = parseLedgerFileText(text);
@@ -1265,7 +1265,7 @@ function readPart(text: string): LedgerFile {
   const count = ledgerFileRowCount(parsed.file);
   if (count > MAX_BULK_SELECTION_ENTRIES) {
     throw validationError(
-      `This part holds ${count.toLocaleString("en-US")} entries, staged rows and budget amounts, and one part holds at most ${MAX_BULK_SELECTION_ENTRIES.toLocaleString("en-US")}. The import page cuts a larger file into parts; export a larger ledger one date range at a time to send it yourself.`,
+      `This part holds ${count.toLocaleString("en-US")} entries, staged rows and budget amounts, and one part holds at most ${MAX_BULK_SELECTION_ENTRIES.toLocaleString("en-US")}. The import page cuts a larger file into parts; export a larger ledger one date range at a time to send it yourself, or cut this file the way the page does: every part carries every record section whole, the entries go across the parts in date order with budgets.entries and then staged after them, history goes in no part, and only the last part keeps each account's balance. Send every part with the same decisions, its own idempotencyKey, and part saying which it is.`,
       { limit: MAX_BULK_SELECTION_ENTRIES, count },
     );
   }
@@ -1609,7 +1609,15 @@ export async function addLedgerFile(
         (record) => record.kind === "account" && record.action === "use" && !locked.has(record.id!),
       )
     ) {
-      throw conflict("This ledger changed while the file was being read. Preview it again.");
+      // The diagnosis is one sentence and the advice is two, because the two
+      // callers move differently: the page's way back is the button beside
+      // the refusal, named in its own words, and an agent's is the preview
+      // tool, which has no button to point at.
+      throw conflict(
+        "This ledger changed while the file was being read. Check the file again.",
+        undefined,
+        "This ledger changed while the file was being read. Call preview_ledger_file again, then send the decisions it asks for.",
+      );
     }
 
     const created = new Map<string, string>();
@@ -1784,7 +1792,9 @@ export async function addLedgerFile(
         // locks make rare and the index makes harmless.
         if (isUniqueViolation(error, "staged_user_import_origin_unique")) {
           throw conflict(
-            "Another import staged this file's entries a moment ago. Preview the file again.",
+            "Another import staged this file's transactions a moment ago. Check the file again.",
+            undefined,
+            "Another import staged this file's transactions a moment ago. Call preview_ledger_file again, and send what it now says.",
           );
         }
         throw error;

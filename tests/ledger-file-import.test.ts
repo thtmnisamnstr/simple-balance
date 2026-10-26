@@ -195,7 +195,7 @@ describe("records nothing here is like", () => {
       action: "create",
       arrivesArchived: false,
       message:
-        "It was archived where it came from. It arrives in use so the entries filed under it can be committed; archive it again once they are.",
+        "It was archived where it came from. It arrives in use so the transactions filed under it can be committed; archive it again once they are.",
     });
   });
 
@@ -490,7 +490,7 @@ describe("a record the file only names", () => {
       action: "create",
       importName: "Brokerage",
       message:
-        "This file names an account \"Brokerage\", which is not here. Created from its name alone, it opens at zero on the day of the first entry naming it, so its balance is only what this file's entries move. Add a file carrying the account's details first to bring its opening.",
+        "This file names an account \"Brokerage\", which is not here. Created from its name alone, it opens at zero on the day of the first transaction naming it, so its balance is only what this file's transactions move. Add a file carrying the account's details first to bring its opening.",
     });
     const brokerage = file().accounts.find((each) => each.key === "Brokerage")!;
     expect(ledgerAccountInput(brokerage, "Brokerage", file())).toEqual({
@@ -561,7 +561,7 @@ describe("a record the file only names", () => {
       outcome: "exists",
       action: "use",
       message:
-        '"groceries" takes only income here and only spending where the file came from. Entries filed under it are posted by the kind it has here.',
+        '"groceries" takes only income here and only spending where the file came from. Transactions filed under it are posted by the kind it has here.',
     });
   });
 

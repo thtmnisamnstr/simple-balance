@@ -166,7 +166,7 @@ server to send the count, and a server that sends none gets no sentence.
 There is a second shape, for when the browser has no business previewing at all.
 Rather than send the data and a rule for using it, **send nothing and let the
 absence be the answer.** `getAdvertising`
-(`src/server/services/billing.ts:2657`) returns the publisher and slot ids or
+(`src/server/services/billing.ts:2664`) returns the publisher and slot ids or
 `null`, and whether to show the house ad: a session belonging to somebody who
 should see no advertising simply carries no ad configuration and `houseAd:
 false`, so the page has nothing to render a slot from. `AdSlot` and `HouseAd`
@@ -267,7 +267,7 @@ doing.
 
 Billing added the other three, and each argues it where it is written rather
 than here — `beginBillingOperation` cites this rule by name
-(`src/server/services/billing.ts:586-597`). The seventh carries a reason none of
+(`src/server/services/billing.ts:593-604`). The seventh carries a reason none of
 the first six has, and it is the one to copy: **the row has to be durable before
 the network call.** `beginBillingOperation` records the intent to call Stripe
 and commits it, because a process that dies mid-call otherwise leaves no record
@@ -286,7 +286,7 @@ it, or — like these three — that composing with it is exactly what must not
 happen.
 
 The parameter is not decoration. The MCP transport passes its transaction in
-(`src/server/mcp.ts:289-322`, and every `runIdempotentMcpMutation` call under it)
+(`src/server/mcp.ts:292-325`, and every `runIdempotentMcpMutation` call under it)
 so that
 its idempotency record, the mutation and the audit events land on one connection
 and commit together. Take it away and an agent's write could record its
@@ -766,7 +766,7 @@ which is how you can tell it is one decision made once:
   advancing a watermark is not a change to what they configured".
 - The four reference rewrites in the two merges
   (`src/server/services/categories.ts:1187`, `:1269`,
-  `src/server/services/payees.ts:458`) — "a merge relabels what a recurrence
+  `src/server/services/payees.ts:456`) — "a merge relabels what a recurrence
   points at without changing what somebody configured". 2.6 owns why the
   rewrites happen at all; this is why they are silent.
 - `deleteCategoryGroup` (`src/server/services/category-groups.ts:287`) — and
@@ -813,7 +813,7 @@ service counts through `countAfterCommit`
 (`src/server/services/helpers.ts:213`), which counts immediately when the
 service opened its own transaction and otherwise queues; the MCP transport
 flushes with `flushDeferredCounts` after `getDb().transaction` resolves
-(`src/server/mcp.ts:320`). Seven call sites, in `transactions.ts`, `staging.ts`
+(`src/server/mcp.ts:323`). Seven call sites, in `transactions.ts`, `staging.ts`
 and `import-export.ts`, which counts the rows a CSV import staged.
 
 The keying is the part a new author gets wrong, and the source says so where it
@@ -833,7 +833,7 @@ sends after `claimDueNotification`'s transaction has moved the watermark and
 committed.
 
 **A follow-up write, and a follow-up read.** `deferSubscriptionRead`
-(`src/server/services/billing.ts:2279`) stamps a failed attempt *after* the
+(`src/server/services/billing.ts:2286`) stamps a failed attempt *after* the
 locked write it follows has let its lock go, "so it can land where the locked
 write above timed out". And `setActiveAccounts` returns `listAccounts(actor)`
 from outside its own transaction, because `listAccounts` reads through the pool

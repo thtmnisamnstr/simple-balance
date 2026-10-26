@@ -28,7 +28,7 @@ import {
   writeAudit,
   type Executor,
 } from "./helpers.js";
-import { cleanHumanName, normalizeHumanName } from "../../shared/names.js";
+import { cleanHumanName, nameSearch, normalizeHumanName } from "../../shared/names.js";
 
 type PayeeCountRow = {
   name: unknown;
@@ -167,9 +167,9 @@ async function summariesWhere(
 
 export async function listPayees(actor: Actor, input: unknown = {}) {
   const query = payeeListQuerySchema.parse(input ?? {});
-  const search = query.search ? normalizeHumanName(query.search) : "";
+  const matches = nameSearch(query.search ?? "");
   const summaries = await payeeSummaries(getDb(), actor);
-  return search ? summaries.filter((payee) => payee.normalizedName.includes(search)) : summaries;
+  return summaries.filter((payee) => matches(payee.normalizedName));
 }
 
 export async function listDuplicatePayees(actor: Actor) {
@@ -218,12 +218,10 @@ export function preferredPayee(payees: readonly PayeeSummary[]) {
 
 export async function listPayeeSuggestions(actor: Actor, searchInput: unknown) {
   const { search = "" } = payeeListQuerySchema.parse({ search: searchInput });
-  const normalizedSearch = normalizeHumanName(search);
+  const matches = nameSearch(search);
   const grouped = new Map<string, PayeeSummary[]>();
   for (const summary of await payeeSummaries(getDb(), actor)) {
-    if (normalizedSearch && !summary.normalizedName.includes(normalizedSearch)) {
-      continue;
-    }
+    if (!matches(summary.normalizedName)) continue;
     const group = grouped.get(summary.normalizedName);
     if (group) group.push(summary);
     else grouped.set(summary.normalizedName, [summary]);

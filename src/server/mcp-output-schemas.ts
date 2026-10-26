@@ -26,7 +26,7 @@ import {
   budgetLimitSources,
   importBatchKinds,
 } from "../shared/domain.js";
-import { categoryResolutions, payeeResolutions } from "../shared/csv.js";
+import { categoryResolutions, payeeResolutions, type CsvMapping } from "../shared/csv.js";
 import { ledgerFileHereSchema, ledgerFilePreviewSchema } from "../shared/ledger-file-import.js";
 
 const uuidSchema = uuid();
@@ -162,7 +162,7 @@ export const accountResultSchema = z
     frozen: z
       .boolean()
       .describe(
-        "Whether this account is closed to changes. A plan that limits how many accounts may be active leaves the rest frozen: still readable, and refusing every write — no new entry, no edit, no delete, not even a rename. Everything about it still counts toward balances and reports. Which accounts are active is chosen with set_active_accounts or on the Accounts page, and the choice is made once: afterward a frozen account can only take a place that opens up when an account in use is archived or deleted, unless time on the paid plan left more accounts marked active than the plan keeps, which opens the choice again (see set_active_accounts).",
+        "Whether this account is closed to changes. A plan that limits how many accounts may be active leaves the rest frozen: still readable, and refusing every change to what it holds — no new entry, no edit, no deleted entry, not even a rename — though it can still be archived, or deleted while nothing is on it. Everything about it still counts toward balances and reports. Which accounts are active is chosen with set_active_accounts or on the Accounts page, and the choice is made once: afterward a frozen account can only take a place that opens up when an account in use is archived or deleted, unless time on the paid plan left more accounts marked active than the plan keeps, which opens the choice again (see set_active_accounts).",
       ),
   })
   .passthrough();
@@ -540,6 +540,9 @@ export const accountRegisterResultSchema = z.object({
 export const csvExportResultSchema = z.object({
   csv: z.string(),
   rowCount: z.number().int().nonnegative(),
+  fileName: z
+    .string()
+    .describe("The name the browser saves this file under, dated by today where the person lives."),
 });
 
 /**
@@ -732,6 +735,38 @@ export const csvFilePreviewResultSchema = z.object({
   // this tool's output on exactly the malformed file it is called to diagnose.
   rows: z.array(z.record(z.string(), z.union([z.string(), z.array(z.string())]))),
   errors: z.array(z.string()),
+  simpleBalanceExport: z
+    .boolean()
+    .describe(
+      "True when the file is a Simple Balance CSV export, whose columns are already known: stage_csv needs no mapping for it.",
+    ),
+  // Every field optional, and only the reference described: the rest are
+  // `stage_csv`'s mapping, one call away, and repeating eight sentences here
+  // would put them on every tier's tool list a second time for a read. The
+  // reference is the one name that misleads (`tests/mcp-output.test.ts`), since
+  // a guess that lands on a repeating column marks every row after the first a
+  // duplicate. The keys are held to `CsvMapping` by the compiler, so a field
+  // added to the mapping cannot be missing from what the guess may return.
+  suggestedMapping: z
+    .object({
+      date: z.string().optional(),
+      payee: z.string().optional(),
+      description: z.string().optional(),
+      amount: z.string().optional(),
+      debit: z.string().optional(),
+      credit: z.string().optional(),
+      category: z.string().optional(),
+      notes: z.string().optional(),
+      externalId: z
+        .string()
+        .optional()
+        .describe(
+          "The heading guessed to hold the bank's own reference, which a second import of the same statement is recognized by: check it does not repeat across rows.",
+        ),
+    } satisfies Record<keyof CsvMapping, z.ZodOptional<z.ZodString>>)
+    .describe(
+      "The import page's own guess at stage_csv's mapping, from the headings alone: a guess, so confirm it against rows before staging. A field it could not place is absent. Empty for a Simple Balance export.",
+    ),
 });
 
 export const identityResultSchema = z.object({
@@ -754,7 +789,7 @@ export const identityResultSchema = z.object({
     .int()
     .nullable()
     .describe(
-      "How many financial accounts this plan keeps usable at a time. Null means no limit. create_account refuses once accountsUsed reaches it, and only the person who owns these books can raise it, so check this before proposing a new account rather than after. Accounts beyond it are frozen rather than lost: fully readable, and refusing every write.",
+      "How many financial accounts this plan keeps usable at a time. Null means no limit. create_account refuses once accountsUsed reaches it, and only the person who owns these books can raise it, so check this before proposing a new account rather than after. Accounts beyond it are frozen rather than lost: fully readable, and refusing every change to what they hold, though one can still be archived, or deleted while nothing is on it.",
     ),
   accountsUsed: z
     .number()
@@ -762,6 +797,11 @@ export const identityResultSchema = z.object({
     .nullable()
     .describe(
       "How many of accountLimit are in use: accounts that are neither archived nor frozen, the ledger's own counter-accounts excluded. Null wherever there is no limit. Archiving or deleting an account frees its place, and a frozen account may then take it — but only then, because the choice of which accounts are in use is made once.",
+    ),
+  activeChoicePending: z
+    .boolean()
+    .describe(
+      "True while that one-time choice is open: more accounts are marked active than the plan keeps, as a downgrade leaves behind, so set_active_accounts may name any set within accountLimit. False wherever no limit is in force.",
     ),
 });
 
@@ -1236,3 +1276,50 @@ export const forecastResultSchema = z.object({
 });
 
 export const deletedBudgetResultSchema = z.object({ id: uuid() });
+
+/**
+ * One money guide as `list_learn_articles` names it.
+ *
+ * `updated` is described because it is easy to read as the day this server's
+ * copy was taken, and it is the site's own date for the guide. The two can be
+ * a release apart, which is exactly the case an agent quoting a guide should
+ * be able to see.
+ */
+export const learnArticleSummaryResultSchema = z.object({
+  slug: z.string(),
+  title: z.string(),
+  description: z.string().describe("The guide's one-sentence summary, as the site lists it."),
+  url: z.string().describe("Where a person reads the guide at smpl.money."),
+  updated: isoDateSchema.describe("The day the site last changed the guide."),
+});
+
+export const learnArticleResultSchema = learnArticleSummaryResultSchema.extend({
+  syncedAt: isoDateSchema.describe(
+    "The day this server's copy was taken. A guide the site has changed since reads as it did then.",
+  ),
+  markdown: z
+    .string()
+    .describe(
+      "The guide exactly as the site publishes its plain copy. Pictures are links with their descriptions, and the line under each says its money is made up.",
+    ),
+  inSimpleBalance: z
+    .array(
+      z.object({
+        step: z.string().describe("A heading under the guide's How to do it in Simple Balance."),
+        how: z.string(),
+        tools: z.array(
+          z.object({
+            name: z.string(),
+            held: z
+              .boolean()
+              .describe(
+                "Whether this connection's grant reaches the tool. False means it is absent from this connection's tool list, and the step can still be done in the browser.",
+              ),
+          }),
+        ),
+      }),
+    )
+    .describe(
+      "Written against this server, so where the guide's browser steps and these disagree, these are current.",
+    ),
+});

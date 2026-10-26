@@ -117,7 +117,7 @@ export const ledgerFileKinds = [
 export type LedgerFileKind = (typeof ledgerFileKinds)[number];
 
 /**
- * What the export page ticks before anybody touches it: everything but the
+ * What the Export section ticks before anybody touches it: everything but the
  * activity history, which cannot be imported and is often larger than the
  * ledger it describes.
  */
@@ -1578,7 +1578,7 @@ export const ledgerFileSelectionSchema = z
       .array(z.enum(ledgerFileKinds))
       .min(1, "Choose at least one kind of record to export")
       .describe(
-        "Which kinds of record the file carries whole: preferences (the regional defaults and appearance from Settings: timezone, default currency and theme), categories (with their groups), accounts, entries (committed transactions), deletedEntries (deleted entries, which net to zero; needs entries), templates (with their reminders), recurrences, budgets (plans and per-period amounts), staged (rows waiting in Staged transactions) and history (the activity log, which no import reads back). A record of a kind left out still travels as a reference, by name, wherever something in the file names it. The export page starts with every kind but history.",
+        "Which kinds of record the file carries whole: preferences (the regional defaults and appearance from Settings: timezone, default currency and theme), categories (with their groups), accounts, entries (committed transactions), deletedEntries (deleted entries, which net to zero; needs entries), templates (with their reminders), recurrences, budgets (plans and per-period amounts), staged (rows waiting in Staged transactions) and history (the activity log, which no import reads back). A record of a kind left out still travels as a reference, by name, wherever something in the file names it. The browser's Export section, on Import and export, starts with every kind but history.",
       ),
     accountIds: z
       .array(uuid())

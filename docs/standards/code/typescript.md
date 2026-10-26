@@ -48,7 +48,7 @@ The last of those cost five lines. `AppError` and `ApiClientError` both declared
 their fields in the constructor signature, which is TypeScript-only syntax that
 emits assignments. They now declare fields and assign them
 (`src/server/services/errors.ts:31-61`,
-`src/client/api.ts:36-68`).
+`src/client/api.ts:37-69`).
 
 The gain is not stylistic. It means `node --experimental-strip-types` and every
 other type-stripping runtime can run this source directly, and it means reading
@@ -75,7 +75,7 @@ erases just as well.
 
 **Contested.** The flag is good advice in general and wrong here. All three
 sites it flags are Hono middleware
-(`src/server/api.ts:1623`, `src/server/http-security.ts:526` and `:998`),
+(`src/server/api.ts:1622`, `src/server/http-security.ts:526` and `:998`),
 where a `MiddlewareHandler` returns a `Response` to answer the request or
 nothing at all to let the next handler run. "Returns on some paths and not
 others" is the contract, not a mistake.
@@ -143,8 +143,8 @@ against the whole of `tsconfig.json`. What that is had been stated wrongly here:
 not `src`, `tests` and the five root config files, but those **plus whatever
 they import**. The compiler follows an import past the include list, and the
 suite imports five files out of `deploy/pulumi` — four modules and the
-`.d.mts` beside the settings script — and five `.d.mts` declaration files out of
-`scripts/`, so all ten are inside every
+`.d.mts` beside the settings script — and six `.d.mts` declaration files out of
+`scripts/`, so all eleven are inside every
 number in this section and inside every flag in 1.1 — and nothing said so. It is
 not academic: two of the 110 above are in `deploy/pulumi/aws-single/platform.ts`
 and `deploy/pulumi/oci-single/platform.ts`, files §3.5 describes as belonging to
@@ -152,8 +152,8 @@ the other program and which this one typechecks as well.
 
 *Checked by:* `tests/typescript-guide.test.ts` for the `src` half of the first
 flag, which runs the compiler and compares what it reports with the number this
-section states, and which also holds the ten-file list in the paragraph above
-so an eleventh cannot arrive unnoticed. `human` for the three whole-program totals:
+section states, and which also holds the eleven-file list in the paragraph above
+so a twelfth cannot arrive unnoticed. `human` for the three whole-program totals:
 a reading goes stale quietly, so read one as the last reading rather than as
 today's and take it again before arguing from it.
 
@@ -600,7 +600,7 @@ infrastructure projects pin their own compiler and keep `moduleResolution: node`
 `deploy/pulumi`'s typecheck script names every directory holding a
 `Pulumi.yaml`, so a fifth stack that nothing typechecks fails here; and the
 register of first-party files the root program reads from outside `src` and
-`tests` is held at the ten 1.4 names. The flag rows, the project count, the
+`tests` is held at the eleven 1.4 names. The flag rows, the project count, the
 SDK count and the size are read out of the configuration files and the tree, so
 a divergence that closes stops being described as open.
 
@@ -617,7 +617,7 @@ updateTransaction(actor, id, input, transaction?)
 setTransactionDeleted(actor, id, expectedVersion, deleted, allowDuplicate?, transaction?)
 ```
 
-(`src/server/services/transactions.ts:1163`, `:2442` and `:2548`.)
+(`src/server/services/transactions.ts:1169`, `:2448` and `:2554`.)
 
 Note that `updateTransaction` takes `input: unknown` and parses it, rather than
 a typed object: the version and the draft arrive together inside it. An update

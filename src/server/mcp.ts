@@ -154,6 +154,7 @@ import {
   updateBudgetPlan,
 } from "./services/budgets.js";
 import { getForecast } from "./services/forecast.js";
+import { getLearnArticle, listLearnArticles } from "./services/learn.js";
 import {
   createCategoryGroup,
   deleteCategoryGroup,
@@ -191,6 +192,8 @@ import {
   csvExportResultSchema,
   ledgerFileExportResultSchema,
   ledgerFilePreviewResultSchema,
+  learnArticleResultSchema,
+  learnArticleSummaryResultSchema,
   csvStageResultSchema,
   deletedEntityResultSchema,
   deletedStagesResultSchema,
@@ -435,6 +438,8 @@ export const TOOL_SCOPES: ReadonlyMap<string, LedgerTier> = new Map<string, Ledg
   ["list_budget_entries", "ledger:read"],
   ["get_budget_report", "ledger:read"],
   ["get_forecast", "ledger:read"],
+  ["list_learn_articles", "ledger:read"],
+  ["get_learn_article", "ledger:read"],
   ["create_staged_transaction", "ledger:stage"],
   ["update_staged_transaction", "ledger:stage"],
   ["delete_staged_transactions", "ledger:stage"],
@@ -799,7 +804,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Who this ledger belongs to",
         description:
-          "The name and email of the person whose books these are, and the client id this call is authorized under, which is how you tell yourself apart in `list_connected_agents`. It reports nothing about how they sign in. plan, accountLimit and accountsUsed say what these books are allowed and how much of it is gone; all three are null where nothing is sold. notificationsAvailable says whether this deployment can send mail at all, which decides whether a recurrence set to email on proposal, or a template reminder, will ever arrive. scopes is what this token may do; a call needing more comes back as a 403 naming the scope, so you can say which one you are short of rather than guess.",
+          "The name and email of the person whose books these are, and the client id this call is authorized under, which is how you tell yourself apart in `list_connected_agents`. It reports nothing about how they sign in. plan, accountLimit and accountsUsed say what these books are allowed and how much of it is gone, and activeChoicePending whether the one-time choice of accounts in use is open; plan is null where nothing is sold, and the two counts wherever no limit is in force, the paid plan included. notificationsAvailable says whether this deployment can send mail at all, which decides whether a recurrence set to email on proposal, or a template reminder, will ever arrive. scopes is what this token may do; a call needing more comes back as a 403 naming the scope, so you can say which one you are short of rather than guess.",
         inputSchema: toolInput({}),
         outputSchema: mcpOutputSchema(identityResultSchema),
         annotations: readAnnotations,
@@ -810,7 +815,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       // own session route reports as well.
       () =>
         runTool(async () => {
-          const { entitlement, accountsUsed } = await getPlanSummary(actor);
+          const { entitlement, accountsUsed, activeChoicePending } = await getPlanSummary(actor);
           return {
             ...(await getIdentity(actor)),
             scopes: [...scopes].sort(),
@@ -823,6 +828,11 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
             plan: entitlement.billing ? entitlement.plan : null,
             accountLimit: entitlement.billing ? entitlement.accountLimit : null,
             accountsUsed,
+            // The same predicate `set_active_accounts` is refused or allowed
+            // by, read off the same rows, so the answer an agent acts on is
+            // the one the write will apply rather than its own reading of
+            // list_accounts.
+            activeChoicePending,
           };
         }),
     );
@@ -874,7 +884,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Preview CSV columns",
         description:
-          "Read the delimiter, headers, and first rows of a CSV without staging anything or touching the ledger. Use it to work out the column mapping before calling `stage_csv`.",
+          "Read the delimiter, headers, and first rows of a CSV without staging anything or touching the ledger. Use it before calling `stage_csv`: simpleBalanceExport says whether the file needs a column mapping at all, and suggestedMapping is the import page's own guess at one, to check against the rows.",
         inputSchema: csvPreviewInputSchema.strict(),
         outputSchema: mcpOutputSchema(csvFilePreviewResultSchema),
         annotations: readAnnotations,
@@ -886,7 +896,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Count everything in this ledger",
         description:
-          "How many accounts, transactions, categories, staged rows still waiting in the queue, import batches, payees, and connected agents this person has.",
+          "How many accounts, transactions, categories, staged rows still waiting in the queue, recurring transactions, import batches, payees, and connected agents this person has, and whether a paid subscription is live.",
         inputSchema: toolInput({}),
         outputSchema: mcpOutputSchema(ownDataSummaryResultSchema),
         annotations: readAnnotations,
@@ -922,7 +932,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "List transaction templates",
         description:
-          "List saved starting points for a transaction. A template is a partial draft: a field it does not carry is one to fill in when it is used. It records nothing and affects no balance.",
+          "List saved starting points for a transaction. A template is a partial draft: a field it does not carry is one to fill in when it is used. It records nothing and affects no balance. To use one, copy its draft into `create_transaction` or `create_staged_transaction`, fill in what it leaves out — an absent date is today — rename a transfer's `amount` to `sourceAmount`, and set `draft.templateId` to its id so the template counts the entry.",
         inputSchema: toolInput({}),
         outputSchema: mcpOutputSchema(z.array(transactionTemplateResultSchema)),
         annotations: readAnnotations,
@@ -933,7 +943,8 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       "get_transaction_template",
       {
         title: "Get transaction template",
-        description: "Get one saved transaction template by ID.",
+        description:
+          "Get one saved transaction template by ID. To use it, copy its draft into `create_transaction` or `create_staged_transaction`, fill in what it leaves out — an absent date is today — rename a transfer's `amount` to `sourceAmount`, and set `draft.templateId` to its id so the template counts the entry.",
         inputSchema: toolInput({ id: recordIdSchema }),
         outputSchema: mcpOutputSchema(transactionTemplateResultSchema),
         annotations: readAnnotations,
@@ -1080,7 +1091,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Export a Simple Balance file",
         description:
-          "Export the ledger, or some of its accounts, as a Simple Balance file: one JSON document (simple-balance-ledger-1) holding accounts, categories and groups, entries with their splits, templates, recurring transactions, budgets, staged rows and settings, every reference by name, so it can move to another copy of Simple Balance. One call carries at most 10,000 rows — entries, staged rows, budget amounts and history events together — and at most 4 MiB of activity history, so export a larger ledger, or a long activity history, a date range at a time. The file comes back as text; pass it on unchanged.",
+          "Export the ledger, or some of its accounts, as a Simple Balance file: one JSON document (simple-balance-ledger-1) holding accounts, categories and groups, entries with their splits, templates, recurring transactions, budgets, staged rows and settings, every reference by name, so it can move to another copy of Simple Balance, where `preview_ledger_file` reads it and `add_ledger_file` adds it. One call carries at most 10,000 rows — entries, staged rows, budget amounts and history events together — and at most 4 MiB of activity history, so export a larger ledger, or a long activity history, a date range at a time. The file comes back as text; pass it on unchanged.",
         // The page's own selection, as is: the route parses the same schema out
         // of its query string, so an agent can ask for exactly what the page
         // can and nothing it cannot.
@@ -1202,12 +1213,67 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Get budget against actual",
         description:
-          "What each budgeted category was allowed and what it actually spent, period by period. A budget belongs to a period unit, and this reports one unit at a time, defaulting to month: a weekly budget will not appear in a monthly report and its category will read limit: null, so check otherPeriodUnits in the reply before telling anybody a category is unbudgeted. Spending is signed, so a refund is negative and lowers the category it came back to. Figures stop at today where this person lives, whatever end date is asked for, and asOf reports the day used. Amounts never span currencies: a period appears once per currency and there is no converted total, because this ledger holds no exchange rate. Set includeUnbudgeted to false to see only categories that have a budget. includeArchived counts spending that ran through accounts since closed and is on by default, unlike every other report: a budget's limit was never scoped to an account, so leaving that spending out makes a budget spent to the penny read as underspent. Set it false to ask the other question. Every period also reports the perimeter — what the accounts the budget is about held at the end of it — and, where anything rolls over, toAssign: the money inside that perimeter no envelope has claimed. Where a budget rolls over, each row also carries what earlier periods handed it (carriedIn), what there was to spend (available) and what it hands on (carriedOut), and the reply's rollover field says which period the carry was folded from and whether that fold hit its bound. A budget whose amount is worked out from a rule reports the worked-out figure as its limit; the plan's own amount column is not it. Every period reports the income that arrived in it, and where any budget names a priority, each row also reports how much of its limit that income funds.",
+          "What each budgeted category was allowed and what it actually spent, period by period. Group budgets, and the sums of sum_of_children groups, are in each period's groups beside the category rows; never add a group's figure to its members'. A budget belongs to a period unit, and this reports one unit at a time, defaulting to month: a weekly budget will not appear in a monthly report and its category will read limit: null, so check otherPeriodUnits in the reply before telling anybody a category is unbudgeted. Spending is signed, so a refund is negative and lowers the category it came back to. Figures stop at today where this person lives, whatever end date is asked for, and asOf reports the day used. Amounts never span currencies: a period appears once per currency and there is no converted total, because this ledger holds no exchange rate. Set includeUnbudgeted to false to see only categories that have a budget. includeArchived counts spending that ran through accounts since closed and is on by default, unlike every other report: a budget's limit was never scoped to an account, so leaving that spending out makes a budget spent to the penny read as underspent. Set it false to ask the other question. Every period also reports the perimeter — what the accounts the budget is about held at the end of it — and, where anything rolls over, toAssign: the money inside that perimeter no envelope has claimed. Where a budget rolls over, each row also carries what earlier periods handed it (carriedIn), what there was to spend (available) and what it hands on (carriedOut), and the reply's rollover field says which period the carry was folded from and whether that fold hit its bound. A budget whose amount is worked out from a rule reports the worked-out figure as its limit; the plan's own amount column is not it. Every period reports the income that arrived in it, and where any budget names a priority, each row also reports how much of its limit that income funds.",
         inputSchema: budgetReportQuerySchema.strict(),
         outputSchema: mcpOutputSchema(budgetReportResultSchema),
         annotations: readAnnotations,
       },
       (input) => runTool(() => getBudgetReport(actor, input)),
+    );
+    /**
+     * The money guides, the one pair here that reads no ledger.
+     *
+     * At `ledger:read` rather than outside every scope, so a token with no
+     * ledger scope still gets no tool list at all — the property `mcp.md`
+     * §Scope argues and `tests/mcp-output.test.ts` asserts — and every
+     * connection that exists to work on somebody's books holds this tier.
+     * `openWorldHint` is false like every other read: the text is carried in
+     * the image, and the addresses in it are links the tool never follows.
+     *
+     * No `/api/v1` route reaches them, and `tests/mcp-parity.test.ts` names
+     * both in `NO_ROUTE` with the reason: a person reads the same words at
+     * smpl.money/learn.
+     */
+    server.registerTool(
+      "list_learn_articles",
+      {
+        title: "List the money guides",
+        description:
+          "List Simple Balance's money guides, the articles published at smpl.money/learn, in the site's reading order, with each one's title, summary and address. They cover tracking spending, choosing budget categories, making a budget, zero-based and envelope budgeting, sinking funds, budgeting with irregular income or a credit card, balancing (reconciling) a checking account, finding subscriptions, net worth and an emergency fund. Use one when somebody asks how to do one of those things or what one means, then `get_learn_article` for the text and the tools that do its steps here. They are general education written for readers in the US, not advice about this person's money, and reading them touches nothing in the ledger.",
+        inputSchema: toolInput({}),
+        outputSchema: mcpOutputSchema(cursorPageResultSchema(learnArticleSummaryResultSchema)),
+        annotations: readAnnotations,
+      },
+      () => runTool(async () => listLearnArticles()),
+    );
+    server.registerTool(
+      "get_learn_article",
+      {
+        title: "Read a money guide",
+        description:
+          "Read one money guide in full, as the Markdown smpl.money publishes: why the job matters, how to do it with any tool, how to do it in Simple Balance's browser app, and the sources it cites. inSimpleBalance maps each of those browser steps to the tools on this server that do the same thing, and says whether this connection holds each one. Pass the guide on as the guide's words, with its address. Its figures are invented examples and it says nothing about this person's ledger; read the ledger with the ledger tools for that.",
+        inputSchema: toolInput({
+          slug: z.string().min(1).max(80).describe("The guide's slug, from `list_learn_articles`."),
+        }),
+        outputSchema: mcpOutputSchema(learnArticleResultSchema),
+        annotations: readAnnotations,
+      },
+      // `held` is the grant's answer, so it is added here, where the grant is:
+      // the service maps steps to tool names and knows nothing of scopes.
+      ({ slug }) =>
+        runTool(async () => {
+          const article = getLearnArticle(slug);
+          return {
+            ...article,
+            inSimpleBalance: article.inSimpleBalance.map((step) => ({
+              ...step,
+              tools: step.tools.map((name) => {
+                const required = TOOL_SCOPES.get(name);
+                return { name, held: required ? satisfiesToolScope(scopes, required) : false };
+              }),
+            })),
+          };
+        }),
     );
   }
 
@@ -1390,7 +1456,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Set a standing budget",
         description:
-          "Budget an amount for one category, per period, from activeFrom onward. One row covers every period in its window, so this is what to use for an ongoing budget; `set_budget_entry` is for changing a single period, and `get_budget_report` is what shows either of them against real spending. Both ends of the window are snapped to the period, so any day inside a month names that whole month and the budget applies to the month it starts in. Leave activeTo out while it is still running. Windows for one category may not overlap, so raising a budget means ending the old one at the period before the new one starts. An income category is refused because it has no spending to compare against. Three optional fields change what kind of budget this is, and none of them is a mode anybody picks: rollover on makes it an envelope, where what a period does not spend belongs to the next one and an overspend is owed by it; rolloverCap holds that carry inside a number in both directions; and targetAmount with targetDate makes it a sinking fund, which works out each period's own figure from what is still needed and how many periods are left. A fund needs rollover on and an amount of zero, because it decides its own amount. Nothing is stored per period for any of them, so `get_budget_report` folds the carry at read time. Three more decide the amount instead of fixing it, and again the parameter is the choice: lookbackPeriods budgets the average of what the last few periods actually spent, percentOfPrevious steps last period's amount up by a percentage, and percentOfIncome takes a share of what came in the period before. Only one way of working out an amount may be named at a time. priority decides which budgets a short period funds first, lowest going first, with unranked funded last. This is a change to the ledger's own records rather than a proposal about money, so it needs ledger:write.",
+          "Budget an amount for one category, or for a category group that holds a budget of its own (groupId), per period, from activeFrom onward. One row covers every period in its window, so this is what to use for an ongoing budget; `set_budget_entry` is for changing a single period, and `get_budget_report` is what shows either of them against real spending. Both ends of the window are snapped to the period, so any day inside a month names that whole month and the budget applies to the month it starts in. Leave activeTo out while it is still running. Windows for one category or group may not overlap, so raising a budget means ending the old one at the period before the new one starts. An income category is refused because it has no spending to compare against. Three optional fields change what kind of budget this is, and none of them is a mode anybody picks: rollover on makes it an envelope, where what a period does not spend belongs to the next one and an overspend is owed by it; rolloverCap holds that carry inside a number in both directions; and targetAmount with targetDate makes it a sinking fund, which works out each period's own figure from what is still needed and how many periods are left. A fund needs rollover on and an amount of zero, because it decides its own amount. Nothing is stored per period for any of them, so `get_budget_report` folds the carry at read time. Three more decide the amount instead of fixing it, and again the parameter is the choice: lookbackPeriods budgets the average of what the last few periods actually spent, percentOfPrevious steps last period's amount up by a percentage, and percentOfIncome takes a share of what came in the period before. Only one way of working out an amount may be named at a time. priority decides which budgets a short period funds first, lowest going first, with unranked funded last. This is a change to the ledger's own records rather than a proposal about money, so it needs ledger:write.",
         inputSchema: budgetPlanCreateSchema
           .extend({
             idempotencyKey: idempotencyKeySchema,
@@ -1462,7 +1528,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Budget one period only",
         description:
-          "Set the amount for a single period, overriding whatever standing budget covers it. Use this for a one-time change, such as a larger food budget in December, and `create_budget_plan` for anything ongoing. periodStart is truncated to the period unit, so any day inside the period names it. Leave expectedVersion out the first time; setting one that already exists needs its version, which `list_budget_entries` returns. Changing one replaces the figure that was there, which then survives only in the audit log, so confirm the new amount first; `delete_budget_entry` puts the period back to whatever standing budget covers it.",
+          "Set the amount for a single period of one category, or of a group that holds a budget of its own, overriding whatever standing budget covers it. Use this for a one-time change, such as a larger food budget in December, and `create_budget_plan` for anything ongoing. periodStart is truncated to the period unit, so any day inside the period names it. Leave expectedVersion out the first time; setting one that already exists needs its version, which `list_budget_entries` returns. Changing one replaces the figure that was there, which then survives only in the audit log, so confirm the new amount first; `delete_budget_entry` puts the period back to whatever standing budget covers it.",
         inputSchema: budgetEntrySetSchema
           .extend({
             idempotencyKey: idempotencyKeySchema,
@@ -1731,7 +1797,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       "create_category",
       {
         title: "Create category",
-        description: "Create an income or expense category.",
+        description: "Create an income, expense or both category, optionally in a group (groupId).",
         inputSchema: categoryCreateSchema
           .extend({
             idempotencyKey: idempotencyKeySchema,
@@ -1833,7 +1899,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Create transaction template",
         description:
-          "Save a starting point for the transaction form. Every field is optional, including the type: leave one out to make it one the person fills in each time, and an amount is the usual one to omit. A stored date is used when the template is applied and an absent one means the day it is applied. A categoryName is matched against the categories already here, ignoring case, and creates one only if nothing matches. One key is refused rather than ignored: externalId, the reference a bank statement row was imported under, because copied onto every transaction made from this it would make the next real import of that row look like one already seen.",
+          "Save a starting point for the transaction form. Every field is optional, including the type: leave one out to make it one the person fills in each time, and an amount is the usual one to omit. A stored date is used when the template is applied and an absent one means the day it is applied. A categoryName is stored as typed; it is matched, ignoring case, and created if nothing matches, only when an entry is made from the template. One key is refused rather than ignored: externalId, the reference a bank statement row was imported under, because copied onto every transaction made from this it would make the next real import of that row look like one already seen.",
         inputSchema: transactionTemplateCreateSchema
           .extend({
             idempotencyKey: idempotencyKeySchema,

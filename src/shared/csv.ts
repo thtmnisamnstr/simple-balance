@@ -192,11 +192,59 @@ export const csvMappingSchema = z
 
 export type CsvMapping = z.infer<typeof csvMappingSchema>;
 
+/**
+ * The headings each field is guessed from, best first, matched ignoring case.
+ *
+ * Here rather than in the import page because an agent previewing the same
+ * file has to be handed the same guess. It was the page's alone, so an agent
+ * redid it from the bare headings and could arrive somewhere else — the one
+ * rule `AGENTS.md` says has to be one function when a browser previews it.
+ */
+const csvHeadingGuesses: Readonly<Record<keyof CsvMapping, readonly string[]>> = {
+  date: ["date", "posted date", "transaction date"],
+  description: ["description", "memo", "details"],
+  amount: ["amount", "signed amount"],
+  debit: ["debit", "withdrawal", "money out"],
+  credit: ["credit", "deposit", "money in"],
+  payee: ["payee", "merchant", "description", "memo", "details", "name"],
+  category: ["category"],
+  notes: ["notes", "note"],
+  // The file's own column first. `transaction_id` is the primary key of the
+  // ledger the export came from and means nothing here, so guessing it as a
+  // bank reference fabricates one and keys the duplicate check on it.
+  externalId: ["external_id", "external id", "reference", "fitid"],
+};
+
+/**
+ * A mapping guessed from the headings alone: each field whose heading this
+ * recognizes, and nothing for one it does not.
+ *
+ * A guess rather than a reading — it never looks at a cell, so a "Description"
+ * column holding the merchant is offered as both the payee and the
+ * description, and somebody confirms it against the rows before staging.
+ */
+export function suggestCsvMapping(headers: readonly string[]): Partial<CsvMapping> {
+  const byLowercase = new Map(headers.map((header) => [header.toLowerCase(), header]));
+  return Object.fromEntries(
+    Object.entries(csvHeadingGuesses).flatMap(([field, candidates]) => {
+      const match = candidates.map((candidate) => byLowercase.get(candidate)).find(Boolean);
+      return match ? [[field, match]] : [];
+    }),
+  );
+}
+
 export type CsvPreview = {
   delimiter: string;
   headers: string[];
   rows: Record<string, string>[];
   errors: string[];
+  /** Whether the file is one of this product's own exports (`isAppExportCsv`). */
+  simpleBalanceExport: boolean;
+  /**
+   * `suggestCsvMapping` over the headings, and empty for an export, whose
+   * columns are already known and whose stage ignores any mapping sent.
+   */
+  suggestedMapping: Partial<CsvMapping>;
 };
 
 /**
@@ -233,11 +281,18 @@ export function previewCsv(csv: string, limit = 25): CsvPreview {
     preview: limit,
   });
 
+  const headers = parsed.meta.fields ?? [];
+  // Worked out here, beside the headings they are read from, so the page and
+  // `preview_csv` are handed one answer by one function rather than each
+  // reaching its own from `headers`.
+  const simpleBalanceExport = isAppExportCsv(headers);
   return {
     delimiter: parsed.meta.delimiter,
-    headers: parsed.meta.fields ?? [],
+    headers,
     rows: parsed.data,
     errors: parsed.errors.map((error) => `Row ${csvFileLine(error) ?? "?"}: ${error.message}`),
+    simpleBalanceExport,
+    suggestedMapping: simpleBalanceExport ? {} : suggestCsvMapping(headers),
   };
 }
 
@@ -588,7 +643,7 @@ export const csvStageInputSchema = z.object({
     ),
   idempotencyKey: idempotencyKeySchema,
   defaultAccountId: uuid().describe(
-    "The account every row is posted against. Accounts are never read out of the file, so this is the only thing that decides where the rows land.",
+    "The account every row is posted against. Accounts are never read out of the file, so this is the only thing that decides where the rows land. Choose one that is neither archived nor frozen (list_accounts reports both): against either, every row stages with an issue and cannot commit.",
   ),
   mapping: csvMappingSchema
     .optional()

@@ -189,6 +189,14 @@ function legViews(
     .map((leg) => legView(leg, leg.categoryId ? (categoryMap.get(leg.categoryId) ?? null) : null));
 }
 
+/**
+ * What a draft naming an archived or missing account is told, kept as one
+ * string because `stageCsv` predicts it for a whole file before any row reaches
+ * this check, and its preview has to say what the stored rows will.
+ */
+export const ACCOUNT_UNAVAILABLE =
+  "One or more of those accounts is archived or was not found. Choose an account you are using.";
+
 async function getOwnedAccounts(
   tx: DbTransaction,
   actor: Actor,
@@ -219,9 +227,7 @@ async function getOwnedAccounts(
     rows.length !== new Set(ids).size ||
     rows.some((row) => row.archivedAt !== null && !allowedArchivedIds.has(row.id))
   ) {
-    throw validationError(
-      "One or more of those accounts is archived or was not found. Choose an account you are using.",
-    );
+    throw validationError(ACCOUNT_UNAVAILABLE);
   }
   // Separately, and with its own sentence: "unavailable" is what an account
   // somebody else owns says, and a frozen account is one of theirs that they

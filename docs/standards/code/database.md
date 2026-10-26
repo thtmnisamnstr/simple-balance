@@ -274,7 +274,7 @@ into something that cannot hold, or the next unscoped read gets waved through by
 analogy to the one already there.
 
 The exception is the webhook path, which has no actor at all. Stripe names a
-customer; `src/server/services/billing.ts:487` reads `billing_customer` by
+customer; `src/server/services/billing.ts:494` reads `billing_customer` by
 `stripe_customer_id` alone to find out whose it is. There is nothing to scope it
 by, because this read is *how* the user is derived. It is safe for one reason,
 and the reason is what a second unscoped read would have to supply too:
@@ -390,7 +390,7 @@ Five sites were found this way and all five name both columns:
 `src/server/services/accounts.ts:542` and `:647`,
 `src/server/services/summary.ts:59`, and the two written in Drizzle's builder,
 `src/server/services/category-groups.ts:79` and
-`src/server/services/import-export.ts:147`.
+`src/server/services/import-export.ts:150`.
 
 The obvious alternative is to leave it until there is a cluster to fail on.
 Grouping by the id alone is legal today, passes the entire suite, and breaks the

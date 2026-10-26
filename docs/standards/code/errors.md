@@ -12,7 +12,7 @@ The wire format — RFC 9457, status codes, the envelope — is
 HTTP status, optional details, and an optional second message for an agent
 (see 2.2 and 2.4). Both transports render it: HTTP into a problem document, MCP
 into a tool error — and the MCP one puts `agentMessage` where the message would
-go wherever a throw site set one (`src/server/mcp.ts:272`), so the fifth field
+go wherever a throw site set one (`src/server/mcp.ts:275`), so the fifth field
 is wire-visible rather than a note to ourselves.
 
 The distinction is the question **is there something the caller could do
@@ -33,7 +33,7 @@ returns the row (`src/server/services/budgets.ts:581`, `:941` and
 doubting something established moments earlier — the route's own registration,
 the actor's user row, a customer row whose insert had just lost a conflict, and
 a subscription Stripe cannot return without a price
-(`src/server/services/billing.ts:679`, `:993`, `:1022` and `:1609`). The reason
+(`src/server/services/billing.ts:686`, `:1000`, `:1029` and `:1616`). The reason
 each cannot happen is written beside it in the test rather than copied here.
 
 So the rule is not "never throw a bare `Error` here". It is "never throw one for
@@ -61,7 +61,7 @@ use the constructor that names the situation.
 | `validationError` | 422 | The request is well-formed and asks for something impossible. |
 
 **The transport is the named exception, and it is two lines.**
-`src/server/api.ts` constructs `AppError` directly at `:1788` and `:1806`, and
+`src/server/api.ts` constructs `AppError` directly at `:1787` and `:1805`, and
 both carry a code no service raises at all: `FORBIDDEN` and
 `REAUTHENTICATION_REQUIRED` belong to the two operations that are reachable
 from a session and never from a token, which is exactly the pair `AGENTS.md`
@@ -82,10 +82,10 @@ So the rule is scoped rather than absolute: a service uses the constructors, and
 the transport may name a status the service half has no word for. It was four
 lines rather than two, and shrinking it is what the other two paragraphs of this
 section used to be about. The already-configured-password site was byte-for-byte
-what `conflict()` produces and now calls it (`src/server/api.ts:1797`). The malformed-body guard
+what `conflict()` produces and now calls it (`src/server/api.ts:1796`). The malformed-body guard
 was a `VALIDATION_ERROR` **400** where the constructor is 422 by definition,
 which is why it could not use one — it is now a `TransportError`
-(`src/server/api.ts:1661`, the class at `src/server/services/errors.ts:13-23`),
+(`src/server/api.ts:1660`, the class at `src/server/services/errors.ts:13-23`),
 a separate enumeration for the refusals that are about the request rather than
 about the ledger, so `VALIDATION_ERROR` means one status again and the code an
 MCP tool can raise stays the service half alone.
@@ -115,7 +115,7 @@ falls out naturally: the row simply is not in the result.
 
 **One 403 says "not yours", and it is not about a record.** An MCP consent
 started in one account and answered in another is refused with
-`CONSENT_NOT_YOURS` and a 403 (`src/server/api.ts:1014-1021` and `:1055-1062`).
+`CONSENT_NOT_YOURS` and a 403 (`src/server/api.ts:1013-1020` and `:1054-1061`).
 The consent code is a single-use secret the authorization link carries, not an
 id anybody can enumerate, so the bit the 403 confirms is one the person holding
 the link already has. And the sentence is the move that works — sign in as the
@@ -221,19 +221,31 @@ agent *can* make, so its sentence names the call, says what a valid one looks
 like, and — where nothing is frozen — says that no list at all is valid, so the
 agent stops trying different ones instead of guessing.
 
-Six throw sites carry one today and the shape recurs: the archive restore meets
+Nine throw sites carry one today and the shape recurs: the archive restore meets
 the same ceiling from the other side
 (`src/server/services/accounts.ts:1241`), the frozen-account refusal is the same
 argument under a 422 (`src/server/services/accounts.ts:861`), and the two in
-`closeBillingForDeletion` (`src/server/services/billing.ts:2014` and `:2021`)
+`closeBillingForDeletion` (`src/server/services/billing.ts:2021` and `:2028`)
 give a person the move each cause leaves them — whoever runs the server, where
 the keys cannot vouch for Stripe's answer, and a retry in a few minutes, where
 Stripe could not be reached — while naming the cause, and whether retrying
 helps, for a program. Those last two are reached only from the
 session-only deletion path, so nothing renders them today — written that way
 because the browser's sentence would be the wrong one if it ever widens, which
-is cheaper than noticing later. Every refusal whose remedy is browser-only has
-this shape, so there will be more.
+is cheaper than noticing later. Adding a Simple Balance file brought three
+more. A file bringing more accounts in use than the plan keeps
+(`planRefusal`, `src/server/services/ledger-file.ts:1504`) offers the browser
+choosing which arrive archived, or upgrading, and tells an agent the numbers,
+the field that takes the choice, and that only the person can raise the
+limit — the allowance's argument again. And the two conflicts a part meets when
+the ledger moved after it was read (`:1616` and `:1794`) are the case running
+the other way round from billing: the person's way back is a button, so their
+sentence names it in its own words, **Check the file again**, and an agent has
+no button, so its sentence names `preview_ledger_file`. Both had told everyone
+to preview the file again, which was neither: no button says it, and no tool is
+called it.
+Every refusal whose remedy is browser-only has this shape, so there will be
+more.
 
 **What the obvious alternatives were.** One sentence for both audiences is what
 2.2 already rejects, and it fails in whichever direction it is written: the
@@ -255,7 +267,7 @@ to refresh, one field deeper.
 the shape 1 uses and for the same reason — whether two callers need different
 advice cannot be read off a call's syntax, but who claimed they did can be. It
 finds every `conflict` and `validationError` given a third argument, holds the
-set to the six argued for, fails on an entry whose throw has gone, counts them,
+set to the nine argued for, fails on an entry whose throw has gone, counts them,
 and refuses a sentence naming a `details.` field its own declaration neither
 guards nor builds. It also holds `agentMessage` to one reader: `src/server/mcp.ts`
 renders it and `src/server/api.ts` must not, or browser copy would change
@@ -301,9 +313,9 @@ array. Showing the envelope is how "A budget cannot be negative" reached the
 screen as "Request validation failed".
 
 The client digs the messages out of the details
-(`src/client/api.ts:144-150`, discriminating on `path` so a CSV parser's errors
+(`src/client/api.ts:145-151`, discriminating on `path` so a CSV parser's errors
 fall through), deduplicates them on the field-and-sentence pair rather than the
-sentence (`:158-166`), and shows those in preference to the envelope (`:170`).
+sentence (`:159-167`), and shows those in preference to the envelope (`:171`).
 Which means schema messages are user-facing: write them that way.
 
 Nineteen request schemas left their length rules to Zod, so typing a space where

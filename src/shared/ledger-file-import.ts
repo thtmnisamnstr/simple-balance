@@ -1648,7 +1648,7 @@ export function planLedgerFileAdd(input: LedgerFilePlanInput): LedgerFilePlanned
         record.message = null;
         use(record, match);
         if (kind === "category" && theirs.kind !== reference.kind) {
-          record.message = `"${match.name}" takes ${KIND_WORDS[theirs.kind!]} here and ${KIND_WORDS[reference.kind!]} where the file came from. Entries filed under it are posted by the kind it has here.`;
+          record.message = `"${match.name}" takes ${KIND_WORDS[theirs.kind!]} here and ${KIND_WORDS[reference.kind!]} where the file came from. Transactions filed under it are posted by the kind it has here.`;
         }
         continue;
       }
@@ -1658,7 +1658,7 @@ export function planLedgerFileAdd(input: LedgerFilePlanInput): LedgerFilePlanned
         // behind anyway, so there is nothing to ask.
         record.action = "drop";
         record.importName = null;
-        record.message = `No template here is called "${source.name}", so the entries made from it arrive without saying so.`;
+        record.message = `No template here is called "${source.name}", so the transactions made from it arrive without saying so.`;
         continue;
       }
       // "Use one here" only where something here could be chosen: of this
@@ -1710,7 +1710,7 @@ export function planLedgerFileAdd(input: LedgerFilePlanInput): LedgerFilePlanned
           // Said once it is chosen, beside the choice, because a reference
           // carries no opening and the balance it ends on is what decides
           // whether somebody wanted this or the account's own details.
-          record.message = `${record.message} Created from its name alone, it opens at zero on the day of the first entry naming it, so its balance is only what this file's entries move. Add a file carrying the account's details first to bring its opening.`;
+          record.message = `${record.message} Created from its name alone, it opens at zero on the day of the first transaction naming it, so its balance is only what this file's transactions move. Add a file carrying the account's details first to bring its opening.`;
         }
         const taken = hereIndex[kind].byFold.get(fold(wanted));
         if (taken === undefined) continue;
@@ -2182,9 +2182,9 @@ export function planLedgerFileAdd(input: LedgerFilePlanInput): LedgerFilePlanned
     const theirs = record.hereEntry.record as { archivedAt?: string | null; inUse?: boolean };
     if (record.kind !== "account" && record.kind !== "category") continue;
     if (theirs.archivedAt != null) {
-      record.message = `"${record.importName}" is archived here, so the entries that name it wait in Staged until it is restored.`;
+      record.message = `"${record.importName}" is archived here, so the transactions that name it wait in Staged until it is restored.`;
     } else if (record.kind === "account" && theirs.inUse === false) {
-      record.message = `"${record.importName}" is frozen here, so the entries that name it wait in Staged until it is back in use.`;
+      record.message = `"${record.importName}" is frozen here, so the transactions that name it wait in Staged until it is back in use.`;
     }
   }
   // A category archived where it came from arrives in use, unlike an account:
@@ -2196,7 +2196,7 @@ export function planLedgerFileAdd(input: LedgerFilePlanInput): LedgerFilePlanned
     }
     if ((record.record as { archivedAt?: string | null }).archivedAt == null) continue;
     record.message ??=
-      "It was archived where it came from. It arrives in use so the entries filed under it can be committed; archive it again once they are.";
+      "It was archived where it came from. It arrives in use so the transactions filed under it can be committed; archive it again once they are.";
   }
 
   const chosenArchived = new Set(input.arriveArchived ?? []);
@@ -2214,7 +2214,7 @@ export function planLedgerFileAdd(input: LedgerFilePlanInput): LedgerFilePlanned
     if (source.detail === "full" && source.archivedAt !== null) {
       record.arrivesArchived = true;
       record.message ??=
-        "It was archived where it came from, so it arrives archived and uses no place. The entries that name it wait in Staged until it is restored.";
+        "It was archived where it came from, so it arrives archived and uses no place. The transactions that name it wait in Staged until it is restored.";
       continue;
     }
     arriving += 1;

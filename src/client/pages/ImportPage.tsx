@@ -5,6 +5,7 @@ import { type ChangeEvent, Fragment, useId, useMemo, useRef, useState } from "re
 import {
   csvCell,
   isAppExportCsv,
+  suggestCsvMapping,
   type CsvDateFormat,
   type CsvDecimalSeparator,
   type CsvMapping,
@@ -92,21 +93,6 @@ type StageResult = {
   };
 };
 
-const aliases: Record<keyof CsvMapping, string[]> = {
-  date: ["date", "posted date", "transaction date"],
-  description: ["description", "memo", "details"],
-  amount: ["amount", "signed amount"],
-  debit: ["debit", "withdrawal", "money out"],
-  credit: ["credit", "deposit", "money in"],
-  payee: ["payee", "merchant", "description", "memo", "details", "name"],
-  category: ["category"],
-  notes: ["notes", "note"],
-  // The file's own column first. `transaction_id` is the primary key of the
-  // ledger the export came from and means nothing here, so guessing it as a
-  // bank reference fabricates one and keys the duplicate check on it.
-  externalId: ["external_id", "external id", "reference", "fitid"],
-};
-
 /**
  * How many rows the panel draws.
  *
@@ -114,16 +100,6 @@ const aliases: Record<keyof CsvMapping, string[]> = {
  * and a table taller than the viewport pins with its last rows out of reach.
  */
 const PREVIEW_ROWS = 12;
-
-function inferMapping(headers: string[]): Partial<CsvMapping> {
-  const normalized = new Map(headers.map((header) => [header.toLowerCase(), header]));
-  return Object.fromEntries(
-    Object.entries(aliases).flatMap(([key, candidates]) => {
-      const match = candidates.map((candidate) => normalized.get(candidate)).find(Boolean);
-      return match ? [[key, match]] : [];
-    }),
-  );
-}
 
 function MappingField({
   label,
@@ -183,7 +159,14 @@ export default function ImportPage() {
     (account) => !account.archivedAt && !account.frozen,
   );
 
-  const appExport = preview ? isAppExportCsv(preview.headers) : false;
+  // The server's answer, read off the preview rather than worked out here, so
+  // the page and `preview_csv` cannot disagree about what a file is. The
+  // fallback is for a rolling update, which briefly serves this bundle against
+  // a server from before the preview said so — and it is the same shared
+  // function the server calls, so the two readings are still one rule.
+  const appExport = preview
+    ? (preview.simpleBalanceExport ?? isAppExportCsv(preview.headers))
+    : false;
 
   // A draft names its category by id, so the panel needs the list to show a name
   // rather than a UUID — the same reason the queue fetches it, archived ones
@@ -222,7 +205,10 @@ export default function ImportPage() {
       setCsv(contents);
       setFileName(name);
       setPreview(parsed);
-      setMapping(inferMapping(parsed.headers));
+      // The guess `preview_csv` hands an agent, so a person and an agent
+      // importing one file start from one mapping. Worked out here only
+      // against a server from before it sent one, by the function it calls.
+      setMapping(parsed.suggestedMapping ?? suggestCsvMapping(parsed.headers));
       // Chosen for them only when there is nothing to choose between. Picking
       // the alphabetically first of several put a file one press away from
       // landing in an account nobody had named — and the queue would then

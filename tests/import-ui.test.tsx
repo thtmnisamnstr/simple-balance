@@ -279,6 +279,48 @@ describe("importing a Simple Balance export", () => {
 });
 
 /**
+ * The page takes both answers off the preview the server sent, which is what
+ * `preview_csv` hands an agent, rather than working out its own.
+ *
+ * Each case below gives the page a reply the headings alone would not have
+ * produced, so a page that went on guessing for itself fails it. The cases
+ * above send no such fields, which is a server from before they existed, and
+ * pass on the fallback — the rolling-update path, checked by the same file.
+ */
+describe("what the preview says about the file", () => {
+  it("starts the mapping from the server's guess", async () => {
+    stubApi({
+      delimiter: ",",
+      headers: ["When", "Who", "How much"],
+      rows: [],
+      errors: [],
+      simpleBalanceExport: false,
+      suggestedMapping: { date: "When", payee: "Who", amount: "How much" },
+    });
+    await chooseFile("When,Who,How much\n", "bank.csv");
+
+    expect(await screen.findByLabelText("Date")).toHaveValue("When");
+    expect(screen.getByLabelText("Payee")).toHaveValue("Who");
+    expect(screen.getByLabelText("Signed amount")).toHaveValue("How much");
+  });
+
+  it("asks only for the account when the server says the file is an export", async () => {
+    stubApi({
+      delimiter: ",",
+      headers: ["date", "payee", "amount"],
+      rows: [],
+      errors: [],
+      simpleBalanceExport: true,
+      suggestedMapping: {},
+    });
+    await chooseFile("date,payee,amount\n", "export.csv");
+
+    await screen.findByRole("heading", { name: "Choose the account" });
+    expect(screen.queryByLabelText("Payee")).toBeNull();
+  });
+});
+
+/**
  * A right preview and a wrong import is a bug rather than a surprise, so the
  * panel stops showing the file's own cells once the server has read them and
  * shows what it read instead.

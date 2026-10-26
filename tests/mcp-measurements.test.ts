@@ -341,7 +341,7 @@ describe("what mcp.md says it measured", () => {
   /**
    * A description that names a tool has to name one that exists.
    *
-   * Fourteen descriptions point the agent at another tool — `create_budget_plan`
+   * Twenty-one descriptions point the agent at another tool — `create_budget_plan`
    * tells it to read `get_budget_report`, `preview_csv` tells it to follow with
    * `stage_csv` — and that is the one kind of prose here a machine can check.
    * A renamed tool leaves the sentences that named it behind, and the agent
@@ -385,7 +385,8 @@ describe("what mcp.md says it measured", () => {
     // looks like from the outside either way.
     //
     // Occurrences, not descriptions: one description naming two tools counts
-    // twice, so this floor sits above the fourteen above it rather than at it.
+    // twice, so this floor was set above the fourteen descriptions there were
+    // when it was written rather than at them.
     expect(mentions).toBeGreaterThanOrEqual(19);
   });
 

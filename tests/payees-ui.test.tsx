@@ -169,3 +169,52 @@ describe("payee browsing and merging", () => {
     expect(screen.getByRole("button", { name: "Merge" })).toBeEnabled();
   });
 });
+
+/**
+ * The page narrows its list with `list_payees`' own predicate, so a person and
+ * an agent searching one ledger find the same spellings. It lower-cased the
+ * spelling as typed, and a doubled space or a full-width letter found a payee
+ * over MCP and missed it here.
+ */
+describe("searching payees", () => {
+  const wide: PayeeSummary = {
+    name: "ACME  Co",
+    normalizedName: "acme co",
+    transactionCount: 1,
+    stagedTransactionCount: 0,
+    totalCount: 1,
+  };
+
+  it("matches as the server does, on the name's normalized form", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input), window.location.origin);
+        if (url.pathname === "/api/v1/payees/duplicates") return Response.json([]);
+        if (url.pathname === "/api/v1/payees") return Response.json([acmeMarket, wide]);
+        return new Response("Not found", { status: 404 });
+      }),
+    );
+    render(
+      <QueryClientProvider client={queryClient()}>
+        <BrowserRouter>
+          <PayeesPage />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+    await screen.findByRole("link", { name: acmeMarket.name });
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search payees" }), {
+      target: { value: " acme co " },
+    });
+    await waitFor(() => expect(screen.queryByRole("link", { name: acmeMarket.name })).toBeNull());
+    // An accessible name collapses the doubled space, as a screen reader does.
+    expect(screen.getByRole("link", { name: "ACME Co" })).toBeInTheDocument();
+
+    // Typed with one space, the doubled spelling is still found.
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search payees" }), {
+      target: { value: "ACME CO" },
+    });
+    expect(await screen.findByRole("link", { name: "ACME Co" })).toBeInTheDocument();
+  });
+});

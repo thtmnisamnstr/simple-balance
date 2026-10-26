@@ -62,8 +62,8 @@ and whether the user still has an authentication method enabled by the current
 ## Scopes
 
 - `ledger:read`: accounts, categories, payees, transactions, staging,
-  summaries, CSV export, the Simple Balance file export and its preview, and
-  audit history.
+  summaries, CSV export, the Simple Balance file export and its preview, audit
+  history, and the money guides.
 - `ledger:stage`: read access plus staged transaction and CSV-stage mutations.
 - `ledger:write`: every ledger operation, including direct and staged commits
   and adding a Simple Balance file.
@@ -124,7 +124,9 @@ refused whole rather than applied to the rest. `archive_account` and
 agent asked to clear away unused accounts after a downgrade can. `whoami` carries `plan`, `accountLimit` and
 `accountsUsed`: `plan` is null where nothing is sold, and `accountLimit` and
 `accountsUsed` are null wherever there is no limit, which includes Premium.
-`set_active_accounts` names the whole set that stays usable.
+`set_active_accounts` names the whole set that stays usable, and `whoami`'s
+`activeChoicePending` says whether that choice is open now — the question the
+Accounts page answers when it decides whether to show its chooser.
 
 **That choice is made once, and it belongs to the person.** While it is open,
 `set_active_accounts` may name any set within the limit, and every account it
@@ -318,7 +320,12 @@ And it reports the plan: `plan`, `accountLimit` and `accountsUsed`. `plan` is
 null on a deployment that sells nothing, and the other two are null wherever
 there is no limit, which includes Premium. That is what explains a refusal to
 open an account, restore one, or write to a frozen one, and what to tell the
-person when they ask why. Changing the plan is theirs to do in the browser; see
+person when they ask why. `activeChoicePending` is true while the one-time
+choice of accounts in use is open — more accounts marked active than the plan
+keeps, as a downgrade leaves behind — and false wherever no limit is in force.
+It is worked out the way `set_active_accounts` decides, so an agent reading it
+need not list every account and apply the rule itself. Changing the plan is
+theirs to do in the browser; see
 [What an agent cannot do](#what-an-agent-cannot-do).
 
 `get_preferences` reports their timezone, default currency and color theme, and
@@ -339,8 +346,12 @@ looks like, so set it when asked and not otherwise.
 value. There is no version to check on this record and no undo beyond setting it
 back, so confirm it with the person first.
 
-`summarize_own_data` counts everything in the ledger, and the staged rows it
-counts are the ones still waiting in the queue rather than every row ever kept.
+`summarize_own_data` counts accounts, transactions, categories, staged rows,
+recurring transactions, import batches, payees and connected agents, and says
+whether a paid subscription is live: the same figures Settings shows before the
+account is deleted. The staged rows it counts are the ones still waiting in
+the queue rather than every row ever kept. It does not count templates,
+budgets or category groups, which deleting the account removes too.
 
 `get_financial_summary` answers a question about money rather than about a row.
 It computes balances, deposits, withdrawals and
@@ -349,8 +360,9 @@ whatever `end` you ask for: money dated in the future has not moved yet, and
 `asOf` says which day the figures are really as of. Archived accounts are left
 out by default, because archiving posts an account's balance out to equity and
 counting it again would double it; `includeArchived` puts the account and its
-past activity back in. It is the dashboard's own figures; `get_report` in
-[Reports](#reports) answers the same questions over time and in more detail.
+past activity back in, which is the Overview's **Include archived accounts**
+box. It is the Overview's own figures; `get_report` in [Reports](#reports)
+answers the same questions over time and in more detail.
 
 ## Reports
 
@@ -466,9 +478,9 @@ alone and takes the group's own budget with it.
 `update_budget_plan` and `delete_budget_plan` handle the standing amounts. One
 plan covers every period in its window, so a budget that runs all year is one
 row rather than twelve, and nothing materializes the months nobody has reached.
-Windows for one category may not overlap: raising a budget means ending the old
-plan and starting another from the next period, which is also what keeps last
-March answering with what last March intended.
+Windows for one category, or one group, may not overlap: raising a budget means
+ending the old plan and starting another from the next period, which is also
+what keeps last March answering with what last March intended.
 
 `get_forecast` projects the balances forward from the recurrences that already
 have dates and amounts. Nothing it returns is a balance: money dated in the
@@ -487,12 +499,17 @@ nothing. A recurrence with no amount comes back in `unprojectable` rather than
 being counted as nothing.
 
 `list_budget_entries`, `set_budget_entry` and `delete_budget_entry` handle a
-single period. Use one for a one-time change, such as a larger food budget in
-December. `periodStart` is truncated to the period unit, so any day inside the
-period names it.
+single period, of a category or of a group that holds a budget of its own.
+Use one for a one-time change, such as a larger food budget in December.
+`periodStart` is truncated to the period unit, so any day inside the period
+names it.
 
 `get_budget_report` is the figure anybody actually wants: what each budgeted
-category was allowed and what it spent, period by period. Spending is signed, so
+category was allowed and what it spent, period by period. A group's budget, and
+the sum a `sum_of_children` group adds up to, come back in each period's
+`groups`, beside the category rows rather than among them; a group's figure is
+never added to its members', because it already is them or stands instead of
+them. Spending is signed, so
 a refund is negative and lowers the category it came back to. A category
 budgeted at two hundred and spent nothing on still appears, because the report
 joins from the budget to the spending rather than the other way. Figures stop at
@@ -567,9 +584,18 @@ you what would happen without doing it.
 ## Imports
 
 `preview_csv` reads the delimiter, headers, and first rows of a file without
-staging anything, which is how you work out the column mapping before calling
-`stage_csv`. A file carrying every column a Simple Balance export writes needs
-no mapping, so `stage_csv` takes one without a `mapping` at all.
+staging anything, and says two things the import page works out from the
+headings, so an agent and a person importing one file start in the same place.
+`simpleBalanceExport` is true for a file carrying every column a Simple Balance
+export writes, which needs no mapping: `stage_csv` takes one without a
+`mapping` at all. `suggestedMapping` is the page's own guess at the mapping for
+any other file — each field whose heading it recognizes, ignoring case, and
+nothing for one it does not. It is a guess from the headings alone and never
+reads a cell, so a "Description" column holding the merchant is offered as
+both the payee and the description: check it against `rows` before staging,
+and check above all that the column it offers as `externalId` does not repeat
+from row to row, because a second import of the same statement is recognized
+by it.
 
 `list_import_batches` lists the imports that still have rows waiting on Staged
 transactions. A batch leaves this list once all its rows are committed or
@@ -651,9 +677,21 @@ One key the draft refuses rather than ignores: `externalId`, the reference a
 bank statement row was imported under. Copied onto every transaction made from
 the template, it would make the next real import of that row look like one
 already seen. A `date` and a `categoryName` are both stored, and each behaves
-the way it does on a transaction: an absent date means the day the template is
-applied, and a category name is matched case-insensitively against the
-categories already there and created only when nothing matches.
+the way it does on a transaction once an entry is made from the template, not
+before: an absent date means the day the template is used, and a category name
+is stored as typed, then matched case-insensitively against the categories
+there are and created only if nothing matches — when the entry is written,
+never when the template is saved.
+
+**Using a template is copying its draft.** There is no "apply" tool, because the
+browser has no such request either: its form copies the draft in and saves an
+ordinary transaction. So copy the template's `draft` into `create_transaction`,
+or into `create_staged_transaction` to propose it, fill in what it leaves out —
+an absent date is today — and set `draft.templateId` to the template's id. A
+transfer template stores its figure as `amount`, which a transfer entry sends
+as `sourceAmount`, so rename it on the way. Without `templateId` the entry is
+written all the same but the template does not count it, and its page never
+lists it.
 
 `list_transaction_templates` reports how many committed transactions and how
 many staged rows came from each template, and the two added together, the same
@@ -719,7 +757,9 @@ ways is two rows. `list_duplicate_payees` groups the spellings that collide once
 Unicode form, whitespace and case are normalized, and that normalization is the
 server's own rather than something an agent can reproduce from the spellings.
 Reach for the grouping before a merge, and for the flat list when you want
-everything.
+everything. `list_payees` takes a `search`, matched against each spelling's
+normalized form, which is exactly how the Payees page narrows its list as
+somebody types, so "acme co" finds "ACME  Co" on both.
 
 ## CSV
 
@@ -729,7 +769,9 @@ including their splits, which travel by category name. It takes the same filters
 `list_transactions` does and exports the whole matching set rather than a page.
 A deleted entry is never exported whatever is asked for, because the format has
 no column to say an entry is void and reading it back would raise the amount
-from the dead.
+from the dead. The reply carries the text as `csv`, with `rowCount` and the
+`fileName` the browser saves the same download under, dated by today where the
+person lives.
 
 `stage_csv` accepts the same payload the browser import does, bounded by
 `CSV_MAX_BYTES` and `CSV_MAX_ROWS`. The MCP request envelope allows extra room
@@ -741,6 +783,12 @@ only thing that decides where they land. No account is ever read out of the
 file, including out of one of our own exports, whose account columns name the
 ledger it came from. A transfer needs two accounts and an import names one, so
 those rows stage with everything else they carry and an issue asking for both.
+
+Choose an account that is neither archived nor frozen; `list_accounts` reports
+both. Staging onto either is not refused, because the rows can still be given
+another account in the queue, but every row is stored with an issue saying why
+it cannot be committed, and `validCount`, `invalidCount` and `sample` — a dry
+run's included — say so before anything is stored, in the same words.
 
 A CSV names its categories by name, and matching them to the ones this ledger
 already has needs no permission. Making one does. Creating a category, bringing
@@ -870,7 +918,12 @@ and budgets, and `export_ledger_file` returns one part a call. A larger file
 from the browser's download is cut into parts by the import page; sent by an
 agent, each part goes in its own call with the same `decisions`,
 `arriveArchived` and `preferences` and its own `idempotencyKey`, and `part`
-saying which it is. A decision about a record that needs none in a given part —
+saying which it is. An agent handed a whole download larger than one part has
+to cut it the way the page does, and the refusal it meets says how: every part
+carries every record section whole, the entries go across the parts in date
+order with `budgets.entries` and then `staged` after them, the activity
+history goes in no part, and only the last part keeps each account's
+`balance`. A decision about a record that needs none in a given part —
 because an earlier part created it — is passed over there. A part that failed
 is sent again; one that succeeded replays its answer. Adding creates records
 rather than proposing them, so `add_ledger_file` needs `ledger:write`, and the
@@ -891,6 +944,35 @@ This is how an agent checks its own work, and how a person sees an agent's.
 Every write goes in, including the ones a scheduler makes on its own, so a row
 that appeared without anybody asking can always be traced to the recurrence that
 proposed it.
+
+## Money guides
+
+The guides smpl.money publishes at `/learn` — tracking spending, budget
+categories, making a budget, zero-based and envelope budgeting, sinking funds,
+irregular income, balancing a checking account, credit cards, subscriptions, net
+worth and an emergency fund — are carried in the server itself, so an agent can
+answer "how do I balance my account?" from them on a deployment with no internet
+at all. `list_learn_articles` names them in the site's reading order, and
+`get_learn_article` returns one as the exact Markdown the site publishes, with
+its pictures as links and their descriptions.
+
+Each guide ends with how to do the job in Simple Balance's browser app, and
+`inSimpleBalance` maps every one of those steps to the tools here that do the
+same thing, with a sentence where the browser's wording would mislead an agent:
+a card's debt is typed as a plain number in the browser and is a negative
+`openingBalance` here. `held` says whether this connection's grant reaches each
+tool, so a read-only agent can explain a step it cannot take rather than look
+for a tool it was not given.
+
+Both read nothing from the ledger and need only `ledger:read`. The list comes
+back as one page, `items` with a `nextCursor` that is always null, each guide
+with its `slug`, title, one-sentence summary, address at smpl.money and the day
+the site last changed it, as `updated`. The text is a copy as of `syncedAt`,
+which only `get_learn_article` reports, and a release carries the guides as the
+site published them when it was prepared; a guide changed since reads as it
+did then. Its figures are made-up examples rather than anything about this
+person's money, and the guides are written for readers in the US. A slug that
+is not a guide is `NOT_FOUND`, with the slugs there are in `details.available`.
 
 ## What an agent cannot do
 
@@ -924,7 +1006,11 @@ without reaching the other, so this list is the whole of it rather than the part
 somebody remembered to write down. Five reads go the other way — a transaction,
 a staged row, a recurrence and a budget plan by id, and the staged selection
 preview — because the browser already holds what it is reading from the list it
-opened it from.
+opened it from. Six tools have no route of their own, and the test names each
+with its reason. Four read what the browser gets another way: `whoami` and
+`get_preferences` are two halves of the session the page loads, and the two
+exports return the files the page downloads. The two money-guide tools have no
+route at all, because a person reads the same guides at smpl.money/learn.
 
 ## Revoking access
 

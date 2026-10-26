@@ -279,7 +279,7 @@ describe("checking the file", () => {
     }
     // What a record does that nobody is asked about is said beside its name.
     expect(screen.getByText('Category "Old hobby"').closest("li")).toHaveTextContent(
-      "It was archived where it came from. It arrives in use so the entries filed under it can be committed; archive it again once they are.",
+      "It was archived where it came from. It arrives in use so the transactions filed under it can be committed; archive it again once they are.",
     );
     // Nothing needs deciding, so the button is ready.
     expect(addButton()).toBeEnabled();
@@ -846,7 +846,7 @@ describe("an add that stops", () => {
       JSON.stringify({
         error: {
           code: "CONFLICT",
-          message: "This ledger changed while the file was being read. Preview it again.",
+          message: "This ledger changed while the file was being read. Check the file again.",
         },
       }),
       { status: 409, headers: { "Content-Type": "application/json" } },
@@ -872,7 +872,7 @@ describe("an add that stops", () => {
     fireEvent.click(addButton());
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(
-      "This ledger changed while the file was being read. Preview it again. Nothing from part 2 was written. Part 1 of 3 is in.",
+      "This ledger changed while the file was being read. Check the file again. Nothing from part 2 was written. Part 1 of 3 is in.",
     );
     // The same button, renamed, and still where focus was.
     const retry = screen.getByRole("button", { name: "Try part 2 of 3 again" });

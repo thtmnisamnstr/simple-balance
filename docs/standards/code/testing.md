@@ -5,9 +5,9 @@ keeping.
 
 | Tier | Files | Runs with | Needs |
 | --- | --- | --- | --- |
-| Unit (node) | 226 | `npm test` | nothing |
+| Unit (node) | 229 | `npm test` | nothing |
 | Unit (jsdom) | 66 | `npm test` | nothing |
-| Integration | 90 | `npm test` **or** `npm run test:integration` | PostgreSQL |
+| Integration | 91 | `npm test` **or** `npm run test:integration` | PostgreSQL |
 | Browser | 10 | `npm run test:browser` | PostgreSQL, Chromium |
 
 **`npm test` collects the integration tier too**, which surprises people and is
@@ -23,15 +23,15 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 294 pass, 88 skip | **3,561 pass, 998 skip** |
-| `npm test`, database set | 382 pass | **4,559 pass** |
-| `npm run test:integration` | 90 pass | 1,001 pass |
+| `npm test`, no database | 297 pass, 89 skip | **3,605 pass, 1,006 skip** |
+| `npm test`, database set | 386 pass | **4,611 pass** |
+| `npm run test:integration` | 91 pass | 1,009 pass |
 
-The integration tier reports 1,001 tests on its own and 998 skips inside a
+The integration tier reports 1,009 tests on its own and 1,006 skips inside a
 database-less `npm test`, and the three-test difference is not an error: three
 cases in that tier need no database and so run either way. They are counted
-among the 3,561 rather than among the skips, which is why the two rows add up
-to 4,559 both times.
+among the 3,605 rather than among the skips, which is why the two rows add up
+to 4,611 both times.
 
 The third row is three tests larger than the first row's skip count, and the
 odd ones out are worth knowing. `bulk-transactions-mcp.integration.test.ts` has
@@ -42,7 +42,7 @@ question about the router rather than about a ledger. All three run on every
 `npm test`, database or not, and that file therefore counts as passing rather
 than skipped in the first row.
 
-The first row is what CI and `npm run verify` see, and 3,561 is the number that
+The first row is what CI and `npm run verify` see, and 3,605 is the number that
 actually gates a change by default. The second is what a developer with a local
 PostgreSQL sees, and it is strictly better. Reporting the second as though it
 were the first overstates what the gate covers, which is a mistake worth naming
@@ -562,15 +562,15 @@ it, drop it in `afterAll`. Files then do not race, which matters because
 
 The sequence has a helper, and a new file should take it rather than re-roll
 it: `scratchDatabase()` in `tests/integration/support/scratch-database.ts`
-creates, migrates and registers the drop in one call, and 60 of the 90 files
+creates, migrates and registers the drop in one call, and 60 of the 91 files
 use it. The files that predate it manage their own admin client, and their
 teardowns had drifted to an unguarded four-step sequence where the first step
 throwing strands the database and the connection both — the exact failure the
 helper exists to end, and its docstring says so. `dropScratchDatabase` covers
 the 13 hand-rolled files that only need the guarded teardown.
 
-Sixty, thirteen and seventeen, which is the whole ninety. The last
-seventeen take neither helper and hand-roll all of it — their own admin client,
+Sixty, thirteen and eighteen, which is the whole ninety-one. The last
+eighteen take neither helper and hand-roll all of it — their own admin client,
 their own `create database`, their own `runMigrations`, their own drop. They are
 not doing anything else; they are the group the helper was written for and the
 group nothing has converted yet. Counting them is the point of writing the three

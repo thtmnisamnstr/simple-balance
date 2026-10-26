@@ -77,9 +77,11 @@ marked destructive because it can replace the settings chosen here. Over HTTP
 they are `POST /api/v1/ledger-file:preview` and `POST /api/v1/ledger-file:add`,
 and the add streams its progress when asked. Every record and row the add
 creates is audited as `create_from_ledger_file`, and Staged's batch filter
-marks a batch that came from a file. A file can be added only to a copy running
-this release or later. Moving a whole ledger straight into an empty one, its
-deleted transactions and archive days included, is not here yet.
+marks a batch that came from a file. An agent handed a whole download larger
+than one part is told the rules the page cuts a file by, so it can send the
+parts itself. A file can be added only to a copy running this release or later.
+Moving a whole ledger straight into an empty one, its deleted transactions and
+archive days included, is not here yet.
 
 **Metrics can be sent to New Relic, or to any backend that takes OTLP or
 Prometheus remote write, with no Prometheus of your own.** Every deployment
@@ -149,7 +151,73 @@ for anybody whose system asks for reduced motion. It cannot be dismissed, and an
 AdSense unit is never pinned. Nothing changes on a deployment that does not set
 it.
 
+**An agent can answer from the money guides, and knows which of its tools do
+each step.** `list_learn_articles` and `get_learn_article` serve the twelve
+guides smpl.money publishes at /learn — tracking spending, budget categories,
+making a budget, zero-based and envelope budgeting, sinking funds, budgeting
+with irregular income or a credit card, balancing a checking account, finding
+subscriptions, net worth and an emergency fund — as the site's own Markdown,
+carried in the image rather than fetched, so a deployment with no internet has
+them too. Somebody asking their assistant how to balance an account, or what
+net worth is, can be answered from them. Each guide ends with how to do the
+job in the browser, and the reply maps every one of those steps to the tools
+here that do the same thing, with a sentence wherever the form's wording would
+mislead a program — a card's debt is typed as a plain number on the form and
+sent as a negative opening balance — and says whether the connection holds
+each tool, so a read-only agent can explain a step it cannot take. They read
+nothing from the ledger, need only `ledger:read`, and add 5,523 characters to
+every token's tool list. The copy is as of the day it was taken, which the
+reply says. No page calls a route for them, because a person reads the same
+guides on the site; the parity check now names every tool that no route
+reaches, with its reason, where before such a tool passed it unseen. A release
+carries the guides as the site published them, and the release workflow
+refuses to publish images from a copy taken from anywhere else.
+
+**The Overview can count archived accounts.** An **Include archived accounts**
+box under the date range puts archived accounts, and what moved through them,
+back into the totals, the account list and the spending, and marks each one
+"(archived)". It keeps its answer in the page's address under the same key
+Reports uses. Until now `get_financial_summary` took `includeArchived` and no
+page could send it, so only an agent could ask the Overview's question with
+archived accounts counted. The Budget panel counts archived spending either
+way, as the Budgets page always has.
+
 ### Changed
+
+**An agent is handed the import page's own reading of a CSV.** `preview_csv`,
+and `POST /api/v1/csv/preview`, now return `simpleBalanceExport`, whether the
+file is one of this product's own exports and so needs no mapping, and
+`suggestedMapping`, the page's guess at the column mapping from the headings.
+The guess was the page's alone, so an agent worked one out for itself from the
+bare headings and could start an import somewhere a person would not have. The
+page now reads both from the server; against a server from before this
+release, during a rolling update, it works them out with the same shared code.
+
+**`whoami` says whether the choice of accounts in use is open.**
+`activeChoicePending` is true while more accounts are marked active than the
+plan keeps, as a downgrade leaves behind — the moment the Accounts page shows
+its chooser — and an agent no longer has to list every account and apply the
+rule itself to find out. `GET /api/v1/session` carries it in `plan` too, which
+the browser does not read.
+
+**`export_transactions_csv` names its file.** The reply gains `fileName`, the
+same `transactions-` and today's date where the person lives that the browser's
+download is saved under, worked out in one place for both.
+
+**Tool descriptions say what the browser already knew.** The two template
+reads say how a template is used, which nothing told an agent: copy its draft
+into `create_transaction` or `create_staged_transaction`, fill in what it
+leaves out, send a transfer's figure as `sourceAmount`, and set `templateId`,
+without which the template never counts the entry. The budget tools say a
+category group can hold a budget of its own and that the report returns group
+figures beside the category rows, never to be added to them. A template's
+category name is created when an entry is made from it, not when it is saved.
+A frozen account is described as still free to be archived, or deleted while
+empty, which the server's instructions already said. `stage_csv` says to stage
+onto an account that is neither archived nor frozen, `summarize_own_data`
+names all nine things it counts, and `create_category` names `both` and
+`groupId`. Together with the fields above, these add 2,767 characters to a
+`ledger:read` token's tool list and 3,486 to a `ledger:write` token's.
 
 **The plan tab's sentence about ads follows either kind of ad.** It names the
 advertising Premium takes away wherever AdSense is configured, and now also
@@ -241,6 +309,21 @@ closes three. GitHub had raised seven alerts, all of them `vite` and `vitest`,
 and `npm audit` found the rest. The upgrade is the whole fix.
 
 ### Fixed
+
+**A CSV staged onto an archived or frozen account no longer previews as ready
+to commit.** Every row of such a file is stored with an issue that blocks its
+commit, and `stage_csv`'s `validCount`, `invalidCount` and `sample`, a dry
+run's included, counted and showed those rows as clean, so an agent reported
+a file ready whose every row would wait. They now carry the issue the stored
+rows do, in the same words. Nothing is refused
+that was accepted before: the rows still stage, and can be given another
+account in the queue. The page never offered either kind of account, so this
+was met through `POST /api/v1/csv/stage` and the tool.
+
+**Searching Payees finds what an agent's search finds.** The page lower-cased
+what was typed and matched it against each spelling as stored, so "acme co"
+missed "ACME  Co" in the browser while `list_payees` found it. Both now match
+the search against each name's normalized form, with one shared function.
 
 **The first `pulumi up` of a new `oci-single` stack no longer fails at the
 settings key, as 0.2.1's still could.** 0.2.1 waited for a new vault's

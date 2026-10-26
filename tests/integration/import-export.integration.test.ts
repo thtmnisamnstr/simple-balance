@@ -7,7 +7,7 @@ import { getDb } from "../../src/server/db/client.js";
 import { runMigrations } from "../../src/server/db/migrate.js";
 import { dropScratchDatabase } from "./support/scratch-database.js";
 import { categories, importBatches, user } from "../../src/server/db/schema.js";
-import { createAccount } from "../../src/server/services/accounts.js";
+import { createAccount, setAccountArchived } from "../../src/server/services/accounts.js";
 import { createCategory, setCategoryArchived } from "../../src/server/services/categories.js";
 import {
   exportTransactionsCsv,
@@ -1003,5 +1003,70 @@ integration("CSV import and export identification", () => {
     expect(empty.csv).not.toBe("");
     expect(empty.csv.split("\r\n")).toHaveLength(1);
     expect(empty.csv).toBe(populatedHeader);
+  });
+
+  /**
+   * A file staged onto an archived account is let through — the rows can be
+   * given another account in the queue — but every row with a draft is stored
+   * with the archived account's issue, so it cannot commit as it stands. The
+   * preview has to say so: it counted those rows valid and showed them with no
+   * issue, so an agent that ran the dry run its tools advise told the person
+   * the file was ready, and every row then sat in Staged blocked. A row that
+   * did not parse keeps only its own issue, because the insert never gets as
+   * far as its account.
+   */
+  it("previews a file staged onto an archived account the way its rows are stored", async () => {
+    const closed = await createAccount(actor, {
+      name: "Closed CSV Checking",
+      type: "checking",
+      currency: "USD",
+      openingDate: "2026-01-01",
+      openingBalance: "0",
+    });
+    await setAccountArchived(actor, closed.id, closed.version, true);
+    const input = {
+      csv: [
+        "date,description,amount",
+        "2026-03-02,Archived Grocer,-21.40",
+        "2026-03-03,Archived Pharmacy,-8.15",
+        "2026-03-04,Archived Mystery,",
+      ].join("\n"),
+      fileName: "archived.csv",
+      idempotencyKey: "csv-archived-account",
+      defaultAccountId: closed.id,
+      mapping: { date: "date", payee: "description", amount: "amount" },
+      dateFormat: "YMD" as const,
+      decimalSeparator: "." as const,
+    };
+
+    const preview = await stageCsv(actor, { ...input, dryRun: true });
+    expect(preview).toMatchObject({ rowCount: 3, validCount: 0, invalidCount: 3 });
+    type Row = { draft: unknown; issues: { field: string; message: string }[] };
+    const sample = preview.sample as Row[];
+    const archivedIssue = {
+      field: "draft",
+      message:
+        "One or more of those accounts is archived or was not found. Choose an account you are using.",
+    };
+    expect(sample[0]!.issues).toEqual([archivedIssue]);
+    expect(sample[1]!.issues).toEqual([archivedIssue]);
+    expect(sample[2]!.draft).toBeNull();
+    expect(sample[2]!.issues).not.toContainEqual(archivedIssue);
+
+    const staged = await stageCsv(actor, input);
+    if (!("stagedIds" in staged)) throw new Error("a real stage returns the rows it wrote");
+    expect(staged).toMatchObject({ validCount: 0, invalidCount: 3 });
+    // The preview's issues are the stored ones for every row with a draft, in
+    // file order. The row without one is held only to carrying no account
+    // issue: the insert re-reads its partial draft and adds the schema's own
+    // complaint beside the parser's, which no preview has ever shown.
+    const stored = await Promise.all(staged.stagedIds.map((id) => getStage(actor, id)));
+    expect(stored.slice(0, 2).map((row) => row.validationIssues)).toEqual(
+      sample.slice(0, 2).map((row) => row.issues),
+    );
+    expect(stored[2]!.validationIssues).not.toContainEqual(archivedIssue);
+    expect((staged.sample as Row[]).map((row) => row.issues)).toEqual(
+      sample.map((row) => row.issues),
+    );
   });
 });

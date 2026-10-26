@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { closeDb, getDb } from "../../src/server/db/client.js";
 import { runMigrations } from "../../src/server/db/migrate.js";
 import { user } from "../../src/server/db/schema.js";
+import { LEARN_PACK } from "../../src/server/learn/pack.js";
 import { createMcpServer } from "../../src/server/mcp.js";
 import { createAccount } from "../../src/server/services/accounts.js";
 import { createCategory } from "../../src/server/services/categories.js";
@@ -85,7 +86,13 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
    * here too.
    */
   it("answers each of the reads added for parity with the browser", async () => {
-    expect(await call("whoami")).toMatchObject({ email: "live@example.com", clientId: "live" });
+    // No plan is sold here, so there is no choice to be open: false rather
+    // than absent, which a closed schema on the agent's side would refuse.
+    expect(await call("whoami")).toMatchObject({
+      email: "live@example.com",
+      clientId: "live",
+      activeChoicePending: false,
+    });
     expect(await call("get_preferences")).toMatchObject({ chosen: false, timezone: "UTC" });
     expect(await call("get_account", { id: accountId })).toMatchObject({ name: "Checking" });
     expect(await call("get_category", { id: categoryId })).toMatchObject({ name: "Groceries" });
@@ -94,7 +101,12 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
     expect(await call("summarize_own_data")).toMatchObject({ accounts: 1, categories: 1 });
     expect(
       await call("preview_csv", { csv: "date,payee,amount\n2026-01-01,Shop,5.00" }),
-    ).toMatchObject({ headers: ["date", "payee", "amount"], delimiter: "," });
+    ).toMatchObject({
+      headers: ["date", "payee", "amount"],
+      delimiter: ",",
+      simpleBalanceExport: false,
+      suggestedMapping: { date: "date", payee: "payee", amount: "amount" },
+    });
   });
 
   /**
@@ -271,6 +283,94 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
       }),
     ).toEqual({ id: created.id, deleted: true });
     expect(await call("list_transaction_templates")).toHaveLength(0);
+  });
+
+  /**
+   * The two descriptions that tell an agent how to use a template, followed
+   * to the letter. Nothing in a tool used to say it: the browser copies the
+   * draft into its form and saves with the template's id, and an agent that
+   * did not know to set `draft.templateId` made entries the template could not
+   * count. And the category a template names is matched or created when an
+   * entry is made from it, not when the template is saved.
+   */
+  it("uses a template the way its description says", async () => {
+    const before = ((await call("list_categories")) as { name: string }[]).length;
+    const template = (await call("create_transaction_template", {
+      name: "Snack run",
+      draft: {
+        type: "withdrawal",
+        payee: "Corner Kiosk",
+        fromAccountId: accountId,
+        categoryName: "Snacks From A Template",
+      },
+      idempotencyKey: "tpl-use-1",
+    })) as { id: string; version: number; draft: Record<string, unknown> };
+    // Stored as typed, and nothing created yet.
+    expect(template.draft).toMatchObject({ categoryName: "Snacks From A Template" });
+    expect((await call("list_categories")) as unknown[]).toHaveLength(before);
+
+    const { draft } = (await call("get_transaction_template", { id: template.id })) as {
+      draft: Record<string, unknown>;
+    };
+    await call("create_transaction", {
+      draft: { ...draft, date: "2026-03-03", amount: "4.50", templateId: template.id },
+      idempotencyKey: "tpl-use-2",
+    });
+
+    const listed = (await call("list_transaction_templates")) as {
+      id: string;
+      transactionCount: number;
+    }[];
+    expect(listed.find((one) => one.id === template.id)?.transactionCount).toBe(1);
+    expect(
+      ((await call("list_categories")) as { name: string }[]).map((one) => one.name),
+    ).toContain("Snacks From A Template");
+
+    // Gone again, so the tests after this one meet the template list they
+    // expect; the entry made from it stays, as `delete_transaction_template`
+    // says.
+    await call("delete_transaction_template", {
+      id: template.id,
+      expectedVersion: template.version,
+      idempotencyKey: "tpl-use-3",
+    });
+  });
+
+  /**
+   * A group that holds a budget of its own, budgeted the way the two budget
+   * descriptions now say it can be, and read back where `get_budget_report`
+   * says it is: in the period's groups, beside the category rows.
+   */
+  it("budgets a category group and reports it beside the categories", async () => {
+    const group = (await call("create_category_group", {
+      name: "Fun money",
+      policy: "standalone",
+      idempotencyKey: "group-budget-1",
+    })) as { id: string };
+    await call("create_budget_plan", {
+      groupId: group.id,
+      currency: "USD",
+      periodUnit: "month",
+      amount: "120",
+      activeFrom: "2026-03-01",
+      idempotencyKey: "group-budget-2",
+    });
+    await call("set_budget_entry", {
+      groupId: group.id,
+      currency: "USD",
+      periodUnit: "month",
+      periodStart: "2026-04-01",
+      amount: "200",
+      idempotencyKey: "group-budget-3",
+    });
+    const report = (await call("get_budget_report", {
+      start: "2026-03-01",
+      end: "2026-04-30",
+    })) as { periods: { periodStart: string; groups: { groupId: string; limit: string }[] }[] };
+    const limits = report.periods.map(
+      (period) => period.groups.find((one) => one.groupId === group.id)?.limit,
+    );
+    expect(limits).toEqual(["120", "200"]);
   });
 
   /**
@@ -478,6 +578,9 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
       preview_bulk_staged_selection: { filter: {} },
       export_ledger_file: { kinds: ["accounts", "entries", "staged", "budgets", "recurrences"] },
       preview_ledger_file: { ledgerFile: exported.ledgerFile },
+      // A guide the pack carries rather than a slug written here, so a guide
+      // the site renames moves this with it instead of failing it.
+      get_learn_article: { slug: LEARN_PACK.articles[0]!.slug },
     };
 
     const dropped: string[] = [];

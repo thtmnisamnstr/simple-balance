@@ -65,6 +65,17 @@ const SECOND_AUDIENCE = [
       "the choice, and that only the person can raise the limit — the allowance's precedent.",
   },
   {
+    where: "src/server/services/ledger-file.ts",
+    declaration: "addLedgerFile",
+    raises: "conflict",
+    times: 2,
+    because:
+      "Two refusals for a part that met a ledger changed after it was read — an account " +
+      "renamed or added, or another import staging the same rows first. The browser's way " +
+      "back is the button beside the refusal, named in its own words — Check the file again " +
+      "— and an agent has no button, so it is told the tool that reads the file again.",
+  },
+  {
     where: "src/server/services/billing.ts",
     declaration: "closeBillingForDeletion",
     raises: "conflict",

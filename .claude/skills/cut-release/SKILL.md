@@ -36,6 +36,12 @@ Require: a clean tree, every check green, and `release-prep` already run. If it
 has not been, run it first. Cutting on top of an unprepped branch is how a
 release ships with a stale count or an unwritten upgrade note.
 
+Require too that `node scripts/sync-learn.mjs --published` exits 0: the money
+guides the MCP server carries were written from smpl.money rather than from a
+local site build. The release workflow refuses to publish an image otherwise,
+and finding that out after the release is published leaves a release with no
+images (`product-kit` §6).
+
 ## 1a. Settle the open dependency pull requests
 
 A release is the wrong moment to discover that every open dependabot pull

@@ -20,10 +20,12 @@ const originalEnvironment = Object.fromEntries(
 );
 Object.assign(process.env, billingEnvironment);
 
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
-import { MAX_FREE_ACCOUNTS } from "../../src/shared/domain.js";
+import { frozenAccountRefusal, MAX_FREE_ACCOUNTS } from "../../src/shared/domain.js";
 import { getDb } from "../../src/server/db/client.js";
 import { billingOverrides, ledgerAccounts, user } from "../../src/server/db/schema.js";
 import {
@@ -34,6 +36,7 @@ import {
   setActiveAccounts,
 } from "../../src/server/services/accounts.js";
 import { getPlanSummary } from "../../src/server/services/billing.js";
+import { createMcpServer } from "../../src/server/mcp.js";
 import { createTransaction } from "../../src/server/services/transactions.js";
 import { scratchDatabase } from "./support/scratch-database.js";
 
@@ -435,5 +438,149 @@ integration("the free plan's account limit", () => {
     expect(live).toHaveLength(5);
     expect(live.filter((account) => account.frozen)).toHaveLength(2);
     expect(summary.accountsUsed).toBe(3);
+  });
+
+  /**
+   * Whether the one-time choice is open, as `whoami` tells an agent. It is the
+   * predicate `set_active_accounts` is allowed or refused by, so an agent had to
+   * list every account and apply it itself to know which of the two calls it
+   * was about to make — and the summary already worked it out, unreturned.
+   */
+  it("tells an agent when the choice of accounts in use is open, and when it has been made", async () => {
+    const owner = actor("limit-choice-open");
+    await seedUser(owner.userId);
+    await getDb().insert(billingOverrides).values({
+      userId: owner.userId,
+      plan: "plus",
+      expiresAt: null,
+      reason: "seeding beyond the limit",
+      operator: "tests",
+    });
+    const opened = [];
+    for (let n = 0; n < MAX_FREE_ACCOUNTS + 2; n += 1) {
+      opened.push(await makeAccount(owner, `Account ${n}`));
+    }
+    const whoami = async () => {
+      const server = createMcpServer(
+        { ...owner, source: "mcp", clientId: "limit" },
+        new Set(["ledger:read"]),
+      );
+      const client = new Client({ name: "limit", version: "1.0.0" });
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      await server.connect(serverTransport);
+      await client.connect(clientTransport);
+      try {
+        await client.listTools();
+        const reply = await client.callTool({ name: "whoami", arguments: {} });
+        expect(reply.isError).toBeFalsy();
+        return (reply.structuredContent as { result: Record<string, unknown> }).result;
+      } finally {
+        await client.close();
+        await server.close();
+      }
+    };
+
+    // The paid plan keeps no limit, so there is nothing to choose.
+    expect(await whoami()).toMatchObject({ accountLimit: null, activeChoicePending: false });
+
+    // The downgrade: five marked active against a limit of three.
+    await getDb().delete(billingOverrides).where(eq(billingOverrides.userId, owner.userId));
+    expect((await getPlanSummary(owner)).activeChoicePending).toBe(true);
+    expect(await whoami()).toMatchObject({
+      accountLimit: MAX_FREE_ACCOUNTS,
+      accountsUsed: MAX_FREE_ACCOUNTS,
+      activeChoicePending: true,
+    });
+
+    // Made once, and closed after.
+    await setActiveAccounts(owner, {
+      accountIds: opened.slice(0, MAX_FREE_ACCOUNTS).map((account) => account.id),
+    });
+    expect(await whoami()).toMatchObject({ activeChoicePending: false });
+  });
+
+  /**
+   * A file staged onto a frozen account, through `stage_csv` as an agent sends
+   * it. The browser's picker never offers a frozen account, so this is the path
+   * only an agent or an API client takes, and it is let through rather than
+   * refused, like an archived one. Every row with a draft is stored with the
+   * freeze's refusal, in the freeze's own words, and the dry run the tool
+   * advises has to report that rather than a file ready to commit.
+   */
+  it("previews a file staged onto a frozen account the way its rows are stored", async () => {
+    const owner = actor("limit-frozen-csv");
+    await seedUser(owner.userId);
+    await getDb().insert(billingOverrides).values({
+      userId: owner.userId,
+      plan: "plus",
+      expiresAt: null,
+      reason: "seeding beyond the limit",
+      operator: "tests",
+    });
+    for (let n = 0; n < MAX_FREE_ACCOUNTS + 1; n += 1) await makeAccount(owner, `Statement ${n}`);
+    await getDb().delete(billingOverrides).where(eq(billingOverrides.userId, owner.userId));
+    const frozen = (await listAccounts(owner)).find((account) => account.frozen);
+    expect(frozen, "one account over the limit is frozen").toBeDefined();
+
+    const server = createMcpServer(
+      { ...owner, source: "mcp", clientId: "limit-csv" },
+      new Set(["ledger:stage"]),
+    );
+    const client = new Client({ name: "limit-csv", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    type Row = { draft: unknown; issues: { field: string; message: string }[] };
+    const call = async <T>(name: string, args: Record<string, unknown>) => {
+      const reply = await client.callTool({ name, arguments: args });
+      expect(JSON.stringify(reply), name).not.toContain("Output validation error");
+      expect(reply.isError, JSON.stringify(reply.structuredContent)).toBeFalsy();
+      return (reply.structuredContent as { result: T }).result;
+    };
+    try {
+      await client.listTools();
+      const input = {
+        csv: [
+          "date,description,amount",
+          "2026-03-02,Grocer,-21.40",
+          "2026-03-03,Pharmacy,-8.15",
+        ].join("\n"),
+        fileName: "frozen.csv",
+        idempotencyKey: "limit-frozen-csv-stage",
+        defaultAccountId: frozen!.id,
+        mapping: { date: "date", payee: "description", amount: "amount" },
+        dateFormat: "YMD",
+        decimalSeparator: ".",
+      };
+      const refusal = {
+        field: "draft",
+        message: frozenAccountRefusal(MAX_FREE_ACCOUNTS, frozen!.name),
+      };
+
+      const preview = await call<{ validCount: number; invalidCount: number; sample: Row[] }>(
+        "stage_csv",
+        { ...input, dryRun: true },
+      );
+      expect(preview).toMatchObject({ validCount: 0, invalidCount: 2 });
+      expect(preview.sample.map((row) => row.issues)).toEqual([[refusal], [refusal]]);
+
+      const staged = await call<{ validCount: number; sample: Row[]; stagedIds: string[] }>(
+        "stage_csv",
+        input,
+      );
+      expect(staged.validCount).toBe(0);
+      const stored = [];
+      for (const id of staged.stagedIds) {
+        stored.push(
+          await call<{ validationIssues: Row["issues"] }>("get_staged_transaction", { id }),
+        );
+      }
+      expect(stored.map((row) => row.validationIssues)).toEqual(
+        preview.sample.map((row) => row.issues),
+      );
+    } finally {
+      await client.close();
+      await server.close();
+    }
   });
 });

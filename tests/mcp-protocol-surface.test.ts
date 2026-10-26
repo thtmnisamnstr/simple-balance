@@ -153,6 +153,8 @@ describe("the order tools come back in", () => {
     "list_budget_entries",
     "get_forecast",
     "get_budget_report",
+    "list_learn_articles",
+    "get_learn_article",
     "create_staged_transaction",
     "update_staged_transaction",
     "delete_staged_transactions",

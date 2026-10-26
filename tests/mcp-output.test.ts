@@ -398,6 +398,7 @@ describe("the owner id no agent can use", () => {
       plan: null,
       accountLimit: null,
       accountsUsed: null,
+      activeChoicePending: false,
     };
     const stripped = withoutUserId(identity);
     // Both halves, because the parse alone proves only one direction: the

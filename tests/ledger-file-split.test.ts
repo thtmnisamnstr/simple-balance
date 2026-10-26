@@ -11,6 +11,7 @@ import {
   type LedgerFile,
   type LedgerFilePartLimits,
 } from "../src/shared/ledger-file.js";
+import { previewLedgerFile } from "../src/server/services/ledger-file.js";
 import { origin, wholeLedger } from "./support/ledger-file.js";
 
 /**
@@ -245,6 +246,36 @@ describe("the default limits", () => {
       parts.map(ledgerFileRowCount),
     );
     expect(parts.map(ledgerFileRowCount)).toEqual([MAX_BULK_SELECTION_ENTRIES, 2]);
+  });
+
+  /**
+   * The browser's download allows ten times the cap, and the import page cuts
+   * it before sending it. An agent handed that file has no page and, connected
+   * to another copy, no way to export the source again a range at a time, so
+   * the refusal is the only place it can learn how to cut it. It states the
+   * rules this file holds the splitter to, one for one, so a part an agent cuts
+   * by them is a part the import takes.
+   */
+  it("tell an agent handed a file over them how to cut it the way the splitter does", async () => {
+    const whole = serializeLedgerFile(grown(MAX_BULK_SELECTION_ENTRIES + 1, 0));
+    const refusal = await previewLedgerFile(
+      { userId: "ledger-file-split", source: "mcp", clientId: "split" },
+      { ledgerFile: whole },
+    ).then(
+      () => undefined,
+      (error: unknown) => error as { code?: string; message?: string },
+    );
+    expect(refusal?.code).toBe("VALIDATION_ERROR");
+    for (const rule of [
+      "every part carries every record section whole",
+      "the entries go across the parts in date order",
+      "with budgets.entries and then staged after them",
+      "history goes in no part",
+      "only the last part keeps each account's balance",
+      "the same decisions, its own idempotencyKey, and part saying which it is",
+    ]) {
+      expect(refusal?.message).toContain(rule);
+    }
   });
 
   it("leave a ledger that fits as one part, history aside", () => {

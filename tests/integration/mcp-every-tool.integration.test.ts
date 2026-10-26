@@ -393,10 +393,12 @@ integration("every tool no other integration test calls, over a real connection"
         start: "2026-01-01",
       }),
     ).toHaveProperty("closingBalance");
-    const exported = await call<{ csv: string; rowCount: number }>("export_transactions_csv", {
-      start: "2026-01-01",
-    });
+    const exported = await call<{ csv: string; rowCount: number; fileName: string }>(
+      "export_transactions_csv",
+      { start: "2026-01-01" },
+    );
     expect(exported.rowCount).toBe(5);
+    expect(exported.fileName).toMatch(/^transactions-\d{4}-\d{2}-\d{2}\.csv$/);
     const audit = await call<{ items: unknown[] }>("list_audit_events", { limit: 200 });
     expect(audit.items.length).toBeGreaterThan(0);
   });

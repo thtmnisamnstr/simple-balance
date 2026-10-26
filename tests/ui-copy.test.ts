@@ -958,10 +958,10 @@ describe("a filtered list with nothing in it", () => {
     // dropped, which is a change to the set rather than a view of it.
     "src/client/pages/DuplicateReviewPage.tsx#Nothing repeats this anymore":
       "the pair under review is not a list",
-    // Not one `useState` on it. Empty means the ledger has no currencies.
-    "src/client/pages/DashboardPage.tsx#Create your first account": "the page has no controls",
-    "src/client/pages/DashboardPage.tsx#No spending in this range":
-      "the only narrowing is the shared date range",
+    // The Overview's archived box narrows the totals and the account list and
+    // the spending beside them, which ask; the budget panel keeps the budgets
+    // page's own default, which counts archived spending, so the box cannot be
+    // why it is empty.
     "src/client/pages/DashboardPage.tsx#No budget in this range":
       "the only narrowing is the shared date range",
     // A register for one account over the date range every view carries. 12.1

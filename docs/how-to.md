@@ -457,7 +457,10 @@ your honesty. The report only works if the entries are true.
 
 - **Overview**: balances, cash flow, and spending by category for any date
   range. It stops at today whatever range you pick, because money dated next
-  week has not moved. Below those, **Budget** shows where the period stands —
+  week has not moved. Archived accounts are left out until you tick **Include
+  archived accounts** under the range, which counts them and what moved
+  through them and marks each one "(archived)"; the choice is kept in the
+  page's address, as it is on Reports. Below those, **Budget** shows where the period stands —
   what it has spent against what it may spend — and under it every group and
   category you have budgeted, whether or not anything has been spent against
   them yet, each category linking to its own page. Categories with no budget are

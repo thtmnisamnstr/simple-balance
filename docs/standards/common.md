@@ -442,7 +442,7 @@ The membership test is the whole of it, and all four clauses have to hold:
 
 One value passes today. Stripe reports a subscription price as an integer count
 of the currency's smallest unit (`src/server/stripe.ts:1311`), the server hands
-it on untouched (`src/server/services/billing.ts:1233`), and `formatPrice`
+it on untouched (`src/server/services/billing.ts:1240`), and `formatPrice`
 (`src/client/pages/PlanPage.tsx:627-662`) divides it by the scale Stripe charged
 it in and formats it in the same breath. That scale is the one `Intl` already
 knows for every currency but four — ISK, UGX, HUF and TWD, which Stripe's own
@@ -519,7 +519,7 @@ only. There is no reverse lookup from a label to a wire value, because a label
 is not an identifier.
 
 **One gap is open and named here rather than implied.** `whoami` returns the
-plan as a bare wire value (`src/server/mcp-output-schemas.ts:749-750`) and its
+plan as a bare wire value (`src/server/mcp-output-schemas.ts:784-785`) and its
 description never says the screen reads a different word, so an agent explaining
 why a write was refused says "plus" about a product that sells Premium. That is
 the defect `AGENTS.md` records one level down from a route-by-route parity

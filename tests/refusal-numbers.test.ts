@@ -60,6 +60,9 @@ const COMPOSED: Record<string, { readonly because: string; readonly carries?: st
   ARCHIVED_ACCOUNT_DELETE_REFUSAL: {
     because: "A constant sentence, shared with the menu item it grays out.",
   },
+  ACCOUNT_UNAVAILABLE: {
+    because: "A constant sentence, shared with the CSV preview that predicts it for a whole file.",
+  },
   "first.message": {
     because:
       "The first problem a Simple Balance file's reader or its import plan found, each a sentence from `src/shared`. Every problem travels in `issues`, and each one with a number in it carries that number as a field of its own — the places a free plan keeps, the template and recurring-transaction caps, a budget's conflicting periods — which `planRefusal` spreads beside the message.",

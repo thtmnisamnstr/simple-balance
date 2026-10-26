@@ -173,9 +173,11 @@ describe("the export cap against the import cap", () => {
    * And the way back in is one part at a time, at the cap every bulk path
    * shares: a part that staged more rows than one commit can clear would be a
    * cap doing damage. The splitter never cuts one over it, so the refusal is
-   * for a file somebody put together by hand, and it names the two ways round
-   * it — the page cuts a larger file, and a larger ledger exports a range at a
-   * time.
+   * for a file somebody put together by hand, or for the browser's download —
+   * which allows ten times the cap — handed whole to an agent. It names the
+   * ways round it: the page cuts a larger file, a larger ledger exports a range
+   * at a time, and an agent holding only the file cuts it by the splitter's
+   * rules, which `tests/ledger-file-split.test.ts` holds the refusal to.
    */
   it("reads a Simple Balance file back a part at a time, at the shared cap", async () => {
     const read = (path: string) => readFile(new URL(`../${path}`, import.meta.url), "utf8");

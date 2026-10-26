@@ -40,10 +40,11 @@ contract breaks, which is not the same as when the app does.
 | `src/server/mail.ts` | The one place mail is sent from, and the one place that decides whether this deployment can send any. |
 | `src/server/metrics.ts` | Every number the process publishes about itself, in one `prom-client` registry, and the rules that keep a label from naming anybody. `/metrics` serves it, and nothing else in the process knows a backend exists. |
 | `src/server/db` | Drizzle schema, migration runner, connection pool. |
+| `src/server/learn` | The money guides smpl.money publishes, as `learn-pack.json`, the site's words copied in by `scripts/sync-learn.mjs` and never edited here, and the map from each guide's Simple Balance steps to the tools that do them, which is this repository's. Imported as JSON, so it reaches the image inside `dist` and is read from memory; nothing in it touches the database. |
 | `src/client` | The browser app. Renders what the server computed. |
 | `drizzle` | Generated SQL migrations and their snapshots. |
 | `tests` | Unit tests; `tests/integration` needs a real PostgreSQL; `tests/browser` drives Chromium against the real API and needs its own database. |
-| `scripts` | Release helper, development database bootstrap, the Ralph loop. |
+| `scripts` | Release helper, development database bootstrap, the money-guide sync, the Ralph loop. |
 
 Both transports are adapters, and the scheduler is a third caller of the same
 services. Anything that decides something belongs in a service, so the browser,

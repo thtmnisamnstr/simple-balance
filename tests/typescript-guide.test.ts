@@ -260,11 +260,11 @@ describe("1.3 and 1.4, the two declined flags with a measurement in them", () =>
    * the compiler follows an import past it. The suite imports three
    * infrastructure modules to render cloud-init, a fourth that holds the
    * stack-settings rules and the `.d.mts` beside the script that fills them,
-   * and five `.d.mts` siblings of the `scripts/` modules it exercises, so all
-   * ten are inside every number 1.4 quotes — two of its
+   * and six `.d.mts` siblings of the `scripts/` modules it exercises, so all
+   * eleven are inside every number 1.4 quotes — two of its
    * `exactOptionalPropertyTypes` errors are in the first three.
    */
-  it("reads exactly the ten first-party files outside src and tests that 1.4 names", () => {
+  it("reads exactly the eleven first-party files outside src and tests that 1.4 names", () => {
     const declared = ((json(ROOT_TSCONFIG).include ?? []) as string[]).filter((one) =>
       /\.tsx?$/.test(one),
     );
@@ -297,6 +297,7 @@ describe("1.3 and 1.4, the two declined flags with a measurement in them", () =>
       "scripts/capacity/measure.d.mts",
       "scripts/capacity/schedule.d.mts",
       "scripts/capacity/verify.d.mts",
+      "scripts/lib/learn-sync.d.mts",
       "scripts/product-kit/entry-key.d.mts",
     ]);
   });

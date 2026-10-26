@@ -21,7 +21,7 @@ ledger that may already hold some of them, and both use that too.
 `src/server/services/ledger-file.ts` reads a ledger and writes the file, and
 adds a file to a ledger. `GET /api/v1/ledger-file`,
 `POST /api/v1/ledger-file:preview` and `POST /api/v1/ledger-file:add`
-(`src/server/api.ts:2185-2220`), and the `export_ledger_file`,
+(`src/server/api.ts:2179-2214`), and the `export_ledger_file`,
 `preview_ledger_file` and `add_ledger_file` tools, are the ways in, and the
 Import a Simple Balance file and Export sections of **Import and export** are
 the page that uses them. Adding a file is the one way to read it back so far
@@ -804,8 +804,9 @@ through, so 0026 makes "one entry per origin per ledger" and "one waiting row
 per origin" unique indexes. The commit copies a row's origin onto the entry it
 becomes, and a violation is a sentence rather than a constraint: from the
 commit, *This entry is already in the ledger, so it was not committed again.*,
-and from the add, *Another import staged this file's entries a moment ago.
-Preview the file again.* On a Citus cluster the index's name carries a shard
+and from the add, *Another import staged this file's transactions a moment
+ago. Check the file again.*, with an agent told to call `preview_ledger_file`
+again. On a Citus cluster the index's name carries a shard
 suffix, so the violation is recognized by the name it starts with.
 
 **Different origins are never duplicates, and no origin is compared as it always
@@ -847,12 +848,21 @@ one transaction creates or matches each under every namespace lock; a part
 over either is refused with `limit` and `count` before the ledger is read
 (`readPart`, `src/server/services/ledger-file.ts:1256-1285`). The splitter
 never cuts a part over the row cap, and refuses up front a file whose records
-alone are over the other. Each part takes every lock up front, in the order
+alone are over the other. So the part that meets the row refusal is one nobody
+cut: a file made by hand, or the browser's download — up to 100,000 rows —
+handed whole to an agent, which holds the file and not the page that cuts it.
+That is why the refusal states section 9's rules rather than only pointing at
+the page: every part carries every record section whole, the entries go
+across the parts in date order with budget amounts and then staged rows after
+them, history goes in no part, and only the last keeps the balances — and that
+every part goes with the same decisions, its own key and its number. Each part
+takes every lock up front, in the order
 `helpers.ts` sets, reads the facts under them, plans, and writes, so what it
 planned against cannot move before it writes; an account the plan would use
 that was not locked can only have appeared or been renamed in between, and is
-refused with *This ledger changed while the file was being read. Preview it
-again.*
+refused with *This ledger changed while the file was being read. Check the
+file again.*, the page's own button, and an agent is told to call
+`preview_ledger_file` again.
 
 - **Idempotent twice over.** By its key, bound to a hash of the part, its name,
   its number and everything decided, so a part sent again replays and the key
@@ -918,9 +928,13 @@ fails", "replays a part sent again with its key, and refuses the key with
 another request", "refuses a part with more records than one part may carry,
 before reading the ledger", "applies the file's settings over a choice made
 here only when asked", and "takes the same budget decision with every part,
-from the service and over MCP"); and
+from the service and over MCP");
 `tests/integration/ledger-file-add-plan.integration.test.ts` for a free plan's
-places end to end, an account archived at the source among them.
+places end to end, an account archived at the source among them; and
+`tests/ledger-file-split.test.ts` ("tell an agent handed a file over them how
+to cut it the way the splitter does"), which sends a part over the row cap
+through the preview and holds the refusal to every rule `splitLedgerFile` is
+itself held to.
 
 ## 16. What adding does not do
 

@@ -157,7 +157,7 @@ export async function visitImportStates(page: Page, measure: (state: string) => 
         ? refused(
             409,
             "CONFLICT",
-            "This ledger changed while the file was being read. Preview it again.",
+            "This ledger changed while the file was being read. Check the file again.",
           )
         : streamed([
             { type: "progress", event: { phase: "staging", done: 7, total: 7 } },

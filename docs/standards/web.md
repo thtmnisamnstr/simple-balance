@@ -75,8 +75,8 @@ it twice. A spacing step qualifies because a gap that is 11px on one card and
 12px on the next is not a decision, it is two accidents. A one-off geometry
 value does not qualify: nine of the ten inline `style` props in the client
 (`charts.tsx:273`, `charts.tsx:322`, `components.tsx:994`, `components.tsx:1446`,
-`BudgetsPage.tsx:1434`, `DashboardPage.tsx:283`, `DashboardPage.tsx:424`,
-`DashboardPage.tsx:484`, `DashboardPage.tsx:530`) are runtime geometry — a bar's
+`BudgetsPage.tsx:1434`, `DashboardPage.tsx:339`, `DashboardPage.tsx:482`,
+`DashboardPage.tsx:542`, `DashboardPage.tsx:588`) are runtime geometry — a bar's
 width, a chart's offset — and are correct as they are.
 
 **The tenth is not geometry at all**, and it is named rather than left to look
@@ -1637,7 +1637,7 @@ next submit — clearing it as somebody types would be judging a field while the
 type in it, which the timing rule above refuses — with one exception a form with
 a mode switch needs: a switch that changes which fields are on the form takes
 the refusal with it. The export's scope, its range, its account detail and the
-two boxes the range depends on each do (`src/client/pages/ImportPage.tsx:1077`).
+two boxes the range depends on each do (`src/client/pages/ImportPage.tsx:1063`).
 Left up, the refusal named a date field that was no longer there — a summary
 link focusing nothing — or sat beside a form whose own button now said
 something else was wrong.
@@ -1707,8 +1707,8 @@ anchors to the failing field, and each failing field says its own sentence
 again beside itself. Both landed after the 0.2.0 sandbox smoke test found
 refusals only at the top of the form. The two things this note used to name as
 missing are what made it possible. The path is kept: `ApiClientError.issues`
-(`src/client/api.ts:53`) carries each sentence with the dotted request path it
-is about, and `errorIssues` (`:191`) hands the summary that list, with `path:
+(`src/client/api.ts:54`) carries each sentence with the dotted request path it
+is about, and `errorIssues` (`:192`) hands the summary that list, with `path:
 null` for anything that is not a field's — a duplicate-name conflict, a network
 failure. And there is a registry, per form rather than per page: `Form` and
 `FormErrors` (`src/client/components.tsx:465-486`) put one refusal in a context
@@ -2503,7 +2503,7 @@ code path renders them.
 
 **Settled, with two named exceptions.** Calendar dates go through `formatDate`,
 including the two "As of" lines that printed raw ISO directly above formatted
-tables (`DashboardPage.tsx:193` and `ReportsPage.tsx:363` were the offenders).
+tables (`DashboardPage.tsx:244` and `ReportsPage.tsx:363` were the offenders).
 Instants go through `formatTimestamp(instant, timezone)`
 (`src/client/money.ts:425-450`), whose zone comes from `useTimezone()`: the
 activity log (`src/client/pages/ActivityPage.tsx:194`) and the connected-apps
@@ -2766,6 +2766,30 @@ recipient has no way to see the pills they should question. If somebody asks
 for shareable exclusions, that argument is the one to beat; until then the
 decision is recorded here rather than left to look like an oversight.
 
+**The archived flag is one key on two pages.** The Overview's **Include
+archived accounts** box reads and writes `?archived=1`, the key Reports'
+box already used (`src/client/pages/DashboardPage.tsx:67`), so an address
+carrying it means the same thing on both and every link the Overview carries
+`location.search` on (11.10) takes it along. It is a box over the totals, the
+account list and the spending beside them, and it marks each archived account
+it adds "(archived)"; the budget panel below it keeps the Budgets page's own
+default, which counts archived spending, because a budget's limit was never
+scoped to an account. The box arrived for a reason that is not about the page:
+`get_financial_summary` took `includeArchived`, its route parsed it, and no
+page could send it — a request field only an agent could set, which is the
+defect `AGENTS.md` names one level below a route. Arguing it as a parameter
+the Overview does not offer was the alternative, and the comment that argued it
+said the toggle was on Reports, which answers a different question over time;
+somebody reading the Overview could not ask it there.
+
+*Checked by:* `tests/dashboard-ui.test.tsx` ("leaves them out until the box is
+ticked, then asks for them and says so in the address", "marks an archived
+account in the list it adds it to", "names the box as a way out when the ledger
+shows nothing"), and the read-field comparison in `tests/mcp-parity.test.ts`
+([`mcp.md`](mcp.md#the-agent-surface-never-runs-ahead-of-the-browser)), which
+fails if the Overview stops sending the flag. That the two pages' boxes share a
+key is not checked.
+
 ### 11.9 A field the API sends is rendered, or its absence is argued
 
 **Binding, and the parity rule one level down.** `AGENTS.md` already says a
@@ -2895,11 +2919,12 @@ archived toggle beside it, and Templates and Recurring blamed the search to
 somebody who had only used the Type select.
 
 **A control that is in force before anybody touches it names a way out without
-making the list narrowed.** Hiding archived rows is the only one in the
-product, and counting it would make "nothing yet" unreachable on the two pages
-that have one — this rule's own failure from the other side. Those two read
-three ways rather than two: nothing set at all, only the default in force, and
-a filter the reader set.
+making the list narrowed.** Hiding archived accounts is one, on four pages —
+Accounts, Categories, Reports and, since 0.2.2, the Overview — and the
+register's unticked **Show deleted** is the other. Counting either would make
+"nothing yet" unreachable on every page that has one — this rule's own failure
+from the other side. Those pages read three ways rather than two: nothing set
+at all, only the default in force, and a filter the reader set.
 
 **The check asked this of four pages until 0.2.0, and the four were the ones
 already right.** It named them in an array, on the reasoning that whether a list
@@ -3363,7 +3388,7 @@ The rules, in the order they matter:
 - **Binding, SC 1.4.11.** The fill is `--green-fill` on `--track`, measured in
   2.2, and the bar keeps the `--line-strong` edge 2.2 requires of a control.
 - **Three bars now, and a fourth has to say which of them it is not.**
-  `.progress-track` (`styles.css:1602`, `DashboardPage.tsx:282`) is a decorative
+  `.progress-track` (`styles.css:1602`, `DashboardPage.tsx:338`) is a decorative
   share-of-total meter under a row that already states its figure.
   `.budget-bar` (`styles.css:4649`, `BudgetsPage.tsx:1425`) is money, with an
   over state. `.progress-meter` is work in flight. Neither of the first two

@@ -64,11 +64,11 @@ which is a field the metrics library does not return.
 ### 1.3 A route label is the pattern, never the path
 
 **Binding.** `/api/v1/accounts/:id` is one series; `/api/v1/accounts/<uuid>` is
-one per account. `routeLabel` (`src/server/api.ts:390-396`) reads Hono's matched
+one per account. `routeLabel` (`src/server/api.ts:389-395`) reads Hono's matched
 pattern, and resolves the three different things that all arrive as `/*`: a
 request answered by middleware mounted above the routes — which is where a 413
 from the body limit lands — is labeled by its prefix from a fixed list
-(`:388`); the browser app's shell, and the files at the bundle's root beside
+(`:387`); the browser app's shell, and the files at the bundle's root beside
 it, are `spa_shell`; and a request nothing answered is one literal,
 `unmatched`, because a mistyped URL is exactly where unbounded labels come
 from.
@@ -78,7 +78,7 @@ deployment serving its own pages every page load came back from the catch-all as
 `/*`, so `unmatched` was mostly the browser app working and a rise in it meant
 nothing. The shell is recognized off the static handlers' own answer — a request
 under `/*` that came back without a refusal was answered by the browser app
-(`src/server/api.ts:2301`) — and after the prefixes, so a stale link to a hashed
+(`src/server/api.ts:2295`) — and after the prefixes, so a stale link to a hashed
 asset is still the `/assets/*` request it was. A page that does not exist is
 `spa_shell` too: the shell answers it, and only the browser app knows its pages.
 On such a deployment `unmatched` is now a method no route takes, or a refusal
@@ -88,7 +88,7 @@ nginx serves the pages there.
 Better Auth's routes are the same rule on a second counter. They are one
 catch-all to Hono, so `http_requests_total` calls every one of them
 `/api/auth/*`. `auth_requests_total` matches the path segment by segment
-against `AUTH_ROUTES` (`authRouteLabel`, `src/server/api.ts:413-423`), a
+against `AUTH_ROUTES` (`authRouteLabel`, `src/server/api.ts:412-422`), a
 parameter standing for exactly one segment, so a reset link's token is
 `:token` and a path nothing lists is the catch-all's own pattern — never the
 path as it was sent.
@@ -106,7 +106,7 @@ the catch-all, never as it was sent".
 
 **House.** Every counter increments whether or not `METRICS_ENABLED` is set.
 What the setting decides is whether `GET /metrics` is registered at all
-(`src/server/api.ts:458`) — registered rather than refusing, so a deployment
+(`src/server/api.ts:457`) — registered rather than refusing, so a deployment
 that never asked has no such route.
 
 The measurement behind that: a labeled increment costs about 130ns and does
@@ -126,7 +126,7 @@ and never on a path that did not do the work:
   the counter did not move.
 - An idempotent replay is not a second write. Five counters double-counted one
   until each mutation started signaling replay out of its transaction callback
-  (`src/server/services/transactions.ts:1175`, `:1186`, `:1212`), and the
+  (`src/server/services/transactions.ts:1181`, `:1192`, `:1218`), and the
   visible cost was a client retrying a four-thousand-row edit reporting eight
   thousand rows changed. The retry is a fact about the client, and it has its
   own counter.
@@ -136,7 +136,7 @@ and never on a path that did not do the work:
   rollback, because PostgreSQL ended the transaction either way. A transaction
   that never began — no connection, or `begin` refused — is neither.
 - A sign-in is counted from the status that went out, in the HTTP middleware
-  (`src/server/api.ts:445-454`), and never in a Better Auth database hook. A
+  (`src/server/api.ts:444-453`), and never in a Better Auth database hook. A
   hook sees a sign-up that may still roll back, which is counting the attempt,
   and it runs on the one connection the sign-up transaction holds.
 
@@ -181,8 +181,8 @@ produce refusals, is where the label itself is checked.
 ### 1.7 Instrument the seam, not the call sites
 
 **House.** Eighty tools are timed and counted by wrapping `registerTool`
-once (`src/server/mcp.ts:612`), and every HTTP request by one middleware
-mounted above everything, including the guards (`src/server/api.ts:312`). Both
+once (`src/server/mcp.ts:617`), and every HTTP request by one middleware
+mounted above everything, including the guards (`src/server/api.ts:311`). Both
 are chosen so a tool or a route added tomorrow is instrumented by existing
 rather than by somebody remembering.
 
@@ -191,10 +191,10 @@ a request refused by a guard took time and happened, and leaving it out would
 report a system that is fast and idle at exactly the moment it is being hammered
 by something it is refusing. The in-flight gauge and the aborted count ride it.
 The gauge goes up where the timer starts and down first thing in `record()`
-(`src/server/api.ts:314`, `:327`), the one function that runs exactly once per
+(`src/server/api.ts:313`, `:326`), the one function that runs exactly once per
 request and, for a stream, after the last frame, so nothing later in it
 throwing can leave a request in flight for good. An aborted request is read off
-the request's own signal in the same place (`:335`), before the adapter writes
+the request's own signal in the same place (`:334`), before the adapter writes
 a byte of an ordinary answer, so what it counts is a caller who left while the
 handler was still working.
 
@@ -221,24 +221,24 @@ connection, so a full pool read as slow transactions — the opposite diagnosis 
 and the wait is now `db_pool_acquire_duration_seconds` alone.
 
 **The same shape at the other edges.** `mcp_requests_total` is counted where an
-HTTP request becomes JSON-RPC (`countRpcMessages`, `src/server/mcp.ts:2311`),
+HTTP request becomes JSON-RPC (`countRpcMessages`, `src/server/mcp.ts:2377`),
 the one place a call the protocol refused and a call a tool answered both pass;
 the tool wrapper sees only the second. A Stripe call is counted, timed and
 classified in `measured` (`src/server/stripe.ts:85`). A failure nobody meant is
 counted at the one place each surface turns it into an `INTERNAL_ERROR`, and
 never for a refusal the caller can act on: `errorEnvelope` for a 500 and for a
 streamed `error` frame, told apart by the surface its caller names
-(`src/server/api.ts:490`, counted at `:545`), `runTool` for a tool
-(`src/server/mcp.ts:258`), and the catch Better Auth's background tasks land in
+(`src/server/api.ts:489`, counted at `:544`), `runTool` for a tool
+(`src/server/mcp.ts:261`), and the catch Better Auth's background tasks land in
 (`src/server/auth.ts:150`). How a stream ended is counted in the stream
 helper's `finally`, before it settles the request timer
 (`src/server/stream.ts:169`).
 
 Three more sit where the thing they count is decided, so nothing has to be
 told about them. A 429 is counted by the limiter that sent it: the setup
-code's where it refuses (`src/server/api.ts:674`), and Better Auth's in the
+code's where it refuses (`src/server/api.ts:673`), and Better Auth's in the
 auth middleware, recognized by the `X-Retry-After` header only its limiter
-sets (`:453`), so neither limiter has to know the other exists. The shared
+sets (`:452`), so neither limiter has to know the other exists. The shared
 limiter falling back to a tally in this process is counted in the catch of
 `take`, beside the line it already wrote, and never in `clear`'s
 (`src/server/http-security.ts:748`). A message is timed around the relay's
@@ -247,7 +247,7 @@ answer, accepted or refused, and not at all when there is no relay, which
 (`src/server/mail.ts:154`, `:192`): a refusal is the half worth timing, since
 a relay that never answers takes the transport's whole bound to fail. A
 violation report is counted per violation, because one delivery can carry
-several (`src/server/api.ts:1442`), and only moves on a deployment rehearsing
+several (`src/server/api.ts:1441`), and only moves on a deployment rehearsing
 its policy, since only there is the route registered.
 
 **One process is outside the HTTP half of this, and the gap is smaller than it
@@ -329,12 +329,12 @@ declaration.
 ### 1.9 A route with more exits than status codes counts through one function
 
 **House, and mechanizable.** The Stripe webhook has one way out, and the
-docstring above it says why (`src/server/api.ts:1283-1298`). Counted
+docstring above it says why (`src/server/api.ts:1282-1297`). Counted
 2026-10-01: seven of its exits answer the same `200 {"received":true}` under
 six outcome names, so `http_requests_total` — method, route, status — cannot
 tell a delivery that granted an entitlement from one that was acknowledged and
 ignored, and five of the seven write nothing to the log either. `answered`
-(`:1299`) takes the branch's name, increments
+(`:1298`) takes the branch's name, increments
 `billing_webhook_deliveries_total` and writes the body, so counting each
 delivery exactly once is structural: there is no other way to return a 2xx.
 
@@ -354,7 +354,7 @@ unauthenticated caller supplies: a single exit is what makes the set
 enumerable, and the outcome is the branch's own name rather than the event
 type, which is Stripe's vocabulary and grows whenever Stripe ships an event.
 One exit sits outside the funnel and says so — the signature refusal
-(`src/server/api.ts:1314`), which is the only answer carrying a status of its
+(`src/server/api.ts:1313`), which is the only answer carrying a status of its
 own.
 
 The shape recurs for any route whose interesting outcomes are finer than its
@@ -397,7 +397,7 @@ list and a copy in each is three lists. The allow-list in §1.2 builds its
 reason from the export, so the reason and the list a caller maps onto cannot
 come apart; the mapping derives its own lookup from it, so a method added to
 the tuple is recognized by existing (`NAMED_RPC_METHODS`,
-`src/server/mcp.ts:2250`); and a test can hold its cases to the whole tuple.
+`src/server/mcp.ts:2316`); and a test can hold its cases to the whole tuple.
 The obvious alternative — copy the caller's value and strip the characters a
 label cannot carry — bounds the characters and not the count, which is the
 property 1.2 is about.
@@ -788,7 +788,7 @@ collector's job.
 losing it.** Measured 2026-10-01: 22 lines in `src/server/services/billing.ts`
 and `src/server/stripe.ts` are written as a dotted event key and a field object
 — `log.warn("billing.reconcile.failed", { error: String(error) })`
-(`src/server/services/billing.ts:2202`) is the shape — and between them they
+(`src/server/services/billing.ts:2209`) is the shape — and between them they
 are the entire log output of the subsystem an operator is most likely to be
 reading during an outage. Nothing in either file argues for an exception. So
 this rule describes two thirds of the server while the newest third does the
@@ -810,10 +810,10 @@ The five sites that show what the rule costs, each with the thing it
 deliberately leaves out:
 
 - **A request** logs the method, the path and the status
-  (`src/server/api.ts:349`) and never the query string, because a filter carries
+  (`src/server/api.ts:348`) and never the query string, because a filter carries
   payees and search terms.
 - **An MCP tool call** logs the tool name and the outcome
-  (`src/server/mcp.ts:638`) and never the arguments, which are somebody's ledger
+  (`src/server/mcp.ts:643`) and never the arguments, which are somebody's ledger
   by definition.
 - **A message** logs `message.about` — "the password reset", "the reminder" —
   and never the recipient or the subject (`src/server/mail.ts:177`, `:182`), and
@@ -878,7 +878,7 @@ seventeen sites.** Measured 2026-10-01: 17 log calls across the same two files
 hand an identifier bound by a `catch` in the same file to `String()` — fifteen
 in `src/server/services/billing.ts` and two in `src/server/stripe.ts` — and
 several of them wrap plain database writes, such as the locked write at
-`src/server/services/billing.ts:2191` and the deferral at `:2225`.
+`src/server/services/billing.ts:2198` and the deferral at `:2232`.
 `String(error)` on a Drizzle error yields its message, which is the statement
 plus every value bound into it: exactly what the narrowing exists to strip, got
 at one remove.
@@ -932,7 +932,7 @@ tick that throws, an OAuth client sweep that fails, the two Stripe checks both
 entrypoints make at boot — the prices (`src/server/stripe.ts:1583`) and what
 the key may read (`:1668-1683`) — and the reconciliation sweep carrying on
 past a subscription Stripe cannot answer about
-(`src/server/services/billing.ts:2202`). Each logs and continues,
+(`src/server/services/billing.ts:2209`). Each logs and continues,
 because the alternative — a `catch` with an empty body — produces a deployment
 that is quietly doing half its job, which is the failure mode the degradation
 was designed to avoid in the first place.
@@ -1055,7 +1055,7 @@ the page rather than by anything failing.
   than as surprises.
 
 - **A stale count in the code §1.9 argues from, one of two.** The `answered`
-  function's docstring (`src/server/api.ts:1287`) says five exits answer
+  function's docstring (`src/server/api.ts:1286`) says five exits answer
   `200 {"received":true}` and four of them write nothing to the log. Counted
   2026-10-01 they are seven and five: the `setup_intent.succeeded` branch
   arrived after the sentence was written. The second copy, in the webhook

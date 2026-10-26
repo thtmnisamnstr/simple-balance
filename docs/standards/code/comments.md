@@ -3,7 +3,7 @@
 The one convention in this repository that is genuinely unusual, and the reason
 it pays.
 
-**27.3% of the non-blank lines in `src` are comments** — 20,086 of 73,704. That
+**27.3% of the non-blank lines in `src` are comments** — 20,325 of 74,560. That
 is far above what most codebases carry and far above what most style guides
 recommend. It is deliberate, and this guide exists so that nobody "tidies" it
 away and so that the density is spent on the right things.
@@ -212,7 +212,7 @@ Nothing above reaches them either. The density measurement walks one directory
 (`tests/comment-density.test.ts:30`), the silenced-rule check globs one
 (`tests/lint-config-documented.test.ts:72`), the formatter is handed three paths
 (`package.json:28`), and the root compiler's include list names neither
-(`tsconfig.json:27-35`) — `deploy/pulumi` is typechecked by a configuration of
+(`tsconfig.json:28-36`) — `deploy/pulumi` is typechecked by a configuration of
 its own, in CI.
 
 **The practical hole is in rule 5, which is Binding.** `npm run lint` is a bare

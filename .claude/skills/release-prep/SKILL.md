@@ -193,6 +193,15 @@ Two things decide whether this phase has work in it:
   the marketing site will keep advertising something that is gone or miss
   something new.
 
+**And always the skill's §6, whatever those two say.** It runs
+`node scripts/sync-learn.mjs --check`, which takes seconds and needs neither
+the database nor a browser, and compares the money guides the MCP server
+carries with what smpl.money publishes. That direction changes when the site
+does, not when this branch does, so a branch with no new screen and no new
+capability is exactly where it goes stale unseen. Its exit decides the rest —
+0 nothing, 1 the `--write` and the step-map edits §6 tabulates, 2 nothing
+concluded — and its one line goes in the readiness report.
+
 It sits after 3c because the design review's fixes change what it photographs,
 and before 5 because the kit's output is a document and phase 5 is where
 documents are brought back to true.
@@ -235,6 +244,7 @@ npx vitest run tests/comment-density.test.ts tests/testing-guide-counts.test.ts 
 | Lint rules documented | `tests/lint-config-documented.test.ts` | `docs/standards/code/index.md` |
 | Tool names | `tests/mcp-parity.test.ts` | `docs/mcp.md` |
 | Frozen migrations | `tests/migrations.test.ts` | `AGENTS.md` |
+| The money guides' steps, mapped to tools | `tests/learn-pack.test.ts` | `src/server/learn/in-simple-balance.ts` |
 
 Adding a test file moves **both** the tier table and the run table, and the
 density percentage in two files. Expect a second pass and take it.
@@ -308,6 +318,8 @@ Say plainly what is true:
 - `AGENTS.md` names every unreleased migration.
 - Whether `docs/product/` was rebuilt, and that the marketing site does not
   see it until this merges.
+- The learn pack's line from `product-kit` §6: in sync with smpl.money, from
+  a local site build, or not checkable and why.
 - All three tiers and all fourteen checks green.
 - What the audits found, what was fixed, and what was rejected and why —
   `guides-comply`'s sweep and the checks it built included.

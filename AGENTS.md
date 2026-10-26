@@ -137,7 +137,11 @@
   compares them route by route. A new `/api/v1` route needs a tool in the same
   change, or a named exception carrying its reason. It runs the other way too:
   the agent surface never gets ahead of the browser, so a route no page calls
-  needs a named exception of its own. A capability a person cannot reach is not
+  needs a named exception of its own, and so does a tool no route reaches,
+  because every comparison starts from a route and such a tool passed them all
+  unseen. The money guides are two such tools: no page calls a route for them,
+  because a person reads the same guides at smpl.money/learn, and they read
+  nothing of anybody's. A capability a person cannot reach is not
   parity, it is a second product. Route by route is where the test can check,
   not where the rule stops: a request field only an agent ever sets is the same
   defect one level down, and it is invisible to a comparison of route lists.

@@ -28,6 +28,7 @@ import {
 } from "../components.js";
 import { newIdempotencyKey } from "../idempotency.js";
 import { emptyScreen, waysOut } from "../list-filters.js";
+import { nameSearch } from "../../shared/names.js";
 
 const payeeSortFields = [
   { field: "name", label: "Name" },
@@ -118,10 +119,11 @@ export default function PayeesPage() {
   });
 
   const filtered = useMemo(() => {
-    const value = search.trim().toLocaleLowerCase();
-    const matching = value
-      ? (payees.data ?? []).filter((payee) => payee.name.toLocaleLowerCase().includes(value))
-      : (payees.data ?? []);
+    // Narrowed here as somebody types rather than sent as `search`, and with
+    // `list_payees`' own predicate: the list is every spelling there is, so a
+    // round trip per keystroke would fetch the answer this already holds.
+    const matches = nameSearch(search);
+    const matching = (payees.data ?? []).filter((payee) => matches(payee.normalizedName));
     return [...matching].sort((left, right) => {
       const of = (payee: PayeeSummary) => {
         switch (sort.field) {

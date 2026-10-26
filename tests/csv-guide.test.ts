@@ -8,6 +8,7 @@ import {
   isAppExportCsv,
   previewCsv,
   rowsToCsv,
+  suggestCsvMapping,
 } from "../src/shared/csv.js";
 
 /**
@@ -221,5 +222,47 @@ describe("the columns a file must carry to be read as one of ours", () => {
     // And one short of the set is not ours, which is what makes the assertion
     // above about recognition rather than about a list.
     expect(isAppExportCsv(SHIPPED.slice(1))).toBe(false);
+  });
+});
+
+/**
+ * What the preview says about a file before anybody maps it, said once.
+ *
+ * The import page guessed the mapping and recognized an export from the bare
+ * headings in the browser, and `preview_csv` handed an agent the headings and
+ * nothing else — so an agent redid both, and could arrive somewhere the page
+ * would not. `AGENTS.md` keeps a rule the browser previews to one function;
+ * these are now the parser's own answers, and the page reads them off the
+ * reply.
+ */
+describe("the preview's reading of the headings", () => {
+  it("guesses each field from the headings a bank writes, ignoring case", () => {
+    const preview = previewCsv("Posted Date,Merchant,Debit,Credit,Memo,Reference\n");
+    expect(preview.simpleBalanceExport).toBe(false);
+    expect(preview.suggestedMapping).toEqual({
+      date: "Posted Date",
+      payee: "Merchant",
+      debit: "Debit",
+      credit: "Credit",
+      description: "Memo",
+      externalId: "Reference",
+    });
+    // The same function the page falls back to, so a server from before and
+    // one from after hand the browser the same mapping.
+    expect(suggestCsvMapping(preview.headers)).toEqual(preview.suggestedMapping);
+  });
+
+  it("leaves out a field it cannot place rather than guessing one", () => {
+    const { suggestedMapping } = previewCsv("When,Who,How much\n2026-01-01,Shop,1\n");
+    expect(suggestedMapping).toEqual({});
+  });
+
+  it("recognizes one of our own exports and offers it no mapping, which its stage ignores", () => {
+    const preview = previewCsv(`${APP_CSV_COLUMNS.join(",")}\n`);
+    expect(preview.simpleBalanceExport).toBe(true);
+    expect(preview.suggestedMapping).toEqual({});
+    // The export's `transaction_id` is the primary key of the ledger it came
+    // from, and the guess never offers it as the bank's reference.
+    expect(suggestCsvMapping(["transaction_id"])).toEqual({});
   });
 });

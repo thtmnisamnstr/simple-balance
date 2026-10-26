@@ -160,12 +160,19 @@ async function readEntitlementFacts(actor: Actor, db: Executor): Promise<Entitle
  *
  * No count at all where nothing is sold, which is the default: the session read
  * costs exactly what it cost before this release.
+ *
+ * `activeChoicePending` rides along because `whoami` reports this summary and
+ * an agent had no other way to learn the one-time choice was open short of
+ * listing every account and applying the predicate itself. It costs no read:
+ * `countPlaces` already works it out from the rows it counted.
  */
-export async function getPlanSummary(
-  actor: Actor,
-): Promise<{ entitlement: Entitlement; accountsUsed: number | null }> {
-  const { entitlement, accountsUsed } = await countPlaces(actor, false);
-  return { entitlement, accountsUsed };
+export async function getPlanSummary(actor: Actor): Promise<{
+  entitlement: Entitlement;
+  accountsUsed: number | null;
+  activeChoicePending: boolean;
+}> {
+  const { entitlement, accountsUsed, activeChoicePending } = await countPlaces(actor, false);
+  return { entitlement, accountsUsed, activeChoicePending };
 }
 
 /** The plan, and every count of accounts the plan tab says anything about. */

@@ -174,7 +174,6 @@ import {
   ledgerFilePreviewInputSchema,
 } from "../shared/ledger-file-import.js";
 import { addLedgerFile, exportLedgerFile, previewLedgerFile } from "./services/ledger-file.js";
-import { todayIn } from "../shared/recurrence-dates.js";
 import { getPreferences, setPreferences } from "./services/preferences.js";
 import {
   applyCustomerDeletion,
@@ -2166,16 +2165,11 @@ app.get("/api/v1/import-batches", async (c) =>
   c.json(await listActiveImportBatches(c.get("actor"), query(c))),
 );
 app.get("/api/v1/csv/export", async (c) => {
-  const actor = c.get("actor");
-  const result = await exportTransactionsCsv(actor, query(c));
+  const result = await exportTransactionsCsv(c.get("actor"), query(c));
   c.header("Content-Type", CSV_MEDIA_TYPE);
-  // Dated in the person's own timezone, not the server's. `common.md` puts
-  // every "today" in this product through `todayIn`, and this was the one that
-  // went through the server clock instead: somebody at UTC+13 downloading at
-  // 09:00 got yesterday's date on the file, which is the one thing a dated
-  // filename exists to get right.
-  const { timezone } = await getPreferences(actor);
-  c.header("Content-Disposition", `attachment; filename="transactions-${todayIn(timezone)}.csv"`);
+  // The service names the file, dated by today where the person lives, so
+  // this download and `export_transactions_csv` carry one name.
+  c.header("Content-Disposition", `attachment; filename="${result.fileName}"`);
   return c.body(result.csv);
 });
 // The Simple Balance file, beside the CSV export because it is the same kind of

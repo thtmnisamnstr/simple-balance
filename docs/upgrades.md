@@ -13,14 +13,18 @@ migration, which runs itself at startup and rewrites no rows, no new setting
 anybody has to set, and nothing turns itself on: a deployment that sets nothing
 new renders, starts and serves what it did, a stack that sets nothing new plans
 no change beyond the text of its `nextSteps` output, and a chart upgraded with
-the values it had renders the same objects. The one exception is what a search
-engine reads, which changes unasked: every page and file says `noindex`, and the
-robots file turns no crawler away. Everything else new is a metrics collector
-that is off until asked for, the series the application publishes about itself,
+the values it had renders the same objects. Two things change unasked: what a
+search engine reads — every page and file says `noindex`, and the robots file
+turns no crawler away — and what an agent is offered: five more tools, two of
+them the money guides, which make every token's tool list longer, by about a
+seventh at `ledger:read`, with the numbers below. Everything else new is a
+metrics collector that is off until asked for, the series the application publishes about itself,
 two holes in `/metrics` closed, an advertisement for Premium of this product's
 own that is off until asked for, an export of a whole ledger as one Simple
 Balance file and a way to add such a file to a ledger, with three routes and
-three MCP tools between them, an agent's request to `/mcp` no longer cut off at
+three MCP tools between them, the money guides those two tools carry, a few
+new fields on replies an older client ignores, a box on the Overview that
+counts archived accounts, an agent's request to `/mcp` no longer cut off at
 4 MiB, and twenty-one dependency advisories closed.
 
 ### What runs automatically
@@ -120,6 +124,52 @@ read tools, so every token holding any ledger scope lists two more, and
 `add_ledger_file` with the write tools: `tools/list` is 4,442 and 13,514
 characters longer at every tier for the first two, and 18,931 more at the write
 tier for the third. None of them needs a scope a token did not already have.
+
+**Two more read tools, and every tool list is longer.** `list_learn_articles`
+and `get_learn_article` serve the money guides smpl.money publishes at
+`/learn`, from a copy in the image: nothing is fetched, nothing needs the
+internet, no setting turns them on, and neither reads anything of anybody's.
+They are registered with the read tools, so every token holding any ledger
+scope lists them, and no route reaches them. They cost 5,523 characters of
+`tools/list` at every tier, and the new fields and fuller descriptions below
+another 2,767 at `ledger:read`, 2,910 at `ledger:stage` and 3,486 at
+`ledger:write`. With the three Simple Balance file tools above, and the 504
+characters at `ledger:read` and 656 at the other two that the staged-row and
+import-batch tools grew by to say which kind of import staged a row, a token's
+tool list against 0.2.1's:
+
+| Token holds | 0.2.1 | 0.2.2 | Longer by |
+| --- | --- | --- | --- |
+| `ledger:read` | 173,131 | 199,881 | 26,750, 15% |
+| `ledger:stage` | 213,653 | 240,698 | 27,045, 13% |
+| `ledger:write` | 497,153 | 543,705 | 46,552, 9% |
+
+At about four characters to a token that is some 50,000 tokens for a
+read-only connection and 136,000 for a writing one. A client that loads every
+tool up front and runs close to its context budget is the one to check; one
+that searches its tools loads what it uses. Nothing an agent already calls has
+been renamed, removed or given a new required argument.
+
+**New fields on replies, which an older client ignores.** `preview_csv` and
+`POST /api/v1/csv/preview` gain `simpleBalanceExport` and `suggestedMapping`,
+the import page's own reading of a file's headings, which it now takes from
+the server. `whoami` gains `activeChoicePending`, and `GET /api/v1/session`
+carries it inside `plan`. `export_transactions_csv` gains `fileName`, the name
+the CSV download is saved under. A 0.2.2 browser bundle served against a 0.2.1
+server during a rolling update works the first two out itself, as 0.2.1 did,
+so the update needs no particular order.
+
+**A CSV staged onto an archived or frozen account is counted as it is
+stored.** `stage_csv` and `POST /api/v1/csv/stage` stage such a file as they
+did, every row with an issue blocking its commit, and `validCount`,
+`invalidCount` and `sample`, a dry run's included, now say so rather than
+counting those rows valid. A client that read `validCount` from a dry run as a
+promise sees lower numbers for exactly the files that were never going to
+commit; what is stored is unchanged.
+
+**The Overview has an Include archived accounts box**, off until ticked, so the
+page reads as it did. The Payees search now matches the way an agent's does,
+ignoring case and repeated spaces in what was typed.
 
 **`/mcp` takes the request bodies its route allows.** The MCP SDK reads a body
 again with a limit of its own, 4 MiB unless it is told otherwise, and 0.2.0 and
@@ -451,8 +501,13 @@ up -d` for the split recipe. The split recipe derives the frontend's
 file**, then **Export a Simple Balance file**; **Export file** saves
 `simple-balance-` and today's date as a `.json` file, and choosing that file
 under **Import a Simple Balance file** in the same ledger says everything in it
-is already here. On a `single`
-machine with the new Caddyfile in place, the site's own address answers `/metrics` with a 404:
+is already here. With **Include archived accounts** ticked, the Overview's
+address carries `archived=1` and its account list marks archived accounts. An
+agent connected with any ledger scope lists `list_learn_articles`, and
+`get_learn_article` with the slug `net-worth` returns that guide.
+
+On a `single` machine with the new Caddyfile in place, the site's own address
+answers `/metrics` with a 404:
 
 ```sh
 curl -s -o /dev/null -w '%{http_code}\n' https://your-host/metrics
@@ -2091,14 +2146,19 @@ repository closes.
    hashes are what notice when a body changes anyway.
 6. `npm run verify`, then commit and push on the default branch. The publish
    runs the same suite first, so a failure here is one the release would have
-   met anyway.
+   met anyway. Then `node scripts/sync-learn.mjs --published`, which must exit
+   0: the money guides the MCP server carries have to have been written from
+   smpl.money rather than from a local build of the site, because the publish
+   refuses to build an image otherwise, and a release found wanting only then
+   is a published release with no images. `product-kit` §6 says how to rewrite
+   them.
 7. Cut a release on GitHub against tag `v0.2.0`, from the UI or with
    `gh release create v0.2.0`.
 
 Publishing keys off the release itself, not off the tag push, so it runs once
 whether the tag existed beforehand or GitHub creates it. The workflow runs the
 full verification suite first, refuses to publish if the tag and the manifest
-disagree, and then pushes a multi-architecture image to GHCR tagged with the
+disagree or if the money guides came from a local site build, and then pushes a multi-architecture image to GHCR tagged with the
 version. `latest` moves to it unless the release is marked as a prerelease or
 the version carries a suffix, in which case only the version tag is published.
 

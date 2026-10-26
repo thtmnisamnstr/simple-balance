@@ -161,7 +161,7 @@ jobs:
 
   publish:
     name: publish ${{ matrix.name }}
-    needs: [resolve, verify]
+    needs: [resolve, verify, learn-pack]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -299,3 +299,21 @@ jobs:
           echo "${{ steps.meta.outputs.tags }}" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           echo "Architectures: \`$PLATFORMS\`" >> "$GITHUB_STEP_SUMMARY"
+
+  # The money guides the MCP server carries have to be the ones smpl.money
+  # publishes, because its tools hand out each guide's address there. A pack
+  # synced from a local site build is a preview, which a branch may carry so
+  # the tools can merge before the site deploys, and whose every address is a
+  # 404 until it does; nothing else stops one reaching a cut. Its own job so
+  # it runs once, at the commit being shipped, before any image is built. It
+  # reads only the vendored pack, so it needs no network.
+  learn-pack:
+    needs: resolve
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+
+      - name: Check the money guides came from the published site
+        run: node scripts/sync-learn.mjs --published

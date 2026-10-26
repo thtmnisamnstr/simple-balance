@@ -1,4 +1,4 @@
-import { Link, useLocation } from "../router.js";
+import { Link, useLocation, useSearchParams } from "../router.js";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowDownLeft,
@@ -6,6 +6,7 @@ import {
   Landmark,
   Plus,
   Scale,
+  SlidersHorizontal,
   Target,
   TrendingUp,
 } from "lucide-react";
@@ -33,7 +34,7 @@ import {
   PageHeader,
   Skeleton,
 } from "../components.js";
-import { noAccountReason } from "../list-filters.js";
+import { emptyScreen, noAccountReason, waysOut } from "../list-filters.js";
 import {
   compareMoney,
   formatDate,
@@ -56,10 +57,39 @@ import { TransactionForm } from "../forms.js";
 export default function DashboardPage() {
   const { start, end } = useDateRange();
   const location = useLocation();
+  const [params, setParams] = useSearchParams();
   const [open, setOpen] = useState(false);
+  // The summary's one filter, and the Reports page's flag under the same
+  // name: a view choice lives in the URL (`web.md` 11.8), and the two pages'
+  // links carry it between them, so one checkbox means one thing on both.
+  // Until this, `get_financial_summary` took it and nothing in the browser
+  // could send it — the field-level gap `AGENTS.md` names.
+  const includeArchived = params.get("archived") === "1";
+  const setIncludeArchived = (next: boolean) => {
+    const updated = new URLSearchParams(params);
+    if (next) updated.set("archived", "1");
+    else updated.delete("archived");
+    setParams(updated, { replace: true });
+  };
+  // Archived accounts are hidden before anybody touches the box, so every
+  // empty screen it can empty names it, as Reports and Accounts do.
+  const { ways } = emptyScreen([
+    {
+      set: !includeArchived,
+      clear: "turn on Include archived accounts to count the ones you have put away",
+      fromTheStart: true,
+    },
+  ]);
   const summary = useQuery({
-    queryKey: ["summary", start, end],
-    queryFn: () => api<Summary>(`/api/v1/summary?${queryString({ start, end })}`),
+    queryKey: ["summary", start, end, includeArchived],
+    queryFn: () =>
+      api<Summary>(
+        `/api/v1/summary?${queryString({
+          start,
+          end,
+          ...(includeArchived ? { includeArchived: "true" } : {}),
+        })}`,
+      ),
   });
   const accounts = useQuery({
     queryKey: ["accounts", end],
@@ -121,6 +151,25 @@ export default function DashboardPage() {
       />
       <DateRangeBar />
 
+      {/* Under the range, as on Reports. The budget panel below keeps the
+          budgets page's own default, which counts archived spending, because
+          a budget's limit was never scoped to an account; this box is about
+          the totals and the account list above it. */}
+      <div className="option-bar" role="group" aria-label="Overview options">
+        <div className="option-bar-title">
+          <SlidersHorizontal size={17} />
+          <span>Options</span>
+        </div>
+        <label className="check-label">
+          <input
+            type="checkbox"
+            checked={includeArchived}
+            onChange={(event) => setIncludeArchived(event.target.checked)}
+          />
+          Include archived accounts
+        </label>
+      </div>
+
       {summary.error ? <Alert>{summary.error.message}</Alert> : null}
       {accounts.error ? <Alert>{accounts.error.message}</Alert> : null}
 
@@ -132,8 +181,10 @@ export default function DashboardPage() {
       ) : summary.error ? null : !summary.data?.currencies.length ? (
         <EmptyState
           icon={Landmark}
-          title="Create your first account"
-          body="An account is where your money lives. Once one exists, deposits, withdrawals, and transfers show up here."
+          title={ways.length ? "No accounts in this view" : "Create your first account"}
+          body={`An account is where your money lives. Once one exists, deposits, withdrawals, and transfers show up here.${
+            ways.length ? ` ${waysOut(ways)}` : ""
+          }`}
           action={
             <Link className="button button-primary" to="/accounts">
               Create an account
@@ -213,7 +264,12 @@ export default function DashboardPage() {
                               search: location.search,
                             }}
                           >
-                            <strong>{account.name}</strong>
+                            <strong>
+                              {account.name}
+                              {account.archivedAt ? (
+                                <span className="row-note"> (archived)</span>
+                              ) : null}
+                            </strong>
                             <span
                               className={isNegativeMoney(account.balance) ? "money-negative" : ""}
                             >
@@ -291,7 +347,9 @@ export default function DashboardPage() {
                       compact
                       icon={ArrowUpRight}
                       title="No spending in this range"
-                      body="Withdrawals land here, largest category first, as soon as there are any."
+                      body={`Withdrawals land here, largest category first, as soon as there are any.${
+                        ways.length ? ` ${waysOut(ways)}` : ""
+                      }`}
                     />
                   )}
                 </article>

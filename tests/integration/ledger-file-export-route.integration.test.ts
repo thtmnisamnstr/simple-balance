@@ -262,4 +262,161 @@ integration("the Simple Balance file as a download", () => {
     const response = await request("/api/v1/ledger-file?kinds=accounts", {}, false);
     expect(response.status).toBe(401);
   });
+
+  /**
+   * The CSV beside it, over the same signed-in app and the same agent: the
+   * download's name and `export_transactions_csv`'s `fileName` come from the
+   * service now rather than one of them from the route, and the preview's
+   * reading of a file's headings is handed to the page and to `preview_csv`
+   * by one function. Both are claims about two transports agreeing, which is
+   * what this file exists to see.
+   */
+  describe("and the CSV beside it", () => {
+    const agent = async <T>(name: string, args: Record<string, unknown>) => {
+      const server = mcp.createMcpServer(
+        { userId: ownerId, source: "mcp", clientId: "csv-route" },
+        new Set(["ledger:read"]),
+      );
+      const client = new Client({ name: "csv-route", version: "1.0.0" });
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      await server.connect(serverTransport);
+      await client.connect(clientTransport);
+      try {
+        // Listed first, so the client validates the reply against the
+        // published output schema as an agent's SDK does.
+        await client.listTools();
+        const reply = await client.callTool({ name, arguments: args });
+        expect(JSON.stringify(reply)).not.toContain("Output validation error");
+        expect(reply.isError).toBeFalsy();
+        return (reply.structuredContent as { result: T }).result;
+      } finally {
+        await client.close();
+        await server.close();
+      }
+    };
+
+    it("names the download and the agent's copy one way, dated where the person lives", async () => {
+      const name = `transactions-${todayIn(TIMEZONE)}.csv`;
+      const response = await request("/api/v1/csv/export");
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Content-Disposition")).toBe(`attachment; filename="${name}"`);
+      const download = await response.text();
+
+      const exported = await agent<{ csv: string; rowCount: number; fileName: string }>(
+        "export_transactions_csv",
+        {},
+      );
+      expect(exported.fileName).toBe(name);
+      expect(exported.csv).toBe(download);
+      expect(exported.rowCount).toBe(2);
+    });
+
+    it("hands the page and preview_csv one reading of the headings", async () => {
+      const bank = "Posted Date,Merchant,Debit,Credit\n2026-02-02,Rewe,20.00,\n";
+      const response = await request("/api/v1/csv/preview", {
+        method: "POST",
+        body: JSON.stringify({ csv: bank }),
+      });
+      expect(response.status).toBe(200);
+      const page = (await response.json()) as Record<string, unknown>;
+      expect(page).toMatchObject({
+        simpleBalanceExport: false,
+        suggestedMapping: {
+          date: "Posted Date",
+          payee: "Merchant",
+          debit: "Debit",
+          credit: "Credit",
+        },
+      });
+      expect(await agent("preview_csv", { csv: bank })).toEqual(page);
+
+      // And one of this product's own exports, read back through the same pair.
+      const ours = await (await request("/api/v1/csv/export")).text();
+      const reread = await agent<{ simpleBalanceExport: boolean; suggestedMapping: object }>(
+        "preview_csv",
+        { csv: ours },
+      );
+      expect(reread).toMatchObject({ simpleBalanceExport: true, suggestedMapping: {} });
+    });
+
+    /**
+     * The same reads over `/mcp` itself, with a bearer token, which is the
+     * connection an agent really has: the scope gate, the transport's JSON
+     * mode and the SDK client checking every reply against the published
+     * output schema it listed. The in-memory pair above skips the first two.
+     */
+    it("answers an agent connected over /mcp with a token", async () => {
+      const { getDb } = await import("../../src/server/db/client.js");
+      const { oauthAccessToken, oauthApplication } = await import("../../src/server/db/schema.js");
+      const { issueMcpAccessToken } = await import("../../src/server/mcp-token.js");
+      const { StreamableHTTPClientTransport } =
+        await import("@modelcontextprotocol/sdk/client/streamableHttp.js");
+      await getDb().insert(oauthApplication).values({
+        id: "csv-route-app",
+        name: "CSV route agent",
+        clientId: "csv-route-agent",
+        redirectUrls: "http://127.0.0.1:7777/callback",
+        type: "public",
+        userId: ownerId,
+      });
+      await getDb()
+        .insert(oauthAccessToken)
+        .values({
+          id: "csv-route-token",
+          accessToken: "csv-route-opaque-access-token",
+          refreshToken: "csv-route-opaque-refresh-token",
+          accessTokenExpiresAt: new Date(Date.now() + 60_000),
+          refreshTokenExpiresAt: new Date(Date.now() + 120_000),
+          clientId: "csv-route-agent",
+          userId: ownerId,
+          scopes: "openid ledger:read",
+        });
+      const token = await issueMcpAccessToken("csv-route-opaque-access-token");
+      const transport = new StreamableHTTPClientTransport(new URL(`${BASE}/mcp`), {
+        requestInit: { headers: { authorization: `Bearer ${token}` } },
+        fetch: async (url, init) => app.request(String(url), init),
+      });
+      const client = new Client({ name: "csv-route-http", version: "1.0.0" });
+      await client.connect(transport);
+      try {
+        const listed = await client.listTools();
+        const named = (name: string) => listed.tools.find((tool) => tool.name === name);
+        expect(named("preview_csv")?.description).toContain("suggestedMapping");
+        expect(JSON.stringify(named("whoami")?.outputSchema)).toContain("activeChoicePending");
+        expect(named("export_ledger_file")?.description).toContain("`preview_ledger_file`");
+
+        const read = async <T>(name: string, args: Record<string, unknown> = {}) => {
+          const reply = await client.callTool({ name, arguments: args });
+          expect(JSON.stringify(reply), name).not.toContain("Output validation error");
+          expect(reply.isError, name).toBeFalsy();
+          return (reply.structuredContent as { result: T }).result;
+        };
+        expect(await read("whoami")).toMatchObject({
+          clientId: "csv-route-agent",
+          scopes: ["ledger:read", "openid"],
+          activeChoicePending: false,
+        });
+        expect(
+          await read("preview_csv", {
+            csv: "Transaction Date,Payee,Amount\n2026-02-02,Rewe,-20\n",
+          }),
+        ).toMatchObject({
+          simpleBalanceExport: false,
+          suggestedMapping: { date: "Transaction Date", payee: "Payee", amount: "Amount" },
+        });
+        expect(await read("export_transactions_csv")).toMatchObject({
+          fileName: `transactions-${todayIn(TIMEZONE)}.csv`,
+          rowCount: 2,
+        });
+        expect(
+          await read("get_financial_summary", { start: "2026-01-01", includeArchived: true }),
+        ).toMatchObject({ includesArchived: true });
+        expect(await read("list_payees", { search: "  REWE " })).toEqual([
+          expect.objectContaining({ name: "Rewe" }),
+        ]);
+      } finally {
+        await client.close();
+      }
+    });
+  });
 });
