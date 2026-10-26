@@ -5,10 +5,10 @@ keeping.
 
 | Tier | Files | Runs with | Needs |
 | --- | --- | --- | --- |
-| Unit (node) | 229 | `npm test` | nothing |
+| Unit (node) | 231 | `npm test` | nothing |
 | Unit (jsdom) | 66 | `npm test` | nothing |
-| Integration | 91 | `npm test` **or** `npm run test:integration` | PostgreSQL |
-| Browser | 10 | `npm run test:browser` | PostgreSQL, Chromium |
+| Integration | 96 | `npm test` **or** `npm run test:integration` | PostgreSQL |
+| Browser | 11 | `npm run test:browser` | PostgreSQL, Chromium |
 
 **`npm test` collects the integration tier too**, which surprises people and is
 worth stating plainly. `vitest.config.ts:21` excludes four things and only two
@@ -23,15 +23,15 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 297 pass, 89 skip | **3,605 pass, 1,006 skip** |
-| `npm test`, database set | 386 pass | **4,611 pass** |
-| `npm run test:integration` | 91 pass | 1,009 pass |
+| `npm test`, no database | 299 pass, 94 skip | **3,688 pass, 1,040 skip** |
+| `npm test`, database set | 393 pass | **4,728 pass** |
+| `npm run test:integration` | 96 pass | 1,043 pass |
 
-The integration tier reports 1,009 tests on its own and 1,006 skips inside a
+The integration tier reports 1,043 tests on its own and 1,040 skips inside a
 database-less `npm test`, and the three-test difference is not an error: three
 cases in that tier need no database and so run either way. They are counted
-among the 3,605 rather than among the skips, which is why the two rows add up
-to 4,611 both times.
+among the 3,688 rather than among the skips, which is why the two rows add up
+to 4,728 both times.
 
 The third row is three tests larger than the first row's skip count, and the
 odd ones out are worth knowing. `bulk-transactions-mcp.integration.test.ts` has
@@ -42,7 +42,7 @@ question about the router rather than about a ledger. All three run on every
 `npm test`, database or not, and that file therefore counts as passing rather
 than skipped in the first row.
 
-The first row is what CI and `npm run verify` see, and 3,605 is the number that
+The first row is what CI and `npm run verify` see, and 3,688 is the number that
 actually gates a change by default. The second is what a developer with a local
 PostgreSQL sees, and it is strictly better. Reporting the second as though it
 were the first overstates what the gate covers, which is a mistake worth naming
@@ -126,7 +126,15 @@ zone's input from the keyboard, the arrows moving inside each question's radio
 group, Enter in a copy's name submitting the add, a streamed reply read as
 frames with focus landing on the sentence saying what was done, and a file over
 ten thousand rows cut by the splitter's real limits into two parts, each with
-its own key from one attempt. The tier is slow and it is
+its own key from one attempt. `ledger-file-move.spec.ts` holds the move the
+same way: the way in chosen from the keyboard with neither picked, the arrows
+passing over a refused radio, and a bar drawn from a frame read as it arrives
+— the first part is sent on to a server of the spec's own that writes one
+frame at a time, because a reply the route fulfils arrives whole and its bar is
+gone before anything can see it — before two real parts end on the summary;
+and Enter in a copy's name sending a part that stops, which leaves focus on
+the button it submitted through rather than on a control the stop disabled.
+The tier is slow and it is
 the only one that proves the whole stack works, so it covers a path per
 capability rather than a case per branch. `tests/testing-guide-counts.test.ts` holds the
 first of those numbers to the file it counts, because it sat at eleven while the
@@ -136,18 +144,21 @@ than the tier table above.
 Everything it asserts that a cheaper tier could assert is a test in the wrong
 place.
 
-**Three specs do not drive the whole stack, and that is the boundary.**
+**Four specs do not drive the whole stack, and that is the boundary.**
 `plan-buttons.spec.ts:110` intercepts the one response the plan tab reads and
 answers it from the spec, `ledger-file-export.spec.ts` answers the export
-route, and `ledger-file-import.spec.ts` answers the import's preview and add
-(through `tests/browser/support/ledger-file-import.ts`, which `reflow.spec.ts`
-and `target-size.spec.ts` share to reach the import's states). The second's
-and third's reason is the simpler one: what they ask is what the page sends
-and does with the answer, and what the server does with a file is the
-integration tier's to check, through the same routes
-(`tests/integration/ledger-file-export-route.integration.test.ts` and
-`tests/integration/ledger-file-add-route.integration.test.ts`). The answers are not invented, either: the
-import's are worked out by the shared planner the server runs, and every body
+route, and `ledger-file-import.spec.ts` and `ledger-file-move.spec.ts` answer
+the import's preview, add and move (through
+`tests/browser/support/ledger-file-import.ts`, which `reflow.spec.ts` and
+`target-size.spec.ts` share to reach the import's states). The reason for all
+but the first is the simpler one: what they ask is what the page sends and
+does with the answer, and what the server does with a file is the integration
+tier's to check, through the same routes
+(`tests/integration/ledger-file-export-route.integration.test.ts`,
+`tests/integration/ledger-file-add-route.integration.test.ts` and
+`tests/integration/ledger-file-move-route.integration.test.ts`). The answers
+are not invented, either: the
+import's are worked out by the shared planners the server runs, and every body
 is parsed with the route's own schema before it is answered. The
 first's takes longer, and it is not convenience: a priced button exists only at
 a price Stripe gave, so reaching that state for real needs a Stripe account, its

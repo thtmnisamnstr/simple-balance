@@ -185,6 +185,16 @@ describe("the export cap against the import cap", () => {
     expect(service).toMatch(/if \(count > MAX_BULK_SELECTION_ENTRIES\) \{/);
     expect(service).toContain("The import page cuts a larger file into parts");
     expect(service).toContain("export a larger ledger one date range at a time");
+    // Every way a file is read back goes through that one reader: the
+    // preview, the add, and the move, which writes a part's transactions
+    // straight into the books and so must never meet more than a commit could.
+    for (const reader of ["previewLedgerFile", "addLedgerFile", "moveLedgerFile"]) {
+      expect(service, reader).toMatch(
+        new RegExp(
+          `export async function ${reader}\\((?:(?!export async function)[\\s\\S])*?= readPart\\(`,
+        ),
+      );
+    }
   });
 
   /**

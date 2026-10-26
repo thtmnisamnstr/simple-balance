@@ -12,7 +12,7 @@ The wire format — RFC 9457, status codes, the envelope — is
 HTTP status, optional details, and an optional second message for an agent
 (see 2.2 and 2.4). Both transports render it: HTTP into a problem document, MCP
 into a tool error — and the MCP one puts `agentMessage` where the message would
-go wherever a throw site set one (`src/server/mcp.ts:275`), so the fifth field
+go wherever a throw site set one (`src/server/mcp.ts:284`), so the fifth field
 is wire-visible rather than a note to ourselves.
 
 The distinction is the question **is there something the caller could do
@@ -61,7 +61,7 @@ use the constructor that names the situation.
 | `validationError` | 422 | The request is well-formed and asks for something impossible. |
 
 **The transport is the named exception, and it is two lines.**
-`src/server/api.ts` constructs `AppError` directly at `:1787` and `:1805`, and
+`src/server/api.ts` constructs `AppError` directly at `:1793` and `:1811`, and
 both carry a code no service raises at all: `FORBIDDEN` and
 `REAUTHENTICATION_REQUIRED` belong to the two operations that are reachable
 from a session and never from a token, which is exactly the pair `AGENTS.md`
@@ -82,10 +82,10 @@ So the rule is scoped rather than absolute: a service uses the constructors, and
 the transport may name a status the service half has no word for. It was four
 lines rather than two, and shrinking it is what the other two paragraphs of this
 section used to be about. The already-configured-password site was byte-for-byte
-what `conflict()` produces and now calls it (`src/server/api.ts:1796`). The malformed-body guard
+what `conflict()` produces and now calls it (`src/server/api.ts:1802`). The malformed-body guard
 was a `VALIDATION_ERROR` **400** where the constructor is 422 by definition,
 which is why it could not use one — it is now a `TransportError`
-(`src/server/api.ts:1660`, the class at `src/server/services/errors.ts:13-23`),
+(`src/server/api.ts:1666`, the class at `src/server/services/errors.ts:13-23`),
 a separate enumeration for the refusals that are about the request rather than
 about the ledger, so `VALIDATION_ERROR` means one status again and the code an
 MCP tool can raise stays the service half alone.
@@ -115,7 +115,7 @@ falls out naturally: the row simply is not in the result.
 
 **One 403 says "not yours", and it is not about a record.** An MCP consent
 started in one account and answered in another is refused with
-`CONSENT_NOT_YOURS` and a 403 (`src/server/api.ts:1013-1020` and `:1054-1061`).
+`CONSENT_NOT_YOURS` and a 403 (`src/server/api.ts:1019-1026` and `:1060-1067`).
 The consent code is a single-use secret the authorization link carries, not an
 id anybody can enumerate, so the bit the 403 confirms is one the person holding
 the link already has. And the sentence is the move that works — sign in as the
@@ -223,7 +223,7 @@ agent stops trying different ones instead of guessing.
 
 Nine throw sites carry one today and the shape recurs: the archive restore meets
 the same ceiling from the other side
-(`src/server/services/accounts.ts:1241`), the frozen-account refusal is the same
+(`src/server/services/accounts.ts:1282`), the frozen-account refusal is the same
 argument under a 422 (`src/server/services/accounts.ts:861`), and the two in
 `closeBillingForDeletion` (`src/server/services/billing.ts:2021` and `:2028`)
 give a person the move each cause leaves them — whoever runs the server, where
@@ -233,17 +233,27 @@ helps, for a program. Those last two are reached only from the
 session-only deletion path, so nothing renders them today — written that way
 because the browser's sentence would be the wrong one if it ever widens, which
 is cheaper than noticing later. Adding a Simple Balance file brought three
-more. A file bringing more accounts in use than the plan keeps
-(`planRefusal`, `src/server/services/ledger-file.ts:1504`) offers the browser
-choosing which arrive archived, or upgrading, and tells an agent the numbers,
-the field that takes the choice, and that only the person can raise the
-limit — the allowance's argument again. And the two conflicts a part meets when
-the ledger moved after it was read (`:1616` and `:1794`) are the case running
-the other way round from billing: the person's way back is a button, so their
-sentence names it in its own words, **Check the file again**, and an agent has
-no button, so its sentence names `preview_ledger_file`. Both had told everyone
-to preview the file again, which was neither: no button says it, and no tool is
-called it.
+more, and moving one brought more again. A file bringing more accounts in use
+than the plan keeps (`planRefusal`, `src/server/services/ledger-file.ts:1923`)
+offers the browser choosing which arrive archived, or upgrading, and tells an
+agent the numbers, the field that takes the choice, and that only the person
+can raise the limit — the allowance's argument again. And the conflicts a part
+meets when the ledger moved after it was read (`:2036` for an add and `:2335`
+for a move), or when another import staged or wrote the same rows first
+(`:1902` and `:2166`), are the case running the other way round from billing:
+the person's way back is a button, so their sentence names it in its own
+words, **Check the file again**, and an agent has no button, so its sentence
+names `preview_ledger_file`. Both had told everyone to preview the file again,
+which was neither: no button says it, and no tool is called it. A move's own
+refusals hand an agent its own sentence through `planRefusal`'s `forAgent`
+(`moveRefusal`, `:2126`) for the three causes the page answers with something
+an agent has not got — add the file instead, commit or discard the waiting
+rows in Staged, upgrade — and a balance that does not come out (`:2485`) tells
+a person the causes they can act on from the page — a file for the days before
+this one to move first, an account here to rename, or adding the file instead —
+and never blames an earlier part, because the page sends them in order; an
+agent with a file in several parts is told first to preview each earlier one,
+because it cannot see which are in.
 Every refusal whose remedy is browser-only has this shape, so there will be
 more.
 

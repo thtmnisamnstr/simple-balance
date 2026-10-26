@@ -124,4 +124,17 @@ describe("tools that overwrite say so", () => {
       "set_preferences",
     );
   });
+
+  /**
+   * A move writes straight into the books, with no queue between the file and
+   * the balances, and what it writes comes out only one transaction and one
+   * record at a time. It replaces chosen settings too, as an add does.
+   */
+  it("annotates moving a Simple Balance file destructive, and says to confirm", () => {
+    const tool = tools.find((entry) => entry.name === "move_ledger_file");
+    expect(tool, "move_ledger_file is registered").toBeDefined();
+    expect(tool!.annotations?.["destructiveHint"]).toBe(true);
+    expect(tool!.description).toMatch(/confirm with the person first/i);
+    expect(tool!.description).toContain("set_preferences");
+  });
 });

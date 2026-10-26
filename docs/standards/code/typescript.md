@@ -75,7 +75,7 @@ erases just as well.
 
 **Contested.** The flag is good advice in general and wrong here. All three
 sites it flags are Hono middleware
-(`src/server/api.ts:1622`, `src/server/http-security.ts:526` and `:998`),
+(`src/server/api.ts:1628`, `src/server/http-security.ts:530` and `:1002`),
 where a `MiddlewareHandler` returns a `Response` to answer the request or
 nothing at all to let the next handler run. "Returns on some paths and not
 others" is the contract, not a mistake.
@@ -105,7 +105,7 @@ judge the decision, only keep the evidence for it true.
 
 ### 1.4 `noUncheckedIndexedAccess` is declined, for now
 
-**Contested.** 575 errors, **61 of them in `src`** and the rest in `tests`. It
+**Contested.** 575 errors, **62 of them in `src`** and the rest in `tests`. It
 is the setting on this list most worth having, because indexing into an array or
 a record is exactly where an `undefined` arrives unannounced.
 
@@ -120,7 +120,7 @@ It is declined because 575 sites cannot be reviewed carefully in one change, and
 mechanically silencing them with `!` would convert a real check into a
 formality — the same defect the flag exists to catch, now written down. If it is
 ever adopted it should be one directory at a time, and the split above says
-which one first: `src` is 61 of the 575 and all of the benefit, since a test
+which one first: `src` is 62 of the 575 and all of the benefit, since a test
 that indexes a fixture it wrote three lines earlier learns nothing from being
 told the row might be missing.
 
@@ -129,10 +129,13 @@ checked. `src` sat at 59 across a release that added billing, two cloud
 profiles and a plan page, and moved to 61 when adding a Simple Balance file
 arrived: an account created archived closes on the row its insert returned, and
 the add files a category it created under the id the create returned, each one
-more read of a `.returning()` row the flag cannot see is there. The total went
+more read of a `.returning()` row the flag cannot see is there. It moved to 62
+when moving a ledger arrived, for the same reason once more: a move reads the
+transaction `createTransactionWithinTx` returned, to know which archived
+accounts it wrote into. The total went
 from 441 to 575 because the branch added tests, and a number that every new
 test file moves is one a check would teach people to bump without reading. So
-**61 is held by a test and 575 is a reading**, which is the same division `testing.md` makes about its own two
+**62 is held by a test and 575 is a reading**, which is the same division `testing.md` makes about its own two
 tables and for the same reason.
 
 `exactOptionalPropertyTypes` (110) and `noPropertyAccessFromIndexSignature`
@@ -617,7 +620,7 @@ updateTransaction(actor, id, input, transaction?)
 setTransactionDeleted(actor, id, expectedVersion, deleted, allowDuplicate?, transaction?)
 ```
 
-(`src/server/services/transactions.ts:1169`, `:2448` and `:2554`.)
+(`src/server/services/transactions.ts:1191`, `:2470` and `:2585`.)
 
 Note that `updateTransaction` takes `input: unknown` and parses it, rather than
 a typed object: the version and the draft arrive together inside it. An update

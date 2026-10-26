@@ -15,7 +15,7 @@ importer all have opinions about.
 
 Everything is grounded in three places: `src/shared/csv.ts`, which both the
 browser preview and the server use, `src/server/services/import-export.ts`,
-which reads and writes files, and `src/server/api.ts:2142-2174`, which is the
+which reads and writes files, and `src/server/api.ts:2148-2180`, which is the
 transport: preview, stage, the batch list and export. That range named the
 progress-frame helpers and the commit route for a release, two screens above
 the routes this file is about. It is the failure
@@ -625,13 +625,33 @@ CSV's categories: `ledger:stage` proposes and never decides.
 [`ledger-file.md`](ledger-file.md#12-adding-a-file-to-a-ledger) has the whole of
 it.
 
+**And narrowed a second time, for a whole ledger moved into one that holds
+nothing else.** A Simple Balance file may be moved straight into the books —
+transactions and all, deleted ones voided again, archived accounts closed on
+the day they closed — but only into a ledger whose every entry and waiting
+staged row itself came from a Simple Balance file: a new sign-up, a fresh
+install, a ledger part-way through a move. That is not outside data reaching
+the books. Every transaction in such a file was reviewed and committed once
+already, in the ledger it is leaving, and a ledger with nothing else in it
+raises none of the questions the queue answers — there is nothing here for a
+row to repeat, and no category or account here for it to be filed under but the
+ones the file brings. The narrowness is the rule: once one entry has been typed
+here, or one CSV row staged, a move is refused and adding, which stages, is the
+way in. A CSV never moves. The move writes through the services a person's own
+writes use, and the part carrying the file's balances is refused when an
+account comes out different from them.
+[`ledger-file.md`](ledger-file.md#17-moving-a-ledger) has the whole of it.
+
 *Not checked mechanically.* No test asserts that no route or tool writes a
-transaction straight from a CSV or a Simple Balance file.
-`tests/mcp-parity.test.ts` would catch a new route, and nothing would catch a
-new write path inside `stageCsv` or `addLedgerFile`; the add's own suite
-asserts that its entries arrive in Staged
+transaction straight from a CSV, or from a Simple Balance file into a ledger
+holding entries of its own. `tests/mcp-parity.test.ts` would catch a new route,
+and nothing would catch a new write path inside `stageCsv` or `addLedgerFile`;
+the add's own suite asserts that its entries arrive in Staged
 (`tests/integration/ledger-file-add.integration.test.ts`, "adds a whole ledger
-to an empty one: records at once, entries to Staged").
+to an empty one: records at once, entries to Staged"), and the move's that it
+is refused once a transaction is typed here
+(`tests/integration/ledger-file-move.integration.test.ts`, "is refused once a
+transaction is typed here, and the rest can still be added").
 
 **House.** **Losslessness is a claim about a named list, not an adjective.** The
 two tables above are that list. Anything not in them is undefined, and adding a
@@ -719,7 +739,7 @@ Three mechanisms, and they are deliberately not the same strictness:
 1. **The stored fingerprint.** Every staged row gets one key: the external
    reference when the row has one, because that is an identity rather than a
    guess, otherwise a heuristic key over type, date, payee, account and amount
-   (`stagedDuplicateKey`, `src/server/services/transactions.ts:2787-2835`).
+   (`stagedDuplicateKey`, `src/server/services/transactions.ts:2824-2872`).
 2. **The advisory badge.** The queue also looks for a committed transaction of
    the same type, account and amount within `LIKELY_DUPLICATE_DAYS`, which is
    three (`src/shared/domain.ts:1455`, `src/server/services/staging.ts:629-706`).
@@ -916,12 +936,12 @@ the same number.
   somebody maps its columns (`src/server/services/import-export.ts:80-91`).
 - **The request envelope.** A CSV route and `/mcp` are sized at six times
   `CSV_MAX_BYTES` plus 64 KiB, the six being the worst case for JSON string
-  escaping (`src/server/http-security.ts:388-389`, `:1105`).
+  escaping (`src/server/http-security.ts:388-389`, `:1109`).
 - **Rows.** Counted after blank lines are skipped, so a trailing newline is not
   a row.
 
 *Checked by:* `tests/config-limits.test.ts`, `tests/bulk-row-cap.test.ts:44-95`,
-`tests/http-security.test.ts:345-435`.
+`tests/http-security.test.ts:346-445`.
 
 **Settled, and the gap is deliberate.** An export refuses past
 `CSV_EXPORT_MAX_ROWS` — 100,000 — and an import past `configuredCsvMaxRows()`,

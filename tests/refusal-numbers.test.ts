@@ -65,8 +65,13 @@ const COMPOSED: Record<string, { readonly because: string; readonly carries?: st
   },
   "first.message": {
     because:
-      "The first problem a Simple Balance file's reader or its import plan found, each a sentence from `src/shared`. Every problem travels in `issues`, and each one with a number in it carries that number as a field of its own — the places a free plan keeps, the template and recurring-transaction caps, a budget's conflicting periods — which `planRefusal` spreads beside the message.",
+      "The first problem a Simple Balance file's reader or its import plan found, each a sentence from `src/shared`. Every problem travels in `issues`, and each one with a number in it carries that number as a field of its own — the places a free plan keeps, the template and recurring-transaction caps, a budget's conflicting periods, and a move's transactions still waiting in Staged, on a frozen account or filed so they would be both income and spending, as `count` — which `planRefusal` spreads beside the message.",
     carries: "issues",
+  },
+  "balance.message": {
+    because:
+      "`ledgerBalanceRefusal` in `src/shared/ledger-file-move.ts`, the balance check a move's last part is held to. It builds the details itself, every figure its sentences state among them — `expected`, `actual` and `difference` for the account named, and each mismatch's in `issues` — and `tests/ledger-file-move.test.ts` holds both the sentence and those fields.",
+    carries: "details",
   },
   "refusal.message": {
     because:

@@ -1039,6 +1039,25 @@ export async function setActiveAccounts(actor: Actor, input: unknown, transactio
 export type AccountCreateOptions = {
   readonly arriveArchived?: boolean;
   readonly auditOperation?: string;
+  /**
+   * When an account arriving archived was archived, for a move: the instant it
+   * was archived where the file came from, rather than now. The close is
+   * anchored to that instant's day where the person lives, so an account
+   * moved with its history closes on the day it closed there, and every later
+   * re-close — a restore and a second archive, the startup reconcile — keeps
+   * that day. A form cannot backdate an archive, which is why this is an
+   * argument and never a field.
+   */
+  readonly archivedAt?: Date;
+  /**
+   * Leave the close to the caller, for a move: the account's transactions are
+   * written into it after it exists, and closing it after each one would read
+   * its postings once per transaction. The caller closes it with
+   * `postClosingBalance` before its transaction commits, which is why this
+   * needs one: on a transaction of its own the create would commit an
+   * archived account still holding its opening.
+   */
+  readonly deferClose?: boolean;
 };
 
 export async function createAccount(
@@ -1049,6 +1068,23 @@ export async function createAccount(
 ) {
   const parsed = accountCreateSchema.parse(input);
   const archived = options?.arriveArchived === true;
+  // A defect in the caller rather than a refusal, so a plain Error: nothing a
+  // person or an agent sends reaches either option, and an instant or a
+  // deferred close on a live account would be a close nobody asked for, or
+  // one nobody will post.
+  if (options?.archivedAt !== undefined && !archived) {
+    throw new Error("An archive instant is only for an account that arrives archived");
+  }
+  // An account archived later than now is out of every total that leaves
+  // archived accounts out while it still holds its balance until its close,
+  // the hole archiving's close to equity exists to prevent. The import clamps
+  // a file's instant before it gets here; this keeps any later caller to it.
+  if (options?.archivedAt !== undefined && options.archivedAt.getTime() > Date.now()) {
+    throw new Error("An archive instant cannot be later than now");
+  }
+  if (options?.deferClose && (!archived || transaction === undefined)) {
+    throw new Error("A deferred close needs an archived account and a transaction");
+  }
   return withTransaction(transaction, async (tx) => {
     // Before the check, not after it. Without the lock two requests naming the
     // same account both read a free name and both insert, which is the race
@@ -1072,15 +1108,20 @@ export async function createAccount(
     await assertAccountNameAvailable(tx, actor, parsed.name);
     const [created] = await tx
       .insert(ledgerAccounts)
-      .values({ userId: actor.userId, ...parsed, ...(archived ? { archivedAt: new Date() } : {}) })
+      .values({
+        userId: actor.userId,
+        ...parsed,
+        ...(archived ? { archivedAt: options?.archivedAt ?? new Date() } : {}),
+      })
       .returning();
     await postOpeningBalance(tx, actor, created);
     // Opened, then closed out to equity on today's date where the person
     // lives, the way archiving any account closes it: the opening pair and the
     // closing pair are both on the books, so restoring it posts the balance
     // back exactly as a restore of anything else does. Created already closed,
-    // with no opening, would leave a restore nothing to put back.
-    if (archived) await postClosingBalance(tx, actor, created, true);
+    // with no opening, would leave a restore nothing to put back. A move
+    // closes it itself, once its transactions are in.
+    if (archived && !options?.deferClose) await postClosingBalance(tx, actor, created, true);
     const balance = await currentBalance(tx, actor, created.id);
     await writeAudit(tx, actor, {
       entityType: "account",

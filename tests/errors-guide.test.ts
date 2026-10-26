@@ -68,12 +68,42 @@ const SECOND_AUDIENCE = [
     where: "src/server/services/ledger-file.ts",
     declaration: "addLedgerFile",
     raises: "conflict",
+    times: 1,
+    because:
+      "A part that met a ledger changed after it was read — an account renamed or added " +
+      "under the name the file's is matched by. The browser's way back is the button beside " +
+      "the refusal, named in its own words — Check the file again — and an agent has no " +
+      "button, so it is told the tool that reads the file again.",
+  },
+  {
+    where: "src/server/services/ledger-file.ts",
+    declaration: "stageFileRows",
+    raises: "conflict",
+    times: 1,
+    because:
+      "Another import staging the same rows first, met by an add's transactions or by the " +
+      "file's own staged rows in an add or a move. The same two ways back as the one above: " +
+      "the browser's button, and for an agent the tool that reads the file again.",
+  },
+  {
+    where: "src/server/services/ledger-file.ts",
+    declaration: "movedEntryRefusal",
+    raises: "conflict",
+    times: 1,
+    because:
+      "Another import writing one of a move's transactions into the books first. The same " +
+      "two ways back: Check the file again for the browser, the preview tool for an agent.",
+  },
+  {
+    where: "src/server/services/ledger-file.ts",
+    declaration: "moveLedgerFile",
+    raises: "conflict",
     times: 2,
     because:
-      "Two refusals for a part that met a ledger changed after it was read — an account " +
-      "renamed or added, or another import staging the same rows first. The browser's way " +
-      "back is the button beside the refusal, named in its own words — Check the file again " +
-      "— and an agent has no button, so it is told the tool that reads the file again.",
+      "A move that met a ledger changed after it was read, and a part whose balances did " +
+      "not come out. For the second, a person is told the two causes they can act on from " +
+      "the page that shows which parts are in, and an agent, which cannot see that page, is " +
+      "told to preview each earlier part, send the one not yet moved, and this one again.",
   },
   {
     where: "src/server/services/billing.ts",

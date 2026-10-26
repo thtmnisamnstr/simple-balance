@@ -5,6 +5,7 @@ import {
   budgetPeriodUnits,
   PROGRESS_STREAM_MIN_ROWS,
   type BudgetPeriodUnit,
+  type CounterKind,
   type ValidationIssue,
 } from "../shared/domain.js";
 import {
@@ -16,20 +17,33 @@ import {
   type LedgerFilePartLimits,
 } from "../shared/ledger-file.js";
 import {
+  addDecimalText,
+  LEDGER_FILE_MOVE_BLOCKED,
   ledgerImportKinds,
   ledgerReferenceOpeningDate,
   mergeLedgerFileFacts,
   planLedgerFileAdd,
   suggestLedgerRename,
   type LedgerDecisionAction,
+  type LedgerFigures,
   type LedgerFileDecision,
+  type LedgerFileDrift,
   type LedgerFileFacts,
+  type LedgerFileImportMode,
   type LedgerFilePlan,
   type LedgerFilePlannedRecord,
   type LedgerFilePlanProblem,
   type LedgerImportKind,
   type LedgerPreferencesChoice,
 } from "../shared/ledger-file-import.js";
+import {
+  ledgerBalanceIssue,
+  ledgerBalanceRefusal,
+  ledgerBalanceRefusalOf,
+  ledgerMoveEntryReason,
+  ledgerMoveEntryRefusal,
+  planLedgerFileMove,
+} from "../shared/ledger-file-move.js";
 import { normalizeHumanName } from "../shared/names.js";
 import { progressFraction, type ProgressEvent } from "../shared/progress.js";
 import {
@@ -40,6 +54,7 @@ import {
   queryString,
   writeDidNotHappen,
   type LedgerFileAddResult,
+  type LedgerFileMoveResult,
   type LedgerFilePreview,
 } from "./api.js";
 import { periodName } from "./budget-display.js";
@@ -57,27 +72,38 @@ import {
   Skeleton,
 } from "./components.js";
 import { newIdempotencyKey } from "./idempotency.js";
+import { formatDate, formatMoney } from "./money.js";
 import { THEME_CHOICES } from "./pages/SettingsPage.js";
 import { Link } from "./router.js";
 
 /**
- * Adding a Simple Balance file to this ledger: the middle section of Import
- * and export.
+ * Adding a Simple Balance file to this ledger, or moving one into it: the
+ * middle section of Import and export.
  *
  * The page does three things the server does again, and that is the design
  * rather than a duplication. It reads the file with the shared reader, so a
  * file that is not one is refused in the format's own sentences before a byte
  * of it is sent. It cuts the file into parts with the shared splitter, because
  * one import is at most ten thousand rows and the person should not have to
- * know that. And it plans the whole file with `planLedgerFileAdd`, the function
- * the server runs over each part under its locks before it writes anything, so
- * what this page says a decision will do is what the add then does — and a
- * request the page would refuse is never sent.
+ * know that. And it plans the whole file with `planLedgerFileAdd`, or with
+ * `planLedgerFileMove` once somebody chooses a move — the functions the server
+ * runs over each part under its locks before it writes anything — so what this
+ * page says a decision will do is what the import then does, and a request the
+ * page would refuse is never sent.
  *
  * What the server alone can say is what is already here: its records in the
- * file's own shape, and which of the file's entries it holds by origin. That is
- * what the preview route answers with, part by part, and the one thing this
- * page asks for before anybody decides anything.
+ * file's own shape, which of the file's entries it holds by origin, and
+ * whether everything in it came from a Simple Balance file, which is when a
+ * move is offered at all. That is what the preview route answers with, part by
+ * part, and the one thing this page asks for before anybody decides anything.
+ *
+ * **Two ways in, chosen by the person.** Adding brings the records in at once
+ * and sends the transactions to Staged, and is always offered. Moving writes
+ * every transaction straight into the books — deleted ones deleted again,
+ * archived accounts archived on their own day — and is offered only while the
+ * ledger holds nothing typed by hand, so it is the way a whole ledger reaches
+ * a new one. Where both are open neither is chosen for anybody: the two write
+ * different things, and a guess never overwrites a decision.
  */
 
 /** A file read and checked against this ledger, part by part. */
@@ -92,6 +118,11 @@ type CheckedFile = {
   readonly parts: readonly LedgerFile[];
   /** What every part's preview read, as one. */
   readonly facts: LedgerFileFacts;
+  /**
+   * What each part's preview read on its own, beside the merge: which of its
+   * rows are already here is what tells a move that a part is in already.
+   */
+  readonly partFacts: readonly LedgerFileFacts[];
 };
 
 /** A file the browser refused before sending any of it, with the format's sentences. */
@@ -104,7 +135,7 @@ class FileRefusal extends Error {
 }
 
 /**
- * Where an add stopped. The part is what "Try again" resends, and the parts
+ * Where an import stopped. The part is what "Try again" resends, and the parts
  * before it are in.
  */
 class PartStopped extends Error {
@@ -129,13 +160,37 @@ type DecisionDraft = {
 };
 
 /** What every part of one attempt is sent with, fixed when the attempt starts. */
-type AddAnswers = {
+type Answers = {
   readonly decisions: LedgerFileDecision[];
   readonly arriveArchived: string[];
   readonly preferences: LedgerPreferencesChoice | undefined;
 };
 
-type AddRequest = AddAnswers & { readonly key: string; readonly start: number };
+/** One attempt: its answers, the way the file comes in, and the key its parts' keys are built from. */
+type Attempt = Answers & { readonly mode: LedgerFileImportMode; readonly key: string };
+
+type RunRequest = Attempt & { readonly start: number };
+
+/**
+ * A part a move did not send, because its own preview found every row in it
+ * here already: what an earlier attempt brought in, counted the way a part
+ * that ran reports what it skipped.
+ */
+type PassedPart = {
+  readonly index: number;
+  readonly entries: number;
+  readonly deleted: number;
+  readonly staged: number;
+};
+
+/** What the parts of one attempt did, in the order they did it. */
+type Done = {
+  readonly added: readonly LedgerFileAddResult[];
+  readonly moved: readonly LedgerFileMoveResult[];
+  readonly passed: readonly PassedPart[];
+};
+
+const NOTHING_DONE: Done = { added: [], moved: [], passed: [] };
 
 const recordId = (kind: LedgerImportKind, key: string) => `${kind}\u0000${key}`;
 
@@ -169,6 +224,56 @@ const CHOICE_LABELS: Record<LedgerDecisionAction, string> = {
   // sentence case word by word (`tests/common-guide.test.ts`).
   leave_staged: "Leave for review",
 };
+
+/**
+ * The two ways a file comes in, in the order they are offered and the words
+ * each is offered in: what it writes, rather than what it is called, because
+ * the difference between them is the whole question.
+ *
+ * Moving first, because a ledger that may take one is new and moving is what a
+ * new ledger is for; where it may not, it is the one that says why beside
+ * itself. Keyed on the shared modes, so a third would not typecheck here.
+ */
+const MODE_ORDER: readonly LedgerFileImportMode[] = ["move", "add"];
+const MODE_CHOICES: Record<LedgerFileImportMode, { title: string; description: string }> = {
+  move: {
+    title: "Move it into this ledger",
+    description:
+      "Every transaction goes straight into the books, deleted ones and archived accounts as they were, and every balance is checked against the file.",
+  },
+  add: {
+    title: "Add it to this ledger",
+    description: "New records come in at once, and its transactions go to Staged for review.",
+  },
+};
+
+/**
+ * What a transaction's other half is, in the words the reports total it under,
+ * by the direction it was entered in: a deposit on the spending side is a
+ * refund of spending, and a withdrawal on the income side is income coming
+ * back. Said without the direction, a refund read as "counted as spending",
+ * the opposite of what it did. Keyed on the shared pair of counter-sides, so a
+ * third would fail to typecheck here rather than render as a blank.
+ */
+const COUNTER_SIDE: Record<LedgerFileDrift["type"], Record<CounterKind, string>> = {
+  deposit: { income: "income", expense: "a refund of spending" },
+  withdrawal: { expense: "spending", income: "income coming back" },
+};
+
+/**
+ * Money and days as this page writes them everywhere else, for the sentences
+ * the shared planner and the move's refusals build (common.md: formatted,
+ * never raw). The server writes the same sentences canonically.
+ */
+const FIGURES: LedgerFigures = { money: formatMoney, date: formatDate };
+
+/** Names in quotes, the way a sentence here lists a few: "a", "b" and "c". */
+function quotedList(names: readonly string[]): string {
+  const quoted = names.map((name) => `"${name}"`);
+  return quoted.length <= 1
+    ? quoted.join("")
+    : `${quoted.slice(0, -1).join(", ")} and ${quoted.at(-1)}`;
+}
 
 /** The words Settings gives each theme, so the two screens say one thing. */
 const themeLabel = (theme: string) =>
@@ -319,10 +424,13 @@ function outcomeOf(record: LedgerFilePlannedRecord): {
  *
  * Kept out of the records table on purpose: a transaction is never "new" here
  * in the sense a category is. It goes to Staged for review like any import,
- * or is skipped because its origin is already here, and the table's columns
- * would say something false about it either way.
+ * or straight into the books in a move, or is skipped because its origin is
+ * already here, and the table's columns would say something false about it
+ * either way.
  */
-function rowSentences(rows: LedgerFilePlan["rows"]): string[] {
+function rowSentences(plan: LedgerFilePlan, parts: number, file: LedgerFile): string[] {
+  const { rows } = plan;
+  if (plan.move) return moveSentences(plan, parts, file);
   const live = rows.entries - rows.deleted - rows.alreadyHere;
   const staged = rows.staged - rows.stagedAlreadyHere;
   return [
@@ -346,6 +454,89 @@ function rowSentences(rows: LedgerFilePlan["rows"]): string[] {
     // would be a second rule beside the one that decides it.
     rows.postedAsDiffers > 0
       ? `${counted(rows.postedAsDiffers, "transaction")} will count as income where ${rows.postedAsDiffers === 1 ? "it" : "they"} counted as a refund of spending, or the other way round, because a category's kind changed after ${rows.postedAsDiffers === 1 ? "it was" : "they were"} written. Balances are the same either way.`
+      : null,
+  ].filter((sentence) => sentence !== null);
+}
+
+/**
+ * Transactions whose other half lands on the other side of the books here, as
+ * one sentence a group. Reported and never reproduced: the side is decided by
+ * the categories here, by the rule every transaction is posted by, and a move
+ * that overrode it would be a second rule beside that one.
+ */
+function driftSentence(drift: LedgerFileDrift, done = false): string {
+  const one = drift.entries === 1;
+  const amount = formatMoney(drift.amount, drift.currency);
+  const counts = done ? (one ? "counts" : "count") : "will count";
+  const side = COUNTER_SIDE[drift.type];
+  return `${counted(drift.entries, drift.type)} filed under ${quotedList(drift.categories)}, ${one ? amount : `${amount} in all`}, ${counts} as ${side[drift.to]} here, where ${one ? "it was" : "they were"} ${side[drift.from]}.`;
+}
+
+/**
+ * What a move does with the file's rows: what it writes, what it writes and
+ * deletes again, what is in already, and what it will be held to.
+ *
+ * The balance check is said before anything is pressed, because it is the
+ * one way a move can stop once it has started — a part whose balances do not
+ * come out writes nothing — and somebody should know that is what the check
+ * is for rather than meet it as a refusal.
+ */
+function moveSentences(plan: LedgerFilePlan, parts: number, file: LedgerFile): string[] {
+  const { rows } = plan;
+  const move = plan.move!;
+  const compared = move.checks.filter((check) => check.compared);
+  // Two reasons a check is passed over (`balanceCheckSchema`), told apart by
+  // the file's own account, because each is a different sentence about it.
+  const archivedThere = new Set(
+    file.accounts
+      .filter((account) => account.detail === "full" && account.archivedAt !== null)
+      .map((account) => account.key),
+  );
+  const passedOver = move.checks.filter((check) => !check.compared && archivedThere.has(check.key));
+  const opensLater = move.checks.filter(
+    (check) => !check.compared && !archivedThere.has(check.key),
+  );
+  const recurring = plan.records.some(
+    (record) => record.kind === "recurrence" && record.action === "create",
+  );
+  const stagedHere = rows.stagedAlreadyHere;
+  return [
+    move.toWrite > 0
+      ? `${counted(move.toWrite, "transaction")} ${move.toWrite === 1 ? "goes" : "go"} straight into the books, with nothing to review.`
+      : null,
+    move.toVoid > 0
+      ? `${counted(move.toVoid, "deleted transaction")} ${move.toVoid === 1 ? "comes" : "come"} too, deleted as ${move.toVoid === 1 ? "it was" : "they were"} where the file came from, so ${move.toVoid === 1 ? "it changes" : "they change"} no balance.`
+      : null,
+    rows.toStage > 0
+      ? `${counted(rows.toStage, "staged row")} from the file ${rows.toStage === 1 ? "waits" : "wait"} in Staged again.`
+      : null,
+    move.alreadyHere > 0
+      ? `${counted(move.alreadyHere, "transaction")} ${move.alreadyHere === 1 ? "is" : "are"} already in this ledger, so ${move.alreadyHere === 1 ? "it is" : "they are"} skipped.`
+      : null,
+    stagedHere > 0
+      ? `${counted(stagedHere, "staged row")} ${stagedHere === 1 ? "is" : "are"} already waiting in Staged, so ${stagedHere === 1 ? "it is" : "they are"} skipped.`
+      : null,
+    ...move.drift.map((group) => driftSentence(group)),
+    move.drift.length
+      ? "Account balances are the same either way, and only the income and spending totals move: here each side is decided by the categories as they are now."
+      : null,
+    move.templateDropped > 0
+      ? `${counted(move.templateDropped, "transaction")} made from a template that is not coming in ${move.templateDropped === 1 ? "arrives" : "arrive"} without saying which template ${move.templateDropped === 1 ? "it was" : "they were"} made from.`
+      : null,
+    compared.length
+      ? `${compared.length === 1 ? "The balance of 1 account is" : `The balances of ${formatCount(compared.length)} accounts are`} checked against the file ${parts > 1 ? "once the last part is in, and that part is not written" : "as the move ends, and nothing is written"} if one comes out different.`
+      : null,
+    passedOver.length
+      ? `${quotedList(passedOver.map((check) => check.name))} ${passedOver.length === 1 ? "is" : "are"} not checked: archived where the file came from, ${passedOver.length === 1 ? "it holds" : "they hold"} nothing there to check against.`
+      : null,
+    opensLater.length
+      ? `${quotedList(opensLater.map((check) => check.name))} ${opensLater.length === 1 ? "is" : "are"} not checked: ${opensLater.length === 1 ? "it opens" : "they open"} after ${formatDate(file.throughDate)}, the day the file's balances are for, and the money ${opensLater.length === 1 ? "it" : "they"} held before the file's first day ${opensLater.length === 1 ? "arrives with its" : "arrive with their"} opening.`
+      : null,
+    // The page plans the whole file, which is the last part as far as the
+    // planner is concerned, so its own count of recurring transactions held
+    // back is always none; across parts, every one waits for the last.
+    parts > 1 && recurring
+      ? "Recurring transactions are created by the last part, so nothing they propose reaches Staged while the move is under way."
       : null,
   ].filter((sentence) => sentence !== null);
 }
@@ -448,25 +639,54 @@ function decisionOf(draft: DecisionDraft): LedgerFileDecision | null {
 }
 
 /**
- * Why adding a file would change nothing, or null when it would change
- * something.
+ * Why adding or moving a file would change nothing, or null when it would
+ * change something.
  *
- * An add that writes nothing is not refused — the server takes it and says so
- * — but a button that does nothing is a question the page can answer before it
- * is pressed: a file added a second time, or one whose every record and entry
- * is here already, which is exactly what a finished import looks like when it
- * is checked again.
+ * An import that writes nothing is not refused — the server takes it and says
+ * so — but a button that does nothing is a question the page can answer before
+ * it is pressed: a file brought in a second time, or one whose every record and
+ * entry is here already, which is exactly what a finished import looks like
+ * when it is checked again. A move writes its transactions rather than staging
+ * them, so those count as well.
  */
-function nothingToAdd(plan: LedgerFilePlan): string | null {
+function nothingToDo(plan: LedgerFilePlan): string | null {
   const writes =
     plan.records.some((record) => record.action === "create") ||
     plan.rows.toStage > 0 ||
+    (plan.move !== undefined && plan.move.toWrite + plan.move.toVoid > 0) ||
     plan.counts.budget_entry.create > 0 ||
     plan.preferences.action === "apply";
   if (writes) return null;
   return plan.records.length === 0 && plan.rows.entries === 0 && plan.rows.staged === 0
-    ? "This file holds nothing to add."
+    ? `This file holds nothing to ${plan.move ? "move" : "add"}.`
     : "Everything in this file is already in this ledger.";
+}
+
+/**
+ * The part of a move that is in already, by its own preview: every live
+ * transaction, every deleted one and every staged row in it found here by
+ * origin, and no budget amount in it, since those are matched rather than
+ * looked up and only sending the part can say whether one is new. Null for a
+ * part that still has something to write, or one whose rows wait in Staged
+ * from an add, which the move refuses rather than passes over.
+ *
+ * A resumed move sends what is left rather than all of it: sending a part
+ * that is in already would write nothing, at the cost of reading ten thousand
+ * origins to find that out.
+ */
+function alreadyIn(part: LedgerFile, facts: LedgerFileFacts): Omit<PassedPart, "index"> | null {
+  const deleted = part.entries.filter((entry) => entry.deleted).length;
+  const live = part.entries.length - deleted;
+  const { rows } = facts;
+  if (rows.waiting > 0 || part.budgets.entries.length > 0) return null;
+  if (
+    rows.alreadyHere !== live ||
+    rows.deletedAlreadyHere !== deleted ||
+    rows.stagedAlreadyHere !== part.staged.length
+  ) {
+    return null;
+  }
+  return { entries: live, deleted, staged: part.staged.length };
 }
 
 /**
@@ -493,11 +713,15 @@ export function LedgerFileImport({ partLimits }: { partLimits?: LedgerFilePartLi
   // somebody's accounts to put away is theirs.
   const [archived, setArchived] = useState<ReadonlySet<string>>(() => new Set());
   const [preferences, setPreferences] = useState<LedgerPreferencesChoice | undefined>(undefined);
+  // And no way in until somebody picks one, where both are open: a move and
+  // an add write different things, and only one of them can be undone by
+  // reviewing what it did before it counts.
+  const [mode, setMode] = useState<LedgerFileImportMode | undefined>(undefined);
   const [showRecords, setShowRecords] = useState(false);
-  const [attempt, setAttempt] = useState<(AddAnswers & { key: string }) | null>(null);
-  const [done, setDone] = useState<LedgerFileAddResult[]>([]);
+  const [attempt, setAttempt] = useState<Attempt | null>(null);
+  const [done, setDone] = useState<Done>(NOTHING_DONE);
   const [running, setRunning] = useState<{ index: number; count: number } | null>(null);
-  const [addProgress, setAddProgress] = useState<ProgressEvent | null>(null);
+  const [progress, setProgress] = useState<ProgressEvent | null>(null);
 
   const check = useMutation({
     mutationFn: async (source: { file: File } | { again: CheckedFile }): Promise<CheckedFile> => {
@@ -523,25 +747,35 @@ export function LedgerFileImport({ partLimits }: { partLimits?: LedgerFilePartLi
         setChecking({ index: at + 1, count: parts.length });
         // Every part is asked, because only the server knows which of a part's
         // entries are already here, and a part is the most it will read at
-        // once. The part's own `plan` is dropped: it is that part planned with
-        // nothing decided, and the page plans the whole file itself, from the
-        // facts every part read, each time somebody decides something.
-        const { plan: _plan, ...facts } = await api<LedgerFilePreview>(
+        // once. The part's own `plan` and `movePlan` are dropped: each is that
+        // part planned with nothing decided, and the page plans the whole file
+        // itself, either way, from the facts every part read, each time
+        // somebody decides something.
+        const {
+          plan: _plan,
+          movePlan: _movePlan,
+          ...facts
+        } = await api<LedgerFilePreview>(
           "/api/v1/ledger-file:preview",
           json({ ledgerFile: serializeLedgerFile(part) }),
         );
         read.push(facts);
       }
-      return { name, identity, file, parts, facts: mergeLedgerFileFacts(read) };
+      // `rows.alreadyHereOn` and `rows.heldHere`, with its `fromFile`, are
+      // never shown as figures: the planner reads them over the merged facts
+      // and what they decide is shown as what it raises, the question about
+      // an account here holding another file's transactions and the problem
+      // of an account that would come in without its own.
+      return { name, identity, file, parts, facts: mergeLedgerFileFacts(read), partFacts: read };
     },
     onMutate: (source) => {
       // A new attempt, whatever the last one got to. A part already in is
       // recognized by the next preview — its entries are here by origin, and
       // its records are here, read as the same ones under the same decisions
-      // — so starting again is how an add resumes.
-      add.reset();
+      // — so starting again is how an import resumes.
+      run.reset();
       setAttempt(null);
-      setDone([]);
+      setDone(NOTHING_DONE);
       if ("file" in source) {
         setChosenName(source.file.name);
         setChecked(null);
@@ -550,56 +784,78 @@ export function LedgerFileImport({ partLimits }: { partLimits?: LedgerFilePartLi
     onSuccess: (result) => {
       setChecked(result);
       // Choices belong to a file. The same file again — checked again, or
-      // chosen again after a stop — keeps them, so a resumed add asks nothing
-      // it was already told and a copy is not brought in under a second new
-      // name; another file starts from nothing.
+      // chosen again after a stop — keeps them, so a resumed import asks
+      // nothing it was already told and a copy is not brought in under a
+      // second new name; another file starts from nothing, the way in too.
       if (result.identity === decidedFor) return;
       setDecidedFor(result.identity);
       setDrafts(new Map());
       setArchived(new Set());
       setPreferences(undefined);
+      setMode(undefined);
       setShowRecords(false);
     },
     onSettled: () => setChecking(null),
   });
 
-  const add = useMutation({
-    mutationFn: async (asked: AddRequest) => {
-      const parts = checked!.parts;
+  const run = useMutation({
+    mutationFn: async (asked: RunRequest) => {
+      const { parts, partFacts } = checked!;
+      const moving = asked.mode === "move";
       for (let index = asked.start; index <= parts.length; index += 1) {
+        const part = parts[index - 1]!;
+        // Never the last part, whatever its preview says: it carries the
+        // balances the whole move is held to and creates the recurring
+        // transactions, and neither happens anywhere else.
+        const passed =
+          moving && index < parts.length ? alreadyIn(part, partFacts[index - 1]!) : null;
+        if (passed) {
+          setDone((earlier) => ({ ...earlier, passed: [...earlier.passed, { index, ...passed }] }));
+          continue;
+        }
         setRunning({ index, count: parts.length });
-        setAddProgress(null);
-        let result: LedgerFileAddResult;
+        setProgress(null);
+        // One key per part, built from one per attempt: a part retried is the
+        // same request and replays if it had in fact finished, and the next
+        // part is a different request. The same fields either way, because a
+        // move decides exactly what an add decides.
+        const body = json({
+          ledgerFile: serializeLedgerFile(part),
+          fileName: batchFileName(checked!.name),
+          idempotencyKey: `${asked.key}-${index}`,
+          part: { index, count: parts.length },
+          decisions: asked.decisions,
+          arriveArchived: asked.arriveArchived,
+          preferences: asked.preferences,
+        });
         try {
-          // One key per part, built from one per attempt: a part retried is
-          // the same request and replays if it had in fact finished, and the
-          // next part is a different request.
-          result = await apiStreamed<LedgerFileAddResult>(
-            "/api/v1/ledger-file:add",
-            json({
-              ledgerFile: serializeLedgerFile(parts[index - 1]!),
-              fileName: batchFileName(checked!.name),
-              idempotencyKey: `${asked.key}-${index}`,
-              part: { index, count: parts.length },
-              decisions: asked.decisions,
-              arriveArchived: asked.arriveArchived,
-              preferences: asked.preferences,
-            }),
-            setAddProgress,
-          );
+          if (moving) {
+            const result = await apiStreamed<LedgerFileMoveResult>(
+              "/api/v1/ledger-file:move",
+              body,
+              setProgress,
+            );
+            setDone((earlier) => ({ ...earlier, moved: [...earlier.moved, result] }));
+          } else {
+            const result = await apiStreamed<LedgerFileAddResult>(
+              "/api/v1/ledger-file:add",
+              body,
+              setProgress,
+            );
+            setDone((earlier) => ({ ...earlier, added: [...earlier.added, result] }));
+          }
         } catch (error) {
           throw new PartStopped(index, error);
         }
-        setDone((earlier) => [...earlier, result]);
       }
     },
     onSettled: async () => {
-      setAddProgress(null);
+      setProgress(null);
       setRunning(null);
       // Everything, because a file reaches every list there is: accounts,
       // categories, templates, recurring transactions, budgets, the queue and
-      // its batches, and the settings in the session. A stop partway still
-      // wrote every part before it.
+      // its batches, balances and reports when it is moved, and the settings
+      // in the session. A stop partway still wrote every part before it.
       await queryClient.invalidateQueries();
     },
   });
@@ -609,9 +865,16 @@ export function LedgerFileImport({ partLimits }: { partLimits?: LedgerFilePartLi
     [checked],
   );
 
+  // A move is offered only while the ledger may take one, and where it may
+  // not, adding is the one way in and is what the page plans: a choice made
+  // before somebody typed into the ledger does not outlive the check that
+  // found it.
+  const effective: LedgerFileImportMode | undefined = checked?.facts.move.qualifies ? mode : "add";
+
   /**
-   * The plan for the whole file as things stand, and exactly what the add
-   * would send.
+   * The plan for the whole file as things stand, the way it is coming in, and
+   * exactly what the import would send. Nothing while no way in is chosen:
+   * the two plan differently, and showing one would be choosing it.
    *
    * Twice when it has to be. A draft can outlive the question it answered —
    * a category is the same as the one here once its group is used rather than
@@ -620,17 +883,19 @@ export function LedgerFileImport({ partLimits }: { partLimits?: LedgerFilePartLi
    * changes nothing the person can see and is what the request will carry.
    */
   const planned = useMemo(() => {
-    if (!checked) return null;
-    const run = (decisions: LedgerFileDecision[], arriveArchived: string[]) =>
-      planLedgerFileAdd({
+    if (!checked || effective === undefined) return null;
+    const planner = effective === "move" ? planLedgerFileMove : planLedgerFileAdd;
+    const plan = (decisions: LedgerFileDecision[], arriveArchived: string[]) =>
+      planner({
         file: checked.file,
         facts: checked.facts,
         decisions,
         arriveArchived,
         preferences,
+        figures: FIGURES,
       }).plan;
     const all = [...drafts.values()].map(decisionOf).filter((one) => one !== null);
-    const first = run(all, [...archived]);
+    const first = plan(all, [...archived]);
     const asking = new Map(
       first.records
         .filter((record) => record.choices.length > 0)
@@ -649,10 +914,10 @@ export function LedgerFileImport({ partLimits }: { partLimits?: LedgerFilePartLi
     const arriveArchived = [...archived].filter((key) =>
       offered.some((record) => record.key === key),
     );
-    const plan =
+    const final =
       decisions.length === all.length && arriveArchived.length === archived.size
         ? first
-        : run(decisions, arriveArchived);
+        : plan(decisions, arriveArchived);
     // An account the file only names opens on the earliest entry naming it,
     // and only this page holds the whole file: the part that creates it is
     // the first, which need not hold that entry. One part needs nothing sent.
@@ -669,18 +934,23 @@ export function LedgerFileImport({ partLimits }: { partLimits?: LedgerFilePartLi
               : decision,
           )
         : decisions;
-    return { plan, answers: { decisions: sent, arriveArchived, preferences }, offered };
-  }, [checked, drafts, archived, preferences, accounts]);
+    return {
+      mode: effective,
+      plan: final,
+      answers: { decisions: sent, arriveArchived, preferences },
+      offered,
+    };
+  }, [checked, effective, drafts, archived, preferences, accounts]);
 
-  const stopped = add.error instanceof PartStopped ? add.error : null;
-  const finished = add.isSuccess;
-  // Nothing about the file changes while it is being checked or added, or once
-  // an attempt has stopped: what is on screen is what the stopped part was
-  // sent with, and changing it before "Try again" would send a different
-  // request under the same key.
-  const locked = check.isPending || add.isPending || stopped !== null;
+  const stopped = run.error instanceof PartStopped ? run.error : null;
+  const finished = run.isSuccess;
+  // Nothing about the file changes while it is being checked or brought in,
+  // or once an attempt has stopped: what is on screen is what the stopped
+  // part was sent with, and changing it before "Try again" would send a
+  // different request under the same key.
+  const locked = check.isPending || run.isPending || stopped !== null;
 
-  const busy = check.isPending || add.isPending;
+  const busy = check.isPending || run.isPending;
   const chooseFile = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     // A drop lands here whatever the click guard below says.
@@ -709,19 +979,74 @@ export function LedgerFileImport({ partLimits }: { partLimits?: LedgerFilePartLi
       return next;
     });
 
+  /**
+   * Another way in, and the answers that no longer fit it let go.
+   *
+   * A move offers fewer choices than an add — an account or a category the
+   * file's transactions are written to has to come in — so "Leave it out",
+   * said while adding, is not a choice a move can be sent. It is dropped
+   * rather than kept out of sight: switching back to adding would otherwise
+   * bring it back unasked, chosen by somebody who has since been shown the
+   * question without it.
+   */
+  const chooseMode = (next: LedgerFileImportMode) => {
+    if (!checked || next === mode) return;
+    const planner = next === "move" ? planLedgerFileMove : planLedgerFileAdd;
+    const { plan } = planner({
+      file: checked.file,
+      facts: checked.facts,
+      decisions: [...drafts.values()].map(decisionOf).filter((one) => one !== null),
+      arriveArchived: [...archived],
+      preferences,
+    });
+    const offered = new Map(
+      plan.records.map((record) => [recordId(record.kind, record.key), record.choices]),
+    );
+    setDrafts(
+      (current) =>
+        new Map([...current].filter(([id, draft]) => offered.get(id)?.includes(draft.action))),
+    );
+    setMode(next);
+  };
+
   const start = (event: FormEvent) => {
     event.preventDefault();
-    if (!planned || !checked || add.isPending) return;
+    if (!checked || run.isPending) return;
+    // Enter in a name field, or on a box or a radio, submits the form through
+    // its default button, and every one of those controls is disabled while a
+    // part runs and after it stops. A browser blurs what it disables, so a
+    // stop arrived with focus on <body> (web.md 13.3). Focus goes to the
+    // button the browser submitted through, which stays focusable while it
+    // works, so the stop ends where a pressed button already ends.
+    const submitter = (event.nativeEvent as SubmitEvent).submitter;
+    if (submitter instanceof HTMLElement && document.activeElement !== submitter) {
+      submitter.focus();
+    }
     if (stopped && attempt) {
-      add.mutate({ ...attempt, start: stopped.index });
+      if (balanceStopOf(stopped) !== null) return;
+      run.mutate({ ...attempt, start: stopped.index });
       return;
     }
-    if (!planned.plan.ok) return;
-    const answers = { ...planned.answers, key: newIdempotencyKey() };
-    setAttempt(answers);
-    setDone([]);
-    add.mutate({ ...answers, start: 1 });
+    if (!planned || !planned.plan.ok) return;
+    const asked: Attempt = { ...planned.answers, mode: planned.mode, key: newIdempotencyKey() };
+    setAttempt(asked);
+    setDone(NOTHING_DONE);
+    run.mutate({ ...asked, start: 1 });
   };
+
+  const parts = checked?.parts.length ?? 1;
+  // A move's bar is the phase in flight, written and then staged, each from
+  // nothing to all of it. The commit's weights would start a move at a
+  // quarter: they count a validating and a comparing pass a move does not
+  // make, and while it writes, how many staged rows come after is not known,
+  // so there is nothing to weigh the two by that is not a guess.
+  const moving = (attempt?.mode ?? planned?.mode) === "move";
+  const fraction = (event: ProgressEvent) =>
+    moving
+      ? event.total > 0
+        ? Math.min(event.done / event.total, 1)
+        : 1
+      : progressFraction(event);
 
   return (
     <div className="panel ledger-import">
@@ -729,7 +1054,7 @@ export function LedgerFileImport({ partLimits }: { partLimits?: LedgerFilePartLi
         <FileUp size={26} />
         <strong>{checked?.name || chosenName || "Choose a Simple Balance file"}</strong>
         <span>A file exported from Simple Balance, on this copy or on another.</span>
-        <span>Nothing is written until you add it.</span>
+        <span>Nothing is written until you add it or move it in.</span>
         {/* Refused while busy the way `Button` refuses, never `disabled`: a
             browser blurs an element it disables, so the input that was just
             used let go of focus and the preview arrived with it on `<body>`
@@ -761,29 +1086,46 @@ export function LedgerFileImport({ partLimits }: { partLimits?: LedgerFilePartLi
 
       {check.error ? <FileRefused error={check.error} /> : null}
 
-      {finished && checked ? (
-        <AddResult name={checked.name} file={checked.file} results={done} />
-      ) : checked && planned ? (
+      {finished && checked && attempt?.mode === "move" ? (
+        <MoveResult name={checked.name} done={done} parts={parts} facts={checked.facts} />
+      ) : finished && checked ? (
+        <AddResult name={checked.name} file={checked.file} results={done.added} />
+      ) : checked ? (
         <form className="ledger-import-preview" onSubmit={start}>
-          <PreviewBody
-            base={base}
-            checked={checked}
-            plan={planned.plan}
-            accounts={accounts}
-            offered={planned.offered}
+          <ModeChoice
+            facts={checked.facts}
+            mode={effective}
             locked={locked}
-            draftFor={draftFor}
-            setDraft={setDraft}
-            clearDraft={clearDraft}
-            archived={archived}
-            setArchived={setArchived}
-            preferences={preferences}
-            setPreferences={setPreferences}
-            showRecords={showRecords}
-            setShowRecords={setShowRecords}
+            onChange={chooseMode}
           />
 
-          {add.isPending && running ? (
+          {planned ? (
+            <PreviewBody
+              base={base}
+              checked={checked}
+              mode={planned.mode}
+              plan={planned.plan}
+              accounts={accounts}
+              offered={planned.offered}
+              locked={locked}
+              draftFor={draftFor}
+              setDraft={setDraft}
+              clearDraft={clearDraft}
+              archived={archived}
+              setArchived={setArchived}
+              preferences={preferences}
+              setPreferences={setPreferences}
+              showRecords={showRecords}
+              setShowRecords={setShowRecords}
+            />
+          ) : (
+            <Alert kind="info">
+              This ledger can take the file either way. Choose one, and what it would do is shown
+              here before anything is written.
+            </Alert>
+          )}
+
+          {run.isPending && running ? (
             <div className="ledger-import-progress">
               {running.count > 1 ? (
                 <p role="status">{`Part ${formatCount(running.index)} of ${formatCount(running.count)}`}</p>
@@ -791,10 +1133,13 @@ export function LedgerFileImport({ partLimits }: { partLimits?: LedgerFilePartLi
               {/* Never before a count is real (web.md 12.6): a part does its
                   records and its lookups before the first row, and reports
                   nothing while it does. */}
-              {addProgress && addProgress.total >= PROGRESS_STREAM_MIN_ROWS ? (
+              {progress && progress.total >= PROGRESS_STREAM_MIN_ROWS ? (
                 <ProgressBar
-                  label={progressLabel(addProgress)}
-                  value={progressFraction(addProgress)}
+                  label={progressLabel(
+                    progress,
+                    moving && progress.phase === "posting" ? "written" : undefined,
+                  )}
+                  value={fraction(progress)}
                   max={1}
                 />
               ) : null}
@@ -802,14 +1147,21 @@ export function LedgerFileImport({ partLimits }: { partLimits?: LedgerFilePartLi
           ) : null}
 
           {stopped ? (
-            <StoppedNotice stopped={stopped} count={checked.parts.length} done={done.length} />
+            <StoppedNotice
+              stopped={stopped}
+              mode={attempt?.mode ?? "add"}
+              count={parts}
+              done={done.added.length + done.moved.length + done.passed.length}
+              file={checked.file}
+            />
           ) : null}
 
-          <AddActions
-            plan={planned.plan}
-            checked={checked}
+          <RunActions
+            mode={planned?.mode}
+            plan={planned?.plan ?? null}
+            count={parts}
             stopped={stopped}
-            pending={add.isPending}
+            pending={run.isPending}
             checking={check.isPending}
             onCheckAgain={() => check.mutate({ again: checked })}
           />
@@ -820,51 +1172,72 @@ export function LedgerFileImport({ partLimits }: { partLimits?: LedgerFilePartLi
 }
 
 /**
- * The buttons under the preview: check the file again, and add it.
+ * The buttons under the preview: check the file again, and bring it in.
  *
- * One add button whatever the state, in one place, so the element a keyboard
+ * One button whatever the state, in one place, so the element a keyboard
  * pressed is the element that is there when the answer comes. "Add to this
- * ledger" becomes "Try part 2 of 3 again" where a part stopped, rather than a
- * second button replacing the first: a replaced button takes focus to `<body>`
- * with it (web.md 13.3).
+ * ledger" becomes "Move into this ledger" when the way in changes, and either
+ * becomes "Try part 2 of 3 again" where a part stopped, rather than a second
+ * button replacing the first: a replaced button takes focus to `<body>` with
+ * it (web.md 13.3).
  */
-function AddActions({
+function RunActions({
+  mode,
   plan,
-  checked,
+  count,
   stopped,
   pending,
   checking,
   onCheckAgain,
 }: {
-  plan: LedgerFilePlan;
-  checked: CheckedFile;
+  mode: LedgerFileImportMode | undefined;
+  plan: LedgerFilePlan | null;
+  count: number;
   stopped: PartStopped | null;
   pending: boolean;
   checking: boolean;
   onCheckAgain: () => void;
 }) {
-  const count = checked.parts.length;
-  const idle = nothingToAdd(plan);
-  const open = plan.problems.length;
-  // Why the button cannot be pressed, said beside it (web.md 12.3). A stopped
-  // attempt is always retryable, because it resends what was already decided.
-  // A check in flight disables it too and says nothing, because the check
-  // button beside it is spinning and that is the answer.
+  const open = plan?.problems.length ?? 0;
+  // A problem about the move as a whole — rows still waiting in Staged, a
+  // frozen account, a category of the wrong kind here — is something to do
+  // rather than a question to answer, and is not counted as one.
+  const settle = plan?.problems.some((problem) => problem.field === "move") ?? false;
+  // Why the button cannot be pressed, said beside it (web.md 12.3), the first
+  // unmet condition only. A stopped attempt is retryable, because it resends
+  // what was already decided and a part that did finish replays — except one
+  // stopped by its balances, which the same request meets again every time;
+  // the notice above it says what changes that, and takes focus, since this
+  // button lets go of it as it is disabled. A check in flight disables it too
+  // and says nothing, because the check button beside it is spinning and that
+  // is the answer.
   const blocked = stopped
-    ? null
-    : open > 0
-      ? `${counted(open, "question is", "questions are")} still open above.`
-      : idle;
+    ? balanceStopOf(stopped) === null
+      ? null
+      : "Trying again would meet the same balances, so check the file again first."
+    : plan === null
+      ? "Choose how the file comes in."
+      : settle
+        ? "What is listed under Still to decide has to be settled first."
+        : open > 0
+          ? `${counted(open, "question is", "questions are")} still open above.`
+          : nothingToDo(plan);
   const label = stopped
     ? count > 1
       ? `Try part ${formatCount(stopped.index)} of ${formatCount(count)} again`
       : "Try again"
-    : "Add to this ledger";
+    : mode === "move"
+      ? "Move into this ledger"
+      : mode === "add"
+        ? "Add to this ledger"
+        : // Neither way named before one is chosen: a button that said either
+          // would be the page choosing it.
+          "Import this file";
   return (
     <div className="form-actions">
-      {/* Gone while a part is being added rather than disabled beside it:
-          checking again then would read a ledger halfway through changing,
-          and the add button's own busy state already says why. */}
+      {/* Gone while a part is being brought in rather than disabled beside
+          it: checking again then would read a ledger halfway through
+          changing, and the busy button's own state already says why. */}
       {pending ? null : (
         <Button type="button" variant="secondary" loading={checking} onClick={onCheckAgain}>
           <RotateCcw size={16} /> Check the file again
@@ -883,24 +1256,35 @@ function AddActions({
 }
 
 /**
- * Where an add stopped, what is in, and what pressing the button will do.
+ * Where an import stopped, what is in, and what pressing the button will do.
  *
  * "Nothing was written" only where the server answered: a part is one
  * transaction, so a refusal wrote none of it, but a connection that went away
  * says nothing about whether the part finished (web.md 12.6), and the notice
  * says that in its own words, since retrying with the part's key is how to
- * find out.
+ * find out. A move's own refusals already end by saying nothing in the part
+ * was written, and are not told it twice.
+ *
+ * A balance that did not come out names the first account in its sentence and
+ * every account in its details; where there are several, each is listed under
+ * it, so nobody has to fix one, try again and meet the next.
  */
 function StoppedNotice({
   stopped,
+  mode,
   count,
   done,
+  file,
 }: {
   stopped: PartStopped;
+  mode: LedgerFileImportMode;
   count: number;
   done: number;
+  file: LedgerFile;
 }) {
   const refused = writeDidNotHappen(stopped.failure);
+  const balance = refused ? balanceStopOf(stopped) : null;
+  const issues = refused && balance === null ? refusalIssues(stopped.failure) : [];
   const before =
     done === 0
       ? null
@@ -909,34 +1293,195 @@ function StoppedNotice({
         : `Parts 1 to ${formatCount(done)} of ${formatCount(count)} are in.`;
   const which =
     count > 1 ? `part ${formatCount(stopped.index)} of ${formatCount(count)}` : "the file";
+  // A move's own refusals are written again here in this page's figures, from
+  // what their details carry, by the functions that wrote them on the server.
+  const told =
+    balance !== null
+      ? ledgerBalanceRefusal(
+          balance.mismatches,
+          balance.throughDate,
+          { part: { index: stopped.index, count }, startsOn: file.scope.start },
+          FIGURES,
+        ).message
+      : (entryRefusalShown(stopped, file) ?? stopped.message);
+  const said = balance !== null || told.includes("Nothing in this part was written.");
   // A connection that went away is not a refusal (web.md 12.6): the part is
   // one transaction the server finishes whether or not anybody is still
   // listening, so its outcome is unknown, and the browser's own "Failed to
   // fetch" says none of that. Trying again finds out, because the part's key
   // replays one that finished.
   const lead = refused
-    ? `${stopped.message} ${count > 1 ? `Nothing from part ${formatCount(stopped.index)} was written.` : "Nothing was written."}`
-    : `The connection was lost before ${which} answered, so whether it was added is not known.`;
+    ? said
+      ? told
+      : `${told} ${count > 1 ? `Nothing from part ${formatCount(stopped.index)} was written.` : "Nothing was written."}`
+    : `The connection was lost before ${which} answered, so whether it was ${mode === "move" ? "moved" : "added"} is not known.`;
   return (
     <>
-      <Alert>
+      <Alert takeFocus={balance !== null}>
         {lead}
         {before ? ` ${before}` : null}
+        {balance !== null && balance.mismatches.length > 1 ? (
+          <ul className="ledger-import-issues">
+            {balance.mismatches.map((mismatch) => (
+              <li key={mismatch.key}>{ledgerBalanceIssue(mismatch, FIGURES)}</li>
+            ))}
+          </ul>
+        ) : issues.length > 1 ? (
+          <ul className="ledger-import-issues">
+            {issues.map((issue, index) => (
+              <li key={`${index}-${issue.field}`}>{issue.message}</li>
+            ))}
+          </ul>
+        ) : null}
       </Alert>
       <Note>
-        Trying again sends exactly what was sent before, and a part that did finish is not added
-        twice. Checking the file again, or choosing it again, reads this ledger afresh and keeps
-        what you decided: whatever an earlier part brought in is recognized and skipped under the
-        same decisions, and a new name for a renamed record would bring in a second copy.
+        {balance !== null
+          ? "Trying again sends exactly what was sent before, so it would meet the same balances. Rename the account here under Accounts, then check the file again, and the file's comes in as a new account; or check the file again and add it instead. Checking again reads this ledger afresh and keeps what you decided."
+          : `Trying again sends exactly what was sent before, and a part that did finish is not ${mode === "move" ? "moved" : "added"} twice. Checking the file again, or choosing it again, reads this ledger afresh and keeps what you decided: whatever an earlier part brought in is recognized and skipped under the same decisions, and a new name for a renamed record would bring in a second copy.`}
       </Note>
     </>
   );
+}
+
+/** The balances a move's part did not come out at, when that is why it stopped. */
+function balanceStopOf(stopped: PartStopped) {
+  return stopped.failure instanceof ApiClientError
+    ? ledgerBalanceRefusalOf(stopped.failure.details)
+    : null;
+}
+
+/**
+ * A move's refusal of one transaction, written again with the transaction's
+ * money and day in this page's figures, or null when the stop is not one. The
+ * transaction is found in the file by the origin the details carry, and the
+ * service's reason is read back out of the server's sentence by the function
+ * that is its inverse, so nothing here matches on words of its own.
+ */
+function entryRefusalShown(stopped: PartStopped, file: LedgerFile): string | null {
+  const failure = stopped.failure;
+  if (!(failure instanceof ApiClientError)) return null;
+  const origin = (failure.details as { origin?: unknown } | undefined)?.origin;
+  const entry = file.entries.find((each) => each.id === origin);
+  if (entry === undefined) return null;
+  const reason = ledgerMoveEntryReason(entry, stopped.message);
+  if (reason === null) return null;
+  const side = entry.type === "deposit" ? entry.to : entry.from;
+  const currency = file.accounts.find((account) => account.key === side)?.currency;
+  return ledgerMoveEntryRefusal(entry, reason, { figures: FIGURES, currency });
+}
+
+/**
+ * How the file comes in: moved straight into the books, or added with its
+ * transactions sent to Staged.
+ *
+ * Both offered where this ledger may take a move, and neither chosen: they
+ * write different things, and which is right is somebody's own call about
+ * their own ledger. Where it may not, moving is still shown, refused, with the
+ * sentence the server would refuse it in as its description, and adding is
+ * the one chosen; a move that silently was not there would be one somebody had
+ * to know about to miss.
+ *
+ * Native radios in one named group, so the arrow keys move between the two
+ * and pass over a refused one (web.md 8.8), drawn as the two cards the
+ * transaction form offers "Commit now" and "Stage for review" in, which is the
+ * same question asked of one transaction. Each is named by its title alone
+ * and described by its sentence, so a screen reader hears the choice and then
+ * what it does, rather than both run together as one name.
+ */
+function ModeChoice({
+  facts,
+  mode,
+  locked,
+  onChange,
+}: {
+  facts: LedgerFileFacts;
+  mode: LedgerFileImportMode | undefined;
+  locked: boolean;
+  onChange: (mode: LedgerFileImportMode) => void;
+}) {
+  const group = useId();
+  const blocked = !facts.move.qualifies;
+  return (
+    <div className="field ledger-import-mode">
+      <span className="field-label" id={`${group}-question`}>
+        How should this file come in?
+      </span>
+      <span className="field-hint" id={`${group}-why`}>
+        A move brings what adding cannot: deleted transactions, accounts archived on the day they
+        were, and no transaction left to review. It is offered only while everything in this ledger
+        came from a Simple Balance file, as in a new one; once a transaction is typed in or imported
+        from a CSV, a file can only be added.
+      </span>
+      <div
+        className="commit-choice"
+        role="radiogroup"
+        aria-labelledby={`${group}-question`}
+        aria-describedby={`${group}-why`}
+      >
+        {MODE_ORDER.map((each) => {
+          const refused = each === "move" && blocked;
+          return (
+            <label key={each} className={refused ? "ledger-import-mode-refused" : undefined}>
+              <input
+                type="radio"
+                name={group}
+                checked={mode === each}
+                disabled={locked || refused}
+                aria-labelledby={`${group}-${each}`}
+                aria-describedby={refused ? `${group}-${each}-reason` : `${group}-${each}-what`}
+                onChange={() => onChange(each)}
+              />
+              <span>
+                <strong id={`${group}-${each}`}>{MODE_CHOICES[each].title}</strong>
+                <small id={`${group}-${each}-what`}>{MODE_CHOICES[each].description}</small>
+                {refused ? (
+                  <small className="ledger-import-mode-reason" id={`${group}-${each}-reason`}>
+                    {facts.move.reason ?? LEDGER_FILE_MOVE_BLOCKED}
+                  </small>
+                ) : null}
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The one sentence the preview leads with: ready, and what will be written,
+ * or what is in the way. A move's own problems — rows waiting in Staged, a
+ * frozen account, a category of the wrong kind here — are things to settle
+ * rather than questions, and are said as such.
+ */
+function summaryOf(plan: LedgerFilePlan): string {
+  const { move } = plan;
+  if (!plan.ok) {
+    if (plan.problems.some((problem) => problem.field === "move")) {
+      return `This file cannot be moved into this ledger until ${plan.problems.length === 1 ? "what is" : "everything"} listed under Still to decide is settled.`;
+    }
+    return `${counted(plan.problems.length, "question")} to answer before this file can be ${move ? "moved" : "added"}.`;
+  }
+  const idle = nothingToDo(plan);
+  if (idle) return idle;
+  const created = counted(
+    plan.records.filter((record) => record.action === "create").length,
+    "new record",
+  );
+  if (!move) return `Ready to add: ${created} and ${counted(plan.rows.toStage, "row")} for Staged.`;
+  // The live ones: the deleted ones are said on their own line below, as
+  // what they are, and counted here they read as money that moves.
+  const written = counted(move.toWrite, "transaction");
+  return plan.rows.toStage > 0
+    ? `Ready to move: ${created}, ${written} straight into the books and ${counted(plan.rows.toStage, "row")} for Staged.`
+    : `Ready to move: ${created} and ${written} straight into the books.`;
 }
 
 /** Everything between the file and the buttons. */
 function PreviewBody({
   base,
   checked,
+  mode,
   plan,
   accounts,
   offered,
@@ -953,6 +1498,7 @@ function PreviewBody({
 }: {
   base: string;
   checked: CheckedFile;
+  mode: LedgerFileImportMode;
   plan: LedgerFilePlan;
   accounts: ReadonlyMap<string, LedgerFileAccount>;
   offered: readonly LedgerFilePlannedRecord[];
@@ -980,7 +1526,7 @@ function PreviewBody({
     return at === -1 ? null : `${base}-decision-${at}`;
   };
   const notes = plan.records.filter((record) => record.message && record.choices.length === 0);
-  const rows = rowSentences(plan.rows);
+  const rows = rowSentences(plan, checked.parts.length, checked.file);
   const tallied = ledgerImportKinds
     .map((kind) => {
       const counts = plan.counts[kind];
@@ -995,11 +1541,7 @@ function PreviewBody({
       };
     })
     .filter((row) => row.total > 0);
-  const created = plan.records.filter((record) => record.action === "create").length;
-  const summary = !plan.ok
-    ? `${counted(plan.problems.length, "question")} to answer before this file can be added.`
-    : (nothingToAdd(plan) ??
-      `Ready to add: ${counted(created, "new record")} and ${counted(plan.rows.toStage, "row")} for Staged.`);
+  const summary = summaryOf(plan);
 
   return (
     <>
@@ -1146,9 +1688,21 @@ function PreviewBody({
               : `${formatCount(asking.length)} records need a choice`}
           </h3>
           <Note>
-            {asking.some((record) => record.choices.includes("leave_staged"))
-              ? "Each is already here under the same name, or is named by the file and not here. Nothing here is changed whatever you choose, and one left for review keeps the transactions that name it waiting in Staged, to be settled there."
-              : "Each is already here under the same name, or is named by the file and not here. Nothing here is changed whatever you choose."}
+            {[
+              "Each is already here under the same name, or is named by the file and not here. Nothing here is changed whatever you choose.",
+              // Said only of a move, which offers less than an add, so that a
+              // missing "Leave it out" reads as a rule rather than a gap.
+              mode === "move"
+                ? "An account or a category the file's transactions are written to has to come in, so leaving one out is not offered."
+                : null,
+              asking.some((record) => record.choices.includes("leave_staged"))
+                ? mode === "move"
+                  ? "One left for review keeps the file's staged rows that name it waiting in Staged, to be settled there."
+                  : "One left for review keeps the transactions that name it waiting in Staged, to be settled there."
+                : null,
+            ]
+              .filter((sentence) => sentence !== null)
+              .join(" ")}
           </Note>
           <div className="ledger-import-decisions">
             {asking.map((record, at) => (
@@ -1175,6 +1729,7 @@ function PreviewBody({
       {offered.length ? (
         <ArriveArchived
           id={`${base}-archived`}
+          mode={mode}
           offered={offered}
           plan={plan}
           accounts={accounts}
@@ -1473,11 +2028,18 @@ function RecordDecision({
  * to be able to as well, and with nothing checked, because which of
  * somebody's accounts to put away is theirs to say. Places are spoken of only
  * where a plan limits them. Where the plan keeps fewer places than are
- * coming, the numbers are said here and the add waits until enough are
+ * coming, the numbers are said here and the import waits until enough are
  * chosen.
+ *
+ * What arriving archived costs differs by the way in, and the hint says which:
+ * an add leaves the account's transactions in Staged until it is restored,
+ * because a staged row cannot be committed into an archived account, and a
+ * move writes them into it and puts it away holding nothing from that day on,
+ * the way archiving any account leaves it.
  */
 function ArriveArchived({
   id,
+  mode,
   offered,
   plan,
   accounts,
@@ -1486,6 +2048,7 @@ function ArriveArchived({
   onChange,
 }: {
   id: string;
+  mode: LedgerFileImportMode;
   offered: readonly LedgerFilePlannedRecord[];
   plan: LedgerFilePlan;
   accounts: ReadonlyMap<string, LedgerFileAccount>;
@@ -1494,6 +2057,10 @@ function ArriveArchived({
   onChange: (next: ReadonlySet<string>) => void;
 }) {
   const { limit, inUse, arriving, needed, chosen } = plan.places;
+  const after =
+    mode === "move"
+      ? "Its transactions are written into it, and it holds nothing from the day of the move; restoring it posts its balance back."
+      : "Its transactions still go to Staged, and wait there until you restore it.";
   return (
     <div id={id}>
       <Field
@@ -1504,13 +2071,13 @@ function ArriveArchived({
         // choice is offered there anyway because an agent can make it.
         hint={
           limit !== null
-            ? "An account that arrives archived uses no place. Its transactions still go to Staged, and wait there until you restore it."
-            : "An account that arrives archived is put away as it arrives. Its transactions still go to Staged, and wait there until you restore it."
+            ? `An account that arrives archived uses no place. ${after}`
+            : `An account that arrives archived is put away as it arrives. ${after}`
         }
       >
         {limit !== null && needed > 0 ? (
           <Note>
-            {`Your plan keeps ${formatCount(limit)} accounts in use, and ${formatCount(inUse)} are in use here. This file brings ${formatCount(arriving)} more, so choose at least ${formatCount(needed)} to arrive archived, or upgrade under Settings. ${formatCount(chosen)} chosen so far.`}
+            {`Your plan keeps ${formatCount(limit)} accounts in use, and ${formatCount(inUse)} ${inUse === 1 ? "is" : "are"} in use here. This file brings ${formatCount(arriving)} more, so choose at least ${formatCount(needed)} to arrive archived, or upgrade under Settings. ${formatCount(chosen)} chosen so far.`}
           </Note>
         ) : null}
         <ul className="ledger-import-choices">
@@ -1627,12 +2194,87 @@ function PreferencesChoice({
 }
 
 /**
- * What an add did, summed over its parts.
+ * Per record, the furthest any part got: created in one, it is created.
  *
- * Records are read off the first part's plan with the ids it filled in:
- * every part carries every record, so the first part creates them and every
- * later one finds them here. Rows and budget amounts are each part's own and
- * are added up.
+ * Records are read off each part's plan with the ids it filled in: every part
+ * carries every record, so the first part creates them and every later one
+ * finds them here.
+ */
+function recordsAcross(plans: readonly LedgerFilePlan[]): LedgerFilePlannedRecord[] {
+  const outcome = new Map<string, LedgerFilePlannedRecord>();
+  for (const plan of plans) {
+    for (const record of plan.records) {
+      const id = recordId(record.kind, record.key);
+      const seen = outcome.get(id);
+      if (!seen || (seen.action !== "create" && record.action === "create")) {
+        outcome.set(id, record);
+      }
+    }
+  }
+  return [...outcome.values()];
+}
+
+/** One sentence a kind: how many of its records were created, were here, and were left out. */
+function kindSentences(records: readonly LedgerFilePlannedRecord[]): string[] {
+  return ledgerImportKinds
+    .filter((kind) => kind !== "budget_entry")
+    .flatMap((kind) => {
+      const ofKind = records.filter((record) => record.kind === kind);
+      if (!ofKind.length) return [];
+      const made = ofKind.filter((record) => record.action === "create").length;
+      const used = ofKind.filter((record) => record.action === "use").length;
+      const left = ofKind.length - made - used;
+      return [
+        `${KIND_NAMES[kind].many}: ${formatCount(made)} created, ${formatCount(used)} already here, ${formatCount(left)} left out.`,
+      ];
+    });
+}
+
+type StagedBatch = { id: string; part: { index: number }; staged: number };
+
+/**
+ * Where to go next: each batch the import staged rows under, and Accounts.
+ *
+ * The batch, so the queue opens on these rows rather than on everything ever
+ * staged, and all-time, because the queue's this-month default hid every
+ * imported row dated outside the month (the CSV import's precedent).
+ */
+function ResultLinks({ batches }: { batches: readonly StagedBatch[] }) {
+  return (
+    <div className="ledger-import-links">
+      {batches.map((batch) => (
+        <Link
+          className="button button-primary"
+          key={batch.id}
+          to={{
+            pathname: "/staged",
+            search: queryString({ importBatchId: batch.id, preset: "all-time" }),
+          }}
+        >
+          {batches.length > 1
+            ? `Review part ${formatCount(batch.part.index)}'s ${counted(batch.staged, "staged row")}`
+            : `Review ${counted(batch.staged, "staged row")}`}
+        </Link>
+      ))}
+      <Link className="button button-secondary" to="/accounts">
+        Open Accounts
+      </Link>
+    </div>
+  );
+}
+
+const batchesOf = (
+  results: readonly (LedgerFileAddResult | LedgerFileMoveResult)[],
+): StagedBatch[] =>
+  results.flatMap((result) =>
+    result.importBatchId === null
+      ? []
+      : [{ id: result.importBatchId, part: result.part, staged: result.staged }],
+  );
+
+/**
+ * What an add did, summed over its parts. Rows and budget amounts are each
+ * part's own and are added up.
  */
 function AddResult({
   name,
@@ -1652,30 +2294,8 @@ function AddResult({
     }),
     { created: 0, skipped: 0 },
   );
-  // Per record, the furthest any part got: created in one, it is created.
-  const outcome = new Map<string, LedgerFilePlannedRecord>();
-  for (const result of results) {
-    for (const record of result.plan.records) {
-      const id = recordId(record.kind, record.key);
-      const seen = outcome.get(id);
-      if (!seen || (seen.action !== "create" && record.action === "create")) {
-        outcome.set(id, record);
-      }
-    }
-  }
-  const records = [...outcome.values()];
-  const perKind = ledgerImportKinds
-    .filter((kind) => kind !== "budget_entry")
-    .flatMap((kind) => {
-      const ofKind = records.filter((record) => record.kind === kind);
-      if (!ofKind.length) return [];
-      const made = ofKind.filter((record) => record.action === "create").length;
-      const used = ofKind.filter((record) => record.action === "use").length;
-      const left = ofKind.length - made - used;
-      return [
-        `${KIND_NAMES[kind].many}: ${formatCount(made)} created, ${formatCount(used)} already here, ${formatCount(left)} left out.`,
-      ];
-    });
+  const records = recordsAcross(results.map((result) => result.plan));
+  const perKind = kindSentences(records);
   const putAway = records.filter(
     (record) => record.kind === "account" && record.action === "create" && record.arrivesArchived,
   );
@@ -1688,18 +2308,6 @@ function AddResult({
     (record) =>
       record.kind === "category" && record.action === "create" && archivedAtSource.has(record.key),
   );
-  const batches = results.flatMap((result) =>
-    result.importBatchId === null
-      ? []
-      : [{ id: result.importBatchId, part: result.part, staged: result.staged }],
-  );
-  const review = (batch: (typeof batches)[number]) => ({
-    pathname: "/staged",
-    // The batch, so the queue opens on these rows rather than on everything
-    // ever staged, and all-time, because the queue's this-month default hid
-    // every imported row dated outside the month (the CSV import's precedent).
-    search: queryString({ importBatchId: batch.id, preset: "all-time" }),
-  });
   return (
     <div className="ledger-import-result">
       <Alert kind="success" takeFocus>
@@ -1728,18 +2336,157 @@ function AddResult({
           </li>
         ))}
       </ul>
-      <div className="ledger-import-links">
-        {batches.map((batch) => (
-          <Link className="button button-primary" key={batch.id} to={review(batch)}>
-            {batches.length > 1
-              ? `Review part ${formatCount(batch.part.index)}'s ${counted(batch.staged, "staged row")}`
-              : `Review ${counted(batch.staged, "staged row")}`}
-          </Link>
+      <ResultLinks batches={batchesOf(results)} />
+    </div>
+  );
+}
+
+/**
+ * Drift from every part as one list: the same currency and the same two sides
+ * added up, so a refund split across two parts is one sentence, not two.
+ */
+function mergedDrift(results: readonly LedgerFileMoveResult[]): LedgerFileDrift[] {
+  const merged = new Map<string, LedgerFileDrift>();
+  for (const drift of results.flatMap((result) => result.plan.move?.drift ?? [])) {
+    const slot = `${drift.currency}|${drift.type}|${drift.from}|${drift.to}`;
+    const seen = merged.get(slot);
+    merged.set(
+      slot,
+      seen
+        ? {
+            ...seen,
+            entries: seen.entries + drift.entries,
+            amount: addDecimalText(seen.amount, drift.amount),
+            categories: [...new Set([...seen.categories, ...drift.categories])],
+          }
+        : drift,
+    );
+  }
+  return [...merged.values()];
+}
+
+/**
+ * What a move did, summed over its parts and the parts it found in already.
+ *
+ * The balance check is reported from the one part that carried balances —
+ * the last — because that is the one that held every account to the file; a
+ * part that ran at all passed it, since one that did not wrote nothing.
+ *
+ * The archived accounts are named rather than counted. Each part says how
+ * many archived accounts it wrote into (`archived`), and one account with
+ * transactions in three parts is three of those; by name, it is one. It counts
+ * those created archived, and those already archived here that a part wrote
+ * into, which is what a resumed move finds of the ones its first attempt made.
+ */
+function MoveResult({
+  name,
+  done,
+  parts,
+  facts,
+}: {
+  name: string;
+  done: Done;
+  parts: number;
+  facts: LedgerFileFacts;
+}) {
+  const results = done.moved;
+  const sum = (pick: (result: LedgerFileMoveResult) => number) =>
+    results.reduce((total, result) => total + pick(result), 0);
+  const passed = (pick: (part: PassedPart) => number) =>
+    done.passed.reduce((total, part) => total + pick(part), 0);
+  const written = sum((result) => result.written.entries);
+  const deleted = sum((result) => result.written.deleted);
+  const skipped =
+    sum((result) => result.skipped.entries + result.skipped.deleted) +
+    passed((part) => part.entries + part.deleted);
+  const waitingAlready = sum((result) => result.skipped.staged) + passed((part) => part.staged);
+  const staged = sum((result) => result.staged);
+  const needsReview = sum((result) => result.needsReview);
+  const amounts = {
+    created: sum((result) => result.budgetEntries.created),
+    skipped: sum((result) => result.budgetEntries.skipped),
+  };
+  const records = recordsAcross(results.map((result) => result.plan));
+  const archivedHere = new Set(
+    facts.here.accounts
+      .filter((account) => account.detail === "full" && account.archivedAt !== null)
+      .map((account) => account.key),
+  );
+  const holding = records
+    .filter(
+      (record) =>
+        record.kind === "account" &&
+        ((record.action === "create" && record.arrivesArchived) ||
+          (record.action === "use" &&
+            record.existing !== null &&
+            archivedHere.has(record.existing.key))),
+    )
+    .map((record) => record.importName ?? record.name);
+  const balances = results.map((result) => result.balances).find((each) => each !== null);
+  const drift = mergedDrift(results);
+  const dropped = sum((result) => result.plan.move?.templateDropped ?? 0);
+  const skippedParts = done.passed.map((part) => formatCount(part.index));
+  return (
+    <div className="ledger-import-result">
+      <Alert kind="success" takeFocus>
+        {`Moved "${name}" into this ledger. `}
+        {written || deleted
+          ? `${counted(written, "transaction")} went straight into the books${deleted ? `, and ${counted(deleted, "deleted transaction")} came in deleted, as ${deleted === 1 ? "it was" : "they were"} where the file came from` : ""}.`
+          : "No transaction was new here."}
+      </Alert>
+      <ul className="ledger-import-notes">
+        {balances ? (
+          <li>
+            {`Every balance came out as the file says: ${counted(balances.checked, "account")} checked.${balances.notCompared ? ` ${counted(balances.notCompared, "account")} archived where the file came from ${balances.notCompared === 1 ? "was" : "were"} not compared, holding nothing there to compare with.` : ""}`}
+          </li>
+        ) : (
+          <li>This file carried no balances to check.</li>
+        )}
+        {skipped ? (
+          <li>
+            {`${counted(skipped, "transaction")} ${skipped === 1 ? "was" : "were"} already in this ledger, so ${skipped === 1 ? "it was" : "they were"} skipped.`}
+          </li>
+        ) : null}
+        {skippedParts.length ? (
+          <li>
+            {`${skippedParts.length === 1 ? `Part ${skippedParts[0]}` : `Parts ${skippedParts.slice(0, -1).join(", ")} and ${skippedParts.at(-1)}`} of ${formatCount(parts)} ${skippedParts.length === 1 ? "was" : "were"} in already, so ${skippedParts.length === 1 ? "it was" : "they were"} not sent again.`}
+          </li>
+        ) : null}
+        {kindSentences(records).map((sentence) => (
+          <li key={sentence}>{sentence}</li>
         ))}
-        <Link className="button button-secondary" to="/accounts">
-          Open Accounts
-        </Link>
-      </div>
+        {amounts.created || amounts.skipped ? (
+          <li>
+            {`Budget amounts: ${formatCount(amounts.created)} set, ${formatCount(amounts.skipped)} left out.`}
+          </li>
+        ) : null}
+        {holding.length ? (
+          <li>
+            {`${counted(holding.length, "archived account")} ${holding.length === 1 ? "holds its" : "hold their"} transactions: ${quotedList(holding)}. Restoring ${holding.length === 1 ? "it" : "one"} posts its balance back.`}
+          </li>
+        ) : null}
+        {staged ? (
+          <li>
+            {`${counted(staged, "staged row")} from the file went to Staged${needsReview ? `, and ${formatCount(needsReview)} of them need something from you before they can be committed` : ""}.`}
+          </li>
+        ) : null}
+        {waitingAlready ? (
+          <li>
+            {`${counted(waitingAlready, "staged row")} ${waitingAlready === 1 ? "was" : "were"} already waiting in Staged.`}
+          </li>
+        ) : null}
+        {drift.map((group) => (
+          <li key={`${group.currency}-${group.type}-${group.from}-${group.to}`}>
+            {driftSentence(group, true)}
+          </li>
+        ))}
+        {dropped ? (
+          <li>
+            {`${counted(dropped, "transaction")} made from a template that did not come in arrived without saying which template ${dropped === 1 ? "it was" : "they were"} made from.`}
+          </li>
+        ) : null}
+      </ul>
+      <ResultLinks batches={batchesOf(results)} />
     </div>
   );
 }

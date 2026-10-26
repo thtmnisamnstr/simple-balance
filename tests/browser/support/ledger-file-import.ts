@@ -1,16 +1,22 @@
 import { expect, type Locator, type Page } from "@playwright/test";
+import { createServer, type ServerResponse } from "node:http";
 import {
   ledgerFileAddInputSchema,
   ledgerFilePreviewInputSchema,
   type LedgerFileAddInput,
   type LedgerFileFacts,
 } from "../../../src/shared/ledger-file-import.js";
+import {
+  ledgerBalanceRefusal,
+  ledgerFileMoveInputSchema,
+} from "../../../src/shared/ledger-file-move.js";
 import { encodeProgressFrame, type ProgressFrame } from "../../../src/shared/progress.js";
 import { chosenAccounts, wholeLedger } from "../../support/ledger-file.js";
 import { factsOf, ownAccount, previewFor, resultFor } from "../../support/ledger-file-facts.js";
+import { moveResultFor, qualifying, typedInto } from "../../support/ledger-file-move-facts.js";
 
 /**
- * The two ledger-file import routes, answered in the browser tier the way
+ * The three ledger-file import routes, answered in the browser tier the way
  * `plan-buttons.spec.ts` answers the billing status: the question is what the
  * page sends and what it does with the answer, and what the server does with
  * a file is the integration tier's to check. The answers come from the shared
@@ -26,6 +32,8 @@ export type AddCall = {
 };
 
 type Answer = { status: number; headers: Record<string, string>; body: string };
+/** A part sent on to a server of the test's own, which answers it as it goes. */
+type Forwarded = { continueTo: string };
 
 /** A reply in frames, the way the route streams one when asked. */
 export const streamed = (frames: readonly ProgressFrame[]): Answer => ({
@@ -33,6 +41,41 @@ export const streamed = (frames: readonly ProgressFrame[]): Answer => ({
   headers: { "Content-Type": "text/event-stream" },
   body: frames.map(encodeProgressFrame).join(""),
 });
+
+/**
+ * A reply written a frame at a time, as the route writes one.
+ *
+ * `route.fulfill` hands the browser a body that is whole before it is read, so
+ * a page answered that way never has a frame to show before the result is
+ * there too, and a bar drawn from the first frame is gone before anything can
+ * see it. A part sent on with `route.continue` to a server of the test's own
+ * arrives the way the real route's does: headers first, then each frame as
+ * the test writes it, so what the page shows between two frames can be read.
+ */
+export async function liveStream() {
+  let reply: ServerResponse | null = null;
+  let opened: () => void = () => {};
+  const open = new Promise<void>((resolve) => {
+    opened = resolve;
+  });
+  const server = createServer((request, response) => {
+    request.resume();
+    response.writeHead(200, { "Content-Type": "text/event-stream" });
+    response.flushHeaders();
+    reply = response;
+    opened();
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as { port: number };
+  return {
+    answer: { continueTo: `http://127.0.0.1:${port}/` } satisfies Forwarded,
+    /** Settles once the page's request has reached the server. */
+    open,
+    push: (frame: ProgressFrame) => reply!.write(encodeProgressFrame(frame)),
+    end: () => reply!.end(),
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  };
+}
 
 /** A refusal, the way the route sends one before it has streamed anything. */
 export const refused = (status: number, code: string, message: string): Answer => ({
@@ -47,19 +90,27 @@ export async function answerLedgerFileImport(
     facts,
     here = new Set<string>(),
     answer,
+    answerMove,
     holdPreview,
   }: {
     facts: LedgerFileFacts;
     here?: ReadonlySet<string>;
     answer?: (body: LedgerFileAddInput, call: number) => Answer | Promise<Answer>;
+    /** A move's part, answered; left out, every part succeeds with what it carried out. */
+    answerMove?: (
+      body: LedgerFileAddInput,
+      call: number,
+    ) => Answer | Forwarded | Promise<Answer | Forwarded>;
     /** Keeps a part's preview waiting, so what the page says meanwhile can be read. */
     holdPreview?: (call: number) => Promise<void> | undefined;
   },
 ) {
   const previews: string[] = [];
   const adds: AddCall[] = [];
+  const moves: AddCall[] = [];
   const isPreview = (url: URL) => url.pathname === "/api/v1/ledger-file:preview";
   const isAdd = (url: URL) => url.pathname === "/api/v1/ledger-file:add";
+  const isMove = (url: URL) => url.pathname === "/api/v1/ledger-file:move";
   await page.route(isPreview, async (route) => {
     const { ledgerFile } = ledgerFilePreviewInputSchema.parse(route.request().postDataJSON());
     previews.push(ledgerFile);
@@ -75,12 +126,25 @@ export async function answerLedgerFileImport(
       : streamed([{ type: "result", value: resultFor(body, facts, here) }]);
     await route.fulfill(reply);
   });
+  await page.route(isMove, async (route) => {
+    const raw = route.request().postDataJSON() as Record<string, unknown>;
+    // The move route's own parser, for the reason the add's is above.
+    const body = ledgerFileMoveInputSchema.parse(raw);
+    moves.push({ body, raw, accept: (await route.request().allHeaders())["accept"] ?? null });
+    const reply = answerMove
+      ? await answerMove(body, moves.length)
+      : streamed([{ type: "result", value: moveResultFor(body, facts, here) }]);
+    if ("continueTo" in reply) await route.continue({ url: reply.continueTo });
+    else await route.fulfill(reply);
+  });
   return {
     previews,
     adds,
+    moves,
     remove: async () => {
       await page.unroute(isPreview);
       await page.unroute(isAdd);
+      await page.unroute(isMove);
     },
   };
 }
@@ -201,4 +265,101 @@ export async function visitImportStates(page: Page, measure: (state: string) => 
   ).toBeVisible();
   await measure("a reference being matched to an account here");
   await naming.remove();
+
+  await visitMoveStates(page, section, measure);
+}
+
+/**
+ * A ledger that may take a move, asking everything a move asks: the long
+ * account here already and differing, so it has to be used or brought in as a
+ * copy, and three places with two in use, so one account has to arrive
+ * archived.
+ */
+export const movingEverything = () => qualifying(askingEverything());
+
+/** The refusal a last part meets when two accounts come out different, as the route sends it. */
+export const balanceRefusal = () => {
+  const refusal = ledgerBalanceRefusal(
+    [
+      {
+        field: "accounts.0.balance",
+        key: LONG,
+        name: LONG,
+        currency: "EUR",
+        expected: "1301.11",
+        actual: "1311.11",
+        difference: "10",
+      },
+      {
+        field: "accounts.1.balance",
+        key: "Brokerage",
+        name: "Brokerage",
+        currency: "USD",
+        expected: "1081.4",
+        actual: "81.4",
+        difference: "-1000",
+      },
+    ],
+    "2026-10-25",
+    { part: { index: 1, count: 1 }, startsOn: null },
+  );
+  return streamed([
+    {
+      type: "error",
+      error: { error: { code: "CONFLICT", message: refusal.message, details: refusal.details } },
+    },
+  ]);
+};
+
+/** The move's states, each handed to `measure`: the choice, its questions, a stop and the end. */
+async function visitMoveStates(
+  page: Page,
+  section: Locator,
+  measure: (state: string) => Promise<void>,
+) {
+  // A ledger somebody has typed into: moving is refused beside itself.
+  const typed = await answerLedgerFileImport(page, { facts: typedInto(askingEverything()) });
+  await page.goto("/import");
+  await chooseByKeyboard(page, section, longLedger());
+  await expect(section.getByRole("radio", { name: "Move it into this ledger" })).toBeDisabled();
+  await measure("a move refused, beside adding");
+  await typed.remove();
+
+  // Both ways open and neither chosen, then a move asking everything it can.
+  const moving = await answerLedgerFileImport(page, {
+    facts: movingEverything(),
+    answerMove: (body, call) =>
+      call === 1
+        ? balanceRefusal()
+        : streamed([
+            { type: "progress", event: { phase: "posting", done: 5, total: 6 } },
+            { type: "result", value: moveResultFor(body, movingEverything()) },
+          ]),
+  });
+  await page.goto("/import");
+  await chooseByKeyboard(page, section, longLedger());
+  await expect(section.getByRole("button", { name: "Import this file" })).toBeVisible();
+  await measure("a file that may be moved or added, with neither chosen");
+  await section.getByRole("radio", { name: "Move it into this ledger" }).check();
+  // One answer, so a box to tick: the one here opens differently, and a move
+  // holds every balance to the file, so it cannot be used.
+  await section.getByRole("checkbox", { name: /Bring it in as$/ }).check();
+  await section.getByRole("button", { name: /^Show all \d+ records$/ }).click();
+  await expect(section.getByRole("heading", { name: "Still to decide" })).toBeVisible();
+  await measure("a move asking about a duplicate and places, with every record shown");
+
+  // Answered, sent, and stopped by balances that did not come out, which the
+  // same request would meet again, so trying again waits on a fresh check.
+  await section.getByRole("checkbox", { name: /^Brokerage/ }).check();
+  await section.getByRole("radio", { name: /^Keep this copy's/ }).check();
+  await section.getByRole("button", { name: "Move into this ledger" }).click();
+  await expect(section.getByRole("button", { name: "Try again" })).toBeDisabled();
+  await measure("a move stopped by balances that did not come out");
+
+  // Checked again, sent again, and finished.
+  await section.getByRole("button", { name: "Check the file again" }).click();
+  await section.getByRole("button", { name: "Move into this ledger" }).click();
+  await expect(section.getByText(/^Moved "/)).toBeVisible();
+  await measure("a move that finished");
+  await moving.remove();
 }

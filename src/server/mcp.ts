@@ -112,13 +112,22 @@ import {
   listActiveImportBatches,
   stageCsv,
 } from "./services/import-export.js";
-import { addLedgerFile, exportLedgerFile, previewLedgerFile } from "./services/ledger-file.js";
+import {
+  addLedgerFile,
+  exportLedgerFile,
+  moveLedgerFile,
+  previewLedgerFile,
+} from "./services/ledger-file.js";
 import { ledgerFileSelectionSchema } from "../shared/ledger-file.js";
 import {
   ledgerFileAddInputSchema,
   ledgerFileAddResultSchema,
   ledgerFilePreviewInputSchema,
 } from "../shared/ledger-file-import.js";
+import {
+  ledgerFileMoveInputSchema,
+  ledgerFileMoveResultSchema,
+} from "../shared/ledger-file-move.js";
 import {
   csvPreviewInputSchema,
   csvStageInputSchema,
@@ -481,6 +490,7 @@ export const TOOL_SCOPES: ReadonlyMap<string, LedgerTier> = new Map<string, Ledg
   ["set_transaction_deleted", "ledger:write"],
   ["commit_staged_transactions", "ledger:write"],
   ["add_ledger_file", "ledger:write"],
+  ["move_ledger_file", "ledger:write"],
 ]);
 
 /**
@@ -1091,7 +1101,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Export a Simple Balance file",
         description:
-          "Export the ledger, or some of its accounts, as a Simple Balance file: one JSON document (simple-balance-ledger-1) holding accounts, categories and groups, entries with their splits, templates, recurring transactions, budgets, staged rows and settings, every reference by name, so it can move to another copy of Simple Balance, where `preview_ledger_file` reads it and `add_ledger_file` adds it. One call carries at most 10,000 rows — entries, staged rows, budget amounts and history events together — and at most 4 MiB of activity history, so export a larger ledger, or a long activity history, a date range at a time. The file comes back as text; pass it on unchanged.",
+          "Export the ledger, or some of its accounts, as a Simple Balance file: one JSON document (simple-balance-ledger-1) holding accounts, categories and groups, entries with their splits, templates, recurring transactions, budgets, staged rows and settings, every reference by name, so it can move to another copy of Simple Balance, where `preview_ledger_file` reads it and `add_ledger_file` adds it, or `move_ledger_file` moves it into a ledger that holds nothing else yet. One call carries at most 10,000 rows — entries, staged rows, budget amounts and history events together — and at most 4 MiB of activity history, so export a larger ledger, or a long activity history, a date range at a time. To move a larger ledger that way, export consecutive ranges and move them oldest first into the same ledger, using the accounts the earlier ranges brought when movePlan asks; the last range's balance check says whether every earlier one is in, and only the latest range should carry recurrences, because one created by an earlier range can propose a row into Staged before the next lands and end the move. The file comes back as text; pass it on unchanged.",
         // The page's own selection, as is: the route parses the same schema out
         // of its query string, so an agent can ask for exactly what the page
         // can and nothing it cannot.
@@ -1114,9 +1124,9 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
     server.registerTool(
       "preview_ledger_file",
       {
-        title: "Preview adding a Simple Balance file",
+        title: "Preview adding or moving a Simple Balance file",
         description:
-          "Read a Simple Balance file, or one part of one, against this ledger and say what adding it would do, writing nothing. Each record it carries or names comes back with its outcome: create (nothing like it here), exists (the same record is here and is used), duplicate (one of that name is here and differs), missing (a record the file only names that nothing here answers to) or refused (it cannot come in, with the reason). A record whose choices list is not empty needs a decision, and `add_ledger_file` refuses with plan.problems until each has one. rows says how many entries and staged rows would be staged and how many are already here by origin. A file larger than one part is previewed a part at a time; `export_ledger_file` returns one part a call.",
+          "Read a Simple Balance file, or one part of one, against this ledger and say what adding it would do, writing nothing. Each record it carries or names comes back with its outcome: create (nothing like it here), exists (the same record is here and is used), duplicate (one of that name is here and differs), missing (a record the file only names that nothing here answers to) or refused (it cannot come in, with the reason). A record whose choices list is not empty needs a decision, and `add_ledger_file` refuses with plan.problems until each has one. rows says how many entries and staged rows would be staged and how many are already here by origin. A file larger than one part is previewed a part at a time; `export_ledger_file` returns one part a call. The reply carries move.qualifies, whether this ledger may take the file straight into its books, and movePlan, the same file planned for `move_ledger_file` as a whole file or the last part of one: the choices a move offers, what it writes, the balances it is held to, and what stops it. A part before the last also leaves its recurring transactions to the last part, which the move's result counts in plan.move.recurrencesDeferred.",
         inputSchema: ledgerFilePreviewInputSchema,
         outputSchema: mcpOutputSchema(ledgerFilePreviewResultSchema),
         annotations: readAnnotations,
@@ -2174,6 +2184,22 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       // The service honors the key itself, as `stageCsv` does, so there is no
       // second idempotency record around it.
       (input) => runTool(() => addLedgerFile(actor, input)),
+    );
+    server.registerTool(
+      "move_ledger_file",
+      {
+        title: "Move a Simple Balance file into this ledger",
+        description:
+          "Move a Simple Balance file, or one part of one, straight into this ledger's books. Only while every transaction and waiting staged row here came from a Simple Balance file — a new ledger, or one part-way through a move; otherwise use `add_ledger_file`, and `preview_ledger_file` says which applies in move.qualifies. Records are created, used or decided as `add_ledger_file` does them, except that an account or category the file's transactions name has to come in; read movePlan from the preview for the choices. Every transaction is written, deleted ones written and deleted again, archived accounts arrive archived with their transactions in them, and the part carrying the file's balances is refused, writing nothing, if any account comes out different. Send the parts in order, the same decisions with every part and a fresh idempotencyKey for each; sending a part again with its key returns what it did. Files exported a date range at a time are moved oldest first, each into the accounts the earlier ones brought. What it writes is undone only by deleting each transaction and record, so confirm with the person first; with preferences file it also replaces this copy's timezone, default currency and theme, which `set_preferences` puts back.",
+        inputSchema: ledgerFileMoveInputSchema,
+        outputSchema: mcpOutputSchema(ledgerFileMoveResultSchema),
+        // Destructive for the add's reason, `preferences: "file"`, and for its
+        // own: it writes into the books with no queue between, and what it
+        // writes comes out only one transaction and one record at a time.
+        annotations: destructiveAnnotations,
+      },
+      // The service honors the key itself, as the add's does.
+      (input) => runTool(() => moveLedgerFile(actor, input)),
     );
   }
 

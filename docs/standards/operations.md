@@ -206,7 +206,7 @@ relay's own sentence and may quote the address inside it; that is the relay
 talking, and an operator who cannot read it has to reproduce the failure by
 hand. A Drizzle error is narrowed for a harder reason, and it is narrowed in one
 place rather than at each transport: see §Logging below, which owns
-`log.failure` (`src/server/log.ts:76-102`). `src/server/api.ts:536-540` is the
+`log.failure` (`src/server/log.ts:76-102`). `src/server/api.ts:542-546` is the
 HTTP transport handing it over, with the comment saying why it stopped doing the
 narrowing itself.
 
@@ -1154,7 +1154,7 @@ shutdown, is the slow half.** Migrations run at startup under advisory lock
 (`src/server/index.ts:29,80`; `src/server/scheduler.ts:70,100`), so readiness
 cannot open before they finish. The 0.1.5 notes record that the payee index
 "takes a moment to build while the container starts, before it opens readiness"
-(`docs/upgrades.md:1903-1905`). So the generous number is `--start-period`:
+(`docs/upgrades.md:1920-1922`). So the generous number is `--start-period`:
 300s in all three Node images, the same budget the compose recipe's
 `start_period` and the chart's startup probe give the same work, and the three
 are held to each other. It was 20s in the images, which reported a first start
@@ -1386,7 +1386,7 @@ carry the id and not the payee, the search term or the bound parameter.
 
 **House, and off unless asked for.** `GET /metrics` answers in the Prometheus
 text format, on the port everything else is served on, and only when
-`METRICS_ENABLED=true` (`src/server/api.ts:455-457`). Registered rather
+`METRICS_ENABLED=true` (`src/server/api.ts:461-463`). Registered rather
 than refused: a deployment that never asked has no such route, which is the same
 answer the MCP surface gives for a tool outside a token's scope.
 
@@ -1407,7 +1407,7 @@ neither half can report alone.** `billing_webhook_deliveries_total` is the API's
 and only the API's — every exit of the webhook route but the signature refusal
 replies `200 {"received":true}`, so `http_requests_total` cannot tell a
 delivery that granted or revoked an entitlement from one that was acknowledged
-and ignored (`src/server/api.ts:1298`, `:1313`). `billing_sweeps_total` is the
+and ignored (`src/server/api.ts:1304`, `:1319`). `billing_sweeps_total` is the
 scheduler's, and it is the twelve-hourly catch-up for the same subscriptions
 (`src/server/recurrence-scheduler.ts:236-251`). An operator scraping one half
 can be told that the webhook has been failing for hours, or that the sweep keeps

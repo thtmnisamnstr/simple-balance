@@ -30,6 +30,7 @@ import {
   MAX_LEDGER_FILE_DECISIONS,
   ledgerFileAddInputSchema,
 } from "../src/shared/ledger-file-import.js";
+import { ledgerFileMoveInputSchema } from "../src/shared/ledger-file-move.js";
 
 const applicationOrigin = "https://balance.example.com";
 const originalCsvMaxBytes = process.env.CSV_MAX_BYTES;
@@ -363,7 +364,11 @@ describe("bounded request bodies", () => {
     delete process.env.CSV_MAX_BYTES;
     const csv = apiRequestBodyLimit("/api/v1/csv/stage");
     expect(apiRequestBodyLimit("/mcp")).toBe(Math.max(csv, LEDGER_FILE_REQUEST_BODY_LIMIT_BYTES));
-    for (const path of ["/api/v1/ledger-file:preview", "/api/v1/ledger-file:add"]) {
+    for (const path of [
+      "/api/v1/ledger-file:preview",
+      "/api/v1/ledger-file:add",
+      "/api/v1/ledger-file:move",
+    ]) {
       expect(apiRequestBodyLimit(path), path).toBe(LEDGER_FILE_REQUEST_BODY_LIMIT_BYTES);
     }
     // Nothing else with that prefix: the export is a GET with no body.
@@ -397,6 +402,11 @@ describe("bounded request bodies", () => {
     expect(ledgerFileAddInputSchema.safeParse(body).success).toBe(true);
     expect(Buffer.byteLength(JSON.stringify(body))).toBeLessThanOrEqual(
       apiRequestBodyLimit("/api/v1/ledger-file:add"),
+    );
+    // A move takes the add's request field for field, so the same body.
+    expect(ledgerFileMoveInputSchema.safeParse(body).success).toBe(true);
+    expect(Buffer.byteLength(JSON.stringify(body))).toBeLessThanOrEqual(
+      apiRequestBodyLimit("/api/v1/ledger-file:move"),
     );
   });
 

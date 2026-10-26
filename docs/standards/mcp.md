@@ -1,6 +1,6 @@
 # MCP
 
-The agent surface: 82 tools over Streamable HTTP at `/mcp`, authorized by OAuth
+The agent surface: 83 tools over Streamable HTTP at `/mcp`, authorized by OAuth
 2.1 on three scopes, built per request in `src/server/mcp.ts`.
 
 [`common.md`](common.md) decides money, dates, naming, the error envelope, the
@@ -23,9 +23,9 @@ contract. Anything in this guide that contradicts it loses.
   stateless protocol: all the information needed to process a request is
   contained in the request itself." This surface holds by construction rather
   than by discipline: `handleMcpRequest` builds a server and a transport per
-  request (`src/server/mcp.ts:2425-2460`), so there is no connection to carry
+  request (`src/server/mcp.ts:2451-2486`), so there is no connection to carry
   state in — and so anything but a POST is a `405` (`methodNotAllowed`,
-  `:2299`), because a stream nothing can write to and a session that does not
+  `:2325`), because a stream nothing can write to and a session that does not
   exist are not things to hand out.
 - **Where the target is not met, say so rather than claiming it.** The installed
   SDK, `@modelcontextprotocol/sdk` 1.32.0, declares
@@ -93,7 +93,7 @@ gets made, and a failing test is what sends somebody to them.
 features... should focus on information that helps the model use the server
 effectively and should not duplicate information already in tool descriptions."
 
-This server ships one (`src/server/mcp.ts:560`). `instructions` predates
+This server ships one (`src/server/mcp.ts:570`). `instructions` predates
 `server/discover` and is carried on the initialize result, so every connection
 reads it today, whatever scope it holds — which is exactly why the grant lives
 there: the sentence naming what this connection may reach, and saying that a
@@ -181,7 +181,7 @@ refuses.** It is also the wrong place twice over: most of those tools name no
 account at all (an entry deleted by id, a payee merge that walks the whole
 ledger), so the sentence would be about a parameter they do not have. So it
 goes beside the grant sentence, which every connection reads whatever it holds
-(`src/server/mcp.ts:586`), and it has somewhere to send the agent, because
+(`src/server/mcp.ts:596`), and it has somewhere to send the agent, because
 `whoami` already carries the plan, its ceiling and how much of it is used.
 
 The ceiling moved to pay for it: the instructions budget went from 2,000 to
@@ -202,7 +202,7 @@ to be argued again rather than quietly standing.
   characters, and is unique within the server. All three are the
   specification's, not this product's, and none is available to change.
 - **House.** Within that, `verb_noun` in snake_case, following VS Code's MCP
-  guide. 81 of 82 tools follow it; `whoami` is the exception and it is a good
+  guide. 82 of 83 tools follow it; `whoami` is the exception and it is a good
   one, because it is the name the thing has.
 - **House.** Arguments are camelCase, which is `common.md`'s naming rule and
   also what VS Code's MCP guide recommends. Recorded as an alignment rather than
@@ -214,7 +214,7 @@ to be argued again rather than quietly standing.
   the sentence `commit_staged_transactions` owns: a person approving that dialog
   could believe they were releasing a row they had already reviewed rather than
   writing one they had never seen. It is titled "Write a new transaction
-  straight into the books" (`src/server/mcp.ts:2062`), and "Commit" now
+  straight into the books" (`src/server/mcp.ts:2072`), and "Commit" now
   appears in exactly one title on this surface, on the tool that commits.
 - **Contested, decided 2026-08-23: no namespace prefix.** The specification puts
   disambiguation on the client: aggregating clients "SHOULD implement a
@@ -231,7 +231,7 @@ to be argued again rather than quietly standing.
   ones deprecated in their descriptions; the notification is not a migration
   plan on its own.
 
-*Checked by:* `tests/mcp-parity.test.ts:373-378` fails a registered tool that
+*Checked by:* `tests/mcp-parity.test.ts:374-379` fails a registered tool that
 `docs/mcp.md` does not name, because "the guide fell seventeen tools behind
 before anything noticed". *Also checked by:* `tests/mcp-parity.test.ts` for the
 one regex that covers the rest — the character set and the 1-to-128 length, the
@@ -266,8 +266,8 @@ parts, in order:
 
 Further rules:
 
-- **House.** A floor of three to four sentences. Measured today: 82
-  descriptions, 36,022 characters, median 373, range 33 to 1,980, and **7 under
+- **House.** A floor of three to four sentences. Measured today: 83
+  descriptions, 38,183 characters, median 373, range 33 to 1,980, and **7 under
   100 characters**. The distribution is bimodal, but the terse half does not
   cover the dangerous tools: `commit_staged_transactions` is 431 characters and
   tells the agent to confirm with the person first and what `DUPLICATE` means,
@@ -303,7 +303,7 @@ Further rules:
   the category or how to come back. All four now say it.
 - **House.** A tool that changes the ledger irreversibly says so and asks for
   confirmation, in the way `archive_account` does: "This moves money in the
-  books, so confirm it with the person first." Measured: 32 of the 32 `destructiveHint` tools carry a confirm-or-undo word and 0 do not, having been
+  books, so confirm it with the person first." Measured: 33 of the 33 `destructiveHint` tools carry a confirm-or-undo word and 0 do not, having been
   7 and 20. The wording differs by what the operation actually costs, because
   "confirm first" and "this cannot be undone" are different warnings: a merge
   and a payee merge say there is no undo, a bulk write says to show the count
@@ -375,23 +375,23 @@ Further rules:
 *Checked by:* `tests/mcp-measurements.test.ts` for the spellings, which counts
 the losing one and holds it at zero — a count rather than a list, so a
 seventeenth "this person" needs no edit and a third "this user's" fails. And
-`tests/mcp-parity.test.ts:488-506`, which asserts only
-`length > 30`. All 82 pass, including the 7 under a hundred characters. The same
+`tests/mcp-parity.test.ts:489-507`, which asserts only
+`length > 30`. All 83 pass, including the 7 under a hundred characters. The same
 file also holds the set of descriptions allowed to name a scope at all
-(`:555-567`), which is the narrowed rule above, and pins the naming and title
-rules (`:522-543`). *Also checked by:* `tests/mcp-measurements.test.ts:180-190`
+(`:556-568`), which is the narrowed rule above, and pins the naming and title
+rules (`:523-544`). *Also checked by:* `tests/mcp-measurements.test.ts:180-190`
 for the warning word on a destructive tool, which is the sentence above read
 back off the surface: it holds both of that sentence's numbers, so a destructive
 tool added without a confirm-or-undo word leaves the first alone, moves the
 second off zero, and fails. *Also checked by:*
 `tests/mcp-measurements.test.ts:368-391`, which reads every `snake_case` word in
 a description as a claim about a tool and fails on one that is not registered.
-Twenty-one descriptions name a tool, and the failure it catches is a renamed
+Twenty-two descriptions name a tool, and the failure it catches is a renamed
 tool leaving the sentences that named it behind: the agent that follows one
 gets a protocol error, with nothing in the reply saying the instruction was
 stale rather than its own call malformed. Its floor is on a different quantity
 and the guard says so now: it counts *occurrences*, because a description
-naming two tools is two claims — thirty-two today, against a floor of nineteen.
+naming two tools is two claims — thirty-eight today, against a floor of nineteen.
 *Review only:* whether a description actually teaches, as opposed to being long
 enough. The only real
 check for that is the evaluation below, and even that measures the outcome.
@@ -439,7 +439,7 @@ enums off the same tool's schemas makes the exemption derive itself, so a new
 enum value named in its own description needs no edit and a new tool name still
 has to exist.
 
-*Checked by:* `tests/mcp-guide.test.ts`, which walks both schemas of all 82
+*Checked by:* `tests/mcp-guide.test.ts`, which walks both schemas of all 83
 tools and fails by naming the tool, the field and the word. Its floor is 17
 sites, with the claim count held at or above it, so a traversal that stopped
 matching cannot pass on nothing — the failure the tool-description check below
@@ -451,8 +451,8 @@ it already learned to guard against.
 unrepresentable, so the model's own sampling cannot produce it.
 
 - **Flat over nested, and enums over free text.** A nested object is a shape a
-  model has to hold; an enum is a choice it cannot get wrong. Measured: 78
-  enums across the input schemas, and 192 more on the output side, where they
+  model has to hold; an enum is a choice it cannot get wrong. Measured: 85
+  enums across the input schemas, and 223 more on the output side, where they
   constrain nothing a model sends but are what
   `tests/mcp-output.test.ts:252-275` exists to guard. Half of that output figure
   is the error code, published once per tool for the reason the errors section
@@ -493,7 +493,7 @@ unrepresentable, so the model's own sampling cannot produce it.
 - **House.** A no-argument tool publishes
   `{"type": "object", "additionalProperties": false}`, which is the
   specification's recommended form, and which `whoami` and `summarize_own_data`
-  now publish along with everything else. Measured: 82 of 82 input schemas are
+  now publish along with everything else. Measured: 83 of 83 input schemas are
   closed and 0 are open, having been 14 and 57. An open object accepts a
   hallucinated argument in silence and returns success, which teaches the model
   the argument worked and that whatever it thought the argument did is a thing
@@ -502,7 +502,7 @@ unrepresentable, so the model's own sampling cannot produce it.
   closing the schemas they share with `/api/v1`, because what a browser may send
   and what an agent may invent are different questions.
 - **Binding, and now true of every field rather than of every parameter.**
-  Measured: **0 of 760 carry none**, having been 146 of 225 at the top level and
+  Measured: **0 of 791 carry none**, having been 146 of 225 at the top level and
   263 of 673 once anybody counted the fields inside `draft`, `shape`, `patch`,
   `selection`, `schedule` and `mapping` — which is to say the fields an agent
   has to fill in to write anything. The measurement said zero for a year because
@@ -533,7 +533,7 @@ unrepresentable, so the model's own sampling cannot produce it.
   is in use", which is what somebody opening an account needs and is not what
   the parameter does on a listing. `currency` filters entries rather than
   accounts: it matches a row either of whose sides carries that code
-  (`src/server/services/transactions.ts:1606-1613`), so a conversion comes back
+  (`src/server/services/transactions.ts:1628-1635`), so a conversion comes back
   under both of its currencies and a filtered page is not a page in one
   currency, which is the thing an agent totaling it has to know. It used to
   read that way at five published positions — on `list_transactions` and
@@ -560,14 +560,14 @@ unrepresentable, so the model's own sampling cannot produce it.
   "MUST NOT automatically dereference `$ref` values that resolve to a network
   URI" and SHOULD bound schema depth and subschema count as a denial-of-service
   defense, so heavy `oneOf`/`anyOf` composition is both a strict-sampling risk
-  and a thing clients are told to refuse. Measured: 452 `anyOf` and 8 `oneOf`
-  across the surface. 361 of the 452 are two-member nullable pairs, 143 of them
-  on inputs; 149 of all the `anyOf` are on inputs and 303 on outputs. The 8
+  and a thing clients are told to refuse. Measured: 465 `anyOf` and 9 `oneOf`
+  across the surface. 373 of the 465 are two-member nullable pairs, 143 of them
+  on inputs; 149 of all the `anyOf` are on inputs and 316 on outputs. The 9
   `oneOf` are all on inputs and are the boolean-or-string-literal coercion. So the composition is
   shallow rather than deep, which is the property the bound is about, and it is
   overwhelmingly nullability rather than genuine union.
 
-*Checked by:* `tests/mcp-parity.test.ts:569-590`, which pins three listings to
+*Checked by:* `tests/mcp-parity.test.ts:570-591`, which pins three listings to
 the schema their service actually parses, `list_transactions`,
 `list_staged_transactions` and `list_import_batches`, because "a tool declaring
 a wider schema than its service parses is worse than a missing filter".
@@ -596,17 +596,17 @@ them more often.
 | Token holds | Tools | `tools/list` characters | Approx tokens |
 | --- | --- | --- | --- |
 | no ledger scope | 0 | `tools/list` is not offered at all | 0 |
-| `ledger:read` | 41 | 199,881 | ~50,000 |
-| `ledger:stage` | 46 | 240,698 | ~60,000 |
-| `ledger:write` | 82 | 543,705 | ~136,000 |
+| `ledger:read` | 41 | 217,370 | ~54,000 |
+| `ledger:stage` | 46 | 258,187 | ~65,000 |
+| `ledger:write` | 83 | 589,673 | ~147,000 |
 
-Composition at the write tier: names 1,555, titles 2,027, descriptions 36,022,
-input schemas 229,435, output schemas 257,020. **Descriptions are 6.6% of what
-an agent loads; names, titles and descriptions together are 7.3%.** Output
-schemas are 47.3%.
+Composition at the write tier: names 1,571, titles 2,080, descriptions 38,183,
+input schemas 238,508, output schemas 291,470. **Descriptions are 6.5% of what
+an agent loads; names, titles and descriptions together are 7.1%.** Output
+schemas are 49.4%.
 
 The rises were bought on purpose: describing the output fields whose names
-mislead, publishing the error-code enum at 150 characters a tool and 12,300
+mislead, publishing the error-code enum at 150 characters a tool and 12,450
 across the write tier — each named in the rule it belongs to below — and, since,
 the budget, group and recurrence tools arriving with full schemas. Dropping `userId` from
 every schema and every payload took some of it back. `export_ledger_file` added
@@ -625,6 +625,20 @@ plan problem carries its numbers as fields, a planned record carries the
 `copy` and `periods` the page explains it with, and a decision can carry the
 `openingDate` and the budget-amount answers that let one set of decisions mean
 the same thing in every part of a file.
+
+Moving a file straight into the books cost the most of any change to the file's
+tools, measured on 2026-10-26 against the commit before it: 17,489 characters
+on every tier and 45,968 at the write tier. `move_ledger_file` is 24,829 of
+the write tier's, most of it its output schema, which carries the plan it
+carried out the way the add's does. 17,009 of the 17,489 are the preview's
+reply carrying `movePlan` beside `plan`, the same file planned both ways, so an
+agent reads the narrowed choices and what stops a move before it calls rather
+than after a refusal; it is the one figure here that doubles something already
+published, and it was taken over a second preview call because a page that
+plans both ways from one read cannot be told one thing by the add and another
+by the move. The other 480 are `export_ledger_file` saying how to move a ledger
+larger than one call carries. The add's own reply grew 3,650, since the plan it
+returns can say what a move would do.
 
 The money guides added 5,523 characters to every tier, measured on 2026-10-26
 as a tier with and without them: `list_learn_articles` at 2,306 and
@@ -689,7 +703,7 @@ The rules:
   a two-member `anyOf` by `mcpOutputSchema`
   (`src/server/mcp-output-schemas.ts:107-111`) and returned as both
   `structuredContent` and a JSON text mirror built from one serialization
-  (`src/server/mcp.ts:238-245`), which is what the specification
+  (`src/server/mcp.ts:247-254`), which is what the specification
   recommends: a tool returning structured content "SHOULD also return the
   serialized JSON in a TextContent block".
 - **House, and worth stating because a client author will assume otherwise.**
@@ -737,7 +751,7 @@ The rules:
   `tests/mcp-output.test.ts` holds it: no output schema may declare a `userId`
   property except by named exception.
 - **House.** Describe an output field whose meaning its name does not give — and
-  only those. Measured: **1,990 output properties, 560 with a description**,
+  only those. Measured: **2,245 output properties, 701 with a description**,
   having been 52, and having gone up by forty-eight when the input fields were
   described — a schema shared between a draft and the row it becomes carries its
   sentences both ways. `decimalSchema` and `timestampSchema` were bare `z.string()`,
@@ -799,8 +813,9 @@ The rules:
   What it costs is that an agent cannot read the file's shape off the schema;
   the description names the format token, and
   [`ledger-file.md`](ledger-file.md) is where the shape is written down. The
-  same string goes back in: `preview_ledger_file` and `add_ledger_file` take
-  `ledgerFile` as the text `export_ledger_file` returned, so a file passes
+  same string goes back in: `preview_ledger_file`, `add_ledger_file` and
+  `move_ledger_file` take `ledgerFile` as the text `export_ledger_file`
+  returned, so a file passes
   from one copy to another through an agent with nothing re-encoded, and an
   agent never holds more than one part, because one export call is one.
   *Checked by:* `tests/integration/ledger-file-export.integration.test.ts`
@@ -860,7 +875,7 @@ already existed.
   `list_staged_transactions`, `list_import_batches`, `list_audit_events`.
 - **House.** `nextCursor: null` means two things, end of list and ordering not
   keyset-resumable, and the envelope says which: `cursorAvailable` is on every
-  page of both listings (`src/server/services/transactions.ts:1561`), and
+  page of both listings (`src/server/services/transactions.ts:1583`), and
   `nextCursor`'s own description says that null means either "last page" or
   "this ordering cannot be resumed" and points at the flag. Before it, an agent
   walking a ledger under `sort: "account"` got one page, a null cursor, and no
@@ -889,7 +904,7 @@ envelope and the worked sentences.
 - **Binding.** A tool fault is a result with `isError: true`, not a protocol
   error, because "otherwise, the LLM would not be able to see that an error
   occurred and self-correct". Unknown tool and malformed request are protocol
-  errors. `runTool` (`src/server/mcp.ts:251-290`) does this and its comment says
+  errors. `runTool` (`src/server/mcp.ts:260-299`) does this and its comment says
   why.
 - **House, and a correction owed to the documentation.** There are two error
   envelopes and only one is this project's. The SDK validates `inputSchema`
@@ -916,7 +931,7 @@ envelope and the worked sentences.
   branch on a type it cannot see. It is the service half of `apiErrorCodes` and
   not the whole of it, because the five transport codes refuse before any tool
   runs and can never reach a tool result. It costs 150 characters per tool and
-  12,300 across the write tier's 82, which is the ceiling above being spent on
+  12,450 across the write tier's 83, which is the ceiling above being spent on
   purpose. Two sentences describe this cost — the other is in the payload
   section — and for a release they disagreed with each other and both were
   stale, which is the case for one of them citing the other rather than
@@ -932,7 +947,7 @@ envelope and the worked sentences.
   agent has nothing to refresh. It now carries both of `common.md`'s worked
   sentences — the diagnosis is the same for everyone and only the advice differs
   — as `message` and an optional `agentMessage` that only the MCP transport
-  reads (`src/server/mcp.ts:275`), so the browser keeps its own words and
+  reads (`src/server/mcp.ts:284`), so the browser keeps its own words and
   neither caller is told to do something it cannot. The agent sentence names
   `details.currentVersion` only where the throw site actually carried it;
   thirteen of the fifty do not, and a refusal pointing at a field that is not
@@ -1010,9 +1025,9 @@ claim, and a false claim is a defect.
 
 - **House.** Four shared constants, so a tool's class is one word at the call
   site: `readAnnotations`, `additiveAnnotations`, `destructiveAnnotations` and
-  `unrecoverableAnnotations` (`src/server/mcp.ts:327-380`).
-  Measured: 41 read, 9 additive, 32 destructive.
-  Two of the thirty-two are unrecoverable, and that fourth constant is
+  `unrecoverableAnnotations` (`src/server/mcp.ts:336-389`).
+  Measured: 41 read, 9 additive, 33 destructive.
+  Two of the thirty-three are unrecoverable, and that fourth constant is
   identical to the third on the wire, for the reason the bullet below gives.
 - **Binding.** `readOnlyHint: true` is a claim the implementation must
   satisfy, not a category label. The specification's rule is addressed to
@@ -1029,14 +1044,18 @@ claim, and a false claim is a defect.
   means, so one field overwrites a decision, and that is enough: it is
   destructive. Its description says to confirm that with the person and that
   `set_preferences` puts them back, and the field's own description says to
-  confirm it too.
+  confirm it too. `move_ledger_file` is destructive whatever it is sent: it
+  writes straight into the books with no queue between, and what it writes
+  comes out only one transaction and one record at a time, so its description
+  says to confirm the move itself, and names `set_preferences` for the same
+  field.
 - **House, and the reason must be recorded or somebody will break it.**
   `idempotentHint: true` sits on every mutating tool, and it is true only because
   every one of them takes an idempotency key or an expected version — with one
   exception, which is the shape rather than a gap: `set_active_accounts` states
   the whole set it sets, so a replay lands on the state the first call left,
-  which is what makes a PUT a PUT. Measured: 41
-  mutating tools, 40 with `idempotencyKey` in the schema. Somebody adding a write
+  which is what makes a PUT a PUT. Measured: 42
+  mutating tools, 41 with `idempotencyKey` in the schema. Somebody adding a write
   tool without a key would copy the constant and make the annotation false.
 - **House, and the fourth bucket is a wording rule rather than wire data.**
   Three buckets are too coarse at the destructive end: `set_transaction_deleted`
@@ -1076,10 +1095,10 @@ claim, and a false claim is a defect.
   acting on one. The annotations are set because they are true, not because
   something is known to read them.
 
-*Checked by:* `tests/mcp-parity.test.ts:392-407`, which derives what a read-only
+*Checked by:* `tests/mcp-parity.test.ts:393-408`, which derives what a read-only
 token may see from `readOnlyHint` rather than from a roster, "because three
 recurrence write tools were added to the file in the read block and nobody had to
-remember" a list. *Also checked by:* `tests/mcp-parity.test.ts:424-452`, which
+remember" a list. *Also checked by:* `tests/mcp-parity.test.ts:425-453`, which
 closes the other direction: a tool annotated `readOnlyHint: true` whose handler
 reaches a service that writes a row. That is the worse failure of the two,
 because the annotation is what a client shows the person approving the call, and
@@ -1106,7 +1125,7 @@ above — `destructiveHint` describes what the tool does to the ledger — is ri
 and incomplete, and reading it alone sends you to the additive annotations,
 which is where this started.
 
-`set_active_accounts` (`src/server/mcp.ts:1751-1769`) posts nothing and deletes
+`set_active_accounts` (`src/server/mcp.ts:1761-1779`) posts nothing and deletes
 nothing. It writes one boolean per account. It was registered as additive beside
 a comment saying the previous list put everything back, and the choose-once rule
 had made that false: the first call freezes every account it leaves out, a
@@ -1153,10 +1172,10 @@ requiring it, so this is a decision and not an obligation; it is argued at
 length because it is the one that decides the tool count.
 
 A tool is gated by which of three registration blocks it sits in
-(`src/server/mcp.ts:649`, `:1280` and `:1386`), and scope is enforced by
+(`src/server/mcp.ts:659`, `:1290` and `:1396`), and scope is enforced by
 non-registration, so a tool the caller cannot use is **absent from discovery**
 rather than present and refusing. Measured: 41 tools at `ledger:read`, 46 at
-`ledger:stage`, 82 at `ledger:write`, and a token with no ledger scope gets a
+`ledger:stage`, 83 at `ledger:write`, and a token with no ledger scope gets a
 server that does not offer `tools/list` at all (verified live: `-32601 Method not
 found`). This is exactly the variation the specification permits: the tool set
 "MUST NOT vary per-connection" but "MAY vary by the authorization presented on
@@ -1186,12 +1205,14 @@ it means choosing which half to defer to anyway.
   may carry are changes to the ledger's own records and need `ledger:write`,
   wherever they are reached from, including a CSV import." `stage_csv` is the
   worked case and its description is the model for saying so
-  (`src/server/mcp.ts:1366-1371`). `add_ledger_file` is the same line drawn
+  (`src/server/mcp.ts:1376-1381`). `add_ledger_file` is the same line drawn
   the other way. A Simple Balance file brings accounts, categories, templates,
   recurring transactions and budgets, and adding it creates them rather than
   proposing them, so the tool is write-tier whole rather than a third behavior
   switch; its entries still stage. A stage-only agent keeps `stage_csv`, and
-  `preview_ledger_file`, which writes nothing, is a read.
+  `preview_ledger_file`, which writes nothing, is a read. `move_ledger_file`
+  writes the file's transactions into the books as well, so it is write-tier
+  for both reasons.
 - **House. The money guides sit at `ledger:read`, although they read no
   ledger.** `list_learn_articles` and `get_learn_article` take no actor and
   import nothing that reaches the database (`src/server/services/learn.ts`), so
@@ -1204,7 +1225,7 @@ it means choosing which half to defer to anyway.
   connected. `held`, on each tool a guide's step names, is the grant's answer
   and is worked out in the transport adapter from `TOOL_SCOPES`, the same way
   `whoami`'s scopes are, because only the adapter has the grant
-  (`src/server/mcp.ts:1261-1276`).
+  (`src/server/mcp.ts:1271-1286`).
 - **House.** Read, propose, write are three tiers answering three questions.
   `dryRun: true` asks "what would this do", synchronously, leaving nothing
   behind; it is on 8 tools. `ledger:stage` says "do this when a person agrees",
@@ -1229,7 +1250,7 @@ it means choosing which half to defer to anyway.
   Mistakes list names "Publishing all possible scopes in `scopes_supported`".
   The two documents answer two different questions and give the same answer to
   both: all seven. The authorization-server one is right to
-  (`src/server/api.ts:1107-1115`, served at `:1134`), because RFC 8414's field
+  (`src/server/api.ts:1113-1121`, served at `:1140`), because RFC 8414's field
   is what the server accepts and Better Auth's accept-list at `/authorize` is
   the union of its four defaults with our three
   (`node_modules/better-auth/dist/plugins/oidc-provider/authorize.mjs:23-33`).
@@ -1237,7 +1258,7 @@ it means choosing which half to defer to anyway.
   because it is what a client builds its scope request from — the SDK joins
   `scopes_supported` verbatim, ahead of the client's own configured scope, in
   `client/auth.js`'s `resolvedScope` — and it publishes that same array
-  (`src/server/api.ts:1116`, served at `:1141`). Four citations in this paragraph
+  (`src/server/api.ts:1122`, served at `:1147`). Four citations in this paragraph
   had drifted and two of them landed on the other document's array, which in the
   one paragraph that exists to keep the two straight is worse than no citation.
   **It was narrowed to `openid profile email offline_access ledger:read`
@@ -1256,7 +1277,7 @@ it means choosing which half to defer to anyway.
   ships, both of them worked out by the draft that was taken out and kept here
   so the next attempt does not have to find them again. It has to reach every
   path the document is reachable from, including
-  `/api/auth/.well-known/oauth-protected-resource` (`src/server/api.ts:1077`),
+  `/api/auth/.well-known/oauth-protected-resource` (`src/server/api.ts:1083`),
   which is where `withMcpAuth`'s own 401 sends a
   client on first contact, since narrowing only the RFC 9728 paths would leave
   the advertisement everybody reads untouched and the one nobody reads correct.
@@ -1296,11 +1317,11 @@ it means choosing which half to defer to anyway.
   only caller who could read it already holds the scope. The three tools where
   scope changes behavior rather than access are the real case and already say
   so in their own words.
-- **Binding (MUST), met.** `hasScope` (`src/server/mcp.ts:502-507`) implements
+- **Binding (MUST), met.** `hasScope` (`src/server/mcp.ts:512-517`) implements
   the scope hierarchy the specification requires servers to account for: stage
   and write both satisfy read.
-- **House, and its reason is an absence of evidence.** Whether 82 tightly
-  related, consistently named ledger tools behave like 82 unrelated ones could
+- **House, and its reason is an absence of evidence.** Whether 83 tightly
+  related, consistently named ledger tools behave like 83 unrelated ones could
   not be established: Anthropic's 30-to-50 band describes an aggregated
   multi-server context. So no rule here rests on the band in either direction,
   and the payload is measured rather than argued about.
@@ -1311,7 +1332,7 @@ it means choosing which half to defer to anyway.
   precedent, with the honest note that the protocol does not standardize how a
   client opts in.
 
-*Checked by:* `tests/mcp-parity.test.ts:399-407` and `:454-486`;
+*Checked by:* `tests/mcp-parity.test.ts:400-408` and `:455-487`;
 `tests/mcp-output.test.ts:219-228`, which asserts that a token holding no ledger
 scope gets no tools at all rather than merely missing the two the test was
 written for, "because naming them left the branch accepting any other tool
@@ -1375,7 +1396,7 @@ human witness.
   a word. That is the furthest an agent can get ahead of the browser, and it was
   the one nothing saw: four tools had been reached that way for releases, named
   only in passing inside a browser-only reason. `NO_ROUTE`
-  (`tests/mcp-parity.test.ts:141`) now names each tool that is no route's target
+  (`tests/mcp-parity.test.ts:142`) now names each tool that is no route's target
   and says why. Four stand in for something the browser reads another way:
   `whoami` and `get_preferences` for two parts of the session read, and the two
   exports for the downloads, which stay browser-only because they are
@@ -1423,7 +1444,7 @@ human witness.
   nothing in the browser could ask for its transfers. **Every other read is
   compared the same way now**, found from `tools/list` rather than named: each
   read-only tool with a `GET` route, and each export against the download it
-  stands in for (`DOWNLOAD_OF`, `tests/mcp-parity.test.ts:1052`), has every
+  stands in for (`DOWNLOAD_OF`, `tests/mcp-parity.test.ts:1053`), has every
   field it takes — beyond the record it names and the paging and ordering that
   describe a view — compared with what `src/client` sends to that route,
   thirty-eight fields today. Those reads had been compared with nothing, and
@@ -1431,7 +1452,7 @@ human witness.
   `get_financial_summary` took `includeArchived`, its route parsed it, and the
   Overview sent `start` and `end` and never it. The Overview has the box now
   ([`web.md`](web.md#118-where-a-view-choice-lives)). Two fields carry a
-  written reason in `READ_UNOFFERED` (`tests/mcp-parity.test.ts:1032`)
+  written reason in `READ_UNOFFERED` (`tests/mcp-parity.test.ts:1033`)
   instead of a control. The Payees page never sends `list_payees`' `search`:
   it holds every spelling already and narrows the list as somebody types, with
   the function the service applies (`nameSearch`, `src/shared/names.ts`), so a
@@ -1484,35 +1505,35 @@ human witness.
   route, and shows the count before it writes; the rehearsal exists for a caller
   with no screen to show one on.
 
-*Checked by:* `tests/mcp-parity.test.ts`, both directions. Forward at `:286-301`
-(every route reachable through a named tool) and `:337-366`, which extracts which
+*Checked by:* `tests/mcp-parity.test.ts`, both directions. Forward at `:287-302`
+(every route reachable through a named tool) and `:338-367`, which extracts which
 service each route and each tool calls and compares them, with a `compared` floor
-at `:363` guarding the regex from silently matching nothing. Backward at
-`:737-753`, which matches each route's whole path against `src/client`, each
+at `:364` guarding the regex from silently matching nothing. Backward at
+`:738-754`, which matches each route's whole path against `src/client`, each
 parameter standing in for a template hole rather than only the prefix before the
 first one: `/api/v1/accounts` is satisfied the moment anything fetches an
 account, which left every parameterized sub-route beneath it unchecked and a
 page free to stop calling one. It reads the method too, from the call the path
 sits in, and the path's end, so neither a `PUT` to the same URL nor a fetch of a
-longer path beneath it satisfies a `GET`. Exceptions are policed at `:305-309`, which fails
-an exception naming a route that no longer exists, and at `:755-759`, which
+longer path beneath it satisfies a `GET`. Exceptions are policed at `:306-310`, which fails
+an exception naming a route that no longer exists, and at `:756-760`, which
 fails any agent-only reason under forty characters. Nothing measures the
 browser-only reasons; they stay a reviewer's job. The two forbidden capabilities
-are pinned by name at `:380-390`. *Also checked by:* `:977-1005` for the field
+are pinned by name at `:381-391`. *Also checked by:* `:978-1006` for the field
 level, which reads each listing route's schema and the page's own request object
 and fails a filter the route parses that the page cannot send, with a `compared`
-floor so a reader that stopped matching cannot pass on nothing; and `:1007-1013`,
+floor so a reader that stopped matching cannot pass on nothing; and `:1008-1014`,
 which fails a filter named as unoffered without a reason over forty characters,
-exactly as the route exceptions are policed. *Also checked by:* `:317-329` for
+exactly as the route exceptions are policed. *Also checked by:* `:318-330` for
 the tools no route reaches, which fails a tool that is neither a route's target
 nor a `NO_ROUTE` key, a key that is not a registered tool, a key some route
-does reach, and a reason under forty characters; `:1111-1174` for the reads,
+does reach, and a reason under forty characters; `:1112-1175` for the reads,
 whose population is pinned by name for the six reads the gap was found among
 and the two exports, with a floor of thirty fields, and which was shown to fail
-when the Overview stopped sending `includeArchived`; `:1176-1181`, which holds
+when the Overview stopped sending `includeArchived`; `:1177-1182`, which holds
 every export it compares to being a `NO_ROUTE` tool and every download to
-being a browser-only route; and `:1183-1195`, which polices `READ_UNOFFERED`
-the way `:1007-1013` polices the listings' register.
+being a browser-only route; and `:1184-1196`, which polices `READ_UNOFFERED`
+the way `:1008-1014` polices the listings' register.
 
 ## Idempotency, versions and state handles
 
@@ -1524,8 +1545,8 @@ the way `:1007-1013` polices the listings' register.
   tool on this surface takes an `idempotencyKey`, not only the ones that write
   postings — **with one named exemption**, which this bullet cited as a pinned
   sentence saying the opposite for a release. The annotations section has the
-  count and the exemption together: 41 mutating tools, 40 with `idempotencyKey`,
-  and `set_active_accounts` is the forty-first, exempt because it states the
+  count and the exemption together: 42 mutating tools, 41 with `idempotencyKey`,
+  and `set_active_accounts` is the forty-second, exempt because it states the
   whole set it sets, so a replay lands on the state the first call left.
   Somebody adding a mutating tool reads this bullet, believes a key is mandatory, and
   does not find the exemption, which is the one thing a cross-reference has to
@@ -1601,7 +1622,7 @@ creating state which expires says so, which is prose in a description.
   issued specifically for them as the intended audience" and "MUST NOT accept or
   transit any other tokens". This deployment binds the audience to its own `/mcp`
   and replaces anything that is not a JWT it signed, in either header shape
-  (`src/server/api.ts:1223-1242`).
+  (`src/server/api.ts:1229-1248`).
 - **House.** `x-mcp-header` mirrors a tool argument into an HTTP header for proxy
   routing, and the specification warns against marking sensitive parameters with
   it. Nothing here needs proxy routing and everything here is somebody's
@@ -1622,7 +1643,7 @@ One line each, with the condition that would reopen it.
 | Elicitation | The staging queue solves the same problem asynchronously and durably, and form mode may not be used for anything sensitive anyway. |
 | Completion | Covers prompt and resource template arguments only. It cannot cover tool arguments, which is what this surface would want it for. |
 | Tasks | A second protocol surface with per-client opt-in, against a ten-thousand-row cap that already keeps work inside one request. |
-| Progress notifications | The transport answers in a single JSON object (`enableJsonResponse: true`, `src/server/mcp.ts:2440`), so there is no open channel a `notifications/progress` could travel on — which is why the two routes that report progress to the browser do it with `Accept` rather than a request field an agent would see and could not use. Reopen with `Tasks`, above: both need the same change to how every tool call answers. |
+| Progress notifications | The transport answers in a single JSON object (`enableJsonResponse: true`, `src/server/mcp.ts:2466`), so there is no open channel a `notifications/progress` could travel on — which is why the two routes that report progress to the browser do it with `Accept` rather than a request field an agent would see and could not use. Reopen with `Tasks`, above: both need the same change to how every tool call answers. |
 | Icons | Nothing renders them here. |
 | `x-mcp-header` | Nothing needs proxy routing, and the sensitive-parameter warning points the wrong way for a ledger. |
 | `server/discover`, caching hints, `_meta` version negotiation | Wanted, and blocked on the SDK. See the first section. |
@@ -1697,21 +1718,21 @@ which is an evaluation rather than a test.
 
 | Rule | Checked by |
 | --- | --- |
-| Every `/api/v1` route is reachable through a named tool, or is a named exception with a reason | `tests/mcp-parity.test.ts:286-301` |
-| A tool reaches the same service as its route | `tests/mcp-parity.test.ts:337-366` |
-| No route exists that no page calls, without a named exception | `tests/mcp-parity.test.ts:737-753` |
-| A listing page sends every filter its route parses, or names the one it does not with a reason | `tests/mcp-parity.test.ts:977-1013`, for the register and the staged queue |
-| Every other read tool's fields are sent by a page to its route, or to the download an export stands in for, or are named with a reason | `tests/mcp-parity.test.ts:1111-1195`, derived from `tools/list`, thirty-eight fields against a floor of thirty |
-| Every tool is some route's target, or is named in `NO_ROUTE` with its reason | `tests/mcp-parity.test.ts:317-329` |
+| Every `/api/v1` route is reachable through a named tool, or is a named exception with a reason | `tests/mcp-parity.test.ts:287-302` |
+| A tool reaches the same service as its route | `tests/mcp-parity.test.ts:338-367` |
+| No route exists that no page calls, without a named exception | `tests/mcp-parity.test.ts:738-754` |
+| A listing page sends every filter its route parses, or names the one it does not with a reason | `tests/mcp-parity.test.ts:978-1014`, for the register and the staged queue |
+| Every other read tool's fields are sent by a page to its route, or to the download an export stands in for, or are named with a reason | `tests/mcp-parity.test.ts:1112-1196`, derived from `tools/list`, thirty-eight fields against a floor of thirty |
+| Every tool is some route's target, or is named in `NO_ROUTE` with its reason | `tests/mcp-parity.test.ts:318-330` |
 | A money guide is handed over as the site's exact bytes, and every Simple Balance step it has maps to tools the server registers | `tests/learn-pack.test.ts` on the vendored copy and the step map, `tests/mcp-learn.test.ts` over a connection, and `tests/integration/mcp-learn.integration.test.ts` over a real one with a token |
 | A release ships the guides as smpl.money published them, not from a local build | The release workflow's `learn-pack` job, which `publish` needs, running `node scripts/sync-learn.mjs --published`; `tests/learn-sync.test.ts:280` holds the job and the check. Whether the copy is still the site's *current* text needs the network and is `product-kit` §6, not CI |
-| Deleting an account and setting a password are absent from the tool list | `tests/mcp-parity.test.ts:380-390` |
-| Every registered tool is named in `docs/mcp.md` | `tests/mcp-parity.test.ts:373-378` |
-| A read-only token sees nothing that declares itself a write | `tests/mcp-parity.test.ts:399-407` |
-| A listing declares the schema its service parses | `tests/mcp-parity.test.ts:576-590` |
+| Deleting an account and setting a password are absent from the tool list | `tests/mcp-parity.test.ts:381-391` |
+| Every registered tool is named in `docs/mcp.md` | `tests/mcp-parity.test.ts:374-379` |
+| A read-only token sees nothing that declares itself a write | `tests/mcp-parity.test.ts:400-408` |
+| A listing declares the schema its service parses | `tests/mcp-parity.test.ts:577-591` |
 | Every tool publishes a concrete two-member output schema | `tests/mcp-output.test.ts:27-53` |
 | A token with no ledger scope gets no tools | `tests/mcp-output.test.ts:219-228` |
-| A description is longer than thirty characters | `tests/mcp-parity.test.ts:488-506` |
+| A description is longer than thirty characters | `tests/mcp-parity.test.ts:489-507` |
 | A tool name is well formed and no title claims another tier's verb | `tests/mcp-parity.test.ts` |
 | The `tools/list` payload stays under its ceiling | `tests/mcp-measurements.test.ts`, and more strictly than a ceiling: each of the three tiers' exact character cost is pinned to the number this guide publishes, so a payload that grows fails whether or not it has passed a threshold |
 | A destructive tool's description warns | `tests/mcp-measurements.test.ts:180-190` |
@@ -1728,9 +1749,9 @@ which is an evaluation rather than a test.
 | A tool that cannot be undone says so, and a recoverable one says how to get back | `tests/mcp-measurements.test.ts` |
 | One spelling per concept across every description | `tests/mcp-measurements.test.ts` |
 | A mutating tool takes an idempotency key | `tests/mcp-measurements.test.ts:583-621` |
-| `readOnlyHint` is true only where nothing the handler calls writes, and a read-only token sees nothing else | `tests/mcp-parity.test.ts:399-407` and `:424-452`, both substantive directions |
+| `readOnlyHint` is true only where nothing the handler calls writes, and a read-only token sees nothing else | `tests/mcp-parity.test.ts:400-408` and `:425-453`, both substantive directions |
 | A tool annotated `readOnlyHint: true` is registered behind a write scope | `tests/mcp-protocol-surface.test.ts`, off `TOOL_SCOPES`. Empty today: all 41 read-only tools are in the read block. It would waste a tier's tool list rather than lie about one, which is why it is the residue rather than the rule — and why the failure that matters is the agent's: a `ledger:read` token asking for a report it is entitled to is told the tool is absent, and `instructions` gives it nothing else to go on |
-| Tool order is deterministic | `tests/mcp-protocol-surface.test.ts`, which pins the whole 82-name order and that each tier's list is that order filtered. Registration order is the de facto order and is met by construction; what the check buys is that a silent reorder costs a prompt-cache miss on the write tier's half-million characters and is indistinguishable in a diff from a tool being added |
+| Tool order is deterministic | `tests/mcp-protocol-surface.test.ts`, which pins the whole 83-name order and that each tier's list is that order filtered. Registration order is the de facto order and is met by construction; what the check buys is that a silent reorder costs a prompt-cache miss on the write tier's half-million characters and is indistinguishable in a diff from a tool being added |
 | CIMD is offered before DCR, and the documents say which is current | **Not a rule.** The priority order is a rule for a *client* choosing how to obtain a client id, and a server that advertises no CIMD support moves the client to the fallback this deployment implements. Concluded in the specification-gaps section below, where this row used to contradict it |
 | A convention an agent must obey appears in a description, not only in `docs/mcp.md` | **Not checked.** Review. |
 | The server instructions name the grant, the two error envelopes and untrusted text | `tests/mcp-instructions.test.ts`, fourteen rules by substance, the grant per tier, and a 2,400-character ceiling |

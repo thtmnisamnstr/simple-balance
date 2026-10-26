@@ -15,17 +15,18 @@ new renders, starts and serves what it did, a stack that sets nothing new plans
 no change beyond the text of its `nextSteps` output, and a chart upgraded with
 the values it had renders the same objects. Two things change unasked: what a
 search engine reads — every page and file says `noindex`, and the robots file
-turns no crawler away — and what an agent is offered: five more tools, two of
+turns no crawler away — and what an agent is offered: six more tools, two of
 them the money guides, which make every token's tool list longer, by about a
-seventh at `ledger:read`, with the numbers below. Everything else new is a
-metrics collector that is off until asked for, the series the application publishes about itself,
-two holes in `/metrics` closed, an advertisement for Premium of this product's
-own that is off until asked for, an export of a whole ledger as one Simple
-Balance file and a way to add such a file to a ledger, with three routes and
-three MCP tools between them, the money guides those two tools carry, a few
-new fields on replies an older client ignores, a box on the Overview that
-counts archived accounts, an agent's request to `/mcp` no longer cut off at
-4 MiB, and twenty-one dependency advisories closed.
+quarter at `ledger:read`, with the numbers below. Everything else new is a
+metrics collector that is off until asked for, the series the application
+publishes about itself, two holes in `/metrics` closed, an advertisement for
+Premium of this product's own that is off until asked for, an export of a whole
+ledger as one Simple Balance file and two ways to read one back — added to any
+ledger, or moved into a new one — with four routes and four MCP tools between
+them, two more that carry the money guides, a few new fields on replies an
+older client ignores, a box on the Overview that counts archived accounts, an
+agent's request to `/mcp` no longer cut off at 4 MiB, and twenty-one dependency
+advisories closed.
 
 ### What runs automatically
 
@@ -76,9 +77,12 @@ a closed set:
 `db_pool_acquire_duration_seconds`, `db_pool_errors_total`,
 `scheduler_enabled`, `scheduler_tick_interval_seconds`,
 `scheduler_last_success_timestamp_seconds`, `mail_send_duration_seconds`,
-`stripe_request_failures_total` and `dependency_up`. A labeled one has no
-samples until the first thing it counts happens. `docs/deployment.md` §What to
-alert on says which of them to watch.
+`stripe_request_failures_total` and `dependency_up`, and two unlabeled ones for
+the Simple Balance file: `ledger_file_rows_staged_total`, the rows a file put
+in Staged, and `ledger_file_rows_moved_total`, the transactions a move wrote
+straight into the books, which are the only ones that reach the books without
+review. A labeled one has no samples until the first thing it counts happens.
+`docs/deployment.md` §What to alert on says which of them to watch.
 
 **Three of them read in ways worth knowing before an alert is written on one.**
 `dependency_up` is 1 when the last check a process made of a dependency passed,
@@ -104,26 +108,35 @@ export, a Simple Balance file of the whole ledger or of chosen accounts. Adding
 a file creates the accounts, categories, templates, recurring transactions and
 budgets nothing here is like straight away, asks in its preview about every one
 that collides with a record of the same name, and stages the file's
-transactions for review like any import. **Both copies need this release**: a
-0.2.1 copy has nothing that reads a file, so a ledger moving from one has to
-upgrade first to make the file, and one moving to one has to upgrade first to
-take it in.
+transactions for review like any import. Moving a file, offered only into a
+ledger where everything came from a Simple Balance file — a new sign-up, a
+fresh install — writes its transactions straight into the books instead,
+deleted ones and the days accounts were archived included, and checks every
+account's balance against the file before the last part commits. A ledger
+that already holds transactions typed into it, which is every ledger in use
+before this upgrade, is offered adding alone. **Both copies need this
+release**: a 0.2.1 copy has nothing that reads a file, so a ledger moving from
+one — to our cloud app, say — has to upgrade first to make the file, and one
+moving to one has to upgrade first to take it in.
 
-**Three new routes and three new tools.** `GET /api/v1/ledger-file`
+**Four new routes and four new tools.** `GET /api/v1/ledger-file`
 (`ledger:read`) answers with the file as `application/json`, an attachment named
 for the day where the person lives. `POST /api/v1/ledger-file:preview`
 (`ledger:read`) checks a file against the ledger and writes nothing.
-`POST /api/v1/ledger-file:add` (`ledger:write`) adds one part of a file, takes
-an `idempotencyKey`, and streams progress frames when asked with
+`POST /api/v1/ledger-file:add` (`ledger:write`) adds one part of a file, and
+`POST /api/v1/ledger-file:move` (`ledger:write`) moves one; both take an
+`idempotencyKey` and stream progress frames when asked with
 `Accept: text/event-stream`, as `POST /api/v1/csv/stage` does. A 0.2.1 client
 never calls any of them, and they changed no route that client does call. The
-two `POST` paths carry a literal colon, which the shipped proxies pass as the
-browser sent it; a proxy of your own that rewrites `:` as `%3A` turns both into
+three `POST` paths carry a literal colon, which the shipped proxies pass as the
+browser sent it; a proxy of your own that rewrites `:` as `%3A` turns each into
 a 404. `export_ledger_file` and `preview_ledger_file` are registered with the
 read tools, so every token holding any ledger scope lists two more, and
-`add_ledger_file` with the write tools: `tools/list` is 4,442 and 13,514
-characters longer at every tier for the first two, and 18,931 more at the write
-tier for the third. None of them needs a scope a token did not already have.
+`add_ledger_file` and `move_ledger_file` with the write tools: `tools/list` is
+5,026 and 30,523 characters longer at every tier for the first two — most of
+the second is the preview's reply, which plans the file for a move beside an
+add — and 22,581 and 24,829 more at the write tier for the other two. None of
+them needs a scope a token did not already have.
 
 **Two more read tools, and every tool list is longer.** `list_learn_articles`
 and `get_learn_article` serve the money guides smpl.money publishes at
@@ -131,21 +144,20 @@ and `get_learn_article` serve the money guides smpl.money publishes at
 internet, no setting turns them on, and neither reads anything of anybody's.
 They are registered with the read tools, so every token holding any ledger
 scope lists them, and no route reaches them. They cost 5,523 characters of
-`tools/list` at every tier, and the new fields and fuller descriptions below
-another 2,767 at `ledger:read`, 2,910 at `ledger:stage` and 3,486 at
-`ledger:write`. With the three Simple Balance file tools above, and the 504
-characters at `ledger:read` and 656 at the other two that the staged-row and
-import-batch tools grew by to say which kind of import staged a row, a token's
-tool list against 0.2.1's:
+`tools/list` at every tier. With the four Simple Balance file tools above, and
+another 3,167 at `ledger:read`, 3,462 at `ledger:stage` and 4,038 at
+`ledger:write` for the new fields and fuller descriptions below — the
+staged-row and import-batch tools saying which kind of import staged a row
+among them — a token's tool list against 0.2.1's, measured on 2026-10-26:
 
 | Token holds | 0.2.1 | 0.2.2 | Longer by |
 | --- | --- | --- | --- |
-| `ledger:read` | 173,131 | 199,881 | 26,750, 15% |
-| `ledger:stage` | 213,653 | 240,698 | 27,045, 13% |
-| `ledger:write` | 497,153 | 543,705 | 46,552, 9% |
+| `ledger:read` | 173,131 | 217,370 | 44,239, 26% |
+| `ledger:stage` | 213,653 | 258,187 | 44,534, 21% |
+| `ledger:write` | 497,153 | 589,673 | 92,520, 19% |
 
-At about four characters to a token that is some 50,000 tokens for a
-read-only connection and 136,000 for a writing one. A client that loads every
+At about four characters to a token that is some 54,000 tokens for a
+read-only connection and 147,000 for a writing one. A client that loads every
 tool up front and runs close to its context budget is the one to check; one
 that searches its tools loads what it uses. Nothing an agent already calls has
 been renamed, removed or given a new required argument.
@@ -185,15 +197,18 @@ allow together came to 33 MiB and peaked under 400 MiB resident in the heap a
 accounts one export may name, inside the 8 KiB request line nginx reads by
 default, so no proxy in front of it needs a change.
 
-**Adding a file goes a part at a time, and the parts fit the proxies you
-have.** A part is at most 10,000 rows and 16 MiB, and the browser cuts a larger
-file into parts itself. The two new `POST` routes accept a body of about
-52 MiB — the part twice over, since it travels as a JSON string, and the most
-decisions one request may carry — which is under the 61 MiB the frontend
-image's nginx and the `single` profile's Caddy already allow for a CSV, so
-neither needs a change. A proxy of your own needs to allow the same for those
-two paths, and for `/mcp`. Each part is one transaction of up to 10,000 rows,
-as a commit is, holding one pooled connection while it runs.
+**Adding or moving a file goes a part at a time, and the parts fit the
+proxies you have.** A part is at most 10,000 rows and 16 MiB, and the browser
+cuts a larger file into parts itself. The three new `POST` routes accept a body
+of about 52 MiB — the part twice over, since it travels as a JSON string, and
+the most decisions one request may carry — which is under the 61 MiB the
+frontend image's nginx and the `single` profile's Caddy already allow for a
+CSV, so neither needs a change. A proxy of your own needs to allow the same for
+those three paths, and for `/mcp`. Each part is one transaction of up to 10,000
+rows, as a commit is, holding one pooled connection while it runs. A move's
+part of 10,000 transactions took about fifty seconds on PostgreSQL 18 on a
+laptop, the same order as committing as many staged rows, so the long-request
+settings `docs/deployment.md` §Reverse proxy already gives a commit cover it.
 
 **`GET /api/v1/session` carries `houseAd`, and `advertises` can be true with no
 AdSense.** `houseAd` is a new field, always sent, and true only for somebody
@@ -501,8 +516,10 @@ up -d` for the split recipe. The split recipe derives the frontend's
 file**, then **Export a Simple Balance file**; **Export file** saves
 `simple-balance-` and today's date as a `.json` file, and choosing that file
 under **Import a Simple Balance file** in the same ledger says everything in it
-is already here. With **Include archived accounts** ticked, the Overview's
-address carries `archived=1` and its account list marks archived accounts. An
+is already here, with **Move it into this ledger** disabled and saying why,
+since a ledger in use holds transactions typed into it. With **Include archived
+accounts** ticked, the Overview's address carries `archived=1` and its account
+list marks archived accounts. An
 agent connected with any ledger scope lists `list_learn_articles`, and
 `get_learn_article` with the slug `net-worth` returns that guide.
 

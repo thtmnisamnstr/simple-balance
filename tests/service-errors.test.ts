@@ -90,6 +90,36 @@ const IMPOSSIBLE = [
       "The same exporter read on the way in: the destination's records are assembled by the code that writes a file so an import can compare them shape for shape, and they fail the reader only where the exporter has a defect. A 422 would tell somebody the file they are adding was wrong when it was their own ledger's export.",
   },
   {
+    where: "src/server/services/accounts.ts",
+    message: "An archive instant is only for an account that arrives archived",
+    because:
+      "An argument rather than a field, passed by the Simple Balance file's move alone — `tests/ledger-file-import-only-options.test.ts` holds every call that names it to that module — and only beside arriveArchived. A live account given one would be an archive nobody asked for, and nothing a caller sends can reach it.",
+  },
+  {
+    where: "src/server/services/accounts.ts",
+    message: "An archive instant cannot be later than now",
+    because:
+      "The same argument, and the move clamps a file's instant to now before it passes one (`archivedNoLaterThanNow` in the ledger-file service), so the only caller cannot reach it; it is here to keep a later caller from closing an archived account on a day still to come.",
+  },
+  {
+    where: "src/server/services/accounts.ts",
+    message: "A deferred close needs an archived account and a transaction",
+    because:
+      "The same move's option, which it passes only for an account it creates archived inside its own transaction and closes before that commits. Anywhere else it would commit an archived account still holding money, and no request can ask for it.",
+  },
+  {
+    where: "src/server/services/transactions.ts",
+    message: "A deferred close needs the caller's transaction",
+    because:
+      "The void's half of the same option: the move passes it inside its own transaction and closes every archived account it touched before that commits. On a transaction of its own the void would commit an archived account holding the voided amount, and no request can ask for it.",
+  },
+  {
+    where: "src/server/services/ledger-file.ts",
+    message: "A move's plan left a transaction unresolved",
+    because:
+      "The move's plan offers no choice that leaves a transaction without its account or category, so a draft that does not resolve is the planner's defect. A 422 would hand somebody a question no answer of theirs could settle, and the message names the kind rather than the record because both transports log it and a key is somebody's account name.",
+  },
+  {
     where: "src/server/services/billing.ts",
     message: "Stripe returned a subscription with no items",
     because:

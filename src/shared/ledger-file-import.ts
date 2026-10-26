@@ -18,8 +18,17 @@
  * under another name. Nothing is decided for them and nothing here is ever
  * overwritten. Transactions are not records in that sense: they go to Staged
  * like any import, and what decides each one is its origin, which the server
- * looks up. Moving a whole ledger straight into the books is a later step and
- * is not planned here.
+ * looks up.
+ *
+ * **Moving is the same plan, narrowed.** A ledger whose every entry and waiting
+ * staged row came from a Simple Balance file can take a file straight into the
+ * books instead (`mode: "move"`). The records are matched exactly as an add
+ * matches them, because a resumed move meets what its earlier parts made the
+ * way a second add does; what changes is that every transaction is written
+ * rather than staged, so a choice that would leave one without its account or
+ * category is not offered, and what only writing can get wrong — a frozen
+ * account, a category whose kind here would make a transaction both income and
+ * spending, a transaction still waiting in Staged — is said before anything is.
  *
  * **Why records are compared in the file's own shape.** Whether a record here
  * is the same as the file's is asked of both in the form a file writes them —
@@ -36,6 +45,7 @@ import {
   budgetPlanRefusal,
   categoryCreateSchema,
   categoryGroupCreateSchema,
+  counterKinds,
   enter,
   idempotencyKeySchema,
   isoDateSchema,
@@ -43,10 +53,12 @@ import {
   MAX_TRANSACTION_TEMPLATES,
   oneLine,
   recurrenceCreateSchema,
+  resolveEntrySide,
   themes,
   transactionTemplateCreateSchema,
   uuid,
   type CategoryKind,
+  type CounterKind,
 } from "./domain.js";
 import {
   LEDGER_FILE_FORMAT,
@@ -435,8 +447,30 @@ export const ledgerFileHereSchema = z
 export type LedgerFileHere = z.infer<typeof ledgerFileHereSchema>;
 
 /**
+ * Why a ledger cannot take a file straight into the books, said by the
+ * preview beside the choice and by the move when it refuses. One sentence for
+ * both, so the page never offers in one set of words what the server turns
+ * down in another.
+ */
+export const LEDGER_FILE_MOVE_BLOCKED =
+  "This ledger already has entries that did not come from a Simple Balance file, so a file can only be added to it, with its entries going to Staged for review.";
+
+/**
+ * How a move problem that no answer cures ends for a person, which the server
+ * swaps for the tool an agent adds a file with.
+ */
+export const LEDGER_FILE_MOVE_ADD_INSTEAD =
+  "Add this file instead, which sends its transactions to Staged for review.";
+
+/**
  * What one preview reads from the database. Everything else a preview says is
  * worked out from the file and this, by `planLedgerFileAdd`, on both ends.
+ *
+ * `deletedAlreadyHere` and `waiting` are read for every preview although only
+ * a move uses them, because the page previews once and plans both ways from
+ * what it read; a second preview for the move would be a second read that can
+ * disagree with the first. Both default to zero so a reply written before
+ * they existed still reads, and the server always sends them.
  */
 export const ledgerFileFactsSchema = z
   .object({
@@ -455,6 +489,42 @@ export const ledgerFileFactsSchema = z
           .int()
           .nonnegative()
           .describe("Staged rows in the file whose origin is already here, skipped the same way."),
+        deletedAlreadyHere: z
+          .number()
+          .int()
+          .nonnegative()
+          .default(0)
+          .describe(
+            "Deleted entries in the file whose origin is already here, which a move skips; adding never brings deleted entries at all.",
+          ),
+        waiting: z
+          .number()
+          .int()
+          .nonnegative()
+          .default(0)
+          .describe(
+            "Entries in the file, deleted or not, whose origin is here only as a row still waiting in Staged. A move refuses while there are any, because it would skip each one and the books would come out short.",
+          ),
+        alreadyHereOn: z
+          .record(z.string(), z.number().int().nonnegative())
+          .default({})
+          .describe(
+            "Of the live entries counted in alreadyHere, how many name each of the file's accounts, by its key in the file. A move passes over a transaction already here, so an account it would bring in new holds none of these, and it refuses one that would come in new while any are on another account here.",
+          ),
+        heldHere: z
+          .record(
+            z.string(),
+            z
+              .object({
+                entries: z.number().int().nonnegative(),
+                fromFile: z.number().int().nonnegative(),
+              })
+              .strict(),
+          )
+          .default({})
+          .describe(
+            "For each account here, by its key in here: the live entries on it — only those dated from the file's first day, when its entries start partway through — and how many of those came from this file by origin. A move asks before writing into an account that holds more than this file brought, because its balance could never come out as the file says.",
+          ),
       })
       .strict(),
     move: z
@@ -462,7 +532,7 @@ export const ledgerFileFactsSchema = z
         qualifies: z
           .boolean()
           .describe(
-            "Whether every entry and waiting staged row in this ledger came from a Simple Balance file, which is when a whole ledger may be moved straight into the books. Adding is the only import offered today.",
+            "Whether every entry and waiting staged row in this ledger came from a Simple Balance file, which is when a whole ledger may be moved straight into the books. Otherwise a file can only be added.",
           ),
         reason: z
           .string()
@@ -479,7 +549,9 @@ const problemCount = z.number().int().nonnegative().optional();
 /**
  * A problem with a request, the record it is about when it is about one, and
  * every number its sentence says, as a field (http.md: a client should never
- * have to parse a sentence to learn a number).
+ * have to parse a sentence to learn a number). A sentence that names one
+ * transaction carries it the same way, by origin, day and amount, so an agent
+ * can find it in the file without reading the words that describe it.
  */
 const planProblemSchema = z
   .object({
@@ -495,6 +567,21 @@ const planProblemSchema = z
     more: problemCount.describe("How many the file brings."),
     over: problemCount.describe("How many past the limit that would be."),
     conflict: problemCount.describe("Budget periods that already hold a different amount here."),
+    count: problemCount.describe("How many of the file's transactions the sentence is about."),
+    held: problemCount.describe(
+      "Transactions on the account here that did not come from this file.",
+    ),
+    origin: z
+      .string()
+      .optional()
+      .describe("The transaction the sentence names, by its id in the file."),
+    date: z.string().optional().describe("That transaction's date."),
+    amount: z
+      .string()
+      .optional()
+      .describe(
+        "That transaction's amount, as decimal text: for a transfer, what left its source.",
+      ),
   })
   .strict();
 export type LedgerFilePlanProblem = z.infer<typeof planProblemSchema>;
@@ -556,6 +643,99 @@ const plannedRecordSchema = z
   .strict();
 export type LedgerFilePlannedRecord = z.infer<typeof plannedRecordSchema>;
 
+const rowCount = () => z.number().int().nonnegative();
+
+/**
+ * One account's balance as the file states it, which the part carrying it is
+ * held to once its transactions are written.
+ *
+ * `compared` is false for two accounts. One archived where the file came from
+ * and holding zero there, which is what closing it made of it: the figure then
+ * says the account was closed and nothing about the transactions in it, and
+ * the closing here is anchored to this ledger's own day, so comparing the two
+ * would test the timezones rather than the move. And one that opens after the
+ * file's last day carrying money from before the file's first: that money
+ * arrives with the opening (`ledgerAccountOpening`), which is after the day the
+ * figure is for, so no ledger here could hold the file's figure on that day,
+ * and comparing would refuse a file the app itself exported.
+ */
+const balanceCheckSchema = z
+  .object({
+    key: z.string(),
+    name: z.string().describe("The name the account goes by here."),
+    currency: z.string(),
+    balance: z.string().describe("What the file says the account held on its last day."),
+    compared: z.boolean(),
+  })
+  .strict();
+export type LedgerBalanceCheck = z.infer<typeof balanceCheckSchema>;
+
+/**
+ * Transactions whose other half lands on the other side of the books here than
+ * it did where the file came from, grouped by currency, by direction and by
+ * the two sides. Reported and never reproduced: `resolveEntrySide` decides the
+ * side from the categories, and overriding it for a move would be a second
+ * rule beside it.
+ *
+ * The direction is part of the group because it is what a side means: a
+ * deposit posted to expense is a refund of spending and a withdrawal posted to
+ * income is income coming back, and the two move income and spending in
+ * opposite directions. Summed together, a deposit and a withdrawal in the same
+ * pair of sides stated a figure and a direction that matched neither.
+ */
+const driftSchema = z
+  .object({
+    currency: z.string(),
+    type: z
+      .enum(["deposit", "withdrawal"])
+      .describe("The direction the transactions were entered in."),
+    from: z
+      .enum(counterKinds)
+      .describe("The side the transactions posted to where they came from."),
+    to: z.enum(counterKinds).describe("The side they post to here."),
+    entries: rowCount(),
+    amount: z
+      .string()
+      .describe(
+        "What they add up to. Income and spending each move by it here: up where deposits that were refunds of spending count as income, or withdrawals that were income coming back count as spending, and down the other way round.",
+      ),
+    categories: z.array(z.string()).describe("The categories they are filed under, by name."),
+  })
+  .strict();
+export type LedgerFileDrift = z.infer<typeof driftSchema>;
+
+/**
+ * What moving a file does to the books, beside the plan's records. Present
+ * only on a plan made for a move.
+ */
+const movePlanSchema = z
+  .object({
+    toWrite: rowCount().describe("Live transactions written straight into the books."),
+    toVoid: rowCount().describe(
+      "Deleted transactions written and then deleted again, so they are history here as they were there and net to zero.",
+    ),
+    alreadyHere: rowCount().describe(
+      "Transactions, deleted or not, already in the books by their origin, which a resumed move skips.",
+    ),
+    waiting: rowCount().describe(
+      "Transactions whose origin is waiting in Staged from an earlier import; the move refuses until they are committed or discarded.",
+    ),
+    templateDropped: rowCount().describe(
+      "Transactions made from a template that is not coming in, which arrive without saying which template they were made from.",
+    ),
+    recurrencesDeferred: rowCount().describe(
+      "Recurring transactions this part leaves to the file's last part, so nothing they propose reaches Staged while the move is under way.",
+    ),
+    checks: z
+      .array(balanceCheckSchema)
+      .describe(
+        "The balances this part is held to once its transactions are in. Only the last part of a file carries them.",
+      ),
+    drift: z.array(driftSchema),
+  })
+  .strict();
+export type LedgerFileMovePlan = z.infer<typeof movePlanSchema>;
+
 /**
  * What adding a file would do, and what still stops it.
  *
@@ -612,12 +792,18 @@ export const ledgerFilePlanSchema = z
           .int()
           .nonnegative()
           .describe(
-            "Deleted entries in the file, which adding never brings: a row in Staged cannot be voided money.",
+            "Deleted entries in the file, which adding never brings, because a row in Staged cannot be voided money, and moving writes and deletes again.",
           ),
         staged: z.number().int().nonnegative(),
         alreadyHere: z.number().int().nonnegative(),
         stagedAlreadyHere: z.number().int().nonnegative(),
-        toStage: z.number().int().nonnegative(),
+        toStage: z
+          .number()
+          .int()
+          .nonnegative()
+          .describe(
+            "Rows this puts in Staged: the entries and the file's own staged rows when adding, and only the file's own staged rows when moving.",
+          ),
         postedAsDiffers: z
           .number()
           .int()
@@ -627,12 +813,23 @@ export const ledgerFilePlanSchema = z
           ),
       })
       .strict(),
+    move: movePlanSchema.optional(),
   })
   .strict();
 export type LedgerFilePlan = z.infer<typeof ledgerFilePlanSchema>;
 
-/** The preview: what was read about the destination, and the plan with nothing decided yet. */
-export const ledgerFilePreviewSchema = ledgerFileFactsSchema.extend({ plan: ledgerFilePlanSchema });
+/**
+ * The preview: what was read about the destination, and the plan with nothing
+ * decided yet, both ways. `movePlan` is there whether or not the ledger
+ * qualifies, so an agent reads one shape; where it does not, its first problem
+ * says why.
+ */
+export const ledgerFilePreviewSchema = ledgerFileFactsSchema.extend({
+  plan: ledgerFilePlanSchema,
+  movePlan: ledgerFilePlanSchema.describe(
+    "The same file planned for a move straight into the books, as a whole file or the last part of one: the choices a move offers, what it writes, the balances it is held to, and what stops it. A part before the last also leaves its recurring transactions to the last part, which move_ledger_file's result counts in plan.move.recurrencesDeferred; and an account here holding transactions this part does not carry is asked about, which for a later part includes what the earlier parts brought, so answer that question only from a whole file's preview.",
+  ),
+});
 export type LedgerFilePreview = z.infer<typeof ledgerFilePreviewSchema>;
 
 /**
@@ -839,6 +1036,51 @@ const entryAccounts = (entry: LedgerFileEntry): string[] =>
     : entry.type === "withdrawal"
       ? [entry.from]
       : [entry.from, entry.to];
+
+/** Every category key an entry names, on itself or on a leg, each once. */
+const entryCategories = (entry: LedgerFileEntry): string[] => [
+  ...new Set(
+    [
+      entry.category,
+      ...(entry.type === "transfer" ? [] : (entry.legs ?? []).map((leg) => leg.category)),
+    ].filter((key): key is string => typeof key === "string"),
+  ),
+];
+
+/**
+ * An entry the way a sentence names one: its type, its amount, its day and
+ * its payee — "the withdrawal of 54.23 dated 2026-10-02 with Rewe" — which is
+ * what somebody can find it by on the Transactions page and in the file. No
+ * origin, because nobody can search for a uuid they never saw.
+ */
+export function ledgerEntryLabel(
+  entry: LedgerFileEntry,
+  shown?: { readonly figures: LedgerFigures; readonly currency: string | undefined },
+): string {
+  const amount = entry.type === "transfer" ? entry.sourceAmount : entry.amount;
+  const money =
+    shown?.currency === undefined ? amount : shown.figures.money(amount, shown.currency);
+  const day = shown === undefined ? entry.date : shown.figures.date(entry.date);
+  return `the ${entry.type} of ${money} dated ${day} with ${entry.payee}`;
+}
+
+/**
+ * How a sentence shared by both ends writes money and a day. The server and
+ * an agent read the canonical text and the ISO date, which are what the
+ * details carry and what a model compares; the page reads them as everything
+ * else on it is written, through `formatMoney` and `formatDate` (common.md),
+ * and passes those in, so the sentence is still built by one function.
+ */
+export type LedgerFigures = {
+  readonly money: (amount: string, currency: string) => string;
+  readonly date: (day: string) => string;
+};
+
+/** The canonical figures, which every sentence the server sends is written in. */
+export const LEDGER_RAW_FIGURES: LedgerFigures = {
+  money: (amount, currency) => `${amount} ${currency}`,
+  date: (day) => day,
+};
 
 /**
  * The day an account created from a reference opens, at zero: the earliest
@@ -1150,6 +1392,8 @@ const KIND_WORDS: Record<CategoryKind, string> = {
   both: "income and spending",
 };
 
+const sentenceCase = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
 /** "a, b or c", the way a sentence here names a short list. */
 function orList(items: readonly string[]): string {
   if (items.length <= 1) return items.join("");
@@ -1249,6 +1493,31 @@ function reminderRule(notification: unknown) {
   return rule;
 }
 
+type FullAccount = Extract<LedgerFileAccount, { detail: "full" }>;
+/** What differs between the file's account and one here in its currency, in the order a form shows them. */
+function accountDifferences(ours: FullAccount, theirs: FullAccount) {
+  const opening = ledgerAccountOpening(ours);
+  const hereOpening = {
+    openingDate: theirs.openingDate,
+    openingBalance: canonicalDecimalText(theirs.openingBalance),
+  };
+  const openingDiffers =
+    opening.openingDate !== hereOpening.openingDate ||
+    opening.openingBalance !== hereOpening.openingBalance;
+  const fields = [
+    ours.type === theirs.type ? null : "its type",
+    openingDiffers ? "its opening" : null,
+    blank(ours.institution) === blank(theirs.institution) ? null : "its institution",
+    blank(ours.notes) === blank(theirs.notes) ? null : "its notes",
+    ours.inBudget === theirs.inBudget ? null : "whether the budget is about the money in it",
+  ].filter((field) => field !== null);
+  return { fields, opening, hereOpening, openingDiffers };
+}
+
+/** How a file lands: records at once and transactions to Staged, or everything into the books. */
+export const ledgerFileImportModes = ["add", "move"] as const;
+export type LedgerFileImportMode = (typeof ledgerFileImportModes)[number];
+
 export type LedgerFilePlanInput = {
   /** The file, or the part of one, being planned. */
   readonly file: LedgerFile;
@@ -1256,6 +1525,16 @@ export type LedgerFilePlanInput = {
   readonly decisions?: readonly LedgerFileDecision[];
   readonly arriveArchived?: readonly string[];
   readonly preferences?: LedgerPreferencesChoice | undefined;
+  /** Left out, an add. */
+  readonly mode?: LedgerFileImportMode;
+  /**
+   * Which part of the file this is, for a move. Left out, the file is planned
+   * whole, which is what the page does and is the last part as far as
+   * anything here is concerned.
+   */
+  readonly part?: { readonly index: number; readonly count: number };
+  /** How a problem's sentence writes a transaction's money and day. Left out, as the server writes them. */
+  readonly figures?: LedgerFigures;
 };
 
 /** One period's budget amount: written, or passed over. */
@@ -1319,6 +1598,27 @@ export function planLedgerFileAdd(input: LedgerFilePlanInput): LedgerFilePlanned
       ...(key === undefined ? {} : { key }),
       ...numbers,
     });
+  const moving = input.mode === "move";
+  const lastPart = input.part === undefined || input.part.index === input.part.count;
+  // Whether the facts describe the whole file, which is what the page plans
+  // and what a part that is the only one is. Only then can "on the account
+  // here, and not from this file" be told from "from an earlier part of it",
+  // because a part's facts know its own origins and no other part's.
+  const wholeFile = input.part === undefined || input.part.count === 1;
+
+  // First, because no decision can cure either, and a refusal leads with its
+  // first problem.
+  if (moving && !facts.move.qualifies) problem("move", LEDGER_FILE_MOVE_BLOCKED);
+  if (moving && facts.rows.waiting > 0) {
+    const n = facts.rows.waiting;
+    problem(
+      "move",
+      `${n === 1 ? "One of this file's transactions is" : `${n} of this file's transactions are`} waiting in Staged from an earlier import of it. Commit or discard ${n === 1 ? "it" : "them"} there first: a move writes each transaction straight into the books, once.`,
+      undefined,
+      undefined,
+      { count: n },
+    );
+  }
 
   // Decisions, one per record, by kind and key.
   const decisions = new Map<string, { decision: LedgerFileDecision; at: number }>();
@@ -1382,13 +1682,25 @@ export function planLedgerFileAdd(input: LedgerFilePlanInput): LedgerFilePlanned
       rowsNaming.set(id, (rowsNaming.get(id) ?? 0) + 1);
     }
   };
+  // Apart from the rows, the entries alone, deleted ones included: what a move
+  // writes, and so what has to have an account and a category to be written to.
+  const entriesNaming = new Map<string, number>();
   for (const entry of file.entries) {
     count("account", entryAccounts(entry));
-    count("category", [
-      entry.category,
-      ...(entry.type === "transfer" ? [] : (entry.legs ?? []).map((leg) => leg.category)),
-    ]);
+    count("category", entryCategories(entry));
     count("template", [entry.template]);
+    for (const key of new Set(entryAccounts(entry))) {
+      entriesNaming.set(
+        recordId("account", key),
+        (entriesNaming.get(recordId("account", key)) ?? 0) + 1,
+      );
+    }
+    for (const key of entryCategories(entry)) {
+      entriesNaming.set(
+        recordId("category", key),
+        (entriesNaming.get(recordId("category", key)) ?? 0) + 1,
+      );
+    }
   }
   for (const row of file.staged) {
     count("account", [row.draft.from, row.draft.to]);
@@ -1513,6 +1825,82 @@ export function planLedgerFileAdd(input: LedgerFilePlanInput): LedgerFilePlanned
     return true;
   };
 
+  /**
+   * How many transactions on an account here did not come from this file:
+   * what a move cannot write the file's beside and still come out at the
+   * file's balance, whether the account is the same as the file's in every
+   * field or not. Only where the facts describe the whole file, for the reason
+   * `wholeFile` gives; a part of several is held to it by the decision the
+   * page made over the whole file, and by the balance check at the end.
+   */
+  const heldElsewhere = (entry: HereEntry): number => {
+    if (!moving || !wholeFile) return 0;
+    const held = facts.rows.heldHere[entry.key];
+    return held === undefined ? 0 : Math.max(0, held.entries - held.fromFile);
+  };
+  const heldSentence = (entry: HereEntry, n: number) =>
+    `"${entry.name}" here already holds ${n === 1 ? "a transaction that is" : `${n} transactions that are`} not in this file, so the file's cannot be written into it and still come out at the file's balance.`;
+
+  /**
+   * A move's choices, out of an add's. A move writes every transaction into
+   * the books, so an account or a category a transaction names has to come in
+   * — leaving it out, or leaving it for review, would leave the transaction
+   * with nowhere to be written — and an account here that opens differently
+   * cannot stand in for the file's, because the balance the file states would
+   * then never come out. The sentence says which, so the question still reads
+   * as one somebody can answer, and every number it says is returned as a
+   * field for the problem the question becomes.
+   *
+   * Except for a file whose entries start partway through. Its account opens
+   * here on the range's first day at what it carried in, so an account an
+   * earlier range already brought always opens differently, and using it is
+   * the only way the ranges add up: a copy under another name would open at
+   * the carried balance beside the account that already holds it. Whether the
+   * earlier ranges are all in is what the balance check at the end answers.
+   */
+  const narrowForMove = (kind: Named, record: Planned, match?: HereEntry): ProblemNumbers => {
+    const numbers: ProblemNumbers = {};
+    if (!moving || (kind !== "account" && kind !== "category")) return numbers;
+    const notes: string[] = [];
+    let choices = record.choices;
+    const held = kind === "account" && match !== undefined ? heldElsewhere(match) : 0;
+    if (held > 0) numbers.held = held;
+    if (
+      kind === "account" &&
+      match !== undefined &&
+      record.detail === "full" &&
+      choices.includes("use_existing")
+    ) {
+      const ours = record.record as FullAccount;
+      if (held > 0) {
+        choices = choices.filter((choice) => choice !== "use_existing");
+        notes.push(heldSentence(match, held));
+      } else if (accountDifferences(ours, match.record as FullAccount).openingDiffers) {
+        if ((ours.carriedForward ?? null) === null) {
+          choices = choices.filter((choice) => choice !== "use_existing");
+          notes.push(
+            "A move holds every balance to the file, and the one here keeps its own opening, so it cannot be used.",
+          );
+        } else {
+          notes.push(
+            "This file starts partway through, so using the one here carries on from the earlier part of its history already in it, and the balance check at the end says whether all of that history is here.",
+          );
+        }
+      }
+    }
+    const named = entriesNaming.get(recordId(kind, record.key)) ?? 0;
+    if (named > 0 && choices.some((choice) => choice === "skip" || choice === "leave_staged")) {
+      choices = choices.filter((choice) => choice !== "skip" && choice !== "leave_staged");
+      numbers.count = named;
+      notes.push(
+        `${named === 1 ? "One of this file's transactions names it" : `${named} of this file's transactions name it`}, and a move writes each one straight into the books, so it has to come in.`,
+      );
+    }
+    record.choices = choices;
+    if (notes.length) record.message = [record.message, ...notes].filter(Boolean).join(" ");
+    return numbers;
+  };
+
   type Same = (incoming: Planned, here: HereEntry) => boolean;
   /** How the record here differs from the file's, as the whole sentence, or null for "it differs". */
   type Differs = (incoming: Planned, here: HereEntry) => string | null;
@@ -1535,6 +1923,26 @@ export function planLedgerFileAdd(input: LedgerFilePlanInput): LedgerFilePlanned
     return alike.length === 1 ? existing(alike[0]!) : null;
   };
 
+  /**
+   * In a part of several, whether the account the file has here by name is to
+   * come in under the name the page gave it over the whole file. The page asks
+   * only where the whole file shows the account here holding what the file
+   * does not, and sends the answer with every part; a part's facts cannot see
+   * that, so the answer is kept rather than passed over the way an answer to a
+   * question nobody asked is. Kept for the first part, which creates the copy,
+   * and for a later one only where that copy is here and the same in every
+   * field: a later part never starts a copy of its own, because the parts
+   * before it are already written into the account it would be leaving.
+   */
+  const renamedEarlier = (kind: Named, record: Planned, same: Same): boolean => {
+    if (!moving || wholeFile || kind !== "account") return false;
+    const sent = decisions.get(recordId(kind, record.key))?.decision;
+    if (sent?.action !== "rename") return false;
+    if (input.part!.index === 1) return true;
+    const taken = hereIndex.account.byFold.get(fold(sent.name));
+    return taken !== undefined && same(record, taken);
+  };
+
   const planWhole = (kind: Named, records: readonly Source[], same: Same, differs?: Differs) => {
     const seen = new Set<string>();
     for (const source of records) {
@@ -1548,9 +1956,21 @@ export function planLedgerFileAdd(input: LedgerFilePlanInput): LedgerFilePlanned
         record.message = `Another ${LABEL[kind]} in this file is also called "${source.name}" once case and spacing are set aside.`;
       } else if (match !== undefined) {
         record.existing = existing(match);
-        if (same(record, match)) {
+        const held = kind === "account" ? heldElsewhere(match) : 0;
+        if (same(record, match) && held === 0 && !renamedEarlier(kind, record, same)) {
           record.outcome = "exists";
           use(record, match);
+        } else if (same(record, match)) {
+          // The same in every field and still not the file's: it holds
+          // transactions this file does not, so the file's comes in under
+          // another name or not at all — or, in a part of several, the page
+          // decided that over the whole file, which this part cannot see.
+          record.outcome = "duplicate";
+          record.choices = ["rename"];
+          record.message =
+            held > 0
+              ? heldSentence(match, held)
+              : `There is already an account called "${match.name}" here, and this file's comes in under the other name it was given for the whole file.`;
         } else {
           record.outcome = "duplicate";
           const theirs = (match.record as { currency?: string }).currency;
@@ -1571,8 +1991,9 @@ export function planLedgerFileAdd(input: LedgerFilePlanInput): LedgerFilePlanned
       }
       seen.add(name);
       if (record.outcome !== "duplicate") continue;
+      const numbers = narrowForMove(kind, record, match);
       record.copy = copyOf(kind, record, same);
-      const found = decide(record);
+      const found = decide(record, numbers);
       if (found === null) continue;
       const { decision, at } = found;
       if (decision.action === "use_existing") {
@@ -1678,7 +2099,8 @@ export function planLedgerFileAdd(input: LedgerFilePlanInput): LedgerFilePlanned
       if (kind === "group") {
         record.message = `${record.message} Left out, the categories in it come in without a group.`;
       }
-      const found = decide(record);
+      const numbers = narrowForMove(kind, record);
+      const found = decide(record, numbers);
       if (found === null) continue;
       const { decision, at } = found;
       if (decision.action === "leave_staged" || decision.action === "skip") {
@@ -1772,26 +2194,6 @@ export function planLedgerFileAdd(input: LedgerFilePlanInput): LedgerFilePlanned
   planReferences("category", file.categories);
   clashes("category");
 
-  type FullAccount = Extract<LedgerFileAccount, { detail: "full" }>;
-  /** What differs between the file's account and one here in its currency, in the order a form shows them. */
-  const accountDifferences = (ours: FullAccount, theirs: FullAccount) => {
-    const opening = ledgerAccountOpening(ours);
-    const hereOpening = {
-      openingDate: theirs.openingDate,
-      openingBalance: canonicalDecimalText(theirs.openingBalance),
-    };
-    const openingDiffers =
-      opening.openingDate !== hereOpening.openingDate ||
-      opening.openingBalance !== hereOpening.openingBalance;
-    const fields = [
-      ours.type === theirs.type ? null : "its type",
-      openingDiffers ? "its opening" : null,
-      blank(ours.institution) === blank(theirs.institution) ? null : "its institution",
-      blank(ours.notes) === blank(theirs.notes) ? null : "its notes",
-      ours.inBudget === theirs.inBudget ? null : "whether the budget is about the money in it",
-    ].filter((field) => field !== null);
-    return { fields, opening, hereOpening, openingDiffers };
-  };
   planWhole(
     "account",
     file.accounts,
@@ -2182,19 +2584,31 @@ export function planLedgerFileAdd(input: LedgerFilePlanInput): LedgerFilePlanned
     const theirs = record.hereEntry.record as { archivedAt?: string | null; inUse?: boolean };
     if (record.kind !== "account" && record.kind !== "category") continue;
     if (theirs.archivedAt != null) {
-      record.message = `"${record.importName}" is archived here, so the transactions that name it wait in Staged until it is restored.`;
+      record.message = !moving
+        ? `"${record.importName}" is archived here, so the transactions that name it wait in Staged until it is restored.`
+        : record.kind === "account"
+          ? `"${record.importName}" is archived here. A move writes its transactions into it all the same, and it still holds nothing from the day it was archived here.`
+          : `"${record.importName}" is archived here, and the transactions filed under it are written all the same.`;
     } else if (record.kind === "account" && theirs.inUse === false) {
       record.message = `"${record.importName}" is frozen here, so the transactions that name it wait in Staged until it is back in use.`;
     }
   }
-  // A category archived where it came from arrives in use, unlike an account:
-  // a row filed under an archived category cannot be committed, and a category
-  // takes no place, so nothing is saved by making somebody restore it first.
+  // A category archived where it came from arrives in use when adding, unlike
+  // an account: a row filed under an archived category cannot be committed,
+  // and a category takes no place, so nothing is saved by making somebody
+  // restore it first. A move writes its transactions without the queue, so it
+  // arrives archived, as it was.
   for (const record of planned.values()) {
     if (record.kind !== "category" || record.action !== "create" || record.detail !== "full") {
       continue;
     }
     if ((record.record as { archivedAt?: string | null }).archivedAt == null) continue;
+    if (moving) {
+      record.arrivesArchived = true;
+      record.message ??=
+        "It was archived where it came from, and arrives archived, with the transactions filed under it.";
+      continue;
+    }
     record.message ??=
       "It was archived where it came from. It arrives in use so the transactions filed under it can be committed; archive it again once they are.";
   }
@@ -2213,14 +2627,19 @@ export function planLedgerFileAdd(input: LedgerFilePlanInput): LedgerFilePlanned
     const source = record.record as LedgerFileAccount;
     if (source.detail === "full" && source.archivedAt !== null) {
       record.arrivesArchived = true;
-      record.message ??=
-        "It was archived where it came from, so it arrives archived and uses no place. The transactions that name it wait in Staged until it is restored.";
+      record.message ??= moving
+        ? "It was archived where it came from, so it arrives archived and uses no place: its transactions are written into it, and it holds nothing from the day it was archived there."
+        : "It was archived where it came from, so it arrives archived and uses no place. The transactions that name it wait in Staged until it is restored.";
       continue;
     }
     arriving += 1;
     if (chosenArchived.has(record.key)) {
       record.arrivesArchived = true;
       chosen += 1;
+      if (moving) {
+        record.message ??=
+          "It arrives archived and uses no place: its transactions are written into it, and it holds nothing from the day of the move. Restoring it into a free place posts its balance back.";
+      }
     }
   }
   const inUse = here.accounts.filter(
@@ -2298,6 +2717,215 @@ export function planLedgerFileAdd(input: LedgerFilePlanInput): LedgerFilePlanned
   const live = file.entries.length - deleted;
   const alreadyHere = Math.min(facts.rows.alreadyHere, live);
   const stagedAlreadyHere = Math.min(facts.rows.stagedAlreadyHere, file.staged.length);
+
+  // -------------------------------------------------------------------------
+  // What only a move asks: that every transaction can be written here.
+  // -------------------------------------------------------------------------
+
+  let move: LedgerFileMovePlan | undefined;
+  if (moving) {
+    /** The kind a category key files under here, or null while that is not settled. */
+    const kindHere = (key: string): CategoryKind | null => {
+      const record = plannedOf("category", key);
+      if (record?.action === "use") return (record.hereEntry!.record as LedgerFileCategory).kind;
+      if (record?.action === "create") return (record.record as LedgerFileCategory).kind;
+      return null;
+    };
+    const kindThere = new Map(file.categories.map((category) => [category.key, category.kind]));
+    const currencyOf = new Map(file.accounts.map((account) => [account.key, account.currency]));
+
+    // A frozen account takes no change to what it holds, a move included, and
+    // unlike an add there is no queue for its transactions to wait in.
+    for (const record of planned.values()) {
+      if (record.kind !== "account" || record.action !== "use" || record.hereEntry === null) {
+        continue;
+      }
+      const theirs = record.hereEntry.record as { archivedAt?: string | null; inUse?: boolean };
+      const n = entriesNaming.get(recordId("account", record.key)) ?? 0;
+      if (theirs.archivedAt != null || theirs.inUse !== false || n === 0) continue;
+      record.message = `"${record.importName}" is frozen here, and ${n === 1 ? "one of this file's transactions is" : `${n} of this file's transactions are`} on it. A move writes every transaction straight into the books, and a frozen account takes no new ones, so free a place for it first by archiving or deleting an account in use, or upgrade under Settings.`;
+      problem("move", record.message, "account", record.key, { count: n });
+    }
+
+    // An account the file carries whole that would come in new, while some of
+    // the file's transactions on it are already here on another account: the
+    // usual shape of moving one account's file and then another's, where the
+    // transfers between them came with the first. A move passes over every
+    // transaction already here, so the new account would never hold them and
+    // its balance check could only fail, after a part had been written. Said
+    // as soon as renaming is the only answer left, rather than once it is
+    // given, because no name makes it work.
+    for (const record of planned.values()) {
+      if (record.kind !== "account" || record.detail !== "full") continue;
+      const onlyNew =
+        record.action === "create" ||
+        (record.action === "undecided" &&
+          record.choices.length > 0 &&
+          record.choices.every((choice) => choice === "rename"));
+      const n = facts.rows.alreadyHereOn[record.key] ?? 0;
+      if (!onlyNew || n === 0) continue;
+      const as =
+        record.importName !== null && fold(record.importName) === fold(record.name)
+          ? "brought in new"
+          : "brought in under another name";
+      problem(
+        "move",
+        `${n === 1 ? "One of this file's transactions" : `${n} of this file's transactions`} on "${record.name}" ${n === 1 ? "is" : "are"} already here, on another account, from a file brought in before. A move passes over a transaction already here, so an account ${as} would not hold ${n === 1 ? "it" : "them"} and could never come out at the file's balance. ${LEDGER_FILE_MOVE_ADD_INSTEAD}`,
+        "account",
+        record.key,
+        { count: n },
+      );
+    }
+
+    // Each transaction's side, here and where it came from. Deleted ones are
+    // asked too, because a deleted transaction is written before it is voided
+    // and `resolveEntrySide` refuses it all the same; they drift nothing,
+    // because voided they net to zero.
+    let refused = 0;
+    let firstRefused: { entry: LedgerFileEntry; key: string | undefined } | null = null;
+    const drift = new Map<string, LedgerFileDrift>();
+    let templateDropped = 0;
+    for (const entry of file.entries) {
+      if (entry.template !== undefined) {
+        const template = plannedOf("template", entry.template);
+        if (template?.action !== "use" && template?.action !== "create") templateDropped += 1;
+      }
+      if (entry.type === "transfer") continue;
+      const keys = entryCategories(entry);
+      const kinds = keys.map(kindHere);
+      if (kinds.some((kind) => kind === null)) continue;
+      const here = resolveEntrySide(entry.type, kinds as CategoryKind[]);
+      if (!here.ok) {
+        refused += 1;
+        firstRefused ??= { entry, key: keys.find((key) => kindHere(key) !== kindThere.get(key)) };
+        continue;
+      }
+      if (entry.deleted) continue;
+      const thereSide = resolveEntrySide(
+        entry.type,
+        keys.map((key) => kindThere.get(key)!),
+      );
+      const there: CounterKind | null =
+        entry.postedAs ?? (thereSide.ok ? thereSide.counterKind : null);
+      if (there === null || there === here.counterKind) continue;
+      const currency = currencyOf.get(entry.type === "deposit" ? entry.to : entry.from) ?? "";
+      const slot = `${currency}|${entry.type}|${there}|${here.counterKind}`;
+      const group = drift.get(slot) ?? {
+        currency,
+        type: entry.type,
+        from: there,
+        to: here.counterKind,
+        entries: 0,
+        amount: "0",
+        categories: [],
+      };
+      group.entries += 1;
+      group.amount = addDecimalText(group.amount, entry.amount);
+      for (const key of keys) {
+        const name = plannedOf("category", key)?.importName ?? key;
+        if (!group.categories.includes(name)) group.categories.push(name);
+      }
+      drift.set(slot, group);
+    }
+    if (firstRefused !== null) {
+      const { entry, key } = firstRefused;
+      const side = entry.type === "deposit" ? entry.to : entry.from;
+      const label = sentenceCase(
+        ledgerEntryLabel(
+          entry,
+          input.figures && { figures: input.figures, currency: currencyOf.get(side) },
+        ),
+      );
+      const tail = refused > 1 ? ` It is one of ${refused} transactions filed that way.` : "";
+      const named = {
+        count: refused,
+        origin: entry.id,
+        date: entry.date,
+        amount: entry.type === "transfer" ? entry.sourceAmount : entry.amount,
+      };
+      const record = key === undefined ? undefined : plannedOf("category", key);
+      if (record === undefined || key === undefined) {
+        problem(
+          "move",
+          `${label} is filed under both an income and a spending category, which one transaction cannot be, so the file cannot be moved as it is.${tail}`,
+          undefined,
+          undefined,
+          named,
+        );
+      } else {
+        // Only moves that work: a category the file only names, matched here by
+        // name, asks nothing, so it cannot be renamed on the way in.
+        const remedy =
+          record.outcome === "duplicate"
+            ? `Bring "${record.name}" in under another name rather than using the one here.`
+            : record.outcome === "missing"
+              ? "Match it to another category here, or create it from the file."
+              : `Change it to take ${KIND_WORDS[kindThere.get(key)!]} under Categories first, or move the file into a ledger without a category of that name.`;
+        problem(
+          "move",
+          `${label} would be both income and spending here, because "${record.importName}" takes ${KIND_WORDS[kindHere(key)!]} here and ${KIND_WORDS[kindThere.get(key)!]} in the file. ${remedy}${tail}`,
+          "category",
+          key,
+          named,
+        );
+      }
+    }
+
+    const checks: LedgerBalanceCheck[] = [];
+    for (const account of file.accounts) {
+      if (account.detail !== "full" || account.balance === undefined) continue;
+      const record = plannedOf("account", account.key);
+      if (record?.action !== "use" && record?.action !== "create") continue;
+      const balance = canonicalDecimalText(account.balance);
+      const carried = canonicalDecimalText(account.carriedForward?.amount ?? "0");
+      // Created here, its carry lands with its opening, and an opening after
+      // the day the figure is for leaves that money out of every balance up
+      // to it (`balanceCheckSchema`). An account here it uses already holds
+      // whatever an earlier range brought, so that one is compared.
+      const carriedPast =
+        record.action === "create" &&
+        carried !== "0" &&
+        ledgerAccountOpening(account).openingDate > file.throughDate;
+      checks.push({
+        key: account.key,
+        name: record.importName!,
+        currency: account.currency,
+        balance,
+        compared: !(account.archivedAt !== null && balance === "0") && !carriedPast,
+      });
+    }
+
+    // Created by the last part alone. A recurrence made by an earlier part
+    // could propose its next occurrence before the next part lands, and a row
+    // nobody imported waiting in Staged is exactly what stops a ledger from
+    // taking the rest of the file straight into the books.
+    let recurrencesDeferred = 0;
+    if (!lastPart) {
+      for (const record of planned.values()) {
+        if (record.kind !== "recurrence" || record.action !== "create") continue;
+        recurrencesDeferred += 1;
+        record.message = [
+          record.message,
+          "It is created by the file's last part, so nothing it proposes reaches Staged while the move is under way.",
+        ]
+          .filter(Boolean)
+          .join(" ");
+      }
+    }
+
+    const deletedAlreadyHere = Math.min(facts.rows.deletedAlreadyHere, deleted);
+    move = {
+      toWrite: live - alreadyHere,
+      toVoid: deleted - deletedAlreadyHere,
+      alreadyHere: Math.max(0, alreadyHere + deletedAlreadyHere - facts.rows.waiting),
+      waiting: facts.rows.waiting,
+      templateDropped,
+      recurrencesDeferred,
+      checks,
+      drift: [...drift.values()],
+    };
+  }
+
   const zero = () =>
     Object.fromEntries(ledgerPlannedActions.map((action) => [action, 0])) as Record<
       LedgerPlannedAction,
@@ -2339,11 +2967,12 @@ export function planLedgerFileAdd(input: LedgerFilePlanInput): LedgerFilePlanned
       staged: file.staged.length,
       alreadyHere,
       stagedAlreadyHere,
-      toStage: live - alreadyHere + file.staged.length - stagedAlreadyHere,
+      toStage: (moving ? 0 : live - alreadyHere) + file.staged.length - stagedAlreadyHere,
       postedAsDiffers: file.entries.filter(
         (entry) => !entry.deleted && entry.type !== "transfer" && entry.postedAs !== undefined,
       ).length,
     },
+    ...(move === undefined ? {} : { move }),
   };
 
   return {
@@ -2368,8 +2997,18 @@ export function planLedgerFileAdd(input: LedgerFilePlanInput): LedgerFilePlanned
  * Every part carries every record and was read against the same ledger, so the
  * destination is taken from the first; only the rows differ from part to part,
  * and those are added up. The page then plans the whole file against this, so
- * what it shows is what every part together will do.
+ * what it shows is what every part together will do. Whether the ledger may
+ * take a move is the one fact that can change between two parts' reads — a
+ * transaction typed in between — so it qualifies only if every read said so.
  */
+function sumByKey(counts: readonly Readonly<Record<string, number>>[]): Record<string, number> {
+  const total: Record<string, number> = {};
+  for (const each of counts) {
+    for (const [key, n] of Object.entries(each)) total[key] = (total[key] ?? 0) + n;
+  }
+  return total;
+}
+
 export function mergeLedgerFileFacts(parts: readonly LedgerFileFacts[]): LedgerFileFacts {
   const [first] = parts;
   if (first === undefined) throw new Error("There is no preview to merge");
@@ -2378,7 +3017,28 @@ export function mergeLedgerFileFacts(parts: readonly LedgerFileFacts[]): LedgerF
     rows: {
       alreadyHere: parts.reduce((total, part) => total + part.rows.alreadyHere, 0),
       stagedAlreadyHere: parts.reduce((total, part) => total + part.rows.stagedAlreadyHere, 0),
+      deletedAlreadyHere: parts.reduce((total, part) => total + part.rows.deletedAlreadyHere, 0),
+      waiting: parts.reduce((total, part) => total + part.rows.waiting, 0),
+      alreadyHereOn: sumByKey(parts.map((part) => part.rows.alreadyHereOn)),
+      // What an account here holds is one read of this ledger, and so the
+      // first part's; what came from the file is each part's own origins,
+      // added up, which is what lets the whole file tell the two apart.
+      heldHere: Object.fromEntries(
+        Object.entries(first.rows.heldHere).map(([key, held]) => [
+          key,
+          {
+            entries: held.entries,
+            fromFile: parts.reduce(
+              (total, part) => total + (part.rows.heldHere[key]?.fromFile ?? 0),
+              0,
+            ),
+          },
+        ]),
+      ),
     },
+    move: parts.every((part) => part.move.qualifies)
+      ? first.move
+      : parts.find((part) => !part.move.qualifies)!.move,
   };
 }
 

@@ -1723,6 +1723,12 @@ export function ProgressBar({ label, value, max }: { label: string; value: numbe
  * phase vocabulary, sentence case, no full stop. These are the true figures for
  * the phase in flight — the bar itself is weighted across phases, and a weight
  * is an estimate, so the numbers a person reads are never the estimated ones.
+ *
+ * `verb` replaces the phase's own word where one phase names two kinds of
+ * work. Posting is a commit's last loop and the whole of a Simple Balance
+ * file's move, and a move commits nothing — nothing it writes was ever staged
+ * — so it reads "written" there, through the same count form rather than a
+ * second sentence built beside it.
  */
-export const progressLabel = (event: ProgressEvent) =>
-  `${event.done.toLocaleString()} of ${event.total.toLocaleString()} ${PROGRESS_VERB[event.phase]}`;
+export const progressLabel = (event: ProgressEvent, verb = PROGRESS_VERB[event.phase]) =>
+  `${event.done.toLocaleString()} of ${event.total.toLocaleString()} ${verb}`;

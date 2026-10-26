@@ -41,8 +41,14 @@ import {
   sql,
   type SQL,
 } from "drizzle-orm";
+import { ZodError } from "zod";
 import type { Actor, CategoryKind, CounterKind, EntryType, Theme } from "../../shared/domain.js";
-import { counterKinds, MAX_BULK_SELECTION_ENTRIES, resolveEntrySide } from "../../shared/domain.js";
+import {
+  counterKinds,
+  MAX_BULK_SELECTION_ENTRIES,
+  resolveEntrySide,
+  transactionDraftSchema,
+} from "../../shared/domain.js";
 import {
   assignLedgerKeys,
   LEDGER_FILE_FORMAT,
@@ -55,10 +61,13 @@ import {
   parseLedgerFileText,
   serializeLedgerFile,
   type LedgerFile,
+  type LedgerFileEntry,
   type LedgerFileKind,
   type LedgerFileSelection,
 } from "../../shared/ledger-file.js";
 import {
+  LEDGER_FILE_MOVE_ADD_INSTEAD,
+  LEDGER_FILE_MOVE_BLOCKED,
   ledgerAccountInput,
   ledgerBudgetEntryInput,
   ledgerBudgetPlanInput,
@@ -73,14 +82,25 @@ import {
   ledgerStagedDraft,
   ledgerTemplateInput,
   planLedgerFileAdd,
+  type LedgerBalanceCheck,
   type LedgerFileAddResult,
   type LedgerFileDecision,
   type LedgerFileFacts,
   type LedgerFilePlan,
+  type LedgerFilePlanned,
   type LedgerFilePreview,
   type LedgerImportKind,
   type LedgerRefResolver,
 } from "../../shared/ledger-file-import.js";
+import {
+  ledgerBalanceMismatches,
+  ledgerBalanceRefusal,
+  ledgerFileMoveInputSchema,
+  ledgerMoveEntryDraft,
+  ledgerMoveEntryRefusal,
+  planLedgerFileMove,
+  type LedgerFileMoveResult,
+} from "../../shared/ledger-file-move.js";
 import { normalizeHumanName } from "../../shared/names.js";
 import type { ProgressEvent } from "../../shared/progress.js";
 import { addDays, startOfDayIn, todayIn } from "../../shared/recurrence-dates.js";
@@ -110,13 +130,13 @@ import {
   type TransactionLegRow,
   type TransactionRow,
 } from "../db/schema.js";
-import { ledgerFileRowsStaged } from "../metrics.js";
-import { createAccount, listAccounts } from "./accounts.js";
+import { ledgerFileRowsMoved, ledgerFileRowsStaged } from "../metrics.js";
+import { accountFreeze, createAccount, listAccounts, postClosingBalance } from "./accounts.js";
 import { getEntitlement } from "./billing.js";
 import { createBudgetPlan, planView, setBudgetEntry } from "./budgets.js";
 import { createCategory } from "./categories.js";
 import { createCategoryGroup } from "./category-groups.js";
-import { conflict, notFound, validationError } from "./errors.js";
+import { AppError, conflict, notFound, retold, validationError, zodIssues } from "./errors.js";
 import {
   canonicalDecimal,
   countAfterCommit,
@@ -138,7 +158,11 @@ import { getPreferences, setPreferences } from "./preferences.js";
 import { createRecurrence, ruleOf } from "./recurrences.js";
 import { insertImportedStages } from "./staging.js";
 import { createTransactionTemplate } from "./transaction-templates.js";
-import { transactionToDraft } from "./transactions.js";
+import {
+  createTransactionWithinTx,
+  setTransactionDeleted,
+  transactionToDraft,
+} from "./transactions.js";
 
 type AccountRow = typeof ledgerAccounts.$inferSelect;
 type TemplateRow = typeof transactionTemplates.$inferSelect;
@@ -1341,11 +1365,49 @@ async function findImportOrigins(
 }
 
 /**
+ * Which of these origins are here only as a row still waiting in Staged, and
+ * not in the books: an earlier add of the same file staged them and nobody has
+ * committed or discarded them yet. A move skips an origin it finds anywhere,
+ * so it would skip these and leave the books short of them; it refuses while
+ * there are any instead, and this is the read that counts them.
+ *
+ * One statement, for the reason `findImportOrigins` is one: a commit landing
+ * between two reads would otherwise count a row that is already an entry. A
+ * row committed with no origin of its own is not looked for, because the entry
+ * it became has none either and the ledger is no longer one a file can be
+ * moved into.
+ */
+async function findWaitingOrigins(
+  tx: DbTransaction,
+  actor: Actor,
+  origins: readonly string[],
+): Promise<Set<string>> {
+  if (!origins.length) return new Set();
+  const wanted = () => sql`${sql.param([...origins])}::uuid[]`;
+  const found = await tx.execute<{ origin: string }>(sql`
+    (select id::text as origin from staged_transaction
+      where user_id = ${actor.userId} and status = 'staged' and id = any(${wanted()})
+     union
+     select import_origin::text from staged_transaction
+      where user_id = ${actor.userId} and status = 'staged' and import_origin is not null
+        and import_origin = any(${wanted()}))
+    except
+    (select id::text from ledger_transaction
+      where user_id = ${actor.userId} and id = any(${wanted()})
+     union
+     select import_origin::text from ledger_transaction
+      where user_id = ${actor.userId} and import_origin is not null
+        and import_origin = any(${wanted()}))
+  `);
+  return new Set(found.rows.map((row) => String(row.origin)));
+}
+
+/**
  * Whether this ledger holds anything that did not come from a Simple Balance
  * file: an entry, deleted or not, or a row waiting in Staged, without an
  * origin. Moving a whole ledger straight into the books is offered only where
- * it holds nothing else, and this is the read that says so. Adding is all that
- * is carried out today; the answer travels so the page can say which applies.
+ * it holds nothing else, and this is the read that says so, for the preview
+ * and, under the move's own locks, for the move.
  *
  * A deleted entry counts: one typed by hand and deleted since is still somebody
  * having typed into this ledger.
@@ -1364,8 +1426,49 @@ async function moveBlocked(tx: DbTransaction, actor: Actor): Promise<boolean> {
   return Boolean(result.rows[0]?.blocked);
 }
 
-const MOVE_BLOCKED_REASON =
-  "This ledger already has entries that did not come from a Simple Balance file, so a file can only be added to it, with its entries going to Staged for review.";
+/**
+ * What each account here holds, against what this part of a file brought:
+ * its live transactions, and how many of those came from the file's entries by
+ * origin. Keyed by the account's key here, which is how the plan finds it.
+ *
+ * For a file whose entries start partway through, only what is dated from its
+ * first day: money before it is what the file carries forward, and the earlier
+ * ranges that brought it are exactly what a later range is meant to land on.
+ * Deleted transactions are left out on both sides, because voided they net to
+ * nothing and so cannot keep a balance from coming out.
+ */
+async function readHeldHere(
+  tx: DbTransaction,
+  actor: Actor,
+  keys: ReadonlyMap<string, string>,
+  origins: readonly string[],
+  file: LedgerFile,
+): Promise<Record<string, { entries: number; fromFile: number }>> {
+  const result = await tx.execute<{ id: string; entries: number; from_file: number }>(sql`
+    select a.id::text as id,
+           count(*)::int as entries,
+           count(*) filter (
+             where coalesce(t.import_origin, t.id) = any(${sql.param([...origins])}::uuid[])
+           )::int as from_file
+      from ledger_account a
+      join ledger_transaction t
+        on t.user_id = a.user_id
+       and (t.source_account_id = a.id or t.destination_account_id = a.id)
+     where a.user_id = ${actor.userId}
+       and a.system_kind is null
+       and t.deleted_at is null
+       and (${file.scope.start}::date is null or t.date >= ${file.scope.start}::date)
+     group by a.id
+  `);
+  const held: Record<string, { entries: number; fromFile: number }> = {};
+  for (const row of result.rows) {
+    const key = keys.get(String(row.id));
+    if (key !== undefined) {
+      held[key] = { entries: Number(row.entries), fromFile: Number(row.from_file) };
+    }
+  }
+  return held;
+}
 
 /**
  * Everything an import asks the database, on the caller's transaction:
@@ -1405,9 +1508,33 @@ async function readLedgerFileFacts(
   const entitlement = await getEntitlement(actor, tx);
   const stored = await getPreferences(actor, tx);
   const live = file.entries.filter((entry) => !entry.deleted).map((entry) => entry.id);
+  const deleted = file.entries.filter((entry) => entry.deleted).map((entry) => entry.id);
   const staged = file.staged.map((row) => row.id);
-  const found = await findImportOrigins(tx, actor, [...live, ...staged]);
+  const found = await findImportOrigins(tx, actor, [...live, ...deleted, ...staged]);
+  const waiting = await findWaitingOrigins(tx, actor, [...live, ...deleted]);
   const blocked = await moveBlocked(tx, actor);
+  // The live entries already here, by each account of the file's they name: a
+  // move refuses to bring an account in new while any are on another account
+  // here, because it passes over them and the new account would never hold
+  // them. Not one waiting in Staged, which is on no account yet and which a
+  // move refuses over in its own words.
+  const alreadyHereOn: Record<string, number> = {};
+  for (const entry of file.entries) {
+    if (entry.deleted || !found.has(entry.id) || waiting.has(entry.id)) continue;
+    const sides =
+      entry.type === "deposit"
+        ? [entry.to]
+        : entry.type === "withdrawal"
+          ? [entry.from]
+          : [entry.from, entry.to];
+    for (const key of new Set(sides)) alreadyHereOn[key] = (alreadyHereOn[key] ?? 0) + 1;
+  }
+  // Only where a move is possible at all: a ledger that cannot take one is
+  // never asked what its accounts hold, and that is every busy ledger, whose
+  // every transaction this would otherwise count on every preview.
+  const heldHere = blocked
+    ? {}
+    : await readHeldHere(tx, actor, ledgerKeysById(snapshot.accounts), [...live, ...deleted], file);
   return {
     here: {
       groups: here.groups,
@@ -1437,8 +1564,12 @@ async function readLedgerFileFacts(
     rows: {
       alreadyHere: live.filter((origin) => found.has(origin)).length,
       stagedAlreadyHere: staged.filter((origin) => found.has(origin)).length,
+      deletedAlreadyHere: deleted.filter((origin) => found.has(origin)).length,
+      waiting: waiting.size,
+      alreadyHereOn,
+      heldHere,
     },
-    move: { qualifies: !blocked, reason: blocked ? MOVE_BLOCKED_REASON : null },
+    move: { qualifies: !blocked, reason: blocked ? LEDGER_FILE_MOVE_BLOCKED : null },
   };
 }
 
@@ -1449,9 +1580,9 @@ async function readLedgerFileFacts(
  * One snapshot, `REPEATABLE READ, READ ONLY`, like the export, so the records,
  * the places and the origins it reports were all true at the same moment. The
  * plan in the reply is the one the add will run with the same file and no
- * decisions, and the add refuses with exactly its problems until they are
- * decided; a page holding a file of several parts previews each, merges the
- * facts and plans the whole file itself.
+ * decisions, and `movePlan` the one a move will, and each refuses with exactly
+ * its plan's problems until they are decided; a page holding a file of several
+ * parts previews each, merges the facts and plans the whole file itself.
  */
 export async function previewLedgerFile(actor: Actor, input: unknown): Promise<LedgerFilePreview> {
   const { ledgerFile } = ledgerFilePreviewInputSchema.parse(input);
@@ -1460,7 +1591,11 @@ export async function previewLedgerFile(actor: Actor, input: unknown): Promise<L
     isolationLevel: "repeatable read",
     accessMode: "read only",
   });
-  return { ...facts, plan: planLedgerFileAdd({ file, facts }).plan };
+  return {
+    ...facts,
+    plan: planLedgerFileAdd({ file, facts }).plan,
+    movePlan: planLedgerFileMove({ file, facts }).plan,
+  };
 }
 
 /**
@@ -1500,8 +1635,292 @@ async function lockNamedAccounts(
   return new Set(locked);
 }
 
-/** The refusal an add answers a plan with a problem with, and nothing written. */
-function planRefusal(plan: LedgerFilePlan) {
+/** What creating a part's records leaves for the rest of the part to do. */
+type RecordsWritten = {
+  readonly budgetEntriesCreated: number;
+  /** Accounts created archived, which a move closes once its transactions are in. */
+  readonly archivedAccounts: ReadonlySet<string>;
+  /** Categories created archived, which a move files the file's transactions under. */
+  readonly archivedCategories: ReadonlySet<string>;
+};
+
+/**
+ * A file's archive instant, never later than now. The instant is the file's to
+ * say and nothing holds it to anything, so a file edited by hand, or exported
+ * by a copy whose clock runs ahead, can name a moment still to come. An account
+ * archived then would be out of every total that leaves archived accounts out
+ * while still holding its balance on every day before its close, which is the
+ * hole closing an archived account to equity exists to prevent. Clamped
+ * rather than refused, so such a file still moves, closed today; the balance
+ * check is untouched, because the closing pairs are left out of it.
+ */
+const archivedNoLaterThanNow = (instant: string) =>
+  new Date(Math.min(Date.parse(instant), Date.now()));
+
+/**
+ * Create every record a plan says to create, in the order records name each
+ * other, filling `created` with each one's id under `ledgerCreatedKey` so
+ * `resolve` finds what an earlier step made.
+ *
+ * One function for the add and the move, because what a record becomes is the
+ * plan's to say and how it is created is the services': two copies would be
+ * two answers to which create a record goes through, and the add's has already
+ * been held to the books once. A move differs in three places, each said where
+ * it happens: an archived category arrives archived, at the instant it was
+ * archived where the file came from; an account arriving archived keeps that
+ * instant too and is left for the end of the part to close, once its
+ * transactions are in it; and recurring transactions are left to the file's
+ * last part.
+ */
+async function writePlannedRecords(
+  tx: DbTransaction,
+  actor: Actor,
+  input: {
+    readonly file: LedgerFile;
+    readonly facts: LedgerFileFacts;
+    readonly planned: LedgerFilePlanned;
+    readonly decisions: readonly LedgerFileDecision[];
+    readonly created: Map<string, string>;
+    /** Null for an add. */
+    readonly move: { readonly lastPart: boolean } | null;
+  },
+): Promise<RecordsWritten> {
+  const { file, facts, planned, decisions, created, move } = input;
+  const { plan } = planned;
+  const ref: LedgerRefResolver = (kind, key) => planned.resolve(kind, key, created);
+  const creating = (kind: LedgerImportKind) =>
+    plan.records.filter((record) => record.kind === kind && record.action === "create");
+  const audit = { auditOperation: ADD_OPERATION };
+  const byKey = <T extends { key: string }>(rows: readonly T[]) =>
+    new Map(rows.map((row) => [row.key, row]));
+  const archivedAccounts = new Set<string>();
+  const archivedCategories = new Set<string>();
+
+  // Settings first, because the timezone decides the day a recurrence first
+  // proposes and the day an account arriving archived is closed on.
+  // `ifUnchosen` where nothing was chosen here when this was read, so a
+  // choice somebody made since, in another tab, wins over the file.
+  if (plan.preferences.action === "apply" && file.preferences !== null) {
+    await setPreferences(
+      actor,
+      { ...file.preferences, ifUnchosen: !facts.here.preferences.chosen },
+      tx,
+    );
+  }
+
+  const groups = byKey(file.groups);
+  for (const record of creating("group")) {
+    const made = await createCategoryGroup(
+      actor,
+      ledgerGroupInput(groups.get(record.key)!, record.importName!),
+      tx,
+      audit,
+    );
+    created.set(ledgerCreatedKey("group", record.key), made.id);
+  }
+  // An add brings a category archived where it came from in use: a row filed
+  // under an archived category cannot be committed, and a category takes no
+  // place, so nothing is saved by making somebody restore it first, and the
+  // plan's message on the record says so. A move writes the transactions
+  // filed under it without the queue, so its plan has it arrive archived, at
+  // the instant it was archived there.
+  const categoryRecords = byKey(file.categories);
+  for (const record of creating("category")) {
+    const source = categoryRecords.get(record.key)!;
+    const archivedAt =
+      move !== null && record.arrivesArchived && source.detail === "full" && source.archivedAt
+        ? archivedNoLaterThanNow(source.archivedAt)
+        : undefined;
+    const { id } = await createCategory(
+      actor,
+      ledgerCategoryInput(source, record.importName!, ref),
+      tx,
+      archivedAt === undefined ? audit : { ...audit, archivedAt },
+    );
+    created.set(ledgerCreatedKey("category", record.key), id);
+    if (archivedAt !== undefined) archivedCategories.add(id);
+  }
+  const accounts = byKey(file.accounts);
+  const openings = new Map(
+    decisions.flatMap((decision) =>
+      decision.kind === "account" && decision.action === "create" && decision.openingDate
+        ? [[decision.key, decision.openingDate] as const]
+        : [],
+    ),
+  );
+  for (const record of creating("account")) {
+    const source = accounts.get(record.key)!;
+    // A move writes an archived account's history into it before closing it,
+    // so it can close it on the day it closed where the file came from, and
+    // it closes it once, at the end of the part, rather than here and again
+    // after every transaction. An add closes it today, because its history
+    // waits in Staged. One chosen to arrive archived is archived now either
+    // way: it was live where the file came from.
+    const archivedAt =
+      move !== null && source.detail === "full" && source.archivedAt !== null
+        ? archivedNoLaterThanNow(source.archivedAt)
+        : undefined;
+    const made = await createAccount(
+      actor,
+      ledgerAccountInput(source, record.importName!, file, openings.get(record.key)),
+      tx,
+      {
+        ...audit,
+        arriveArchived: record.arrivesArchived,
+        ...(move !== null && record.arrivesArchived
+          ? { deferClose: true, ...(archivedAt === undefined ? {} : { archivedAt }) }
+          : {}),
+      },
+    );
+    created.set(ledgerCreatedKey("account", record.key), made.id);
+    if (record.arrivesArchived) archivedAccounts.add(made.id);
+  }
+  const templates = byKey(file.templates);
+  for (const record of creating("template")) {
+    const source = templates.get(record.key)!;
+    if (source.detail !== "full") continue;
+    const { input: template, lastNotifiedDate } = ledgerTemplateInput(
+      source,
+      record.importName!,
+      ref,
+    );
+    const made = await createTransactionTemplate(actor, template, tx, {
+      ...audit,
+      lastNotifiedDate,
+    });
+    created.set(ledgerCreatedKey("template", record.key), made.id);
+  }
+  // A move creates them with its last part alone. One created by an earlier
+  // part could propose its next occurrence before the next part lands, and a
+  // row nobody imported waiting in Staged is exactly what ends a ledger's
+  // taking the rest of the file straight into the books. The plan says so on
+  // each, and counts them.
+  const recurrenceRecords = byKey(file.recurrences);
+  for (const record of move === null || move.lastPart ? creating("recurrence") : []) {
+    const { input: recurrence, lastOccurrenceDate } = ledgerRecurrenceInput(
+      recurrenceRecords.get(record.key)!,
+      record.importName!,
+      ref,
+    );
+    const made = await createRecurrence(actor, recurrence, tx, {
+      ...audit,
+      lastOccurrenceDate,
+    });
+    created.set(ledgerCreatedKey("recurrence", record.key), made.id);
+  }
+  const plans = new Map(file.budgets.plans.map((each) => [ledgerBudgetPlanKey(each), each]));
+  for (const record of creating("budget_plan")) {
+    const made = await createBudgetPlan(
+      actor,
+      ledgerBudgetPlanInput(plans.get(record.key)!, ref),
+      tx,
+      audit,
+    );
+    created.set(ledgerCreatedKey("budget_plan", record.key), made.id);
+  }
+  let budgetEntriesCreated = 0;
+  for (const entry of file.budgets.entries) {
+    if (planned.budgetEntryAction(entry) !== "create") continue;
+    await setBudgetEntry(actor, ledgerBudgetEntryInput(entry, ref), tx, audit);
+    budgetEntriesCreated += 1;
+  }
+  return { budgetEntriesCreated, archivedAccounts, archivedCategories };
+}
+
+/** The plan a part carried out, with the id of every record it created filled in. */
+function withCreatedIds(
+  plan: LedgerFilePlan,
+  created: ReadonlyMap<string, string>,
+): LedgerFilePlan {
+  return {
+    ...plan,
+    records: plan.records.map((record) => {
+      const id = created.get(ledgerCreatedKey(record.kind, record.key));
+      return id === undefined ? record : { ...record, id };
+    }),
+  };
+}
+
+/** The file's own staged rows not already here, as the rows they stage again as. */
+function stagedRowsOf(file: LedgerFile, found: ReadonlySet<string>, ref: LedgerRefResolver) {
+  return file.staged
+    .filter((row) => !found.has(row.id))
+    .map((row) => ({
+      draft: ledgerStagedDraft(row, ref),
+      rawData: row.rawData,
+      importOrigin: row.id,
+    }));
+}
+
+/**
+ * Stage a part's rows under an import batch of their own, of kind
+ * `ledger_file`, which the Staged page's batch filter names as a Simple
+ * Balance file. A part that stages nothing makes no batch, because a batch of
+ * nothing would be a filter that finds nothing.
+ */
+async function stageFileRows(
+  tx: DbTransaction,
+  actor: Actor,
+  rows: readonly { draft: Record<string, unknown>; rawData: unknown; importOrigin: string }[],
+  batch: { fileName: string; fileHash: string; part: { index: number; count: number } },
+  onProgress?: (event: ProgressEvent) => void,
+): Promise<{ importBatchId: string | null; needsReview: number }> {
+  if (!rows.length) return { importBatchId: null, needsReview: 0 };
+  const [created] = await tx
+    .insert(importBatches)
+    .values({
+      userId: actor.userId,
+      kind: "ledger_file",
+      fileName: batch.fileName,
+      fileHash: batch.fileHash,
+      // A CSV's two columns, which mean nothing for a file of JSON: no
+      // delimiter, and in place of a column mapping the format and the part,
+      // which is what somebody reading the batch can use.
+      delimiter: "",
+      mapping: { format: LEDGER_FILE_FORMAT, part: batch.part },
+      rowCount: rows.length,
+    })
+    .returning();
+  await writeAudit(tx, actor, {
+    entityType: "import_batch",
+    entityId: created!.id,
+    operation: "create",
+    after: serializeRow(created),
+  });
+  const importBatchId = created!.id;
+  const staged = await insertImportedStages(
+    tx,
+    actor,
+    rows.map((row) => ({ ...row, importBatchId })),
+    onProgress,
+    { auditOperation: ADD_OPERATION },
+  ).catch((error: unknown) => {
+    // The waiting-row index refusing a second row for one origin: another
+    // import staged it between this one's lookup and its insert, which the
+    // locks make rare and the index makes harmless.
+    if (isUniqueViolation(error, "staged_user_import_origin_unique")) {
+      throw conflict(
+        "Another import staged this file's transactions a moment ago. Check the file again.",
+        undefined,
+        "Another import staged this file's transactions a moment ago. Call preview_ledger_file again, and send what it now says.",
+      );
+    }
+    throw error;
+  });
+  return {
+    importBatchId,
+    needsReview: staged.filter(
+      (row) => (row.validationIssues as unknown[]).length > 0 || row.duplicateOfId !== null,
+    ).length,
+  };
+}
+
+/**
+ * The refusal an add or a move answers a plan with a problem with, and nothing
+ * written. `forAgent` is a move's sentence for an agent where the first
+ * problem is one only a move has.
+ */
+function planRefusal(plan: LedgerFilePlan, forAgent?: string) {
   const first = plan.problems[0]!;
   const placesFirst = first.field === "arriveArchived" && plan.places.needed > plan.places.chosen;
   const { limit, inUse: current, arriving, needed } = plan.places;
@@ -1520,9 +1939,10 @@ function planRefusal(plan: LedgerFilePlan) {
     // cannot take: it gets the numbers, what it can send, and who to ask —
     // the `accountAllowance` precedent. Only moves that work: a new account
     // takes no decision, so a skip would change nothing.
-    placesFirst
-      ? `This ledger is on a plan that keeps ${limit} accounts in use and has ${current}, and this file brings ${arriving} more. Name at least ${needed} of the file's new accounts in arriveArchived, or archive or delete accounts here first to free places. Only the person who owns the ledger can raise the limit, from Settings in the browser.`
-      : undefined,
+    forAgent ??
+      (placesFirst
+        ? `This ledger is on a plan that keeps ${limit} accounts in use and has ${current}, and this file brings ${arriving} more. Name at least ${needed} of the file's new accounts in arriveArchived, or archive or delete accounts here first to free places. Only the person who owns the ledger can raise the limit, from Settings in the browser.`
+        : undefined),
   );
 }
 
@@ -1622,114 +2042,14 @@ export async function addLedgerFile(
 
     const created = new Map<string, string>();
     const ref: LedgerRefResolver = (kind, key) => planned.resolve(kind, key, created);
-    const creating = (kind: LedgerImportKind) =>
-      plan.records.filter((record) => record.kind === kind && record.action === "create");
-    const audit = { auditOperation: ADD_OPERATION };
-    const byKey = <T extends { key: string }>(rows: readonly T[]) =>
-      new Map(rows.map((row) => [row.key, row]));
-
-    // Settings first, because the timezone decides the day a recurrence first
-    // proposes and the day an account arriving archived is closed on.
-    // `ifUnchosen` where nothing was chosen here when this was read, so a
-    // choice somebody made since, in another tab, wins over the file.
-    if (plan.preferences.action === "apply" && file.preferences !== null) {
-      await setPreferences(
-        actor,
-        { ...file.preferences, ifUnchosen: !facts.here.preferences.chosen },
-        tx,
-      );
-    }
-
-    const groups = byKey(file.groups);
-    for (const record of creating("group")) {
-      const made = await createCategoryGroup(
-        actor,
-        ledgerGroupInput(groups.get(record.key)!, record.importName!),
-        tx,
-        audit,
-      );
-      created.set(ledgerCreatedKey("group", record.key), made.id);
-    }
-    // In use whatever the file says about being archived: a row filed under an
-    // archived category cannot be committed, and a category takes no place,
-    // so nothing is saved by making somebody restore it first. The plan's
-    // message on the record says so.
-    const categoryRecords = byKey(file.categories);
-    for (const record of creating("category")) {
-      const made = await createCategory(
-        actor,
-        ledgerCategoryInput(categoryRecords.get(record.key)!, record.importName!, ref),
-        tx,
-        audit,
-      );
-      created.set(ledgerCreatedKey("category", record.key), made.id);
-    }
-    const accounts = byKey(file.accounts);
-    const openings = new Map(
-      parsed.decisions.flatMap((decision) =>
-        decision.kind === "account" && decision.action === "create" && decision.openingDate
-          ? [[decision.key, decision.openingDate] as const]
-          : [],
-      ),
-    );
-    for (const record of creating("account")) {
-      const made = await createAccount(
-        actor,
-        ledgerAccountInput(
-          accounts.get(record.key)!,
-          record.importName!,
-          file,
-          openings.get(record.key),
-        ),
-        tx,
-        { ...audit, arriveArchived: record.arrivesArchived },
-      );
-      created.set(ledgerCreatedKey("account", record.key), made.id);
-    }
-    const templates = byKey(file.templates);
-    for (const record of creating("template")) {
-      const source = templates.get(record.key)!;
-      if (source.detail !== "full") continue;
-      const { input: template, lastNotifiedDate } = ledgerTemplateInput(
-        source,
-        record.importName!,
-        ref,
-      );
-      const made = await createTransactionTemplate(actor, template, tx, {
-        ...audit,
-        lastNotifiedDate,
-      });
-      created.set(ledgerCreatedKey("template", record.key), made.id);
-    }
-    const recurrenceRecords = byKey(file.recurrences);
-    for (const record of creating("recurrence")) {
-      const { input: recurrence, lastOccurrenceDate } = ledgerRecurrenceInput(
-        recurrenceRecords.get(record.key)!,
-        record.importName!,
-        ref,
-      );
-      const made = await createRecurrence(actor, recurrence, tx, {
-        ...audit,
-        lastOccurrenceDate,
-      });
-      created.set(ledgerCreatedKey("recurrence", record.key), made.id);
-    }
-    const plans = new Map(file.budgets.plans.map((each) => [ledgerBudgetPlanKey(each), each]));
-    for (const record of creating("budget_plan")) {
-      const made = await createBudgetPlan(
-        actor,
-        ledgerBudgetPlanInput(plans.get(record.key)!, ref),
-        tx,
-        audit,
-      );
-      created.set(ledgerCreatedKey("budget_plan", record.key), made.id);
-    }
-    let budgetEntriesCreated = 0;
-    for (const entry of file.budgets.entries) {
-      if (planned.budgetEntryAction(entry) !== "create") continue;
-      await setBudgetEntry(actor, ledgerBudgetEntryInput(entry, ref), tx, audit);
-      budgetEntriesCreated += 1;
-    }
+    const { budgetEntriesCreated } = await writePlannedRecords(tx, actor, {
+      file,
+      facts,
+      planned,
+      decisions: parsed.decisions,
+      created,
+      move: null,
+    });
 
     // Under the locks, after every record is made: an origin committed by
     // another import a moment ago is skipped here rather than staged twice.
@@ -1746,63 +2066,15 @@ export async function addLedgerFile(
           rawData: null,
           importOrigin: entry.id,
         })),
-      ...file.staged
-        .filter((row) => !found.has(row.id))
-        .map((row) => ({
-          draft: ledgerStagedDraft(row, ref),
-          rawData: row.rawData,
-          importOrigin: row.id,
-        })),
+      ...stagedRowsOf(file, found, ref),
     ];
-
-    let importBatchId: string | null = null;
-    let needsReview = 0;
-    if (rows.length) {
-      const [batch] = await tx
-        .insert(importBatches)
-        .values({
-          userId: actor.userId,
-          kind: "ledger_file",
-          fileName: parsed.fileName,
-          fileHash,
-          // A CSV's two columns, which mean nothing for a file of JSON: no
-          // delimiter, and in place of a column mapping the format and the
-          // part, which is what somebody reading the batch can use.
-          delimiter: "",
-          mapping: { format: LEDGER_FILE_FORMAT, part: parsed.part },
-          rowCount: rows.length,
-        })
-        .returning();
-      await writeAudit(tx, actor, {
-        entityType: "import_batch",
-        entityId: batch!.id,
-        operation: "create",
-        after: serializeRow(batch),
-      });
-      importBatchId = batch!.id;
-      const staged = await insertImportedStages(
-        tx,
-        actor,
-        rows.map((row) => ({ ...row, importBatchId })),
-        options.onProgress,
-        audit,
-      ).catch((error: unknown) => {
-        // The waiting-row index refusing a second row for one origin: another
-        // import staged it between this one's lookup and its insert, which the
-        // locks make rare and the index makes harmless.
-        if (isUniqueViolation(error, "staged_user_import_origin_unique")) {
-          throw conflict(
-            "Another import staged this file's transactions a moment ago. Check the file again.",
-            undefined,
-            "Another import staged this file's transactions a moment ago. Call preview_ledger_file again, and send what it now says.",
-          );
-        }
-        throw error;
-      });
-      needsReview = staged.filter(
-        (row) => (row.validationIssues as unknown[]).length > 0 || row.duplicateOfId !== null,
-      ).length;
-    }
+    const { importBatchId, needsReview } = await stageFileRows(
+      tx,
+      actor,
+      rows,
+      { fileName: parsed.fileName, fileHash, part: parsed.part },
+      options.onProgress,
+    );
 
     const response: LedgerFileAddResult = {
       part: parsed.part,
@@ -1813,13 +2085,7 @@ export async function addLedgerFile(
         created: budgetEntriesCreated,
         skipped: file.budgets.entries.length - budgetEntriesCreated,
       },
-      plan: {
-        ...plan,
-        records: plan.records.map((record) => {
-          const id = created.get(ledgerCreatedKey(record.kind, record.key));
-          return id === undefined ? record : { ...record, id };
-        }),
-      },
+      plan: withCreatedIds(plan, created),
     };
     await setIdempotent(
       tx,
@@ -1836,6 +2102,430 @@ export async function addLedgerFile(
   if (!replayed && outcome.staged) {
     const staged = outcome.staged;
     countAfterCommit(transaction, () => ledgerFileRowsStaged.inc(staged));
+  }
+  return outcome;
+}
+
+// ---------------------------------------------------------------------------
+// Moving a file straight into the books of a ledger that holds nothing else.
+// ---------------------------------------------------------------------------
+
+/**
+ * What the void of a deleted entry a move brings says in the history: that it
+ * arrived deleted, rather than that somebody deleted it today.
+ */
+const MOVE_VOID_OPERATION = "delete_from_ledger_file";
+
+/**
+ * The refusal a move answers a plan with a problem with: the add's, and the
+ * agent's half of the three sentences only a move says. An agent cannot add a
+ * file through a page offering adding instead, commit or discard rows in a
+ * queue it is not looking at, or buy a place, so each is told what it can
+ * call instead.
+ */
+function moveRefusal(plan: LedgerFilePlan, facts: LedgerFileFacts) {
+  const first = plan.problems[0]!;
+  if (first.field !== "move") return planRefusal(plan);
+  let forAgent: string;
+  if (!facts.move.qualifies) {
+    forAgent =
+      "This ledger holds entries that did not come from a Simple Balance file, so a file cannot be moved into it. Call add_ledger_file with the same parts and decisions instead; its entries go to Staged for review.";
+  } else if (facts.rows.waiting > 0) {
+    // Second whenever it is there, after the one above, so a first problem
+    // about moving is this one exactly when rows are waiting.
+    const n = facts.rows.waiting;
+    const them = n === 1 ? "it" : "them";
+    forAgent = `${n === 1 ? "One of this file's transactions is" : `${n} of this file's transactions are`} waiting in Staged from an earlier import of it. Commit ${them} with commit_staged_transactions or discard ${them} with delete_staged_transactions, then call preview_ledger_file again: a move writes each transaction straight into the books, once.`;
+  } else if (first.kind === "account") {
+    const upgrade = ", or upgrade under Settings.";
+    forAgent = first.message.endsWith(upgrade)
+      ? `${first.message.slice(0, -upgrade.length)}. Only the person who owns the ledger can raise the limit, from Settings in the browser.`
+      : first.message.endsWith(LEDGER_FILE_MOVE_ADD_INSTEAD)
+        ? `${first.message.slice(0, -LEDGER_FILE_MOVE_ADD_INSTEAD.length)}Call add_ledger_file with this file instead; its transactions go to Staged for review.`
+        : first.message;
+  } else {
+    return planRefusal(plan);
+  }
+  return planRefusal(plan, forAgent);
+}
+
+/**
+ * The refusal one transaction's write is answered with: the service's own
+ * reason, said about the transaction by its type, amount, day and payee, and
+ * that nothing of the part was written, because nothing was. The status and
+ * the code stay the service's, and so do its details, with where the
+ * transaction is in the file beside them.
+ *
+ * A violation of the one-entry-per-origin index is another import landing the
+ * same transaction between this part's lookup and its write, which the locks
+ * make rare and the index makes harmless, and it gets a sentence rather than
+ * a constraint's name.
+ */
+function movedEntryRefusal(entry: LedgerFileEntry, error: unknown): unknown {
+  if (isUniqueViolation(error, "transaction_user_import_origin_unique")) {
+    return conflict(
+      "Another import wrote this file's transactions a moment ago. Check the file again.",
+      undefined,
+      "Another import wrote this file's transactions a moment ago. Call preview_ledger_file again, and send what it now says.",
+    );
+  }
+  const amount = entry.type === "transfer" ? entry.sourceAmount : entry.amount;
+  // Ended as a sentence, since the reason is said in the middle of one and a
+  // schema's message is a phrase.
+  const said = (reason: string) =>
+    ledgerMoveEntryRefusal(entry, /[.!?]\s*$/.test(reason) ? reason : `${reason.trim()}.`);
+  if (error instanceof ZodError) {
+    const issues = zodIssues(error);
+    return validationError(said(issues[0]?.message ?? "It does not fit"), {
+      issues,
+      origin: entry.id,
+      date: entry.date,
+      payee: entry.payee,
+      amount,
+    });
+  }
+  if (error instanceof AppError) {
+    // The service's own details kept, so a number its sentence states is
+    // still a field: a frozen account's limit, for one.
+    const details = isRecord(error.details) ? error.details : {};
+    return retold(error, said, {
+      ...details,
+      origin: entry.id,
+      date: entry.date,
+      payee: entry.payee,
+      amount,
+    });
+  }
+  return error;
+}
+
+/**
+ * Each checked account's balance on the file's last day, from its postings
+ * with the closing pairs left out, by the account's key in the file.
+ *
+ * The pairs are left out because a close is this ledger's own: an account
+ * chosen to arrive archived is closed here and never was there, and one
+ * archived where the file came from closes on its archive day where this
+ * ledger lives. The file's figure for an account live there holds closing
+ * pairs that net to nothing on every day, so without them the two are the same
+ * question: what its opening and its transactions put in it.
+ */
+async function readMovedBalances(
+  tx: DbTransaction,
+  actor: Actor,
+  checks: readonly LedgerBalanceCheck[],
+  idOf: (key: string) => string | undefined,
+  throughDate: string,
+): Promise<Map<string, string>> {
+  const keysById = new Map<string, string[]>();
+  for (const check of checks) {
+    const id = idOf(check.key);
+    if (id !== undefined) keysById.set(id, [...(keysById.get(id) ?? []), check.key]);
+  }
+  if (!keysById.size) return new Map();
+  const result = await tx.execute<{ id: string; total: string }>(sql`
+    select account_id::text as id, coalesce(sum(amount), 0)::text as total
+      from posting
+     where user_id = ${actor.userId}
+       and account_id = any(${sql.param([...keysById.keys()])}::uuid[])
+       and date <= ${throughDate}::date
+       and closing_account_id is null
+     group by account_id
+  `);
+  const balances = new Map<string, string>();
+  for (const row of result.rows) {
+    for (const key of keysById.get(String(row.id)) ?? []) balances.set(key, String(row.total));
+  }
+  return balances;
+}
+
+/**
+ * Move one part of a Simple Balance file straight into this ledger's books.
+ *
+ * Offered only while every entry here, deleted or not, and every row waiting
+ * in Staged came from a Simple Balance file — a new sign-up, a fresh install,
+ * a ledger part-way through a move — and refused with the add's sentence
+ * otherwise, read under this call's own locks, because every path that writes
+ * an entry or stages a row takes the payee lock this holds. Records are
+ * planned exactly as an add plans them, so a resumed move finds what its
+ * earlier parts made; the plan narrows the choices so that every transaction
+ * has an account and a category to be written to, or the part is refused
+ * before anything is written.
+ *
+ * **Through the services a person's own writes use.** Each transaction is
+ * `createTransactionWithinTx`, its postings posted rather than copied and its
+ * other half where `resolveEntrySide` puts it from the categories here; a
+ * deleted one is written and voided by the void service; an account archived
+ * where the file came from arrives archived at that instant, takes the
+ * transactions it held, and is closed by `postClosingBalance` once, at the end
+ * of the part. Those archived accounts and categories are the one write into
+ * an archived record outside a restore, allowed for this call alone and
+ * closed again before it commits.
+ *
+ * **All of a part or none of it.** The part carrying the file's balances —
+ * the last — is held to them once it is written, and refused, writing nothing,
+ * when an account comes out different. Idempotent by its key and by its
+ * origins, so a part sent again replays and one applied again after its key
+ * has expired writes nothing new.
+ *
+ * `ledger:write` on both transports: it writes into the books.
+ */
+export async function moveLedgerFile(
+  actor: Actor,
+  input: unknown,
+  options: { onProgress?: (event: ProgressEvent) => void } = {},
+  transaction?: DbTransaction,
+): Promise<LedgerFileMoveResult> {
+  const parsed = ledgerFileMoveInputSchema.parse(input);
+  const file = readPart(parsed.ledgerFile);
+  const fileHash = createHash("sha256").update(parsed.ledgerFile).digest("hex");
+  const idempotencyPayload = {
+    fileHash,
+    fileName: parsed.fileName,
+    part: parsed.part,
+    decisions: parsed.decisions,
+    arriveArchived: parsed.arriveArchived,
+    preferences: parsed.preferences ?? null,
+  };
+
+  let replayed = false;
+  const outcome = await withTransaction(transaction, async (tx) => {
+    await lockIdempotencyKey(tx, actor, "ledger-file.move", parsed.idempotencyKey);
+    const existing = await getIdempotent<LedgerFileMoveResult>(
+      tx,
+      actor,
+      "ledger-file.move",
+      parsed.idempotencyKey,
+      idempotencyPayload,
+    );
+    if (existing) {
+      replayed = true;
+      return existing;
+    }
+
+    // Every lock up front, in the order `helpers.ts` asks for, as the add
+    // takes them. The payee lock is the one that makes the facts below the
+    // facts the writes meet: every path that writes an entry or stages a row
+    // takes it, so nothing can type an entry into this ledger between the
+    // read that says it qualifies and the first transaction this writes.
+    const locked = await lockNamedAccounts(tx, actor, file, parsed.decisions);
+    await lockAccountNamespace(tx, actor);
+    await lockCategoryNamespace(tx, actor);
+    await lockPayeeNamespace(tx, actor);
+    await lockTransactionTemplateNamespace(tx, actor);
+    await lockRecurrenceNamespace(tx, actor);
+
+    const facts = await readLedgerFileFacts(tx, actor, file);
+    const planned = planLedgerFileMove({
+      file,
+      facts,
+      decisions: parsed.decisions,
+      arriveArchived: parsed.arriveArchived,
+      preferences: parsed.preferences,
+      part: parsed.part,
+    });
+    const { plan } = planned;
+    if (!plan.ok) throw moveRefusal(plan, facts);
+    const move = plan.move!;
+    if (
+      plan.records.some(
+        (record) => record.kind === "account" && record.action === "use" && !locked.has(record.id!),
+      )
+    ) {
+      throw conflict(
+        "This ledger changed while the file was being read. Check the file again.",
+        undefined,
+        "This ledger changed while the file was being read. Call preview_ledger_file again, then send the decisions it asks for.",
+      );
+    }
+
+    const created = new Map<string, string>();
+    const ref: LedgerRefResolver = (kind, key) => planned.resolve(kind, key, created);
+    const records = await writePlannedRecords(tx, actor, {
+      file,
+      facts,
+      planned,
+      decisions: parsed.decisions,
+      created,
+      move: { lastPart: parsed.part.index === parsed.part.count },
+    });
+
+    // The archived records the file's transactions are written into: the ones
+    // this part created archived, and the ones archived here that the plan
+    // uses, read off the facts taken under the locks. Nothing else is let
+    // through, and a frozen account never is.
+    const archivedHere = (
+      rows: readonly { key: string; detail: string }[],
+      ids: Record<string, string>,
+    ) =>
+      new Set(
+        rows
+          .filter((row) => row.detail === "full" && (row as { archivedAt?: unknown }).archivedAt)
+          .map((row) => ids[row.key])
+          .filter((id): id is string => id !== undefined),
+      );
+    const accountsArchivedHere = archivedHere(facts.here.accounts, facts.here.ids.account);
+    const categoriesArchivedHere = archivedHere(facts.here.categories, facts.here.ids.category);
+    const allowArchived = {
+      accounts: new Set(records.archivedAccounts),
+      categories: new Set(records.archivedCategories),
+    };
+    for (const record of plan.records) {
+      if (record.action !== "use" || record.id === null) continue;
+      if (record.kind === "account" && accountsArchivedHere.has(record.id)) {
+        allowArchived.accounts.add(record.id);
+      }
+      if (record.kind === "category" && categoriesArchivedHere.has(record.id)) {
+        allowArchived.categories.add(record.id);
+      }
+    }
+    const toClose = new Set(records.archivedAccounts);
+
+    // Under the locks, after every record is made. One lookup for the
+    // transactions and the staged rows alike, so a commit landing between two
+    // cannot slip an origin past both; what is found is what an earlier part,
+    // or an earlier try of this one, already wrote.
+    const freeze = await accountFreeze(tx, actor);
+    const found = await findImportOrigins(tx, actor, [
+      ...file.entries.map((entry) => entry.id),
+      ...file.staged.map((row) => row.id),
+    ]);
+    const pending = file.entries.filter((entry) => !found.has(entry.id));
+    const written = { entries: 0, deleted: 0 };
+    // In the file's order, which is by day and then origin, so a payee spelled
+    // two ways takes the spelling of the earlier transaction, as it would have
+    // had they been typed in that order.
+    for (const entry of pending) {
+      const draft = ledgerMoveEntryDraft(entry, ref);
+      // The plan offers no choice that leaves a transaction without its
+      // account or category, so this is the planner's defect and a 500, and
+      // the message names a kind rather than a record, because both
+      // transports log it and a key is somebody's account name.
+      if (!draft.ok) throw new Error(`A move's plan left a transaction unresolved: ${draft.kind}`);
+      let row: TransactionRow;
+      try {
+        row = await createTransactionWithinTx(
+          tx,
+          actor,
+          transactionDraftSchema.parse(draft.draft),
+          ADD_OPERATION,
+          // Allowed, because origins have already taken out every true repeat
+          // and two coffees bought the same morning must not refuse each other.
+          true,
+          { freeze, importOrigin: entry.id, allowArchived },
+        );
+        if (entry.deleted) {
+          await setTransactionDeleted(actor, row.id, row.version, true, false, tx, {
+            deferArchivedClose: true,
+            auditOperation: MOVE_VOID_OPERATION,
+          });
+        }
+      } catch (error) {
+        throw movedEntryRefusal(entry, error);
+      }
+      for (const accountId of [row.sourceAccountId, row.destinationAccountId]) {
+        if (accountId !== null && allowArchived.accounts.has(accountId)) toClose.add(accountId);
+      }
+      if (entry.deleted) written.deleted += 1;
+      else written.entries += 1;
+      options.onProgress?.({
+        phase: "posting",
+        done: written.entries + written.deleted,
+        total: pending.length,
+      });
+    }
+
+    // The file's own staged rows, which stage again as they do in an add.
+    const stagedRows = stagedRowsOf(file, found, ref);
+    const { importBatchId, needsReview } = await stageFileRows(
+      tx,
+      actor,
+      stagedRows,
+      { fileName: parsed.fileName, fileHash, part: parsed.part },
+      options.onProgress,
+    );
+
+    // Each archived account written into, closed once, at the end. Read again
+    // for its stored instant, which is the source's for one archived there,
+    // now for one chosen to arrive archived, and its own for one archived
+    // here; the close anchors on that instant's day in the timezone the
+    // settings above may just have set.
+    for (const id of toClose) {
+      const [account] = await tx
+        .select({
+          id: ledgerAccounts.id,
+          currency: ledgerAccounts.currency,
+          archivedAt: ledgerAccounts.archivedAt,
+        })
+        .from(ledgerAccounts)
+        .where(and(eq(ledgerAccounts.userId, actor.userId), eq(ledgerAccounts.id, id)));
+      if (account !== undefined) await postClosingBalance(tx, actor, account, true);
+    }
+
+    // The part that carries the file's balances is held to them, and every
+    // write above rolls back with it when an account comes out different.
+    let balances: LedgerFileMoveResult["balances"] = null;
+    if (move.checks.length) {
+      const actual = await readMovedBalances(
+        tx,
+        actor,
+        move.checks,
+        (key) => {
+          const target = ref("account", key);
+          return target !== null && "id" in target ? target.id : undefined;
+        },
+        file.throughDate,
+      );
+      const mismatches = ledgerBalanceMismatches(file, move.checks, actual);
+      if (mismatches.length) {
+        const balance = ledgerBalanceRefusal(mismatches, file.throughDate, {
+          part: parsed.part,
+          startsOn: file.scope.start,
+        });
+        throw conflict(balance.message, balance.details, balance.forAgent);
+      }
+      const checked = move.checks.filter((check) => check.compared).length;
+      balances = { checked, notCompared: move.checks.length - checked };
+    }
+
+    const deletedFound = file.entries.filter((entry) => entry.deleted && found.has(entry.id));
+    const response: LedgerFileMoveResult = {
+      part: parsed.part,
+      written,
+      skipped: {
+        entries: file.entries.length - pending.length - deletedFound.length,
+        deleted: deletedFound.length,
+        staged: file.staged.length - stagedRows.length,
+      },
+      importBatchId,
+      staged: stagedRows.length,
+      needsReview,
+      budgetEntries: {
+        created: records.budgetEntriesCreated,
+        skipped: file.budgets.entries.length - records.budgetEntriesCreated,
+      },
+      archived: toClose.size,
+      balances,
+      plan: withCreatedIds(plan, created),
+    };
+    await setIdempotent(
+      tx,
+      actor,
+      "ledger-file.move",
+      parsed.idempotencyKey,
+      idempotencyPayload,
+      response,
+    );
+    return response;
+  });
+  // After the commit that wrote them and never on a replay, as the add counts
+  // its own: transactions written or voided into the books, and the file's
+  // own rows placed in the queue, which are what the add's counter counts.
+  if (!replayed) {
+    const moved = outcome.written.entries + outcome.written.deleted;
+    if (moved) countAfterCommit(transaction, () => ledgerFileRowsMoved.inc(moved));
+    const staged = outcome.staged;
+    if (staged) countAfterCommit(transaction, () => ledgerFileRowsStaged.inc(staged));
   }
   return outcome;
 }

@@ -624,7 +624,14 @@ integration("adding a Simple Balance file to a ledger", () => {
     // A stranger's identical Checking is not this person's, and is not matched.
     expect(record(preview, "account", "Checking").existing).toBeNull();
     expect(preview.here.accounts).toEqual([]);
-    expect(preview.rows).toEqual({ alreadyHere: 0, stagedAlreadyHere: 0 });
+    expect(preview.rows).toEqual({
+      alreadyHere: 0,
+      stagedAlreadyHere: 0,
+      deletedAlreadyHere: 0,
+      waiting: 0,
+      alreadyHereOn: expect.any(Object),
+      heldHere: expect.any(Object),
+    });
     expect(preview.plan.rows).toMatchObject({
       deleted: 1,
       alreadyHere: 0,
@@ -741,6 +748,10 @@ integration("adding a Simple Balance file to a ledger", () => {
     expect(again.rows).toEqual({
       alreadyHere: liveOrigins.length,
       stagedAlreadyHere: stagedOrigins.length,
+      deletedAlreadyHere: 0,
+      waiting: liveOrigins.length,
+      alreadyHereOn: expect.any(Object),
+      heldHere: expect.any(Object),
     });
     expect(again.plan.rows.toStage).toBe(0);
     // Only rows that came from files are here, so a whole move would qualify.
@@ -896,6 +907,10 @@ integration("adding a Simple Balance file to a ledger", () => {
     expect(preview.rows).toEqual({
       alreadyHere: liveOrigins.length,
       stagedAlreadyHere: stagedOrigins.length - 1,
+      deletedAlreadyHere: 0,
+      waiting: 0,
+      alreadyHereOn: expect.any(Object),
+      heldHere: expect.any(Object),
     });
     const result = await add(empty, wholeFile);
     expect(result.staged).toBe(1);
@@ -918,6 +933,10 @@ integration("adding a Simple Balance file to a ledger", () => {
     expect(preview.rows).toEqual({
       alreadyHere: fromHere.length,
       stagedAlreadyHere: returned.staged.length,
+      deletedAlreadyHere: 1,
+      waiting: 0,
+      alreadyHereOn: expect.any(Object),
+      heldHere: expect.any(Object),
     });
     expect(preview.plan.rows.toStage).toBe(1);
     // Hand-typed entries here, so a whole move is not offered.
@@ -1423,7 +1442,14 @@ integration("adding a Simple Balance file to a ledger", () => {
     const second = await exportOf(a, kinds);
     expect(read(second).entries.map((each) => each.id)).toEqual([row.id]);
     const preview = await previewLedgerFile(b, { ledgerFile: second });
-    expect(preview.rows).toEqual({ alreadyHere: 1, stagedAlreadyHere: 0 });
+    expect(preview.rows).toEqual({
+      alreadyHere: 1,
+      stagedAlreadyHere: 0,
+      deletedAlreadyHere: 0,
+      waiting: 0,
+      alreadyHereOn: expect.any(Object),
+      heldHere: expect.any(Object),
+    });
     expect(preview.plan.rows.toStage).toBe(0);
     expect((await add(b, second)).staged).toBe(0);
     expect(await waiting(b)).toEqual([]);
@@ -1432,7 +1458,14 @@ integration("adding a Simple Balance file to a ledger", () => {
     // The ledger it came from skips its own older file: the row is in the
     // books now, and staging it again is the same money twice.
     const back = await previewLedgerFile(a, { ledgerFile: first });
-    expect(back.rows).toEqual({ alreadyHere: 0, stagedAlreadyHere: 1 });
+    expect(back.rows).toEqual({
+      alreadyHere: 0,
+      stagedAlreadyHere: 1,
+      deletedAlreadyHere: 0,
+      waiting: 0,
+      alreadyHereOn: expect.any(Object),
+      heldHere: expect.any(Object),
+    });
     expect((await add(a, first)).staged).toBe(0);
 
     // And the entry's own origin stays empty, so committing the same row a

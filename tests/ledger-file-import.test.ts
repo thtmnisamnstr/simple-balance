@@ -72,7 +72,7 @@ type FactsOptions = {
     defaultCurrency: string;
     theme: "system" | "light" | "dark";
   };
-  rows?: LedgerFileFacts["rows"];
+  rows?: Partial<LedgerFileFacts["rows"]>;
 };
 
 /** A destination holding `records`, each given an id, and settings nobody chose. */
@@ -103,7 +103,7 @@ function factsOf(records: Records = {}, options: FactsOptions = {}): LedgerFileF
         theme: "system",
       },
     },
-    rows: options.rows ?? { alreadyHere: 0, stagedAlreadyHere: 0 },
+    rows: { alreadyHere: 0, stagedAlreadyHere: 0, ...options.rows },
     move: { qualifies: true, reason: null },
   });
 }
@@ -1602,11 +1602,38 @@ describe("the requests", () => {
 
 describe("a file in parts", () => {
   it("previews as one, with the rows of every part added up", () => {
-    const one = factsOf({}, { rows: { alreadyHere: 3, stagedAlreadyHere: 0 } });
-    const two = factsOf({}, { rows: { alreadyHere: 4, stagedAlreadyHere: 2 } });
+    const one = factsOf(
+      {},
+      {
+        rows: {
+          alreadyHere: 3,
+          stagedAlreadyHere: 0,
+          alreadyHereOn: { Checking: 3 },
+          heldHere: { Checking: { entries: 9, fromFile: 2 } },
+        },
+      },
+    );
+    const two = factsOf(
+      {},
+      {
+        rows: {
+          alreadyHere: 4,
+          stagedAlreadyHere: 2,
+          alreadyHereOn: { Checking: 1, Savings: 3 },
+          heldHere: { Checking: { entries: 9, fromFile: 5 } },
+        },
+      },
+    );
+    // What an account here holds is one read of the ledger, and what came
+    // from the file is each part's own, added up: 9 held, 7 from this file,
+    // so the whole file sees the 2 that came from elsewhere.
     expect(mergeLedgerFileFacts([one, two]).rows).toEqual({
       alreadyHere: 7,
       stagedAlreadyHere: 2,
+      deletedAlreadyHere: 0,
+      waiting: 0,
+      alreadyHereOn: { Checking: 4, Savings: 3 },
+      heldHere: { Checking: { entries: 9, fromFile: 7 } },
     });
     expect(mergeLedgerFileFacts([one, two]).here).toBe(one.here);
   });
@@ -1620,7 +1647,11 @@ describe("a file in parts", () => {
 
   it("carries a preview the published schema accepts", () => {
     const facts = factsOf();
-    const preview = { ...facts, plan: planLedgerFileAdd({ file: whole(), facts }).plan };
+    const preview = {
+      ...facts,
+      plan: planLedgerFileAdd({ file: whole(), facts }).plan,
+      movePlan: planLedgerFileAdd({ file: whole(), facts, mode: "move" }).plan,
+    };
     expect(ledgerFilePreviewSchema.parse(preview)).toEqual(preview);
   });
 });

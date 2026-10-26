@@ -1217,25 +1217,34 @@ export function queryString(values: Record<string, string | undefined | null>) {
 }
 
 /**
- * The two replies of the Simple Balance file import, read as the shared module
- * declares them rather than restated: the page plans with the very function the
- * server runs, over the very shapes it answers with, and a copy of either here
- * would be the one that drifted.
+ * The three replies of the Simple Balance file import, read as the shared
+ * modules declare them rather than restated: the page plans with the very
+ * functions the server runs, over the very shapes it answers with, and a copy
+ * of any of them here would be the one that drifted.
  *
- * Three things the preview sends are argued rather than rendered (`web.md`
- * 11.9). Each part's own `plan` is that part planned with nothing decided; the
- * page plans the whole file itself, from the facts every part read, each time
- * somebody decides something, so a part's plan would be a second and partial
- * answer beside the one on screen. `move`, with `qualifies` and its `reason`,
- * says whether this ledger could take a file straight into the books, which is
- * the Move import still to come; until a person can choose it, a sentence about
- * it would be a promise rather than an answer, and Add is the only import there
- * is. And `carriedForward` on the destination's own accounts is the format's
- * field for a file whose entries start partway through: `here` is assembled
- * with no entries, so it is never set, and the planner, not the page, is what
- * compares an opening.
+ * What the preview sends that the page does not render is argued here (`web.md`
+ * 11.9). Each part's own `plan`, and its `movePlan` beside it, is that part
+ * planned with nothing decided, one way and the other; the page plans the
+ * whole file itself, from the facts every part read, each time somebody
+ * decides something or picks a way in, so a part's plan would be a second and
+ * partial answer beside the one on screen. Within a move's plan,
+ * `recurrencesDeferred` is always none for the whole file — the page plans it
+ * as the last part, which is the one that creates them — so the sentence the
+ * page says instead is about the parts, and `waiting` is said by the problem
+ * that refuses the move while it is not none. And `carriedForward` on the
+ * destination's own accounts is the format's field for a file whose entries
+ * start partway through: `here` is assembled with no entries, so it is never
+ * set, and the planner, not the page, is what compares an opening.
+ *
+ * A move's reply is summed over its parts. `archived` is rendered as the
+ * accounts it counts, by name, from the records the parts carried out: each
+ * part counts the archived accounts it wrote into, so one account with
+ * transactions in three parts would be three, and summed the count would say
+ * something false. `skipped` and `written` are each split into live and
+ * deleted, and are added up.
  */
 export type { LedgerFileAddResult, LedgerFilePreview } from "../shared/ledger-file-import.js";
+export type { LedgerFileMoveResult } from "../shared/ledger-file-move.js";
 
 /*
  * What the money-guide tools send, argued rather than rendered (`web.md` 11.9):

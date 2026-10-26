@@ -17,22 +17,34 @@ import {
   type LedgerFilePartLimits,
 } from "../src/shared/ledger-file.js";
 import {
+  LEDGER_FILE_MOVE_BLOCKED,
   ledgerFileAddInputSchema,
   ledgerFilePreviewInputSchema,
   ledgerFilePreviewSchema,
   type LedgerFileAddInput,
   type LedgerFileFacts,
 } from "../src/shared/ledger-file-import.js";
+import {
+  ledgerBalanceRefusal,
+  ledgerFileMoveInputSchema,
+  ledgerMoveEntryRefusal,
+} from "../src/shared/ledger-file-move.js";
 import { chosenAccounts, origin, wholeLedger } from "./support/ledger-file.js";
 import {
   accountLike,
   factsOf,
   ownAccount,
   parsedLedger,
-  previewFor,
   resultFor,
   unchecked,
 } from "./support/ledger-file-facts.js";
+import {
+  movePreviewFor,
+  moveResultFor,
+  qualifying,
+  typedInto,
+} from "./support/ledger-file-move-facts.js";
+import { encodeProgressFrame, type ProgressFrame } from "../src/shared/progress.js";
 import { streamedResponse } from "./support/streamed-response.js";
 
 /**
@@ -57,25 +69,31 @@ type Json = Record<string, unknown>;
 type Sent = { body: LedgerFileAddInput; raw: Json; accept: string | null };
 
 /**
- * The two routes, answered the way the server answers them.
+ * The three routes, answered the way the server answers them.
  *
  * `here` is the set of origins this ledger already holds, which is what the
- * preview's row counts are read from. `answer` decides each add by call; left
- * out, every part succeeds with the plan it carried out.
+ * preview's row counts are read from, and `waiting` the ones it holds only as
+ * rows still in Staged. `answer` decides each add by call and `answerMove`
+ * each move; left out, every part succeeds with the plan it carried out.
  */
 function stubServer({
   facts,
   here = new Set<string>(),
+  waiting,
   answer,
+  answerMove,
   hold,
 }: {
   facts: LedgerFileFacts;
   here?: ReadonlySet<string>;
+  waiting?: ReadonlySet<string>;
   answer?: (body: LedgerFileAddInput, call: number) => Response | Promise<Response>;
+  answerMove?: (body: LedgerFileAddInput, call: number) => Response | Promise<Response>;
   hold?: (call: number) => Promise<void> | undefined;
 }) {
   const previews: string[] = [];
   const adds: Sent[] = [];
+  const moves: Sent[] = [];
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -84,7 +102,9 @@ function stubServer({
         const { ledgerFile } = ledgerFilePreviewInputSchema.parse(JSON.parse(String(init?.body)));
         previews.push(ledgerFile);
         await hold?.(previews.length);
-        return Response.json(ledgerFilePreviewSchema.parse(previewFor(ledgerFile, facts, here)));
+        return Response.json(
+          ledgerFilePreviewSchema.parse(movePreviewFor(ledgerFile, facts, here, waiting)),
+        );
       }
       if (url.pathname === "/api/v1/ledger-file:add") {
         const raw = JSON.parse(String(init?.body)) as Json;
@@ -94,12 +114,20 @@ function stubServer({
         if (answer) return answer(body, adds.length);
         return Response.json(resultFor(body, facts, here));
       }
+      if (url.pathname === "/api/v1/ledger-file:move") {
+        const raw = JSON.parse(String(init?.body)) as Json;
+        // The move route's own parser, for the reason the add's is above.
+        const body = ledgerFileMoveInputSchema.parse(raw);
+        moves.push({ body, raw, accept: new Headers(init?.headers).get("Accept") });
+        if (answerMove) return answerMove(body, moves.length);
+        return Response.json(moveResultFor(body, facts, here));
+      }
       if (url.pathname === "/api/v1/accounts") return Response.json([]);
       if (url.pathname === "/api/v1/categories") return Response.json([]);
       return new Response("Not found", { status: 404 });
     }),
   );
-  return { previews, adds };
+  return { previews, adds, moves };
 }
 
 function renderImport(partLimits?: LedgerFilePartLimits) {
@@ -665,6 +693,25 @@ describe("places on a plan that limits them", () => {
     expect(adds[0]!.body.arriveArchived).toEqual(["Brokerage"]);
   });
 
+  it("agrees with one account in use", async () => {
+    const json = wholeLedger();
+    const accounts = json.accounts as Json[];
+    accounts.push({
+      ...accounts[0],
+      key: "Savings",
+      name: "Savings",
+      openingBalance: "0",
+      balance: "0",
+    });
+    stubServer({ facts: factsOf({ accounts: [ownAccount("Wallet")] }, { limit: 3 }) });
+    renderImport();
+    choose(json);
+    await checked();
+    expect(screen.getByRole("group", { name: "Accounts to arrive archived" })).toHaveTextContent(
+      "Your plan keeps 3 accounts in use, and 1 is in use here. This file brings 3 more, so choose at least 1 to arrive archived, or upgrade under Settings. 0 chosen so far.",
+    );
+  });
+
   it("is offered where nothing limits them too, so a person can do what an agent can", async () => {
     stubServer({ facts: factsOf() });
     renderImport();
@@ -1163,6 +1210,630 @@ describe("keyboard and names", () => {
     );
     fireEvent.submit(form);
     await waitFor(() => expect(adds).toHaveLength(1));
+  });
+});
+
+/**
+ * Moving a file straight into the books, which the page offers only where the
+ * preview says this ledger may take one, and never chooses for anybody.
+ *
+ * What is held is the page's half: the way in is a named choice with neither
+ * picked, the refusal is the server's own sentence bound to the refused radio,
+ * a switch lets go of answers the new way does not take, the move says what it
+ * writes and what it will be held to before anything is pressed, it goes part
+ * by part to its own route with one key per part and a bar from real counts,
+ * a resumed move sends only the parts not in yet and always the last, and the
+ * end says what came in, what was checked, and what counts differently here.
+ */
+describe("moving a file", () => {
+  const modes = () => screen.getByRole("radiogroup", { name: "How should this file come in?" });
+  const moveRadio = () => screen.getByRole("radio", { name: "Move it into this ledger" });
+  const addRadio = () => screen.getByRole("radio", { name: "Add it to this ledger" });
+  const moveButton = () =>
+    screen.getByRole("button", { name: /Move into this ledger|Try .*again/ });
+  const ready = () => screen.findByRole("button", { name: "Import this file" });
+  /** A reply in frames, whole, the way the route streams one when asked. */
+  const framed = (frames: readonly ProgressFrame[]) =>
+    new Response(frames.map(encodeProgressFrame).join(""), {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream" },
+    });
+
+  it("offers both ways in where the ledger may take a move, and chooses neither", async () => {
+    const { moves, adds } = stubServer({ facts: qualifying(factsOf()) });
+    renderImport();
+    choose(wholeLedger());
+    const button = await ready();
+    expect(modes()).toHaveAccessibleDescription(
+      "A move brings what adding cannot: deleted transactions, accounts archived on the day they were, and no transaction left to review. It is offered only while everything in this ledger came from a Simple Balance file, as in a new one; once a transaction is typed in or imported from a CSV, a file can only be added.",
+    );
+    expect(within(modes()).getAllByRole("radio")).toEqual([moveRadio(), addRadio()]);
+    expect(moveRadio()).toHaveAccessibleDescription(
+      "Every transaction goes straight into the books, deleted ones and archived accounts as they were, and every balance is checked against the file.",
+    );
+    expect(addRadio()).toHaveAccessibleDescription(
+      "New records come in at once, and its transactions go to Staged for review.",
+    );
+    for (const radio of [moveRadio(), addRadio()]) {
+      expect(radio).toBeEnabled();
+      expect(radio).not.toBeChecked();
+    }
+    // Nothing planned under a guess: no counts, no questions, no button to press.
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(button).toBeDisabled();
+    expect(button).toHaveAccessibleDescription("Choose how the file comes in.");
+
+    fireEvent.click(moveRadio());
+    expect(moveButton()).toBeEnabled();
+    expect(screen.getByRole("status", { name: "" })).toHaveTextContent(
+      "Ready to move: 14 new records, 5 transactions straight into the books and 2 rows for Staged.",
+    );
+    fireEvent.click(addRadio());
+    expect(screen.getByRole("button", { name: "Add to this ledger" })).toBeEnabled();
+    expect(screen.getByRole("status", { name: "" })).toHaveTextContent(
+      "Ready to add: 14 new records and 7 rows for Staged.",
+    );
+    expect(moves).toEqual([]);
+    expect(adds).toEqual([]);
+  });
+
+  it("refuses a move in the server's own sentence where the ledger holds entries of its own", async () => {
+    stubServer({ facts: typedInto(factsOf()) });
+    renderImport();
+    choose(wholeLedger());
+    await checked();
+    expect(moveRadio()).toBeDisabled();
+    expect(moveRadio()).toHaveAccessibleDescription(LEDGER_FILE_MOVE_BLOCKED);
+    expect(screen.getByText(LEDGER_FILE_MOVE_BLOCKED)).toBeVisible();
+    // Adding is the one way in, so it is the one chosen, and planned.
+    expect(addRadio()).toBeChecked();
+    expect(screen.getByRole("status", { name: "" })).toHaveTextContent(
+      "Ready to add: 14 new records and 7 rows for Staged.",
+    );
+  });
+
+  it("says what a move writes, and what it is held to, before anything is pressed", async () => {
+    stubServer({ facts: qualifying(factsOf()) });
+    renderImport();
+    choose(wholeLedger());
+    await ready();
+    fireEvent.click(moveRadio());
+    for (const sentence of [
+      "5 transactions go straight into the books, with nothing to review.",
+      "1 deleted transaction comes too, deleted as it was where the file came from, so it changes no balance.",
+      "2 staged rows from the file wait in Staged again.",
+      // The refund filed under Groceries before it was widened to take both.
+      '1 deposit filed under "Groceries", €12.99, will count as income here, where it was a refund of spending.',
+      "Account balances are the same either way, and only the income and spending totals move: here each side is decided by the categories as they are now.",
+      "The balances of 2 accounts are checked against the file as the move ends, and nothing is written if one comes out different.",
+      '"Old card" is not checked: archived where the file came from, it holds nothing there to check against.',
+    ]) {
+      expect(screen.getByText(sentence)).toBeVisible();
+    }
+    // What only adding says is not said of a move.
+    expect(screen.queryByText(/go to Staged for review, with both sides/)).toBeNull();
+    expect(screen.queryByText(/is not added, because a row in Staged/)).toBeNull();
+    // A record's own sentence is the move's.
+    expect(screen.getByText('Category "Old hobby"').closest("li")).toHaveTextContent(
+      "It was archived where it came from, and arrives archived, with the transactions filed under it.",
+    );
+  });
+
+  it("says each group of transactions that counts on the other side here, in its own currency", async () => {
+    // A second refund, in dollars, into the same widened category: its own
+    // sentence, and said of what will happen like the first.
+    const json = wholeLedger();
+    (json.entries as Json[]).push({
+      id: origin(7),
+      type: "deposit",
+      date: "2026-10-06",
+      to: "Brokerage",
+      amount: "3.00",
+      payee: "Store",
+      category: "Groceries",
+      postedAs: "expense",
+    });
+    (json.entries as Json[]).push({
+      id: origin(8),
+      type: "withdrawal",
+      date: "2026-10-07",
+      from: "Checking",
+      amount: "7.00",
+      payee: "Store",
+      category: "Groceries",
+      postedAs: "income",
+    });
+    stubServer({ facts: qualifying(factsOf()) });
+    renderImport();
+    choose(json);
+    await ready();
+    fireEvent.click(moveRadio());
+    for (const sentence of [
+      '1 deposit filed under "Groceries", €12.99, will count as income here, where it was a refund of spending.',
+      '1 deposit filed under "Groceries", $3.00, will count as income here, where it was a refund of spending.',
+      // A withdrawal on the other side is its own sentence in its own words:
+      // income coming back there, spending here, and never summed with a
+      // deposit, which moves the totals the other way.
+      '1 withdrawal filed under "Groceries", €7.00, will count as spending here, where it was income coming back.',
+    ]) {
+      expect(screen.getByText(sentence)).toBeVisible();
+    }
+  });
+
+  it("lets go of an answer the new way in does not take", async () => {
+    stubServer({
+      facts: qualifying(
+        factsOf({ accounts: [accountLike("Checking", { institution: "Another bank" })] }),
+      ),
+    });
+    renderImport();
+    choose(wholeLedger());
+    await ready();
+    fireEvent.click(addRadio());
+    const checking = () => screen.getByRole("radiogroup", { name: 'Account "Checking" (EUR)' });
+    fireEvent.click(within(checking()).getByRole("radio", { name: "Leave it out" }));
+    fireEvent.click(moveRadio());
+    // The file's transactions are written to it, so a move cannot leave it out.
+    expect(
+      within(checking())
+        .getAllByRole("radio")
+        .map((radio) => radio.closest("label")!.textContent),
+    ).toEqual(["Use the one here", "Bring it in as"]);
+    expect(checking()).toHaveAccessibleDescription(
+      // Six, the deleted one too: it is written before it is deleted again.
+      /6 of this file's transactions name it, and a move writes each one straight into the books, so it has to come in\.$/,
+    );
+    expect(moveButton()).toBeDisabled();
+    expect(moveButton()).toHaveAccessibleDescription("1 question is still open above.");
+    // And back: the answer is gone, not brought back unasked.
+    fireEvent.click(addRadio());
+    expect(within(checking()).getByRole("radio", { name: "Leave it out" })).not.toBeChecked();
+    expect(
+      within(checking())
+        .getAllByRole("radio")
+        .filter((radio) => (radio as HTMLInputElement).checked),
+    ).toEqual([]);
+  });
+
+  it("moves part by part to its own route, one key each, with a bar from real counts", async () => {
+    let sent: LedgerFileAddInput | undefined;
+    const stream = streamedResponse();
+    const facts = qualifying(factsOf());
+    const { moves, adds } = stubServer({
+      facts,
+      answerMove: (body, call) => {
+        if (call !== 2) return Response.json(moveResultFor(body, facts));
+        sent = body;
+        return stream.response;
+      },
+    });
+    renderImport(SMALL);
+    choose(wholeLedger());
+    await ready();
+    fireEvent.click(moveRadio());
+    fireEvent.click(moveButton());
+    expect(await screen.findByText("Part 2 of 3")).toBeVisible();
+    await waitFor(() => expect(sent).toBeDefined());
+    expect(screen.queryByRole("progressbar")).toBeNull();
+    stream.push({ type: "progress", event: { phase: "posting", done: 60, total: 100 } });
+    // Written, not committed: nothing a move writes was ever staged.
+    expect(await screen.findByRole("progressbar", { name: "60 of 100 written" })).toHaveValue(0.6);
+    stream.push({ type: "result", value: moveResultFor(sent!, facts) });
+    stream.close();
+
+    const done = await screen.findByText(
+      /^Moved "simple-balance-2026-10-25\.json" into this ledger\./,
+    );
+    const alert = done.closest('[role="status"]')!;
+    expect(alert).toHaveTextContent(
+      'Moved "simple-balance-2026-10-25.json" into this ledger. 5 transactions went straight into the books, and 1 deleted transaction came in deleted, as it was where the file came from.',
+    );
+    await waitFor(() => expect(document.activeElement).toBe(alert));
+    expect(adds).toEqual([]);
+    const parts = partsOf(wholeLedger(), SMALL);
+    expect(moves.map(({ body }) => body.ledgerFile)).toEqual(parts);
+    expect(moves.map(({ accept }) => accept)).toEqual(Array(3).fill("text/event-stream"));
+    const keys = moves.map(({ body }) => body.idempotencyKey);
+    const attempt = keys[0]!.slice(0, -2);
+    expect(keys).toEqual([`${attempt}-1`, `${attempt}-2`, `${attempt}-3`]);
+    expect(moves[0]!.raw).toEqual({
+      ledgerFile: parts[0],
+      fileName: NAME,
+      idempotencyKey: `${attempt}-1`,
+      part: { index: 1, count: 3 },
+      decisions: [],
+      arriveArchived: [],
+    });
+    for (const sentence of [
+      "Every balance came out as the file says: 2 accounts checked. 1 account archived where the file came from was not compared, holding nothing there to compare with.",
+      "Accounts: 3 created, 0 already here, 0 left out.",
+      '1 archived account holds its transactions: "Old card". Restoring it posts its balance back.',
+      "2 staged rows from the file went to Staged.",
+      // Said of what happened now, rather than of what will.
+      '1 deposit filed under "Groceries", €12.99, counts as income here, where it was a refund of spending.',
+    ]) {
+      expect(screen.getByText(sentence)).toBeVisible();
+    }
+    expect(screen.getByRole("link", { name: "Review 2 staged rows" })).toHaveAttribute(
+      "href",
+      `/staged?importBatchId=${origin(5003)}&preset=all-time`,
+    );
+  });
+
+  it("asks which accounts arrive archived where places run short, and waits until enough are", async () => {
+    const facts = qualifying(
+      factsOf({ accounts: [ownAccount("House account"), ownAccount("Wallet")] }, { limit: 3 }),
+    );
+    const { moves } = stubServer({ facts });
+    renderImport();
+    choose(wholeLedger());
+    await ready();
+    fireEvent.click(moveRadio());
+    const group = screen.getByRole("group", { name: "Accounts to arrive archived" });
+    expect(group).toHaveAccessibleDescription(
+      "An account that arrives archived uses no place. Its transactions are written into it, and it holds nothing from the day of the move; restoring it posts its balance back.",
+    );
+    expect(
+      within(group)
+        .getAllByRole("checkbox")
+        .filter((box) => (box as HTMLInputElement).checked),
+    ).toEqual([]);
+    expect(moveButton()).toBeDisabled();
+    fireEvent.click(within(group).getByRole("checkbox", { name: "Brokerage USD" }));
+    expect(moveButton()).toBeEnabled();
+    fireEvent.click(moveButton());
+    await screen.findByText(/^Moved /);
+    expect(moves[0]!.body.arriveArchived).toEqual(["Brokerage"]);
+    expect(
+      screen.getByText(
+        '2 archived accounts hold their transactions: "Brokerage" and "Old card". Restoring one posts its balance back.',
+      ),
+    ).toBeVisible();
+  });
+
+  it("stops where the balances do not come out, says each in its own figures, and waits on a fresh check", async () => {
+    const facts = qualifying(factsOf());
+    const refusal = ledgerBalanceRefusal(
+      [
+        {
+          field: "accounts.0.balance",
+          key: "Checking",
+          name: "Checking",
+          currency: "EUR",
+          expected: "1301.11",
+          actual: "1311.11",
+          difference: "10",
+        },
+        {
+          field: "accounts.1.balance",
+          key: "Brokerage",
+          name: "Brokerage",
+          currency: "USD",
+          expected: "1081.4",
+          actual: "81.4",
+          difference: "-1000",
+        },
+      ],
+      "2026-10-25",
+      { part: { index: 3, count: 3 }, startsOn: null },
+    );
+    let refused = false;
+    const { moves } = stubServer({
+      facts,
+      answerMove: (body) => {
+        if (body.part.index === 3 && !refused) {
+          refused = true;
+          return framed([
+            { type: "progress", event: { phase: "staging", done: 2, total: 2 } },
+            {
+              type: "error",
+              error: {
+                error: { code: "CONFLICT", message: refusal.message, details: refusal.details },
+              },
+            },
+          ]);
+        }
+        return Response.json(moveResultFor(body, facts));
+      },
+    });
+    renderImport(SMALL);
+    choose(wholeLedger());
+    await ready();
+    fireEvent.click(moveRadio());
+    moveButton().focus();
+    fireEvent.click(moveButton());
+    const alert = await screen.findByRole("alert");
+    // Written again in this page's figures from the details, by the function
+    // the server wrote it with: money as money, the day as a day, and what
+    // to do about it rather than a part the page could not have left out.
+    expect(alert).toHaveTextContent(
+      'After this part, "Checking" would hold €1,311.11 on Oct 25, 2026, and the file says €1,301.11: €10.00 more than the file. 2 accounts disagree in all. Nothing in this part was written. If "Checking" here held transactions that are not in this file, rename it under Accounts and check the file again, so the file\'s comes in as a new account, or add the file instead, which sends its transactions to Staged. If it holds some of this file\'s transactions as an earlier copy of the file had them, a move passes over those rather than changing them, and they can only be put right by hand. Parts 1 to 2 of 3 are in.',
+    );
+    expect(alert.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+    expect(alert.textContent).not.toContain("earlier part");
+    // Said once: the refusal already says nothing in the part was written.
+    expect(alert.textContent!.match(/Nothing/g)).toHaveLength(1);
+    expect(
+      within(alert)
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual([
+      '"Checking" would hold €1,311.11, and the file says €1,301.11.',
+      '"Brokerage" would hold $81.40, and the file says $1,081.40.',
+    ]);
+    // The same request would meet the same balances, so trying again waits on
+    // a fresh check, says so beside itself, and the sentence takes the focus
+    // the button lets go of as it is disabled.
+    const retry = screen.getByRole("button", { name: "Try part 3 of 3 again" });
+    expect(retry).toBeDisabled();
+    expect(retry).toHaveAccessibleDescription(
+      "Trying again would meet the same balances, so check the file again first.",
+    );
+    await waitFor(() => expect(document.activeElement).toBe(alert));
+    fireEvent.submit(retry.closest("form")!);
+    expect(moves).toHaveLength(3);
+    expect(moveRadio()).toBeDisabled();
+    // Checked again, it is a new attempt with keys of its own.
+    fireEvent.click(screen.getByRole("button", { name: "Check the file again" }));
+    await waitFor(() => expect(moveButton()).toBeEnabled());
+    fireEvent.click(moveButton());
+    await screen.findByText(/^Moved /);
+    expect(moves.map(({ body }) => body.part.index)).toEqual([1, 2, 3, 1, 2, 3]);
+    expect(moves[5]!.body.idempotencyKey).not.toBe(moves[2]!.body.idempotencyKey);
+  });
+
+  it("asks for another name before using an account here that holds transactions from elsewhere", async () => {
+    // The same as the file's in every field, and holding four transactions
+    // another file brought: the whole file can see it, so the page asks before
+    // the first part is sent, rather than the last part meeting it after.
+    const here = factsOf({ accounts: [accountLike("Checking", {})] });
+    const { moves } = stubServer({
+      facts: qualifying({
+        ...here,
+        rows: { ...here.rows, heldHere: { Checking: { entries: 4, fromFile: 0 } } },
+      }),
+    });
+    renderImport();
+    choose(wholeLedger());
+    await ready();
+    fireEvent.click(moveRadio());
+    expect(
+      screen.getAllByText(
+        "\"Checking\" here already holds 4 transactions that are not in this file, so the file's cannot be written into it and still come out at the file's balance.",
+        { exact: false },
+      )[0],
+    ).toBeVisible();
+    expect(moveButton()).toBeDisabled();
+    fireEvent.click(screen.getByRole("checkbox", { name: /Bring it in as$/ }));
+    fireEvent.click(moveButton());
+    await screen.findByText(/^Moved /);
+    expect(moves[0]!.body.decisions).toEqual([
+      { kind: "account", key: "Checking", action: "rename", name: "Checking (2)" },
+    ]);
+  });
+
+  it("sums up a deposit and a withdrawal that moved to the same side as two sentences", async () => {
+    // Groceries takes only income here: the refund of spending counts as
+    // income, and the withdrawal under it as income coming back. Each moves
+    // the totals its own way, so the summary never adds them into one figure.
+    const json = wholeLedger();
+    json.entries = (json.entries as Json[]).filter((entry) => entry.id !== origin(3));
+    const file = parsedLedger(json);
+    const groceries = file.categories.find((category) => category.key === "Groceries")!;
+    stubServer({ facts: qualifying(factsOf({ categories: [{ ...groceries, kind: "income" }] })) });
+    renderImport();
+    choose(json);
+    await ready();
+    fireEvent.click(moveRadio());
+    fireEvent.click(
+      within(await screen.findByRole("radiogroup", { name: 'Category "Groceries"' })).getByRole(
+        "radio",
+        { name: "Use the one here" },
+      ),
+    );
+    fireEvent.click(moveButton());
+    await screen.findByText(/^Moved /);
+    for (const sentence of [
+      '1 withdrawal filed under "Groceries", €54.23, counts as income coming back here, where it was spending.',
+      '1 deposit filed under "Groceries", €12.99, counts as income here, where it was a refund of spending.',
+    ]) {
+      expect(screen.getByText(sentence)).toBeVisible();
+    }
+  });
+
+  it("names a transaction the plan refuses in this page's figures", async () => {
+    // Groceries takes only income here, so the split filed under it and
+    // Household would be income and spending at once once the one here is used.
+    const file = parsedLedger(wholeLedger());
+    const groceries = file.categories.find((category) => category.key === "Groceries")!;
+    stubServer({ facts: qualifying(factsOf({ categories: [{ ...groceries, kind: "income" }] })) });
+    renderImport();
+    choose(wholeLedger());
+    await ready();
+    fireEvent.click(moveRadio());
+    fireEvent.click(
+      within(await screen.findByRole("radiogroup", { name: 'Category "Groceries"' })).getByRole(
+        "radio",
+        { name: "Use the one here" },
+      ),
+    );
+    const open = screen.getByRole("heading", { name: "Still to decide" }).parentElement!;
+    expect(open).toHaveTextContent(
+      "The withdrawal of €80.00 dated Oct 4, 2026 with Market would be both income and spending here",
+    );
+    expect(open.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+  });
+
+  it("writes a refused transaction's money and day in this page's figures", async () => {
+    const facts = qualifying(factsOf());
+    const entry = parsedLedger(wholeLedger()).entries.find((each) => each.id === origin(1))!;
+    stubServer({
+      facts,
+      answerMove: () =>
+        framed([
+          {
+            type: "error",
+            error: {
+              error: {
+                code: "VALIDATION_ERROR",
+                message: ledgerMoveEntryRefusal(entry, "Something here refuses it."),
+                details: {
+                  origin: entry.id,
+                  date: entry.date,
+                  payee: entry.payee,
+                  amount: "54.23",
+                },
+              },
+            },
+          },
+        ]),
+    });
+    renderImport();
+    choose(wholeLedger());
+    await ready();
+    fireEvent.click(moveRadio());
+    fireEvent.click(moveButton());
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The withdrawal of €54.23 dated Oct 2, 2026 with Rewe could not be written: Something here refuses it. Nothing in this part was written.",
+    );
+  });
+
+  it("claims nothing about a part whose answer never came", async () => {
+    stubServer({
+      facts: qualifying(factsOf()),
+      answerMove: () =>
+        framed([{ type: "progress", event: { phase: "posting", done: 3, total: 6 } }]),
+    });
+    renderImport();
+    choose(wholeLedger());
+    await ready();
+    fireEvent.click(moveRadio());
+    fireEvent.click(moveButton());
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "The connection was lost before the file answered, so whether it was moved is not known.",
+    );
+    expect(alert).not.toHaveTextContent("Nothing");
+  });
+
+  /**
+   * Resuming is a fresh check, and a part the check finds in already — every
+   * transaction, deleted one and staged row in it here by origin — is not sent
+   * again. The last part always is: it carries the balances and creates the
+   * recurring transactions, and both happen nowhere else.
+   */
+  /**
+   * A ledger part-way through a move of the whole ledger: the accounts its
+   * earlier parts made, which the transactions already here are on. Without
+   * them, transactions here and the accounts about to be made new are the
+   * shape a move refuses, because the new accounts would never hold them.
+   */
+  const resumedFacts = () =>
+    qualifying(
+      factsOf({
+        accounts: ["Checking", "Brokerage", "Old card"].map((key) => accountLike(key, {})),
+      }),
+    );
+
+  it("sends only the parts not in yet when resumed, and always the last", async () => {
+    // Parts of three rows, by date: origins 5, 6 and 1, then 2, 3 and 4, then
+    // the budget amount and the two staged rows.
+    const firstPart = new Set([origin(5), origin(6), origin(1)]);
+    const facts = resumedFacts();
+    const { moves } = stubServer({ facts, here: firstPart });
+    renderImport(SMALL);
+    choose(wholeLedger());
+    await ready();
+    fireEvent.click(moveRadio());
+    expect(
+      screen.getByText("3 transactions are already in this ledger, so they are skipped."),
+    ).toBeVisible();
+    fireEvent.click(moveButton());
+    await screen.findByText(/^Moved /);
+    expect(moves.map(({ body }) => body.part)).toEqual([
+      { index: 2, count: 3 },
+      { index: 3, count: 3 },
+    ]);
+    expect(screen.getByText("Part 1 of 3 was in already, so it was not sent again.")).toBeVisible();
+    expect(
+      screen.getByText("3 transactions were already in this ledger, so they were skipped."),
+    ).toBeVisible();
+  });
+
+  it("sends a part again while a deleted transaction in it is not here yet", async () => {
+    // Part 1's two live transactions are here and its deleted one is not: the
+    // part still has a transaction to write and delete again.
+    const { moves } = stubServer({
+      facts: resumedFacts(),
+      here: new Set([origin(6), origin(1)]),
+    });
+    renderImport(SMALL);
+    choose(wholeLedger());
+    await ready();
+    fireEvent.click(moveRadio());
+    fireEvent.click(moveButton());
+    await screen.findByText(/^Moved /);
+    expect(moves.map(({ body }) => body.part.index)).toEqual([1, 2, 3]);
+  });
+
+  it("names an account archived here that the move wrote into, as a resumed move finds one", async () => {
+    // Old card, brought in archived by an earlier attempt: the same here in
+    // every field, so used, and still holding its transactions.
+    stubServer({ facts: qualifying(factsOf({ accounts: [accountLike("Old card", {})] })) });
+    renderImport();
+    choose(wholeLedger());
+    await ready();
+    fireEvent.click(moveRadio());
+    fireEvent.click(moveButton());
+    await screen.findByText(/^Moved /);
+    expect(
+      screen.getByText(
+        '1 archived account holds its transactions: "Old card". Restoring it posts its balance back.',
+      ),
+    ).toBeVisible();
+  });
+
+  it("sends the last part even when every row in it is here, because the balances travel in it", async () => {
+    // No budget amounts and no staged rows, so the last part is entries alone,
+    // every one of them here, in the accounts the earlier attempt made.
+    const json = wholeLedger();
+    (json.budgets as { entries: unknown[] }).entries = [];
+    json.staged = [];
+    const every = new Set(parsedLedger(json).entries.map((entry) => entry.id));
+    const { moves } = stubServer({ facts: resumedFacts(), here: every });
+    renderImport(SMALL);
+    choose(json);
+    await ready();
+    fireEvent.click(moveRadio());
+    fireEvent.click(moveButton());
+    await screen.findByText(/^Moved /);
+    expect(moves.map(({ body }) => body.part)).toEqual([{ index: 2, count: 2 }]);
+  });
+
+  it("is refused before anything is sent while the file's transactions wait in Staged", async () => {
+    const { moves } = stubServer({
+      facts: qualifying(factsOf()),
+      waiting: new Set([origin(1), origin(2)]),
+    });
+    renderImport();
+    choose(wholeLedger());
+    await ready();
+    fireEvent.click(moveRadio());
+    expect(screen.getByRole("status", { name: "" })).toHaveTextContent(
+      "This file cannot be moved into this ledger until what is listed under Still to decide is settled.",
+    );
+    const open = screen.getByRole("heading", { name: "Still to decide" }).parentElement!;
+    expect(open).toHaveTextContent(
+      "2 of this file's transactions are waiting in Staged from an earlier import of it. Commit or discard them there first: a move writes each transaction straight into the books, once.",
+    );
+    expect(moveButton()).toBeDisabled();
+    expect(moveButton()).toHaveAccessibleDescription(
+      "What is listed under Still to decide has to be settled first.",
+    );
+    // Adding is still open, and would skip the two as already here.
+    fireEvent.click(addRadio());
+    expect(screen.getByRole("button", { name: "Add to this ledger" })).toBeEnabled();
+    expect(moves).toEqual([]);
   });
 });
 

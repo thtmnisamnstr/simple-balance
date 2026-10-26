@@ -218,7 +218,7 @@ One `eslint` rule is off. **`no-control-regex`** flags a regular expression that
 matches control characters, and all four sites here exist *to reject* them: two
 sanitize user input (`src/shared/domain.ts:350-351`), one is the CSV-injection
 defense (`src/shared/csv.ts:568`), and one scrubs a CSP report before it reaches
-the log (`src/server/api.ts:1388`), where the body is attacker-controlled and a
+the log (`src/server/api.ts:1394`), where the body is attacker-controlled and a
 newline would let one report write several log lines with a forged error among
 them. The rule exists to catch a control character written by accident; every
 one of these was written on purpose, and the code that strips control characters
@@ -231,7 +231,7 @@ codebase rather than about accessibility:
 
 | Rule | Why off |
 | --- | --- |
-| `jsx-a11y/label-has-associated-control` | Cannot see through `Field`, which wraps every control (`src/client/components.tsx:633`), nor through the radio card, which wraps its control and puts its words one element deeper, a name in `<strong>` and a sentence in `<small>` (`src/client/forms.tsx:2507`, `src/client/pages/ImportPage.tsx:1138`). Every site it flagged was correctly labeled. |
+| `jsx-a11y/label-has-associated-control` | Cannot see through `Field`, which wraps every control (`src/client/components.tsx:633`), nor through the radio card, which wraps its control and puts its words one element deeper, a name in `<strong>` and a sentence in `<small>` (`src/client/forms.tsx:2507`, `src/client/pages/ImportPage.tsx:1139`). Every site it flagged was correctly labeled. |
 | `jsx-a11y/control-has-associated-label` | Same, and it also flags `<option>` inside `<datalist>`, which needs no label. |
 | `jsx-a11y/prefer-tag-over-role` | 34 sites in five shapes, and the two this row named are six of them: five `<svg role="img">`, which is the recommended way to expose an SVG, and one `<summary role="button">` whose comment already explains itself (`src/client/components.tsx:983`). Of the rest, seven `role="status"` sit on a line saying what is loading or which part of a file is being read and five `role="group"` on an option bar — and **sixteen `role="region"`, the largest shape by far, are the named scroll region the narrowed rule one table down exists for.** That is the case this row has to answer and never did: there is no tag to prefer. `web.md` §9.6 requires `tabIndex={0}`, `role="region"` and a name on anything that scrolls sideways, so for half these sites the rule is asking for an element HTML does not have. |
 | `jsx-a11y/anchor-has-content` | Content arrives through `children`, which it cannot follow. |
@@ -304,7 +304,7 @@ in the same breath, which reads as one toolchain over one tree.
 those files failed a format check — `scripts/capacity/load.mjs`,
 `scripts/capacity/schedule.mjs`, `scripts/ralph/git-guard.mjs`,
 `scripts/ralph/runner.mjs`, and `scripts/set-version.mjs`, the tool the release
-procedure runs first (`docs/upgrades.md:2086`) — while all thirteen Pulumi
+procedure runs first (`docs/upgrades.md:2103`) — while all thirteen Pulumi
 modules happened to be clean, so the gap stayed invisible while
 `npm run verify` went on passing. The five are formatted now, and the test
 below holds every file the command does not reach to the formatter anyway. `typescript.md` §3.5 records

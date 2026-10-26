@@ -54,6 +54,29 @@ describe("activitySentence", () => {
     ).toBe("staged row “Gym” proposed by a recurring transaction");
   });
 
+  /**
+   * A Simple Balance file's two operations. The second is the one that has to
+   * be said exactly: a move writes a transaction that was deleted where the
+   * file came from and deletes it again, and "deleted" alone would tell the
+   * person they deleted it on the day they moved their ledger.
+   */
+  it("says what came in from a Simple Balance file, and what came in deleted", () => {
+    expect(
+      activitySentence({
+        operation: "create_from_ledger_file",
+        entityType: "account",
+        after: { name: "Checking" },
+      }),
+    ).toBe("account “Checking” brought in from a Simple Balance file");
+    expect(
+      activitySentence({
+        operation: "delete_from_ledger_file",
+        entityType: "transaction",
+        after: { payee: "Kiosk" },
+      }),
+    ).toBe("transaction “Kiosk” brought in deleted from a Simple Balance file");
+  });
+
   it("falls back to the words of an operation it does not know", () => {
     expect(activitySentence({ operation: "budgetPlan.recompute", entityType: "budget_plan" })).toBe(
       "budget plan recompute",

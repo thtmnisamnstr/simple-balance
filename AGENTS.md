@@ -218,6 +218,36 @@
   is ever overwritten; the settings are the one thing a file replaces, and
   only where this copy never chose its own or the person says to. Every direct
   creation needs `ledger:write`, so adding a file does.
+- A Simple Balance file may instead be moved straight into the books, and only
+  into a ledger whose every entry, deleted or not, and every waiting staged row
+  came from a Simple Balance file — a new sign-up, a fresh install, a ledger
+  part-way through a move. A move writes through the services a person's own
+  writes use: postings are posted, never copied; a transaction's other half
+  lands where `resolveEntrySide` puts it from the categories here, and where
+  that is not where it landed in the file the difference is reported, never
+  reproduced; a deleted entry is written and then voided by the void service. An
+  account archived where the file came from arrives archived at its original
+  instant, never later than now. It, one somebody chose to have arrive archived
+  on a limited plan, archived now, and one archived here that the file's
+  transactions name — archived categories alike — take the file's transactions
+  for the length of the call, the one write into an archived record outside a
+  restore, and each such account is closed by `postClosingBalance` once, at the
+  end of the part, before it commits. A frozen account is never let through.
+  Every transaction is written or the part is refused: a choice that would leave
+  one without its account or category is not offered, nor one that would write
+  it into an account here whose balance could never come out as the file says;
+  and a frozen account, a waiting row of the same file, an account that would
+  come in new while some of its transactions are already here on another, or a
+  category whose kind here would make a transaction both income and spending
+  refuses the part before anything is written. Each part is at most ten thousand
+  rows, atomic, idempotent by key and by origin; the part carrying the file's
+  balances is refused when an account comes out different from them, closing
+  pairs left out on this side; recurring transactions are created by the last
+  part, so nothing proposes a row nobody imported while a move is under way. The
+  archive instant, the deferred close and the archived accounts and categories
+  allowed for the call are arguments, never fields, and only
+  `src/server/services/ledger-file.ts` passes them
+  (`tests/ledger-file-import-only-options.test.ts`).
 - An entry's origin is the id it was first written under. It travels in every
   ledger file, and the same entry arriving twice — from two accounts' files, or
   back from the copy it moved to — is skipped rather than flagged. Two entries
@@ -326,7 +356,8 @@
   free place like any restore. Refusing that left somebody who had downgraded
   with accounts they could read and could not tidy away, which is a penalty
   rather than a limit. Archived accounts are outside all of it: they already
-  refuse every write, so they are never frozen and use up none of the places.
+  refuse every write (a move's own writes excepted, which close them again), so
+  they are never frozen and use up none of the places.
   **The choice is made once.** An account
   in use stays in use until it is archived or deleted, and only then may a
   frozen one take its place — `activeAccountChange` is that rule, and
@@ -349,9 +380,9 @@
   no more than `MAX_FREE_ACCOUNTS`, whatever plan is in force, because a column
   left false there goes stale and freezes the accounts somebody has been using
   the next time a limit returns. Every path that changes the live set — create,
-  archive, restore, delete and the choice itself, and adding a Simple Balance
-  file, which creates accounts live or archived — holds `lockAccountNamespace`,
-  or two of them racing could both take the last place.
+  archive, restore, delete and the choice itself, and adding or moving a Simple
+  Balance file, which creates accounts live or archived — holds
+  `lockAccountNamespace`, or two of them racing could both take the last place.
 - **`docs/product/` is this repository's public description of itself**, and
   the marketing site at smpl.money is its only consumer. `facts.json` is the
   machine contract, `features.json` is what the product does tiered by how

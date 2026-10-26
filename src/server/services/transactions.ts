@@ -896,6 +896,11 @@ export async function repostTransaction(
   actor: Actor,
   transactionId: string,
   next: readonly (typeof postings.$inferInsert)[],
+  // False only from a move's void of a deleted entry, whose caller closes
+  // every archived account it wrote into once, at the end of the part: a
+  // re-close here would read the account's postings again for every deleted
+  // entry on it, to arrive where the one close at the end arrives anyway.
+  options: { reconcile?: boolean } = {},
 ) {
   const current = await tx
     .select()
@@ -960,11 +965,13 @@ export async function repostTransaction(
   // strand money in an account no total counts, which is the exact hole
   // archiving was changed to close. Re-closing here covers every path, because
   // every repost comes through this function.
-  await reconcileClosedAccounts(
-    tx,
-    actor,
-    rows.map((row) => row.accountId),
-  );
+  if (options.reconcile !== false) {
+    await reconcileClosedAccounts(
+      tx,
+      actor,
+      rows.map((row) => row.accountId),
+    );
+  }
   return true;
 }
 
@@ -1131,8 +1138,19 @@ export async function createTransactionWithinTx(
   allowDuplicate = false,
   // `importOrigin` is an option and never a draft field, so no form, tool or
   // staged draft can set one: only the staged commit passes it, copying what
-  // a row from a Simple Balance file arrived with onto the entry it becomes.
-  options: { freeze?: AccountFreeze; importOrigin?: string | null } = {},
+  // a row from a Simple Balance file arrived with onto the entry it becomes,
+  // and a move, writing the entry the file carries under the origin it had.
+  //
+  // `allowArchived` is a move's too, and only a move's: the accounts and
+  // categories that arrive archived, or are archived here, which a move writes
+  // the file's transactions into and closes again before it commits. A frozen
+  // account is refused all the same, because a freeze is about a place on a
+  // plan and an archive is not, and nothing here lets one through.
+  options: {
+    freeze?: AccountFreeze;
+    importOrigin?: string | null;
+    allowArchived?: { accounts: ReadonlySet<string>; categories: ReadonlySet<string> };
+  } = {},
 ) {
   // A named category becomes a real one here rather than inside
   // prepareTransaction, which is also how a staged row is checked and must
@@ -1145,7 +1163,11 @@ export async function createTransactionWithinTx(
   // write.
   await lockAccountReferences(tx, actor, draftAccountIds(input));
   const draft = await resolveDraftCategory(tx, actor, input);
-  const prepared = await prepareTransaction(tx, actor, draft, { freeze: options.freeze });
+  const prepared = await prepareTransaction(tx, actor, draft, {
+    freeze: options.freeze,
+    allowedArchivedAccountIds: options.allowArchived?.accounts,
+    allowedArchivedCategoryIds: options.allowArchived?.categories,
+  });
   const importOrigin = options.importOrigin ?? null;
   await assertDuplicateAllowed(tx, actor, draft, allowDuplicate, undefined, importOrigin);
   const [created] = await tx
@@ -2551,6 +2573,15 @@ export async function updateTransaction(
   return updated;
 }
 
+/**
+ * `options` is a move's alone, as an argument rather than a field. A move
+ * writes a deleted entry and voids it again, so it is history here as it was
+ * where the file came from: `auditOperation` says so in Activity rather than
+ * that somebody deleted it today, and `deferArchivedClose` leaves the archived
+ * accounts it touched for the move to close once, at the end of the part,
+ * which is why it needs the caller's transaction — on one of its own the void
+ * would commit with an archived account holding money.
+ */
 export async function setTransactionDeleted(
   actor: Actor,
   id: string,
@@ -2558,7 +2589,11 @@ export async function setTransactionDeleted(
   deleted: boolean,
   allowDuplicate = false,
   transaction?: DbTransaction,
+  options: { deferArchivedClose?: boolean; auditOperation?: string } = {},
 ) {
+  if (options.deferArchivedClose && transaction === undefined) {
+    throw new Error("A deferred close needs the caller's transaction");
+  }
   let wrote = true;
   const changed = await withTransaction(transaction, async (tx) => {
     const [before] = await tx
@@ -2647,11 +2682,13 @@ export async function setTransactionDeleted(
       const legIds = await resyncLegs(tx, actor, id, prepared.legs);
       restored = withLegIds(prepared.postings, legIds, id);
     }
-    await repostTransaction(tx, actor, id, restored);
+    await repostTransaction(tx, actor, id, restored, {
+      reconcile: options.deferArchivedClose !== true,
+    });
     await writeAudit(tx, actor, {
       entityType: "transaction",
       entityId: id,
-      operation: deleted ? "delete" : "restore",
+      operation: options.auditOperation ?? (deleted ? "delete" : "restore"),
       before: auditedTransaction(before, legs),
       after: auditedTransaction(updated, legs),
     });

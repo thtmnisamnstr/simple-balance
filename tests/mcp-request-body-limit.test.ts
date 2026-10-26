@@ -52,6 +52,11 @@ describe("a tools/call body larger than the SDK's own default", () => {
       ["ledger:write"],
       { ledgerFile: large, fileName: "large.json", idempotencyKey: "body-limit-add" },
     ],
+    [
+      "move_ledger_file",
+      ["ledger:write"],
+      { ledgerFile: large, fileName: "large.json", idempotencyKey: "body-limit-move" },
+    ],
   ] as const) {
     it(`reaches ${name} rather than being refused by the transport`, async () => {
       const response = await callWith(name, args, [...scopes]);

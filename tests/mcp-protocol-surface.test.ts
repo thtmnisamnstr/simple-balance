@@ -196,6 +196,7 @@ describe("the order tools come back in", () => {
     "set_transaction_deleted",
     "commit_staged_transactions",
     "add_ledger_file",
+    "move_ledger_file",
   ];
 
   it("is the order registration left them in", async () => {

@@ -4921,6 +4921,26 @@ polyline.chart-line {
   flex-wrap: wrap;
 }
 
+/* Moving refused, beside adding: the title and what it would do go quiet, and
+   the sentence saying why keeps the body's ink, since that sentence is the
+   one thing in the card somebody needs to read. Not opacity, which would fade
+   the reason along with what it explains. */
+.ledger-import-mode-refused {
+  cursor: not-allowed;
+}
+
+.ledger-import-mode-refused strong {
+  color: var(--muted);
+}
+
+/* Two classes deep, because `.commit-choice small` would otherwise mute it.
+   Set apart from what moving would do by a line's worth of air, or the two
+   sentences read as one. */
+.ledger-import-mode .ledger-import-mode-reason {
+  margin-top: 6px;
+  color: var(--ink-soft);
+}
+
 /* --break-wide: 1050px */
 @media (max-width: 1050px) {
   .metric-grid {

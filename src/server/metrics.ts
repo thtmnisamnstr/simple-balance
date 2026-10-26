@@ -897,6 +897,18 @@ export const ledgerFileRowsStaged = new Counter({
 });
 
 /**
+ * Transactions a move wrote straight into the books, deleted ones counted once
+ * when they are voided. Apart from the queue's counter above, because a move
+ * is the one way a file's transactions skip the queue, and an operator asking
+ * how much reached the books without review is asking about exactly these.
+ */
+export const ledgerFileRowsMoved = new Counter({
+  name: `${prefix}ledger_file_rows_moved_total`,
+  help: "Transactions a Simple Balance file's move wrote straight into the books.",
+  registers: [registry],
+});
+
+/**
  * What is deployed, as the one gauge every Prometheus setup expects.
  *
  * A scrape that cannot say which version produced it is a scrape you cannot

@@ -15,6 +15,7 @@ the way they do; this page only tells you *what to do*.
 - [Import a bank file](#import-a-bank-file)
 - [Take your ledger with you](#take-your-ledger-with-you)
 - [Bring a Simple Balance file in](#bring-a-simple-balance-file-in)
+- [Move your ledger to our cloud app, or to a copy you run yourself](#move-your-ledger-to-our-cloud-app-or-to-a-copy-you-run-yourself)
 - [Save time with templates](#save-time-with-templates)
 - [Set up recurring transactions](#set-up-recurring-transactions)
 - [Budgeting, from nothing](#budgeting-from-nothing)
@@ -200,8 +201,8 @@ file instead.
 ## Take your ledger with you
 
 A Simple Balance file is one file holding everything you have written in this
-ledger, for keeping or for moving to another copy of Simple Balance — one you
-run yourself, or the service.
+ledger, for keeping or for moving to another copy of Simple Balance: our cloud
+app, or a copy you run yourself.
 
 1. Open **Import and export**. The export is the last section, **Export a
    Simple Balance file**.
@@ -229,8 +230,8 @@ One file holds up to 100,000 transactions, staged rows, budget amounts and
 history events together. A larger ledger is refused with a sentence saying what
 to narrow — usually a date range at a time.
 
-To bring the file into another copy, see the next section; that copy needs
-this release or a later one. For a spreadsheet of your transactions,
+To bring the file into another copy, see the next two sections; that copy
+needs this release or a later one. For a spreadsheet of your transactions,
 Transactions → **Export CSV** is still the one to use.
 
 ## Bring a Simple Balance file in
@@ -244,25 +245,30 @@ press the button at the end.
 2. Choose the file. The page reads it first, and a file it cannot read is
    refused with each problem beside the place in the file it points at. Then it
    checks the file against this ledger, a part at a time for a large one.
-3. Read **What the file holds**: for each kind of record, how many are in the
+3. Under **How should this file come in?**, choose **Add it to this ledger**.
+   Where this ledger has transactions of its own it is chosen already, and
+   **Move it into this ledger** says why it is not offered. Where it has none,
+   nothing is chosen, and moving, in the next section, is usually what you
+   want.
+4. Read **What the file holds**: for each kind of record, how many are in the
    file, how many are new, already here, need a choice, or are left out, and
    below it how many transactions will go to **Staged**. **Show all N
    records** lists every record and what will happen to it.
-4. Answer every record that needs a choice. One already here under the same
+5. Answer every record that needs a choice. One already here under the same
    name offers **Use the one here**, **Leave it out**, or **Bring it in as**
    with a new name; one the file only names, such as the account on the far
    side of a transfer, offers **Use another here**, **Create it**, or **Leave
    for review**. Only the answers that work for that record are offered, and
    **Still to decide** lists whatever is left, each linked to its question.
-5. On the free plan, if the file brings more accounts in use than you have room
+6. On the free plan, if the file brings more accounts in use than you have room
    for, tick at least as many as it says under **Accounts to arrive archived**.
    Nothing is ticked for you.
-6. If this copy has regional defaults of its own — set in Settings, or taken
+7. If this copy has regional defaults of its own — set in Settings, or taken
    from your browser when it was first opened — and the file's differ, choose
    under **Regional defaults and appearance**: the file's, or this copy's.
-7. Press **Add to this ledger**. A file in parts says which part it is on, with
+8. Press **Add to this ledger**. A file in parts says which part it is on, with
    a bar counting the rows as they are staged.
-8. Press **Review N staged rows** (one for each part, for a file in parts) to
+9. Press **Review N staged rows** (one for each part, for a file in parts) to
    look over the transactions in **Staged** and commit them, as with any
    import. **Open Accounts** shows what arrived.
 
@@ -283,9 +289,74 @@ twice. **Check the file again**, or choosing the same file again, reads the
 ledger afresh and keeps what you decided: what earlier parts brought in is
 recognized and skipped.
 
-Moving a whole ledger straight into an empty one, without the review queue and
-with its deleted transactions and the days its accounts were archived, is not
-here yet.
+To bring the transactions straight into the books instead, deleted ones and
+the days accounts were archived included, move the file into a ledger that has
+nothing else in it yet: the next section.
+
+## Move your ledger to our cloud app, or to a copy you run yourself
+
+Moving works the same in both directions, because both run the same software:
+you export a Simple Balance file from the copy you are leaving and move it into
+a new, empty ledger on the other. Every transaction goes straight into the
+books, so there is nothing to review afterwards, and every account's balance is
+checked against the file before the move is finished.
+
+1. **Get the side you are moving to ready, and leave it empty.** For our cloud
+   app, sign up. For a copy you run yourself, set it up and sign in; it needs
+   this release or a later one, and so does a copy you are moving away from.
+   Do not enter a transaction or import a CSV there first: a move is offered
+   only while everything in the ledger came from a Simple Balance file.
+2. **Export the ledger you are leaving.** Open **Import and export** there,
+   choose **Everything** under **What to export**, and press **Export file**
+   (see [Take your ledger with you](#take-your-ledger-with-you)). Leave
+   **Include deleted transactions** ticked if you want them to come too.
+3. **On the new side**, open **Import and export** and choose the file under
+   **Import a Simple Balance file**.
+4. Under **How should this file come in?**, choose **Move it into this
+   ledger**. Nothing is chosen for you, and the button stays disabled until
+   you choose.
+5. Read what the move will do: how many transactions go straight into the
+   books, how many deleted ones come with them, which balances are checked
+   against the file, and, if any, how many refunds count as income here rather
+   than as money back because a category's kind was widened after them.
+6. Answer anything under **Still to decide**. A move offers fewer answers than
+   an add: an account or a category the file's transactions are filed under
+   has to come in, so **Leave it out** is not offered for it.
+7. On our cloud app's free plan, which keeps three accounts in use, a ledger
+   with more than three accounts you still use needs either Premium, from
+   **Settings > Plan and billing** before you move, or some of them ticked
+   under **Accounts to arrive archived**. An archived account holds its
+   transactions and uses no place, and restoring it later posts its balance
+   back. Accounts that were already archived come over archived and need no
+   place.
+8. If the new side has regional defaults of its own — your browser sets them
+   the first time you sign in — choose the file's or this copy's under
+   **Regional defaults and appearance**.
+9. Press **Move into this ledger**. A large file goes in parts, with
+   **Part 2 of 3** above a bar counting the transactions written.
+10. When it finishes, the page says how many transactions went into the books
+    and that every balance came out as the file says. **Open Accounts** shows
+    them. Rows that were waiting in Staged on the old side are waiting in
+    **Staged** again, behind **Review N staged rows**.
+
+**If it stops.** Nothing from the part that stopped was written, and the parts
+before it are in. If an account's balance did not come out, the page lists
+each one with both figures, and trying again would meet the same figures, so
+**Try again** is disabled: the account on this side probably holds
+transactions that are not in the file. Rename it under **Accounts** and press
+**Check the file again**, so the file's comes in as a new account, or add the
+file instead. If anything else stopped it, **Try part 2 of 3 again** (**Try
+again** for a file in one part) sends that part again, and a part that did
+finish is not moved twice.
+
+**What does not move.** Your sign-in, your password, the agents you connected
+and your plan stay with the copy that holds them, so connect your agents to the
+new side again. The ledger you left is not touched: delete it there, under
+**Settings**, once you are happy with the new one.
+
+A move is a one-time trip rather than a way to keep two copies in step. Once
+you use the new side, it takes no second move; to bring later transactions
+across, export them from the old side with a date range and add them instead.
 
 ## Save time with templates
 

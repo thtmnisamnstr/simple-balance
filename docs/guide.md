@@ -113,8 +113,8 @@ and groups, every transaction with its splits and both sides of every
 transfer, templates with their reminders, recurring transactions, budgets, rows
 still waiting in Staged transactions, and your regional defaults and theme once
 you have chosen them. Records name each other by name rather than by an id that
-means something in only one copy, so the file means the same thing in a copy you
-run yourself and in the service.
+means something in only one copy, so the file means the same thing in our cloud
+app and in a copy you run yourself.
 
 Take everything, with a box for each kind of record, or some accounts — their
 details alone, or with their transactions, all of them or a date range. Anything
@@ -148,7 +148,8 @@ accounts' files lands once, a file added a second time adds nothing, and a
 ledger moved away and back brings nothing twice. Two transactions that merely
 look alike, two coffees on the same morning, are never taken for each other.
 Deleted transactions are not added, and an account that was archived arrives
-archived, put away today rather than on the day it was. A file of more than
+archived, put away today rather than on the day it was; moving a file, below,
+brings both as they were. A file of more than
 10,000 transactions goes in parts, each all or nothing, and choosing the file
 again after one stopped picks up where it left off. On the free plan, which
 keeps three accounts in use, you choose which of the file's new accounts arrive
@@ -157,10 +158,40 @@ Your regional defaults and theme come from the file only where this copy has
 none of its own yet, or if you say so; your account takes your browser's
 timezone and currency the first time you open it, so you are usually asked.
 
-Moving a whole ledger straight into an empty one, deleted transactions and the
-day each account was archived included, without the review queue, is not here
-yet. A copy you run yourself has to be upgraded to a release that has all
-this before it can make a file or bring one in.
+**Moving a file brings everything, into a ledger that holds nothing else.** A
+new sign-up on our cloud app, or a copy you have just set up yourself, has
+nothing of its own for a file's transactions to be checked against, so the file
+can be moved in rather than added: every transaction goes straight into the
+books, without the review queue, because each was reviewed and committed once
+already in the ledger it came from. Deleted transactions come too, deleted as
+they were, and an account that was archived arrives archived on the day it
+was, holding its transactions, so restoring it posts its balance back. The page
+offers moving beside adding, with neither chosen for you, and only while
+everything in the ledger came from a Simple Balance file — which a ledger
+partway through a move still has. Once you type a transaction in or import a
+CSV, a file can only be added.
+
+A move asks the same questions an add does, with fewer answers. An account or
+a category the file's transactions are filed under has to come in, since a
+transaction cannot be written without one, and an account here that could
+never end at the file's balance — it opens differently, or already holds
+transactions from somewhere else — cannot stand in for the file's. On the free
+plan, the accounts you choose to arrive archived take their transactions with
+them instead of leaving them in Staged. Once the last part is in, every
+account's balance is checked against the figure the file carries, and a part
+that does not come out is not written at all. A transaction's other side is
+decided by your categories as they are here, which only matters for a refund
+filed under a category you later let take both income and spending: the move
+says how many such refunds count as income here rather than as money back, and
+every balance is the same either way. Recurring transactions start with the
+last part, so nothing they propose lands in Staged while a large file is still
+moving.
+
+A move is a one-time trip, not a sync. Once you are using the copy it went to,
+the two are separate ledgers, and the new one takes no second move. Both copies
+have to run a release that has this: our cloud app does, and a copy you run
+yourself needs 0.2.2 or later before it can make a file, add one or take one
+in.
 
 ## Templates
 

@@ -855,7 +855,8 @@ export default function ImportPage() {
               Add a file exported from Simple Balance to this ledger. Accounts, categories,
               templates, recurring transactions and budgets that are new here are created as they
               are, one already here under the same name is yours to decide, and transactions go to
-              Staged for review.
+              Staged for review. Into a new ledger, the file can be moved instead, with every
+              transaction going straight into the books.
             </p>
           </div>
         </div>

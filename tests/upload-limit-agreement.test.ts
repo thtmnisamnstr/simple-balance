@@ -89,6 +89,8 @@ describe("what the layers in front of an import will carry", () => {
   it("carries one part of a Simple Balance file through both terminators", () => {
     const ledgerFile = apiRequestBodyLimit("/api/v1/ledger-file:add");
     expect(ledgerFile).toBeGreaterThan(apiRequestBodyLimit("/api/v1/accounts"));
+    // The move carries the same part with the same decisions.
+    expect(apiRequestBodyLimit("/api/v1/ledger-file:move")).toBe(ledgerFile);
     const nginx = nginxBytes(
       setting("deploy/docker/frontend.Dockerfile", /^ENV SB_MAX_UPLOAD_SIZE=(\S+)$/m),
     );

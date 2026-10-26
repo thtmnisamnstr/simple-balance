@@ -456,7 +456,11 @@ export const LEDGER_FILE_REQUEST_BODY_LIMIT_BYTES =
   MAX_LEDGER_FILE_DECISIONS * LEDGER_FILE_DECISION_BYTES +
   MAX_LEDGER_FILE_ARRIVE_ARCHIVED * LEDGER_FILE_KEY_BYTES +
   LEDGER_FILE_REQUEST_ENVELOPE_BYTES;
-const LEDGER_FILE_PATHS = new Set(["/api/v1/ledger-file:preview", "/api/v1/ledger-file:add"]);
+const LEDGER_FILE_PATHS = new Set([
+  "/api/v1/ledger-file:preview",
+  "/api/v1/ledger-file:add",
+  "/api/v1/ledger-file:move",
+]);
 
 const REJECTED_BODY_DRAIN_LIMIT_BYTES = 128 * 1024;
 const REJECTED_BODY_DRAIN_TIMEOUT_MS = 250;

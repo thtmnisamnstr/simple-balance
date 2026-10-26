@@ -286,7 +286,7 @@ it, or — like these three — that composing with it is exactly what must not
 happen.
 
 The parameter is not decoration. The MCP transport passes its transaction in
-(`src/server/mcp.ts:292-325`, and every `runIdempotentMcpMutation` call under it)
+(`src/server/mcp.ts:301-334`, and every `runIdempotentMcpMutation` call under it)
 so that
 its idempotency record, the mutation and the audit events land on one connection
 and commit together. Take it away and an agent's write could record its
@@ -316,7 +316,7 @@ numbers above are today's and the test is what keeps the rule.
 **Binding**, for a write that changes something somebody edited. The caller sends
 the version it read; the service compares, throws `staleVersion` if it moved,
 and bumps on success
-(`updateAccount`, `src/server/services/accounts.ts:1101`).
+(`updateAccount`, `src/server/services/accounts.ts:1142`).
 
 This said "everywhere, no exceptions" for a release, and that was false in both
 halves by the time it was written. `setActiveAccounts` takes no expected version
@@ -765,7 +765,7 @@ which is how you can tell it is one decision made once:
 - `proposeDueOccurrences` (`src/server/services/recurrences.ts:318`) — "a tick
   advancing a watermark is not a change to what they configured".
 - The four reference rewrites in the two merges
-  (`src/server/services/categories.ts:1187`, `:1269`,
+  (`src/server/services/categories.ts:1202`, `:1284`,
   `src/server/services/payees.ts:456`) — "a merge relabels what a recurrence
   points at without changing what somebody configured". 2.6 owns why the
   rewrites happen at all; this is why they are silent.
@@ -813,7 +813,7 @@ service counts through `countAfterCommit`
 (`src/server/services/helpers.ts:213`), which counts immediately when the
 service opened its own transaction and otherwise queues; the MCP transport
 flushes with `flushDeferredCounts` after `getDb().transaction` resolves
-(`src/server/mcp.ts:323`). Seven call sites, in `transactions.ts`, `staging.ts`
+(`src/server/mcp.ts:332`). Seven call sites, in `transactions.ts`, `staging.ts`
 and `import-export.ts`, which counts the rows a CSV import staged.
 
 The keying is the part a new author gets wrong, and the source says so where it

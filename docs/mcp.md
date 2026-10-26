@@ -66,7 +66,7 @@ and whether the user still has an authentication method enabled by the current
   history, and the money guides.
 - `ledger:stage`: read access plus staged transaction and CSV-stage mutations.
 - `ledger:write`: every ledger operation, including direct and staged commits
-  and adding a Simple Balance file.
+  and adding or moving a Simple Balance file.
 
 Both discovery documents advertise all seven scopes — the three above plus
 `openid`, `profile`, `email` and `offline_access` — so a client that reads them
@@ -811,9 +811,13 @@ groups, entries with their splits and both sides of every transfer, templates
 with their reminders, recurring transactions, budgets, rows waiting in Staged
 transactions, and the person's settings. Records name each other by name rather
 than by id, so the file means the same thing in another copy of Simple Balance.
-It is the format for moving a ledger between copies; a CSV is still the format
-for a spreadsheet or another tool. `preview_ledger_file` and `add_ledger_file`
-read one back into this ledger, below.
+It is the format for moving a ledger between copies — from our cloud app to a
+copy you run yourself, or back — and a CSV is still the format for a
+spreadsheet or another tool. `preview_ledger_file`, `add_ledger_file` and
+`move_ledger_file` read one back into this ledger, below, and [Moving a ledger
+between our cloud app and a copy you run
+yourself](#moving-a-ledger-between-our-cloud-app-and-a-copy-you-run-yourself)
+puts the four together.
 
 It takes the same selection the export section of **Import and export** builds.
 `kinds` says which kinds of record travel whole, and a record of a kind left out
@@ -928,8 +932,137 @@ because an earlier part created it — is passed over there. A part that failed
 is sent again; one that succeeded replays its answer. Adding creates records
 rather than proposing them, so `add_ledger_file` needs `ledger:write`, and the
 preview, which writes nothing, needs only `ledger:read`; with `ledger:stage`,
-`stage_csv` is the import there is. Moving a whole ledger straight into the
-books of an empty one, deleted entries and all, is not a tool yet.
+`stage_csv` is the import there is.
+
+### Moving a file straight into the books
+
+`move_ledger_file` writes a file's transactions straight into the books rather
+than into Staged. It is offered only while every transaction here, deleted or
+not, and every row waiting in Staged came from a Simple Balance file — a new
+ledger, a fresh install, or one part-way through a move — and the preview says
+whether this ledger qualifies in `move.qualifies`, with the sentence why not in
+`move.reason`. Once anything has been typed or imported from a CSV here, a move
+is refused and `add_ledger_file` is the way in.
+
+It takes exactly what `add_ledger_file` takes, and the preview's `movePlan` is
+the same file planned for it, as a whole file or as the last part of one: read
+its `problems`, `records` and `choices` rather than `plan`'s. A part before the
+last also leaves its recurring transactions to the last, which the move's
+result counts in `plan.move.recurrencesDeferred`. Four counts in the preview's
+`rows` are there for a move: `deletedAlreadyHere`, `waiting`, `alreadyHereOn`
+(by the file's account keys) and `heldHere` (by this ledger's). Records are
+matched and decided as an add decides them, with fewer choices:
+
+- An account or a category any of the file's transactions names has to come
+  in, so leaving it out or leaving it for review is not offered; the question
+  carries how many transactions name it as `count`.
+- An account here whose opening differs from the file's cannot stand in for
+  it, because its balance would never come out — except in a file exported
+  for a date range that starts partway through, where using the account an
+  earlier range brought is how the ranges add up.
+- An account here that holds transactions this file did not bring cannot
+  stand in for it either; one the same in every field then takes only another
+  name, and the question carries how many as `held`. That question is asked
+  only of a whole file, because a part's preview counts what the earlier
+  parts brought as from elsewhere: answer it from a preview made before the
+  first part goes, and send the same decisions with every part.
+
+A move is refused before anything is written, with the problem first in
+`details.issues` and its numbers as fields, while one of the file's
+transactions waits in Staged from an earlier add of it (`movePlan.move.waiting`;
+commit or discard those rows first), while a transaction is on an account
+frozen here, while an account the file would bring in new already has some of
+its transactions here on another account from a file brought in before (moving
+one account's file after another's whose transfers came with it — add the
+file instead), or while a category here would make one of them both income and
+spending, which names the first such transaction by its `origin`, `date` and
+`amount`.
+
+Every transaction is written. A deleted one is written and deleted again, so it
+is history here as it was there and nets to nothing; Activity says it arrived
+deleted. An account archived where the file came from arrives archived at the
+instant it was archived there, or today where the file names a later one, with
+its transactions in it, and closes on that day; one named in `arriveArchived`
+closes today, and restoring it into a free place posts its balance back. A
+reminder already sent stays sent, and a recurring transaction starts proposing
+after the last occurrence it decided; recurring transactions are created by
+the file's last part only, so nothing they propose reaches Staged while a move
+is under way. The file's own staged rows go to Staged as they do in an add.
+
+A transaction's other half lands where the categories here say. Where a
+category's kind changed after a refund was filed under it, that refund counts
+as income here rather than as money back on spending, or the other way round;
+`movePlan.move.drift` says how many and how much, by currency and by the
+direction they were entered in (`type`). Account balances are unaffected.
+
+The part carrying the file's balances — the last one — is held to them once it
+is written: every account the file carries whole must hold, as of
+`throughDate`, what the file says it held, its closing postings left out.
+`movePlan.move.checks` lists the balances, and two are not compared: an
+account archived where the file came from whose balance there is zero, and one
+that opens after the file's last day with money from before its first. An
+account that does not come out refuses the part with `CONFLICT`, naming it,
+both figures and the difference in `details`, with every account that disagrees
+in `details.issues` and how many as `count`, and nothing of that part is
+written. The message says what to do: send an earlier part that is not in yet,
+move the file for the days before this one first, or — where the account here
+holds transactions that are not in the file — rename it with `update_account`
+and preview again, or add the file instead. Where it holds some of this file's
+transactions as an earlier copy of the file had them, only the person can
+reconcile them: a move passes over a transaction already here rather than
+changing it, so it is not a way to keep two copies in step.
+
+Send the parts in order, the same decisions with every part and a fresh
+`idempotencyKey` for each. A part is all or nothing, and a transaction the
+ledger refuses refuses the part, naming the transaction by its type, amount,
+day and payee, with its `origin`, `date`, `payee` and `amount` in `details`. A
+part sent again with its key replays; sent again under another key it finds
+everything already here and writes nothing. The result says what the part
+`written` and `skipped`, how many archived accounts it closed, and `balances` —
+`checked` and `notCompared` — on the last part, or `null` on the rest.
+
+What a move writes comes out only by deleting each transaction and record, so
+the tool is annotated destructive: confirm with the person first. It needs
+`ledger:write`.
+
+### Moving a ledger between our cloud app and a copy you run yourself
+
+Both run the same software, so a ledger goes either way the same way, and an
+agent connected to both can carry it across. It needs `ledger:read` on the
+copy the ledger is leaving and `ledger:write` on the one it is going to, and
+both copies have to run 0.2.2 or later.
+
+1. **The person starts the ledger it is going to**: a sign-up on our cloud
+   app, or a copy they run themselves, set up and signed in to. Nothing is
+   typed or imported there first, or it no longer takes a move.
+2. **Export it** from the copy it is leaving with `export_ledger_file`, its
+   `kinds` naming every kind but `history`, which nothing reads back. One call
+   carries up to 10,000 rows. A ledger larger than that is exported as
+   consecutive date ranges with `start` and `end`, and only the latest range's
+   `kinds` name `recurrences`: a range is a file of its own, its recurring
+   transactions are created as it lands, and one could propose a row into
+   Staged before the next range arrives, which would end the move.
+3. **Preview it** in the ledger it is going to with `preview_ledger_file`,
+   passing `ledgerFile` on unchanged. `move.qualifies` should be true. Read
+   `movePlan`: the questions in its `records`, what stops it in its
+   `problems`, and on a plan that keeps a limited number of accounts in use,
+   `movePlan.places` — our cloud app's free plan keeps three. Ask the person
+   each question, and which accounts arrive archived, or whether they would
+   rather upgrade, which only they can do, from Settings in the browser.
+4. **Confirm with the person**, then call `move_ledger_file` with the same
+   text, a `fileName`, a fresh `idempotencyKey`, and the decisions,
+   `arriveArchived` and `preferences` they gave. Read `balances` in the reply:
+   every account checked came out as the file says, or nothing was written.
+5. **For the next range**, preview it and move it the same way, oldest first.
+   Its accounts are already here, and `movePlan` asks whether to use them;
+   `use_existing` is the answer, and the last range's balance check says
+   whether every earlier one is in.
+
+Nothing about the person's sign-in travels: their password, their connected
+agents and their tokens, and their plan stay with the copy that holds them, so
+the agent is connected to the new copy as a new client. The copy the ledger
+left keeps it until the person deletes it there, which is theirs to do,
+signed in.
 
 ## Audit history
 

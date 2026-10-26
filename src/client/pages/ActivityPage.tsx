@@ -51,6 +51,11 @@ const operationWords: Record<string, string> = {
   bulk_delete: "deleted with others at once",
   create_from_csv: "imported from a CSV file",
   update_from_csv: "changed by a CSV import",
+  create_from_ledger_file: "brought in from a Simple Balance file",
+  // A transaction that was deleted where the file came from, written and then
+  // deleted again by the move. Said as such, so the history does not claim the
+  // person deleted something on the day they moved their ledger.
+  delete_from_ledger_file: "brought in deleted from a Simple Balance file",
   create_from_transaction: "created by a transaction that named it",
   update_from_transaction: "changed by a transaction that named it",
   create_from_recurrence: "proposed by a recurring transaction",

@@ -173,7 +173,13 @@ import {
   ledgerFileAddInputSchema,
   ledgerFilePreviewInputSchema,
 } from "../shared/ledger-file-import.js";
-import { addLedgerFile, exportLedgerFile, previewLedgerFile } from "./services/ledger-file.js";
+import { ledgerFileMoveInputSchema } from "../shared/ledger-file-move.js";
+import {
+  addLedgerFile,
+  exportLedgerFile,
+  moveLedgerFile,
+  previewLedgerFile,
+} from "./services/ledger-file.js";
 import { getPreferences, setPreferences } from "./services/preferences.js";
 import {
   applyCustomerDeletion,
@@ -2207,6 +2213,22 @@ app.post("/api/v1/ledger-file:add", async (c) => {
   const { response, settled } = streamProgress(
     c,
     (report) => addLedgerFile(c.get("actor"), input, { onProgress: report }),
+    framedRefusal,
+  );
+  c.set("streamSettled", settled);
+  return response;
+});
+// The add's shape exactly, for the add's reasons: parsed before a frame is
+// written, so a body that was never a move is a 422 with a status line, and
+// everything only the ledger can answer — whether it may take a move at all,
+// a transaction a service refuses, a balance that does not come out — is the
+// terminal frame.
+app.post("/api/v1/ledger-file:move", async (c) => {
+  const input = ledgerFileMoveInputSchema.parse(await body(c));
+  if (!wantsFrames(c)) return c.json(await moveLedgerFile(c.get("actor"), input));
+  const { response, settled } = streamProgress(
+    c,
+    (report) => moveLedgerFile(c.get("actor"), input, { onProgress: report }),
     framedRefusal,
   );
   c.set("streamSettled", settled);

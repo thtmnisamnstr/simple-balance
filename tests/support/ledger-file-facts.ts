@@ -11,6 +11,7 @@ import {
   type LedgerFileAddResult,
   type LedgerFileFacts,
 } from "../../src/shared/ledger-file-import.js";
+import { planLedgerFileMove } from "../../src/shared/ledger-file-move.js";
 import { origin, wholeLedger } from "./ledger-file.js";
 
 /**
@@ -108,7 +109,27 @@ export function rowsHere(part: LedgerFile, here: ReadonlySet<string>): LedgerFil
   return {
     alreadyHere: part.entries.filter((entry) => !entry.deleted && here.has(entry.id)).length,
     stagedAlreadyHere: part.staged.filter((row) => here.has(row.id)).length,
+    deletedAlreadyHere: part.entries.filter((entry) => entry.deleted && here.has(entry.id)).length,
+    waiting: 0,
+    alreadyHereOn: alreadyHereOn(part, here),
+    heldHere: {},
   };
+}
+
+/** The live entries already here, by each of the part's accounts they name, as the preview counts them. */
+export function alreadyHereOn(part: LedgerFile, here: ReadonlySet<string>): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const entry of part.entries) {
+    if (entry.deleted || !here.has(entry.id)) continue;
+    const sides =
+      entry.type === "deposit"
+        ? [entry.to]
+        : entry.type === "withdrawal"
+          ? [entry.from]
+          : [entry.from, entry.to];
+    for (const key of new Set(sides)) counts[key] = (counts[key] ?? 0) + 1;
+  }
+  return counts;
 }
 
 /** The preview's reply for one part: the facts, with that part's rows, and its own plan. */
@@ -116,7 +137,11 @@ export function previewFor(ledgerFile: string, facts: LedgerFileFacts, here: Rea
   const read = parseLedgerFileText(ledgerFile);
   if (!read.ok) throw new Error("the page sent a file the reader refuses");
   const partFacts = { ...facts, rows: rowsHere(read.file, here) };
-  return { ...partFacts, plan: planLedgerFileAdd({ file: read.file, facts: partFacts }).plan };
+  return {
+    ...partFacts,
+    plan: planLedgerFileAdd({ file: read.file, facts: partFacts }).plan,
+    movePlan: planLedgerFileMove({ file: read.file, facts: partFacts }).plan,
+  };
 }
 
 /** What one part does, by the plan the server would carry out for it. */

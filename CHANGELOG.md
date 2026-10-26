@@ -6,26 +6,26 @@ Notable changes, newest first.
 
 ### Added
 
-**A whole ledger, or some of its accounts, can be exported as one Simple
-Balance file.** A CSV carries transactions and nothing else, so moving between a
-copy you run yourself and the service meant rebuilding every account, budget,
-template and recurring transaction by hand, and picking the other account of
-every transfer again. The menu's Import CSV is now **Import and export**, at the
-same address, and below the CSV import it makes one JSON file in the
+**A whole ledger, or some of its accounts, can be exported as one Simple Balance
+file.** A CSV carries transactions and nothing else, so moving between our cloud
+app and a copy you run yourself meant rebuilding every account, budget, template
+and recurring transaction by hand, and picking the other account of every
+transfer again. The menu's Import CSV is now **Import and export**, at the same
+address, and below the CSV import it makes one JSON file in the
 `simple-balance-ledger-1` format: accounts with their opening balances and the
 day each was archived, categories and groups, every transaction with its splits
 and both sides of every transfer, deleted ones too unless you untick them,
 templates with their reminders, recurring transactions, budgets, rows still
 waiting in Staged transactions, and your regional defaults and theme once you
-have chosen them. Records name each other by name rather than by id, so the
-file means the same thing in another copy, and a kind you leave out still
-travels by name wherever something refers to it, so unticking one breaks
-nothing. **Some accounts** takes up to a hundred of them, with their details
-alone, all their transactions, or a date range, and a transfer between two of
-them is in the file once. A ranged file carries what each account held the day
-before it starts, and a file with transactions gives every account a balance
-check worked out from its postings. The activity history can come along,
-unticked to begin with, and is never read back.
+have chosen them. Records name each other by name rather than by id, so the file
+means the same thing in another copy, and a kind you leave out still travels by
+name wherever something refers to it, so unticking one breaks nothing. **Some
+accounts** takes up to a hundred of them, with their details alone, all their
+transactions, or a date range, and a transfer between two of them is in the file
+once. A ranged file carries what each account held the day before it starts, and
+a file with transactions gives every account a balance check worked out from its
+postings. The activity history can come along, unticked to begin with, and is
+never read back.
 
 Agents get the same file from `export_ledger_file`, and
 `GET /api/v1/ledger-file` serves it as a download. One download holds up to
@@ -35,8 +35,8 @@ with both numbers and the way out that works for what was asked, usually a date
 range at a time. Exporting writes nothing, not even a line in the activity log.
 The page's two empty states, no account yet and every account frozen, now cover
 only the CSV import, so the export is there for somebody with either. A file it
-makes can be added to another copy, as the next entry says. The CSV import and
-export are exactly as they were.
+makes can be added to another copy or moved into one, as the next two entries
+say. The CSV import and export are exactly as they were.
 
 **A Simple Balance file can be added to a ledger, including one that already
 holds things of its own.** **Import a Simple Balance file**, between the CSV
@@ -61,7 +61,8 @@ lands once, the same file added twice adds nothing the second time, and two
 look-alike transactions from a file are never taken for each other at stage, at
 commit or in a bulk edit; one with no origin is compared as it always was.
 Deleted transactions are not added, and an account archived where the file came
-from arrives archived, closed today rather than on its original day. A file of
+from arrives archived, closed today rather than on its original day; moving a
+file, in the next entry, brings both as they were. A file of
 more than 10,000 rows is applied in parts, each all or nothing, and choosing it
 again after a part stopped picks up where it left off. On a free plan with
 fewer places than the file brings accounts in use, the person chooses which
@@ -80,8 +81,56 @@ creates is audited as `create_from_ledger_file`, and Staged's batch filter
 marks a batch that came from a file. An agent handed a whole download larger
 than one part is told the rules the page cuts a file by, so it can send the
 parts itself. A file can be added only to a copy running this release or later.
-Moving a whole ledger straight into an empty one, its deleted transactions and
-archive days included, is not here yet.
+
+**A Simple Balance file can be moved straight into the books of a new ledger.**
+Adding sends a file's transactions to Staged, which is right for a ledger with
+entries of its own, and it was the only way in: moving from a copy you run
+yourself to our cloud app, or back, meant committing every transaction a second
+time, leaving deleted ones behind, and finding each archived account put away on
+the day of the import rather than the day it was. **Import a Simple Balance
+file** now asks **How should this file come in?**, with neither answer chosen,
+and into a ledger where everything came from a Simple Balance file — a new
+sign-up, a fresh install, or one partway through a move — the file can be
+moved. Every transaction is written straight into the books through the same
+services a person's own entries go through, so its postings are worked out here
+rather than copied. Deleted transactions arrive deleted, an account archived
+where the file came from arrives archived on its own day holding its
+transactions, a reminder already sent stays sent, and a recurring transaction
+does not propose a day the other copy already did. Once one transaction is
+typed here or one CSV row staged, moving is refused with the reason, and the
+file can still be added.
+
+Every transaction is written, or nothing of its part is. A move offers fewer
+answers than an add: an account or a category a transaction is filed under has
+to come in, and an account here whose balance could never come out as the file
+says cannot stand in for the file's. It is refused before anything is written
+while some of the file's transactions wait in Staged from an earlier add of
+it, while one would land on an account frozen here, while an account it brings
+in new already has some of its transactions here on another account, or while a
+category here would make one both income and spending. The part carrying the
+file's balances is held to them once it is written, and an account that does
+not hold what the file says on its last day refuses the part, naming the
+account, both figures and what to do. On a free plan the person chooses which
+new accounts arrive archived, as in an add, and those take their transactions
+with them, closed on the day of the move; restoring one posts its balance back.
+A refund filed under a category whose kind was widened afterwards counts on the
+side the category says here, and the move reports how many and how much, by
+currency, rather than overriding it; every balance is the same either way. A
+file of more than 10,000 rows moves in parts, each all or nothing and resumable,
+with recurring transactions created by the last, and a part of 10,000
+transactions took about fifty seconds on a laptop. A move is a one-time trip
+rather than a sync: a transaction already here is passed over, never updated.
+
+Agents have `move_ledger_file`, which needs `ledger:write` and is marked
+destructive, because what it writes comes out only a transaction and a record
+at a time; over HTTP it is `POST /api/v1/ledger-file:move`, which streams its
+progress when asked, as the add does. The preview also returns `movePlan`, the
+same file planned for a move, so an agent reads the narrower choices and what
+would stop it before it calls. An agent moving a ledger larger than one call
+exports it a date range at a time and moves the ranges oldest first. The void
+of a deleted transaction is audited as `delete_from_ledger_file`, so Activity
+says it arrived deleted rather than that somebody deleted it today. Both copies
+need this release.
 
 **Metrics can be sent to New Relic, or to any backend that takes OTLP or
 Prometheus remote write, with no Prometheus of your own.** Every deployment

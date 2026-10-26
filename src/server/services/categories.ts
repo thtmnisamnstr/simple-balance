@@ -516,11 +516,21 @@ export async function listDuplicateCategories(actor: Actor) {
     }));
 }
 
+/**
+ * What only a Simple Balance file's move may ask of a create, as an argument
+ * rather than a field: a category archived where the file came from arrives
+ * archived at the instant it was archived there, with the transactions filed
+ * under it written beside it. `categoryCreateSchema` is what a form and a tool
+ * send, and neither can create a category already archived, let alone backdate
+ * when it was.
+ */
+export type CategoryCreateOptions = CreateAuditOptions & { readonly archivedAt?: Date };
+
 export async function createCategory(
   actor: Actor,
   input: unknown,
   transaction?: DbTransaction,
-  options?: CreateAuditOptions,
+  options?: CategoryCreateOptions,
 ) {
   const parsed = categoryCreateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
@@ -532,7 +542,12 @@ export async function createCategory(
     const groupId = await resolveCategoryGroup(tx, actor, parsed.groupId);
     const [created] = await tx
       .insert(categories)
-      .values({ userId: actor.userId, ...parsed, groupId })
+      .values({
+        userId: actor.userId,
+        ...parsed,
+        groupId,
+        ...(options?.archivedAt === undefined ? {} : { archivedAt: options.archivedAt }),
+      })
       .returning();
     await writeAudit(tx, actor, {
       entityType: "category",

@@ -1,7 +1,7 @@
 # Web
 
 The browser app. A React 19 single-page app with a hand-rolled router, TanStack
-Query for server state, and 5,327 lines of hand-written CSS in
+Query for server state, and 5,347 lines of hand-written CSS in
 `src/client/styles.css`. No component library, no CSS framework, no token build
 step, and none is coming, so every rule here has to be reachable with plain CSS
 custom properties and components written by hand.
@@ -405,7 +405,7 @@ section is a proposal, and says so.
 
 **House, and a proposal rather than a rule until the tokens exist.**
 
-Today: 338 padding, margin and gap declarations across **35 distinct pixel
+Today: 339 padding, margin and gap declarations across **35 distinct pixel
 values**, running 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
 19, 20, 21, 22, 24, 26, 28, 30, 32, 34, 35, 38, 42, 48, 55, 72, 248. `gap` alone
 takes 16 distinct single values, the commonest being 8px twenty-one times, 12px
@@ -513,9 +513,9 @@ alone is chosen against:
 | 2 | A header sticking inside its own scroller — the modal header (`:2639`), the sign-in card (`:3228`) |
 | 5 | A bar pinned to the window's foot — the house ad's slot (`styles.css:3820`), over a card's decorations and under every popover, so the row menu opens over it from the last row in view |
 | 10 | A popover over the page — the row menu (`:1903`) |
-| 15 | The mobile header, below 780px (`:5052`) |
+| 15 | The mobile header, below 780px (`:5072`) |
 | 20 | A bar sticking over a list — the merge panel (`:3109`) |
-| 25 | The mobile nav scrim, which covers everything above except the drawer (`:5042`) |
+| 25 | The mobile nav scrim, which covers everything above except the drawer (`:5062`) |
 | 30 | The sidebar itself (`:362`) |
 | 40 | The skip link (`:3602`), above everything because it is the first thing a keyboard user meets |
 
@@ -561,8 +561,8 @@ this section came apart.
 ### 3.6 Breakpoints
 
 Four hardcoded max-widths, all four now contiguous at the foot of the
-stylesheet in descending order: 1050px (`styles.css:4925`), 980px
-(`styles.css:5004`), 780px (`styles.css:5011`) and 560px (`styles.css:5139`).
+stylesheet in descending order: 1050px (`styles.css:4945`), 980px
+(`styles.css:5024`), 780px (`styles.css:5031`) and 560px (`styles.css:5159`).
 Putting them in one place was section 7.3's doing; how many of them there should
 be is still this section's question. One height condition is nested inside the
 780px block, for the house ad (15), and qualifies that step rather than adding
@@ -588,11 +588,11 @@ prevent.
 
 Today there are no motion tokens. Transitions are written inline at 120ms (six
 declarations), 140ms (one) and 180ms (the mobile drawer's `transform`, with
-`visibility` held until it ends on the way out, `styles.css:5017-5019`), and
+`visibility` held until it ends on the way out, `styles.css:5037-5039`), and
 there are two reduced-motion
 blocks: `styles.css:858-861`, which turns off the skeleton shimmer specifically
 and stays beside `.skeleton` on purpose rather than joining the responsive body
-(section 7.3), and `styles.css:5293-5311`, a blanket rule setting
+(section 7.3), and `styles.css:5313-5331`, a blanket rule setting
 `animation-duration`, `transition-duration` and `scroll-behavior` on
 everything, followed since the house ad by a second rule that removes its
 entrance outright (4.1).
@@ -656,7 +656,7 @@ that sentence is a defect it would otherwise have had.
   drawing and then take two accounts away.
 - **Never armed under reduced motion, and removed rather than shortened if the
   preference arrives afterwards.** The second rule in the foot block
-  (`styles.css:5303-5310`) sets `animation: none` on the moving parts, so a
+  (`styles.css:5323-5330`) sets `animation: none` on the moving parts, so a
   preference turned on mid-story ends it in the finished picture.
 - **Retired when the last beat ends or is cancelled** (`ads.tsx:265-270`).
   Hiding an element discards its animations and showing it again starts them
@@ -1066,7 +1066,7 @@ prevent is a *component rule after the responsive body*.
 
 The four breakpoints run in descending order at the foot of the file, each under
 the comment naming its constant, then the blanket reduced-motion block
-(`styles.css:5293-5311`), then the print block (`:5323-5327`) and nothing after
+(`styles.css:5313-5331`), then the print block (`:5343-5347`) and nothing after
 it. **Print is last and that is the rule, not an accident of when it arrived**:
 it is the one query that describes a different medium rather than a different
 width or preference, so anything it needs to undo has already been written.
@@ -1089,7 +1089,7 @@ both onto the 1050, 780 and 560 blocks, at the cost of a wrap that depends on
 the font rather than on a measured column. The one condition it needed that no
 width could express — a window both narrow and short, where the bar stops
 being pinned (15) — is a `max-height` query nested inside the 780 block
-(`styles.css:5131-5135`), so it adds no step and qualifies the one it sits in.
+(`styles.css:5151-5155`), so it adds no step and qualifies the one it sits in.
 
 *Checked by:* `tests/styles-order.test.ts` asserts that every top-level
 construct from the first `@media (max-width` block onward is an at-rule, that
@@ -1247,7 +1247,7 @@ waiting has the longest set in the product, and it was 59px wider than an 820px
 window with its title squeezed onto two lines — which `reflow.spec.ts` never
 saw, because it visits Staged with nothing waiting. Below 780px each action
 takes an equal share of a full-width row with a floor at its own label
-(`styles.css:5088`): a zero basis always fits, so without the floor the row could not
+(`styles.css:5108`): a zero basis always fits, so without the floor the row could not
 wrap and "Review 2 possible duplicates" broke inside its own button.
 
 *Checked by:* `tests/browser/smoke-test-fixes.spec.ts` ("a page's header
@@ -1607,10 +1607,11 @@ nothing until the edit is handed over.
 **Contested, and the third case is recorded rather than settled: the Simple
 Balance file's preview judges as you type.** It is a plan rather than a form.
 Every answer re-plans the whole file with the planner the server runs
-(`planLedgerFileAdd`), the add button stays disabled while the plan has a
-problem, and its reason (12.3) counts the questions still open — so a name typed
-for a copy that clashes with one here is refused beside its field, with
-`aria-invalid`, while it is still being typed
+(`planLedgerFileAdd`, or `planLedgerFileMove` once moving is the way in chosen),
+the action button stays disabled while the plan has a problem, and its reason
+(12.3) counts the questions still open — so a name typed for a copy that
+clashes with one here is refused beside its field, with `aria-invalid`, while
+it is still being typed
 (`src/client/LedgerFileImport.tsx`, the name field in `RecordDecision`). That is
 what the timing rule refuses. The page softens it in one way: a record's
 problems appear beside it only once it has a whole answer, so a question nobody
@@ -1637,7 +1638,7 @@ next submit — clearing it as somebody types would be judging a field while the
 type in it, which the timing rule above refuses — with one exception a form with
 a mode switch needs: a switch that changes which fields are on the form takes
 the refusal with it. The export's scope, its range, its account detail and the
-two boxes the range depends on each do (`src/client/pages/ImportPage.tsx:1063`).
+two boxes the range depends on each do (`src/client/pages/ImportPage.tsx:1064`).
 Left up, the refusal named a date field that was no longer there — a summary
 link focusing nothing — or sat beside a form whose own button now said
 something else was wrong.
@@ -2154,7 +2155,7 @@ every table costs a column of words nothing and takes the decision off the call
 site.
 
 One loose end remains. `.amount` is declared as a money hook in the same rule
-and is used by nothing; delete it or adopt it at the 77 `formatMoney` call
+and is used by nothing; delete it or adopt it at the 78 `formatMoney` call
 sites, some of which render currency outside a table in proportional digits.
 `.money`'s weight and `white-space: nowrap` are still applied by hand, and the
 case for making the money CELL a component rather than a class is the staged
@@ -2349,8 +2350,8 @@ never on it:
 | `.merge-panel` | `styles.css:3101` | sticky |
 | `.skip-link` | `styles.css:3600` | fixed |
 | `.ad-slot:has(> .house-ad)` | `styles.css:3818` | sticky, to the foot |
-| `.nav-scrim` | `styles.css:5040` | fixed |
-| `.mobile-header` | `styles.css:5050` | sticky |
+| `.nav-scrim` | `styles.css:5060` | fixed |
+| `.mobile-header` | `styles.css:5070` | sticky |
 
 `.merge-panel` was the live case. It exists because the list is long enough to
 scroll, which is the same condition that puts a focused row underneath it. Every
@@ -2506,7 +2507,7 @@ including the two "As of" lines that printed raw ISO directly above formatted
 tables (`DashboardPage.tsx:244` and `ReportsPage.tsx:363` were the offenders).
 Instants go through `formatTimestamp(instant, timezone)`
 (`src/client/money.ts:425-450`), whose zone comes from `useTimezone()`: the
-activity log (`src/client/pages/ActivityPage.tsx:194`) and the connected-apps
+activity log (`src/client/pages/ActivityPage.tsx:199`) and the connected-apps
 panel (`src/client/pages/SettingsPage.tsx:628`) each rolled their own in the
 *browser's* zone, so an audit trail read while traveling disagreed with the
 dates on the entries it audits. A date column is right-aligned or left-aligned
@@ -3336,7 +3337,7 @@ The rules, in the order they matter:
 
 - **A bar is determinate or it is not shown.** `<progress>` with no `value` is
   indeterminate and animates in every engine, and the blanket reduced-motion
-  block at `styles.css:5293-5301` freezes it into a bar that reads as stuck.
+  block at `styles.css:5313-5321` freezes it into a bar that reads as stuck.
   That is section 4's spinner defect a second time, and a determinate bar is the
   fix for that class of failure rather than a new instance of it.
 - **A bar never appears before its total is a real count.** A commit does fixed
@@ -3354,7 +3355,12 @@ The rules, in the order they matter:
   (`PROGRESS_VERB`, `src/shared/progress.ts`), sentence case, no full stop. It is
   9.5's form for a selection and `BudgetsPage.tsx`'s for a budget, and it is
   built in one place — `progressLabel` (`src/client/components.tsx`) — so two
-  pages cannot word the same thing differently.
+  pages cannot word the same thing differently. One phase names two kinds of
+  work: posting is a commit's last loop and the whole of a Simple Balance file's
+  move, which commits nothing, so the move passes its own word, *written*, to
+  `progressLabel` rather than building a second sentence beside it. A move's bar
+  is not weighted either: it runs each phase from nothing to all of it, because
+  while it writes, how many staged rows follow is not known.
 - **A bar is not a live region and does not add one.** 12.4 already counts three
   polite regions in this client, and a fourth updating four times a second is a
   machine gun rather than an announcement. `<progress>` carries the
@@ -3659,6 +3665,21 @@ chooser stays shut and focus stays put. And where adding a file stops partway,
 its one button becomes "Try part 2 of 3 again" rather than a second button
 taking its place, because a replaced button takes focus with it.
 
+**Enter in a field is a press of the button it submits through, and focus goes
+there.** Implicit submission is the browser's: Enter in a copy's name, or on a
+box or a radio, submits the import's form through its default button, and
+every one of those controls is disabled while a part runs and after it stops.
+The browser blurs what it disables, so a stop that arrived after Enter left
+focus on `<body>` where the same stop after a press of the button left it on
+the button. The form's submit handler moves focus to the `submitter` the event
+names before the part is sent, so both ways in end in the same place
+(`src/client/LedgerFileImport.tsx`, `start`). **A stop no retry can cure takes
+focus itself.** Where a move's balances did not come out, sending the same
+part again would meet the same balances, so its "Try again" is disabled with
+that reason, a pressed Enter sends nothing, and the sentence saying which
+accounts disagree takes focus, because the button it would otherwise have
+landed on is the one thing on the page that cannot help.
+
 **A sentence confirmed in a dialog takes focus once the dialog has gone.** The
 work a confirmation dialog starts finishes while the dialog is still open, and
 a modal dialog makes everything outside it inert, so the `takeFocus` sentence
@@ -3676,9 +3697,13 @@ on the dialog's `close`), and `tests/browser/smoke-test-fixes.spec.ts`, which
 holds all of it in a real browser: the drawer's focus on open and after a link,
 a single delete, a bulk edit, a refused delete, and a busy button. The file
 input is `tests/browser/ledger-file-import.spec.ts` ("keeps focus on the file
-input while the file is checked, and once it is"), and the renamed button
+input while the file is checked, and once it is"), the renamed button
 `tests/ledger-file-import-page.test.tsx` ("says where it stopped and what is
-in, and tries that part again with its own key").
+in, and tries that part again with its own key"), Enter in a name field
+`tests/browser/ledger-file-move.spec.ts` ("ends on the button when Enter in a
+name field sends it and the part stops"), and the stop no retry cures
+`tests/ledger-file-import-page.test.tsx` ("stops where the balances do not come
+out, says each in its own figures, and waits on a fresh check").
 
 `tests/browser/budgets.spec.ts` holds
 the two halves only a browser can see — that pressing the skip link actually
@@ -3884,7 +3909,7 @@ The rules that follow from them:
   selection bar (12.3); every other bar is review.
 - **A window's height is a step only where its width already is one.** The
   house ad stops being pinned on a window 480px tall or less, and only at 780px
-  wide or less (`styles.css:5131-5135`), which is a phone on its side or a
+  wide or less (`styles.css:5151-5155`), which is a phone on its side or a
   screen zoomed to 400%. There it stacked with the sticky mobile header above
   and left the ledger a strip between the two — 45px of a 1280 by 720 screen at
   400%. A short window wider than that has no sticky header to stack with, and
@@ -3903,7 +3928,7 @@ The rules that follow from them:
   that each keep together, so above 560px the title stays two lines at any text
   spacing. The obvious alternative, letting the drawing shrink to fit, took
   every tile below the 30px that is as small as one is drawn
-  (`styles.css:4949-4957`); and a fade at the strip's edge narrower than a tile
+  (`styles.css:4969-4977`); and a fade at the strip's edge narrower than a tile
   left a cut tile's rounded edge standing beside the ad, while one wide enough
   to hide it dimmed the next tile too.
 - **`dvh`, not `vh`, for anything full-height.** There were seven `100vh` uses
@@ -3915,7 +3940,7 @@ The rules that follow from them:
   the same arithmetic stay, because nothing retracts horizontally.
 
 **There is a print stylesheet, and it holds one rule.**
-`@media print` at `styles.css:5323-5327` hides `.ad-slot`, because a statement
+`@media print` at `styles.css:5343-5347` hides `.ad-slot`, because a statement
 of accounts somebody prints or saves as a PDF is a record they may keep and hand
 on, and an advertisement in one is not a thing this product does. The block is
 last in the file for 7.3's reason, and that is where a second print rule goes —
@@ -4105,6 +4130,7 @@ is which.
 | `tests/browser/plan-buttons.spec.ts` | Two priced buttons keep the same top while one of them shows a reason, measured against a real layout engine at desktop width and at 390px where the reason wraps — the half 12.3 could not check (12.3, 13.5) |
 | `tests/import-export-page.test.tsx`, `tests/browser/ledger-file-export.spec.ts` | Import and export puts the CSV import first and the export after it, and the import's two empty states stay inside its own section (12.1); the export sends exactly the selection its controls show, checked with the route's own schema before anything is asked, and a switch that takes a field away takes its refusal with it (8.2); every control and group is named and the form is one form, so Enter in a date field exports (8.8); and, in a browser, a keyboard alone builds the request, the arrow keys move inside a radio group, and a real download takes the name the response gave (13.5) |
 | `tests/ledger-file-import-page.test.tsx`, `tests/browser/ledger-file-import.spec.ts` | Import a Simple Balance file sits between the CSV import and the export; a file the browser refuses is refused in the reader's own sentences, each beside the place in the file it points at, before anything is sent; every part is previewed in order and the whole file planned once, its counts in a real table; every record that needs a choice is one named radio group offering exactly its choices with nothing chosen, a copy's name is offered only once a copy is picked, and an answer's sentence is bound to its field (8.1, 8.8); the arrive-archived checklist checks nothing and states the numbers; the settings question appears only where both sides chose and differ; adding goes part by part with one key each, draws a bar only from a real count, ends on a summary that takes focus, and a stopped part is tried again with its own key from the same button (12.3, 12.6, 13.3); and, in a browser, a keyboard alone chooses, decides and adds, a real file of 10,005 transactions goes in two parts, and the file input keeps focus while it is checked (13.3, 13.5) |
+| `tests/ledger-file-import-page.test.tsx` ("moving a file"), `tests/browser/ledger-file-move.spec.ts` | The way in is one named radio group with neither chosen where the ledger may take a move, and the action button says why it waits; where it may not, moving is refused with the server's own sentence as its description and adding is chosen (8.8, 12.3); a switch lets go of answers the new way does not take; a move says what it writes, what it writes and deletes again, what counts on the other side here and which balances it is held to before anything is pressed; it goes part by part to its own route, one key each, with a bar from real counts in its own word for posting, and a resumed move sends only the parts not in yet and always the last (12.6); a refusal already saying nothing was written is not told so twice, each account whose balance did not come out is listed in this page's figures, and a stop no retry can cure disables its retry with the reason and takes focus (13.3); and, in a browser, a keyboard alone chooses the way in, the arrows pass over a refused radio, a frame read as it arrives draws the bar, two real parts end on a summary that takes focus, and Enter in a name field that sends a part ends on the button it submitted through (13.3, 13.5) |
 | `tests/web-guide.test.ts` | The numbers and lists this guide argues from, derived rather than recounted: the component inventory, its three counts and every unit `ads.tsx` exports (6.1), the ten inline `style` props (1.3), every `z-index` having a rung (3.5), the stylesheet's tail order and its one print block (7.3, 15), the `Field`, optional, `formatMoney`, `EmptyState`, `Skeleton`, computed-disabled and scrolling-container censuses (8.1, 8.4, 9.3, 9.6, 12.1, 12.2, 12.3), where an ad slot sits in the shell (7.7), and the shape of every link that leaves the app (13.6) |
 | `tests/ui-copy.test.ts` (vocabulary) | An account that has been put away is **archived**, never *closed*, in every literal and every run of JSX text in `src/client` and `src/shared`, with a named register for the control and accounting senses and one pattern for the frozen one (7.6) |
 | `tests/ui-copy.test.ts` | No banned word in any string a person reads, in all three of client, shared and server; every literal button label is a verb phrase or one of the four bare actions; the three bulk bars use the four sanctioned strings; no eyebrow repeats its title; a blank cell's dash is a fallback and never cell text; `Uncategorized` is styled once; every worked sentence in `common.md`'s table appears verbatim in `src`; every page rendering a list's empty state decides the screen through `emptyScreen` or carries a one-sentence argument for having no question to ask, and no `emptyScreen` call names a row count, the shared date range or the page's own subject; and an empty state sits behind its query's error rather than beside it, with three named exceptions (6.2, 12.1, 16) |
@@ -4131,7 +4157,7 @@ change is worth nothing if it can quietly fall behind.
 
 1. **No spacing, radius, size or weight literal outside the scales.** The same
    trick the color test uses, with an allow-list for `1px` borders, `0` and
-   percentages. This is the largest unmanaged surface in the stylesheet: 338
+   percentages. This is the largest unmanaged surface in the stylesheet: 339
    spacing declarations across 35 values. The census itself is now derived
    rather than recounted — `tests/standards-citations.test.ts` holds section 3's
    numbers to the file, which is what stopped this item and section 3.1 quoting
