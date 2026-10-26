@@ -452,6 +452,11 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
       idempotencyKey: "sweep-budget",
     })) as { id: string };
 
+    // The preview reads a file, so it is handed the one the export just wrote.
+    const exported = (await call("export_ledger_file", { kinds: ["accounts", "entries"] })) as {
+      ledgerFile: string;
+    };
+
     const { tools } = await client.listTools();
     const reads = tools.filter((tool) => tool.annotations?.readOnlyHint === true);
     expect(reads.length).toBeGreaterThan(25);
@@ -472,6 +477,7 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
       preview_bulk_transaction_selection: { filter: { includeDeleted: false } },
       preview_bulk_staged_selection: { filter: {} },
       export_ledger_file: { kinds: ["accounts", "entries", "staged", "budgets", "recurrences"] },
+      preview_ledger_file: { ledgerFile: exported.ledgerFile },
     };
 
     const dropped: string[] = [];

@@ -48,7 +48,7 @@ The last of those cost five lines. `AppError` and `ApiClientError` both declared
 their fields in the constructor signature, which is TypeScript-only syntax that
 emits assignments. They now declare fields and assign them
 (`src/server/services/errors.ts:31-61`,
-`src/client/api.ts:35-67`).
+`src/client/api.ts:36-68`).
 
 The gain is not stylistic. It means `node --experimental-strip-types` and every
 other type-stripping runtime can run this source directly, and it means reading
@@ -75,7 +75,7 @@ erases just as well.
 
 **Contested.** The flag is good advice in general and wrong here. All three
 sites it flags are Hono middleware
-(`src/server/api.ts:1619`, `src/server/http-security.ts:485` and `:957`),
+(`src/server/api.ts:1623`, `src/server/http-security.ts:526` and `:998`),
 where a `MiddlewareHandler` returns a `Response` to answer the request or
 nothing at all to let the next handler run. "Returns on some paths and not
 others" is the contract, not a mistake.
@@ -105,7 +105,7 @@ judge the decision, only keep the evidence for it true.
 
 ### 1.4 `noUncheckedIndexedAccess` is declined, for now
 
-**Contested.** 575 errors, **59 of them in `src`** and the rest in `tests`. It
+**Contested.** 575 errors, **61 of them in `src`** and the rest in `tests`. It
 is the setting on this list most worth having, because indexing into an array or
 a record is exactly where an `undefined` arrives unannounced.
 
@@ -120,16 +120,19 @@ It is declined because 575 sites cannot be reviewed carefully in one change, and
 mechanically silencing them with `!` would convert a real check into a
 formality — the same defect the flag exists to catch, now written down. If it is
 ever adopted it should be one directory at a time, and the split above says
-which one first: `src` is 59 of the 575 and all of the benefit, since a test
+which one first: `src` is 61 of the 575 and all of the benefit, since a test
 that indexes a fixture it wrote three lines earlier learns nothing from being
 told the row might be missing.
 
 The two halves move for different reasons, which is why only one of them is
-checked. `src` has sat at 59 across a release that added billing, two cloud
-profiles and a plan page; the total went from 441 to 575 because the branch
-added tests, and a number that every new test file moves is one a check would
-teach people to bump without reading. So **59 is held by a test and 575 is a
-reading**, which is the same division `testing.md` makes about its own two
+checked. `src` sat at 59 across a release that added billing, two cloud
+profiles and a plan page, and moved to 61 when adding a Simple Balance file
+arrived: an account created archived closes on the row its insert returned, and
+the add files a category it created under the id the create returned, each one
+more read of a `.returning()` row the flag cannot see is there. The total went
+from 441 to 575 because the branch added tests, and a number that every new
+test file moves is one a check would teach people to bump without reading. So
+**61 is held by a test and 575 is a reading**, which is the same division `testing.md` makes about its own two
 tables and for the same reason.
 
 `exactOptionalPropertyTypes` (110) and `noPropertyAccessFromIndexSignature`
@@ -233,7 +236,7 @@ export type CategoryKind = (typeof categoryKinds)[number];
 (`src/shared/domain.ts:120-121`.)
 
 The array is the single source: Zod validates from it, the database enum is
-generated from it (`src/server/db/schema.ts:199`),
+generated from it (`src/server/db/schema.ts:200`),
 and the UI iterates it (`src/client/pages/CategoriesPage.tsx:137`).
 Adding a member is one edit, and every one of those follows.
 
@@ -320,7 +323,7 @@ either of the other two that the rule working was a deviation from it. Both pass
 the test the `securityHeaderOptions` paragraph below sets, and one of them is
 load-bearing by `AGENTS.md`:
 
-- `PLAN_LABELS` (`src/shared/domain.ts:3491-3494`) is, in `AGENTS.md`'s words,
+- `PLAN_LABELS` (`src/shared/domain.ts:3570-3573`) is, in `AGENTS.md`'s words,
   "the one place a plan's name is written". `satisfies Record<Plan, string>` is
   what makes a plan added without a label fail to compile; `as const` is what
   keeps `PLAN_LABELS.plus` the literal `"Premium"` rather than `string`, which
@@ -340,7 +343,7 @@ The second use is worth recording as it went. `securityHeaderOptions` used
 a different key from an enforcing one — and a `satisfies` on a value that is one
 of two shapes narrows to whichever branch was written, so reading the other one
 stopped compiling for callers. It carries an explicit return type now
-(`src/server/http-security.ts:211`). That is the line where `satisfies` stops
+(`src/server/http-security.ts:216`). That is the line where `satisfies` stops
 being the better tool: it is for checking a literal without widening it, not for
 describing a value that has more than one shape.
 
@@ -614,7 +617,7 @@ updateTransaction(actor, id, input, transaction?)
 setTransactionDeleted(actor, id, expectedVersion, deleted, allowDuplicate?, transaction?)
 ```
 
-(`src/server/services/transactions.ts:1146`, `:2418` and `:2524`.)
+(`src/server/services/transactions.ts:1163`, `:2442` and `:2548`.)
 
 Note that `updateTransaction` takes `input: unknown` and parses it, rather than
 a typed object: the version and the draft arrive together inside it. An update

@@ -1852,6 +1852,85 @@ export const budgetPlanCreateSchema = z
   .refine(stepIsNotBelowNothing, stepIsNotBelowNothingMessage)
   .refine(oneTarget, oneTargetMessage);
 
+/** Two decimal strings compared exactly, as integers at the longer scale, the way `sumsExactly` adds them. */
+function decimalLessThan(left: string, right: string) {
+  const places = (value: string) => {
+    const point = value.indexOf(".");
+    return point < 0 ? 0 : value.length - point - 1;
+  };
+  const [a, b] = [left.trim().replace(/^\+/, ""), right.trim().replace(/^\+/, "")];
+  const scale = Math.max(places(a), places(b));
+  const asInteger = (value: string) => {
+    const [integer = "0", fraction = ""] = value.split(".");
+    return BigInt((integer || "0") + fraction.padEnd(scale, "0"));
+  };
+  return asInteger(a) < asInteger(b);
+}
+
+/**
+ * The rules a budget's own fields break together, beyond the ones its schema
+ * refines: the sentence the service refuses with, and the field it is about
+ * when it names one, or null.
+ *
+ * One function for the service and for an import's preview, because a
+ * Simple Balance file is read by a format schema that carries the fields and
+ * none of these rules, and a rule the preview did not know is a part the
+ * server refuses after the page said it was ready (`AGENTS.md`: a rule the
+ * browser previews and the server enforces has to be one function). The rule
+ * left to the service alone is a fund's target date, which is snapped to a
+ * period by the database before it is compared.
+ */
+export function budgetPlanRefusal(input: {
+  amount: string;
+  rollover: boolean;
+  rolloverCap: string | null;
+  targetAmount: string | null;
+  priority: number;
+  isGroup: boolean;
+}): { message: string; field?: string } | null {
+  const isFund = input.targetAmount !== null;
+  // Refused rather than ignored. A fund works out each period's figure from
+  // what is left to save, so an amount beside it is a number nothing reads —
+  // and a number nothing reads on a budget page is a number somebody will
+  // believe.
+  if (isFund && !/^[+-]?0*(\.0*)?$/.test(input.amount.trim())) {
+    return {
+      message:
+        "A sinking fund works out its own amount each period, from what is still needed and how many periods are left. Set the amount to zero, or remove the target to budget a fixed amount.",
+    };
+  }
+  if (input.priority !== 0 && input.isGroup) {
+    return {
+      message:
+        "A funding order is about categories. Ranking a group and the categories under it would spend the same income twice, so a group's budget carries no priority.",
+    };
+  }
+  if (!input.rollover && input.rolloverCap !== null) {
+    return {
+      message:
+        "A carry cap only means something when rollover is on, and this budget does not carry anything forward.",
+    };
+  }
+  // A fund saves by carrying, so a cap under the target caps the saving: each
+  // period's contribution is pinned back to the cap, the fund re-budgets what
+  // the cap just discarded, and the target date arrives with the whole
+  // shortfall due at once. The two numbers contradict each other, so the pair
+  // is refused rather than obeyed in the wrong order — and the browser offers
+  // the combination, which is exactly why the server has to say no.
+  if (
+    isFund &&
+    input.rolloverCap !== null &&
+    decimalLessThan(input.rolloverCap, input.targetAmount!)
+  ) {
+    return {
+      message:
+        "This cap is below what the fund is saving for, so it would throw away each period's contribution and leave the whole amount due at the end. Raise the cap to at least the target, or remove it.",
+      field: "rolloverCap",
+    };
+  }
+  return null;
+}
+
 export const budgetPlanUpdateSchema = z
   .object({
     amount: budgetAmountSchema.optional(),
@@ -2445,7 +2524,7 @@ export const stageListQuerySchema = listQuerySchema
       .describe(
         "Which column to order by. Ordering is presentation only and never changes which rows match.",
       ),
-    importBatchId: uuid().optional().describe("Only rows from this CSV import."),
+    importBatchId: uuid().optional().describe("Only rows from this CSV or Simple Balance file."),
     recurrenceId: uuid().optional().describe("Only rows proposed by this recurrence."),
     validity: z
       .enum(["valid", "invalid", "duplicate"])
@@ -4471,3 +4550,19 @@ export const preferencesSchema = z.object({
       "system, light or dark. `system` follows the person's own machine and is the only one that keeps following it when they change it. Set it only when asked to: it is what their screen looks like and you cannot see it.",
     ),
 });
+
+/**
+ * What an import batch was read from: a CSV, or a Simple Balance file.
+ *
+ * A batch records the file it came from, and three of its columns — the
+ * delimiter, the column mapping and the hash — say what a CSV was. A batch of
+ * rows staged from a Simple Balance file has no delimiter and no mapping, so
+ * without this a reader of the batch would take an empty mapping for a CSV
+ * nobody mapped. Every batch before the ledger-file import is a CSV, which is
+ * what the column's default says on a ledger that already has some.
+ *
+ * Down here, like the two blocks above, so that adding it moved none of the
+ * lines the guides cite in this file.
+ */
+export const importBatchKinds = ["csv", "ledger_file"] as const;
+export type ImportBatchKind = (typeof importBatchKinds)[number];

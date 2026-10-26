@@ -8,7 +8,6 @@ import {
 import { eq } from "drizzle-orm";
 import { Hono, type Context, type Handler } from "hono";
 import { getCookie } from "hono/cookie";
-import { secureHeaders } from "hono/secure-headers";
 import type { PoolClient } from "pg";
 import { z } from "zod";
 import type { Actor } from "../shared/domain.js";
@@ -50,6 +49,7 @@ import {
   CSP_REPORT_PATH,
   isStripeSurfacePath,
   rawPathOf,
+  responseHeaders,
   securityHeaderOptions,
   withCountableClientAddress,
   withholdSessionTokens,
@@ -169,7 +169,11 @@ import {
 import { CSV_MEDIA_TYPE } from "../shared/csv.js";
 import { CSV_EXPORT_MAX_ROWS, LEDGER_FILE_HISTORY_MAX_BYTES } from "./config-limits.js";
 import { LEDGER_FILE_MEDIA_TYPE, parseLedgerFileQuery } from "../shared/ledger-file.js";
-import { exportLedgerFile } from "./services/ledger-file.js";
+import {
+  ledgerFileAddInputSchema,
+  ledgerFilePreviewInputSchema,
+} from "../shared/ledger-file-import.js";
+import { addLedgerFile, exportLedgerFile, previewLedgerFile } from "./services/ledger-file.js";
 import { todayIn } from "../shared/recurrence-dates.js";
 import { getPreferences, setPreferences } from "./services/preferences.js";
 import {
@@ -264,18 +268,18 @@ const app = new Hono<AppEnv>();
  * deployment shipped a plan tab whose payment form could not load;
  * `tests/security-header-parity.test.ts` now compares both surfaces.
  *
- * `secureHeaders` is built per surface rather than per request: there are two of
- * them and the objects are constants, so building one on every request would be
- * work for nothing.
+ * `responseHeaders` is built per surface rather than per request: there are two
+ * of them and the objects are constants, so building one on every request would
+ * be work for nothing. Both say `X-Robots-Tag: noindex`, whatever the surface.
  */
-const appHeaders = secureHeaders(
+const appHeaders = responseHeaders(
   securityHeaderOptions(getConfig().isProduction, {
     surface: "app",
     reportOnly: getConfig().cspReportOnly,
     ads: adsEnabled(),
   }),
 );
-const stripeHeaders = secureHeaders(
+const stripeHeaders = responseHeaders(
   securityHeaderOptions(getConfig().isProduction, {
     surface: "stripe",
     reportOnly: getConfig().cspReportOnly,
@@ -2113,8 +2117,8 @@ const wantsFrames = (c: Context<AppEnv>) => acceptsFrames(c.req.header("Accept")
  * The refusal a terminal frame carries: the envelope, without the status.
  *
  * A frame has no status line to put one on — the 200 went out with the first
- * frame — and the browser reads the code, which every refusal on these two
- * paths already has.
+ * frame — and the browser reads the code, which every refusal on the three
+ * streaming paths already has.
  */
 const framedRefusal = (error: unknown) => errorEnvelope(error, "stream").envelope;
 
@@ -2186,6 +2190,33 @@ app.get("/api/v1/ledger-file", async (c) => {
   c.header("Content-Type", LEDGER_FILE_MEDIA_TYPE);
   c.header("Content-Disposition", `attachment; filename="${result.fileName}"`);
   return c.body(result.ledgerFile);
+});
+// Reading one back. The colon is the house's spelling for a custom method on a
+// collection (`http.md`), and Hono matches it as a literal: neither path has a
+// parameter, so a request for `ledger-file%3Apreview` is a 404 rather than
+// either of these.
+//
+// The preview is a POST that reads, because a file of up to sixteen mebibytes
+// does not fit in a query string, and writes nothing at all.
+app.post("/api/v1/ledger-file:preview", async (c) =>
+  c.json(
+    await previewLedgerFile(c.get("actor"), ledgerFilePreviewInputSchema.parse(await body(c))),
+  ),
+);
+// Streamed the way `csv/stage` is, and parsed first for the same reason: a
+// body that was never an add request is a 422 with a status line to say so,
+// not a 200 and an error frame. What only reading the file and the ledger
+// can find arrives as the terminal frame.
+app.post("/api/v1/ledger-file:add", async (c) => {
+  const input = ledgerFileAddInputSchema.parse(await body(c));
+  if (!wantsFrames(c)) return c.json(await addLedgerFile(c.get("actor"), input));
+  const { response, settled } = streamProgress(
+    c,
+    (report) => addLedgerFile(c.get("actor"), input, { onProgress: report }),
+    framedRefusal,
+  );
+  c.set("streamSettled", settled);
+  return response;
 });
 
 app.get("/api/v1/summary", async (c) =>

@@ -83,6 +83,14 @@ export function canonicalDecimal(value: string | Decimal): string {
   return result === "-0" ? "0" : result;
 }
 
+/**
+ * What says, in somebody's history, where a record came from. A form and a
+ * tool create with `create`; adding a Simple Balance file passes its own, the
+ * way a CSV import's categories say `create_from_csv`, so the Activity page can
+ * tell a record somebody made from one a file brought.
+ */
+export type CreateAuditOptions = { readonly auditOperation?: string };
+
 export async function writeAudit(
   tx: DbTransaction,
   actor: Actor,
@@ -252,6 +260,27 @@ export function idempotencyRequestHash(requestPayload: unknown): string {
     throw new TypeError("Idempotency payload must be JSON serializable");
   }
   return createHash("sha256").update(canonicalPayload).digest("hex");
+}
+
+/**
+ * Whether PostgreSQL refused a write for breaking the unique index or
+ * constraint whose name starts with `name`.
+ *
+ * By prefix rather than by equality, because a Citus cluster gives each shard's
+ * copy of an index the name with the shard's number after it —
+ * `transaction_user_import_origin_unique_102220` — and the refusal names the
+ * copy that refused. Read off `cause` as well as the error itself, because
+ * Drizzle wraps the driver's error and the code and the name are on the
+ * original, one level down (`isMissingUserViolation` in `billing.ts` found that
+ * against a real PostgreSQL).
+ */
+export function isUniqueViolation(error: unknown, name: string): boolean {
+  const candidates = [error, (error as { cause?: unknown } | null)?.cause];
+  return candidates.some((candidate) => {
+    const code = (candidate as { code?: unknown } | null)?.code;
+    const constraint = (candidate as { constraint?: unknown } | null)?.constraint;
+    return code === "23505" && typeof constraint === "string" && constraint.startsWith(name);
+  });
 }
 
 /**

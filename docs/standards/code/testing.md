@@ -5,10 +5,10 @@ keeping.
 
 | Tier | Files | Runs with | Needs |
 | --- | --- | --- | --- |
-| Unit (node) | 223 | `npm test` | nothing |
-| Unit (jsdom) | 65 | `npm test` | nothing |
-| Integration | 87 | `npm test` **or** `npm run test:integration` | PostgreSQL |
-| Browser | 9 | `npm run test:browser` | PostgreSQL, Chromium |
+| Unit (node) | 226 | `npm test` | nothing |
+| Unit (jsdom) | 66 | `npm test` | nothing |
+| Integration | 90 | `npm test` **or** `npm run test:integration` | PostgreSQL |
+| Browser | 10 | `npm run test:browser` | PostgreSQL, Chromium |
 
 **`npm test` collects the integration tier too**, which surprises people and is
 worth stating plainly. `vitest.config.ts:21` excludes four things and only two
@@ -23,15 +23,15 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 290 pass, 85 skip | **3,423 pass, 964 skip** |
-| `npm test`, database set | 375 pass | **4,387 pass** |
-| `npm run test:integration` | 87 pass | 967 pass |
+| `npm test`, no database | 294 pass, 88 skip | **3,561 pass, 998 skip** |
+| `npm test`, database set | 382 pass | **4,559 pass** |
+| `npm run test:integration` | 90 pass | 1,001 pass |
 
-The integration tier reports 967 tests on its own and 964 skips inside a
+The integration tier reports 1,001 tests on its own and 998 skips inside a
 database-less `npm test`, and the three-test difference is not an error: three
 cases in that tier need no database and so run either way. They are counted
-among the 3,423 rather than among the skips, which is why the two rows add up
-to 4,387 both times.
+among the 3,561 rather than among the skips, which is why the two rows add up
+to 4,559 both times.
 
 The third row is three tests larger than the first row's skip count, and the
 odd ones out are worth knowing. `bulk-transactions-mcp.integration.test.ts` has
@@ -42,7 +42,7 @@ question about the router rather than about a ledger. All three run on every
 `npm test`, database or not, and that file therefore counts as passing rather
 than skipped in the first row.
 
-The first row is what CI and `npm run verify` see, and 3,423 is the number that
+The first row is what CI and `npm run verify` see, and 3,561 is the number that
 actually gates a change by default. The second is what a developer with a local
 PostgreSQL sees, and it is strictly better. Reporting the second as though it
 were the first overstates what the gate covers, which is a mistake worth naming
@@ -99,9 +99,9 @@ two assumptions with nothing watching.
 
 ### 1.2 The browser tier is small on purpose
 
-**House.** Nine files, one worker, against a real API and a real PostgreSQL.
+**House.** Ten files, one worker, against a real API and a real PostgreSQL.
 `budgets.spec.ts` is the one that drives flows — twenty-three tests of a person
-getting through the budgets page — and the other eight are each here rather than
+getting through the budgets page — and the other nine are each here rather than
 in jsdom for the reason 1.1 gives: what they assert is something only a layout,
 paint or focus engine computes. `plan-buttons.spec.ts` measures an offset
 between two buttons, `progress-paint.spec.ts` reads a progress bar's pixels,
@@ -120,7 +120,13 @@ holds what the export form is only once a browser runs its markup: the arrow
 keys choosing inside a radio group and Tab leaving it, Enter in a date field
 submitting the one form, and a real download saved under the name the response
 gave — and the exact query string each of those sends, because the route that
-reads it is a half of the stack the page cannot see. The tier is slow and it is
+reads it is a half of the stack the page cannot see. `ledger-file-import.spec.ts`
+holds the import beside it the same way: a real file chosen through the drop
+zone's input from the keyboard, the arrows moving inside each question's radio
+group, Enter in a copy's name submitting the add, a streamed reply read as
+frames with focus landing on the sentence saying what was done, and a file over
+ten thousand rows cut by the splitter's real limits into two parts, each with
+its own key from one attempt. The tier is slow and it is
 the only one that proves the whole stack works, so it covers a path per
 capability rather than a case per branch. `tests/testing-guide-counts.test.ts` holds the
 first of those numbers to the file it counts, because it sat at eleven while the
@@ -130,13 +136,19 @@ than the tier table above.
 Everything it asserts that a cheaper tier could assert is a test in the wrong
 place.
 
-**Two specs do not drive the whole stack, and that is the boundary.**
+**Three specs do not drive the whole stack, and that is the boundary.**
 `plan-buttons.spec.ts:110` intercepts the one response the plan tab reads and
-answers it from the spec, and `ledger-file-export.spec.ts` answers the export
-route. The second's reason is the simpler one: what it asks is what the page
-sends and does with the answer, and the file the server builds is the
-integration tier's to check, through the same route
-(`tests/integration/ledger-file-export-route.integration.test.ts`). The
+answers it from the spec, `ledger-file-export.spec.ts` answers the export
+route, and `ledger-file-import.spec.ts` answers the import's preview and add
+(through `tests/browser/support/ledger-file-import.ts`, which `reflow.spec.ts`
+and `target-size.spec.ts` share to reach the import's states). The second's
+and third's reason is the simpler one: what they ask is what the page sends
+and does with the answer, and what the server does with a file is the
+integration tier's to check, through the same routes
+(`tests/integration/ledger-file-export-route.integration.test.ts` and
+`tests/integration/ledger-file-add-route.integration.test.ts`). The answers are not invented, either: the
+import's are worked out by the shared planner the server runs, and every body
+is parsed with the route's own schema before it is answered. The
 first's takes longer, and it is not convenience: a priced button exists only at
 a price Stripe gave, so reaching that state for real needs a Stripe account, its
 keys in the server's environment, and a subscription already running against
@@ -296,7 +308,7 @@ read a figure that is true of what it created and is also a property of
 something larger:
 
 - `rollover.from` is the earliest `activeFrom` across *every* plan the actor
-  holds (`src/server/services/budgets.ts:1117`). The forecast tests anchor one
+  holds (`src/server/services/budgets.ts:1109`). The forecast tests anchor one
   in 2020 to give a stepped chain a base, so shuffled ahead of it the carry
   origin answered 2020.
 - `period.unfunded` is null when nobody anywhere set a funding order, which the
@@ -490,32 +502,33 @@ reason long enough to be one.
 
 ## 4. The vitest plugin is off
 
-**Contested, decided.** `oxlint --vitest-plugin` reports 812 findings on this
-suite. 541 of them are false against Vitest's own API:
+**Contested, decided.** `oxlint --vitest-plugin` reports 845 findings on this
+suite. 569 of them are false against Vitest's own API:
 
-- **`valid-expect`, 377.** It refuses `expect(value, message)`. That is a Jest
+- **`valid-expect`, 395.** It refuses `expect(value, message)`. That is a Jest
   rule; in Vitest the second argument is the assertion message and is correct.
-- **`valid-describe-callback` and `valid-title`, 164.** Both fire on
+- **`valid-describe-callback` and `valid-title`, 174.** Both fire on
   `const integration = describe.skipIf(!connection)` — the alias every
   integration file uses to skip cleanly without a database — one of each in the
-  eighty-two files that declare it, and in no file that does not. The plugin
+  eighty-seven files that declare it, and in no file that does not. The plugin
   cannot see through the alias.
 
 A plugin that is 67% wrong on this codebase would train everybody to ignore
 lint output. Off, and this section is the reason so nobody turns it back on.
 
-**The remainder is not 271 real findings either.** The second-largest rule in
-the whole output is `require-mock-type-parameters`, 174 of them, and every one
+**The remainder is not 276 real findings either.** The second-largest rule in
+the whole output is `require-mock-type-parameters`, 176 of them, and every one
 says the same thing: `vi.fn()` should have been `vi.fn<() => void>()`. That is a
 style preference about a call Vitest types perfectly well without it, and this
 repository has not adopted it. Counting it among the findings a reviewer would
 act on is what the first two paragraphs warn about, one level down — so the
-remainder that is actually about this suite's behavior is 97, not 271. The four
+remainder that is actually about this suite's behavior is 100, not 276. The four
 smaller rules that make it up are the ones worth a look if the plugin is ever
 reconsidered.
 
-Those numbers read 625, 397, 263 and 134 when they were last measured, 272,
-189, 89 and 100 a release before that, and before that 231, 163, 65 and 98. Nothing holds them to the suite. They climb with it, because the
+Those numbers read 812, 541, 377 and 164 when they were last measured, 625,
+397, 263 and 134 earlier in the same release, 272, 189, 89 and 100 a release
+before that, and before that 231, 163, 65 and 98. Nothing holds them to the suite. They climb with it, because the
 shapes the plugin misreads are the shapes a new integration file and a new
 message-carrying assertion both use, so the finding count grows fastest exactly
 where it is wrongest. Re-measure with
@@ -549,15 +562,15 @@ it, drop it in `afterAll`. Files then do not race, which matters because
 
 The sequence has a helper, and a new file should take it rather than re-roll
 it: `scratchDatabase()` in `tests/integration/support/scratch-database.ts`
-creates, migrates and registers the drop in one call, and 57 of the 85 files
+creates, migrates and registers the drop in one call, and 60 of the 90 files
 use it. The files that predate it manage their own admin client, and their
 teardowns had drifted to an unguarded four-step sequence where the first step
 throwing strands the database and the connection both — the exact failure the
 helper exists to end, and its docstring says so. `dropScratchDatabase` covers
 the 13 hand-rolled files that only need the guarded teardown.
 
-Fifty-seven, thirteen and fifteen, which is the whole eighty-five. The last
-fifteen take neither helper and hand-roll all of it — their own admin client,
+Sixty, thirteen and seventeen, which is the whole ninety. The last
+seventeen take neither helper and hand-roll all of it — their own admin client,
 their own `create database`, their own `runMigrations`, their own drop. They are
 not doing anything else; they are the group the helper was written for and the
 group nothing has converted yet. Counting them is the point of writing the three

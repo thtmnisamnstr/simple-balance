@@ -886,6 +886,17 @@ export const csvRowsStaged = new Counter({
 });
 
 /**
+ * The same question for a Simple Balance file, kept apart from the CSV's
+ * because the two answer different things about a deployment: a bank
+ * statement read in, against a ledger moved in from another copy.
+ */
+export const ledgerFileRowsStaged = new Counter({
+  name: `${prefix}ledger_file_rows_staged_total`,
+  help: "Rows a Simple Balance file placed in the review queue.",
+  registers: [registry],
+});
+
+/**
  * What is deployed, as the one gauge every Prometheus setup expects.
  *
  * A scrape that cannot say which version produced it is a scrape you cannot

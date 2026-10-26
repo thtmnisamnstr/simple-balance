@@ -1,6 +1,15 @@
-import { existsSync, readFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import app from "../src/server/api.js";
 import { getConfig } from "../src/server/config.js";
 import {
@@ -275,8 +284,13 @@ describe("static files at the root of the client bundle", () => {
    * `/robots.txt` reached the single-page shell, which a crawler reads as a
    * robots file with no rules in it, found by the 0.2.0 sandbox smoke test. It
    * is a file in public/, so the bundle-root handler above serves it.
+   *
+   * For a release it turned every crawler but AdSense's away, and that kept a
+   * search engine from ever reading the `noindex` every response carries — the
+   * block at the foot of this file — so an address somebody linked to could
+   * still be listed. It lets them all in now, and the header does the keeping.
    */
-  it("ships a robots file that keeps every page out of a search index", () => {
+  it("ships a robots file that lets every crawler in to read the noindex", () => {
     const robots = readFileSync(
       path.join(import.meta.dirname, "..", "public", "robots.txt"),
       "utf8",
@@ -286,7 +300,14 @@ describe("static files at the root of the client bundle", () => {
       .map((group) => group.split("\n").filter((line) => line && !line.startsWith("#")))
       .filter((lines) => lines.length);
     const everyone = groups.find((lines) => lines.includes("User-agent: *"));
-    expect(everyone).toContain("Disallow: /");
+    // The allowance beside the absence: a file whose `*` group had gone would
+    // disallow nothing at all and pass the second assertion alone.
+    expect(everyone).toContain("Allow: /");
+    expect(groups.flat().filter((line) => /^Disallow:\s*\S/i.test(line))).toEqual([]);
+    // Google ignores `*` for AdSense's crawler, so the group naming it is the
+    // only rule it reads, and the one place its allowance can be said.
+    const adsense = groups.find((lines) => lines.includes("User-agent: Mediapartners-Google"));
+    expect(adsense, "AdSense's own group, the only one its crawler reads").toContain("Allow: /");
   });
 
   it("keeps the icon the document asks for in the bundle", () => {
@@ -304,6 +325,153 @@ describe("static files at the root of the client bundle", () => {
         existsSync(path.join(import.meta.dirname, "..", "public", file)),
         `public/${file} is referenced by index.html`,
       ).toBe(true);
+    }
+  });
+});
+
+/**
+ * The other half of the robots file above: everything this process answers
+ * says `noindex`, so a crawler let in reads it and leaves the page out.
+ *
+ * Asked of real requests, in production with a bundle beside the process,
+ * because the pages and the files out of the bundle exist only then and they
+ * are what a search engine was finding. `npm run verify` runs this before the
+ * build, so the bundle is made here the way `tests/metrics-http-pages.test.ts`
+ * makes one: a scratch directory holding the shell, an icon, a hashed asset and
+ * the real robots file, made the working directory while this block runs. The
+ * repository's own `dist/` is never touched.
+ */
+describe("a noindex on every response", () => {
+  const environment = { ...process.env };
+  const startedIn = process.cwd();
+  const origin = "https://books.example";
+  let bundle = "";
+  let server: { request: (input: string, init?: RequestInit) => Promise<Response> };
+
+  beforeAll(async () => {
+    bundle = mkdtempSync(path.join(tmpdir(), "simple-balance-noindex-"));
+    const client = path.join(bundle, "dist", "client");
+    mkdirSync(path.join(client, "assets"), { recursive: true });
+    writeFileSync(path.join(client, "index.html"), "<!doctype html><title>shell</title>");
+    writeFileSync(path.join(client, "favicon.svg"), "<svg></svg>");
+    writeFileSync(path.join(client, "assets", "index-0000beef.js"), "export {};");
+    copyFileSync(
+      path.join(import.meta.dirname, "..", "public", "robots.txt"),
+      path.join(client, "robots.txt"),
+    );
+    process.chdir(bundle);
+    Object.assign(process.env, {
+      NODE_ENV: "production",
+      DATABASE_URL: "postgresql://nobody:nothing@127.0.0.1:1/none",
+      APP_BASE_URL: origin,
+      AUTH_SECRET: "api-security-noindex-secret-at-least-32-characters",
+    });
+    // Production says so about `NODE_ENV` at import, which is not what this
+    // block is about.
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.resetModules();
+    server = ((await import("../src/server/api.js")) as { default: typeof server }).default;
+  });
+
+  afterAll(() => {
+    process.chdir(startedIn);
+    rmSync(bundle, { recursive: true, force: true });
+    process.env = { ...environment };
+    vi.restoreAllMocks();
+    vi.resetModules();
+  });
+
+  // Each one names what answered it as well as the header, so a row that fell
+  // through to the shell, or to a 404 nobody meant, cannot pass for the
+  // response it is named after. `/ads.txt` exists only where AdSense is
+  // configured and is asked in `tests/ads-txt.test.ts`, which configures it.
+  it.each([
+    { what: "the shell", target: "/", status: 200, says: "<title>shell</title>" },
+    { what: "the shell at a page's address", target: "/budgets", status: 200, says: "shell" },
+    { what: "a file beside the shell", target: "/favicon.svg", status: 200, says: "<svg>" },
+    { what: "a hashed asset", target: "/assets/index-0000beef.js", status: 200, says: "export" },
+    { what: "the robots file", target: "/robots.txt", status: 200, says: "User-agent: *" },
+    { what: "an API answer", target: "/health/live", status: 200, says: '"status":"ok"' },
+  ])("is said on $what", async ({ target, status, says }) => {
+    const response = await server.request(`${origin}${target}`);
+    expect(response.status).toBe(status);
+    expect(await response.text()).toContain(says);
+    // Exactly the one value: a second middleware saying it as well would make
+    // this `noindex, noindex`, which is harmless and means two places to keep.
+    expect(response.headers.get("x-robots-tag")).toBe("noindex");
+  });
+
+  it("is said on a refusal, which a guard answers before any route runs", async () => {
+    const response = await server.request(`${origin}/api/v1/preferences`, {
+      method: "PUT",
+      headers: { origin: "https://attacker.example", "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(response.status).toBe(403);
+    expect(await refusalCode(response)).toBe("CROSS_ORIGIN_REQUEST");
+    expect(response.headers.get("x-robots-tag")).toBe("noindex");
+  });
+});
+
+/**
+ * The split deployment's nginx serves the shell, the assets and the robots file
+ * itself, so none of them pass through the middleware above, and it says the
+ * header again for them.
+ *
+ * `tests/security-header-parity.test.ts` holds each header snippet to the
+ * API's headers value for value, and so already fails on a snippet that drops
+ * this one. What it cannot see is a location that answers with a file and
+ * includes no snippet at all, which would send the shell with no header and
+ * fail nothing — so every location in the template is read, and each either
+ * proxies to the API, which says it, or includes a snippet the image installs
+ * that says it too.
+ */
+describe("a noindex on what the frontend nginx serves itself", () => {
+  const docker = path.join(import.meta.dirname, "..", "deploy", "docker");
+  const template = readFileSync(path.join(docker, "nginx.conf.template"), "utf8");
+  // Read off the image's own COPY lines rather than listed here, so a snippet
+  // installed under another name is followed to the file it really is.
+  const installed = new Map(
+    [
+      ...readFileSync(path.join(docker, "frontend.Dockerfile"), "utf8").matchAll(
+        /^COPY deploy\/docker\/(\S+) (\/etc\/nginx\/snippets\/\S+)$/gm,
+      ),
+    ].map((match) => [match[2]!, match[1]!] as const),
+  );
+  const locations = [
+    ...template.matchAll(/^ {2}location\s+([^{]+?)\s*\{\n([\s\S]*?)^ {2}\}$/gm),
+  ].map((match) => ({ match: match[1]!, body: match[2]! }));
+  const proxies = (body: string) => /^\s*proxy_pass\s/m.test(body);
+
+  it("is said on every file it serves, and passed through from the API on the rest", () => {
+    // Every `location` the template declares, against the ones the pattern
+    // read. A block it cannot parse — one written on a single line, or
+    // indented differently — is a failure here rather than a location nobody
+    // checked, which is exactly the shape that would serve a file bare.
+    expect(locations).toHaveLength(template.match(/^\s*location\b/gm)?.length ?? 0);
+    // Both kinds found, so a pattern that stopped matching the template cannot
+    // pass over an empty list.
+    expect(locations.filter((location) => proxies(location.body)).length).toBeGreaterThan(0);
+    // Passed through means passed through: a proxying location that hid the
+    // API's header would serve every API answer without it.
+    for (const location of locations.filter(({ body }) => proxies(body))) {
+      expect(location.body, `location ${location.match}`).not.toMatch(
+        /^\s*proxy_hide_header\s+X-Robots-Tag\s*;/im,
+      );
+    }
+    const serving = locations.filter((location) => !proxies(location.body));
+    expect(serving.map((location) => location.match)).toEqual(
+      expect.arrayContaining(["/assets/", "/"]),
+    );
+    for (const location of serving) {
+      const snippet = /^\s*include\s+(\S+);/m.exec(location.body)?.[1];
+      expect(snippet, `location ${location.match} includes a header snippet`).toBeDefined();
+      const source = installed.get(snippet!);
+      expect(source, `the image installs ${snippet}`).toBeDefined();
+      expect(readFileSync(path.join(docker, source!), "utf8"), source).toMatch(
+        /^add_header X-Robots-Tag "noindex" always;$/m,
+      );
     }
   });
 });

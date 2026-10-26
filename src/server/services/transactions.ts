@@ -46,6 +46,7 @@ import {
   transactionUpdateSchema,
   type EntryType,
 } from "../../shared/domain.js";
+import { importOriginsDiffer } from "../../shared/ledger-file-import.js";
 import { getDb, type Database, type DbTransaction, withTransaction } from "../db/client.js";
 import {
   categories,
@@ -154,8 +155,13 @@ function transactionView(
   category?: CategoryLabel | null,
   legs: TransactionLegView[] = [],
 ) {
+  // An origin is how a ledger recognizes an entry it was handed in a Simple
+  // Balance file. No form or tool can act on it, so it is not part of what an
+  // entry looks like to anybody, and a field published by accident is one a
+  // later release could only take away behind a deprecation.
+  const { importOrigin: _importOrigin, ...shown } = row;
   return {
-    ...serializeRow(row),
+    ...serializeRow(shown),
     sourceAmount: row.sourceAmount ? canonicalDecimal(row.sourceAmount) : null,
     destinationAmount: row.destinationAmount ? canonicalDecimal(row.destinationAmount) : null,
     effectiveRate: row.effectiveRate ? canonicalDecimal(row.effectiveRate) : null,
@@ -795,7 +801,11 @@ async function resyncLegs(
  */
 function auditedTransaction(row: TransactionRow, legs: readonly TransactionLegRow[]) {
   const live = legs.filter((leg) => !decimal(leg.amount).isZero());
-  const serialized = serializeRow(row);
+  // Without the origin, for the reason `transactionView` leaves it out: the
+  // history is served over both transports, and a staged row's snapshot,
+  // built from its view, already has none.
+  const { importOrigin: _importOrigin, ...recorded } = row;
+  const serialized = serializeRow(recorded);
   if (!live.length) return serialized;
   return {
     ...serialized,
@@ -1113,7 +1123,10 @@ export async function createTransactionWithinTx(
   input: TransactionDraft,
   auditOperation = "create",
   allowDuplicate = false,
-  options: { freeze?: AccountFreeze } = {},
+  // `importOrigin` is an option and never a draft field, so no form, tool or
+  // staged draft can set one: only the staged commit passes it, copying what
+  // a row from a Simple Balance file arrived with onto the entry it becomes.
+  options: { freeze?: AccountFreeze; importOrigin?: string | null } = {},
 ) {
   // A named category becomes a real one here rather than inside
   // prepareTransaction, which is also how a staged row is checked and must
@@ -1127,8 +1140,12 @@ export async function createTransactionWithinTx(
   await lockAccountReferences(tx, actor, draftAccountIds(input));
   const draft = await resolveDraftCategory(tx, actor, input);
   const prepared = await prepareTransaction(tx, actor, draft, { freeze: options.freeze });
-  await assertDuplicateAllowed(tx, actor, draft, allowDuplicate);
-  const [created] = await tx.insert(transactions).values(prepared.transaction).returning();
+  const importOrigin = options.importOrigin ?? null;
+  await assertDuplicateAllowed(tx, actor, draft, allowDuplicate, undefined, importOrigin);
+  const [created] = await tx
+    .insert(transactions)
+    .values({ ...prepared.transaction, importOrigin })
+    .returning();
   const legIds = await resyncLegs(tx, actor, created.id, prepared.legs);
   await tx.insert(postings).values(withLegIds(prepared.postings, legIds, created.id));
   await writeAudit(tx, actor, {
@@ -1888,19 +1905,23 @@ async function assertBulkDuplicatesAllowed(
   allowDuplicates: boolean,
 ) {
   const selectedIds = new Set(plans.map((plan) => plan.before.id));
-  const selectedByKey = new Map<string, string>();
+  // The origin rides beside the id, so two entries a Simple Balance file
+  // brought from two separate commits — which share a key exactly when they
+  // look alike — are not refused as one entry twice (`findDuplicate`).
+  const selectedByKey = new Map<string, { id: string; origin: string | null }>();
   for (const plan of plans) {
     if (plan.before.deletedAt !== null) continue;
     for (const key of transactionDuplicateKeys(plan.draft)) {
-      const duplicateOfSelectedId = selectedByKey.get(key);
-      if (duplicateOfSelectedId && !allowDuplicates) {
+      const seen = selectedByKey.get(key);
+      const repeats = seen && !importOriginsDiffer(seen.origin, plan.before.importOrigin);
+      if (repeats && !allowDuplicates) {
         throw duplicate("Two selected transactions appear to be duplicates", {
           transactionId: plan.before.id,
-          duplicateOfSelectedId,
+          duplicateOfSelectedId: seen.id,
         });
       }
-      if (!duplicateOfSelectedId) {
-        selectedByKey.set(key, plan.before.id);
+      if (!seen) {
+        selectedByKey.set(key, { id: plan.before.id, origin: plan.before.importOrigin });
       }
     }
   }
@@ -1928,12 +1949,15 @@ async function assertBulkDuplicatesAllowed(
     .orderBy(transactions.id);
   for (const row of activeRows) {
     if (selectedIds.has(row.id)) continue;
-    const collidedSelectedId = transactionDuplicateKeys(transactionToDraft(row))
+    const collided = transactionDuplicateKeys(transactionToDraft(row))
       .map((key) => selectedByKey.get(key))
-      .find((id): id is string => Boolean(id));
-    if (collidedSelectedId) {
+      .find(
+        (seen): seen is { id: string; origin: string | null } =>
+          seen !== undefined && !importOriginsDiffer(seen.origin, row.importOrigin),
+      );
+    if (collided) {
       throw duplicate("A selected transaction matches another transaction", {
-        transactionId: collidedSelectedId,
+        transactionId: collided.id,
         duplicateOfId: row.id,
       });
     }
@@ -2469,7 +2493,7 @@ export async function updateTransaction(
       wrote = false;
       return hydrateTransaction(tx, actor, before);
     }
-    await assertDuplicateAllowed(tx, actor, resolvedDraft, allowDuplicate, id);
+    await assertDuplicateAllowed(tx, actor, resolvedDraft, allowDuplicate, id, before.importOrigin);
     const [updated] = await tx
       .update(transactions)
       .set({
@@ -2569,7 +2593,14 @@ export async function setTransactionDeleted(
     }
     assertAccountsWritable(await accountFreeze(tx, actor), entryAccountIds);
     if (!deleted && before.deletedAt) {
-      await assertDuplicateAllowed(tx, actor, transactionToDraft(before), allowDuplicate, id);
+      await assertDuplicateAllowed(
+        tx,
+        actor,
+        transactionToDraft(before),
+        allowDuplicate,
+        id,
+        before.importOrigin,
+      );
     }
     const [updated] = await tx
       .update(transactions)
@@ -2654,13 +2685,28 @@ function categoriesReleasedBy(
   return [...held(before)].filter((id) => !kept.has(id));
 }
 
+/**
+ * `importOrigin` is the origin of the entry being checked, when it came from a
+ * Simple Balance file. Two entries that both carry one and carry different
+ * ones are two entries the ledger they came from committed separately — two
+ * coffees on one morning — and neither is a candidate for the other, by the
+ * external id or by the look of it. An entry without one, typed here or read
+ * from a CSV, is compared exactly as before, because nothing else can tell
+ * the two apart (`importOriginsDiffer` in `src/shared/ledger-file-import.ts`,
+ * which is the same rule written for two values in hand).
+ */
 export async function findDuplicate(
   tx: DbTransaction,
   actor: Actor,
   draft: TransactionDraft,
   excludeTransactionId?: string,
+  importOrigin: string | null = null,
 ) {
   const exclusion = excludeTransactionId ? ne(transactions.id, excludeTransactionId) : sql`true`;
+  const sameOrigin =
+    importOrigin === null
+      ? sql`true`
+      : or(isNull(transactions.importOrigin), eq(transactions.importOrigin, importOrigin))!;
   if (draft.externalId) {
     const [exact] = await tx
       .select({ id: transactions.id })
@@ -2670,6 +2716,7 @@ export async function findDuplicate(
           eq(transactions.userId, actor.userId),
           isNull(transactions.deletedAt),
           exclusion,
+          sameOrigin,
           eq(transactions.externalId, draft.externalId),
         ),
       )
@@ -2709,6 +2756,7 @@ export async function findDuplicate(
         eq(transactions.userId, actor.userId),
         isNull(transactions.deletedAt),
         exclusion,
+        sameOrigin,
         eq(transactions.type, draft.type),
         eq(transactions.date, draft.date),
         sql`lower(regexp_replace(trim(normalize(${transactions.payee}, NFKC)), '\\s+', ' ', 'g')) = ${normalizeHumanName(draft.payee)}`,
@@ -2822,9 +2870,10 @@ async function assertDuplicateAllowed(
   draft: TransactionDraft,
   allowDuplicate: boolean,
   excludeTransactionId?: string,
+  importOrigin: string | null = null,
 ) {
   await lockTransactionDuplicateKeys(tx, actor, [draft]);
-  const duplicateOfId = await findDuplicate(tx, actor, draft, excludeTransactionId);
+  const duplicateOfId = await findDuplicate(tx, actor, draft, excludeTransactionId, importOrigin);
   if (duplicateOfId && !allowDuplicate) {
     throw duplicate("This transaction appears to be a duplicate", {
       duplicateOfId,

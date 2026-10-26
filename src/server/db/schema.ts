@@ -28,6 +28,7 @@ import {
   actorSources,
   billingOperationStates,
   categoryKinds,
+  importBatchKinds,
   plans,
   MAX_RECURRENCE_INTERVAL,
   MAX_TRANSACTION_LEGS,
@@ -212,6 +213,7 @@ export const budgetAmountRuleEnum = pgEnum("budget_amount_rule", budgetAmountRul
 export const budgetGroupPolicyEnum = pgEnum("budget_group_policy", budgetGroupPolicies);
 export const planEnum = pgEnum("billing_plan", plans);
 export const billingOperationStateEnum = pgEnum("billing_operation_state", billingOperationStates);
+export const importBatchKindEnum = pgEnum("import_batch_kind", importBatchKinds);
 
 export const userPreferences = pgTable(
   "user_preferences",
@@ -435,6 +437,13 @@ export const importBatches = pgTable(
     delimiter: text("delimiter").notNull(),
     mapping: jsonb("mapping").notNull(),
     rowCount: integer("row_count").notNull(),
+    // A CSV or a Simple Balance file. The delimiter and the mapping above
+    // describe a CSV and mean nothing for the other, so the batch says which it
+    // was rather than leaving an empty mapping to be read as a CSV nobody
+    // mapped. `csv` by default, because every batch written before the
+    // ledger-file import was one, and a constant default is what lets 0026 add
+    // the column without rewriting a row.
+    kind: importBatchKindEnum("kind").default("csv").notNull(),
     ...timestamps,
   },
   (table) => [
@@ -461,6 +470,16 @@ export const transactions = pgTable(
     // leaves the transactions made from it untouched, which a restricting key
     // would forbid and a cascading one would turn into data loss.
     templateId: uuid("template_id"),
+    // The id this entry was first written under, when it arrived in a Simple
+    // Balance file: identity, and nothing else. It is what recognizes the same
+    // entry arriving a second time — a transfer in two accounts' files, a
+    // ledger moved away and back — so the second is skipped rather than
+    // flagged, and what an export writes as the entry's id, so the identity
+    // survives every move after the first. Null on an entry written here,
+    // whose own id is its origin. No foreign key, because what it names is a
+    // row in another ledger, and never sent in a view, because nothing on a
+    // page shows it.
+    importOrigin: uuid("import_origin"),
     notes: text("notes"),
     externalId: text("external_id"),
     sourceAccountId: uuid("source_account_id"),
@@ -517,6 +536,18 @@ export const transactions = pgTable(
     index("transaction_user_category_idx").on(table.userId, table.categoryId),
     index("transaction_user_template_idx").on(table.userId, table.templateId),
     index("transaction_external_id_idx").on(table.userId, table.externalId),
+    // One entry per origin per ledger, which is the rule an import's skip
+    // rests on, held where two concurrent imports cannot both pass it.
+    // Unique rather than only indexed because the skip is a read and a read
+    // can race: two parts naming one origin, or a commit landing between an
+    // import's two lookups, would otherwise both write it. Partial, so the
+    // entries typed here — nearly all of them, on most ledgers — cost the
+    // index nothing; and led by the owner, which is what lets Citus enforce
+    // it at all, since a unique index there must hold the distribution
+    // column.
+    uniqueIndex("transaction_user_import_origin_unique")
+      .on(table.userId, table.importOrigin)
+      .where(sql`${table.importOrigin} is not null`),
     check("ledger_transaction_version_check", sql`${table.version} >= 1`),
     check(
       "ledger_transaction_payee_check",
@@ -811,6 +842,12 @@ export const stagedTransactions = pgTable(
     // the row carries: a weekend policy moves the date and leaves this alone.
     // This is the identity an occurrence is proposed exactly once under.
     occurrenceDate: date("occurrence_date"),
+    // The origin of the entry this row will become, when it arrived in a
+    // Simple Balance file, copied onto the entry when the row is committed.
+    // `ledger_transaction.import_origin` says why it exists; here it is also
+    // what stops a second import of the same file staging the row twice while
+    // the first is still waiting for review.
+    importOrigin: uuid("import_origin"),
     version: integer("version").default(1).notNull(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     ...timestamps,
@@ -858,6 +895,14 @@ export const stagedTransactions = pgTable(
     uniqueIndex("staged_recurrence_occurrence_unique")
       .on(table.userId, table.recurrenceId, table.occurrenceDate)
       .where(sql`${table.recurrenceId} is not null`),
+    // One waiting row per origin, and only while it waits, unlike the
+    // occurrence index above. A row somebody discarded is not a decision about
+    // the entry, so importing the file again may stage it again; a row that was
+    // committed has handed its origin to the entry, whose own unique index
+    // holds it from then on.
+    uniqueIndex("staged_user_import_origin_unique")
+      .on(table.userId, table.importOrigin)
+      .where(sql`${table.importOrigin} is not null and ${table.status} = 'staged'`),
     check(
       "staged_transaction_recurrence_check",
       sql`(${table.recurrenceId} is null) = (${table.occurrenceDate} is null)`,

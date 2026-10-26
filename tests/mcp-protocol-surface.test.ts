@@ -144,6 +144,7 @@ describe("the order tools come back in", () => {
     "get_account_register",
     "export_transactions_csv",
     "export_ledger_file",
+    "preview_ledger_file",
     "list_audit_events",
     "list_connected_agents",
     "list_category_groups",
@@ -192,6 +193,7 @@ describe("the order tools come back in", () => {
     "bulk_edit_transactions",
     "set_transaction_deleted",
     "commit_staged_transactions",
+    "add_ledger_file",
   ];
 
   it("is the order registration left them in", async () => {

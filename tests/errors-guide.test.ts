@@ -54,6 +54,17 @@ const SECOND_AUDIENCE = [
       "says what a valid one looks like rather than handing the job to a person.",
   },
   {
+    where: "src/server/services/ledger-file.ts",
+    declaration: "planRefusal",
+    raises: "validationError",
+    times: 1,
+    because:
+      "Adding a Simple Balance file on a plan that keeps fewer accounts in use than the file " +
+      "brings. The browser is offered choosing which arrive archived, or upgrading; an agent " +
+      "can do the first and not the second, so it is told the numbers, the field that takes " +
+      "the choice, and that only the person can raise the limit — the allowance's precedent.",
+  },
+  {
     where: "src/server/services/billing.ts",
     declaration: "closeBillingForDeletion",
     raises: "conflict",

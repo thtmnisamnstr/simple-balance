@@ -62,9 +62,11 @@ and whether the user still has an authentication method enabled by the current
 ## Scopes
 
 - `ledger:read`: accounts, categories, payees, transactions, staging,
-  summaries, CSV export, the Simple Balance file export, and audit history.
+  summaries, CSV export, the Simple Balance file export and its preview, and
+  audit history.
 - `ledger:stage`: read access plus staged transaction and CSV-stage mutations.
-- `ledger:write`: every ledger operation, including direct and staged commits.
+- `ledger:write`: every ledger operation, including direct and staged commits
+  and adding a Simple Balance file.
 
 Both discovery documents advertise all seven scopes — the three above plus
 `openid`, `profile`, `email` and `offline_access` — so a client that reads them
@@ -762,9 +764,8 @@ with their reminders, recurring transactions, budgets, rows waiting in Staged
 transactions, and the person's settings. Records name each other by name rather
 than by id, so the file means the same thing in another copy of Simple Balance.
 It is the format for moving a ledger between copies; a CSV is still the format
-for a spreadsheet or another tool. This release exports only: reading a file
-back into a ledger, from the page or from a tool, arrives in a later release,
-and the file already carries everything that will need.
+for a spreadsheet or another tool. `preview_ledger_file` and `add_ledger_file`
+read one back into this ledger, below.
 
 It takes the same selection the export section of **Import and export** builds.
 `kinds` says which kinds of record travel whole, and a record of a kind left out
@@ -793,6 +794,89 @@ history events together — and at most 4 MiB of activity history. A larger one
 is refused with both numbers in the details and a sentence saying which way out
 works for what was asked, usually a date range at a time. The browser's download
 allows 100,000 rows and 16 MiB.
+
+### Adding a file to this ledger
+
+`preview_ledger_file` reads a file, or one part of one, against this ledger and
+writes nothing. `add_ledger_file` does what the preview says. Both take the
+file as the text `export_ledger_file` returned, in `ledgerFile`, so a file from
+another copy passes straight through an agent with nothing re-encoded.
+
+Records that are not transactions — accounts, categories and groups, templates,
+recurring transactions, budgets — are created at once when nothing here is like
+them, and a record already here that is the same in every field the file
+carries is used with nothing asked. One already here under the same name that
+differs is a `duplicate`, and a record the file only names that nothing here
+answers to is `missing`. Each of those needs a decision before anything is
+written, and its `choices` say exactly which it takes; send nothing for a
+record whose `choices` is empty.
+
+- **A duplicate** takes `use_existing`, `skip` or `rename` with a `name`. An
+  account in another currency can never be the one here, and a recurring
+  transaction is never named by anything else in a file, so both offer only
+  `skip` and `rename`. A budget plan that overlaps a different one here offers
+  only `skip`: nothing here is ever replaced.
+- **A budget's amounts** are decided once per budget, under the key the preview
+  gives it, such as `category:Groceries|EUR|month`. Where some periods differ
+  here and others are new, `use_existing` keeps the amounts here and adds the
+  new ones and `skip` leaves all of the file's out; where none is new, `skip`
+  is the only answer. `periods` says how many are new, already here and
+  different.
+- **A missing record** takes `match` with the `id` of one here — the preview's
+  `here.ids` maps each of this ledger's keys to its id — `create`, or
+  `leave_staged`. `match` is offered only where something here could be chosen,
+  and for an account only one in the same currency is accepted. A group offers
+  `skip` instead of `leave_staged`, because nothing staged names a group, and
+  its categories then come in without one. A template the file only names is
+  never asked about: its provenance is dropped. `create` takes a `name` where
+  the record's own is taken here, and for an account an `openingDate`: one
+  created from its name alone opens at zero, on the first day the part names
+  it unless you send the earliest day across the whole file, which keeps it
+  the same whichever part creates it.
+
+`add_ledger_file` refuses with `VALIDATION_ERROR` and the preview's
+`plan.problems` in `details.issues` until every such record has a decision, and
+then writes all of it or none of it. Each problem names its record by `kind` and
+`key` and carries the numbers its sentence states as fields. No record here is
+ever changed by an import. The settings are the one exception, and only when
+asked: where this copy has chosen its own regional settings and the file's
+differ, `preferences` must say `file` or `keep`, and `file` replaces the
+timezone, default currency and theme chosen here. That is why `add_ledger_file`
+is annotated destructive: confirm `file` with the person, and `set_preferences`
+puts their own back. Where nothing was chosen here, the file's are used.
+
+Entries go to Staged transactions like any import, as complete drafts wherever
+every name resolves, with both sides of a transfer filled in. Each carries the
+id it was first written under, its origin, and an entry or staged row whose
+origin is already here — as an entry, deleted ones included, as a row waiting
+in Staged, or as a row that waited and has since been committed — is skipped
+and counted, never staged twice and never flagged as a duplicate. So a transfer
+in two accounts' files lands once, and a file added a second time stages
+nothing. Two entries with different origins are never duplicates of each other,
+at stage, at commit, on an edit or a restore, or in a bulk edit; one without an
+origin is compared as it always was. Deleted entries are not added, and
+`plan.rows.deleted` counts them.
+
+On a plan that keeps a limited number of accounts in use, `plan.places` says
+how many new accounts the file brings and how many of them have to arrive
+archived; name them in `arriveArchived`, which nobody fills in for you.
+Accounts archived where the file came from arrive archived anyway. Their entries
+still stage, and wait until the account is restored into a free place. Only the
+person can raise the limit, from the browser.
+
+A part carries at most 10,000 entries, staged rows and budget amounts, and at
+most 10,000 accounts, categories, groups, templates, recurring transactions
+and budgets, and `export_ledger_file` returns one part a call. A larger file
+from the browser's download is cut into parts by the import page; sent by an
+agent, each part goes in its own call with the same `decisions`,
+`arriveArchived` and `preferences` and its own `idempotencyKey`, and `part`
+saying which it is. A decision about a record that needs none in a given part —
+because an earlier part created it — is passed over there. A part that failed
+is sent again; one that succeeded replays its answer. Adding creates records
+rather than proposing them, so `add_ledger_file` needs `ledger:write`, and the
+preview, which writes nothing, needs only `ledger:read`; with `ledger:stage`,
+`stage_csv` is the import there is. Moving a whole ledger straight into the
+books of an empty one, deleted entries and all, is not a tool yet.
 
 ## Audit history
 

@@ -13,15 +13,21 @@ voice are settled there and not repeated here. [`csv.md`](csv.md) is the other
 file format, and the two answer different questions: a CSV is for a spreadsheet,
 a bank or another tool, and this is for another copy of this product.
 
-Everything here is grounded in three places. `src/shared/ledger-file.ts` is the
+Everything here is grounded in four places. `src/shared/ledger-file.ts` is the
 format — schema, reader, whole-file rules, writer, splitter and the export
 request — and the browser and the server both use it.
-`src/server/services/ledger-file.ts` reads a ledger and writes the file.
-`GET /api/v1/ledger-file` (`src/server/api.ts:2181-2189`) and the
-`export_ledger_file` tool are the two ways to ask for one, and the Export
-section of **Import and export** is the page that asks. This release exports;
-reading a file back into a ledger arrives in a later one, and the format
-already carries what that needs, because a published format cannot grow a
+`src/shared/ledger-file-import.ts` decides what a file's records become in a
+ledger that may already hold some of them, and both use that too.
+`src/server/services/ledger-file.ts` reads a ledger and writes the file, and
+adds a file to a ledger. `GET /api/v1/ledger-file`,
+`POST /api/v1/ledger-file:preview` and `POST /api/v1/ledger-file:add`
+(`src/server/api.ts:2185-2220`), and the `export_ledger_file`,
+`preview_ledger_file` and `add_ledger_file` tools, are the ways in, and the
+Import a Simple Balance file and Export sections of **Import and export** are
+the page that uses them. Adding a file is the one way to read it back so far
+(sections 12 to 16). Moving a whole ledger straight into the books of an empty
+one arrives in a later change, and the format already carries what that needs
+— deleted entries, archive instants — because a published format cannot grow a
 required field afterwards.
 
 ## 1. Why a second file, and why it is not interchange
@@ -60,9 +66,11 @@ release upgrades cleanly from the one before it." A file written today has to
 import into a copy upgraded years from now, so every release reads every token
 ever published, a field added under a token is added as optional, and anything
 that is not additive is a new token with the old reader kept. That is why the
-file already carries origins, the deleted flag, archive instants, the reminder
-and recurrence watermarks and the balance checks, although the release that
-introduced it only exports. [`writing.md`](writing.md#versioning) counts it as
+file carried origins, the deleted flag, archive instants, the reminder and
+recurrence watermarks and the balance checks from the first export, before
+anything read a file back: adding one uses the origins and the watermarks
+(sections 14 and 16), and the deleted flag and the archive instants wait for
+the move that will use them. [`writing.md`](writing.md#versioning) counts it as
 the fifth surface somebody can depend on.
 
 The top level is strict and is written in this order:
@@ -89,7 +97,7 @@ a side can only ever name an account.
 **House. The layout is fixed, so the bytes are.** The top level indented two
 spaces, every record of every list on a line of its own, an empty list as `[]`,
 keys within a record in the order the schema declares them, and a newline at the
-end (`serializeLedgerFile`, `src/shared/ledger-file.ts:1357-1375`). Fully
+end (`serializeLedgerFile`, `src/shared/ledger-file.ts:1383-1401`). Fully
 indented, one entry is fifteen lines; on one line, a diff of two exports is one
 changed line of forty megabytes. One record per line is what lets somebody find
 an entry by its payee and read it whole. And because the reader hands keys back
@@ -267,11 +275,29 @@ arriving twice, a transfer in two accounts' files or a ledger moved away and
 back, and skip the second. Two coffees bought the same morning have two
 origins, so neither is mistaken for the other. Origins are one identity across
 the entries and the queue together, because an entry and a staged row sharing
-one would be one entry in two places. Until a ledger can keep an origin through
-an import, an entry's origin is its own id.
+one would be one entry in two places. An entry written here has its own id as
+its origin; one that arrived in a Simple Balance file keeps the origin it
+arrived with, in `import_origin` (`drizzle/0026_ledger_file_origins.sql`), and
+is exported under it, so a ledger moved on a second time is still recognized
+by the copy it started in. A staged row is the same.
+
+**A row committed from the queue keeps the row's identity.** A staged row with
+no origin of its own is exported under its own id, and committing it gives the
+entry a new one. So an entry committed from such a row is exported under the
+row's id (`readCommittedFrom`, `src/server/services/ledger-file.ts:663-686`),
+and a file written while the row still waited is skipped once the row is in
+the books, whether or not the entry was deleted since. The id is worked out
+from the queue at export rather than stored in `import_origin`, because an
+entry with an origin reads as having come from a file — to the duplicate
+check, which then stands aside for it, and to whether a ledger qualifies to be
+moved whole — and an entry somebody typed into Staged did not.
 
 *Checked by:* `tests/ledger-file-schema.test.ts` ("an origin"), which refuses
-two records with one origin across the entries and the queue together.
+two records with one origin across the entries and the queue together,
+`tests/ledger-file-export.test.ts` ("writes the origin an entry or a staged row
+arrived with"), and
+`tests/integration/ledger-file-add.integration.test.ts` ("keeps a waiting
+row's identity once it is committed, so a later file adds nothing").
 
 ## 7. What a file preserves, and what it leaves behind
 
@@ -306,7 +332,7 @@ holding it.
 
 **The request is the page's own selection.** One schema for the page, the route
 and the tool (`ledgerFileSelectionSchema`,
-`src/shared/ledger-file.ts:1535-1604`), strict, so an agent can ask for exactly
+`src/shared/ledger-file.ts:1575-1644`), strict, so an agent can ask for exactly
 what the page can. `kinds` names the kinds that travel whole, from
 `preferences`, `categories`, `accounts`, `entries`, `deletedEntries`,
 `templates`, `recurrences`, `budgets`, `staged` and `history`, and the page
@@ -333,7 +359,7 @@ history events by the instant they happened, from the start of `start` to the
 start of the day after `end` where the person lives — worked out by
 `startOfDayIn` rather than by asking the database what day an event fell on,
 which `calendarDayIn` answers and PostgreSQL answers differently for a bare
-offset (`historyConditions`, `src/server/services/ledger-file.ts:409-418`).
+offset (`historyConditions`, `src/server/services/ledger-file.ts:475-484`).
 With entries ranged, **every** whole account carries `carriedForward`, dated
 `start`, whatever its opening date: its `amount` is what the account's postings
 summed to the day before, future-dated ones included, since those entries are
@@ -368,7 +394,7 @@ moves that would work: narrow with a start and end date whatever a range
 narrows, export the staged rows, budgets or history separately when they are
 beside something else, and failing both, commit or discard some staged rows —
 or, for budget amounts alone, say that no one export can carry that many
-(`src/server/services/ledger-file.ts:222-228`, `:440-470`). The activity history
+(`src/server/services/ledger-file.ts:284-290`, `:506-536`). The activity history
 has a second limit, on the bytes of its before and after snapshots, because rows
 do not bound it the way they bound everything else: an event about an edited
 split is ten times an entry's line. Its refusal carries `limit` and `bytes` and
@@ -384,7 +410,7 @@ peaked under 400 MiB resident in the heap a one-gibibyte container gives Node,
 measured on 2026-10-25.
 
 **One snapshot.** Every read happens in one `REPEATABLE READ, READ ONLY`
-transaction (`src/server/services/ledger-file.ts:163-188`), so the sections of a
+transaction (`src/server/services/ledger-file.ts:225-250`), so the sections of a
 file agree with each other. Several reads at the default isolation could name
 an account created between two of them.
 
@@ -430,9 +456,10 @@ holds.
 
 **House.** The ten-thousand-row cap is the same number everywhere, so a file
 larger than that is read in parts, and `splitLedgerFile`
-(`src/shared/ledger-file.ts:1441-1524`) is what cuts them. It ships with the
-export so the format and its splitter are tested together before anything reads
-a part.
+(`src/shared/ledger-file.ts:1473-1564`) is what cuts them. It shipped with the
+export, so the format and its splitter were tested together before anything
+read a part, and the import page cuts every file it is given with it (section
+15).
 
 - **A part is at most ten thousand rows and sixteen mebibytes**
   (`LEDGER_FILE_PART_MAX_BYTES`, `:80`). A row is an entry, a budget amount or a
@@ -449,9 +476,13 @@ a part.
 - **The balance checks travel in the last part only**, because a balance as of
   the file's last day is only true once every entry before it is in.
 - **History is in no part**, because nothing reads it back.
-- **Two refusals**, and no row cap cures either: a records section larger than a
-  part on its own, and a single row too large to fit beside it, which the
-  sentence names — an entry by its date and payee.
+- **Three refusals**, and no row cap cures any of them: more than ten thousand
+  records — groups, categories, accounts, templates, recurring transactions and
+  budget plans, references included — which every part would carry, so no
+  number of parts makes it fit an import's cap on them (`ledgerFileRecordCount`,
+  `:1327-1341`); a records section larger than a part on its own; and a single
+  row too large to fit beside it, which the sentence names — an entry by its
+  date and payee.
 
 *Checked by:* `tests/ledger-file-split.test.ts`, which holds each of these,
 counts UTF-8 against a real encoder, surrogate pairs included, and was
@@ -529,7 +560,415 @@ field removed, renamed, reordered or made required changes the section 3 table,
 and that edit is in front of whoever reviews it. *Not checked:* that a change
 was additive in meaning, which is review.
 
-## 12. What is checked, and what is not
+## 12. Adding a file to a ledger
+
+**Binding.** `AGENTS.md`: "A Simple Balance file's transactions stage like any
+import — complete where every reference resolves, with both sides of a
+transfer filled in — and its deleted entries are not added at all. Its records
+that are not transactions — accounts, categories and groups, templates,
+recurring transactions, budgets — are created directly when nothing like them
+is here, because a new record raises none of the questions the queue is for:
+whether it is already here is the only one, and the preview asks it."
+
+The review queue exists for the questions outside data raises about money:
+does this row repeat something already in the books, which category is it,
+which account did it leave. Every transaction in a file raises them again in
+the ledger it arrives in, so every one stages, and the house rule in
+[`csv.md`](csv.md#8-what-a-round-trip-preserves) holds for them unchanged. An
+account, a category, a template or a budget raises one question, whether this
+ledger already has it, and that is answerable by name before anything is
+written. So the preview asks it, and a record nothing here is like is created
+at once. The two obvious alternatives are both worse. Staging the records too
+has nowhere to put them — the queue holds proposed transactions and has no row
+for an account — and a staged entry cannot commit against an account that is
+itself only proposed, so "bring my accounts across first" would become
+creating each one by hand. Creating every record unasked, a same-named one
+taken for the one here, is a guess: "Checking" in one ledger and "Checking" in
+another can be two banks, and a guess never overwrites a decision.
+
+**House. One planner, at both ends.** What decides every record is
+`planLedgerFileAdd` (`src/shared/ledger-file-import.ts:1304-2363`), pure, and
+the page and the server both run it. The page runs it over the whole file each
+time somebody decides something; the server runs it again over each part, on
+what it reads under the locks its writes will hold, and refuses with the very
+problems the preview listed: the first one's sentence as the message and its
+numbers as fields beside it, and every one, with its own numbers, in
+`details.issues`. A record here is compared with the file's in the form a file
+writes it: the destination is read by the exporter's own snapshot and assembly
+(`readLedgerFileFacts`, `src/server/services/ledger-file.ts:1387-1443`), so "the
+same record" means "would export to the same record". That is what makes a
+record an earlier part created read as the same one when the next part arrives,
+and a file added twice write nothing the second time, without anything keeping a
+list of what an import made.
+
+**Two routes and two tools, and no `dryRun`.**
+`POST /api/v1/ledger-file:preview` and `preview_ledger_file` need `ledger:read`
+and write nothing, not even an audit row. `POST /api/v1/ledger-file:add` and
+`add_ledger_file` need `ledger:write`, because they create records rather than
+propose them, and `ledger:stage` proposes and never decides; a stage-only agent
+keeps `stage_csv`. The add takes the part as text, `fileName`, `idempotencyKey`,
+`part`, `decisions`, `arriveArchived` and `preferences`, and streams progress
+frames when asked, as the CSV stage does. It has no `dryRun`, which every bulk
+route in [`http.md`](http.md#the-bulk-selection-contract) carries, because the
+preview is that question already: it runs the planner the add runs, on the same
+reads, and an add refuses with exactly its problems. Every record the add
+creates and every row it stages is audited as `create_from_ledger_file`, the way
+a CSV's say `create_from_csv`, so Activity says where a record came from.
+
+*Checked by:* `tests/ledger-file-import.test.ts` for the planner, by outcome, by
+count and by sentence; `tests/integration/ledger-file-add.integration.test.ts`
+("previews an empty ledger as everything new, and writes nothing to do it",
+"adds a whole ledger to an empty one: records at once, entries to Staged",
+"writes nothing the second time the same file is added", and "is two tools over
+a real connection, the add only behind ledger:write"); and
+`tests/integration/ledger-file-add-route.integration.test.ts` for the colon
+paths and the frames.
+
+## 13. What each record meets here
+
+**House.** Every record the file carries whole, every record it only names,
+every budget plan and every budget's per-period amounts meets one of five
+things, and is planned in the order records can name each other — groups,
+categories, accounts, templates, recurring transactions, budgets — because
+whether a category here is the same depends on what its group became, and
+whether a budget can come at all on what its category did.
+
+| Outcome | When | What happens |
+| --- | --- | --- |
+| `create` | Nothing here has its name, once case and spacing are set aside (`normalizeHumanName`) | Created, with nothing asked |
+| `exists` | Something here has its name and is the same in every field the file carries | That one is used, and nothing is written |
+| `duplicate` | Something here has its name and differs, or another record of its kind in the file folds to the same name | The person decides |
+| `missing` | A record the file only names, and nothing here answers to it | The person decides, except about a template, below |
+| `refused` | It cannot come in as it stands | Left out with its reason, and nothing to decide |
+
+"The same" is asked of each kind in its own terms, and blank counts as absent
+throughout:
+
+| Kind | The same as the one here when |
+| --- | --- |
+| Category group | Its budget policy matches |
+| Category | Its kind matches, and its group is coming in under the name of the group the one here is in |
+| Account | Its currency, type, opening day and opening balance (as the file's opening works out here, below), institution, notes and whether the budget is about it all match. Whether either is archived or in use is not compared |
+| Template | Its draft matches, with the accounts and categories it names compared by the name each is coming in under and the amounts by value, and so does its reminder's rule, leaving out the three fields the scheduler owns |
+| Recurring transaction | Its shape matches as a template's draft does, and so do its schedule and whether it emails. The last occurrence it decided is not compared |
+| Budget plan | The same target, as it resolves here, currency and period, over a window that overlaps one here: the same in every field is `exists`, anything else `duplicate` |
+| A budget's per-period amounts | Period by period on the resolved target: the same amount is already here, a different one, or a period another budget in the file already filled, is a conflict, and the rest are new |
+
+**What the person can decide is exactly the record's `choices`, and nothing is
+decided for them.**
+
+- **A duplicate** takes `use_existing` (use the one here, and everything the
+  file files under its own lands under it), `skip` (leave the file's out) or
+  `rename` (bring it in as a new one under another name). Four narrow that. An
+  account in another currency can never be the one here, so it takes only
+  `skip` and `rename`, with a sentence naming both currencies. A recurring
+  transaction takes the same two, because nothing in a file names one, so
+  using the one here and leaving the file's out would be the same thing. Two
+  records of one kind in the file that fold together take the same two. A
+  budget plan that overlaps a different one here takes `skip` alone, asked as
+  one answer to acknowledge, because nothing here is ever replaced.
+- **A budget's amounts** are decided once per budget, under a key such as
+  `category:Groceries|EUR|month`, rather than period by period, because ten
+  years of months is the same question a hundred and twenty times. With new
+  periods beside the conflicting ones it takes `use_existing` (keep the
+  amounts here and add the new ones) or `skip` (leave all of the file's out);
+  with none, `skip` alone. Periods that match are passed over either way.
+- **A record the file only names** takes `match` (use another one here),
+  `create` (make it from what the file says about it) or `leave_staged` (leave
+  what names it for review). `match` is offered only where something here
+  could be chosen — for an account, one in the same currency, the only match a
+  decision is accepted for. A group takes `skip` in place of `leave_staged`,
+  because nothing staged names a group: left out, its categories come in
+  without one, and the record says so before anybody chooses. A template is
+  never asked about: it is only ever provenance on an entry, so one nothing
+  here answers to is dropped, which is what a deleted template already leaves
+  behind.
+- **A name is stated, never invented.** A rename has to differ from the
+  record's own name once folded, meet its kind's own name rule, and be free
+  here and among everything else coming in; a name taken here by a record that
+  is the same in every field is that record, made by an earlier part, and is
+  used. The page offers a name only once somebody picks a copy —
+  `suggestLedgerRename`'s first free `"Name (2)"`, or, where exactly one record
+  here under another name is the same as the file's (`copy` on the planned
+  record), that name, so a resumed import finds the copy it made rather than
+  making a third.
+
+**A reference resolves by name, and an account by name and currency.** A
+category or group reference matches by name alone, and a category that takes
+another kind here is used and the difference said, because the entries filed
+under it post by the kind it has here. A reference whose name another record in
+the same file carries whole is `missing` rather than matched, because where the
+file came from those were two records, and the one here may be the other one,
+made by an earlier part. An account created from a reference opens at zero on
+the earliest day a live entry or a staged row in the part names it, or the
+file's last day when none does (`ledgerReferenceOpeningDate`,
+`src/shared/ledger-file-import.ts:849-862`), and a file sent in parts sends
+`openingDate` on the decision, worked out over the whole file, so the account
+opens on the same day whichever part creates it. Once `create` is chosen the
+record says so, and that its balance will be only what the file's entries move:
+adding a file that carries the account whole first is what brings its opening.
+
+**An account opens as the file's opening works out here.** Without a
+carried-forward balance, the file's own. An account opened before a ranged
+file's first day opens on that day at what it held the day before; one opened
+inside the range keeps its own day, and the money dated before the range,
+which no entry carries, is added to its opening balance
+(`ledgerAccountOpening`, `src/shared/ledger-file-import.ts:816-834`). An
+account has one opening, so one of the two figures has to move, and moving the
+money keeps the day the person sees and makes every balance from it on exact.
+A duplicate account whose opening differs says both openings and what using
+the one here does to the gap, rather than "it differs", because that is the
+difference that decides a balance and using the one here keeps its own.
+
+**Some records are left out, with the reason, and nothing to decide.** A
+recurring transaction whose account is not coming in; an account, a template
+or a recurring transaction whose create would refuse it, in the create's own
+sentence; a budget on a category or group that is not coming in, on a category
+that takes only income, or on a group budgeted as the sum of its categories; a
+second budget in the file overlapping the first on the same target; and a
+budget plan the create would refuse, held to `budgetPlanRefusal`, the rule the
+create itself calls, so the preview never says ready for a part the server then
+refuses whole. A record whose category, group or account is still an open
+question waits on it rather than being called left out, because what it needs
+may yet come in.
+
+**What a record here is like is said beside it.** One that is archived here,
+or an account that is frozen, is used, and the entries naming it wait in
+Staged until it is restored or back in use. A category archived where the file
+came from arrives in use, unlike an account: a row filed under an archived
+category cannot be committed, and a category takes no place, so nothing is
+saved by making somebody restore it first. The record says to archive it again
+once its entries are in.
+
+**A ledger keeps at most 200 templates and 200 recurring transactions**, and a
+file that would carry it past either is refused with `limit`, `current`,
+`more` and `over`, naming only the moves that work.
+
+*Checked by:* `tests/ledger-file-import.test.ts`, whose describes are this
+section's paragraphs — "a record already here in another form", "an account
+here in another currency", "a record the file only names", "a group brought in
+under another name", "a group the file only names", "budgets", "caps",
+"recurring transactions", "a record waiting on another's question" and "an
+account's opening" — each mutation-checked against the planner; and
+`tests/integration/ledger-file-add.integration.test.ts` ("asks about every
+record already here that differs, and writes nothing until it is told", "says
+what using the account here does to its opening, and an opening edit makes it
+right", "opens an account made from a reference on the same day in parts as in
+one").
+
+## 14. Entries, staged rows and origins
+
+**Binding.** `AGENTS.md`: "An entry's origin is the id it was first written
+under. It travels in every ledger file, and the same entry arriving twice —
+from two accounts' files, or back from the copy it moved to — is skipped rather
+than flagged. Two entries with different origins are never duplicates of each
+other: not at stage, at commit, on an edit or a restore, or in a mass edit."
+
+**House. Every live entry stages as a complete draft wherever its references
+resolve** (`ledgerEntryDraft`, `src/shared/ledger-file-import.ts:1020-1065`). A
+transfer carries both sides and both amounts, always, so a transfer in two
+accounts' files stages whole the first time and is skipped by its origin the
+second, and a conversion arrives with the two figures that moved. A category is
+its id, or — for one left for review — its name and the kind the commit should
+create it as, which is the `categoryKind` rule; a skipped one leaves the row
+uncategorized. A split's legs are filed the same way. The template it was made
+from is kept where the template resolves, and dropped where it does not, because
+it is provenance and nothing else. An account that does not resolve is left out
+and the row stages partial, keeping the side that is known, so the queue raises
+its usual issue. The file's own staged rows stage again, with their keys turned
+back into ids and their raw data kept. Each part's rows go under an import batch
+of their own, of kind `ledger_file`, which the Staged page's batch filter names
+as a Simple Balance file; a part that stages nothing makes no batch. Neither
+origin is ever sent in a view of an entry or a staged row, or accepted in a
+draft: a field the API sends has to be rendered
+([`web.md`](web.md#119-a-field-the-api-sends-is-rendered-or-its-absence-is-argued)),
+and an origin is for recognizing an entry rather than for showing one.
+
+**An origin found here is skipped and counted, never flagged.** One statement
+looks in five places (`findImportOrigins`,
+`src/server/services/ledger-file.ts:1314-1341`), so a commit landing between
+two lookups cannot slip an origin past both: an entry's own id, which is what a
+file re-imported into the ledger it left carries; an entry's `import_origin`,
+deleted entries included, because deleting an entry is a decision about it and
+importing it again would undo that; a waiting row's own id and its
+`import_origin`; and the id of a row with no origin that has been committed
+(section 6). Every branch leads with the owner, so a forged origin can at worst
+make somebody's own import skip an entry of their own. A discarded row is no
+decision about the entry, so a row discarded here stages again. The preview
+reports what was found as `rows.alreadyHere` and `rows.stagedAlreadyHere`, and
+what will stage as `rows.toStage`.
+
+**The database holds the skip, because a read can race.** Two tabs, two parts,
+or a commit landing between the lookup and the write could each slip one
+through, so 0026 makes "one entry per origin per ledger" and "one waiting row
+per origin" unique indexes. The commit copies a row's origin onto the entry it
+becomes, and a violation is a sentence rather than a constraint: from the
+commit, *This entry is already in the ledger, so it was not committed again.*,
+and from the add, *Another import staged this file's entries a moment ago.
+Preview the file again.* On a Citus cluster the index's name carries a shard
+suffix, so the violation is recognized by the name it starts with.
+
+**Different origins are never duplicates, and no origin is compared as it always
+was.** `importOriginsDiffer` (`src/shared/ledger-file-import.ts:2409-2414`) is
+true only when both rows carry an origin and the two differ: two coffees bought
+the same morning and committed apart are two entries, so nothing pairs them —
+not the check at stage or at commit, on an edit or a restore, in a mass edit, or
+behind the badge on Staged that marks a possible duplicate. A row without one —
+typed here, or read from a CSV — is compared by the duplicate check exactly as
+before, because nothing else can tell it from a look-alike.
+
+**A refund whose other half landed elsewhere is reported, not reproduced.**
+`rows.postedAsDiffers` counts the entries whose `postedAs` says their postings
+netted to the other counter-account from the one `resolveEntrySide` will choose
+here, because a category was widened after they were written. Overriding the
+side would be a second rule beside `resolveEntrySide`, and `AGENTS.md` keeps it
+one function. Account balances are unaffected; income and spending move by the
+stated amount.
+
+*Checked by:* `tests/ledger-file-import.test.ts` ("what an entry stages as",
+"tells two entries apart by origin only when both have one"),
+`tests/unique-violation.test.ts` for the violation under both names, and
+`tests/integration/ledger-file-add.integration.test.ts` ("makes the same books
+once its entries are committed, and copies each origin", "skips an entry
+already here by origin, deleted or not, and stages a discarded row again", "is
+skipped by the ledger it came from, all the way round", "lands a transfer once
+from two accounts' files", "refuses an entry already in the books at commit
+with a sentence, not a constraint", "matches and touches nothing of anybody
+else's", and "never sends an origin in a view of an entry or a staged row"),
+with `tests/integration/ledger-file-add-route.integration.test.ts` ("sends no
+origin in a staged row or an entry") for the same over HTTP.
+
+## 15. Parts, places and settings
+
+**House. A part at a time, each all or nothing.** A part is at most 10,000
+rows, the cap `AGENTS.md` fixes for every bulk write, and at most 10,000
+records apart from its rows, because every part carries all of them and its
+one transaction creates or matches each under every namespace lock; a part
+over either is refused with `limit` and `count` before the ledger is read
+(`readPart`, `src/server/services/ledger-file.ts:1256-1285`). The splitter
+never cuts a part over the row cap, and refuses up front a file whose records
+alone are over the other. Each part takes every lock up front, in the order
+`helpers.ts` sets, reads the facts under them, plans, and writes, so what it
+planned against cannot move before it writes; an account the plan would use
+that was not locked can only have appeared or been renamed in between, and is
+refused with *This ledger changed while the file was being read. Preview it
+again.*
+
+- **Idempotent twice over.** By its key, bound to a hash of the part, its name,
+  its number and everything decided, so a part sent again replays and the key
+  with another request is a 409; and by its origins and its records, so a part
+  applied again after its key has expired writes nothing new either.
+- **The same decisions travel with every part.** Every part carries every
+  record, so one about a record that needs none in this part — because an
+  earlier part created it — is passed over rather than refused, and one naming
+  no record in the file is refused, because that is a key somebody typed
+  wrong. A budget's amounts are the one kind a part carries only some of, so a
+  decision about them is passed over in a part that does not hold them, and
+  "leave all of them out" is honored in every part, including one that did not
+  ask.
+- **Resuming is checking again.** The file as a whole is not atomic. A
+  fresh preview after a part failed finds what earlier parts created as
+  `exists` and their entries as already here, and offers the rest; a record an
+  earlier part brought in renamed is asked about again, with the copy's name
+  offered, since the decisions are gone with the browser that held them.
+
+**Binding, places.** `AGENTS.md`: "Archived accounts are outside all of it:
+they already refuse every write, so they are never frozen and use up none of
+the places." So on a plan that keeps a limited number of accounts in use,
+the accounts a file would create live are counted against the free places, and
+the person names which of them arrive archived (`arriveArchived`). None is
+named for them. `places` carries the arithmetic — `needed` is the accounts
+arriving live less the places free, never below zero — and the add is refused
+with `limit`, `current`, `arriving` and `needed` while fewer are named. An
+account archived where the file came from arrives archived anyway and costs
+nothing. An agent's refusal says what it can send and that only the person can
+raise the limit, from the browser, because an agent cannot buy anything. The
+choice is offered where nothing limits the places too, so a person can do what
+an agent can, and costs nothing there.
+
+An account that arrives archived is created, opened and closed out to equity
+on today's date where the person lives, as archiving any account closes it
+(`createAccount`'s `arriveArchived`, an argument rather than a field, so no form
+or tool can ask for it). It holds its full history, and restoring it posts the
+balance back. Its entries still stage, with the archived account's usual
+issue, and commit once it is restored into a free place. Adding a file is one
+of the paths that changes the live set, so it holds `lockAccountNamespace` like
+the rest.
+
+**Binding, settings.** `AGENTS.md`: "A guess never overwrites a decision." A
+file's timezone, default currency and theme are applied where this copy has
+none of its own (`chosen` false), written with `ifUnchosen` so a choice made
+since the preview wins. Where it has and the file's differ, the add needs
+`preferences`, `file` or `keep`, and the page asks with nothing preselected;
+where they match, or the file has none, it is passed over. `file` replaces
+settings somebody has, and the timezone decides what today means, which is why
+`add_ledger_file` is annotated destructive and says to confirm it. **One gap,
+stated rather than solved:** the browser's own guess, written the first time a
+new account is opened, makes `chosen` true like any choice, because the column
+cannot tell the two apart, so a new sign-up whose browser set a timezone is
+asked rather than given the file's. Telling them apart needs a column of its
+own, which is a migration and a change to `AGENTS.md`'s rule about guesses, and
+the page's hint says where the settings came from instead.
+
+*Checked by:* `tests/ledger-file-import.test.ts` ("a free plan's places",
+"settings", "decisions", "a file in parts, every part planned with the whole
+file's decisions"); `tests/integration/ledger-file-add.integration.test.ts`
+("applies a file in parts, each all or nothing, and resumes after a part
+fails", "replays a part sent again with its key, and refuses the key with
+another request", "refuses a part with more records than one part may carry,
+before reading the ledger", "applies the file's settings over a choice made
+here only when asked", and "takes the same budget decision with every part,
+from the service and over MCP"); and
+`tests/integration/ledger-file-add-plan.integration.test.ts` for a free plan's
+places end to end, an account archived at the source among them.
+
+## 16. What adding does not do
+
+**House.** Each of these is a decision, and each has its reason.
+
+- **Deleted entries are not added.** A staged row cannot be voided money, and
+  a deleted entry changes no figure. They are counted in `rows.deleted` and
+  said on the page. Moving a whole ledger is what will bring them, and it
+  arrives in a later change.
+- **An account keeps no archive day.** One archived where the file came from
+  arrives archived, closed today rather than on the day it was archived there:
+  the instant travels in the file, and only a move, writing the account's
+  history before it closes, can honor it.
+- **Nothing here is changed by an import.** No record is updated, renamed or
+  merged, no decision means "replace", and no `version` moves, except the
+  settings, through their own service and only as section 15 says. No posting
+  is written but the opening and archive-close postings the account service
+  writes for a new account.
+- **Nothing is written at all while the plan has a problem**, and nothing of a
+  part is left when a service refuses something the plan did not foresee.
+- **The import sends nothing.** A reminder arrives with the date its last
+  email went out, so a one-time reminder already sent stays sent, and a
+  recurring transaction starts proposing after the last occurrence it decided
+  and never before today, so arriving on an occurrence day does not propose it
+  twice. Both are arguments to the creates, never fields.
+- **The activity history is never read**, and a staged row's recurrence
+  provenance never travels (section 7).
+
+**Moving a ledger is not built yet, and the preview already knows when it
+would be offered.** `move.qualifies` is true where every entry and waiting
+staged row in this ledger came from a Simple Balance file — a new sign-up, a
+fresh install, a ledger part-way through a move — and `move.reason` says why
+not otherwise. A deleted entry typed by hand counts, because it is still
+somebody having typed into this ledger. Adding is all that is carried out
+today.
+
+*Checked by:* `tests/ledger-file-import.test.ts` ("count what the rows will
+do"), and `tests/integration/ledger-file-add.integration.test.ts`: "previews an
+empty ledger as everything new, and writes nothing to do it" counts the deleted
+entry its seeded ledger holds, leaves it out of what will stage and finds the
+ledger qualifying to be moved; "adds a whole ledger to an empty one: records at
+once, entries to Staged" stages the live entries and the queue and nothing
+else; and "brings the templates' reminders and the recurrences' watermarks with
+them" holds the last bullet but one. *Not checked:* that no service an import
+reaches overwrites a record, beyond those suites asserting the destination's
+records unchanged where they say so.
+
+## 17. What is checked, and what is not
 
 Checked:
 
@@ -548,10 +987,30 @@ Checked:
 - The page that asks for one: `tests/import-export-page.test.tsx`, and
   `tests/browser/ledger-file-export.spec.ts` for what only a browser does with
   it — a keyboard alone, implicit submission, a real download.
+- What adding one decides, by outcome and by sentence:
+  `tests/ledger-file-import.test.ts`.
+- Adding one into an empty ledger, into one holding records of the same names,
+  part by part, twice, and back into the ledger it came from; the books its
+  entries make once committed; the origins, the watermarks, the settings, the
+  scopes and both tools over a real connection:
+  `tests/integration/ledger-file-add.integration.test.ts`. A free plan's
+  places: `tests/integration/ledger-file-add-plan.integration.test.ts`. The two
+  routes, the colon and the frames:
+  `tests/integration/ledger-file-add-route.integration.test.ts`. A body past
+  the MCP SDK's own four mebibytes reaching both tools:
+  `tests/mcp-request-body-limit.test.ts`.
+- The page that adds one, part by part, with its questions, its places, its
+  settings and its stops: `tests/ledger-file-import-page.test.tsx`, and
+  `tests/browser/ledger-file-import.spec.ts` for the keyboard alone, a real
+  two-part file and the focus a file input keeps while it is checked.
 
 Not checked:
 
-- That a reader reads a file back into an equal ledger. Nothing reads one yet;
-  the fidelity suite arrives with the import.
+- That moving a whole ledger straight into the books, with its deleted entries
+  and archive days, reproduces it exactly. Adding is the only import so far,
+  and its own suite commits the rows it stages and compares every account's
+  postings with the ledger the file came from
+  (`tests/integration/ledger-file-add.integration.test.ts`); the move's
+  fidelity suite arrives with the move.
 - That section 7 lists every column a table holds. A column added to the schema
   and to neither table is undefined until somebody adds it here.

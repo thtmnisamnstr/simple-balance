@@ -1025,8 +1025,30 @@ export async function setActiveAccounts(actor: Actor, input: unknown, transactio
   });
 }
 
-export async function createAccount(actor: Actor, input: unknown, transaction?: DbTransaction) {
+/**
+ * What only a Simple Balance file's import may ask of a create, as an argument
+ * rather than a field: `accountCreateSchema` is what a form and a tool send,
+ * and an account that arrives archived is not something either can ask for.
+ *
+ * `arriveArchived` is D4 of the import: a free plan that keeps fewer accounts
+ * in use than a file brings has somebody choose which arrive archived, and an
+ * account archived where the file came from arrives archived anyway. Either
+ * way it holds no place, so it is not counted against the plan — the same
+ * reason `setAccountArchived` gives for archiving needing no free place.
+ */
+export type AccountCreateOptions = {
+  readonly arriveArchived?: boolean;
+  readonly auditOperation?: string;
+};
+
+export async function createAccount(
+  actor: Actor,
+  input: unknown,
+  transaction?: DbTransaction,
+  options?: AccountCreateOptions,
+) {
   const parsed = accountCreateSchema.parse(input);
+  const archived = options?.arriveArchived === true;
   return withTransaction(transaction, async (tx) => {
     // Before the check, not after it. Without the lock two requests naming the
     // same account both read a free name and both insert, which is the race
@@ -1042,21 +1064,36 @@ export async function createAccount(actor: Actor, input: unknown, transaction?: 
     // account would otherwise both read three and both insert. Every path that
     // counts places holds it for the same reason — restoring an archived
     // account included, which for a while did not.
-    await assertAccountAllowance(tx, actor);
+    //
+    // Not for one that arrives archived, which takes no place: restoring it
+    // later is where it asks for one, like any account coming out of the
+    // archive, so this cannot be the first half of a way around the limit.
+    if (!archived) await assertAccountAllowance(tx, actor);
     await assertAccountNameAvailable(tx, actor, parsed.name);
     const [created] = await tx
       .insert(ledgerAccounts)
-      .values({ userId: actor.userId, ...parsed })
+      .values({ userId: actor.userId, ...parsed, ...(archived ? { archivedAt: new Date() } : {}) })
       .returning();
     await postOpeningBalance(tx, actor, created);
+    // Opened, then closed out to equity on today's date where the person
+    // lives, the way archiving any account closes it: the opening pair and the
+    // closing pair are both on the books, so restoring it posts the balance
+    // back exactly as a restore of anything else does. Created already closed,
+    // with no opening, would leave a restore nothing to put back.
+    if (archived) await postClosingBalance(tx, actor, created, true);
     const balance = await currentBalance(tx, actor, created.id);
     await writeAudit(tx, actor, {
       entityType: "account",
       entityId: created.id,
-      operation: "create",
+      operation: options?.auditOperation ?? "create",
       after: serializeRow(created),
     });
-    // Just created: within the cap and active by default.
+    // An account archived now leaves the live set as it joins, which is a
+    // change to the live set like any archive, so the column is rewritten
+    // against what is left, as `setAccountArchived` does after an archive.
+    if (archived) await markFittingAccountsActive(tx, actor);
+    // Just created: within the cap and active by default, or archived, which
+    // is never frozen.
     return { ...accountView(created, balance), frozen: false };
   });
 }

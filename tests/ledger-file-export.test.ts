@@ -79,6 +79,7 @@ const entry = (n: number, fields: Record<string, unknown>) =>
     payee: "Somebody",
     categoryId: null,
     templateId: null,
+    importOrigin: null,
     notes: null,
     externalId: null,
     sourceAccountId: null,
@@ -119,6 +120,7 @@ const staged = (n: number, draft: unknown, rawData: unknown = null) =>
     committedTransactionId: null,
     recurrenceId: null,
     occurrenceDate: null,
+    importOrigin: null,
     version: 1,
     deletedAt: null,
     ...stamps(n),
@@ -168,6 +170,7 @@ function snapshot(fields: Partial<Snapshot> = {}): LedgerSnapshot {
     plans: [],
     budgetEntries: [],
     entries: [],
+    committedFrom: new Map(),
     legs: new Map(),
     postedSides: new Map(),
     staged: [],
@@ -641,6 +644,46 @@ describe("what a stored value becomes", () => {
     expect(file.accounts).toEqual([
       { key: "Checking", name: "Checking", detail: "reference", type: "checking", currency: "EUR" },
     ]);
+  });
+
+  /**
+   * An entry that arrived in a Simple Balance file is written out under the
+   * origin it arrived with, not the id it was given here, and so is a staged
+   * row. Otherwise a ledger moved on a second time would carry new origins,
+   * and the copy it started in would take every entry for a new one.
+   */
+  it("writes the origin an entry or a staged row arrived with, not the id it has here", () => {
+    const arrived = { ...deposit, importOrigin: origin(990) };
+    const waiting = { ...staged(3, { payee: "Waiting" }), importOrigin: origin(991) };
+    const file = exported(
+      { kinds: ["entries", "staged"] },
+      { entries: [arrived, transfer], staged: [waiting, staged(4, { payee: "Typed" })] },
+    );
+    expect(file.entries.map((entry) => entry.id)).toEqual([origin(990), transfer.id].sort());
+    expect(file.staged.map((row) => row.id)).toEqual([origin(991), origin(504)]);
+  });
+
+  /**
+   * A row that waited in Staged with no origin was exported under its own id,
+   * and committing it gives the entry no origin. The entry is written under
+   * the row's id from then on, so a ledger the earlier file went into reads
+   * the later one's entry as the one it already has rather than a new one —
+   * and an origin of its own still wins over it.
+   */
+  it("writes an entry committed from an origin-less staged row under the row's id", () => {
+    const fromCsv = origin(992);
+    const arrived = { ...transfer, importOrigin: origin(993) };
+    const file = exported(
+      { kinds: ["entries"] },
+      {
+        entries: [deposit, arrived],
+        committedFrom: new Map([
+          [deposit.id, fromCsv],
+          [arrived.id, origin(994)],
+        ]),
+      },
+    );
+    expect(file.entries.map((entry) => entry.id).sort()).toEqual([fromCsv, origin(993)].sort());
   });
 
   it("drops a staged row's legs when they are not a list of legs", () => {

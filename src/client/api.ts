@@ -30,6 +30,7 @@ import type {
   BudgetGroupPolicy,
   BudgetAmountRule,
   ForecastBasis,
+  ImportBatchKind,
 } from "../shared/domain.js";
 
 export class ApiClientError extends Error {
@@ -911,6 +912,13 @@ export type ImportBatchSummary = {
   rowCount: number;
   stagedCount: number;
   createdAt: string;
+  /**
+   * What the batch was read from. Optional for the reason `plan` is on a
+   * session: a rolling update briefly serves this bundle against a server from
+   * before the Simple Balance file import, which sends no kind and only ever
+   * staged a CSV, so absent reads as a CSV.
+   */
+  kind?: ImportBatchKind;
 };
 
 export type Summary = {
@@ -1189,3 +1197,24 @@ export function queryString(values: Record<string, string | undefined | null>) {
   });
   return params.toString();
 }
+
+/**
+ * The two replies of the Simple Balance file import, read as the shared module
+ * declares them rather than restated: the page plans with the very function the
+ * server runs, over the very shapes it answers with, and a copy of either here
+ * would be the one that drifted.
+ *
+ * Three things the preview sends are argued rather than rendered (`web.md`
+ * 11.9). Each part's own `plan` is that part planned with nothing decided; the
+ * page plans the whole file itself, from the facts every part read, each time
+ * somebody decides something, so a part's plan would be a second and partial
+ * answer beside the one on screen. `move`, with `qualifies` and its `reason`,
+ * says whether this ledger could take a file straight into the books, which is
+ * the Move import still to come; until a person can choose it, a sentence about
+ * it would be a promise rather than an answer, and Add is the only import there
+ * is. And `carriedForward` on the destination's own accounts is the format's
+ * field for a file whose entries start partway through: `here` is assembled
+ * with no entries, so it is never set, and the planner, not the page, is what
+ * compares an opening.
+ */
+export type { LedgerFileAddResult, LedgerFilePreview } from "../shared/ledger-file-import.js";

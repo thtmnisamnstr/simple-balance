@@ -370,7 +370,9 @@ describe("a scrolling table", () => {
     // Twelve became fourteen when the two import-preview wrappers joined the
     // alternation, which is the other thing a pinned count buys: widening the
     // pattern has to be a decision rather than something that slips in.
-    expect(checked).toBe(14);
+    // Sixteen with the Simple Balance file's preview, which draws two tables:
+    // what happens to each kind of record, and every record on request.
+    expect(checked).toBe(16);
   });
 });
 

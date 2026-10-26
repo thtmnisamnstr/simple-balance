@@ -115,6 +115,8 @@ const COVERED_BY: Record<string, string> = {
   "POST /api/v1/transaction-templates/bulk-delete": "bulk_delete_transaction_templates",
   "POST /api/v1/csv/preview": "preview_csv",
   "POST /api/v1/csv/stage": "stage_csv",
+  "POST /api/v1/ledger-file:preview": "preview_ledger_file",
+  "POST /api/v1/ledger-file:add": "add_ledger_file",
   "GET /api/v1/import-batches": "list_import_batches",
   "GET /api/v1/reports/:report": "get_report",
   "GET /api/v1/staged-transactions/:id/duplicate": "get_staged_duplicate",

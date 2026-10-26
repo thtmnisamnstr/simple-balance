@@ -84,6 +84,12 @@ const IMPOSSIBLE = [
       "Every record in it was read from rows the API's own create schemas accepted, and the reader holds them to those same schemas, so a refusal is a defect in the exporter rather than anything the caller sent. A 422 would tell somebody their export request was wrong when it was the export.",
   },
   {
+    where: "src/server/services/ledger-file.ts",
+    message: "This ledger's own records failed the Simple Balance file reader",
+    because:
+      "The same exporter read on the way in: the destination's records are assembled by the code that writes a file so an import can compare them shape for shape, and they fail the reader only where the exporter has a defect. A 422 would tell somebody the file they are adding was wrong when it was their own ledger's export.",
+  },
+  {
     where: "src/server/services/billing.ts",
     message: "Stripe returned a subscription with no items",
     because:

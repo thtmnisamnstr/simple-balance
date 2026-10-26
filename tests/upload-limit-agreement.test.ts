@@ -80,6 +80,32 @@ describe("what the layers in front of an import will carry", () => {
     expect(nginx, "SB_MAX_UPLOAD_SIZE is below the API's own limit").toBeGreaterThanOrEqual(server);
   });
 
+  /**
+   * The Simple Balance file's add sits behind the same two terminators, and
+   * its limit is derived from a part and the decisions sent with it rather
+   * than from the CSV's, so it is held to them on its own: a part the import
+   * page cut must reach the code that can say what is wrong with it.
+   */
+  it("carries one part of a Simple Balance file through both terminators", () => {
+    const ledgerFile = apiRequestBodyLimit("/api/v1/ledger-file:add");
+    expect(ledgerFile).toBeGreaterThan(apiRequestBodyLimit("/api/v1/accounts"));
+    const nginx = nginxBytes(
+      setting("deploy/docker/frontend.Dockerfile", /^ENV SB_MAX_UPLOAD_SIZE=(\S+)$/m),
+    );
+    const caddy = caddyBytes(
+      setting(
+        "deploy/compose/single/compose.caddy.yml",
+        /MAX_BODY_SIZE: \$\{MAX_BODY_SIZE:-(\S+)\}/,
+      ),
+    );
+    expect(nginx, "SB_MAX_UPLOAD_SIZE is below a ledger-file part").toBeGreaterThanOrEqual(
+      ledgerFile,
+    );
+    expect(caddy, "MAX_BODY_SIZE is below a ledger-file part").toBeGreaterThanOrEqual(ledgerFile);
+    // And the MCP endpoint, which carries both tools, is never sized below it.
+    expect(apiRequestBodyLimit("/mcp")).toBeGreaterThanOrEqual(ledgerFile);
+  });
+
   it("is not more than the single profile's Caddy will pass", () => {
     const caddy = caddyBytes(
       setting(

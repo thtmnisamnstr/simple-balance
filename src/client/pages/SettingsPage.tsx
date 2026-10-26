@@ -35,7 +35,7 @@ import {
  * system" is a standing instruction, not a color, and calling it "System"
  * leaves somebody guessing whose system and when.
  */
-const THEME_CHOICES = [
+export const THEME_CHOICES = [
   { value: "light", label: "Light" },
   { value: "dark", label: "Dark" },
   { value: "system", label: "Follow my system" },

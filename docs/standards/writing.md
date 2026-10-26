@@ -243,7 +243,7 @@ convention expects.
 answer: that the list items stay at the five that earned their shape, and that
 the lines running past 80 columns do not grow past where they already are.
 *Not checked:* that the top heading matches `package.json`. That is a hand step
-in the release recipe at `docs/upgrades.md:2003`, step 4, "Date the
+in the release recipe at `docs/upgrades.md:2085`, step 4, "Date the
 `## Unreleased` heading in `CHANGELOG.md`", and it has already been the subject
 of a commit ("Date 0.1.4 the day it is cut"). Nor is whether an entry describes
 a change somebody would notice, which is the judgement this section is mostly
@@ -364,12 +364,12 @@ publish runs `npm run verify` first, so an unwritten note now stops the release
 rather than reaching an operator mid-upgrade. *Also checked:* the frozen
 migration list, which `tests/migrations.test.ts` holds to what is on disk.
 *Not checked:* the changelog heading, a hand step in the release recipe at
-`docs/upgrades.md:2003`, and which release a migration is attributed to, which
+`docs/upgrades.md:2085`, and which release a migration is attributed to, which
 is prose inside a list a test can only check the membership of.
 
 ## Upgrade notes
 
-**Binding, quoting `AGENTS.md:346-398`, the frozen migration list:** "Every
+**Binding, quoting `AGENTS.md:381-437`, the frozen migration list:** "Every
 migration that has shipped is frozen" and "Never edit or regenerate one:
 someone's database has already run it, and changing it would leave their schema
 and its recorded history disagreeing." What follows is the documentation the
@@ -379,7 +379,7 @@ end of the bullet — it grew, and the number did not.
 
 **House, the shape.** A `## Before you upgrade to X.Y.Z` section, and its first
 sentence tells an operator whether they can stop reading. The 0.1.6 note at
-`docs/upgrades.md:1662-1663` is the model: "Nothing refuses to start that 0.1.5
+`docs/upgrades.md:1744-1745` is the model: "Nothing refuses to start that 0.1.5
 accepted, and nothing about an existing configuration has to change. Five
 things are worth knowing." The 0.1.4 section is the other model, because the
 answer there was different: "0.1.4 refuses to start on three configurations
@@ -401,10 +401,10 @@ Then four parts, in this order:
 in a specification or in `AGENTS.md` asks for one; a past failure does. The best
 example in the repository: the 0.1.5 note promises the theme column is a
 constant default and therefore rewrites no table, and the test at
-`tests/migrations.test.ts:413` is called "adds the theme without rewriting a
-row". Nine assertions of that kind sit in that file now, plus three on the one
+`tests/migrations.test.ts:487` is called "adds the theme without rewriting a
+row". Ten assertions of that kind sit in that file now, plus three on the one
 migration that decides at runtime whether to run at all, and between them they
-cover 0005 through 0011 and 0022 through 0025, every migration an upgrade note
+cover 0005 through 0011 and 0022 through 0026, every migration an upgrade note
 has made a promise about. A note that
 makes a promise about somebody's data and has no test behind it has been wrong
 before: the 0.1.5 contrast note quoted a number that was not the old value, and
@@ -508,7 +508,7 @@ The reasoning, which is what the next person should argue with:
 So, taking Nygard's Status field and immutability rule without the ceremony:
 
 - **House. A recorded decision names the release it was made in.** The exemplar
-  is `AGENTS.md:346-398`, the frozen migration list, which names every migration
+  is `AGENTS.md:381-437`, the frozen migration list, which names every migration
   and the release it shipped in, and is the most reliable section in the file
   for exactly that reason.
 - **House. A reversal edits the old text to say it is superseded, and says by
@@ -763,7 +763,7 @@ them cover the whole range:
   costs, and then the harder half: "Deliberately not `role="menu"` ... menu
   roles without the keyboard behavior they imply are worse than none."
 - **The invariant with the consequence of breaking it.**
-  `src/shared/domain.ts:2462-2464`: "`.strict()` is the load-bearing part: a
+  `src/shared/domain.ts:2541-2543`: "`.strict()` is the load-bearing part: a
   filter this cannot honor is an error rather than a key quietly dropped,
   because a selection resolves twice and an ignored filter makes the count and
   the fingerprint agree about the wrong set."
@@ -863,7 +863,7 @@ What is checked:
 
 | Correspondence | Checked by |
 | --- | --- |
-| Every MCP tool name appears in `docs/mcp.md` | `tests/mcp-parity.test.ts:316-326`, by name rather than by count, "so the failure says which" |
+| Every MCP tool name appears in `docs/mcp.md` | `tests/mcp-parity.test.ts:318-328`, by name rather than by count, "so the failure says which" |
 | Every pinned image tag in the tree matches the release, *and* is a file `set-version` rewrites | `tests/version.test.ts:232-262`, which finds them by sweeping the repository rather than by holding a list — the list had gone stale once, leaving a third file deploying the release it was written during |
 | The product backlog's version matches the manifest | `tests/version.test.ts:321-323` |
 | `docs/deployment.md`'s settings tables against `.env.example` and `deploy/compose/.env.example`, both directions | `tests/env-example.test.ts`, which documents every variable an example names and shows an example of every variable the tables document, and holds its own two exception lists to being genuinely exceptional. Two of the four example files are outside this row: `deploy/compose/single/.env.example` and `deploy/compose/single/.env.postgres.example` arrived with the `single` profile, and no table on the deployment page describes either |
@@ -909,7 +909,7 @@ default argued to belong to the nginx container has to say so by name.
 **House, and specific to this product.** Any convention stated in `docs/mcp.md`
 prose that an agent must obey also appears in a tool or field description,
 because an agent never reads the prose. The document already articulates the
-principle at `:105`: "Fields carry descriptions, so an agent reading the schema
+principle at `:107`: "Fields carry descriptions, so an agent reading the schema
 learns the conventions that matter."
 [`mcp.md`](mcp.md#descriptions) owns the rule; it is repeated here because the
 temptation is to write the convention down in the guide and consider it
@@ -1042,7 +1042,7 @@ that moved them "fixed" the history into something false: one landed on prose
 it claims is a closing fence. So a number quoted as it once was is written
 `` `AGENTS.md`:289-326 ``, the line outside the backticks, which no check and
 no repoint pass reads as a pointer — and a citation meant to be followed is
-written as one span, `` `AGENTS.md:346` ``, and is repointed when it drifts.
+written as one span, `` `AGENTS.md:381` ``, and is repointed when it drifts.
 
 *Checked by:* `tests/standards-citations.test.ts`, as far as a test can go: that
 the file exists, that the lines are inside it, that a range does not run

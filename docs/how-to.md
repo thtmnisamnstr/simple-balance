@@ -14,6 +14,7 @@ the way they do; this page only tells you *what to do*.
 - [Fix a mistake](#fix-a-mistake)
 - [Import a bank file](#import-a-bank-file)
 - [Take your ledger with you](#take-your-ledger-with-you)
+- [Bring a Simple Balance file in](#bring-a-simple-balance-file-in)
 - [Save time with templates](#save-time-with-templates)
 - [Set up recurring transactions](#set-up-recurring-transactions)
 - [Budgeting, from nothing](#budgeting-from-nothing)
@@ -202,7 +203,7 @@ A Simple Balance file is one file holding everything you have written in this
 ledger, for keeping or for moving to another copy of Simple Balance — one you
 run yourself, or the service.
 
-1. Open **Import and export**. The export is the second section, **Export a
+1. Open **Import and export**. The export is the last section, **Export a
    Simple Balance file**.
 2. Under **What to export**, choose **Everything** for the whole ledger, or
    **Some accounts** for the ones you pick.
@@ -228,11 +229,63 @@ One file holds up to 100,000 transactions, staged rows, budget amounts and
 history events together. A larger ledger is refused with a sentence saying what
 to narrow — usually a date range at a time.
 
-**Importing a Simple Balance file arrives in a later release.** This one makes
-the file and cannot yet read one back. The format is fixed now so that the
-release which imports it will read files made today; the copy you move to will
-need that release. For a spreadsheet of your transactions, Transactions →
-**Export CSV** is still the one to use.
+To bring the file into another copy, see the next section; that copy needs
+this release or a later one. For a spreadsheet of your transactions,
+Transactions → **Export CSV** is still the one to use.
+
+## Bring a Simple Balance file in
+
+This adds the file to the ledger you are signed in to, whether it is empty or
+already has accounts and transactions of its own. Nothing is written until you
+press the button at the end.
+
+1. Open **Import and export**. The middle section is **Import a Simple Balance
+   file**.
+2. Choose the file. The page reads it first, and a file it cannot read is
+   refused with each problem beside the place in the file it points at. Then it
+   checks the file against this ledger, a part at a time for a large one.
+3. Read **What the file holds**: for each kind of record, how many are in the
+   file, how many are new, already here, need a choice, or are left out, and
+   below it how many transactions will go to **Staged**. **Show all N
+   records** lists every record and what will happen to it.
+4. Answer every record that needs a choice. One already here under the same
+   name offers **Use the one here**, **Leave it out**, or **Bring it in as**
+   with a new name; one the file only names, such as the account on the far
+   side of a transfer, offers **Use another here**, **Create it**, or **Leave
+   for review**. Only the answers that work for that record are offered, and
+   **Still to decide** lists whatever is left, each linked to its question.
+5. On the free plan, if the file brings more accounts in use than you have room
+   for, tick at least as many as it says under **Accounts to arrive archived**.
+   Nothing is ticked for you.
+6. If this copy has regional defaults of its own — set in Settings, or taken
+   from your browser when it was first opened — and the file's differ, choose
+   under **Regional defaults and appearance**: the file's, or this copy's.
+7. Press **Add to this ledger**. A file in parts says which part it is on, with
+   a bar counting the rows as they are staged.
+8. Press **Review N staged rows** (one for each part, for a file in parts) to
+   look over the transactions in **Staged** and commit them, as with any
+   import. **Open Accounts** shows what arrived.
+
+Accounts, categories, templates, recurring transactions and budgets that were
+new are in the ledger as soon as the add finishes; only the transactions wait
+for review. A transfer in two accounts' files lands once, and adding a file
+again adds nothing it already brought. Deleted transactions are not brought,
+and an account that was archived arrives archived. An account you chose to
+arrive archived keeps its transactions in **Staged** until you restore it from
+**Accounts** into a free place.
+
+If an add is refused partway, nothing from that part was written, and the
+parts before it are in; if the connection drops instead, the page says it
+cannot tell whether the part finished. Either way the same button becomes
+**Try part 2 of 3 again** (**Try again** for a file of one part), which sends
+that part again with the same answers, and a part that did finish is not added
+twice. **Check the file again**, or choosing the same file again, reads the
+ledger afresh and keeps what you decided: what earlier parts brought in is
+recognized and skipped.
+
+Moving a whole ledger straight into an empty one, without the review queue and
+with its deleted transactions and the days its accounts were archived, is not
+here yet.
 
 ## Save time with templates
 

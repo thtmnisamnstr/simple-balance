@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { PLAN_LABELS, reportNames } from "../../src/shared/domain.js";
 import { todayIn } from "../../src/shared/recurrence-dates.js";
+import { visitImportStates } from "./support/ledger-file-import.js";
 import { answerHouseAd, answerPlanStatus, pagesToVisit, type Fill } from "./support/routes.js";
 
 /**
@@ -319,6 +320,7 @@ test.describe("every target in a browser", () => {
 
       if (pattern === "/import") await measureExportStates(page);
     }
+    await measureImportStates(page);
   });
 });
 
@@ -345,4 +347,30 @@ async function measureExportStates(page: Page) {
     }).toPass();
   }
   await page.setViewportSize({ width: 1280, height: 800 });
+}
+
+/**
+ * The Simple Balance file's import, in the states only a chosen file brings.
+ *
+ * The densest arrangements of small controls on the page are here: rows of
+ * radios under each question, the checklist of accounts to arrive archived,
+ * the links under "Still to decide", and the field a copy's name goes in —
+ * and a row of radios is exactly what wraps at a phone's width. At the five
+ * widths the reflow check uses, because the radios rewrap at each of them.
+ */
+async function measureImportStates(page: Page) {
+  await visitImportStates(page, async (state) => {
+    for (const width of [320, 390, 781, 1050, 1440]) {
+      await page.setViewportSize({ width, height: 844 });
+      // From the top, as every page in the walk above is measured. Choosing a
+      // radio scrolls it into view, and below 780px that put a checkbox under
+      // the sticky mobile header, whose button it then "met" — two targets a
+      // person never sees in one place, since one is drawn over the other.
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await expect(async () => {
+        expect(failures(await targets(page)), `/import, ${state}, at ${width}px`).toEqual([]);
+      }).toPass();
+    }
+    await page.setViewportSize({ width: 1280, height: 800 });
+  });
 }

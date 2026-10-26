@@ -36,6 +36,7 @@ import {
 import { getDb, type Database, type DbTransaction, withTransaction } from "../db/client.js";
 import { stagedTransactions, type StagedTransactionRow } from "../db/schema.js";
 import {
+  conflict,
   duplicate,
   notFound,
   staleVersion,
@@ -49,6 +50,7 @@ import {
   getIdempotent,
   likePattern,
   countAfterCommit,
+  isUniqueViolation,
   lockAccountReferences,
   lockCategoryNamespace,
   lockIdempotencyKey,
@@ -62,6 +64,7 @@ import {
 } from "./helpers.js";
 import { type SortPlan, keysetAfter, ordered } from "./sorting.js";
 import { ledgerWrites, stagedRowsCommitted } from "../metrics.js";
+import { importOriginsDiffer } from "../../shared/ledger-file-import.js";
 import { normalizeHumanName } from "../../shared/names.js";
 import type { ProgressEvent } from "../../shared/progress.js";
 import { type AccountFreeze, accountFreeze } from "./accounts.js";
@@ -97,6 +100,10 @@ function stageView(
     // strips its copy for the same reason, and leaving it here published a
     // column of internals on every staged row over HTTP and MCP.
     cursorSort: _cursorSort,
+    // How an import recognizes a row it already staged, which no form or
+    // tool acts on; `transactionView` leaves the entry's out for the same
+    // reason.
+    importOrigin: _importOrigin,
     ...rest
   } = row;
   return {
@@ -156,7 +163,7 @@ async function validateDraft(
   tx: DbTransaction,
   actor: Actor,
   input: unknown,
-  options: { withDuplicate?: boolean; freeze?: AccountFreeze } = {},
+  options: { withDuplicate?: boolean; freeze?: AccountFreeze; importOrigin?: string | null } = {},
 ): Promise<{
   draft: TransactionDraft | null;
   issues: ValidationIssue[];
@@ -216,8 +223,12 @@ async function validateDraft(
     // again under them. The unlocked answer is a badge for the queue, not a
     // decision, so computing it for a commit is a lookup per row whose result
     // is thrown away a few lines later.
+    // With the row's origin, so a row a Simple Balance file brought is not
+    // badged as the entry another file brought from a separate commit.
     const duplicateOfId =
-      options.withDuplicate === false ? null : await findDuplicate(tx, actor, parsed.data);
+      options.withDuplicate === false
+        ? null
+        : await findDuplicate(tx, actor, parsed.data, undefined, options.importOrigin ?? null);
     return { draft: parsed.data, issues: [], duplicateOfId, duplicateKey };
   } catch (error) {
     if (error instanceof ZodError) {
@@ -292,6 +303,13 @@ type GeneratedStageInput = {
   recurrenceId: string | null;
   occurrenceDate: string | null;
   initialIssues?: ValidationIssue[];
+  /**
+   * The origin of the entry this row will become, when it came from a Simple
+   * Balance file, and an argument for the reason provenance is one: a draft
+   * field anybody could send would let a caller claim an origin and have a
+   * real entry skipped as already here.
+   */
+  importOrigin?: string | null;
 };
 
 /**
@@ -318,7 +336,8 @@ async function prepareGeneratedStage(
 ) {
   await lockStagedDraftReferences(tx, actor, [input.draft]);
   const canonicalDraft = await canonicalizeStagedDraftPayee(tx, actor, input.draft);
-  const draftValidation = await validateDraft(tx, actor, canonicalDraft, { freeze });
+  const importOrigin = input.importOrigin ?? null;
+  const draftValidation = await validateDraft(tx, actor, canonicalDraft, { freeze, importOrigin });
   return {
     userId: actor.userId,
     draft: canonicalDraft ?? {},
@@ -326,6 +345,7 @@ async function prepareGeneratedStage(
     importBatchId: input.importBatchId,
     recurrenceId: input.recurrenceId,
     occurrenceDate: input.occurrenceDate,
+    importOrigin,
     validationIssues: [...(input.initialIssues ?? []), ...draftValidation.issues],
     duplicateOfId: draftValidation.duplicateOfId,
     duplicateKey: draftValidation.duplicateKey,
@@ -388,6 +408,9 @@ export async function insertImportedStages(
   actor: Actor,
   inputs: readonly Omit<GeneratedStageInput, "recurrenceId" | "occurrenceDate">[],
   onProgress?: (event: ProgressEvent) => void,
+  // Which import wrote the rows, as the history says it: a CSV's, unless a
+  // Simple Balance file's add says otherwise.
+  options: { auditOperation?: string } = {},
 ) {
   if (!inputs.length) return [];
   const freeze = await freezeForBatch(
@@ -435,7 +458,7 @@ export async function insertImportedStages(
     created.map((row) => ({
       entityType: "staged_transaction",
       entityId: row.id,
-      operation: "create_from_csv",
+      operation: options.auditOperation ?? "create_from_csv",
       after: stageView(row),
     })),
   );
@@ -555,7 +578,20 @@ function stageSortPlan(
  *
  * At module scope because it depends on no query, and both the filter and the
  * flag the list reports read it.
+ *
+ * Two rows that each carry an origin from a Simple Balance file, and different
+ * ones, are two entries the ledger they came from committed separately, so
+ * neither is "another row still waiting" for the other — the rule
+ * `findDuplicate` follows against the books. A row without one is compared as
+ * it always was. Equal origins never meet here: a second waiting row for one
+ * origin is what `staged_user_import_origin_unique` refuses.
  */
+const differentOrigins = (other: SQL) => sql`(
+  ${other} is not null
+  and ${stagedTransactions.importOrigin} is not null
+  and ${other} <> ${stagedTransactions.importOrigin}
+)`;
+
 const repeatsAnotherStagedRow = sql`(
   ${stagedTransactions.duplicateKey} is not null
   and exists (
@@ -565,6 +601,7 @@ const repeatsAnotherStagedRow = sql`(
       and other.deleted_at is null
       and other.duplicate_key = ${stagedTransactions.duplicateKey}
       and other.id <> ${stagedTransactions.id}
+      and not ${differentOrigins(sql`other.import_origin`)}
   )
 )`;
 /**
@@ -594,6 +631,7 @@ const likelyCommittedMatch = sql`(
   from ledger_transaction candidate
   where candidate.user_id = ${stagedTransactions.userId}
     and candidate.deleted_at is null
+    and not ${differentOrigins(sql`candidate.import_origin`)}
     and candidate.type::text = ${stagedTransactions.draft} ->> 'type'
     and abs(
       candidate.date - (${stagedTransactions.draft} ->> 'date')::date
@@ -975,7 +1013,9 @@ export async function updateStage(
       .limit(1);
     if (!before || before.status !== "staged") throw notFound("Staged transaction not found");
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
-    const validation = await validateDraft(tx, actor, canonicalDraft);
+    const validation = await validateDraft(tx, actor, canonicalDraft, {
+      importOrigin: before.importOrigin,
+    });
     const next = {
       draft: canonicalDraft,
       validationIssues: validation.issues,
@@ -1271,10 +1311,15 @@ export async function commitStages(
       actor,
       validated.map(({ draft }) => draft),
     );
-    const selectedByDuplicateKey = new Map<string, string>();
+    // Each key keeps the origin of the row that claimed it beside the row, so
+    // two rows a Simple Balance file brought from two separate commits — two
+    // coffees on one morning, alike in every field the key reads — are not
+    // refused as one entry twice. A row without an origin is compared as it
+    // always was (`importOriginsDiffer`).
+    const selectedByDuplicateKey = new Map<string, { id: string; origin: string | null }>();
     let compared = 0;
     for (const { row, draft } of validated) {
-      const duplicateOfId = await findDuplicate(tx, actor, draft);
+      const duplicateOfId = await findDuplicate(tx, actor, draft, undefined, row.importOrigin);
       if (duplicateOfId && !parsed.allowDuplicates) {
         throw duplicate("A selected staged transaction matches a committed transaction", {
           id: row.id,
@@ -1283,7 +1328,10 @@ export async function commitStages(
       }
       const duplicateOfStagedId = transactionDuplicateKeys(draft)
         .map((key) => selectedByDuplicateKey.get(key))
-        .find((id): id is string => Boolean(id));
+        .find(
+          (seen): seen is { id: string; origin: string | null } =>
+            seen !== undefined && !importOriginsDiffer(seen.origin, row.importOrigin),
+        )?.id;
       if (duplicateOfStagedId && !parsed.allowDuplicates) {
         throw duplicate("Two selected staged transactions appear to be duplicates", {
           id: row.id,
@@ -1292,7 +1340,7 @@ export async function commitStages(
       }
       for (const key of transactionDuplicateKeys(draft)) {
         if (!selectedByDuplicateKey.has(key)) {
-          selectedByDuplicateKey.set(key, row.id);
+          selectedByDuplicateKey.set(key, { id: row.id, origin: row.importOrigin });
         }
       }
       compared += 1;
@@ -1308,14 +1356,30 @@ export async function commitStages(
 
     const committed: { stagedId: string; transactionId: string }[] = [];
     for (const { row, draft, canonicalStagedDraft } of validated) {
+      // The row's origin goes onto the entry it becomes, which is what lets
+      // the next import of the same file recognize the entry as already here
+      // once the row that carried it is gone from the queue.
       const transaction = await createTransactionWithinTx(
         tx,
         actor,
         draft,
         "create_from_stage",
         parsed.allowDuplicates,
-        { freeze },
-      );
+        { freeze, importOrigin: row.importOrigin },
+      ).catch((error: unknown) => {
+        // The entry's unique origin index refusing it: another path put the
+        // same entry in the books first. Rare under the locks — an import
+        // skips an origin already here before staging it — so the index is the
+        // guarantee rather than the mechanism, and its refusal is said as what
+        // it means rather than as a bare constraint name. Matched by prefix,
+        // because a Citus cluster names each shard's copy with a suffix.
+        if (isUniqueViolation(error, "transaction_user_import_origin_unique")) {
+          throw conflict("This entry is already in the ledger, so it was not committed again.", {
+            id: row.id,
+          });
+        }
+        throw error;
+      });
       const [updated] = await tx
         .update(stagedTransactions)
         .set({
@@ -1652,7 +1716,10 @@ export async function bulkEditStages(
     }[] = [];
     for (const [index, row] of rows.entries()) {
       const canonical = await canonicalizeStagedDraftPayee(tx, actor, drafts[index]);
-      const validation = await validateDraft(tx, actor, canonical, { freeze });
+      const validation = await validateDraft(tx, actor, canonical, {
+        freeze,
+        importOrigin: row.importOrigin,
+      });
       planned.push({
         row,
         draft: canonical,

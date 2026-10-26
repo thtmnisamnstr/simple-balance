@@ -103,4 +103,25 @@ describe("tools that overwrite say so", () => {
     expect(tool!.description).toMatch(/audit log/i);
     expect(tool!.description).toContain("delete_budget_entry");
   });
+
+  /**
+   * The other tell is no version at all: a write that replaces the settings
+   * somebody chose. `add_ledger_file` does exactly what `set_preferences` does
+   * when told `preferences: "file"`, and was annotated additive while the tool
+   * making the same write was destructive, so a client approving additive
+   * calls on its own let an agent move somebody's "today" without a prompt.
+   */
+  it("annotates every tool that can replace chosen settings destructive, and says so", () => {
+    for (const name of ["set_preferences", "add_ledger_file"]) {
+      const tool = tools.find((entry) => entry.name === name);
+      expect(tool, `${name} is registered`).toBeDefined();
+      expect(tool!.annotations?.["destructiveHint"], `${name} can replace chosen settings`).toBe(
+        true,
+      );
+      expect(tool!.description).toMatch(/confirm/i);
+    }
+    expect(tools.find((entry) => entry.name === "add_ledger_file")!.description).toContain(
+      "set_preferences",
+    );
+  });
 });

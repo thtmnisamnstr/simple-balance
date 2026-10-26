@@ -664,7 +664,8 @@ jobs:
             "x-download-options" \
             "x-permitted-cross-domain-policies" \
             "x-xss-protection" \
-            "strict-transport-security"; do
+            "strict-transport-security" \
+            "x-robots-tag"; do
             # Both, because the include is repeated per static location and
             # nginx drops inherited add_header from any level with one of its
             # own. Losing it from the assets location alone would be silent.
@@ -673,7 +674,17 @@ jobs:
             printf '%s' "$asset_headers" | grep -qi "^$header:" \
               || { echo "::error::a hashed asset is missing $header"; exit 1; }
           done
-          echo "the shell and a hashed asset both carry all twelve headers"
+          echo "the shell and a hashed asset both carry all thirteen headers"
+
+          # The robots header by value as well, and on the robots file, which
+          # lets every crawler in on the strength of it: a header that arrived
+          # saying anything else would let the page into an index.
+          robots_headers=$(curl -fsS -D - -o /dev/null http://127.0.0.1:8099/robots.txt)
+          for served in "$shell_headers" "$asset_headers" "$robots_headers"; do
+            printf '%s' "$served" | grep -qiE '^x-robots-tag: noindex[[:space:]]*$' \
+              || { echo "::error::a file nginx serves does not say x-robots-tag: noindex"; exit 1; }
+          done
+          echo "the shell, a hashed asset and the robots file all say noindex"
 
           # And the one page whose policy differs. Rendering it is the part a
           # test cannot do: nginx takes a static response's Content-Type from
@@ -690,6 +701,9 @@ jobs:
             # back under exactly the policy every other page gets.
             printf '%s' "$plan" | grep -qi "js.stripe.com" \
               && { echo "::error::$path carries the Stripe policy with no Stripe configured"; exit 1; }
+            # Its own copy of the header list, so its own robots header.
+            printf '%s' "$plan" | grep -qiE '^x-robots-tag: noindex[[:space:]]*$' \
+              || { echo "::error::$path does not say x-robots-tag: noindex"; exit 1; }
           done
           echo "the plan page renders under the strict policy in both spellings"
 
@@ -708,6 +722,8 @@ jobs:
             plan=$(curl -fsS -D - -o /dev/null "http://127.0.0.1:8099$path")
             printf '%s' "$plan" | grep -qi "^content-security-policy:.*js.stripe.com" \
               || { echo "::error::$path does not carry the Stripe policy"; exit 1; }
+            printf '%s' "$plan" | grep -qiE '^x-robots-tag: noindex[[:space:]]*$' \
+              || { echo "::error::$path does not say x-robots-tag: noindex"; exit 1; }
           done
           # And every other page keeps the strict one, which is the promise the
           # whole surface split rests on.

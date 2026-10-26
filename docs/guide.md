@@ -69,8 +69,9 @@ both sides, so there is no counter-side to divide and a transfer is never split.
 
 ## Importing and exporting
 
-Imports go through **Staged transactions**, which is the review queue in front
-of the books: nothing on it has been posted and nothing on it counts. Simple
+Imported transactions go through **Staged transactions**, which is the review
+queue in front of the books: nothing on it has been posted and nothing on it
+counts. Simple
 Balance reads the CSV, works out the format, maps the columns, parses whatever
 date and number conventions your bank uses, and creates categories and payees as
 it goes. You look at the result before any of it counts, and committing a batch
@@ -129,10 +130,37 @@ What stays behind is what another copy works out for itself or should never
 have: postings and balances, which are worked out from the entries rather than
 copied, and your sign-in, your connected agents and your plan.
 
-**Reading a file back arrives in a later release.** This one makes the file
-and cannot yet bring one into a ledger. The format is fixed now so that the
-release which imports it will read a file made today, and the copy you move to
-will need that release.
+**Bringing a file in adds it to the ledger you are in**, which may already
+hold things of its own. Its accounts, categories and groups, templates,
+recurring transactions and budgets come straight in when nothing here is like
+them, without a trip through the review queue: a new account has nothing to
+review except whether you already have it, and that is asked before anything
+is written. Where you do already have something by the same name, the preview
+asks what you want — use the one you have, leave the file's out, or bring it
+in under another name — and nothing is decided for you or overwritten. A record
+here that is the same in every way is simply used. The file's transactions go
+to Staged transactions like any import, complete with both sides of every
+transfer, for you to look over and commit.
+
+Every transaction carries the id it was first written under, so the same one
+arriving twice is recognized and left out rather than flagged: a transfer in two
+accounts' files lands once, a file added a second time adds nothing, and a
+ledger moved away and back brings nothing twice. Two transactions that merely
+look alike, two coffees on the same morning, are never taken for each other.
+Deleted transactions are not added, and an account that was archived arrives
+archived, put away today rather than on the day it was. A file of more than
+10,000 transactions goes in parts, each all or nothing, and choosing the file
+again after one stopped picks up where it left off. On the free plan, which
+keeps three accounts in use, you choose which of the file's new accounts arrive
+archived; their transactions wait in Staged until there is room to restore them.
+Your regional defaults and theme come from the file only where this copy has
+none of its own yet, or if you say so; your account takes your browser's
+timezone and currency the first time you open it, so you are usually asked.
+
+Moving a whole ledger straight into an empty one, deleted transactions and the
+day each account was archived included, without the review queue, is not here
+yet. A copy you run yourself has to be upgraded to a release that has all
+this before it can make a file or bring one in.
 
 ## Templates
 

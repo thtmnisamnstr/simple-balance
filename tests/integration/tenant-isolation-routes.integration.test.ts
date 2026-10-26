@@ -29,14 +29,20 @@ const databaseName = `simple_balance_tenant_routes_${process.pid}_${Date.now()}`
 type App = (typeof import("../../src/server/api.js"))["default"];
 const BASE = "http://localhost:3000";
 
-/** Every `/api/v1` route with a parameter in its path, as `METHOD /path`. */
+/**
+ * Every `/api/v1` route with a parameter in its path, as `METHOD /path`.
+ *
+ * A parameter is a segment that starts with the colon. A colon inside a
+ * segment is the house's custom-method spelling, `ledger-file:preview`, which
+ * Hono matches as a literal and which names nobody's record.
+ */
 const ROUTES = [
   ...new Set(
     [
       ...readFileSync(
         path.resolve(import.meta.dirname, "../../src/server/api.ts"),
         "utf8",
-      ).matchAll(/app\.(get|post|put|patch|delete)\(\s*"(\/api\/v1\/[^"]*:[^"]*)"/g),
+      ).matchAll(/app\.(get|post|put|patch|delete)\(\s*"(\/api\/v1\/[^"]*\/:[^"]*)"/g),
     ].map(([, method, route]) => `${method!.toUpperCase()} ${route}`),
   ),
 ];

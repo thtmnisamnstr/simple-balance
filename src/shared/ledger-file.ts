@@ -17,10 +17,10 @@
  * **The format token is a published contract.** Every later release reads every
  * token ever published, and a field added under this one is added as optional,
  * because somebody's file written today has to import into a copy upgraded in
- * three years. That is why the format already carries what only an import needs
- * — origins, the deleted flag, archive instants, the reminder and recurrence
- * watermarks, the balance checks — although the release that introduced it
- * only exports.
+ * three years. That is why the format already carries what only moving a whole
+ * ledger needs — the deleted flag, archive instants and the balance checks —
+ * although the release that introduced it only exports a file and adds one to
+ * a ledger, and moving a ledger whole comes later.
  *
  * What it carries is what the person wrote and nothing a service derives:
  * postings, counter-accounts, rates, versions and timestamps stay behind, and
@@ -1314,6 +1314,32 @@ export function ledgerFileRowCount(
   return file.entries.length + file.staged.length + file.budgets.entries.length;
 }
 
+/**
+ * The records one part creates or matches before its first row: groups,
+ * categories, accounts, templates, recurring transactions and budget plans.
+ *
+ * Bounded on their own at the same ten thousand, rather than counted into the
+ * rows. Every part carries every record, so a row cap that counted them would
+ * shrink each part by the records' size and stop an export of ten thousand
+ * entries being one part; and left unbounded, a part of nothing but records is
+ * one transaction creating any number of them under every namespace lock.
+ */
+export function ledgerFileRecordCount(
+  file: Pick<
+    LedgerFile,
+    "groups" | "categories" | "accounts" | "templates" | "recurrences" | "budgets"
+  >,
+): number {
+  return (
+    file.groups.length +
+    file.categories.length +
+    file.accounts.length +
+    file.templates.length +
+    file.recurrences.length +
+    file.budgets.plans.length
+  );
+}
+
 /** The order the top level is written in, which is the order it is read in. */
 const SECTIONS = [
   "format",
@@ -1374,12 +1400,17 @@ export function serializeLedgerFile(file: LedgerFile): string {
   return `{\n${lines.join(",\n")}\n}\n`;
 }
 
-/** How large one part may be, in rows and in bytes. Tests make both small. */
-export type LedgerFilePartLimits = { maxRows: number; maxBytes: number };
+/**
+ * How large one part may be, in rows, in bytes and in records. Tests make them
+ * small. Records default to the cap rows share, which is what the server holds
+ * each part to.
+ */
+export type LedgerFilePartLimits = { maxRows: number; maxBytes: number; maxRecords?: number };
 
 const DEFAULT_PART_LIMITS: LedgerFilePartLimits = {
   maxRows: MAX_BULK_SELECTION_ENTRIES,
   maxBytes: LEDGER_FILE_PART_MAX_BYTES,
+  maxRecords: MAX_BULK_SELECTION_ENTRIES,
 };
 
 export type LedgerFileSplit = { ok: true; parts: LedgerFile[] } | { ok: false; message: string };
@@ -1435,13 +1466,22 @@ const LIST_OVERHEAD = 16;
  * - **History is in no part**, because no import reads it.
  *
  * A file small enough to be one part comes back as one part. The only
- * refusals are a records section or a single row too large for a part to hold
- * at all, which no row cap can cure.
+ * refusals are a records section with more records than a part may carry or
+ * too large for a part to hold, and a single row too large, which no row cut
+ * can cure.
  */
 export function splitLedgerFile(
   file: LedgerFile,
   limits: LedgerFilePartLimits = DEFAULT_PART_LIMITS,
 ): LedgerFileSplit {
+  // Every part carries every record, so no row cut can bring a part under
+  // this, and it is refused up front in the words the byte check uses.
+  if (ledgerFileRecordCount(file) > (limits.maxRecords ?? MAX_BULK_SELECTION_ENTRIES)) {
+    return {
+      ok: false,
+      message: `This file holds ${ledgerFileRecordCount(file).toLocaleString("en-US")} accounts, categories, groups, templates, recurring transactions and budgets, and one part of an import holds at most ${(limits.maxRecords ?? MAX_BULK_SELECTION_ENTRIES).toLocaleString("en-US")}. Every part carries all of them, so it cannot be sent in parts.`,
+    };
+  }
   const { history: _history, ...records } = file;
   const empty: LedgerFile = {
     ...records,

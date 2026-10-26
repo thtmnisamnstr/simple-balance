@@ -7,6 +7,7 @@ import {
   transactionDraftSchema,
   type Actor,
   type CategoryKind,
+  type ImportBatchKind,
   type Page,
   type PayeeSummary,
 } from "../../shared/domain.js";
@@ -90,6 +91,12 @@ export function getCsvPreview(csv: string) {
 export type ImportBatchSummary = {
   id: string;
   fileName: string;
+  /**
+   * What the batch was read from, so the Staged page can say "a Simple Balance
+   * file" rather than show a file of JSON as though it were a CSV somebody
+   * mapped.
+   */
+  kind: ImportBatchKind;
   rowCount: number;
   stagedCount: number;
   createdAt: string;
@@ -120,6 +127,7 @@ export async function listActiveImportBatches(
     .select({
       id: importBatches.id,
       fileName: importBatches.fileName,
+      kind: importBatches.kind,
       rowCount: importBatches.rowCount,
       createdAt: importBatches.createdAt,
       cursorSort: instantMarker(importBatches.createdAt),

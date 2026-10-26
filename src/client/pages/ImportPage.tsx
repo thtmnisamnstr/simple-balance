@@ -58,6 +58,7 @@ import {
   Skeleton,
 } from "../components.js";
 import { newIdempotencyKey } from "../idempotency.js";
+import { LedgerFileImport } from "../LedgerFileImport.js";
 import { noAccountReason } from "../list-filters.js";
 import { formatDate, formatMoney, movementSign } from "../money.js";
 import {
@@ -315,6 +316,7 @@ export default function ImportPage() {
   };
 
   const csvHeading = useId();
+  const fileHeading = useId();
 
   const chooseFile = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -331,7 +333,7 @@ export default function ImportPage() {
       <PageHeader
         eyebrow="Your data"
         title="Import and export"
-        description="Bring in a bank statement, or export your ledger as a Simple Balance file to keep or to move to another copy of Simple Balance."
+        description="Bring in a bank statement or a Simple Balance file, or export your ledger as a Simple Balance file to keep or to move to another copy of Simple Balance."
       />
 
       {/* The CSV import's own section, and its two empty states are inside it.
@@ -356,7 +358,7 @@ export default function ImportPage() {
           <EmptyState
             icon={FileSpreadsheet}
             title="Create an account first"
-            body="A CSV needs an account for its rows to be posted against."
+            body="A CSV needs an account for its rows to be posted against. Moving from another copy of Simple Balance? Add its file below."
           />
         ) : !writableAccounts.length ? (
           <EmptyState
@@ -855,6 +857,23 @@ export default function ImportPage() {
             </aside>
           </div>
         )}
+      </section>
+
+      {/* Between the two, because it is the other half of each: an import
+          like the CSV above it, of the file the export below it writes. */}
+      <section className="import-section" aria-labelledby={fileHeading}>
+        <div className="section-title">
+          <div>
+            <h2 id={fileHeading}>Import a Simple Balance file</h2>
+            <p>
+              Add a file exported from Simple Balance to this ledger. Accounts, categories,
+              templates, recurring transactions and budgets that are new here are created as they
+              are, one already here under the same name is yours to decide, and transactions go to
+              Staged for review.
+            </p>
+          </div>
+        </div>
+        <LedgerFileImport />
       </section>
 
       <LedgerFileExport />

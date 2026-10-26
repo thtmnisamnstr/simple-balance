@@ -34,10 +34,52 @@ and 4 MiB, because a tool's reply cannot stream; a larger export is refused
 with both numbers and the way out that works for what was asked, usually a date
 range at a time. Exporting writes nothing, not even a line in the activity log.
 The page's two empty states, no account yet and every account frozen, now cover
-only the CSV import, so the export is there for somebody with either. Importing
-the file arrives in a later release: this one only makes it, and its format is
-fixed now so the release that reads it will read a file made today. The CSV
-import and export are exactly as they were.
+only the CSV import, so the export is there for somebody with either. A file it
+makes can be added to another copy, as the next entry says. The CSV import and
+export are exactly as they were.
+
+**A Simple Balance file can be added to a ledger, including one that already
+holds things of its own.** **Import a Simple Balance file**, between the CSV
+import and the export, reads the file, checks it against this ledger and says
+what adding it would do before anything is written. Accounts, categories and
+groups, templates with their reminders, recurring transactions and budgets that
+nothing here is like are created at once, without the review queue: a new
+account has nothing to review except whether it is already here, and that is
+the preview's question. Where something here has the same name and differs, the
+preview asks — use the one here, leave the file's out, or bring it in under
+another name — and an account in another currency is never taken for the one
+here. One the same in every field is used with nothing asked, and nothing here
+is overwritten. The file's transactions go to Staged like any import's, complete
+with both sides of every transfer, so bringing accounts across one file at a
+time no longer means choosing the other account of every transfer by hand.
+
+Every transaction carries the id it was first written under, kept in a new
+`import_origin` column, and one already here by that id — as an entry, deleted
+or not, or as a row in Staged, waiting or since committed — is skipped and
+counted rather than flagged as a duplicate. A transfer in two accounts' files
+lands once, the same file added twice adds nothing the second time, and two
+look-alike transactions from a file are never taken for each other at stage, at
+commit or in a bulk edit; one with no origin is compared as it always was.
+Deleted transactions are not added, and an account archived where the file came
+from arrives archived, closed today rather than on its original day. A file of
+more than 10,000 rows is applied in parts, each all or nothing, and choosing it
+again after a part stopped picks up where it left off. On a free plan with
+fewer places than the file brings accounts in use, the person chooses which
+of the new ones arrive archived, with none chosen for them, and their
+transactions wait in Staged until a place is free. The file's regional settings
+apply only where this copy never chose its own, or where the person says to. A
+reminder already sent is not sent again, and a recurring transaction does not
+propose a day the other copy already did.
+
+Agents have `preview_ledger_file`, a read, and `add_ledger_file`, which needs
+`ledger:write` because it creates records rather than proposing them, and is
+marked destructive because it can replace the settings chosen here. Over HTTP
+they are `POST /api/v1/ledger-file:preview` and `POST /api/v1/ledger-file:add`,
+and the add streams its progress when asked. Every record and row the add
+creates is audited as `create_from_ledger_file`, and Staged's batch filter
+marks a batch that came from a file. A file can be added only to a copy running
+this release or later. Moving a whole ledger straight into an empty one, its
+deleted transactions and archive days included, is not here yet.
 
 **Metrics can be sent to New Relic, or to any backend that takes OTLP or
 Prometheus remote write, with no Prometheus of your own.** Every deployment
@@ -226,6 +268,28 @@ was never printed.** Step 4 of `nextSteps` on `aws-single` and `oci-single` said
 to find the first-run setup code in the application's log. The server prints one
 only when `allowedEmails` turns somebody away, so under `*` the log has none and
 the sign-up form never asks for it. With `*`, step 4 now says to sign up.
+
+**Search engines are let in to read that nothing here belongs in their index.**
+`/robots.txt` asked every crawler but AdSense's to stay out, and no response
+said `noindex`. That defeated itself: a crawler that may not fetch a page never
+reads anything on it, so an address somebody linked to could still be listed as
+a bare link, and the sign-in screen could stand in for the product on a search
+for its name. The robots file now lets every crawler in, and everything served
+says `X-Robots-Tag: noindex` — the pages, the files beside them, `/robots.txt`,
+`/ads.txt` and the API — from the application, and from the frontend image's
+nginx for the files it serves itself. AdSense's crawler keeps a group of its
+own, the only one it reads, as Google ignores `*` for it, and `noindex`
+does not stop it: it reads pages to match ads rather than to list them. A search
+engine drops an address it has already listed the next time it fetches it, not
+at the upgrade, and nothing has to be copied onto a machine.
+
+**An agent's request to `/mcp` is no longer cut off at 4 MiB.** The MCP SDK
+reads a request's body a second time, with a limit of its own of 4 MiB unless
+it is told otherwise, and 0.2.0 and 0.2.1 never told it. So `stage_csv` refused
+a CSV past that with a bare 413 before any tool ran, whatever `CSV_MAX_BYTES`
+allowed the route. The transport now takes the route's own limit, which is also
+what lets one sixteen-mebibyte part of a Simple Balance file reach the new
+tools.
 
 ## 0.2.1 - 2026-10-06
 

@@ -403,6 +403,80 @@ describe("migration baseline", () => {
   });
 
   /**
+   * 0026 is written and unreleased, so it can still be regenerated, and a
+   * regeneration is where its two promises break without anybody meaning
+   * them to. The columns are metadata-only: two nullable origins and a kind
+   * whose default is a constant, so a ledger with years of entries is not
+   * rewritten on the way in. And the indexes are what an import's skip rests
+   * on: unique, so two parts or two tabs naming one origin cannot both write
+   * it; partial, so the entries typed by hand are not in them; and led by the
+   * owner, without which Citus refuses a unique index on a distributed table
+   * outright — on the one profile CI cannot run.
+   */
+  it("adds the import origins without rewriting a row", async () => {
+    const sql = await readFile(
+      path.join(migrationDirectory, "0026_ledger_file_origins.sql"),
+      "utf8",
+    );
+    const statements = sql
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("--"))
+      .join("\n");
+
+    expect(statements).toContain(
+      `CREATE TYPE "public"."import_batch_kind" AS ENUM('csv', 'ledger_file');`,
+    );
+    expect(statements).toMatch(
+      /ALTER TABLE "import_batch" ADD COLUMN "kind" "import_batch_kind" DEFAULT 'csv' NOT NULL;/,
+    );
+    expect(statements).toMatch(/ALTER TABLE "ledger_transaction" ADD COLUMN "import_origin" uuid;/);
+    expect(statements).toMatch(/ALTER TABLE "staged_transaction" ADD COLUMN "import_origin" uuid;/);
+    expect(statements.match(/ADD COLUMN/gi)).toHaveLength(3);
+    // Nullable and undefaulted: every entry that exists keeps meaning "written
+    // here", which is what a null origin says.
+    expect(statements).not.toMatch(/import_origin" uuid[^;]*(NOT NULL|DEFAULT)/i);
+    // A constant default, so the add is metadata-only. A volatile one would
+    // rewrite the table.
+    expect(statements).not.toMatch(/DEFAULT\s+[a-z_]+\s*\(/i);
+
+    const indexes = [...statements.matchAll(/CREATE UNIQUE INDEX "(\w+)" ON "(\w+)"[^;]*;/g)];
+    expect(indexes.map((match) => [match[1], match[2]])).toEqual([
+      ["staged_user_import_origin_unique", "staged_transaction"],
+      ["transaction_user_import_origin_unique", "ledger_transaction"],
+    ]);
+    for (const [definition] of indexes) {
+      expect(definition, "led by the distribution column").toMatch(
+        /USING btree \("user_id","import_origin"\)/,
+      );
+      expect(definition, "partial on the origin").toMatch(
+        /WHERE "\w+"\."import_origin" is not null/,
+      );
+    }
+    // Only while the row waits: a discarded row is no decision about the
+    // entry, and a committed one has handed its origin to the entry's index.
+    expect(indexes[0]![0]).toMatch(/and "staged_transaction"\."status" = 'staged';$/);
+    expect(indexes[1]![0]).not.toMatch(/status/);
+
+    // A table here would land on a cluster's coordinator as a local table,
+    // which `0023` would never distribute (database.md 1.6), and nothing here
+    // may reach for Citus itself: that is `0023`'s alone, behind its gate.
+    expect(statements).not.toMatch(/CREATE TABLE/i);
+    expect(statements).not.toMatch(/citus|pg_dist|create_distributed_table/i);
+    // The migrator runs every pending file in one transaction, which
+    // `CONCURRENTLY` refuses to run inside.
+    expect(statements).not.toMatch(/CONCURRENTLY/i);
+    for (const forbidden of [
+      /^\s*UPDATE\s/im,
+      /^\s*DELETE\s/im,
+      /^\s*INSERT\s/im,
+      /\bDROP\b/i,
+      /\bALTER COLUMN\b/i,
+    ]) {
+      expect(statements, forbidden.source).not.toMatch(forbidden);
+    }
+  });
+
+  /**
    * The theme column, and the promise the upgrade notes make about it to
    * operators: that it is metadata-only, so no table is rewritten and nobody
    * waits. That holds only while the default is a constant and the column is

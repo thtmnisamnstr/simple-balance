@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { MAX_BULK_SELECTION_ENTRIES } from "../src/shared/domain.js";
 import {
   LEDGER_FILE_PART_MAX_BYTES,
+  ledgerFileRecordCount,
   ledgerFileRowCount,
   parseLedgerFile,
   serializeLedgerFile,
@@ -187,6 +188,34 @@ describe("the byte cap", () => {
       ok: false,
       message:
         "This file's accounts, categories, templates and other records are larger on their own than one part of an import may be, so it cannot be sent in parts.",
+    });
+  });
+
+  /**
+   * Records are bounded on their own at the row cap's number, because every
+   * part carries every one of them: no row cut brings a part under it, so the
+   * file is refused up front rather than cut into parts the server refuses.
+   */
+  it("refuses a file with more records than one part may carry", () => {
+    const file = grown(3);
+    expect(ledgerFileRecordCount(file)).toBe(1 + 4 + 3 + 2 + 2 + 2);
+    expect(
+      splitLedgerFile(file, {
+        maxRows: 10,
+        maxBytes: LEDGER_FILE_PART_MAX_BYTES,
+        maxRecords: ledgerFileRecordCount(file),
+      }).ok,
+    ).toBe(true);
+    expect(
+      splitLedgerFile(file, {
+        maxRows: 10,
+        maxBytes: LEDGER_FILE_PART_MAX_BYTES,
+        maxRecords: ledgerFileRecordCount(file) - 1,
+      }),
+    ).toEqual({
+      ok: false,
+      message:
+        "This file holds 14 accounts, categories, groups, templates, recurring transactions and budgets, and one part of an import holds at most 13. Every part carries all of them, so it cannot be sent in parts.",
     });
   });
 

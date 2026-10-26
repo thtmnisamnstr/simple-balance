@@ -383,11 +383,17 @@ is zero. If you sell through other partners as well you need more lines than
 this one, and the way to do that is to serve your own `/ads.txt` from whatever
 terminates TLS in front of this deployment; it will take precedence.
 
-`/robots.txt` is served too, and it lets AdSense's crawler (`Mediapartners-Google`)
-in while asking every other crawler to stay out. AdSense matches ads to a page
-by reading it with that crawler, so a robots file that turned it away would get
-less relevant ads rather than none. If whatever terminates TLS serves a robots
-file of its own, keep that allowance in it.
+`/robots.txt` is served too, and it lets every crawler in, while every page and
+file says `X-Robots-Tag: noindex`, so a search engine reads that nothing here
+belongs in its index. AdSense's crawler (`Mediapartners-Google`) has a group of
+its own, the only one it reads: Google ignores `*` for it, so that group is
+where its allowance is said. AdSense matches ads to a page by reading it with
+that crawler, so a robots file that turned it away would get less relevant ads
+rather than none, and `noindex` does not stop it: it is about search results,
+which is not what that crawler reads for. If whatever terminates TLS serves a
+robots file of its own, keep that allowance in it, and turn no other crawler
+away either. One that may not fetch a page never reads its `noindex`, and can
+still list the address as a bare link when somebody links to it.
 
 **If this deployment is on a subdomain** — `balance.example.com` rather than
 `example.com` — crawlers read the **root** domain's `/ads.txt`, not this one.

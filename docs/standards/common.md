@@ -305,9 +305,10 @@ table's sense, and whether the "Not" column is honest, stays review.
 | **Forecast** | A projection of what the books would hold if the future arrived as scheduled. | A balance. Money dated in the future has not moved. |
 | **Recurring transaction** | A saved shape and a schedule that proposes a staged row on its due date. `recurrence` on the wire and in tool names, and the same two words on every screen, in every tool title and in the reminder mail. Like a staged transaction, it is named for what it makes rather than for being one. | Something that posts. A *recurrence* in a heading or a button: the Recurring page said that while every page pointing at it said this. |
 | **Template** | A saved shape with no schedule. | A recurring transaction. |
-| **Simple Balance file** | One JSON document holding a whole ledger, or some of its accounts, for moving it to another copy of this product. `simple-balance-ledger-1` on the wire and the *ledger file* in code; [`ledger-file.md`](ledger-file.md) is its format. | An archive, a backup or a CSV. Archiving retires an account, a backup is the operator's dump of the whole database, and a CSV is for a spreadsheet or another tool. What reads one back is never a *restore*, which already brings back an archived account or a deleted entry. |
+| **Simple Balance file** | One JSON document holding a whole ledger, or some of its accounts, for moving it to another copy of this product. `simple-balance-ledger-1` on the wire and the *ledger file* in code; [`ledger-file.md`](ledger-file.md) is its format. Read back by *adding* it to a ledger: its records come in, matched or created, and its transactions go to Staged. | An archive, a backup or a CSV. Archiving retires an account, a backup is the operator's dump of the whole database, and a CSV is for a spreadsheet or another tool. What reads one back is never a *restore*, which already brings back an archived account or a deleted entry. |
+| **Origin** | The id an entry was first written under, which it keeps in every Simple Balance file and every copy it moves to, so the same entry arriving twice is recognized and skipped. `import_origin` once it has arrived from a file. | A duplicate check, a primary key, or provenance anybody is shown. Two entries with different origins are never duplicates of each other; an entry without one is compared as it always was. |
 | **Plan** | What a sign-in is entitled to and billed for: free or paid. `plus` on the wire, **Premium** on screen. | A budget plan, which is always written out in full. |
-| **Entitlement** | What a plan permits, worked out from the plan and the moment rather than stored (`resolveEntitlement`, `src/shared/domain.ts:3577`). | A plan. An entitlement follows from one and changes with nobody present, which is why no column holds it. |
+| **Entitlement** | What a plan permits, worked out from the plan and the moment rather than stored (`resolveEntitlement`, `src/shared/domain.ts:3656`). | A plan. An entitlement follows from one and changes with nobody present, which is why no column holds it. |
 | **Frozen** | A live account a plan's limit leaves closed to every change to what it holds: fully readable, counted in every balance, summary and report, and still free to be archived, or deleted while nothing is on it. | Archived. An archived account already refuses writes, is outside the limit, and uses up no place. |
 | **Place** | One of the accounts a plan keeps usable; the product's word for the slot. | An account. A place opens up only when an account in use is archived or deleted. |
 
@@ -487,7 +488,7 @@ exception to.
 **House.** §Naming says a name is the same word on every surface, and names no
 exception. Six closed sets already read against that sentence:
 `accountTypeLabels` (`src/shared/domain.ts:53`), `PLAN_LABELS`
-(`src/shared/domain.ts:3491`), `categoryKindLabels`
+(`src/shared/domain.ts:3570`), `categoryKindLabels`
 (`src/client/select-options.ts:113`, which both category pages read),
 `transactionTypeLabels`
 (`src/client/pages/TemplatesPage.tsx:77`), and `ORDINAL_LABELS` and
@@ -518,7 +519,7 @@ only. There is no reverse lookup from a label to a wire value, because a label
 is not an identifier.
 
 **One gap is open and named here rather than implied.** `whoami` returns the
-plan as a bare wire value (`src/server/mcp-output-schemas.ts:707-708`) and its
+plan as a bare wire value (`src/server/mcp-output-schemas.ts:749-750`) and its
 description never says the screen reads a different word, so an agent explaining
 why a write was refused says "plus" about a product that sells Premium. That is
 the defect `AGENTS.md` records one level down from a route-by-route parity

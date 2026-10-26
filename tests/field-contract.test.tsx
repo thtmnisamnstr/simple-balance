@@ -237,9 +237,20 @@ describe("a field around a composite", () => {
  * named by its own text rather than its line number, which moved every time
  * something was added above it and failed a test about a control nobody had
  * touched.
+ *
+ * The second is the Simple Balance file's drop zone, and its case is the
+ * first one's: the same `.file-drop` label, whose words — "Choose a Simple
+ * Balance file", what the file is, and that nothing is written until it is
+ * added — are the whole affordance. It is refused while a file is being
+ * checked or added, which is a reason to say nothing more beside it: the
+ * sentence saying which part is being read sits directly under it. Refused
+ * rather than disabled, the way `Button` refuses, because a browser blurs an
+ * element it disables; and so written over several lines, which is why an
+ * entry here is a tag's whole text with its whitespace run together.
  */
 const NOT_A_FIELD = new Set([
   'src/client/pages/ImportPage.tsx:<input type="file" accept=".csv,text/csv" onChange={chooseFile} />',
+  'src/client/LedgerFileImport.tsx:<input type="file" accept=".json,application/json" aria-disabled={busy || undefined} onClick={(event) => { if (busy) event.preventDefault(); }} onChange={chooseFile} />',
 ]);
 
 describe("every control in the client", () => {
@@ -258,7 +269,12 @@ describe("every control in the client", () => {
         // bounded so a malformed file cannot run to the end.
         const tag = lines.slice(index, index + 12).join(" ");
         if (/type="(?:checkbox|radio)"/.test(tag.slice(0, tag.indexOf(">") + 1))) return;
-        if (NOT_A_FIELD.has(`${path}:${line.trim()}`)) return;
+        const whole = tag
+          .slice(0, tag.indexOf("/>") + 2)
+          .replace(/\s+/g, " ")
+          .trim();
+        if (NOT_A_FIELD.has(`${path}:${line.trim()}`) || NOT_A_FIELD.has(`${path}:${whole}`))
+          return;
         raw.push(`${path}:${index + 1}`);
       });
     }

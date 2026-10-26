@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { reportNames } from "../../src/shared/domain.js";
 import { todayIn } from "../../src/shared/recurrence-dates.js";
+import { visitImportStates } from "./support/ledger-file-import.js";
 import { answerHouseAd, answerPlanStatus, pagesToVisit, type Fill } from "./support/routes.js";
 
 /**
@@ -308,5 +309,37 @@ test.describe("every page reflows", () => {
     await expect(form.getByText("Archived", { exact: true })).toBeVisible();
     overflowing.push(...(await measure("Some accounts, with a range")));
     expect(overflowing, "the export form scrolls the page sideways").toEqual([]);
+  });
+
+  /**
+   * The Simple Balance file's import, which the walk above only ever sees
+   * empty: everything it shows arrives after a file is chosen and checked.
+   * Each state the section can take, at the same five widths as the export —
+   * a refusal listing places in the file, a question about a duplicate with a
+   * copy's name being typed, the places checklist and its sentence, the
+   * settings question, every record in a table, a part that stopped, a
+   * finished add, and a reference being matched — with an account name that
+   * has no break in it, which is every one of those at its widest.
+   */
+  test("with the Simple Balance file import in every state it can take", async () => {
+    test.setTimeout(180_000);
+    const overflowing: string[] = [];
+    await visitImportStates(page, async (state) => {
+      for (const width of [320, 390, 781, 1050, 1440]) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.evaluate(
+          () => new Promise((resolve) => requestAnimationFrame(() => resolve(null))),
+        );
+        const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+          scrollWidth: document.documentElement.scrollWidth,
+          clientWidth: document.documentElement.clientWidth,
+        }));
+        if (scrollWidth > clientWidth) {
+          overflowing.push(`${state} at ${width}px: document is ${scrollWidth}px wide`);
+        }
+      }
+      await page.setViewportSize({ width: 1440, height: 900 });
+    });
+    expect(overflowing, "the import section scrolls the page sideways").toEqual([]);
   });
 });

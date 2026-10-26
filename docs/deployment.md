@@ -914,14 +914,14 @@ and `tests/env-example.test.ts` holds the two to each other.
 
 nginx repeats every response header the API sets — the content security policy,
 `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, HSTS, the two
-`Cross-Origin-*` policies, `Origin-Agent-Cluster` and the legacy four — on the
-files it serves itself. The application shell never reaches the API process, so
-without this the one document that actually runs the app would ship with no
-policy at all. `tests/security-header-parity.test.ts` runs a real response
-through the middleware and fails if the two lists differ by a header or by a
-value, because they are one policy written in two languages. It replaces
-`X-Forwarded-For` with `$remote_addr` rather than appending to it, which is what
-`TRUST_PROXY=true` on the server is safe to believe.
+`Cross-Origin-*` policies, `Origin-Agent-Cluster`, the legacy four and
+`X-Robots-Tag: noindex` — on the files it serves itself. The application shell
+never reaches the API process, so without this the document that runs the app
+would ship with no policy. `tests/security-header-parity.test.ts` runs a real
+response through the middleware and fails if the two lists differ by a header
+or by a value, because they are one policy written in two languages. It
+replaces `X-Forwarded-For` with `$remote_addr` rather than appending to it,
+which is what `TRUST_PROXY=true` on the server is safe to believe.
 
 The scheduler image runs the whole schedule — proposing recurring transactions
 and sending the reminders and proposal notices — and serves nothing but its own

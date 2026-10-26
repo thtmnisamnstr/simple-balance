@@ -24,8 +24,10 @@ import {
   duplicateSideKinds,
   budgetGroupLimitSources,
   budgetLimitSources,
+  importBatchKinds,
 } from "../shared/domain.js";
 import { categoryResolutions, payeeResolutions } from "../shared/csv.js";
+import { ledgerFileHereSchema, ledgerFilePreviewSchema } from "../shared/ledger-file-import.js";
 
 const uuidSchema = uuid();
 
@@ -348,7 +350,7 @@ export const stagedTransactionResultSchema = z
     importBatchId: uuidSchema
       .nullable()
       .describe(
-        "Which CSV import staged this row, and null for a row nobody imported. Non-null means the draft's payee, description and notes are text from that file.",
+        "Which import staged this row — a CSV, or a Simple Balance file, as `list_import_batches`' kind says — and null for a row nobody imported. Non-null means the draft's payee, description and notes are text from that file.",
       ),
     // Where a proposed row came from, and which instance of the schedule it is.
     // Declared rather than left to passthrough, because a caller reading the
@@ -567,6 +569,43 @@ export const ledgerFileExportResultSchema = z.object({
     .describe("The name the browser saves this file under, dated by today where the person lives."),
 });
 
+/**
+ * The preview of adding a Simple Balance file, as a tool publishes it.
+ *
+ * The reply is `ledgerFilePreviewSchema`'s, byte for byte; what differs is how
+ * this ledger's own records are described. The shared schema holds them to the
+ * file format's own record schemas, which the page needs and an agent does not
+ * — and which cannot be published at all, because the format refuses a JSON
+ * number in an amount with a pipe, and a pipe has no JSON Schema. Described as
+ * records instead, for the reason the export publishes its file as text: the
+ * format's schema would be tens of kilobytes on every tier's `tools/list`, tied
+ * to the measurements `docs/standards/mcp.md` pins, for a section an agent
+ * reads only to see what is already here. Every record says what it is in
+ * `key` and `name`, and `plan.records` is the part that needs decisions.
+ */
+const hereRecordsSchema = (what: string) =>
+  z
+    .array(z.record(z.string(), z.unknown()))
+    .describe(
+      `This ledger's ${what}, each written as a Simple Balance file writes one: a key, a name, and every field the file carries.`,
+    );
+
+export const ledgerFilePreviewResultSchema = ledgerFilePreviewSchema.extend({
+  here: ledgerFileHereSchema.extend({
+    groups: hereRecordsSchema("category groups"),
+    categories: hereRecordsSchema("categories"),
+    accounts: hereRecordsSchema("accounts"),
+    templates: hereRecordsSchema("templates"),
+    recurrences: hereRecordsSchema("recurring transactions"),
+    budgets: z
+      .object({
+        plans: hereRecordsSchema("budget plans"),
+        entries: hereRecordsSchema("per-period budget amounts"),
+      })
+      .strict(),
+  }),
+});
+
 export const auditEventResultSchema = z
   .object({
     id: uuidSchema,
@@ -677,6 +716,9 @@ export const preferencesResultSchema = z
 export const importBatchResultSchema = z.object({
   id: uuidSchema,
   fileName: z.string(),
+  kind: z
+    .enum(importBatchKinds)
+    .describe("What the rows were read from: a CSV, or a Simple Balance file (ledger_file)."),
   rowCount: z.number().int().nonnegative(),
   stagedCount: z.number().int().nonnegative(),
   createdAt: timestampSchema,

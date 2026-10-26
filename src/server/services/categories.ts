@@ -28,6 +28,7 @@ import {
   setIdempotent,
   writeAudit,
   writeAuditMany,
+  type CreateAuditOptions,
 } from "./helpers.js";
 import { cleanHumanName, normalizeHumanName } from "../../shared/names.js";
 import { resolveCategoryGroup } from "./category-groups.js";
@@ -515,7 +516,12 @@ export async function listDuplicateCategories(actor: Actor) {
     }));
 }
 
-export async function createCategory(actor: Actor, input: unknown, transaction?: DbTransaction) {
+export async function createCategory(
+  actor: Actor,
+  input: unknown,
+  transaction?: DbTransaction,
+  options?: CreateAuditOptions,
+) {
   const parsed = categoryCreateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
     await lockCategoryNamespace(tx, actor);
@@ -531,7 +537,7 @@ export async function createCategory(actor: Actor, input: unknown, transaction?:
     await writeAudit(tx, actor, {
       entityType: "category",
       entityId: created.id,
-      operation: "create",
+      operation: options?.auditOperation ?? "create",
       after: serializeRow(created),
     });
     return serializeRow(created);

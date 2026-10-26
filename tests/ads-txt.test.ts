@@ -45,6 +45,9 @@ describe("the authorized-sellers file", () => {
     expect(await response.text()).toBe(
       "google.com, pub-1234567890123456, DIRECT, f08c47fec0942fa0\n",
     );
+    // Kept out of a search index like everything else here. AdSense's crawler
+    // reads the file all the same: `noindex` is about search results.
+    expect(response.headers.get("x-robots-tag")).toBe("noindex");
   });
 
   it("does not exist on a deployment that serves no ads", async () => {

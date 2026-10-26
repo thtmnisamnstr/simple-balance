@@ -923,7 +923,7 @@ export default function StagingPage() {
             // file name alone is the same every month: two "checking.csv"
             // imports read identically, and the one to filter by was a guess.
             <option key={batch.id} value={batch.id}>
-              {`${batch.fileName} · ${formatTimestamp(batch.createdAt, timezone)} · ${formatCount(
+              {`${batchName(batch)} · ${formatTimestamp(batch.createdAt, timezone)} · ${formatCount(
                 batch.stagedCount,
               )} of ${formatCount(batch.rowCount)} rows staged`}
             </option>
@@ -1799,4 +1799,19 @@ export default function StagingPage() {
       />
     </>
   );
+}
+
+/**
+ * A batch as the filter names it: its file, and what kind of file where that
+ * is not the CSV every batch used to be.
+ *
+ * A Simple Balance file's rows stage under one batch per part, named after the
+ * file somebody chose, and a name says nothing certain about what the file
+ * was. Only that batch arrived with both sides of every transfer and its
+ * categories already worked out, which is worth knowing when choosing which
+ * rows to review first. A batch from a server too old to send a kind is a CSV,
+ * because nothing else was ever staged in one there.
+ */
+function batchName(batch: ImportBatchSummary) {
+  return batch.kind === "ledger_file" ? `${batch.fileName} (Simple Balance file)` : batch.fileName;
 }

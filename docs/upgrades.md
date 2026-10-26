@@ -8,20 +8,46 @@ keep, so upgrading is swapping it for a newer one.
 This note is written as work lands rather than when the release is cut.
 
 **Nothing to do by hand unless you want metrics exported or the house ad
-shown, or you had `METRICS_ENABLED=true` on 0.2.1 with no `METRICS_TOKEN`.** No
-migration, no new setting anybody has to set, and nothing turns itself on: a
-deployment that sets nothing new renders, starts and serves what it did, a stack
-that sets nothing new plans no change beyond the text of its `nextSteps` output,
-and a chart upgraded with the values it had renders the same objects.
-Everything new is a metrics collector that is off until asked for, the series
-the application publishes about itself, two holes in `/metrics` closed, an
-advertisement for Premium of this product's own that is off until asked for,
-an export of a whole ledger as one Simple Balance file, with a route and an MCP
-tool of its own, and twenty-one dependency advisories closed.
+shown, or you had `METRICS_ENABLED=true` on 0.2.1 with no `METRICS_TOKEN`.** One
+migration, which runs itself at startup and rewrites no rows, no new setting
+anybody has to set, and nothing turns itself on: a deployment that sets nothing
+new renders, starts and serves what it did, a stack that sets nothing new plans
+no change beyond the text of its `nextSteps` output, and a chart upgraded with
+the values it had renders the same objects. The one exception is what a search
+engine reads, which changes unasked: every page and file says `noindex`, and the
+robots file turns no crawler away. Everything else new is a metrics collector
+that is off until asked for, the series the application publishes about itself,
+two holes in `/metrics` closed, an advertisement for Premium of this product's
+own that is off until asked for, an export of a whole ledger as one Simple
+Balance file and a way to add such a file to a ledger, with three routes and
+three MCP tools between them, an agent's request to `/mcp` no longer cut off at
+4 MiB, and twenty-one dependency advisories closed.
 
 ### What runs automatically
 
-**No migration.** Nothing in the schema changes.
+**One migration, `0026_ledger_file_origins.sql`, and it rewrites no rows.** It
+adds `import_origin`, a nullable `uuid` with no default, to `ledger_transaction`
+and to `staged_transaction`, and `import_batch.kind`, an enum of `csv` and
+`ledger_file` whose default is the constant `csv`. PostgreSQL 11 and later
+record all three without writing into a row, so every entry, staged row and
+batch reads exactly as it did, with no origin and a kind of `csv`, and nothing
+is backfilled: an entry that never came from a file has no origin to give it.
+A 0.2.1 process still serving beside a new one during a rolling update writes
+rows the new one reads the same way, which is what they are.
+
+Its one cost is two partial unique indexes, which let the database itself
+refuse a second entry, or a second waiting staged row, with the same origin.
+`CREATE INDEX` scans its table while writes to that table wait, inside the
+migrator's one transaction and before readiness opens, and it cannot be
+`CONCURRENTLY` there. Both are partial on an origin being set, which no
+existing row has, so each build is one sequential scan with nothing to sort.
+Measured on 2026-10-25 on PostgreSQL 18.6 against 978,000 entries in a 153 MB
+table and 99,900 staged rows: 44 ms warm and 117 ms cold for the entries, under
+20 ms for the queue, and no table rewritten. Scaled to the thirty million
+entries `docs/capacity.md` measures, that is one and a half to three and a half
+seconds during which writes to the books wait. A Citus cluster takes it as it
+is, with no gate: the type, the columns and the indexes reach every shard, and
+`0023`'s own gate is untouched.
 
 **Twenty-one dependency advisories are closed** by the packages this release
 installs. Five ship in the image and move with it: `zod`, which validates every
@@ -69,17 +95,37 @@ label and the page's heading changed; the path is still `/import`, so a bookmark
 or a link in somebody's notes still lands there. The CSV import is first on the
 page and behaves exactly as it did, and the CSV export on Transactions, its
 route, its columns and every file it ever wrote are untouched. Below the import
-is the new export, a Simple Balance file of the whole ledger or of chosen
-accounts. A file this release makes cannot be read back anywhere yet: importing
-one arrives in a later release, and the copy it moves to will need that one.
+is a new section, **Import a Simple Balance file**, and after it the new
+export, a Simple Balance file of the whole ledger or of chosen accounts. Adding
+a file creates the accounts, categories, templates, recurring transactions and
+budgets nothing here is like straight away, asks in its preview about every one
+that collides with a record of the same name, and stages the file's
+transactions for review like any import. **Both copies need this release**: a
+0.2.1 copy has nothing that reads a file, so a ledger moving from one has to
+upgrade first to make the file, and one moving to one has to upgrade first to
+take it in.
 
-**One new route and one new tool, both reads.** `GET /api/v1/ledger-file`
+**Three new routes and three new tools.** `GET /api/v1/ledger-file`
 (`ledger:read`) answers with the file as `application/json`, an attachment named
-for the day where the person lives; a 0.2.1 client never calls it, and the
-export changed no route that client does call. `export_ledger_file` is registered with the read tools, so
-every token holding any ledger scope lists one more tool, and `tools/list` is
-4,442 characters longer at every tier. It writes nothing, so it needs no scope a
-token did not already have.
+for the day where the person lives. `POST /api/v1/ledger-file:preview`
+(`ledger:read`) checks a file against the ledger and writes nothing.
+`POST /api/v1/ledger-file:add` (`ledger:write`) adds one part of a file, takes
+an `idempotencyKey`, and streams progress frames when asked with
+`Accept: text/event-stream`, as `POST /api/v1/csv/stage` does. A 0.2.1 client
+never calls any of them, and they changed no route that client does call. The
+two `POST` paths carry a literal colon, which the shipped proxies pass as the
+browser sent it; a proxy of your own that rewrites `:` as `%3A` turns both into
+a 404. `export_ledger_file` and `preview_ledger_file` are registered with the
+read tools, so every token holding any ledger scope lists two more, and
+`add_ledger_file` with the write tools: `tools/list` is 4,442 and 13,514
+characters longer at every tier for the first two, and 18,931 more at the write
+tier for the third. None of them needs a scope a token did not already have.
+
+**`/mcp` takes the request bodies its route allows.** The MCP SDK reads a body
+again with a limit of its own, 4 MiB unless it is told otherwise, and 0.2.0 and
+0.2.1 never told it, so an agent's `stage_csv` with a larger file was refused
+with a bare 413. It is now given the route's limit, which is the larger of the
+CSV-derived one and the new one below.
 
 **The download is buffered, like the CSV export.** One file holds at most
 100,000 rows and 16 MiB of activity history, counted before anything large is
@@ -88,6 +134,16 @@ allow together came to 33 MiB and peaked under 400 MiB resident in the heap a
 1 GiB container gives Node. Its query string stays under 4 KiB at the most
 accounts one export may name, inside the 8 KiB request line nginx reads by
 default, so no proxy in front of it needs a change.
+
+**Adding a file goes a part at a time, and the parts fit the proxies you
+have.** A part is at most 10,000 rows and 16 MiB, and the browser cuts a larger
+file into parts itself. The two new `POST` routes accept a body of about
+52 MiB — the part twice over, since it travels as a JSON string, and the most
+decisions one request may carry — which is under the 61 MiB the frontend
+image's nginx and the `single` profile's Caddy already allow for a CSV, so
+neither needs a change. A proxy of your own needs to allow the same for those
+two paths, and for `/mcp`. Each part is one transaction of up to 10,000 rows,
+as a commit is, holding one pooled connection while it runs.
 
 **`GET /api/v1/session` carries `houseAd`, and `advertises` can be true with no
 AdSense.** `houseAd` is a new field, always sent, and true only for somebody
@@ -116,6 +172,20 @@ token, a request still needed it.
   `sudo systemctl restart simple-balance`, or set a token.
   A proxy of your own wants the same refusal; `docs/deployment.md` §Reverse
   proxy has it for Caddy and nginx.
+
+**Search engines are let in, and everything served tells them to leave it out of
+their index.** 0.2.1's `/robots.txt` asked every crawler but AdSense's to stay
+out, which kept them from reading anything that said not to list a page, so an
+address somebody linked to could still turn up as a bare link. 0.2.2's lets
+every crawler in, and the pages, the files beside them, `/robots.txt`,
+`/ads.txt` and the API all carry `X-Robots-Tag: noindex`. Both arrive with the
+images: the single container's process sets the header on everything it answers
+and the frontend image's nginx on the files it serves itself, so no machine has
+a file to copy, and Caddy, an ingress or a load balancer passes it through. An
+error a proxy writes itself, such as a 502 while the API is down, carries none
+and is never indexed. A robots file served by whatever terminates TLS replaces
+this one, and if it still turns crawlers away it keeps the old problem. A search
+engine drops an address it has listed when it next fetches it.
 
 **Some series read differently.** None is renamed and no label value is removed,
 but a dashboard reading one of these will see it move:
@@ -376,9 +446,12 @@ up -d` for the split recipe. The split recipe derives the frontend's
 
 ### What to check afterwards
 
-`/health/ready`, as with any upgrade. Signed in, **Import and export** shows the
-CSV import and, below it, **Export a Simple Balance file**; **Export file**
-saves `simple-balance-` and today's date as a `.json` file. On a `single`
+`/health/ready`, as with any upgrade; it opens once `0026` has run. Signed in,
+**Import and export** shows the CSV import, then **Import a Simple Balance
+file**, then **Export a Simple Balance file**; **Export file** saves
+`simple-balance-` and today's date as a `.json` file, and choosing that file
+under **Import a Simple Balance file** in the same ledger says everything in it
+is already here. On a `single`
 machine with the new Caddyfile in place, the site's own address answers `/metrics` with a 404:
 
 ```sh
@@ -388,6 +461,15 @@ curl -s -o /dev/null -w '%{http_code}\n' https://your-host/metrics
 Behind the frontend nginx the same request gets the app's own page, as it always
 did, because nginx never had the path to proxy; the backslash route there is
 closed by the image and has no check of its own to run.
+
+A page says `noindex`, and the robots file turns nobody away:
+
+```sh
+curl -sI https://your-host/ | grep -i '^x-robots-tag:'
+curl -s https://your-host/robots.txt | grep -c '^Disallow: /'
+```
+
+The first prints `x-robots-tag: noindex` and the second prints 0.
 
 With the collector on, on the application machine: `curl -fsS 127.0.0.1:13133`
 reports the collector's health, `journalctl -u simple-balance | grep

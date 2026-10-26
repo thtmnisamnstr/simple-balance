@@ -187,13 +187,47 @@
   is revoking; and deleting the account, which leaves nothing for a stale
   version to protect.
 - Ten thousand rows is the cap, and it is the same number everywhere: a mass
-  edit, a mass delete, a commit, and a CSV import. An import that stages more
-  than one action can clear is a cap doing damage. A filtered selection is
-  bounded in SQL, not after the rows have been read.
+  edit, a mass delete, a commit, a CSV import, and a ledger-file part. An import
+  that stages more than one action can clear is a cap doing damage. A part's
+  records are held to the same number apart from its rows, because every part
+  carries all of them and its one transaction creates or matches each. A
+  filtered selection is bounded in SQL, not after the rows have been read.
 - `ledger:stage` proposes and never decides. Creating a category, bringing an
   archived one back, or widening what kind of entry it may carry are changes to
   the ledger's own records and need `ledger:write`, wherever they are reached
   from, including a CSV import.
+- Outside data reaches the books through the review queue. A Simple Balance
+  file's transactions stage like any import — complete where every reference
+  resolves, with both sides of a transfer filled in — and its deleted entries
+  are not added at all. Its records that are not transactions — accounts,
+  categories and groups, templates, recurring transactions, budgets — are
+  created directly when nothing like them is here, because a new record raises
+  none of the questions the queue is for: whether it is already here is the
+  only one, and the preview asks it. One here under the same name, once case
+  and spacing are set aside, that differs from the file's is the person's to
+  decide in the preview, before anything is written: use the one here, leave
+  the file's out, or bring it in under another name, and an account in another
+  currency is never the one here. A record the file only names that nothing
+  here answers to is theirs too: use another one here, create it, or leave
+  what names it for review. One the same in every field the file carries is
+  used with nothing asked. Nothing is decided for anybody, and no record here
+  is ever overwritten; the settings are the one thing a file replaces, and
+  only where this copy never chose its own or the person says to. Every direct
+  creation needs `ledger:write`, so adding a file does.
+- An entry's origin is the id it was first written under. It travels in every
+  ledger file, and the same entry arriving twice — from two accounts' files, or
+  back from the copy it moved to — is skipped rather than flagged. Two entries
+  with different origins are never duplicates of each other: not at stage, at
+  commit, on an edit or a restore, or in a mass edit. A row without one, typed
+  or read from a CSV, is compared as it always was. An entry or a staged row is
+  skipped and counted wherever its origin is found here — as an entry's id, an
+  entry's `import_origin` deleted or not, a waiting staged row's id or
+  `import_origin`, or the id of a row with no origin that has since been
+  committed. That last is the origin its entry is exported under, worked out
+  from the queue rather than stored, because a file written while the row
+  waited carried it, and a stored origin would make a typed entry read as one
+  that came from a file. An origin is an argument to the services that write
+  it and never a draft field, so no form or tool can claim one.
 - An audit entry records what changed, and for a split that includes the legs:
   relabeling one writes no posting and touches no column on the transaction.
 - Budgeting sits over the ledger and never inside it. An assignment is not a
@@ -311,7 +345,8 @@
   no more than `MAX_FREE_ACCOUNTS`, whatever plan is in force, because a column
   left false there goes stale and freezes the accounts somebody has been using
   the next time a limit returns. Every path that changes the live set — create,
-  archive, restore, delete and the choice itself — holds `lockAccountNamespace`,
+  archive, restore, delete and the choice itself, and adding a Simple Balance
+  file, which creates accounts live or archived — holds `lockAccountNamespace`,
   or two of them racing could both take the last place.
 - **`docs/product/` is this repository's public description of itself**, and
   the marketing site at smpl.money is its only consumer. `facts.json` is the
@@ -358,7 +393,9 @@
   `0020_reference_indexes.sql` and `0021_idempotency_retention.sql` in 0.1.6.
   `0022_plans_and_billing.sql`, `0023_citus_distribution.sql`,
   `0024_active_accounts.sql` and `0025_subscription_cancel_at.sql` in 0.2.0.
-  Nothing on disk is unreleased, and the next schema change starts at `0026`.
+  `0026_ledger_file_origins.sql` is written and unreleased, so it is the one
+  here that may still be regenerated, under the condition below; it freezes
+  when it ships, and the next schema change after it starts at `0027`.
   A migration written between releases may be regenerated only while no
   database anywhere has run it, and permitted is not the same as free:
   drizzle's migrator runs a file only where the recorded timestamp is older
@@ -372,7 +409,9 @@
   `0024` adds one column with a constant default, which rewrites no rows on any
   PostgreSQL and which Citus propagates to the shards without a gate; `0025`
   adds a nullable one with no default, which is metadata-only for the same
-  reason. `0023` is
+  reason. `0026` adds three columns on the same terms and two partial unique
+  indexes, and the index builds are its whole cost: each scans its table while
+  writes to it wait, measured in the file's header. `0023` is
   the one migration that does nothing on most
   deployments and says so at the top: it distributes the ledger and is gated on
   the Citus extension being installed, so the `single` profile — whose database
@@ -467,7 +506,7 @@ disagreement rather than quietly losing it.
 Two habits from those guides are worth knowing before the first edit, because
 both look like mistakes:
 
-- **Comments are dense on purpose** — 27.5% of non-blank lines in `src`. They
+- **Comments are dense on purpose** — 27.3% of non-blank lines in `src`. They
   carry why the obvious alternative is wrong. Do not tidy them away.
   (`docs/standards/code/comments.md`.)
 - **Some loops must not be parallelized.** Legs resolve one at a time so two

@@ -300,6 +300,91 @@ integration("PostgreSQL migrations", () => {
     });
   });
 
+  // What 0.2.0 and 0.2.1 left: 0000 through 0025. 0026 is the migration that
+  // touches the two largest tables somebody's ledger fills, so the upgrade is
+  // run over an entry, a staged row and the batch it came from, and what has
+  // to be true afterward is that none of them changed meaning: an entry and a
+  // row written here have no origin, and every batch before the ledger-file
+  // import was a CSV.
+  it("adds the import origins to a database left by 0.2, leaving every row as it was", async () => {
+    const owner = "origin-upgrade-owner";
+    const accountId = "50000000-0000-4000-8000-000000000026";
+    const entryId = "50000000-0000-4000-8000-000000000126";
+    const batchId = "50000000-0000-4000-8000-000000000226";
+    const stagedId = "50000000-0000-4000-8000-000000000326";
+    await upgradesFrom(26, "upgrade_origins", {
+      seed: async (previous) => {
+        await previous.query(
+          `insert into auth_user (id, name, email) values ($1, 'Upgrading', 'origins@example.com')`,
+          [owner],
+        );
+        await previous.query(
+          `insert into ledger_account (id, user_id, name, type, currency, opening_date)
+           values ($1, $2, 'Checking from 0.2', 'checking', 'USD', '2026-01-01')`,
+          [accountId, owner],
+        );
+        await previous.query(
+          `insert into ledger_transaction
+             (id, user_id, type, date, payee, destination_account_id, destination_amount, destination_currency)
+           values ($1, $2, 'deposit', '2026-02-01', 'Employer', $3, 10, 'USD')`,
+          [entryId, owner, accountId],
+        );
+        await previous.query(
+          `insert into import_batch (id, user_id, file_name, file_hash, delimiter, mapping, row_count)
+           values ($1, $2, 'statement.csv', 'hash', ',', '{}', 1)`,
+          [batchId, owner],
+        );
+        await previous.query(
+          `insert into staged_transaction (id, user_id, draft, import_batch_id)
+           values ($1, $2, '{"payee":"Shop"}', $3)`,
+          [stagedId, owner, batchId],
+        );
+      },
+      check: async (upgraded) => {
+        const rows = await upgraded.query<{ origin: string | null; kind: string; version: number }>(
+          `select (select import_origin from ledger_transaction where id = $1) as origin,
+                  (select kind::text from import_batch where id = $2) as kind,
+                  (select version from ledger_transaction where id = $1) as version
+           union all
+           select import_origin, status::text, version from staged_transaction where id = $3`,
+          [entryId, batchId, stagedId],
+        );
+        expect(rows.rows).toEqual([
+          { origin: null, kind: "csv", version: 1 },
+          { origin: null, kind: "staged", version: 1 },
+        ]);
+        // The two indexes an import's skip rests on, and what keeps them from
+        // costing the entries typed here anything.
+        const indexes = await upgraded.query<{ indexname: string; indexdef: string }>(
+          `select indexname, indexdef from pg_indexes
+            where indexname in ('transaction_user_import_origin_unique', 'staged_user_import_origin_unique')
+            order by indexname`,
+        );
+        expect(indexes.rows.map((row) => row.indexname)).toEqual([
+          "staged_user_import_origin_unique",
+          "transaction_user_import_origin_unique",
+        ]);
+        for (const row of indexes.rows) {
+          expect(row.indexdef).toMatch(/^CREATE UNIQUE INDEX .* \(user_id, import_origin\) WHERE /);
+        }
+        // Unique per ledger: the second entry with one origin is refused by
+        // the database, whatever the code above it did.
+        const origin = "60000000-0000-4000-8000-000000000026";
+        const write = (id: string) =>
+          upgraded.query(
+            `insert into ledger_transaction
+               (id, user_id, type, date, payee, destination_account_id, destination_amount, destination_currency, import_origin)
+             values ($1, $2, 'deposit', '2026-02-02', 'Moved', $3, 1, 'USD', $4)`,
+            [id, owner, accountId, origin],
+          );
+        await write("50000000-0000-4000-8000-000000000426");
+        await expect(write("50000000-0000-4000-8000-000000000526")).rejects.toMatchObject({
+          code: "23505",
+        });
+      },
+    });
+  });
+
   // The narrower case, kept because it stays honest whatever ships next: a
   // database missing only the newest migration gets exactly that one.
   it("applies only the newest migration to a database missing just it", async () => {

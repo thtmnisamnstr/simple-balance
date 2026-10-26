@@ -4740,6 +4740,187 @@ polyline.chart-line {
   align-items: end;
 }
 
+/* The import of a Simple Balance file, the export's neighbor, on the same
+   one-track grid for the same reason: a file name or an account name with no
+   space in it takes its min-content width in any other track and pushes past
+   the card. The preview is a form inside the card, and the same grid.
+
+   And every word in it may break, because nearly every line here quotes a
+   name out of somebody's file — a question's heading, a note, a link under
+   "Still to decide", a checkbox's words — and an account called
+   "JointHouseholdEverydayChecking…" made the document 474px wide at 320 until
+   it could (SC 1.4.10). A table cell breaking too costs nothing: the tables
+   here hold their 760px inside a scroller either way. */
+.ledger-import,
+.ledger-import-preview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+}
+
+.ledger-import {
+  overflow-wrap: anywhere;
+}
+
+/* Except in a table, where breaking anywhere is what an automatic table
+   layout sizes its columns by: every record's kind came out a letter or two a
+   line, "Cat / ego / ry", beside a column of sentences given the rest. A
+   table here scrolls inside its region instead, so a long name only widens
+   what scrolls. */
+.ledger-import .data-table {
+  overflow-wrap: normal;
+}
+
+/* An account's currency beside its name, which broke as "EU / R" under a name
+   with nowhere else to break. */
+.ledger-import-choices .subtle {
+  white-space: nowrap;
+}
+
+/* A box or a radio keeps its 15px however long its words. The 560px block
+   says so for every `.check-label`; above it, a name that can break anywhere
+   let the words take the row and squeezed the checkbox beside it to 13.7px
+   at 781, measured in Chromium. */
+.ledger-import .check-label > input {
+  flex: none;
+}
+
+/* One part of the preview: what the file holds, the questions, every record.
+   Its heading sits with what it names, at the gap a section title keeps. Every
+   grid inside takes the same `minmax(0, 1fr)` track, because an implicit
+   track is `auto` and sizes to what is inside it. */
+.ledger-import-block {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+.ledger-import-block h3,
+.ledger-import-todo h3 {
+  font-size: 14px;
+}
+
+/* Sentences about the file, one to a line and bulleted, because they are a
+   list of separate facts and run together as a paragraph they read as one. */
+.ledger-import-notes {
+  display: grid;
+  gap: 8px;
+  padding-left: 18px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.5;
+  list-style: disc;
+}
+
+.ledger-import-decisions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+/* One record that needs a choice. Framed, because each holds a question, the
+   sentence saying why, its radios and sometimes a field, and without an edge
+   the radios of one read as the next one's. */
+.ledger-import-decision {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+
+/* A name, or the record here to use: a field a name wide rather than the
+   card's whole width. */
+.ledger-import-answer {
+  max-width: 420px;
+}
+
+/* What the plan says is still wrong with an answer. Not red: nothing has been
+   submitted, so it is feedback on a choice rather than a refusal (web.md 8.2),
+   and the rule's edge is a cue beside the words rather than instead of them. */
+.ledger-import-problem {
+  padding-left: 10px;
+  border-left: 3px solid var(--amber);
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+/* The accounts to arrive archived: 12px between rows, for the target-size
+   reason `.ledger-export-choices` records. */
+.ledger-import-choices {
+  display: grid;
+  gap: 12px;
+}
+
+.ledger-import-records-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* What is still open, as links to each question. 10px between items keeps a
+   one-line link's 24px circle clear of the next (SC 2.5.8). */
+.ledger-import-todo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--surface-soft);
+}
+
+.ledger-import-todo ul {
+  display: grid;
+  gap: 10px;
+  padding-left: 18px;
+  font-size: 12px;
+  list-style: disc;
+}
+
+/* Where in the file a refusal points, as the reader names it: entries.12.from. */
+.ledger-import-issues {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+  padding-left: 18px;
+  list-style: disc;
+}
+
+.ledger-import-path {
+  font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.ledger-import-checking,
+.ledger-import-progress,
+.ledger-import-result {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+
+.ledger-import-checking p,
+.ledger-import-progress p {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.ledger-import-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* "Check the file again" beside "Add to this ledger" is wider than a phone's
+   card, and squeezed into one row each label broke over two lines. Wrapped,
+   each keeps its words on one line and the add stays last and rightmost. */
+.ledger-import-preview > .form-actions {
+  flex-wrap: wrap;
+}
+
 /* --break-wide: 1050px */
 @media (max-width: 1050px) {
   .metric-grid {

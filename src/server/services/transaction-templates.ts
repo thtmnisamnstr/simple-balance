@@ -28,6 +28,7 @@ import {
 import { conflict, duplicate, notFound, staleVersion, validationError } from "./errors.js";
 import {
   firstNotificationDate,
+  notificationDateAfter,
   notificationRuleOf,
   type NotificationRule,
 } from "./notifications.js";
@@ -208,6 +209,7 @@ async function writeNotification(
   actor: Actor,
   templateId: string,
   notification: TemplateNotification | null | undefined,
+  sent: string | null = null,
 ) {
   // Locked, not merely read. The reminder sweep advances this row's watermark
   // under its own row lock, and a template save racing it could read the
@@ -241,6 +243,15 @@ async function writeNotification(
   // that really did change starts afresh, which is what somebody moving the date
   // is asking for.
   const unchanged = notificationChangesNothing(existing ?? null, notification);
+  // What another copy of this ledger already sent, when the template arrived
+  // in a Simple Balance file: the watermark it brings, and the next date
+  // worked out after it rather than from the first occurrence, so a one-time
+  // reminder that already went stays sent. Only a create passes one, and only
+  // the import's create, as an argument no form or tool can reach.
+  const seeded =
+    sent === null
+      ? null
+      : { lastNotifiedDate: sent, nextNotificationDate: notificationDateAfter(rule, sent) };
   const [created] = await tx
     .insert(templateNotifications)
     .values({
@@ -258,9 +269,13 @@ async function writeNotification(
       // in the past is somebody asking to be told about something they have
       // already missed, and the sweep collapses a backlog to one message, so it
       // costs one mail and answers the question they were asking.
-      lastNotifiedDate: unchanged && existing ? existing.lastNotifiedDate : null,
-      nextNotificationDate:
-        unchanged && existing ? existing.nextNotificationDate : firstNotificationDate(rule),
+      lastNotifiedDate:
+        seeded?.lastNotifiedDate ?? (unchanged && existing ? existing.lastNotifiedDate : null),
+      nextNotificationDate: seeded
+        ? seeded.nextNotificationDate
+        : unchanged && existing
+          ? existing.nextNotificationDate
+          : firstNotificationDate(rule),
     })
     .returning();
   return created;
@@ -731,10 +746,23 @@ export async function getTransactionTemplate(actor: Actor, id: string) {
   return templateView(row, notification ?? null);
 }
 
+/**
+ * What only a Simple Balance file's import may ask of a create, as an argument
+ * rather than a field: no form or tool can reach it, because the schema a form
+ * and a tool send is the one above, and neither has a watermark of its own to
+ * bring. `lastNotifiedDate` is the reminder the copy the file came from already
+ * sent; `auditOperation` says in the history where the template came from.
+ */
+export type TemplateCreateOptions = {
+  readonly lastNotifiedDate?: string | null;
+  readonly auditOperation?: string;
+};
+
 export async function createTransactionTemplate(
   actor: Actor,
   input: unknown,
   transaction?: DbTransaction,
+  options?: TemplateCreateOptions,
 ) {
   const parsed = transactionTemplateCreateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
@@ -775,11 +803,12 @@ export async function createTransactionTemplate(
       actor,
       created.id,
       parsed.notification ?? null,
+      options?.lastNotifiedDate ?? null,
     );
     await writeAudit(tx, actor, {
       entityType: "transaction_template",
       entityId: created.id,
-      operation: "create",
+      operation: options?.auditOperation ?? "create",
       after: templateView(created, notification),
     });
     return templateView(created, notification);

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import * as csv from "../src/shared/csv.js";
 import * as domain from "../src/shared/domain.js";
+import * as ledgerFileImport from "../src/shared/ledger-file-import.js";
 import { idempotencyKeySchema } from "../src/shared/domain.js";
 import { sourceFiles, topLevelDeclarations, type SourceFile } from "./support/source.js";
 
@@ -143,11 +144,14 @@ describe("every mutating route", () => {
       let key = false;
       let read = 0;
       for (const name of requestSchemas(handler)) {
-        // Both shared modules: the CSV request schemas live beside the format
-        // rather than in domain.ts, and a schema this did not find would read
-        // as a route asking for nothing.
+        // Every shared module a request schema lives in: the CSV's and the
+        // Simple Balance file import's live beside their formats rather than
+        // in domain.ts, and a schema this did not find would read as a route
+        // asking for nothing.
         const schema =
-          (domain as Record<string, unknown>)[name] ?? (csv as Record<string, unknown>)[name];
+          (domain as Record<string, unknown>)[name] ??
+          (csv as Record<string, unknown>)[name] ??
+          (ledgerFileImport as Record<string, unknown>)[name];
         if (!schema) continue;
         read += 1;
         const json = z.toJSONSchema(schema as z.ZodType, { io: "input", unrepresentable: "any" });
@@ -205,6 +209,10 @@ describe("every mutating route", () => {
       "Reports a SetupIntent that Stripe's browser SDK has already confirmed, so the state it records was decided elsewhere and there is no local revision to hold.",
     "POST /api/v1/csv/stage":
       "Stages a file's rows, which creates records rather than replacing them, and carries an idempotency key so a resubmitted upload does not stage the file twice.",
+    "POST /api/v1/ledger-file:preview":
+      "Reads a Simple Balance file against the ledger and says what adding it would do. It writes nothing at all and names no record by id.",
+    "POST /api/v1/ledger-file:add":
+      "Creates records and stages rows and never replaces one: a record already here is used or left alone, never overwritten, so there is no revision of it to be stale about. It carries an idempotency key per part, and every entry its origin, so a resent part replays and a second import of the file stages nothing.",
   };
 
   /**

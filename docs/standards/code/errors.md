@@ -12,7 +12,7 @@ The wire format — RFC 9457, status codes, the envelope — is
 HTTP status, optional details, and an optional second message for an agent
 (see 2.2 and 2.4). Both transports render it: HTTP into a problem document, MCP
 into a tool error — and the MCP one puts `agentMessage` where the message would
-go wherever a throw site set one (`src/server/mcp.ts:266`), so the fifth field
+go wherever a throw site set one (`src/server/mcp.ts:272`), so the fifth field
 is wire-visible rather than a note to ourselves.
 
 The distinction is the question **is there something the caller could do
@@ -24,12 +24,12 @@ caller to fix something they did not do.
 Twelve throws in `src/server/services` are that second kind, and all twelve are
 correct. They come in four shapes: three `TypeError`s in the idempotency
 canonicalizer for payload shapes that cannot occur
-(`src/server/services/helpers.ts:230`, `:246` and `:252`); two for a reference
+(`src/server/services/helpers.ts:238`, `:254` and `:260`); two for a reference
 count that came back non-numeric after being cast to one in SQL
-(`src/server/services/payees.ts:58` and `src/server/services/categories.ts:472`);
+(`src/server/services/payees.ts:58` and `src/server/services/categories.ts:473`);
 three for an `insert().returning()` that came back empty, which either throws or
-returns the row (`src/server/services/budgets.ts:574`, `:951` and
-`src/server/services/category-groups.ts:132`); and four in billing, each
+returns the row (`src/server/services/budgets.ts:581`, `:941` and
+`src/server/services/category-groups.ts:138`); and four in billing, each
 doubting something established moments earlier — the route's own registration,
 the actor's user row, a customer row whose insert had just lost a conflict, and
 a subscription Stripe cannot return without a price
@@ -61,17 +61,17 @@ use the constructor that names the situation.
 | `validationError` | 422 | The request is well-formed and asks for something impossible. |
 
 **The transport is the named exception, and it is two lines.**
-`src/server/api.ts` constructs `AppError` directly at `:1784` and `:1802`, and
+`src/server/api.ts` constructs `AppError` directly at `:1788` and `:1806`, and
 both carry a code no service raises at all: `FORBIDDEN` and
 `REAUTHENTICATION_REQUIRED` belong to the two operations that are reachable
 from a session and never from a token, which is exactly the pair `AGENTS.md`
 names as the boundary between the surfaces.
 
 **The type is not what keeps them out, and believing it is would mislead.**
-Both are in `serviceErrorCodes` already (`src/shared/domain.ts:2705-2715`),
+Both are in `serviceErrorCodes` already (`src/shared/domain.ts:2784-2794`),
 which is why `new AppError("FORBIDDEN", …)` type-checks anywhere at all; what
 `ServiceErrorCode` narrows against is the transport list beside it
-(`src/shared/domain.ts:2727-2744`), and neither of these is in that. So the
+(`src/shared/domain.ts:2806-2823`), and neither of these is in that. So the
 reason there is no sixth constructor is an argument rather than a compiler
 error, and it has to be made rather than assumed: a constructor is an
 invitation, and what it would invite is a service raising
@@ -82,10 +82,10 @@ So the rule is scoped rather than absolute: a service uses the constructors, and
 the transport may name a status the service half has no word for. It was four
 lines rather than two, and shrinking it is what the other two paragraphs of this
 section used to be about. The already-configured-password site was byte-for-byte
-what `conflict()` produces and now calls it (`src/server/api.ts:1793`). The malformed-body guard
+what `conflict()` produces and now calls it (`src/server/api.ts:1797`). The malformed-body guard
 was a `VALIDATION_ERROR` **400** where the constructor is 422 by definition,
 which is why it could not use one — it is now a `TransportError`
-(`src/server/api.ts:1657`, the class at `src/server/services/errors.ts:13-23`),
+(`src/server/api.ts:1661`, the class at `src/server/services/errors.ts:13-23`),
 a separate enumeration for the refusals that are about the request rather than
 about the ledger, so `VALIDATION_ERROR` means one status again and the code an
 MCP tool can raise stays the service half alone.
@@ -115,7 +115,7 @@ falls out naturally: the row simply is not in the result.
 
 **One 403 says "not yours", and it is not about a record.** An MCP consent
 started in one account and answered in another is refused with
-`CONSENT_NOT_YOURS` and a 403 (`src/server/api.ts:1010-1017` and `:1051-1058`).
+`CONSENT_NOT_YOURS` and a 403 (`src/server/api.ts:1014-1021` and `:1055-1062`).
 The consent code is a single-use secret the authorization link carries, not an
 id anybody can enumerate, so the bit the 403 confirms is one the person holding
 the link already has. And the sentence is the move that works — sign in as the
@@ -223,7 +223,7 @@ agent stops trying different ones instead of guessing.
 
 Six throw sites carry one today and the shape recurs: the archive restore meets
 the same ceiling from the other side
-(`src/server/services/accounts.ts:1204`), the frozen-account refusal is the same
+(`src/server/services/accounts.ts:1241`), the frozen-account refusal is the same
 argument under a 422 (`src/server/services/accounts.ts:861`), and the two in
 `closeBillingForDeletion` (`src/server/services/billing.ts:2014` and `:2021`)
 give a person the move each cause leaves them — whoever runs the server, where
@@ -301,9 +301,9 @@ array. Showing the envelope is how "A budget cannot be negative" reached the
 screen as "Request validation failed".
 
 The client digs the messages out of the details
-(`src/client/api.ts:143-149`, discriminating on `path` so a CSV parser's errors
+(`src/client/api.ts:144-150`, discriminating on `path` so a CSV parser's errors
 fall through), deduplicates them on the field-and-sentence pair rather than the
-sentence (`:157-165`), and shows those in preference to the envelope (`:169`).
+sentence (`:158-166`), and shows those in preference to the envelope (`:170`).
 Which means schema messages are user-facing: write them that way.
 
 Nineteen request schemas left their length rules to Zod, so typing a space where
@@ -357,7 +357,7 @@ has to be told *when* to blame it: a plan already held and a plan set to end
 are disabled on their own account, so the tab offers the grant's sentence only
 where `planChangeTakesEffect` says the press would have spent money, which is
 the same line the route draws with `sellsSomething`.
-`frozenAccountRefusal` (`src/shared/domain.ts:4012`) is thrown by
+`frozenAccountRefusal` (`src/shared/domain.ts:4091`) is thrown by
 `assertAccountsWritable` (`src/server/services/accounts.ts:856`) and is the
 reason an account card's **Edit**, **Archive** and **Delete** now carry, and a
 transaction row's **Edit**, **Delete** and **Restore** with them.

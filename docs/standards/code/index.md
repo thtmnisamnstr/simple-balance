@@ -155,7 +155,7 @@ leaves out:
 | `restriction` | 5,085 | Declined. |
 
 **Those are the numbers the decision was made on, and they are not today's.**
-Re-measured with `npx oxlint -A all -D <category>`, 2026-10-01: correctness 71,
+Re-measured with `npx oxlint -A all -D <category>`, 2026-10-01: correctness 77,
 `suspicious` 3,189, `perf` 950, `pedantic` 4,012, `style` 44,493, `restriction`
 12,429. Five of those six are dated rather than held, which `writing.md` §A
 measured number carries a test or a date allows only because holding a figure
@@ -163,10 +163,10 @@ that moves with every file added would teach people to bump it without reading.
 The sixth is held, and it is the only one anybody acts on. The two columns do
 not measure the same rule set, which is most of the movement between them:
 
-- **`correctness` reads 71, and `npm run lint` still reads zero.** That command
-  overrides every exception `.oxlintrc.json` writes down, and the 71 are
-  exactly those exceptions: `prefer-tag-over-role` 29,
-  `no-noninteractive-tabindex` 14, `no-autofocus` 11,
+- **`correctness` reads 77, and `npm run lint` still reads zero.** That command
+  overrides every exception `.oxlintrc.json` writes down, and the 77 are
+  exactly those exceptions: `prefer-tag-over-role` 33,
+  `no-noninteractive-tabindex` 16, `no-autofocus` 11,
   `control-has-associated-label` 7, `label-has-associated-control` 5,
   `no-control-regex` 4, `anchor-has-content` 1. The category is
   denied and clean; this is what denying it with exceptions looks like from
@@ -175,7 +175,7 @@ not measure the same rule set, which is most of the movement between them:
   **Seven rules, not six, and the seventh is why this bullet is checked now.**
   Six are off by name and are the two tables below. The seventh,
   `no-noninteractive-tabindex`, is *narrowed* rather than off — and `-A all`
-  throws the narrowing away with everything else, so all fourteen of its sites
+  throws the narrowing away with everything else, so all sixteen of its sites
   reappear under a command that was being read as a census of the off list. A
   sentence saying "exactly those six" is the one somebody auditing that list
   acts on, so it is held by `tests/code-index-guide.test.ts` against both the
@@ -218,7 +218,7 @@ One `eslint` rule is off. **`no-control-regex`** flags a regular expression that
 matches control characters, and all four sites here exist *to reject* them: two
 sanitize user input (`src/shared/domain.ts:350-351`), one is the CSV-injection
 defense (`src/shared/csv.ts:513`), and one scrubs a CSP report before it reaches
-the log (`src/server/api.ts:1385`), where the body is attacker-controlled and a
+the log (`src/server/api.ts:1389`), where the body is attacker-controlled and a
 newline would let one report write several log lines with a forged error among
 them. The rule exists to catch a control character written by accident; every
 one of these was written on purpose, and the code that strips control characters
@@ -231,9 +231,9 @@ codebase rather than about accessibility:
 
 | Rule | Why off |
 | --- | --- |
-| `jsx-a11y/label-has-associated-control` | Cannot see through `Field`, which wraps every control (`src/client/components.tsx:633`), nor through the radio card, which wraps its control and puts its words one element deeper, a name in `<strong>` and a sentence in `<small>` (`src/client/forms.tsx:2507`, `src/client/pages/ImportPage.tsx:1133`). Every site it flagged was correctly labeled. |
+| `jsx-a11y/label-has-associated-control` | Cannot see through `Field`, which wraps every control (`src/client/components.tsx:633`), nor through the radio card, which wraps its control and puts its words one element deeper, a name in `<strong>` and a sentence in `<small>` (`src/client/forms.tsx:2507`, `src/client/pages/ImportPage.tsx:1152`). Every site it flagged was correctly labeled. |
 | `jsx-a11y/control-has-associated-label` | Same, and it also flags `<option>` inside `<datalist>`, which needs no label. |
-| `jsx-a11y/prefer-tag-over-role` | Twenty-nine sites in five shapes, and the two this row named are six of them: five `<svg role="img">`, which is the recommended way to expose an SVG, and one `<summary role="button">` whose comment already explains itself (`src/client/components.tsx:983`). Of the rest, five `role="status"` sit on a loading line and four `role="group"` on a date bar — and **fourteen `role="region"`, the largest shape by far, are the named scroll region the narrowed rule one table down exists for.** That is the case this row has to answer and never did: there is no tag to prefer. `web.md` §9.6 requires `tabIndex={0}`, `role="region"` and a name on anything that scrolls sideways, so for half these sites the rule is asking for an element HTML does not have. |
+| `jsx-a11y/prefer-tag-over-role` | 33 sites in five shapes, and the two this row named are six of them: five `<svg role="img">`, which is the recommended way to expose an SVG, and one `<summary role="button">` whose comment already explains itself (`src/client/components.tsx:983`). Of the rest, seven `role="status"` sit on a line saying what is loading or which part of a file is being read and four `role="group"` on a date bar — and **sixteen `role="region"`, the largest shape by far, are the named scroll region the narrowed rule one table down exists for.** That is the case this row has to answer and never did: there is no tag to prefer. `web.md` §9.6 requires `tabIndex={0}`, `role="region"` and a name on anything that scrolls sideways, so for half these sites the rule is asking for an element HTML does not have. |
 | `jsx-a11y/anchor-has-content` | Content arrives through `children`, which it cannot follow. |
 | `jsx-a11y/no-autofocus` | **Contested.** jsx-a11y bans it; WCAG does not. This product autofocuses two things: the first field of a form somebody deliberately opened, and the inline editor a click on a staged-list cell just summoned. Eleven sites, all one of those two shapes — four inline editors on the staging page and seven form fields, two of which are the pass-through props that carry the flag into the payee and category pickers (`src/client/forms.tsx:364`, `:684`) rather than fresh decisions. In both shapes focus lands where the person's own gesture was already headed. The one page that lays forms out rather than opening one — the duplicate review, a transaction form on each side — passes `autoFocus={false}` to both: nobody opened them, and each claiming focus left the cursor in whichever rendered last, halfway down the page. |
 
@@ -242,7 +242,7 @@ rule that is *narrowed* is the same kind of decision as one turned off:
 
 | Rule | Why narrowed |
 | --- | --- |
-| `jsx-a11y/no-noninteractive-tabindex` | `roles` widened to accept `region`. `web.md` §9.6 is Binding under SC 2.1.1 — a container that scrolls horizontally has to be reachable by keyboard — and the sanctioned way to do that is `tabIndex={0}` plus `role="region"` and a name. The rule's default `roles` list is `["tabpanel"]` alone, so it refuses the exact pattern the accessibility rule requires. Every one of the fourteen sites is a named scroll region, and they are the same fourteen the `prefer-tag-over-role` row above is mostly about — two rules objecting to the two halves of one required pattern. |
+| `jsx-a11y/no-noninteractive-tabindex` | `roles` widened to accept `region`. `web.md` §9.6 is Binding under SC 2.1.1 — a container that scrolls horizontally has to be reachable by keyboard — and the sanctioned way to do that is `tabIndex={0}` plus `role="region"` and a name. The rule's default `roles` list is `["tabpanel"]` alone, so it refuses the exact pattern the accessibility rule requires. Every one of the sixteen sites is a named scroll region, and they are the same sixteen the `prefer-tag-over-role` row above is mostly about — two rules objecting to the two halves of one required pattern. |
 
 Two more are denied but disabled at two individual sites, each carrying its
 reason in the code: `jsx-a11y/no-static-element-interactions` at
@@ -297,7 +297,7 @@ in the same breath, which reads as one toolchain over one tree.
 those files failed a format check — `scripts/capacity/load.mjs`,
 `scripts/capacity/schedule.mjs`, `scripts/ralph/git-guard.mjs`,
 `scripts/ralph/runner.mjs`, and `scripts/set-version.mjs`, the tool the release
-procedure runs first (`docs/upgrades.md:1949`) — while all thirteen Pulumi
+procedure runs first (`docs/upgrades.md:2031`) — while all thirteen Pulumi
 modules happened to be clean, so the gap stayed invisible while
 `npm run verify` went on passing. The five are formatted now, and the test
 below holds every file the command does not reach to the formatter anyway. `typescript.md` §3.5 records
