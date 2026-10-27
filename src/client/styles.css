@@ -1984,6 +1984,17 @@ input[type="radio"] {
   flex-wrap: wrap;
 }
 
+/* A native select is as wide as its widest option, and two bars carry options
+   nobody wrote: Staged's batches are a file name, a timestamp and the counts —
+   717px for a Simple Balance file — and the register's account filter is any
+   account name, up to 120 characters. Uncapped, Staged's fifth control dropped
+   to a line of its own at 1440 as a 450px box showing eleven characters. The
+   open list still shows each whole label; a closed native select cannot
+   ellipsize its value in Chromium, so the cap alone keeps the box small. */
+.filter-bar > .select-wrap {
+  max-width: 240px;
+}
+
 .search-box {
   position: relative;
   min-width: 260px;
@@ -2433,6 +2444,18 @@ input[type="radio"] {
 .bulk-edit-field.enabled {
   border-color: var(--green-line-strong);
   background: var(--green-wash);
+}
+
+/* The template mass edit puts a whole Field in the left cell — label, any
+   hint, then the action select — where Transactions and Staged put a one-line
+   checkbox. Centred, the value control hung about 10px above the select it
+   answers on a plain row and about 40px on From and To account, whose hint
+   wraps three or four lines in the 135px column. On the end it sits beside
+   the select, and both are `.input`'s 40px, so the tops agree too. Notes'
+   three-row box is the one taller than its Field, and lines up on the bottom
+   edge only. */
+.bulk-edit-field:has(> :where(.field)) {
+  align-items: end;
 }
 
 .bulk-edit-field > .select-wrap {
@@ -2932,7 +2955,13 @@ input[type="radio"] {
   font-size: 15px;
 }
 
+/* The page header's measure, so a section's description stops at the edge the
+   page description above it stops at. It had none, and Import's ran about 190
+   characters a line at 12px — the sentences that say how a Simple Balance file
+   comes in, at the page's smallest prose size — under a page description that
+   wrapped at 680px. One number for the two rather than a second one. */
 .section-title p {
+  max-width: 680px;
   margin: 0;
   color: var(--muted);
   font-size: 12px;
@@ -3093,9 +3122,40 @@ input[type="radio"] {
   gap: 8px;
 }
 
-.duplicate-groups .alert {
+.duplicate-group-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* The info alert's box, drawn as a row rather than as an `Alert`: a standing
+   condition is not news (12.4), and `Alert`'s one wrapping `<div>` is what put
+   the icon at one edge and the names hard against the button at the other.
+   Here the names are the row's one flexible item, so they sit beside the icon
+   and push the button to the end, with the gap between all three. */
+.duplicate-group {
+  display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 12px;
+  border: 1px solid var(--blue-soft);
+  border-radius: 9px;
+  color: var(--blue);
+  background: var(--blue-soft);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.duplicate-group > svg {
+  flex: 0 0 auto;
+}
+
+.duplicate-group-names {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .merge-panel {
@@ -3311,15 +3371,7 @@ input[type="radio"] {
   margin-top: 28px;
 }
 
-/* The categories report's per-row menu sits beside the label without pushing
-   the column wide, and the exclusion pills read as a sentence. */
-.report-row-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-}
-
+/* The exclusion pills read as a sentence. */
 .report-exclusions {
   margin: 0;
   color: var(--muted);
@@ -3372,7 +3424,7 @@ input[type="radio"] {
 }
 
 /* The third family that ships disabled, found by looking for the defect rather
-   than waiting for it: "Add a category" in the split editor goes dead at the
+   than waiting for it: "Add category" in the split editor goes dead at the
    fifty-leg cap (`MAX_TRANSACTION_LEGS`), and this rule sets its own color and
    cursor, so a dead link was pixel-identical to a live one — measured in
    Chrome 152 as `opacity: 1, cursor: pointer`, the same underline and the same
@@ -4549,6 +4601,15 @@ polyline.chart-line {
   font-variant-numeric: tabular-nums;
 }
 
+/* The categories report's menu column, as narrow as its button. A short table
+   stretched to the panel spreads the spare width over every column, the last
+   included, so the menu sat about 100px short of the row's end — and each
+   currency's table sizes its own columns, so the two menus sat at two
+   different places. At its content's width the column ends both rows. */
+.report-table .row-actions {
+  width: 1%;
+}
+
 .report-table tfoot th,
 .report-table tfoot td {
   border-top: 1px solid var(--line);
@@ -4619,6 +4680,19 @@ polyline.chart-line {
   padding: 0 0 4px;
 }
 .budget-form .field { margin-bottom: 0; }
+/* The form-wide note is a line of its own, as on every `.form-grid` form
+   (8.4): in this wrapping row it was a cell, centred beside the first select.
+   The row's 12px gap already separates it from the fields below. */
+.budget-form > .required-note {
+  flex-basis: 100%;
+  margin-bottom: 0;
+}
+/* A field in a wrapping row is as wide as its longest line, and Funded
+   first's one-line hint stretched a box for a small integer to about 700px
+   with Set budget wedged beside it. Capped, the hint wraps under its field. */
+.budget-form .field {
+  max-width: 360px;
+}
 
 /* One period's categories, under the period's own line.
 
@@ -4771,6 +4845,27 @@ polyline.chart-line {
   overflow-wrap: normal;
 }
 
+/* Except where a cell carries somebody's name, in the "Every record" table:
+   the row's own header, the "New, as \"…\"" badge, and the Why sentence that
+   quotes it. An unbroken name of 58 characters — the browser tier's own
+   fixture for proving long names work — made each of the three a single
+   word as wide as the name, so the table ran to 1460px in a 1063px panel at
+   1440 with Why showing 37px of 435, and on a phone only Record was on
+   screen. Kind stays unbreakable: it is the column "Cat / ego / ry" above was
+   about, and it holds no name. */
+.ledger-import-records th[scope="row"],
+.ledger-import-records .ledger-import-why,
+.ledger-import-records .badge {
+  overflow-wrap: anywhere;
+}
+
+/* A pill's 99px radius over three or four wrapped lines drew a blob; at 9px,
+   an alert's radius, a one-line badge still reads as a pill. */
+.ledger-import-records .badge {
+  border-radius: 9px;
+  white-space: normal;
+}
+
 /* An account's currency beside its name, which broke as "EU / R" under a name
    with nowhere else to break. */
 .ledger-import-choices .subtle {
@@ -4881,6 +4976,17 @@ polyline.chart-line {
   list-style: disc;
 }
 
+/* A line that links to its question is told from a line with nowhere to go by
+   its underline, not its green: green against --ink is 2.50:1 in light and
+   1.77:1 in dark, under the 3:1 web.md 2.3 takes as a cue (SC 1.4.1), and the
+   box mixes the two kinds because a move-level problem has no question to
+   point at. The rule `.alert a` gives the error summary, which this box copies
+   but which is not an alert. The green stays: it clears 4.5:1 on
+   --surface-soft in both themes. */
+.ledger-import-todo a {
+  text-decoration: underline;
+}
+
 /* Where in the file a refusal points, as the reader names it: entries.12.from. */
 .ledger-import-issues {
   display: grid;
@@ -4894,6 +5000,7 @@ polyline.chart-line {
   font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+.import-reading,
 .ledger-import-checking,
 .ledger-import-progress,
 .ledger-import-result {
@@ -4902,6 +5009,7 @@ polyline.chart-line {
   gap: 10px;
 }
 
+.import-reading p,
 .ledger-import-checking p,
 .ledger-import-progress p {
   color: var(--ink-soft);
@@ -4914,7 +5022,7 @@ polyline.chart-line {
   gap: 8px;
 }
 
-/* "Check the file again" beside "Add to this ledger" is wider than a phone's
+/* "Check file again" beside "Add to this ledger" is wider than a phone's
    card, and squeezed into one row each label broke over two lines. Wrapped,
    each keeps its words on one line and the add stays last and rightmost. */
 .ledger-import-preview > .form-actions {
@@ -5221,11 +5329,29 @@ polyline.chart-line {
     padding-bottom: 8px;
     border-bottom: 1px solid var(--line);
   }
+  /* Alone on a phone row a select fills it; the base cap would stop it at
+     240px with a gap beside it. */
   .filter-bar > .select-wrap {
     flex: 1;
+    max-width: none;
   }
   .search-box {
     min-width: 100%;
+  }
+  /* The auto margin that keeps the sort group at a desktop bar's right end is
+     the one 7.6 records throwing it "to the far right of an otherwise empty
+     row". Here the search takes the whole first row, so every sort group
+     starts a row of its own and the margin did exactly that again, with
+     Accounts' checkbox dropping back to the left edge on the line below.
+     Stretched like the bar's bare selects, it stacks on one left edge as this
+     step says a filter bar does. Both rules: `flex: 1` on the group alone
+     leaves its select at its own width and the arrow button mid-row. */
+  .sort-menu {
+    flex: 1;
+    margin-left: 0;
+  }
+  .sort-menu > .select-wrap {
+    flex: 1;
   }
   .selection-bar,
   .selection-bar-actions {

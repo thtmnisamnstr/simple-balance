@@ -901,6 +901,9 @@ export const ledgerFileRowsStaged = new Counter({
  * when they are voided. Apart from the queue's counter above, because a move
  * is the one way a file's transactions skip the queue, and an operator asking
  * how much reached the books without review is asking about exactly these.
+ * They count in `ledger_writes_total` too — each a create, and each deleted
+ * one a delete as well — because that is the figure named after every write
+ * to the books, and this one only says which of them came by a move.
  */
 export const ledgerFileRowsMoved = new Counter({
   name: `${prefix}ledger_file_rows_moved_total`,

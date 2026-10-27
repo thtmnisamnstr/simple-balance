@@ -20,6 +20,7 @@ import {
   commitStageSchema,
   dateRangeSchema,
   directTransactionCreateSchema,
+  localPasswordSchema,
   payeeMergeSchema,
   queryBooleanSchema,
   reportNameSchema,
@@ -167,7 +168,7 @@ import {
   revokeConnectedApp,
 } from "./services/connected-apps.js";
 import { CSV_MEDIA_TYPE } from "../shared/csv.js";
-import { CSV_EXPORT_MAX_ROWS, LEDGER_FILE_HISTORY_MAX_BYTES } from "./config-limits.js";
+import { CSV_EXPORT_MAX_ROWS, LEDGER_FILE_CONTENT_MAX_BYTES } from "./config-limits.js";
 import { LEDGER_FILE_MEDIA_TYPE, parseLedgerFileQuery } from "../shared/ledger-file.js";
 import {
   ledgerFileAddInputSchema,
@@ -348,10 +349,19 @@ app.use("*", async (c, next) => {
     // says a request happened somewhere. Nothing in a query string is written:
     // filters carry payees and search terms, which is somebody's ledger.
     //
+    // Under `/api/auth` the line takes the closed label the metric does. The
+    // path there is the caller's, and the password-reset link carries a live
+    // credential in it — Better Auth sends `/reset-password/<token>`, and the
+    // GET that link makes only checks the token and redirects, so the token
+    // stays good for up to an hour after the line that wrote it. The ids this
+    // argues for live under `/api/v1`, and nothing under `/api/auth` carries
+    // one an operator needs (`code/observability.md` §2.4).
+    //
     // Built whether or not `debug` is on, because `log` takes the finished
     // string: one template literal against a request that has just been through
     // the database, which is not worth a predicate at two call sites.
-    log.debug(`${c.req.method} ${c.req.path} ${c.res.status} in ${Date.now() - startedAt}ms`);
+    const path = c.req.path.startsWith("/api/auth/") ? authRouteLabel(c.req.path) : c.req.path;
+    log.debug(`${c.req.method} ${path} ${c.res.status} in ${Date.now() - startedAt}ms`);
   };
   try {
     await next();
@@ -640,6 +650,8 @@ app.post("/api/auth/sign-up/email", async (c) => {
     : await c.req.raw
         .clone()
         .json()
+        // A body that is not JSON is the client's input rather than a failure:
+        // every field below reads as absent, and that is what is answered.
         .catch(() => ({}));
   const field = (name: string) =>
     payload && typeof payload === "object" ? (payload as Record<string, unknown>)[name] : undefined;
@@ -866,6 +878,7 @@ app.post("/api/auth/mcp/register", async (c) => {
   const body = await c.req.raw
     .clone()
     .json()
+    // Not JSON is the client's input, not a failure: the library answers it.
     .catch(() => null);
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return getAuth().handler(authRequest(c));
@@ -952,6 +965,7 @@ async function pendingConsentCode(c: Context) {
   const body = await c.req.raw
     .clone()
     .json()
+    // Not JSON is the client's input, not a failure: there is no code in it.
     .catch(() => null);
   const fromBody =
     body && typeof body === "object"
@@ -1434,6 +1448,7 @@ function cspDirectiveLabel(violation: Record<string, unknown>): CspDirective {
  */
 if (getConfig().cspReportOnly) {
   app.post(CSP_REPORT_PATH, async (c) => {
+    // A report that is not JSON is a browser's input, not a failure here.
     const report = await c.req.json().catch(() => null);
     // Both shapes. The deprecated `report-uri` sends `{"csp-report": {...}}` and
     // the `report-to` replacement sends an array of `{type, body}`, and this
@@ -1602,7 +1617,7 @@ app.use("/api/v1/*", async (c, next) => {
   // Everything below this line is somebody's ledger, and it is reached with a
   // cookie rather than an Authorization header, so nothing stops a shared cache
   // or a browser's back-forward store holding on to it by default. Said once
-  // here rather than remembered on each of thirty routes.
+  // here rather than remembered on every route.
   c.header("Cache-Control", "no-store");
   const successor = renamedPathSuccessor(c.req.method, c.req.path);
   if (successor) {
@@ -1792,11 +1807,7 @@ app.post("/api/v1/auth/local-password", async (c) => {
   if (!getConfig().localAuthEnabled) {
     throw new AppError("FORBIDDEN", "Local authentication is disabled", 403);
   }
-  const parsed = z
-    .object({
-      newPassword: z.string().min(12).max(128),
-    })
-    .parse(await body(c));
+  const parsed = localPasswordSchema.parse(await body(c));
   const userId = c.get("authUser").id;
   if (await hasLocalPassword(userId)) {
     throw conflict("A local password is already configured. Use the password change action.");
@@ -2122,8 +2133,8 @@ const wantsFrames = (c: Context<AppEnv>) => acceptsFrames(c.req.header("Accept")
  * The refusal a terminal frame carries: the envelope, without the status.
  *
  * A frame has no status line to put one on — the 200 went out with the first
- * frame — and the browser reads the code, which every refusal on the three
- * streaming paths already has.
+ * frame — and the browser reads the code, which every refusal on a streaming
+ * path already has.
  */
 const framedRefusal = (error: unknown) => errorEnvelope(error, "stream").envelope;
 
@@ -2185,7 +2196,7 @@ app.get("/api/v1/csv/export", async (c) => {
 app.get("/api/v1/ledger-file", async (c) => {
   const result = await exportLedgerFile(c.get("actor"), parseLedgerFileQuery(query(c)), {
     maxRows: CSV_EXPORT_MAX_ROWS,
-    maxHistoryBytes: LEDGER_FILE_HISTORY_MAX_BYTES,
+    maxContentBytes: LEDGER_FILE_CONTENT_MAX_BYTES,
   });
   c.header("Content-Type", LEDGER_FILE_MEDIA_TYPE);
   c.header("Content-Disposition", `attachment; filename="${result.fileName}"`);
@@ -2281,6 +2292,27 @@ app.all("/api/v1/*", () => {
 app.all("/api/billing/*", () => {
   throw notFound("No such endpoint");
 });
+
+// Every other path under a prefix this process owns: the set the split
+// deployment's nginx proxies here (`deploy/docker/nginx.conf.template`), where
+// the API image has no shell and they already answered 404. The single
+// container answered them with the shell and a 200, so a client probing
+// `/api/v2/…` parsed HTML, and a probe at a mistyped health path such as
+// `/health/readyz` reported the process ready with the database down. And the
+// two routes a deployment turns on: `/metrics` and `/ads.txt` read as absent
+// where they were not asked for, rather than as a page.
+//
+// Bare `/health` and `/health/` keep answering 200, now as liveness rather than
+// as the shell, because `/health/*` would otherwise catch both: a load
+// balancer pointed at either passed on the release before this one, and an
+// upgrade that takes a backend out of service is not one a release may make.
+app.get("/health", (c) => c.json({ status: "ok", version: APP_VERSION }));
+app.get("/health/", (c) => c.json({ status: "ok", version: APP_VERSION }));
+for (const owned of ["/api/*", "/mcp/*", "/health/*", "/metrics", "/ads.txt"]) {
+  app.all(owned, () => {
+    throw notFound("No such endpoint");
+  });
+}
 
 // Only when there is a bundle to serve. The decomposed deployment builds an
 // API image with no client in it and puts nginx in front, and serveStatic warns

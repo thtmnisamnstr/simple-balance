@@ -149,7 +149,7 @@ export const ledgerRecordDetails = ["full", "reference"] as const;
 export type LedgerRecordDetail = (typeof ledgerRecordDetails)[number];
 
 /** Whether a file holds every account or the ones somebody chose. */
-export const ledgerFileAccountScopes = ["all", "chosen"] as const;
+const ledgerFileAccountScopes = ["all", "chosen"] as const;
 export type LedgerFileAccountScope = (typeof ledgerFileAccountScopes)[number];
 
 /**
@@ -776,7 +776,6 @@ export const ledgerFileSchema = z
   .strict();
 
 export type LedgerFile = z.infer<typeof ledgerFileSchema>;
-export type LedgerFileScope = LedgerFile["scope"];
 export type LedgerFileGroup = LedgerFile["groups"][number];
 export type LedgerFileCategory = LedgerFile["categories"][number];
 export type LedgerFileAccount = LedgerFile["accounts"][number];
@@ -786,7 +785,6 @@ export type LedgerFileBudgetPlan = LedgerFile["budgets"]["plans"][number];
 export type LedgerFileBudgetEntry = LedgerFile["budgets"]["entries"][number];
 export type LedgerFileEntry = LedgerFile["entries"][number];
 export type LedgerFileStagedRow = LedgerFile["staged"][number];
-export type LedgerFileHistoryEvent = NonNullable<LedgerFile["history"]>[number];
 
 /**
  * A file read, or the sentences saying why it could not be.
@@ -970,7 +968,7 @@ const sortEntries = (entries: readonly LedgerFileEntry[]) => [...entries].sort(c
  * Exported for the tests that hold each rule to its sentence. Callers want
  * `parseLedgerFile`, which runs the schema first.
  */
-export function ledgerFileProblems(file: LedgerFile): ValidationIssue[] {
+function ledgerFileProblems(file: LedgerFile): ValidationIssue[] {
   const problems: ValidationIssue[] = [];
   const refuse = (field: string, message: string) => problems.push({ field, message });
 

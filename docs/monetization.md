@@ -305,11 +305,15 @@ in the sentence §Where the plan is managed describes.
 
 ### Switching from AdSense to the house ad
 
-1. **Set `SB_HOUSE_AD=true` and restart.** The plan has to be on sale already —
-   `SB_BILLING_ENABLED=true` with Stripe configured — or the process warns at
-   every start that nobody is shown it. From that restart a free account sees
-   the house ad and no AdSense unit, and the process warns at every start that
-   the AdSense settings are still widening the policy and serving `/ads.txt`.
+1. **Set `SB_HOUSE_AD=true` and restart.** A `single` machine built before
+   0.2.2 takes that release's `compose.yml` first, because its own names every
+   setting the container gets and does not name this one (`docs/upgrades.md`
+   §What you do by hand, to show the house ad). The plan has to be on sale
+   already — `SB_BILLING_ENABLED=true` with Stripe configured — or the process
+   warns at every start that nobody is shown it. From that restart a free
+   account sees the house ad and no AdSense unit, and the process warns at every
+   start that the AdSense settings are still widening the policy and serving
+   `/ads.txt`.
 2. **Unset the four `ADSENSE_*` settings together and restart.** That is what
    puts every page back on `default-src 'self'` and the `same-origin` referrer
    and stops `/ads.txt` being served, and the warning goes with them.
@@ -566,7 +570,7 @@ subscribing was.
 **The renewal terms are stated where the consent is asked for.** Beside the
 Annual and Monthly buttons, beside the payment form's confirm button for the
 plan being paid for, beside **Keep my plan**, which turns renewal back on after
-a cancellation, and beside **Stay on the annual plan** (or monthly), which lets
+a cancellation, and beside **Stay on annual plan** (or monthly), which lets
 a scheduled switch go and so decides which price renews, the tab says in a boxed
 paragraph that Premium renews automatically until canceled, what each plan
 charges and how often, in the figures Stripe returns and the buttons show; that

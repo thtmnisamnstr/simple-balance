@@ -60,8 +60,16 @@ export class AppError extends Error {
   }
 }
 
-export const notFound = (message: string, details?: unknown) =>
-  new AppError("NOT_FOUND", message, 404, details);
+/**
+ * `agentMessage` widens this constructor as it widens `conflict` below, and for
+ * the half of the reason that differs. "Not found" is read the same way by a
+ * person and a program, so the diagnosis stays one sentence; what a bulk call
+ * advises does not. "Reload the list" is a person's move, and an agent has no
+ * list on screen — it is told which call reads the ids again, and which ids
+ * missed, which the refusal carries in its details.
+ */
+export const notFound = (message: string, details?: unknown, agentMessage?: string) =>
+  new AppError("NOT_FOUND", message, 404, details, agentMessage);
 
 /**
  * `agentMessage` is optional and widens this constructor rather than adding a

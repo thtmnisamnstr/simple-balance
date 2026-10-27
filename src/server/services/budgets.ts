@@ -531,8 +531,8 @@ export async function getBudgetPlan(actor: Actor, id: string) {
 export async function createBudgetPlan(
   actor: Actor,
   input: unknown,
+  options: CreateAuditOptions = {},
   transaction?: DbTransaction,
-  options?: CreateAuditOptions,
 ) {
   const parsed = budgetPlanCreateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
@@ -895,8 +895,8 @@ async function truncatePeriod(
 export async function setBudgetEntry(
   actor: Actor,
   input: unknown,
+  options: CreateAuditOptions = {},
   transaction?: DbTransaction,
-  options?: CreateAuditOptions,
 ) {
   const parsed = budgetEntrySetSchema.parse(input);
   return withTransaction(transaction, async (tx) => {

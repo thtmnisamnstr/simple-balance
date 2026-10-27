@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { sourceFiles } from "./support/source.js";
 
@@ -175,7 +176,48 @@ describe("a bare Error in a service", () => {
   it("is counted, so an empty read cannot pass for a clean one", () => {
     expect(bareThrows).toHaveLength(IMPOSSIBLE.length);
   });
+
+  /**
+   * And `errors.md` says how many, in words, in three places — each of which
+   * read "twelve" for a branch that had brought the list to nineteen, so a
+   * reader auditing the exceptions from the guide missed seven of them
+   * (`writing.md`: a measured number carries a test or a date).
+   */
+  it("is the number errors.md states, everywhere it states it", () => {
+    const guide = readFileSync("docs/standards/code/errors.md", "utf8").replaceAll(/\s+/g, " ");
+    const word = SPELLED[IMPOSSIBLE.length];
+    expect(word, `${IMPOSSIBLE.length} is outside the words this check spells`).toBeDefined();
+    const capitalized = `${word![0]!.toUpperCase()}${word!.slice(1)}`;
+    expect(guide).toContain(
+      `${capitalized} throws in \`src/server/services\` are that second kind`,
+    );
+    expect(guide).toContain(`all ${word} are correct`);
+    expect(guide).toContain(`each of the ${word} carries the reason`);
+    expect(guide).toContain(`flag the ${word} correct ones`);
+  });
 });
+
+/** The counts the two errors.md censuses can reach, as the guide spells them. */
+const SPELLED: Record<number, string> = Object.fromEntries(
+  [
+    "ten",
+    "eleven",
+    "twelve",
+    "thirteen",
+    "fourteen",
+    "fifteen",
+    "sixteen",
+    "seventeen",
+    "eighteen",
+    "nineteen",
+    "twenty",
+    "twenty-one",
+    "twenty-two",
+    "twenty-three",
+    "twenty-four",
+    "twenty-five",
+  ].map((word, index) => [index + 10, word]),
+);
 
 /**
  * One code, one status.

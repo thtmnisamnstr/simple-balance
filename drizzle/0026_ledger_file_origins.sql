@@ -14,18 +14,21 @@
 -- nullable with no default, and the kind's default is a constant, which
 -- PostgreSQL 11 and later record once rather than writing into every row.
 --
--- The two indexes are not, and they are the whole cost of this migration.
--- `CREATE INDEX` scans its table holding a lock that blocks writes, and it
--- cannot be `CONCURRENTLY`, because the migrator runs every pending file in
--- one transaction. Both are partial on the origin being set, so every row that
--- exists when this runs is read and none is indexed: one sequential scan and
--- nothing to sort. Measured on 2026-10-25 against the capacity seed at a
--- thirtieth — 978,000 entries in a 153 MB table, and 99,900 staged rows —
--- on PostgreSQL 18.6: 44 ms warm and 117 ms cold for the entries, under
--- 20 ms for the queue, no table rewritten. Linear in the table, that is one
--- and a half to three and a half seconds on the thirty-million-entry
--- population `docs/capacity.md` measures, during which writes to the books
--- wait.
+-- Metadata-only is not lock-free. Each ADD COLUMN takes ACCESS EXCLUSIVE, and
+-- the migrator runs every pending file in one transaction, so all three
+-- tables refuse reads as well as writes until it commits; and on a rolling
+-- update the first ALTER on each table waits for every transaction already
+-- open on it, with every later request queued behind the ALTER. The two
+-- indexes are what makes the transaction last. `CREATE INDEX` scans its table,
+-- and it cannot be `CONCURRENTLY` inside that one transaction. Both are
+-- partial on the origin being set, so every row that exists when this runs is
+-- read and none is indexed: one sequential scan and nothing to sort. Measured
+-- on 2026-10-25 against the capacity seed at a thirtieth — 978,000 entries in
+-- a 153 MB table, and 99,900 staged rows — on PostgreSQL 18.6: 44 ms warm and
+-- 117 ms cold for the entries, under 20 ms for the queue, no table rewritten.
+-- Linear in the table, that is one and a half to three and a half seconds on
+-- the thirty-million-entry population `docs/capacity.md` measures, during
+-- which the books can be neither read nor written.
 --
 -- Unique, because the skip is a read and a read can race; partial, so the
 -- entries typed by hand cost nothing; led by `user_id`, so Citus can enforce

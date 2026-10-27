@@ -153,7 +153,16 @@ describe("payee browsing and merging", () => {
       </QueryClientProvider>,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Review merge" }));
+    const review = await screen.findByRole("button", { name: "Review merge" });
+    // A standing condition, drawn as a list rather than as a status region per
+    // group (`web.md` 12.4): five groups were five live regions. The names are
+    // the button's description, which is what tells one "Review merge" from
+    // the next.
+    const section = screen.getByRole("region", { name: "Duplicate payees" });
+    expect(within(section).queryAllByRole("status")).toEqual([]);
+    expect(within(section).getAllByRole("listitem")).toHaveLength(1);
+    expect(review).toHaveAccessibleDescription(`${acmeMarket.name}, ${acmeMarkets.name}`);
+    fireEvent.click(review);
 
     expect(
       screen.getByRole("checkbox", {

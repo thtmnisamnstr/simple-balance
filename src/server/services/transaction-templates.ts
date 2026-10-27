@@ -448,6 +448,9 @@ async function lockSelectedTemplates(
       {
         templateIds: missing,
       },
+      // An agent has no list on screen to reload; it is told which call reads
+      // the ids again, and that the ones that missed are in the details.
+      "Some of these templates are not in this ledger, and details.templateIds lists them: they may have been deleted. Call list_transaction_templates and send the call again without them.",
     );
   }
   const stale = selection.items.filter(
@@ -483,6 +486,23 @@ export async function bulkEditTransactionTemplates(
         idempotencyPayload,
       );
       if (existing) return transactionTemplateBulkResultSchema.parse(existing);
+    }
+    // Same order as the create and the single edit, for the same race:
+    // `deleteAccount` and `deleteCategory` count the templates naming what they
+    // delete under these locks, and a mass edit sitting between its ownership
+    // check and its write was invisible to both counts, so thirty templates
+    // could be left naming a category that had just gone (`services.md` 2.4).
+    // Only what the patch introduces, which is all `assertReferencesAreOwned`
+    // checks below.
+    await lockAccountReferences(
+      tx,
+      actor,
+      [parsed.patch.fromAccountId, parsed.patch.toAccountId].filter((id): id is string =>
+        Boolean(id),
+      ),
+    );
+    if (parsed.patch.categoryId || parsed.patch.legs?.some((leg) => leg.categoryId)) {
+      await lockCategoryNamespace(tx, actor);
     }
     await lockTransactionTemplateNamespace(tx, actor);
     const rows = await lockSelectedTemplates(tx, actor, parsed.selection);
@@ -761,14 +781,14 @@ export type TemplateCreateOptions = {
 export async function createTransactionTemplate(
   actor: Actor,
   input: unknown,
+  options: TemplateCreateOptions = {},
   transaction?: DbTransaction,
-  options?: TemplateCreateOptions,
 ) {
   const parsed = transactionTemplateCreateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
-    // The category namespace before the template's own lock, which the
-    // template lock's own comment already requires ("taken last of all the
-    // namespace locks"). Without it a category delete racing this create
+    // The category namespace before the template's own lock, which the order
+    // in helpers.ts already requires: the template lock comes after the
+    // category and payee namespaces. Without it a category delete racing this create
     // counts zero template references while this transaction sits between its
     // ownership check and its insert, and the template lands naming a dead
     // category — the exact state deleteCategory's guard exists to prevent.

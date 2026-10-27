@@ -3,7 +3,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { isAPIError } from "better-auth/api";
 import { mcp } from "better-auth/plugins";
 import { eq } from "drizzle-orm";
-import type { Actor } from "../shared/domain.js";
+import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, type Actor } from "../shared/domain.js";
 import { APP_NAME } from "../shared/version.js";
 import {
   isLedgerUserAuthorized,
@@ -158,8 +158,8 @@ function createAuthInstance() {
     },
     emailAndPassword: {
       enabled: config.localAuthEnabled,
-      minPasswordLength: 12,
-      maxPasswordLength: 128,
+      minPasswordLength: PASSWORD_MIN_LENGTH,
+      maxPasswordLength: PASSWORD_MAX_LENGTH,
       // Both of these need somewhere to send a link. A deployment with no mail
       // server keeps the behavior it has always had: no reset, and an address
       // nobody is asked to prove. Configure SMTP_HOST and MAIL_FROM and the two

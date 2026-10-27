@@ -23,7 +23,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
 import { MAX_FREE_ACCOUNTS } from "../../src/shared/domain.js";
-import { LEDGER_FILE_HISTORY_MAX_BYTES } from "../../src/server/config-limits.js";
+import { LEDGER_FILE_CONTENT_MAX_BYTES } from "../../src/server/config-limits.js";
 import { getDb } from "../../src/server/db/client.js";
 import {
   billingOverrides,
@@ -56,7 +56,7 @@ import { scratchDatabase } from "./support/scratch-database.js";
 const connection = process.env.TEST_DATABASE_URL;
 const integration = describe.skipIf(!connection);
 const database = scratchDatabase("ledger_file_add_plan");
-const LIMITS = { maxRows: 100_000, maxHistoryBytes: LEDGER_FILE_HISTORY_MAX_BYTES };
+const LIMITS = { maxRows: 100_000, maxContentBytes: LEDGER_FILE_CONTENT_MAX_BYTES };
 
 const person = (id: string): Actor => ({ userId: `lf-plan-${id}`, source: "web" });
 const source = person("source");

@@ -21,7 +21,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
 import { calendarDayIn } from "../../src/shared/recurrence-dates.js";
-import { LEDGER_FILE_HISTORY_MAX_BYTES } from "../../src/server/config-limits.js";
+import { LEDGER_FILE_CONTENT_MAX_BYTES } from "../../src/server/config-limits.js";
 import { getDb } from "../../src/server/db/client.js";
 import { billingOverrides, ledgerAccounts, user } from "../../src/server/db/schema.js";
 import {
@@ -54,7 +54,7 @@ import { scratchDatabase } from "./support/scratch-database.js";
 const connection = process.env.TEST_DATABASE_URL;
 const integration = describe.skipIf(!connection);
 const database = scratchDatabase("ledger_file_move_plan");
-const LIMITS = { maxRows: 100_000, maxHistoryBytes: LEDGER_FILE_HISTORY_MAX_BYTES };
+const LIMITS = { maxRows: 100_000, maxContentBytes: LEDGER_FILE_CONTENT_MAX_BYTES };
 const TIMEZONE = "America/New_York";
 
 const person = (id: string): Actor => ({ userId: `lf-move-plan-${id}`, source: "web" });

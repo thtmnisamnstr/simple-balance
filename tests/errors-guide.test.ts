@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { sourceFiles, topLevelDeclarations } from "./support/source.js";
 
@@ -72,7 +73,7 @@ const SECOND_AUDIENCE = [
     because:
       "A part that met a ledger changed after it was read — an account renamed or added " +
       "under the name the file's is matched by. The browser's way back is the button beside " +
-      "the refusal, named in its own words — Check the file again — and an agent has no " +
+      "the refusal, named in its own words — Check file again — and an agent has no " +
       "button, so it is told the tool that reads the file again.",
   },
   {
@@ -92,7 +93,7 @@ const SECOND_AUDIENCE = [
     times: 1,
     because:
       "Another import writing one of a move's transactions into the books first. The same " +
-      "two ways back: Check the file again for the browser, the preview tool for an agent.",
+      "two ways back: Check file again for the browser, the preview tool for an agent.",
   },
   {
     where: "src/server/services/ledger-file.ts",
@@ -104,6 +105,34 @@ const SECOND_AUDIENCE = [
       "not come out. For the second, a person is told the two causes they can act on from " +
       "the page that shows which parts are in, and an agent, which cannot see that page, is " +
       "told to preview each earlier part, send the one not yet moved, and this one again.",
+  },
+  {
+    where: "src/server/services/staging.ts",
+    declaration: "stagedRowsMissing",
+    raises: "notFound",
+    times: 1,
+    because:
+      "A commit, a delete or a mass edit naming staged rows that are not waiting. The " +
+      "diagnosis is one sentence; the advice is not — a person reloads the queue on screen, " +
+      "and an agent has no screen, so it is told the ids that missed and the call that " +
+      "lists what is still staged.",
+  },
+  {
+    where: "src/server/services/transactions.ts",
+    declaration: "selectBulkSnapshot",
+    raises: "notFound",
+    times: 1,
+    because:
+      "A mass edit or delete naming transactions this ledger never held. The same split: " +
+      "reload the list for a person; the ids that missed, and the call that reads ids, for " +
+      "an agent.",
+  },
+  {
+    where: "src/server/services/transaction-templates.ts",
+    declaration: "lockSelectedTemplates",
+    raises: "notFound",
+    times: 1,
+    because: "The template mass edit and delete, the same refusal and the same split.",
   },
   {
     where: "src/server/services/billing.ts",
@@ -124,12 +153,12 @@ const EXPECTED_SITES = SECOND_AUDIENCE.reduce((total, known) => total + known.ti
 
 type Call = { where: string; declaration: string; raises: string };
 
-/** Every `conflict(…)` or `validationError(…)` given a third argument. */
+/** Every `conflict(…)`, `validationError(…)` or `notFound(…)` given a third argument. */
 const secondAudienceCalls = (): Call[] => {
   const found: Call[] = [];
   for (const file of sourceFiles("src/server/services")) {
     for (const declaration of topLevelDeclarations(file)) {
-      for (const match of declaration.body.matchAll(/\b(conflict|validationError)\(/g)) {
+      for (const match of declaration.body.matchAll(/\b(conflict|validationError|notFound)\(/g)) {
         const open = match.index + match[0]!.length - 1;
         if (topLevelArguments(declaration.body, open) < 3) continue;
         found.push({
@@ -183,6 +212,24 @@ describe("a refusal that carries a sentence for an agent", () => {
 
   it("is counted, so a scan that stopped matching cannot pass for a clean one", () => {
     expect(secondAudienceCalls()).toHaveLength(EXPECTED_SITES);
+  });
+
+  /**
+   * And `errors.md` 2.4 states the count, twice. Both said nine while the move
+   * brought three more, and the paragraph contradicted itself — "Nine throw
+   * sites carry one today" and then "moving one brought more again"
+   * (`writing.md`: a measured number carries a test or a date).
+   */
+  it("is the number errors.md states", () => {
+    const words = ["nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen"]
+      .concat(["sixteen", "seventeen", "eighteen", "nineteen", "twenty", "twenty-one"])
+      .concat(["twenty-two", "twenty-three", "twenty-four", "twenty-five"]);
+    const word = words[EXPECTED_SITES - 9];
+    expect(word, `${EXPECTED_SITES} is outside the words this check spells`).toBeDefined();
+    const guide = readFileSync("docs/standards/code/errors.md", "utf8").replaceAll(/\s+/g, " ");
+    const capitalized = `${word![0]!.toUpperCase()}${word!.slice(1)}`;
+    expect(guide).toContain(`${capitalized} throw sites carry one today`);
+    expect(guide).toContain(`holds the set to the ${word} argued for`);
   });
 
   /**

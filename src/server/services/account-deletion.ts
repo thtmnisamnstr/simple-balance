@@ -1,6 +1,6 @@
 import { and, eq, isNotNull, like, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import type { Actor } from "../../shared/domain.js";
+import { atMost, enter, type Actor } from "../../shared/domain.js";
 import { getDb } from "../db/client.js";
 import {
   categories,
@@ -43,7 +43,14 @@ const accountDeletionSchema = z
     // Typing the address is the "you meant this" gate. It is the only thing on
     // the screen that cannot be produced by clicking, which is the point: an
     // errant click, a stale tab, or a mis-aimed request cannot supply it.
-    confirmEmail: z.string().trim().min(1).max(320),
+    // The sentences are written rather than left to Zod (`code/errors.md`
+    // 3.3), though the page holds its button until the address matches, so it
+    // is a hand-made request that meets them.
+    confirmEmail: z
+      .string()
+      .trim()
+      .min(1, enter("your email address"))
+      .max(320, atMost("An email address", 320)),
   })
   .strict();
 

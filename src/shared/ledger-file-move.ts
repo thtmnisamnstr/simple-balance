@@ -62,7 +62,7 @@ export const ledgerFileMoveInputSchema = ledgerFileAddInputSchema.extend({
     "Which part of the file this is. Left out, the file is one part. Send the parts in order: each is written all at once, the last one carries the balances every account is held to, and the recurring transactions are created by the last one.",
   ),
   decisions: ledgerFileAddInputSchema.shape.decisions.describe(
-    "What to do with each record movePlan in preview_ledger_file says needs a decision. A move offers fewer choices than an add: an account or category the file's transactions name has to come in.",
+    "What to do with each record movePlan in `preview_ledger_file` says needs a decision. A move offers fewer choices than an add: an account or category the file's transactions name has to come in.",
   ),
   arriveArchived: ledgerFileAddInputSchema.shape.arriveArchived.describe(
     "Keys of new accounts to create archived, so they use no place on a plan that limits how many accounts are in use. Needed when the preview says more accounts are coming than there are places; none is chosen for you. Their transactions are written into them, and they hold nothing from the day of the move; restoring one into a free place posts its balance back. Accounts archived where the file came from arrive archived anyway, holding nothing from the day they were archived there.",

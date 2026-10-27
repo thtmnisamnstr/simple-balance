@@ -133,10 +133,13 @@ describe("the options only an import passes", () => {
       setTransactionDeleted: 6,
       createTransactionWithinTx: 0,
     };
+    // The options object comes before the transaction (`typescript.md` 4.1),
+    // so a transport handing its transaction on passes an empty one in its
+    // place. An empty literal is nothing more; anything in it is.
     const over = all.filter(
       (call) =>
         (call.file === "src/server/api.ts" || call.file === "src/server/mcp.ts") &&
-        call.args.length > most[call.name]!,
+        call.args.filter((arg) => arg !== "{}").length > most[call.name]!,
     );
     expect(over.map((call) => `${call.file}:${call.line} ${call.name}`)).toEqual([]);
   });

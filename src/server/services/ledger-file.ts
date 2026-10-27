@@ -60,6 +60,7 @@ import {
   parseLedgerFile,
   parseLedgerFileText,
   serializeLedgerFile,
+  utf8Length,
   type LedgerFile,
   type LedgerFileEntry,
   type LedgerFileKind,
@@ -76,6 +77,7 @@ import {
   ledgerCreatedKey,
   ledgerEntryDraft,
   ledgerFileAddInputSchema,
+  ledgerFileMoveStagedBlocked,
   ledgerFilePreviewInputSchema,
   ledgerGroupInput,
   ledgerRecurrenceInput,
@@ -130,7 +132,7 @@ import {
   type TransactionLegRow,
   type TransactionRow,
 } from "../db/schema.js";
-import { ledgerFileRowsMoved, ledgerFileRowsStaged } from "../metrics.js";
+import { ledgerFileRowsMoved, ledgerFileRowsStaged, ledgerWrites } from "../metrics.js";
 import { accountFreeze, createAccount, listAccounts, postClosingBalance } from "./accounts.js";
 import { getEntitlement } from "./billing.js";
 import { createBudgetPlan, planView, setBudgetEntry } from "./budgets.js";
@@ -140,6 +142,7 @@ import { AppError, conflict, notFound, retold, validationError, zodIssues } from
 import {
   canonicalDecimal,
   countAfterCommit,
+  flushDeferredCounts,
   getIdempotent,
   isUniqueViolation,
   lockAccountNamespace,
@@ -168,6 +171,9 @@ type AccountRow = typeof ledgerAccounts.$inferSelect;
 type TemplateRow = typeof transactionTemplates.$inferSelect;
 type NotificationRow = typeof templateNotifications.$inferSelect;
 type AuditRow = typeof auditEvents.$inferSelect;
+
+/** What an exported event about the person themselves names as its subject. */
+const HISTORY_OWNER_ENTITY_ID = "owner";
 type JsonRecord = Record<string, unknown>;
 
 /**
@@ -225,13 +231,22 @@ export type LedgerSnapshot = {
  * How much one export may hold, which each transport chooses for itself.
  *
  * `maxRows` counts entries, staged rows, budget amounts and activity events.
- * `maxHistoryBytes` counts the text of the activity history's before and after
- * snapshots, because rows do not bound the history the way they bound
- * everything else: an entry is a couple of hundred bytes on its line, and one
- * event about an edited split is ten times that, so a history inside the row
- * cap could still be a download large enough to take the server's heap with it.
+ * `maxContentBytes` counts what the row cap does not bound
+ * (`LEDGER_FILE_CONTENT_MAX_BYTES`): the entries' free text, split legs,
+ * staged rows' drafts and source data, and the history's snapshots. Both are
+ * counted before anything large is read, because what they guard is the
+ * server's heap.
+ *
+ * `maxBytes` is the finished file's size, checked once it is written, and only
+ * the MCP tool sets it: to one import part's, so a file the tool returns is
+ * one `add_ledger_file` takes as it is. The download is cut into parts by the
+ * import page, so it has no such limit.
  */
-export type LedgerFileExportLimits = { maxRows: number; maxHistoryBytes: number };
+export type LedgerFileExportLimits = {
+  maxRows: number;
+  maxContentBytes: number;
+  maxBytes?: number;
+};
 
 /**
  * Export somebody's ledger, or some of its accounts, as a Simple Balance file.
@@ -266,8 +281,21 @@ export async function exportLedgerFile(
     const fields = parsed.issues.map((issue) => issue.field || "(file)").join(", ");
     throw new Error(`A Simple Balance file failed its own reader at ${fields}`);
   }
+  const ledgerFile = serializeLedgerFile(parsed.file);
+  if (options.maxBytes !== undefined) {
+    // Measured the way the import's own schema measures a part, so a file
+    // let through here is never one the import refuses for its size.
+    const bytes = utf8Length(ledgerFile);
+    const kinds = new Set(selection.kinds);
+    if (bytes > options.maxBytes) {
+      throw validationError(
+        `This file would come to ${bytes.toLocaleString("en-US")} bytes, and one import part carries at most ${options.maxBytes.toLocaleString("en-US")}. ${capWayOut(kinds)}`,
+        { limit: options.maxBytes, bytes },
+      );
+    }
+  }
   return {
-    ledgerFile: serializeLedgerFile(parsed.file),
+    ledgerFile,
     rowCount: ledgerFileRowCount(parsed.file),
     fileName: ledgerFileName(snapshot.today, parsed.file.scope.accounts),
   };
@@ -284,7 +312,7 @@ async function readLedgerSnapshot(
   tx: DbTransaction,
   actor: Actor,
   selection: LedgerFileSelection,
-  { maxRows, maxHistoryBytes }: LedgerFileExportLimits,
+  { maxRows, maxContentBytes }: LedgerFileExportLimits,
 ): Promise<LedgerSnapshot> {
   const kinds = new Set(selection.kinds);
   const stored = await getPreferences(actor, tx);
@@ -312,10 +340,10 @@ async function readLedgerSnapshot(
       { limit: maxRows, count: counted.rows },
     );
   }
-  if (counted.historyBytes > maxHistoryBytes) {
+  if (counted.contentBytes > maxContentBytes) {
     throw validationError(
-      `The activity history in this file would come to ${counted.historyBytes.toLocaleString("en-US")} bytes, and one export carries at most ${maxHistoryBytes.toLocaleString("en-US")}. Narrow the activity history with a start and end date, and export one range at a time.`,
-      { limit: maxHistoryBytes, bytes: counted.historyBytes },
+      `The ${contentNouns(kinds)} in this file would come to ${counted.contentBytes.toLocaleString("en-US")} bytes, and one export carries at most ${maxContentBytes.toLocaleString("en-US")}. ${capWayOut(kinds)}`,
+      { limit: maxContentBytes, bytes: counted.contentBytes },
     );
   }
 
@@ -519,6 +547,17 @@ function capNouns(kinds: ReadonlySet<LedgerFileKind>): string {
   );
 }
 
+/** What the content limit is counting, in the words its refusal uses. */
+function contentNouns(kinds: ReadonlySet<LedgerFileKind>): string {
+  return listed(
+    [
+      kinds.has("entries") ? "entries" : null,
+      kinds.has("staged") ? "staged rows" : null,
+      kinds.has("history") ? "activity history" : null,
+    ].filter((noun) => noun !== null),
+  );
+}
+
 /**
  * The way out of the cap, built from what was asked for, so it names only the
  * moves that would work there. A range narrows the entries and the history and
@@ -554,9 +593,11 @@ function capWayOut(kinds: ReadonlySet<LedgerFileKind>): string {
     const sentence = moves.join(", or ");
     return `${sentence[0]!.toUpperCase()}${sentence.slice(1)}.`;
   }
+  // "This export", not "no export": the download carries ten times what one
+  // agent's call does, so a budget too large for one may fit the other.
   return kinds.has("staged")
     ? "Commit or discard some of the staged rows, then export again."
-    : "Budget amounts have no date to narrow them by, so no one export can carry this many.";
+    : "Budget amounts have no date to narrow them by, so this export cannot carry this many.";
 }
 
 /** "a", "a and b", "a, b and c": the house's list, with no serial comma. */
@@ -567,15 +608,18 @@ function listed(items: readonly string[]): string {
 
 /**
  * The rows the cap counts — entries, staged rows, budget amounts, and the
- * activity events when the history was asked for — and the bytes of the
- * history's snapshots, which the history's own limit counts.
+ * activity events when the history was asked for — and the bytes the content
+ * limit counts: what of each the row cap does not bound.
  *
  * The history counts here although no import part carries it, because it is
  * what makes a file large: a ledger edited for years can log ten events for
- * every entry it holds, and each event carries a whole record twice. Its bytes
- * are read off the stored JSON in the same statement as its count, so a
- * history over its limit is refused before any of it is pulled into memory,
- * which is the whole point of counting first.
+ * every entry it holds, and each event carries a whole record twice. Every
+ * byte count is read in the same statement as its rows' count, off the stored
+ * text, so a file over either limit is refused before any of it is pulled into
+ * memory, which is the whole point of counting first. A split's legs are
+ * counted whole, zeroed ones too, because the export reads every one of them;
+ * an entry's own fields only for their free text, since the rest is the same
+ * size on every row and the row cap already bounds it.
  */
 async function countRows(
   tx: DbTransaction,
@@ -583,24 +627,51 @@ async function countRows(
   kinds: ReadonlySet<string>,
   entryScope: readonly SQL[],
   historyScope: readonly SQL[],
-): Promise<{ rows: number; historyBytes: number }> {
+): Promise<{ rows: number; contentBytes: number }> {
   let total = 0;
-  let historyBytes = 0;
+  let contentBytes = 0;
   if (kinds.has("entries")) {
     const [row] = await tx
-      .select({ total: count() })
+      .select({
+        total: count(),
+        bytes: sql<string>`coalesce(sum(octet_length(${transactions.payee}) + coalesce(octet_length(${transactions.description}), 0) + coalesce(octet_length(${transactions.notes}), 0) + coalesce(octet_length(${transactions.externalId}), 0)), 0)::text`,
+      })
       .from(transactions)
       .where(and(...entryScope));
     total += row?.total ?? 0;
+    contentBytes += Number(row?.bytes ?? 0);
+    // The same legs `readLegs` reads, by the same subquery.
+    const [legs] = await tx
+      .select({
+        bytes: sql<string>`coalesce(sum(octet_length(${transactionLegs}::text)), 0)::text`,
+      })
+      .from(transactionLegs)
+      .where(
+        and(
+          eq(transactionLegs.userId, actor.userId),
+          inArray(
+            transactionLegs.transactionId,
+            tx
+              .select({ id: transactions.id })
+              .from(transactions)
+              .where(and(...entryScope, gt(transactions.legCount, 0))),
+          ),
+        ),
+      );
+    contentBytes += Number(legs?.bytes ?? 0);
   }
   if (kinds.has("staged")) {
     const [row] = await tx
-      .select({ total: count() })
+      .select({
+        total: count(),
+        bytes: sql<string>`coalesce(sum(octet_length(${stagedTransactions.draft}::text) + coalesce(octet_length(${stagedTransactions.rawData}::text), 0)), 0)::text`,
+      })
       .from(stagedTransactions)
       .where(
         and(eq(stagedTransactions.userId, actor.userId), eq(stagedTransactions.status, "staged")),
       );
     total += row?.total ?? 0;
+    contentBytes += Number(row?.bytes ?? 0);
   }
   if (kinds.has("budgets")) {
     const [row] = await tx
@@ -618,9 +689,9 @@ async function countRows(
       .from(auditEvents)
       .where(and(...historyScope));
     total += row?.total ?? 0;
-    historyBytes = Number(row?.bytes ?? 0);
+    contentBytes += Number(row?.bytes ?? 0);
   }
-  return { rows: total, historyBytes };
+  return { rows: total, contentBytes };
 }
 
 /**
@@ -1223,11 +1294,18 @@ export function assembleLedgerFile(
             createdAt: row.createdAt.toISOString(),
             actorSource: row.actorSource,
             entityType: row.entityType,
-            entityId: row.entityId,
+            // An event about the person themselves — a preference saved, the
+            // agents a password change disconnected — is about the owner, and
+            // says so in a word rather than in their id. Compared with the
+            // row's own owner rather than by entity type, so an event about
+            // them added later is covered too; a fixed string rather than
+            // nothing, because every copy in the field requires the field.
+            entityId: row.entityId === row.userId ? HISTORY_OWNER_ENTITY_ID : row.entityId,
             operation: row.operation,
             // The owner id goes for the reason it goes from every agent's
-            // reply, and `clientId` with it: both name things on the copy the
-            // file is leaving, and neither means anything anywhere else.
+            // reply, and the acting agent's `clientId` with it: both name
+            // things on the copy the file is leaving, and neither means
+            // anything anywhere else.
             before: withoutUserId(row.before),
             after: withoutUserId(row.after),
           })),
@@ -1261,7 +1339,7 @@ const HERE_KINDS: readonly LedgerFileKind[] = [
  */
 const UNBOUNDED: LedgerFileExportLimits = {
   maxRows: Number.MAX_SAFE_INTEGER,
-  maxHistoryBytes: Number.MAX_SAFE_INTEGER,
+  maxContentBytes: Number.MAX_SAFE_INTEGER,
 };
 
 /** What every write of the add says in the history, the way a CSV's say `create_from_csv`. */
@@ -1410,20 +1488,45 @@ async function findWaitingOrigins(
  * and, under the move's own locks, for the move.
  *
  * A deleted entry counts: one typed by hand and deleted since is still somebody
- * having typed into this ledger.
+ * having typed into this ledger. The two are told apart, and the waiting rows
+ * counted, because they are different refusals: a waiting row is cured by
+ * discarding it, and an entry by nothing. One statement still, so the preview
+ * and the move each take one read under their locks.
  */
-async function moveBlocked(tx: DbTransaction, actor: Actor): Promise<boolean> {
-  const result = await tx.execute<{ blocked: boolean }>(sql`
+async function moveBlocked(
+  tx: DbTransaction,
+  actor: Actor,
+): Promise<{ entries: boolean; stagedRows: number }> {
+  const result = await tx.execute<{ entries: boolean; staged_rows: number }>(sql`
     select exists (
              select 1 from ledger_transaction
               where user_id = ${actor.userId} and import_origin is null
-           )
-        or exists (
-             select 1 from staged_transaction
-              where user_id = ${actor.userId} and status = 'staged' and import_origin is null
-           ) as blocked
+           ) as entries,
+           (select count(*)::int from staged_transaction
+             where user_id = ${actor.userId} and status = 'staged' and import_origin is null
+           ) as staged_rows
   `);
-  return Boolean(result.rows[0]?.blocked);
+  const row = result.rows[0];
+  return { entries: Boolean(row?.entries), stagedRows: Number(row?.staged_rows ?? 0) };
+}
+
+/**
+ * `facts.move` from that read. An entry wins when both are there, because
+ * discarding the rows would not help then, and `stagedRows` is zero exactly
+ * when the rows are not the whole of the answer.
+ */
+function moveFacts(blocked: { entries: boolean; stagedRows: number }): LedgerFileFacts["move"] {
+  if (blocked.entries) {
+    return { qualifies: false, reason: LEDGER_FILE_MOVE_BLOCKED, stagedRows: 0 };
+  }
+  if (blocked.stagedRows > 0) {
+    return {
+      qualifies: false,
+      reason: ledgerFileMoveStagedBlocked(blocked.stagedRows),
+      stagedRows: blocked.stagedRows,
+    };
+  }
+  return { qualifies: true, reason: null, stagedRows: 0 };
 }
 
 /**
@@ -1532,7 +1635,8 @@ async function readLedgerFileFacts(
   // Only where a move is possible at all: a ledger that cannot take one is
   // never asked what its accounts hold, and that is every busy ledger, whose
   // every transaction this would otherwise count on every preview.
-  const heldHere = blocked
+  const move = moveFacts(blocked);
+  const heldHere = !move.qualifies
     ? {}
     : await readHeldHere(tx, actor, ledgerKeysById(snapshot.accounts), [...live, ...deleted], file);
   return {
@@ -1569,7 +1673,7 @@ async function readLedgerFileFacts(
       alreadyHereOn,
       heldHere,
     },
-    move: { qualifies: !blocked, reason: blocked ? LEDGER_FILE_MOVE_BLOCKED : null },
+    move,
   };
 }
 
@@ -1713,8 +1817,8 @@ async function writePlannedRecords(
     const made = await createCategoryGroup(
       actor,
       ledgerGroupInput(groups.get(record.key)!, record.importName!),
-      tx,
       audit,
+      tx,
     );
     created.set(ledgerCreatedKey("group", record.key), made.id);
   }
@@ -1734,8 +1838,8 @@ async function writePlannedRecords(
     const { id } = await createCategory(
       actor,
       ledgerCategoryInput(source, record.importName!, ref),
-      tx,
       archivedAt === undefined ? audit : { ...audit, archivedAt },
+      tx,
     );
     created.set(ledgerCreatedKey("category", record.key), id);
     if (archivedAt !== undefined) archivedCategories.add(id);
@@ -1763,7 +1867,6 @@ async function writePlannedRecords(
     const made = await createAccount(
       actor,
       ledgerAccountInput(source, record.importName!, file, openings.get(record.key)),
-      tx,
       {
         ...audit,
         arriveArchived: record.arrivesArchived,
@@ -1771,6 +1874,7 @@ async function writePlannedRecords(
           ? { deferClose: true, ...(archivedAt === undefined ? {} : { archivedAt }) }
           : {}),
       },
+      tx,
     );
     created.set(ledgerCreatedKey("account", record.key), made.id);
     if (record.arrivesArchived) archivedAccounts.add(made.id);
@@ -1784,10 +1888,15 @@ async function writePlannedRecords(
       record.importName!,
       ref,
     );
-    const made = await createTransactionTemplate(actor, template, tx, {
-      ...audit,
-      lastNotifiedDate,
-    });
+    const made = await createTransactionTemplate(
+      actor,
+      template,
+      {
+        ...audit,
+        lastNotifiedDate,
+      },
+      tx,
+    );
     created.set(ledgerCreatedKey("template", record.key), made.id);
   }
   // A move creates them with its last part alone. One created by an earlier
@@ -1802,10 +1911,15 @@ async function writePlannedRecords(
       record.importName!,
       ref,
     );
-    const made = await createRecurrence(actor, recurrence, tx, {
-      ...audit,
-      lastOccurrenceDate,
-    });
+    const made = await createRecurrence(
+      actor,
+      recurrence,
+      {
+        ...audit,
+        lastOccurrenceDate,
+      },
+      tx,
+    );
     created.set(ledgerCreatedKey("recurrence", record.key), made.id);
   }
   const plans = new Map(file.budgets.plans.map((each) => [ledgerBudgetPlanKey(each), each]));
@@ -1813,15 +1927,15 @@ async function writePlannedRecords(
     const made = await createBudgetPlan(
       actor,
       ledgerBudgetPlanInput(plans.get(record.key)!, ref),
-      tx,
       audit,
+      tx,
     );
     created.set(ledgerCreatedKey("budget_plan", record.key), made.id);
   }
   let budgetEntriesCreated = 0;
   for (const entry of file.budgets.entries) {
     if (planned.budgetEntryAction(entry) !== "create") continue;
-    await setBudgetEntry(actor, ledgerBudgetEntryInput(entry, ref), tx, audit);
+    await setBudgetEntry(actor, ledgerBudgetEntryInput(entry, ref), audit, tx);
     budgetEntriesCreated += 1;
   }
   return { budgetEntriesCreated, archivedAccounts, archivedCategories };
@@ -1900,7 +2014,7 @@ async function stageFileRows(
     // locks make rare and the index makes harmless.
     if (isUniqueViolation(error, "staged_user_import_origin_unique")) {
       throw conflict(
-        "Another import staged this file's transactions a moment ago. Check the file again.",
+        "Another import staged this file's transactions a moment ago. Check file again.",
         undefined,
         "Another import staged this file's transactions a moment ago. Call preview_ledger_file again, and send what it now says.",
       );
@@ -2034,7 +2148,7 @@ export async function addLedgerFile(
       // the refusal, named in its own words, and an agent's is the preview
       // tool, which has no button to point at.
       throw conflict(
-        "This ledger changed while the file was being read. Check the file again.",
+        "This ledger changed while the file was being read. Check file again.",
         undefined,
         "This ledger changed while the file was being read. Call preview_ledger_file again, then send the decisions it asks for.",
       );
@@ -2127,9 +2241,13 @@ function moveRefusal(plan: LedgerFilePlan, facts: LedgerFileFacts) {
   const first = plan.problems[0]!;
   if (first.field !== "move") return planRefusal(plan);
   let forAgent: string;
-  if (!facts.move.qualifies) {
+  if (!facts.move.qualifies && facts.move.stagedRows > 0) {
+    const n = facts.move.stagedRows;
+    const them = n === 1 ? "it" : "them";
+    forAgent = `${n === 1 ? "A row waiting in Staged did" : `${n} rows waiting in Staged did`} not come from a Simple Balance file, and committing ${them} would rule out a move for good. Discard ${them} with delete_staged_transactions and call preview_ledger_file again to move the file, or call add_ledger_file with the same parts and decisions instead; its transactions go to Staged for review.`;
+  } else if (!facts.move.qualifies) {
     forAgent =
-      "This ledger holds entries that did not come from a Simple Balance file, so a file cannot be moved into it. Call add_ledger_file with the same parts and decisions instead; its entries go to Staged for review.";
+      "This ledger holds transactions that did not come from a Simple Balance file, so a file cannot be moved into it. Call add_ledger_file with the same parts and decisions instead; its transactions go to Staged for review.";
   } else if (facts.rows.waiting > 0) {
     // Second whenever it is there, after the one above, so a first problem
     // about moving is this one exactly when rows are waiting.
@@ -2164,7 +2282,7 @@ function moveRefusal(plan: LedgerFilePlan, facts: LedgerFileFacts) {
 function movedEntryRefusal(entry: LedgerFileEntry, error: unknown): unknown {
   if (isUniqueViolation(error, "transaction_user_import_origin_unique")) {
     return conflict(
-      "Another import wrote this file's transactions a moment ago. Check the file again.",
+      "Another import wrote this file's transactions a moment ago. Check file again.",
       undefined,
       "Another import wrote this file's transactions a moment ago. Call preview_ledger_file again, and send what it now says.",
     );
@@ -2244,9 +2362,12 @@ async function readMovedBalances(
  *
  * Offered only while every entry here, deleted or not, and every row waiting
  * in Staged came from a Simple Balance file — a new sign-up, a fresh install,
- * a ledger part-way through a move — and refused with the add's sentence
- * otherwise, read under this call's own locks, because every path that writes
- * an entry or stages a row takes the payee lock this holds. Records are
+ * a ledger part-way through a move — and refused otherwise, read under this
+ * call's own locks, because every path by which a person or an agent writes an
+ * entry or stages a row takes the payee lock this holds. A recurrence's
+ * proposal takes none and needs none: the row it stages while a part is being
+ * written is the row it would have staged a moment after the part committed,
+ * and a staged row moves no balance. Records are
  * planned exactly as an add plans them, so a resumed move finds what its
  * earlier parts made; the plan narrows the choices so that every transaction
  * has an account and a category to be written to, or the part is refused
@@ -2289,7 +2410,14 @@ export async function moveLedgerFile(
   };
 
   let replayed = false;
+  // The transaction this call opened, when it was handed none. Each void below
+  // queues its `delete` on the transaction it was given (`services.md` 2.10),
+  // and the function that opened a transaction is the one that releases what
+  // was queued on it — which nothing did, so every void a move wrote went
+  // uncounted while one handed a caller's transaction would have counted.
+  let opened: DbTransaction | undefined;
   const outcome = await withTransaction(transaction, async (tx) => {
+    if (transaction === undefined) opened = tx;
     await lockIdempotencyKey(tx, actor, "ledger-file.move", parsed.idempotencyKey);
     const existing = await getIdempotent<LedgerFileMoveResult>(
       tx,
@@ -2305,9 +2433,11 @@ export async function moveLedgerFile(
 
     // Every lock up front, in the order `helpers.ts` asks for, as the add
     // takes them. The payee lock is the one that makes the facts below the
-    // facts the writes meet: every path that writes an entry or stages a row
-    // takes it, so nothing can type an entry into this ledger between the
-    // read that says it qualifies and the first transaction this writes.
+    // facts the writes meet: every path by which a person or an agent writes
+    // an entry or stages a row takes it, so nothing can type an entry into
+    // this ledger between the read that says it qualifies and the first
+    // transaction this writes. The scheduler's proposals do not take it, and
+    // one landing mid-part is the same as one landing just after it.
     const locked = await lockNamedAccounts(tx, actor, file, parsed.decisions);
     await lockAccountNamespace(tx, actor);
     await lockCategoryNamespace(tx, actor);
@@ -2333,7 +2463,7 @@ export async function moveLedgerFile(
       )
     ) {
       throw conflict(
-        "This ledger changed while the file was being read. Check the file again.",
+        "This ledger changed while the file was being read. Check file again.",
         undefined,
         "This ledger changed while the file was being read. Call preview_ledger_file again, then send the decisions it asks for.",
       );
@@ -2415,10 +2545,18 @@ export async function moveLedgerFile(
           { freeze, importOrigin: entry.id, allowArchived },
         );
         if (entry.deleted) {
-          await setTransactionDeleted(actor, row.id, row.version, true, false, tx, {
-            deferArchivedClose: true,
-            auditOperation: MOVE_VOID_OPERATION,
-          });
+          // The freeze read above, handed down: nothing in a part changes
+          // which accounts are active between that read and this loop, since
+          // accounts are made before it and closed after it (`services.md` 2.8).
+          await setTransactionDeleted(
+            actor,
+            row.id,
+            row.version,
+            true,
+            false,
+            { deferArchivedClose: true, auditOperation: MOVE_VOID_OPERATION, freeze },
+            tx,
+          );
         }
       } catch (error) {
         throw movedEntryRefusal(entry, error);
@@ -2518,12 +2656,25 @@ export async function moveLedgerFile(
     );
     return response;
   });
+  if (opened) flushDeferredCounts(opened);
   // After the commit that wrote them and never on a replay, as the add counts
   // its own: transactions written or voided into the books, and the file's
   // own rows placed in the queue, which are what the add's counter counts.
+  //
+  // And in `ledger_writes_total`, the figure named after writes, beside the
+  // voids the loop already counts there: every transaction a move writes is a
+  // create, a deleted one as well, which is created and then voided as one a
+  // person typed and deleted would be. Left out, a move was the one path that
+  // added transactions to the books without appearing in it — the gap
+  // `commitStages` closed for the queue.
   if (!replayed) {
     const moved = outcome.written.entries + outcome.written.deleted;
-    if (moved) countAfterCommit(transaction, () => ledgerFileRowsMoved.inc(moved));
+    if (moved) {
+      countAfterCommit(transaction, () => {
+        ledgerFileRowsMoved.inc(moved);
+        ledgerWrites.inc({ operation: "create" }, moved);
+      });
+    }
     const staged = outcome.staged;
     if (staged) countAfterCommit(transaction, () => ledgerFileRowsStaged.inc(staged));
   }

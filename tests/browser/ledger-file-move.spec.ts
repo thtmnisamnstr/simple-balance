@@ -33,7 +33,7 @@ const person = {
 /** The same sign-up the other browser specs do, and for the reason they give. */
 async function signUp(page: Page) {
   await page.goto("/");
-  const toggle = page.getByRole("button", { name: "Create an account" });
+  const toggle = page.getByRole("button", { name: "Sign up" });
   const heading = page.getByRole("heading", { name: "Create your account" });
   await expect(heading.or(toggle)).toBeVisible();
   if (await toggle.isVisible()) await toggle.click();
@@ -152,7 +152,7 @@ test.describe("moving a Simple Balance file", () => {
     await expect(done).toBeFocused();
     await expect(
       section.getByText(
-        "Every balance came out as the file says: 2 accounts checked. 1 account archived where the file came from was not compared, holding nothing there to compare with.",
+        "Every balance came out as the file says: 2 accounts checked. 1 account was not compared: an account archived where the file came from holds nothing there to compare with, and one opening after the day the balances are for has not yet taken in the money it carries.",
       ),
     ).toBeVisible();
     await expect(section.getByRole("link", { name: "Open Accounts" })).toBeVisible();
@@ -195,7 +195,7 @@ test.describe("moving a Simple Balance file", () => {
               error: {
                 code: "CONFLICT",
                 message:
-                  "Another import wrote this file's transactions a moment ago. Check the file again.",
+                  "Another import wrote this file's transactions a moment ago. Check file again.",
               },
             },
           },

@@ -129,6 +129,22 @@ WARNING: {{ $peakConnections }} is past that. Scaled all the way out, replicas w
 to connect rather than queue. Raise max_connections to suit, or lower
 config.databasePoolSize, or lower the replica ceilings.
 {{- end }}
+{{- $ledgerFileBytes := include "simple-balance.ledgerFileBodyBytes" . | int64 }}
+{{- $proxyLimits := list (list "frontend.maxUploadSize" .Values.frontend.maxUploadSize) }}
+{{- $ingressBody := get (.Values.ingress.annotations | default dict) "nginx.ingress.kubernetes.io/proxy-body-size" }}
+{{- if and .Values.ingress.enabled $ingressBody }}
+{{- $proxyLimits = append $proxyLimits (list "the ingress's proxy-body-size" $ingressBody) }}
+{{- end }}
+{{- range $proxyLimits }}
+{{- $limit := index . 1 | toString }}
+{{- if and (regexMatch "^[0-9]+[kKmMgG]?$" $limit) (lt (include "simple-balance.nginxBytes" $limit | int64) $ledgerFileBytes) }}
+
+WARNING: {{ index . 0 }} ({{ $limit }}) is below the {{ $ledgerFileBytes }} bytes
+the API accepts for one part of a Simple Balance file. Adding or moving a file
+whose part is larger is refused at the proxy with a bare 413 the API never sees,
+and so is an agent's /mcp call carrying one. Raise it to at least 52m.
+{{- end }}
+{{- end }}
 {{- if .Values.secret.existingSecret }}
 
 Credentials come from the existing Secret {{ .Values.secret.existingSecret }}. Every key in it

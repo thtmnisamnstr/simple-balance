@@ -156,7 +156,7 @@ rather than treating a result as proof the account is in use. Archiving posts
 whatever the account still holds out to equity, so it closes at zero and
 restoring posts the balance back; that is what lets a total leave archived
 accounts out and still be right. Deleting is only possible while the
-account is not archived — unarchive it first — and while nothing references it:
+account is not archived — restore it first — and while nothing references it:
 no transaction, no staged row, no posting, and no recurrence or template naming
 it in its schedule or draft. A category answers to the same list of holdouts, and
 to templates as well, but not to the archived rule: an archived category with
@@ -317,8 +317,10 @@ you were not granted from one that does not exist, and what to name when asking
 somebody to reconnect the client with more.
 
 And it reports the plan: `plan`, `accountLimit` and `accountsUsed`. `plan` is
-null on a deployment that sells nothing, and the other two are null wherever
-there is no limit, which includes Premium. That is what explains a refusal to
+`free` or `plus`, or null on a deployment that sells nothing; those are
+identifiers, and a person reads `plus` as Premium, which the field's own
+description says so an agent uses the word the plan tab does. The other two are
+null wherever there is no limit, which includes Premium. That is what explains a refusal to
 open an account, restore one, or write to a frozen one, and what to tell the
 person when they ask why. `activeChoicePending` is true while the one-time
 choice of accounts in use is open — more accounts marked active than the plan
@@ -842,10 +844,14 @@ The result is the file as text in `ledgerFile`, exactly what the browser
 downloads, with `rowCount` and the `fileName` the browser would save it under.
 Pass the text on unchanged: those bytes are what a later import will check. A
 call carries at most 10,000 rows — entries, staged rows, budget amounts and
-history events together — and at most 4 MiB of activity history. A larger one
-is refused with both numbers in the details and a sentence saying which way out
-works for what was asked, usually a date range at a time. The browser's download
-allows 100,000 rows and 16 MiB.
+history events together — at most 4 MiB of notes, split legs, staged rows and
+activity history among them, and at most one import part's 16 MiB in all, so
+the file is always one `add_ledger_file` takes as it is. A larger one is
+refused with both numbers in the details and a sentence saying which way out
+works for what was asked, usually a date range at a time. Staged rows and budget
+amounts have no date to narrow them by, so a queue or a set of budget amounts
+over 10,000 cannot leave through the tool: the browser's download allows
+100,000 rows and 16 MiB of that content, and carries them.
 
 ### Adding a file to this ledger
 
@@ -941,8 +947,13 @@ than into Staged. It is offered only while every transaction here, deleted or
 not, and every row waiting in Staged came from a Simple Balance file — a new
 ledger, a fresh install, or one part-way through a move — and the preview says
 whether this ledger qualifies in `move.qualifies`, with the sentence why not in
-`move.reason`. Once anything has been typed or imported from a CSV here, a move
-is refused and `add_ledger_file` is the way in.
+`move.reason`. Once a transaction has been typed or committed from a CSV here,
+a move is refused and `add_ledger_file` is the way in. A row waiting in Staged
+that did not come from a file stops a move only until it is discarded:
+`move.stagedRows` counts them when they are all that is in the way, and the
+refusal says to discard them with `delete_staged_transactions` and preview
+again — not to commit them, which would make them transactions and end the
+move for good.
 
 It takes exactly what `add_ledger_file` takes, and the preview's `movePlan` is
 the same file planned for it, as a whole file or as the last part of one: read
@@ -1115,10 +1126,13 @@ agent does the bookkeeping, and the account itself belongs to the person.
 **Delete the account.** It destroys every account, transaction, posting,
 category, payee, staged row, import, session, agent grant, and the audit trail
 that would otherwise record what happened. Nothing restores any of it. Every
-other write an agent can make leaves the audit trail behind it, and most can be
-put back by restoring a deleted row; the two merges cannot be undone, and their
-descriptions say so. This one takes the record with it, so it stays something a
-person does while signed in.
+other write an agent can make leaves the audit trail behind it. A deleted
+transaction can be put back, because deleting one posts its reversal; the two
+merges and every other delete — an account, a category, a group, a budget, a
+period's amount, a template, a recurring transaction or a staged row — cannot
+be undone, and each of those tools says so and asks for the person's
+confirmation first. Even those leave the record of what was done. This one
+takes the record with it, so it stays something a person does while signed in.
 
 **Set a sign-in password.** Adding a credential to an account is account
 management rather than bookkeeping, and an agent cannot undo it from its side.

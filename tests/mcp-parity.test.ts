@@ -44,7 +44,7 @@ const BROWSER_ONLY: Record<string, string> = {
   "GET /api/v1/csv/export":
     "Reachable as export_transactions_csv, which returns the same file as text with the dated name it is saved under. The route differs only in serving it as a download.",
   "GET /api/v1/ledger-file":
-    "Reachable as export_ledger_file, which returns the same file as text. The route differs in serving it as a download, and the tool caps a call at 10,000 rows where the route allows 100,000.",
+    "Reachable as export_ledger_file, which returns the same file as text. The route differs in serving it as a download, and the tool caps a call at 10,000 rows where the route allows 100,000. Entries and the history get round that by date range; staged rows and budget amounts have no date, so between 10,001 and 100,000 of either the download is the only way out that writes nothing, which the tool's description tells the agent.",
 };
 
 /** What each REST route needs a tool to be reachable through. */
@@ -147,7 +147,7 @@ const NO_ROUTE: Record<string, string> = {
   export_transactions_csv:
     "The file the browser downloads from GET /api/v1/csv/export, which stays browser-only because it is a download. Both call exportTransactionsCsv and return the same text for the same filters, the tool with the name the download is saved under; the one filter only the tool is sent is argued in READ_UNOFFERED.",
   export_ledger_file:
-    "The file the browser downloads from GET /api/v1/ledger-file, browser-only because it is a download. Both call exportLedgerFile, and the tool returns the same text and name, capped at 10,000 rows a call where the download allows 100,000.",
+    "The file the browser downloads from GET /api/v1/ledger-file, browser-only because it is a download. Both call exportLedgerFile, and the tool returns the same text and name, capped at 10,000 rows and one import part's bytes a call where the download allows 100,000 rows; staged rows and budget amounts over that leave only by the download, having no date to narrow them by.",
   // The one pair here that is not bookkeeping, and the one that runs the
   // other way: no page calls a route for it because a person reads the same
   // words on the site. The reason the backward rule exists — a capability no
@@ -546,7 +546,7 @@ describe("what an agent can reach compared with the browser", () => {
   /**
    * Scope gates by non-registration, so "needs ledger:write" in a description
    * is read only by an agent that already holds ledger:write and never by the
-   * one that does not. Written on all 36 gated tools it would be about 3,600
+   * one that does not. Written on all 42 gated tools it would be about 4,200
    * characters of one convention repeated per tool, for a reader who cannot
    * benefit. What a description owes is the behavior that differs by scope,
    * which is these four and nothing else — so this is set equality rather than
@@ -1022,11 +1022,14 @@ describe("what the browser can reach compared with an agent", () => {
    * nothing, and that is where the last field only an agent could set lived:
    * `get_financial_summary` took `includeArchived`, `GET /api/v1/summary`
    * parsed it, and the Overview sent `start` and `end` and never it. So the
-   * population here is the tool list — every read tool with a GET route and a
-   * field beyond the record it names, its route's own parameters and the
-   * paging and ordering that describe a view rather than scope it — and the
-   * page side is every call `src/client` makes to that route, read off the URL
-   * itself: a literal `?key=`, and whatever object `queryString` is handed.
+   * population here is the tool list — every read tool with a field beyond the
+   * record it names, its route's own parameters and the paging and ordering
+   * that describe a view rather than scope it — and the page side is every call
+   * `src/client` makes to that route. A GET route is read off the URL itself: a
+   * literal `?key=`, and whatever object `queryString` is handed. A POST route,
+   * which is where the CSV and file previews and the selection preview read, is
+   * read off the body the page sends. A route `AGENT_ONLY` names is excused by
+   * that entry's reason, which is the staged selection preview's.
    * A field a tool gains tomorrow fails here until a page sends it or this
    * names why none does.
    */
@@ -1120,7 +1123,7 @@ describe("what the browser can reach compared with an agent", () => {
       if (tool.annotations?.readOnlyHint !== true) continue;
       const routes = [
         ...Object.keys(COVERED_BY).filter(
-          (route) => COVERED_BY[route] === tool.name && route.startsWith("GET "),
+          (route) => COVERED_BY[route] === tool.name && !(route in AGENT_ONLY),
         ),
         ...(DOWNLOAD_OF[tool.name] ? [DOWNLOAD_OF[tool.name]!] : []),
       ];
@@ -1135,7 +1138,14 @@ describe("what the browser can reach compared with an agent", () => {
       );
       if (takes.length === 0) continue;
       population.push(tool.name);
-      const sent = routes.map((route) => queriedBy(client, route));
+      // A read on a GET route is compared with the query a page puts on the
+      // URL, and one on a POST route — the CSV and file previews and the
+      // selection preview — with the body a page sends. Reading `GET ` routes
+      // only left those four outside both comparisons, since the write one
+      // keeps to tools that are not read-only.
+      const sent = routes.map((route) =>
+        route.startsWith("GET ") ? queriedBy(client, route) : sentTo(client, route),
+      );
       if (sent.every((one) => one.calls === 0)) {
         unreachable.push(
           `${tool.name} reads ${routes.join(" and ")}, and nothing in src/client calls it`,
@@ -1157,8 +1167,9 @@ describe("what the browser can reach compared with an agent", () => {
     // The population before anything is claimed about it: a reader that
     // stopped finding fields would compare nothing and pass, which is the way
     // this whole family of checks fails. The first six are the reads the field
-    // gap was found among, and the two exports are the routeless reads
-    // `DOWNLOAD_OF` brings in; today's comparison is thirty-eight fields.
+    // gap was found among, the two exports are the routeless reads
+    // `DOWNLOAD_OF` brings in, and the last three read through a POST route;
+    // today's comparison is forty-two fields.
     expect(population).toEqual(
       expect.arrayContaining([
         "get_financial_summary",
@@ -1169,6 +1180,9 @@ describe("what the browser can reach compared with an agent", () => {
         "list_payees",
         "export_transactions_csv",
         "export_ledger_file",
+        "preview_csv",
+        "preview_ledger_file",
+        "preview_bulk_transaction_selection",
       ]),
     );
     expect(compared).toBeGreaterThanOrEqual(30);

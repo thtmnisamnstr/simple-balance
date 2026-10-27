@@ -445,8 +445,11 @@
   PostgreSQL and which Citus propagates to the shards without a gate; `0025`
   adds a nullable one with no default, which is metadata-only for the same
   reason. `0026` adds three columns on the same terms and two partial unique
-  indexes, and the index builds are its whole cost: each scans its table while
-  writes to it wait, measured in the file's header. `0023` is
+  indexes, and its cost is the length of its transaction: each added column
+  takes a lock that blocks reads as well as writes, the migrator's one
+  transaction holds it through both index scans, and on a rolling update it
+  first waits for any transaction already open on the three tables — all
+  said in the file's header, which measures the scans. `0023` is
   the one migration that does nothing on most
   deployments and says so at the top: it distributes the ledger and is gated on
   the Citus extension being installed, so the `single` profile — whose database
@@ -541,7 +544,7 @@ disagreement rather than quietly losing it.
 Two habits from those guides are worth knowing before the first edit, because
 both look like mistakes:
 
-- **Comments are dense on purpose** — 27.3% of non-blank lines in `src`. They
+- **Comments are dense on purpose** — 27.7% of non-blank lines in `src`. They
   carry why the obvious alternative is wrong. Do not tidy them away.
   (`docs/standards/code/comments.md`.)
 - **Some loops must not be parallelized.** Legs resolve one at a time so two
@@ -590,11 +593,11 @@ the order and the traps do not have to be rediscovered:
   the guides, and mechanize rules nothing checks.
 - `design-review` — review the browser app against `docs/standards/web.md`,
   comparing each section across pages rather than reading a page at a time.
-- `release-prep` — the one procedure before a merge or a release:
-  upgrade-safety audit, adversarial audit, then `guides-update`,
-  `guides-comply` and `design-review` in that order, dead code, `product-kit`,
-  `guides-update` again, recount, three test tiers, commit and push. Cuts
-  nothing.
+- `release-prep` — the one procedure before a merge or a release, over what
+  the branch changed and reached: upgrade-safety audit, then `guides-update`,
+  `guides-comply` with the defect hunt in the same reading, and
+  `design-review`, dead code, `product-kit`, recount, three test tiers, commit
+  and push. Cuts nothing.
 - `cut-release` — the procedure in `docs/upgrades.md`, and only on an explicit
   go-ahead.
 - `product-kit` — rebuild `docs/product/`: the tiered feature list, and a

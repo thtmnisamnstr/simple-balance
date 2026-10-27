@@ -374,6 +374,33 @@ export const enter = (what: string) => ({ error: () => `Enter ${what}` });
 export const atMost = (what: string, max: number) => ({
   error: () => `${what} must be ${max.toLocaleString("en-US")} characters or fewer`,
 });
+
+/**
+ * How long a sign-in password may be, written once.
+ *
+ * Better Auth enforces it on sign-up, a reset and a change (`src/server/auth.ts`),
+ * the sign-up screen reads the minimum from the published auth options, the
+ * settings and reset forms preview both, and the route that adds a password to
+ * a Google-only account enforces both again. That was five spellings of 12 and
+ * 128, and the route's own left the sentence to Zod: "Too small: expected
+ * string to have >=12 characters" (`code/errors.md` 3.3).
+ */
+export const PASSWORD_MIN_LENGTH = 12;
+export const PASSWORD_MAX_LENGTH = 128;
+/**
+ * The body of `POST /api/v1/auth/local-password`. Not strict, and with no
+ * one-line or control-character refinement, because the route accepted any
+ * string of the right length on 0.2.1 and a password is the one field where
+ * refusing a character somebody already chose locks them out.
+ */
+export const localPasswordSchema = z.object({
+  newPassword: z
+    .string()
+    .min(PASSWORD_MIN_LENGTH, {
+      error: () => `A password must be at least ${PASSWORD_MIN_LENGTH} characters`,
+    })
+    .max(PASSWORD_MAX_LENGTH, atMost("A password", PASSWORD_MAX_LENGTH)),
+});
 /**
  * A template mass edit's patch: a key left out keeps the field, `null` clears
  * it, and an empty string is refused rather than read as either (`AGENTS.md`).
@@ -768,7 +795,7 @@ const stagedDraftSchema = z
       .unknown()
       .optional()
       .describe(
-        "The split, if the proposal came with one: an array shaped like create_transaction's legs — amount, and categoryId or categoryName with its own categoryKind, plus an optional note. The legs have to add up to the amount before the row can commit, and a transfer may not carry any. Leaving it out of an update clears the split, because an update replaces the draft whole.",
+        "The split, if the proposal came with one: an array shaped like `create_transaction`'s legs — amount, and categoryId or categoryName with its own categoryKind, plus an optional note. The legs have to add up to the amount before the row can commit, and a transfer may not carry any. Leaving it out of an update clears the split, because an update replaces the draft whole.",
       ),
   })
   .catchall(z.unknown());
@@ -1588,7 +1615,7 @@ const budgetTarget = {
   periodUnit: z
     .enum(budgetPeriodUnits)
     .describe(
-      "The length of one budget period. Both ends of the plan's window snap to the start of a period of this length, so a stored period start is the period's name rather than an arbitrary date.",
+      "The length of one budget period. Both ends of the budget's window snap to the start of a period of this length, so a stored period start is the period's name rather than an arbitrary date.",
     ),
 };
 
@@ -1636,7 +1663,7 @@ const budgetRule = {
     .nullable()
     .optional()
     .describe(
-      "Budget the average of what was actually spent over this many finished periods, rather than a fixed amount. The current period is never part of its own average, and early in a budget's life it averages the periods that exist rather than counting the ones before it started as nothing — until there are none at all, where the plan's own amount is used as the seed. Send null to go back to a fixed amount. Refused alongside percentOfPrevious or percentOfIncome, because a budget can only be worked out one way.",
+      "Budget the average of what was actually spent over this many finished periods, rather than a fixed amount. The current period is never part of its own average, and early in a budget's life it averages the periods that exist rather than counting the ones before it started as nothing — until there are none at all, where the budget's own amount is used as the seed. Send null to go back to a fixed amount. Refused alongside percentOfPrevious or percentOfIncome, because a budget can only be worked out one way.",
     ),
   percentOfPrevious: decimalStringSchema
     .nullable()
@@ -1674,7 +1701,7 @@ const budgetCarry = {
     .boolean()
     .optional()
     .describe(
-      "Carry the difference into the next period: what is left over is added to it, and an overspend is subtracted from it as a debt. Off, which is the default, means every period starts again at the amount. This stores nothing per period — the carry is worked out from the same plans, entries and postings the figures already come from.",
+      "Carry the difference into the next period: what is left over is added to it, and an overspend is subtracted from it as a debt. Off, which is the default, means every period starts again at the amount. This stores nothing per period — the carry is worked out from the same standing budgets, single-period entries and postings the figures already come from.",
     ),
   rolloverCap: decimalStringSchema
     .nullable()
@@ -2205,7 +2232,7 @@ export const listQuerySchema = dateRangeSchema.extend({
     .max(500)
     .optional()
     .describe(
-      "Resume token from a previous page, taken from `nextCursor`. It records the ordering it was issued for and is refused under another, so re-read from page 1 after changing `sort` or `direction`. Some orderings cannot be resumed and offer no cursor; page through those by number instead.",
+      "Resume token from a previous page, taken from `nextCursor`. It records the ordering and the filters it was issued for and is refused if either changes, so re-read from page 1 after changing `sort`, `direction` or any filter; `limit` may change between pages. Some orderings cannot be resumed and offer no cursor; page through those by number instead.",
     ),
   page: z.coerce
     .number()
@@ -4528,8 +4555,10 @@ export type CounterKind = (typeof counterKinds)[number];
 export const preferencesSchema = z.object({
   timezone: z
     .string()
-    .min(1)
-    .max(100)
+    // `abort`, so a blank or overlong one is told the one thing wrong with it
+    // rather than that and "not recognized" after it.
+    .min(1, { ...enter("a timezone"), abort: true })
+    .max(100, { ...atMost("A timezone", 100), abort: true })
     .refine((value) => {
       try {
         new Intl.DateTimeFormat("en", { timeZone: value });

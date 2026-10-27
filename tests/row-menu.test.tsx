@@ -112,6 +112,39 @@ describe("the overflow menu on a row", () => {
     expect(details.open).toBe(false);
   });
 
+  /**
+   * Closing hides the item that was chosen, and a dialog the choice opens hands
+   * focus back on close to whatever had it as it opened. Left on the hidden
+   * item, that was `<body>`: Edit from Budgets' or Templates' row menu, then
+   * Escape, and the next Tab started from the top of the page.
+   */
+  it("gives focus back to the trigger when the item chosen had it", () => {
+    renderMenu();
+    open();
+    const item = screen.getByRole("button", { name: "Save as template" });
+    item.focus();
+    fireEvent.click(item);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Actions for Market" }));
+  });
+
+  it("leaves focus where a choice sent it", () => {
+    render(
+      <div>
+        <button>Elsewhere</button>
+        <RowMenu label="Actions for Market">
+          <button onClick={() => screen.getByRole("button", { name: "Elsewhere" }).focus()}>
+            Go
+          </button>
+        </RowMenu>
+      </div>,
+    );
+    open();
+    const item = screen.getByRole("button", { name: "Go" });
+    item.focus();
+    fireEvent.click(item);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Elsewhere" }));
+  });
+
   it("closes on Escape and gives focus back to the trigger", () => {
     renderMenu();
     const details = open();

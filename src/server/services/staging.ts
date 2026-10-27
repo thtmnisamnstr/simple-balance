@@ -219,8 +219,8 @@ async function validateDraft(
       systemAccounts: "lookup",
       freeze: options.freeze,
     });
-    // Skipped where the caller is about to take the duplicate-key locks and ask
-    // again under them. The unlocked answer is a badge for the queue, not a
+    // Skipped where the caller is about to take the duplicate lock and ask
+    // again under it. The unlocked answer is a badge for the queue, not a
     // decision, so computing it for a commit is a lookup per row whose result
     // is thrown away a few lines later.
     // With the row's origin, so a row a Simple Balance file brought is not
@@ -819,6 +819,23 @@ export function stageFilterConditions(actor: Actor, query: StageFilterQuery) {
   return conditions;
 }
 
+/**
+ * A bulk call named staged rows that are not waiting here: committed, deleted,
+ * or never in this ledger's queue. The ids that missed travel in the details,
+ * because a commit names up to ten thousand and "one or more" left an agent
+ * listing the whole queue to find which. Each id the caller sent is echoed
+ * back only if it missed, so another tenant's id and one that never existed
+ * read the same — not found, never forbidden.
+ */
+function stagedRowsMissing(requested: readonly string[], rows: readonly { id: string }[]) {
+  const found = new Set(rows.map((row) => row.id));
+  return notFound(
+    "One or more of those staged rows were not found; they may have been committed or deleted. Reload the queue and try again.",
+    { stagedIds: requested.filter((id) => !found.has(id)) },
+    "Some of these staged rows are not waiting in this ledger's queue, and details.stagedIds lists them: they may have been committed or deleted. Call list_staged_transactions and send only rows still staged, each once.",
+  );
+}
+
 export async function listStages(actor: Actor, input: unknown): Promise<PaginatedPage<StageView>> {
   const query = stageListQuerySchema.parse(input);
   // Keep the cursor window out of `conditions` until the filters are complete,
@@ -937,7 +954,17 @@ export async function getStagedDuplicateReview(actor: Actor, id: string) {
 
   const subject = stageView(row);
   const committedId = row.duplicateOfId ?? row.likelyDuplicateOfId ?? null;
-  const committed = committedId ? await getTransaction(actor, committedId).catch(() => null) : null;
+  const committed = committedId
+    ? await getTransaction(actor, committedId).catch((error: unknown) => {
+        // Not found is a pair that has already gone: the entry went with its
+        // owner's account between the two reads. Anything else is a failed
+        // read — a pool timeout, a dropped connection — which answering null
+        // reported as "nothing repeats this anymore", a resolved pair, with
+        // nothing in the log. It propagates now, and the transport logs it.
+        if (error instanceof AppError && error.code === "NOT_FOUND") return null;
+        throw error;
+      })
+    : null;
 
   if (committed) {
     return {
@@ -1150,9 +1177,7 @@ export async function deleteStages(actor: Actor, input: unknown, transaction?: D
       .orderBy(stagedTransactions.id)
       .for("update");
     if (rows.length !== parsed.stagedIds.length) {
-      throw notFound(
-        "One or more of those staged rows were not found; they may have been committed or deleted. Reload the queue and try again.",
-      );
+      throw stagedRowsMissing(parsed.stagedIds, rows);
     }
     for (const row of rows) {
       if (parsed.expectedVersions[row.id] !== row.version) {
@@ -1264,9 +1289,7 @@ export async function commitStages(
       // back in the request's order below, because a client may read it so.
       .orderBy(stagedTransactions.id);
     if (rows.length !== parsed.stagedIds.length) {
-      throw notFound(
-        "One or more of those staged rows were not found; they may have been committed or deleted. Reload the queue and try again.",
-      );
+      throw stagedRowsMissing(parsed.stagedIds, rows);
     }
     await lockStagedDraftReferences(
       tx,
@@ -1290,8 +1313,8 @@ export async function commitStages(
       }
       const canonicalStagedDraft = await canonicalizeStagedDraftPayee(tx, actor, row.draft);
       // Validity only. Whether this row duplicates a committed one is asked
-      // below, once the duplicate-key locks are held and the answer can be
-      // acted on.
+      // below, once the duplicate lock is held and the answer can be acted
+      // on.
       const result = await validateDraft(tx, actor, canonicalStagedDraft, {
         withDuplicate: false,
         freeze,
@@ -1319,8 +1342,12 @@ export async function commitStages(
     const selectedByDuplicateKey = new Map<string, { id: string; origin: string | null }>();
     let compared = 0;
     for (const { row, draft } of validated) {
-      const duplicateOfId = await findDuplicate(tx, actor, draft, undefined, row.importOrigin);
-      if (duplicateOfId && !parsed.allowDuplicates) {
+      // Asked only when the answer can refuse, for the reason
+      // `assertDuplicateAllowed` gives.
+      const duplicateOfId = parsed.allowDuplicates
+        ? null
+        : await findDuplicate(tx, actor, draft, undefined, row.importOrigin);
+      if (duplicateOfId) {
         throw duplicate("A selected staged transaction matches a committed transaction", {
           id: row.id,
           duplicateOfId,
@@ -1632,8 +1659,9 @@ export async function bulkEditStages(
     const verifySelection = (rows: (typeof stagedTransactions.$inferSelect)[]) => {
       if (selection.mode === "ids") {
         if (rows.length !== selection.items.length) {
-          throw notFound(
-            "One or more of those staged rows were not found; they may have been committed or deleted. Reload the queue and try again.",
+          throw stagedRowsMissing(
+            selection.items.map((item) => item.id),
+            rows,
           );
         }
         const expected = new Map(selection.items.map((item) => [item.id, item.expectedVersion]));

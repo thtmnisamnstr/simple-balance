@@ -23,13 +23,13 @@ import { alreadyHereOn, rowsHere } from "./ledger-file-facts.js";
 /** The same destination, holding nothing that did not come from a Simple Balance file. */
 export const qualifying = (facts: LedgerFileFacts): LedgerFileFacts => ({
   ...facts,
-  move: { qualifies: true, reason: null },
+  move: { qualifies: true, reason: null, stagedRows: 0 },
 });
 
 /** The same destination once somebody has typed a transaction into it, as the server says so. */
 export const typedInto = (facts: LedgerFileFacts): LedgerFileFacts => ({
   ...facts,
-  move: { qualifies: false, reason: LEDGER_FILE_MOVE_BLOCKED },
+  move: { qualifies: false, reason: LEDGER_FILE_MOVE_BLOCKED, stagedRows: 0 },
 });
 
 /**

@@ -56,8 +56,8 @@ dog is one transaction with three category legs. Press **Split across categories
 field, give each row its own amount, and the form tells you what is left to
 assign until it comes to nothing.
 
-Each leg is attributed to its own category everywhere the money is reported: the
-dashboard, the category pages, the reports, and over MCP. Nothing is counted
+Each leg is attributed to its own category everywhere the money is reported:
+Overview, the category pages, the reports, and over MCP. Nothing is counted
 twice — the categories add up to exactly what left the account, because a split
 cuts the entry's existing counter-side into pieces rather than recording the money
 again.
@@ -168,8 +168,10 @@ they were, and an account that was archived arrives archived on the day it
 was, holding its transactions, so restoring it posts its balance back. The page
 offers moving beside adding, with neither chosen for you, and only while
 everything in the ledger came from a Simple Balance file — which a ledger
-partway through a move still has. Once you type a transaction in or import a
-CSV, a file can only be added.
+partway through a move still has. Once you type a transaction in or commit one
+from a CSV, a file can only be added. Rows still waiting in Staged stop a move
+only until you discard them, and the page says so: commit them and they are
+transactions like any other.
 
 A move asks the same questions an add does, with fewer answers. An account or
 a category the file's transactions are filed under has to come in, since a
@@ -289,7 +291,7 @@ time and is standing empty on purpose.
 
 ## Reading it back
 
-**The dashboard** covers balances, cash flow, spending by category and where
+**Overview** covers balances, cash flow, spending by category and where
 your budget stands, over any date range, and the range is in the URL, so you can
 link to it. It stops at today whatever range you pick, because money dated next
 month is not money you have. Each category in the spending panel links to its own

@@ -248,6 +248,35 @@ Everything getConfig() refuses to start without, checked while a template render
 can still say so. Each of these otherwise surfaces as a crashlooping pod and a
 stack trace in `kubectl logs`.
 */}}
+{{/*
+An nginx size — bare bytes, or k, m or g, all binary — as a number of bytes.
+One implementation for the guard below and the warning in NOTES.txt, so the two
+cannot read the same value differently. A value that is not a size reads as 0;
+the guard refuses one before anything reads it as a number.
+*/}}
+{{- define "simple-balance.nginxBytes" -}}
+{{- $size := . | toString | lower -}}
+{{- $digits := regexFind "^[0-9]+" $size | int64 -}}
+{{- $unit := regexFind "[kmg]$" $size -}}
+{{- $bytes := $digits -}}
+{{- if eq $unit "k" }}{{ $bytes = mul $digits 1024 }}{{ end -}}
+{{- if eq $unit "m" }}{{ $bytes = mul $digits 1048576 }}{{ end -}}
+{{- if eq $unit "g" }}{{ $bytes = mul $digits 1073741824 }}{{ end -}}
+{{- $bytes -}}
+{{- end -}}
+
+{{/*
+The body the API accepts on the three Simple Balance file routes and on /mcp:
+LEDGER_FILE_REQUEST_BODY_LIMIT_BYTES in src/server/http-security.ts, a part
+twice over plus the decisions sent with it. A fixed number, not derived from
+config.csvMaxBytes, so lowering that never lowers this.
+tests/upload-limit-agreement.test.ts holds the two to each other. Warned about
+in NOTES.txt rather than refused here: a deployment that lowered the proxy's
+limit beside csvMaxBytes, as the CSV rule allowed, rendered under 0.2.1 and has
+to go on rendering.
+*/}}
+{{- define "simple-balance.ledgerFileBodyBytes" -}}54103968{{- end -}}
+
 {{- define "simple-balance.validate" -}}
 {{- $c := .Values.config }}
 {{- $ownsCredentials := include "simple-balance.ownsCredentials" . }}
@@ -294,12 +323,7 @@ never sees.
 {{- if not (regexMatch "^[0-9]+[kmg]?$" $upload) }}
 {{- fail (printf "frontend.maxUploadSize must be an nginx size such as 61m. Got %q." $upload) }}
 {{- end }}
-{{- $uploadDigits := regexFind "^[0-9]+" $upload | int64 }}
-{{- $uploadUnit := regexFind "[kmg]$" $upload }}
-{{- $uploadBytes := $uploadDigits }}
-{{- if eq $uploadUnit "k" }}{{- $uploadBytes = mul $uploadDigits 1024 }}{{- end }}
-{{- if eq $uploadUnit "m" }}{{- $uploadBytes = mul $uploadDigits 1048576 }}{{- end }}
-{{- if eq $uploadUnit "g" }}{{- $uploadBytes = mul $uploadDigits 1073741824 }}{{- end }}
+{{- $uploadBytes := include "simple-balance.nginxBytes" $upload | int64 }}
 {{- $csvBodyBytes := add (mul (int64 $c.csvMaxBytes) 6) 65536 }}
 {{- if lt (int64 $uploadBytes) $csvBodyBytes }}
 {{- fail (printf "frontend.maxUploadSize (%s) is below what config.csvMaxBytes needs: a CSV travels as a JSON string, so the API accepts up to %d bytes on the import routes and nginx must too. Raise frontend.maxUploadSize to at least that." $upload (int64 $csvBodyBytes)) }}

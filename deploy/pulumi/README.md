@@ -362,9 +362,12 @@ On a single machine nothing is typed into a file over SSH any more, and nothing
 the stack sets travels in user data, which anyone who can describe the instance
 can read. The machine fetches its settings at every start and checks every five
 minutes, so **`pulumi up` is how a setting changes**: within five minutes of it
-the machine has the new value and has restarted the deployment once. On a
-cluster, `pulumi up` changes the Secret or the values and the chart rolls the
-pods.
+the machine has the new value and has restarted the deployment once. A setting
+new in a release reaches the process only once the machine's
+`/opt/simple-balance/compose.yml` names it, because that file lists every
+setting the container is given and a machine keeps the one it was built with;
+the release's upgrade note says when to copy the new one. On a cluster,
+`pulumi up` changes the Secret or the values and the chart rolls the pods.
 
 ### Setting them without a `.env` file
 

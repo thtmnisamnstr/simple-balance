@@ -370,3 +370,14 @@ describe("a link inside an alert", () => {
     expect(rule!.body).toMatch(/color:\s*inherit/);
   });
 });
+
+describe("a link in the import's Still to decide box", () => {
+  // The same mix of link lines and plain lines as an error summary, in a box
+  // that is not an alert, so `.alert a` never reached it and green on --ink
+  // was the only cue: 2.50:1 in light, 1.77:1 in dark.
+  it("is underlined", () => {
+    const rule = blocks(css).find((block) => block.selector.trim() === ".ledger-import-todo a");
+    expect(rule, ".ledger-import-todo a").toBeDefined();
+    expect(rule!.body).toMatch(/text-decoration:\s*underline/);
+  });
+});

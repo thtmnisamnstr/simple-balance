@@ -24,7 +24,7 @@ const person = {
 /** The same sign-up the other browser specs do, and for the reason they give. */
 async function signUp(page: Page) {
   await page.goto("/");
-  const toggle = page.getByRole("button", { name: "Create an account" });
+  const toggle = page.getByRole("button", { name: "Sign up" });
   const heading = page.getByRole("heading", { name: "Create your account" });
   await expect(heading.or(toggle)).toBeVisible();
   if (await toggle.isVisible()) await toggle.click();
@@ -383,13 +383,14 @@ test.describe("the house ad", () => {
    */
   test("does not start over when the drawing is hidden and shown again", async () => {
     const box = page.locator(".house-ad");
-    const present = () =>
+    const present = (started = false) =>
       page.evaluate(
-        () =>
+        (started) =>
           document
             .getAnimations()
             .filter((one) => (one.effect as KeyframeEffect | null)?.target?.closest(".house-ad"))
-            .length,
+            .filter((one) => !started || !one.pending).length,
+        started,
       );
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/accounts");
@@ -411,11 +412,15 @@ test.describe("the house ad", () => {
 
     // Cut short: the cancel arrives as an event a frame later, so it is waited
     // for while the drawing is hidden, and then it comes back finished. Hidden
-    // only once the beats exist, since a drawing hidden before they start has
-    // nothing to cancel, which is a phone's case and not this one.
+    // only once the beats have started, since a drawing hidden before they
+    // start has nothing to cancel, which is a phone's case and not this one.
+    // Started rather than present: a beat is listed while it is still pending,
+    // the frame before its clock starts, and Chromium sends no cancel for one
+    // hidden then. Polling for six present hid the drawing in that frame about
+    // one run in twenty, which left this waiting on a cancel that never came.
     await page.goto("/accounts");
     await expect(box).toHaveClass(/\bis-playing\b/);
-    await expect.poll(present, "the story under way").toBe(6);
+    await expect.poll(() => present(true), "the story under way").toBe(6);
     await page.setViewportSize({ width: 500, height: 900 });
     await expect(box, "retired while hidden").toHaveAttribute("class", "house-ad");
     await page.setViewportSize({ width: 1440, height: 900 });

@@ -743,4 +743,34 @@ describe("what a stored value becomes", () => {
       },
     ]);
   });
+
+  it("names an event about the owner as the owner's, not by their id", () => {
+    // A preference saved, which nearly everybody's browser does on first
+    // load, and the agents a password change disconnected: both are written
+    // with the owner's id as what the event is about.
+    const about = (id: number, entityType: string, operation: string) =>
+      ({
+        id: origin(id),
+        userId: USER,
+        actorSource: "web",
+        clientId: null,
+        entityType,
+        entityId: USER,
+        operation,
+        before: null,
+        after: { userId: USER },
+        createdAt: at(6),
+      }) as LedgerSnapshot["history"][number];
+    const file = exported(
+      { kinds: ["history"] },
+      {
+        history: [
+          about(902, "user_preferences", "create"),
+          about(903, "connected_app", "revoke_all"),
+        ],
+      },
+    );
+    expect(file.history!.map((event) => event.entityId)).toEqual(["owner", "owner"]);
+    expect(JSON.stringify(file.history)).not.toContain(USER);
+  });
 });

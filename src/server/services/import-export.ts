@@ -79,10 +79,13 @@ import { csvRowsStaged } from "../metrics.js";
 export function assertCsvWithinSizeLimit(csv: string) {
   const maxBytes = configuredCsvMaxBytes();
   if (Buffer.byteLength(csv, "utf8") > maxBytes) {
-    throw validationError(`CSV exceeds the ${maxBytes}-byte limit`, {
-      field: "csv",
-      limit: maxBytes,
-    });
+    // The move that works, as the row cap's refusal gives it: the preview
+    // shows this before any column is mapped, so a sentence that only named
+    // the limit left somebody with a 12 MB statement and nothing to try.
+    throw validationError(
+      `CSV exceeds the ${maxBytes.toLocaleString("en-US")}-byte limit. A larger export can be filtered by date and imported one range at a time.`,
+      { field: "csv", limit: maxBytes },
+    );
   }
 }
 

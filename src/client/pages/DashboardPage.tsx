@@ -32,6 +32,7 @@ import {
   Modal,
   Note,
   PageHeader,
+  ReadFailures,
   Skeleton,
 } from "../components.js";
 import { emptyScreen, noAccountReason, waysOut } from "../list-filters.js";
@@ -76,7 +77,7 @@ export default function DashboardPage() {
   const { ways } = emptyScreen([
     {
       set: !includeArchived,
-      clear: "turn on Include archived accounts to count the ones you have put away",
+      clear: "turn on Include archived accounts to count any archived ones",
       fromTheStart: true,
     },
   ]);
@@ -170,8 +171,12 @@ export default function DashboardPage() {
         </label>
       </div>
 
-      {summary.error ? <Alert>{summary.error.message}</Alert> : null}
-      {accounts.error ? <Alert>{accounts.error.message}</Alert> : null}
+      <ReadFailures
+        reads={[
+          ["totals", summary.error],
+          ["accounts", accounts.error],
+        ]}
+      />
 
       {summary.isPending ? (
         <div className="currency-sections">
@@ -181,13 +186,20 @@ export default function DashboardPage() {
       ) : summary.error ? null : !summary.data?.currencies.length ? (
         <EmptyState
           icon={Landmark}
-          title={ways.length ? "No accounts in this view" : "Create your first account"}
+          // The title states the situation; the button carries the imperative
+          // (12.1), so "Create your first account" was the button's job in
+          // the heading's place.
+          title={ways.length ? "No accounts in this view" : "No accounts yet"}
           body={`An account is where your money lives. Once one exists, deposits, withdrawals, and transfers show up here.${
             ways.length ? ` ${waysOut(ways)}` : ""
           }`}
           action={
+            // A link to the page, named as the page (16), and not "Create
+            // account": that is the form's own submit, and this creates
+            // nothing — it lands on Accounts, where New account opens the
+            // form. The sign-up toggle was renamed for the same collision.
             <Link className="button button-primary" to="/accounts">
-              Create an account
+              Go to Accounts
             </Link>
           }
         />

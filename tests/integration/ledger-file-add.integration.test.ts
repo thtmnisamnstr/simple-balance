@@ -13,6 +13,7 @@ import {
   type LedgerFile,
 } from "../../src/shared/ledger-file.js";
 import {
+  LEDGER_FILE_MOVE_BLOCKED,
   ledgerBudgetKey,
   ledgerReferenceOpeningDate,
   mergeLedgerFileFacts,
@@ -22,7 +23,7 @@ import {
   type LedgerFilePreview,
 } from "../../src/shared/ledger-file-import.js";
 import { addDays, todayIn } from "../../src/shared/recurrence-dates.js";
-import { LEDGER_FILE_HISTORY_MAX_BYTES } from "../../src/server/config-limits.js";
+import { LEDGER_FILE_CONTENT_MAX_BYTES } from "../../src/server/config-limits.js";
 import { getDb } from "../../src/server/db/client.js";
 import {
   auditEvents,
@@ -47,6 +48,7 @@ import {
 import { createBudgetPlan, setBudgetEntry } from "../../src/server/services/budgets.js";
 import {
   createCategory,
+  mergeCategories,
   setCategoryArchived,
   updateCategory,
 } from "../../src/server/services/categories.js";
@@ -59,6 +61,7 @@ import {
   previewLedgerFile,
 } from "../../src/server/services/ledger-file.js";
 import { runDueNotifications } from "../../src/server/services/notifications.js";
+import { mergePayees } from "../../src/server/services/payees.js";
 import { getPreferences, setPreferences } from "../../src/server/services/preferences.js";
 import { createRecurrence, runDueRecurrences } from "../../src/server/services/recurrences.js";
 import {
@@ -69,6 +72,7 @@ import {
 } from "../../src/server/services/staging.js";
 import { createTransactionTemplate } from "../../src/server/services/transaction-templates.js";
 import {
+  bulkDeleteTransactions,
   createTransaction,
   getTransaction,
   listTransactions,
@@ -108,7 +112,7 @@ const connection = process.env.TEST_DATABASE_URL;
 const integration = describe.skipIf(!connection);
 const database = scratchDatabase("ledger_file_add");
 const TIMEZONE = "Europe/Berlin";
-const LIMITS = { maxRows: 100_000, maxHistoryBytes: LEDGER_FILE_HISTORY_MAX_BYTES };
+const LIMITS = { maxRows: 100_000, maxContentBytes: LEDGER_FILE_CONTENT_MAX_BYTES };
 
 const person = (id: string): Actor => ({ userId: `lf-add-${id}`, source: "web" });
 const source = person("source");
@@ -637,7 +641,7 @@ integration("adding a Simple Balance file to a ledger", () => {
       alreadyHere: 0,
       toStage: liveOrigins.length + stagedOrigins.length,
     });
-    expect(preview.move).toEqual({ qualifies: true, reason: null });
+    expect(preview.move).toEqual({ qualifies: true, reason: null, stagedRows: 0 });
     // The account archived where the file came from arrives archived.
     expect(record(preview, "account", "Old card")).toMatchObject({ arrivesArchived: true });
     expect(preview.plan.preferences).toMatchObject({ inFile: true, action: "apply" });
@@ -940,7 +944,11 @@ integration("adding a Simple Balance file to a ledger", () => {
     });
     expect(preview.plan.rows.toStage).toBe(1);
     // Hand-typed entries here, so a whole move is not offered.
-    expect(preview.move).toEqual({ qualifies: false, reason: expect.stringContaining("Staged") });
+    expect(preview.move).toEqual({
+      qualifies: false,
+      reason: LEDGER_FILE_MOVE_BLOCKED,
+      stagedRows: 0,
+    });
     expect(
       preview.plan.records
         .filter((each) => each.outcome !== "exists")
@@ -1797,9 +1805,64 @@ integration("adding a Simple Balance file to a ledger", () => {
       await getTransaction(owner, entryId),
       typed,
       committed,
-      await getDb().select().from(auditEvents).where(eq(auditEvents.userId, owner.userId)),
     ];
     for (const reply of replies) expect(JSON.stringify(reply)).not.toContain("importOrigin");
+
+    // Every writer of the history, not only the add and the commit: the
+    // merges and the mass delete snapshot raw rows rather than views, and
+    // each of them published the origin until `auditedRow` took it out —
+    // as null, too, from any ledger that never saw a file. The committed
+    // salary carries one; so does the groceries row still waiting.
+    await mergePayees(owner, {
+      sourcePayees: ["Employer", "Rewe"],
+      targetPayee: "Typed",
+      idempotencyKey: randomUUID(),
+    });
+    const named = async (name: string) =>
+      (
+        await getDb()
+          .select()
+          .from(categories)
+          .where(and(eq(categories.userId, owner.userId), eq(categories.name, name)))
+      )[0]!;
+    for (const [from, to, kind] of [
+      ["Salary", "Wages", "income"],
+      ["Groceries", "Food", "expense"],
+    ] as const) {
+      const away = await named(from);
+      const target = await createCategory(owner, { name: to, kind });
+      await mergeCategories(owner, {
+        sourceCategoryIds: [away.id],
+        targetCategoryId: target.id,
+        expectedVersions: { [away.id]: away.version },
+        targetExpectedVersion: target.version,
+      });
+    }
+    const [salaryNow] = await getDb()
+      .select()
+      .from(transactions)
+      .where(eq(transactions.id, entryId));
+    await bulkDeleteTransactions(owner, {
+      selection: { mode: "ids", items: [{ id: entryId, expectedVersion: salaryNow!.version }] },
+      idempotencyKey: randomUUID(),
+    });
+    const history = await getDb()
+      .select()
+      .from(auditEvents)
+      .where(eq(auditEvents.userId, owner.userId));
+    for (const wrote of [
+      "transaction payee_merge",
+      "staged_transaction payee_merge",
+      "transaction category_merge",
+      "staged_transaction category_merge",
+      "transaction bulk_delete",
+    ]) {
+      expect(
+        history.some((event) => `${event.entityType} ${event.operation}` === wrote),
+        wrote,
+      ).toBe(true);
+    }
+    expect(JSON.stringify(history)).not.toContain("importOrigin");
 
     const agent = await connectAgent(owner, ["ledger:read"]);
     try {

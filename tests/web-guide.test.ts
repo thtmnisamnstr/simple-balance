@@ -73,10 +73,13 @@ const WORDS: Record<number, string> = {
   28: "twenty-eight",
   30: "thirty",
   31: "thirty-one",
+  32: "thirty-two",
+  33: "thirty-three",
   35: "thirty-five",
   36: "thirty-six",
   37: "thirty-seven",
   38: "thirty-eight",
+  40: "forty",
 };
 
 const word = (count: number): string => {
@@ -377,6 +380,74 @@ describe("web.md's client censuses", () => {
     expect(flat, `there are ${skeletons} Skeleton sites`).toContain(
       `${word(skeletons)} \`Skeleton\` sites`,
     );
+  });
+
+  /**
+   * 8.4's "Still to do", done: under `RequiredNote`, a field that is neither
+   * required nor marked optional is a bug in the form.
+   *
+   * The note promises "every field is required unless it says otherwise", so
+   * each `Field` in a form carrying it is one of four things: its control is
+   * `required`; it is marked `optional`; its hint says what leaving it blank
+   * means, which is the "says otherwise"; or it is a select with no empty
+   * option, which always holds a value and so is required in fact, or with an
+   * empty option that names the empty choice, which says otherwise in the
+   * control itself. The walk
+   * after 0.2.1 found two that were none of them — the "Every N" interval on a
+   * reminder and on a recurring transaction, which took blank as every one and
+   * said nothing — and this is that walk, run on every form that carries the
+   * note. A form without the note is outside it, as the guide says.
+   */
+  it("leaves no field under the required note neither required nor marked", () => {
+    /** An opening tag, brace-balanced so an arrow function's `>` does not end it. */
+    const openTag = (code: string, at: number) => {
+      let depth = 0;
+      for (let index = at; index < code.length; index += 1) {
+        if (code[index] === "{") depth += 1;
+        else if (code[index] === "}") depth -= 1;
+        else if (code[index] === ">" && depth === 0) return code.slice(at, index + 1);
+      }
+      return "";
+    };
+    const unmarked: string[] = [];
+    let walked = 0;
+    for (const file of client()) {
+      for (const form of file.code.matchAll(/<(form|Form)\b[\s\S]*?<\/\1>/g)) {
+        if (!/<RequiredNote\b/.test(form[0])) continue;
+        for (const field of form[0].matchAll(/<Field\b/g)) {
+          const tag = openTag(form[0], field.index);
+          if (tag.endsWith("/>")) continue;
+          const children = form[0].slice(
+            field.index + tag.length,
+            form[0].indexOf("</Field>", field.index),
+          );
+          const control = /<([A-Za-z]\w*)\b/.exec(children);
+          if (!control) continue;
+          walked += 1;
+          const controlTag = openTag(children, control.index);
+          if (/\soptional(?=[\s>=/])/.test(tag)) continue;
+          if (/\bblank\b/i.test(tag)) continue;
+          if (/\srequired(?=[\s>/])|\srequired=\{(?!false)/.test(controlTag)) continue;
+          // A select either holds a value always, or offers the empty choice as
+          // an option that names it — "Leave blank", "No group" — which says
+          // otherwise in the control itself. A prompt ("Choose…") names nothing.
+          const empty = /<option value="">\s*([^<{]*)/.exec(children)?.[1]?.trim();
+          if (
+            /^select$/i.test(control[1]!) &&
+            (empty === undefined || (empty && !/^(?:Choose|Select|Pick)\b/.test(empty)))
+          )
+            continue;
+          if (/type="(?:checkbox|radio)"/.test(controlTag)) continue;
+          const line = file.code.slice(0, form.index + field.index).split("\n").length;
+          unmarked.push(`${file.path}:${line} ${tag.slice(0, 60).replaceAll(/\s+/g, " ")}`);
+        }
+      }
+    }
+    expect(walked, "the walk reads the fields under the note").toBeGreaterThan(50);
+    expect(
+      unmarked,
+      "require it, mark it optional, or say in the hint what leaving it blank does",
+    ).toEqual([]);
   });
 
   /**

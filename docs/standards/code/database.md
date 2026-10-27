@@ -390,7 +390,7 @@ Five sites were found this way and all five name both columns:
 `src/server/services/accounts.ts:542` and `:647`,
 `src/server/services/summary.ts:59`, and the two written in Drizzle's builder,
 `src/server/services/category-groups.ts:79` and
-`src/server/services/import-export.ts:150`.
+`src/server/services/import-export.ts:153`.
 
 The obvious alternative is to leave it until there is a cluster to fail on.
 Grouping by the id alone is legal today, passes the entire suite, and breaks the
@@ -422,7 +422,7 @@ whitespace collapsed, NFKC — so a unique index on the raw column would not
 express the rule. The lock serializes the read-then-create
 (`src/server/services/helpers.ts:326`), and it is scoped per user so two people
 naming a category at once do not queue behind each other.
-`src/server/services/helpers.ts:404` is the account namespace's, taken by every
+`src/server/services/helpers.ts:405` is the account namespace's, taken by every
 path that changes the live set.
 
 *Checked by:* `tests/name-locks.test.ts` for the shape, and
@@ -437,6 +437,38 @@ specifically.
 **Binding.** `AGENTS.md`. Startup is the only production migration path, so two
 instances starting together must not both migrate.
 
+### 4.3 A write takes its advisory locks per person or per record, never per row
+
+**House, with a measurement.** A transaction-scoped advisory lock holds an
+entry in PostgreSQL's shared lock table until commit, and that table is sized
+by `max_locks_per_transaction` times the connections the server allows and
+shared by every session on it. On PostgreSQL 18.6 allowing the `single`
+profile's 50 connections, one transaction took 9,000 advisory locks and could
+not take 10,000, failing with "out of shared memory"; allowing 100, it took
+12,000 and could not take 15,000 (measured 2026-10-26). `AGENTS.md` caps a bulk write
+at 10,000 rows, so a lock per row is a write that fails at its own cap and, for
+as long as it holds, takes room every other person's transactions need. That is
+not arithmetic only: committing 10,000 staged rows against the 50-connection
+server failed with "out of shared memory" and wrote nothing, and with one lock
+for the person the same commit wrote all 10,000.
+
+The duplicate check was exactly that until this release: one lock per
+fingerprint, up to two per row, taken by a commit, a mass edit and every entry
+a move writes. It is one lock per person now (`lockTransactionDuplicates`,
+`src/server/services/helpers.ts:483-485`). The finer locks looked like the
+concurrent choice and bought no concurrency at all, because every path that
+took them already held the person's payee namespace lock (2.4 in
+[`services.md`](services.md)), so no two of those writes ever ran at once. That
+is the question to ask before keying a lock by row: what already serializes the
+paths that would take it. Locks keyed by a record somebody names are fine —
+`lockAccountReferences` takes one per account a write names, bounded by the
+accounts a person keeps rather than by the rows they import.
+
+*Checked by:* `tests/integration/duplicate-lock.integration.test.ts`, which
+counts the advisory locks a call of two thousand drafts holds in `pg_locks` —
+one — and fails against the per-fingerprint locks. A new per-row lock anywhere
+else is §5's.
+
 ## 5. What is not enforced
 
 | Rule | Why it is only a sentence |
@@ -446,6 +478,7 @@ instances starting together must not both migrate.
 | 1.6 The service standing in for what a profile's schema cannot say | Its second half is checked. Its first is a judgement about where a rule belongs, and the only thing that makes it is somebody knowing both profiles. |
 | 3.1 One grid query | Nothing stops a second one being written. |
 | 4.2 Migrations under a lock | Only a second process starting against the same database at the same moment can tell the lock is there, and nothing starts one. The suite runs `runMigrations()` and would run it unlocked just as happily. |
+| 4.3 Locks per person or per record | The duplicate lock is counted. A lock keyed by row written anywhere else fails only near the 10,000-row cap on a server allowing few connections, and the suite runs against none. |
 
 4.1 used to be a row here, and its stated reason was wrong rather than merely
 out of date: "a missing lock produces a rare duplicate, which no test
@@ -458,8 +491,9 @@ job is narrower than the row claimed: the name comparison itself, where two
 transactions each find a normalized name free and the duplicate they leave is
 a row rather than a count.
 
-Five `human` rules in this guide, the same number as before and not the same
-five. 1.6 arrived with one half mechanized and one half not; 4.1 left, because
-the thing it said could not be tested is tested four times over.
+Six `human` rules in this guide. It held at five while its rules changed — 1.6
+arrived with one half mechanized and one half not, and 4.1 left, because the
+thing it said could not be tested is tested four times over — and 4.3 arrived
+with its one known case counted and the next one not.
 `tests/count-casts.test.ts` still holds 3.4, and it knows the shapes this schema
 actually writes rather than refusing every `count(*)` it sees.

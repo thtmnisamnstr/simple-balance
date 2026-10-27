@@ -101,6 +101,26 @@ type StageResult = {
  */
 const PREVIEW_ROWS = 12;
 
+/**
+ * The delimiter the preview found, as a word.
+ *
+ * Printed as the character itself it read "Detected , delimiter" — a bold lone
+ * comma that looks like stray punctuation and that a screen reader at its
+ * default punctuation level skips. Papa guesses from six, not just the three
+ * the drop zone names, and two are control characters that print as nothing at
+ * all. Display only: the preview's `delimiter`, the MCP's and the import
+ * batch's stay the character, because there it is data. A guess outside these
+ * is quoted rather than left bare.
+ */
+const delimiterNames: Readonly<Record<string, string>> = {
+  ",": "comma",
+  ";": "semicolon",
+  "\t": "tab",
+  "|": "pipe",
+  "\u001e": "record separator",
+  "\u001f": "unit separator",
+};
+
 function MappingField({
   label,
   hint,
@@ -280,6 +300,27 @@ export default function ImportPage() {
   const ready = Boolean(
     csv && defaultAccountId && (appExport || (mapping.date && mapping.payee && hasAmounts)),
   );
+  // The first unmet condition, in the order the steps ask for them (`web.md`
+  // 12.3), rather than every condition at once. Never "choose a file": these
+  // buttons exist only once a file has been previewed, and the preview refuses
+  // an empty one. And our own export has nothing to map, so naming columns
+  // there sent somebody looking for controls this screen hides. Undefined
+  // exactly when `ready` is true, since `csv` is always set by then.
+  const stageBlockedBecause = !defaultAccountId
+    ? "Choose the account to post the rows to."
+    : appExport
+      ? undefined
+      : !mapping.date
+        ? "Map the date column."
+        : !mapping.payee
+          ? "Map the payee column."
+          : !hasAmounts
+            ? "Map a signed amount column or one or both debit/credit columns."
+            : undefined;
+  // One per distinct name, so a large statement's payees run to four digits
+  // and group like every other count on the page (`common.md` §Prose).
+  const resolved = (items: readonly { resolution: string }[], resolution: string) =>
+    formatCount(items.filter((item) => item.resolution === resolution).length);
   const sampleHeaders = useMemo(() => preview?.headers.slice(0, 8) ?? [], [preview]);
 
   /**
@@ -304,9 +345,21 @@ export default function ImportPage() {
   const csvHeading = useId();
   const fileHeading = useId();
 
+  // The file being read, named from the moment it is chosen: `fileName` is set
+  // only once the preview answers, and a large file spends seconds on the way
+  // up with the panel still saying there is no file yet (`web.md` 12.2).
+  const choosing = previewMutation.isPending ? previewMutation.variables.name : null;
+  // A pick while a file is read or staged is refused, as the Simple Balance
+  // file's drop zone refuses one while it is checked or added.
+  const fileBusy = choosing !== null || stageMutation.isPending;
+
   const chooseFile = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file) previewMutation.mutate(file);
+    // Refused here as well as on the click, because a drop lands on the input
+    // whatever the click guard says. And it has to be: every answer runs
+    // `onSuccess`, so a second pick that answered first was overwritten when
+    // the first one landed late, leaving the page on the file not chosen last.
+    if (file && !fileBusy) previewMutation.mutate(file);
     // Cleared so the same file can be chosen again. A file input whose value
     // still names the file fires no change event for re-picking it — and
     // re-picking is exactly what somebody does after fixing the file the
@@ -338,13 +391,24 @@ export default function ImportPage() {
           </div>
         </div>
         {accounts.error ? <Alert>{accounts.error.message}</Alert> : null}
+        {/* With no account, the title states the situation and the button
+            carries the imperative (12.1): "Create an account first" was an
+            order with no way to obey it, eight lines above the frozen branch
+            that has one. "No account", not "no accounts yet": this list leaves
+            archived accounts out, so somebody whose accounts are all archived
+            lands there too, and "yet" would be false for them. */}
         {accounts.isPending ? (
           <Skeleton height={64} label="Loading accounts…" />
         ) : accounts.error ? null : !accounts.data?.length ? (
           <EmptyState
             icon={FileSpreadsheet}
-            title="Create an account first"
+            title="No account to import into"
             body="A CSV needs an account for its rows to be posted against. Moving from another copy of Simple Balance? Add its file below."
+            action={
+              <Link className="button button-primary" to="/accounts">
+                Go to Accounts
+              </Link>
+            }
           />
         ) : !writableAccounts.length ? (
           <EmptyState
@@ -369,10 +433,22 @@ export default function ImportPage() {
               </div>
               <label className="file-drop">
                 <Upload size={26} />
-                <strong>{fileName || "Drop in a file or browse"}</strong>
+                <strong>{choosing ?? (fileName || "Drop in a file or browse")}</strong>
                 <span>Comma, semicolon, and tab delimiters are detected automatically.</span>
                 <span>A very large export may need importing one date range at a time.</span>
-                <input type="file" accept=".csv,text/csv" onChange={chooseFile} />
+                {/* Refused while busy the way `Button` refuses, never
+                    `disabled`, for the reason the Simple Balance file's drop
+                    zone gives: a browser blurs what it disables (`web.md`
+                    13.3). */}
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  aria-disabled={fileBusy || undefined}
+                  onClick={(event) => {
+                    if (fileBusy) event.preventDefault();
+                  }}
+                  onChange={chooseFile}
+                />
               </label>
               {previewMutation.error ? <Alert>{previewMutation.error.message}</Alert> : null}
               {preview?.errors.length ? (
@@ -396,8 +472,10 @@ export default function ImportPage() {
                     <div>
                       <h3>{appExport ? "Choose the account" : "Map the columns"}</h3>
                       <p>
-                        Detected{" "}
-                        <strong>{preview.delimiter === "\t" ? "tab" : preview.delimiter}</strong>{" "}
+                        Detected a{" "}
+                        <strong>
+                          {delimiterNames[preview.delimiter] ?? `"${preview.delimiter}"`}
+                        </strong>{" "}
                         delimiter and {formatCount(preview.headers.length)} columns.
                       </p>
                     </div>
@@ -553,19 +631,27 @@ export default function ImportPage() {
                     </div>
                   </div>
                   <div className="form-actions">
+                    {/* One mutation serves both, so each asks which of them is
+                      running (`web.md` 12.3): the button that writes rows must
+                      not spin and say "Working…" through a dry run, which
+                      writes nothing. The one not pressed is held through
+                      `disabled`, since a sibling that is not `loading` no
+                      longer swallows a click and `mutate` would start a second
+                      request, and it gives no reason then, because the
+                      pressed one's spinner is the answer. */}
                     <Button
                       variant="secondary"
-                      disabled={!ready}
-                      disabledReason="Choose a file and an account, and map date, payee and amount."
-                      loading={stageMutation.isPending}
+                      disabled={!ready || stageMutation.isPending}
+                      disabledReason={stageMutation.isPending ? undefined : stageBlockedBecause}
+                      loading={stageMutation.isPending && stageMutation.variables === true}
                       onClick={() => stageMutation.mutate(true)}
                     >
                       <FlaskConical size={16} /> Dry run
                     </Button>
                     <Button
-                      disabled={!ready}
-                      disabledReason="Choose a file and an account, and map date, payee and amount."
-                      loading={stageMutation.isPending}
+                      disabled={!ready || stageMutation.isPending}
+                      disabledReason={stageMutation.isPending ? undefined : stageBlockedBecause}
+                      loading={stageMutation.isPending && stageMutation.variables === false}
                       onClick={() => stageMutation.mutate(false)}
                     >
                       Stage all rows <ArrowRight size={16} />
@@ -636,37 +722,11 @@ export default function ImportPage() {
                       {result.referenceResolution.categories.length ||
                       result.referenceResolution.payees.length ? (
                         <Alert kind="info">
-                          Categories:{" "}
-                          {
-                            result.referenceResolution.categories.filter(
-                              (item) => item.resolution === "existing",
-                            ).length
-                          }{" "}
-                          matched,{" "}
-                          {
-                            result.referenceResolution.categories.filter(
-                              (item) => item.resolution === "new",
-                            ).length
-                          }{" "}
-                          new, and{" "}
-                          {
-                            result.referenceResolution.categories.filter(
-                              (item) => item.resolution === "updated",
-                            ).length
-                          }{" "}
-                          updated. Payees:{" "}
-                          {
-                            result.referenceResolution.payees.filter(
-                              (item) => item.resolution === "existing",
-                            ).length
-                          }{" "}
-                          matched and{" "}
-                          {
-                            result.referenceResolution.payees.filter(
-                              (item) => item.resolution === "new",
-                            ).length
-                          }{" "}
-                          new.
+                          Categories: {resolved(result.referenceResolution.categories, "existing")}{" "}
+                          matched, {resolved(result.referenceResolution.categories, "new")} new, and{" "}
+                          {resolved(result.referenceResolution.categories, "updated")} updated.
+                          Payees: {resolved(result.referenceResolution.payees, "existing")} matched
+                          and {resolved(result.referenceResolution.payees, "new")} new.
                         </Alert>
                       ) : null}
                     </>
@@ -677,8 +737,8 @@ export default function ImportPage() {
 
             <aside className="panel import-preview">
               <header className="panel-header">
-                <h3>{interpreted ? "As it will be read" : "File preview"}</h3>
-                {interpreted ? (
+                <h3>{interpreted && choosing === null ? "As it will be read" : "File preview"}</h3>
+                {choosing !== null ? null : interpreted ? (
                   // Says what is on screen rather than what came back: twelve rows
                   // are rendered out of a sample of twenty-five out of the file.
                   <Badge tone="blue">
@@ -689,12 +749,23 @@ export default function ImportPage() {
                   <Badge tone="blue">{formatCount(preview.rows.length)} sampled</Badge>
                 ) : null}
               </header>
+              {/* The categories are read only to name each row's category here,
+                  and unread they name every one Uncategorized, which states
+                  something about the file that was never checked. */}
+              {categories.error ? <Alert>{categories.error.message}</Alert> : null}
               {/* Both preview tables are reachable, like every other scrolling
                 table region (9.6). They were the only ones in the client that
                 scrolled and could not be focused, so a keyboard could not read
                 the columns past the edge. Each is named by the caption its
                 table already carries rather than by the panel heading. */}
-              {interpreted ? (
+              {choosing !== null ? (
+                <div className="import-reading">
+                  {/* Said in words as well as drawn, as the Simple Balance
+                      file's check is: a shimmer is a picture of waiting. */}
+                  <p role="status">{`Reading ${choosing}`}</p>
+                  <Skeleton height={96} />
+                </div>
+              ) : interpreted ? (
                 <div
                   className="preview-table-wrap"
                   tabIndex={0}
@@ -1086,6 +1157,21 @@ export function LedgerFileExport() {
       .filter((sentence) => sentence !== null)
       .join(" ") || undefined;
 
+  // A ledger too large for one file is moved a range at a time, and every
+  // range with recurring transactions in it creates them where it lands. One
+  // created by an earlier range can propose its next occurrence into Staged
+  // before the next range arrives, and a row nobody imported waiting there
+  // stops the move. The agent's tool says this in its description; here it
+  // is said on the choice that makes a range — the "Transactions from" radio
+  // group — rather than on End date, which it says nothing about: there it
+  // ran six lines in a 252px column and pushed the two date labels about
+  // 65px apart, and a screen reader heard it on a date field, seven rows
+  // after the checkbox it is about.
+  const rangeAdvice =
+    scope === "all" && kinds.has("recurrences") && ranged
+      ? "When a ledger moves a range at a time, only the latest range should carry recurring transactions: one an earlier range brings can propose a row into Staged before the next range is moved, which stops the move until that row is discarded."
+      : undefined;
+
   // One start and one end for both halves, so a range typed under one is still
   // there after switching to the other. `required` is what refuses an empty
   // one, in the person's own language (`common.md` §Errors), and a disabled
@@ -1212,10 +1298,16 @@ export function LedgerFileExport() {
                     ? "Activity history from"
                     : "Transactions from"}
               </span>
+              {rangeAdvice ? (
+                <span className="field-hint" id={`${rangeGroup}-advice`}>
+                  {rangeAdvice}
+                </span>
+              ) : null}
               <div
                 className="radio-row"
                 role="radiogroup"
                 aria-labelledby={`${rangeGroup}-question`}
+                aria-describedby={rangeAdvice ? `${rangeGroup}-advice` : undefined}
               >
                 <label className="check-label">
                   <input

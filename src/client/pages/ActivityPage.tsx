@@ -63,6 +63,11 @@ const operationWords: Record<string, string> = {
   commit: "committed",
   moveOnMerge: "moved by a category merge",
   activate: "marked in use",
+  // The other half of the one-time choice of accounts in use: the ones left
+  // unchecked while a plan's limit was in force. Frozen is what the person was
+  // shown and what the guide calls it; the stored column says only "not
+  // active", and the bare verb ended the line as code.
+  freeze: "frozen by the choice of accounts in use",
 };
 
 /** What each kind of record is called on screen, which is not always its table. */

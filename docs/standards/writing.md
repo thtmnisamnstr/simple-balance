@@ -243,7 +243,7 @@ convention expects.
 answer: that the list items stay at the five that earned their shape, and that
 the lines running past 80 columns do not grow past where they already are.
 *Not checked:* that the top heading matches `package.json`. That is a hand step
-in the release recipe at `docs/upgrades.md:2157`, step 4, "Date the
+in the release recipe at `docs/upgrades.md:2224`, step 4, "Date the
 `## Unreleased` heading in `CHANGELOG.md`", and it has already been the subject
 of a commit ("Date 0.1.4 the day it is cut"). Nor is whether an entry describes
 a change somebody would notice, which is the judgement this section is mostly
@@ -364,12 +364,12 @@ publish runs `npm run verify` first, so an unwritten note now stops the release
 rather than reaching an operator mid-upgrade. *Also checked:* the frozen
 migration list, which `tests/migrations.test.ts` holds to what is on disk.
 *Not checked:* the changelog heading, a hand step in the release recipe at
-`docs/upgrades.md:2157`, and which release a migration is attributed to, which
+`docs/upgrades.md:2224`, and which release a migration is attributed to, which
 is prose inside a list a test can only check the membership of.
 
 ## Upgrade notes
 
-**Binding, quoting `AGENTS.md:416-472`, the frozen migration list:** "Every
+**Binding, quoting `AGENTS.md:416-475`, the frozen migration list:** "Every
 migration that has shipped is frozen" and "Never edit or regenerate one:
 someone's database has already run it, and changing it would leave their schema
 and its recorded history disagreeing." What follows is the documentation the
@@ -379,7 +379,7 @@ end of the bullet — it grew, and the number did not.
 
 **House, the shape.** A `## Before you upgrade to X.Y.Z` section, and its first
 sentence tells an operator whether they can stop reading. The 0.1.6 note at
-`docs/upgrades.md:1816-1817` is the model: "Nothing refuses to start that 0.1.5
+`docs/upgrades.md:1883-1884` is the model: "Nothing refuses to start that 0.1.5
 accepted, and nothing about an existing configuration has to change. Five
 things are worth knowing." The 0.1.4 section is the other model, because the
 answer there was different: "0.1.4 refuses to start on three configurations
@@ -411,7 +411,7 @@ before: the 0.1.5 contrast note quoted a number that was not the old value, and
 the change it described as an improvement was a small regression.
 
 *Checked by:* `tests/migrations.test.ts`, three ways. Per-migration behavior
-assertions cover 0005 through 0011 and 0022 through 0025. The frozen ordering
+assertions cover 0005 through 0011 and 0022 through 0026. The frozen ordering
 list at `:39-45` names the first five explicitly and holds the rest by number,
 file and snapshot rather than by name, so 0012 has no assertion of its own. And
 the same file reads `AGENTS.md` and fails when a file in `drizzle/` is not named
@@ -508,7 +508,7 @@ The reasoning, which is what the next person should argue with:
 So, taking Nygard's Status field and immutability rule without the ceremony:
 
 - **House. A recorded decision names the release it was made in.** The exemplar
-  is `AGENTS.md:416-472`, the frozen migration list, which names every migration
+  is `AGENTS.md:416-475`, the frozen migration list, which names every migration
   and the release it shipped in, and is the most reliable section in the file
   for exactly that reason.
 - **House. A reversal edits the old text to say it is superseded, and says by
@@ -758,12 +758,12 @@ them cover the whole range:
   Note the last line, which states the bound: "Unbounded on purpose: the keys
   are locale-and-currency pairs and a ledger holds a handful of currencies, so
   there is nothing here to grow."
-- **The trade named, not only the choice.** `src/client/components.tsx:882-906`:
+- **The trade named, not only the choice.** `src/client/components.tsx:883-907`:
   a fixed popover, why absolute fails in a scrolling table card, what fixed
   costs, and then the harder half: "Deliberately not `role="menu"` ... menu
   roles without the keyboard behavior they imply are worse than none."
 - **The invariant with the consequence of breaking it.**
-  `src/shared/domain.ts:2541-2543`: "`.strict()` is the load-bearing part: a
+  `src/shared/domain.ts:2568-2570`: "`.strict()` is the load-bearing part: a
   filter this cannot honor is an error rather than a key quietly dropped,
   because a selection resolves twice and an ignored filter makes the count and
   the fingerprint agree about the wrong set."
@@ -1076,15 +1076,15 @@ edit.
   than the four sites this bullet used to name, each cited by what it is as well
   as by where it is:
 
-  - `App.tsx:710`, the scope description on the authorization page.
+  - `App.tsx:734`, the scope description on the authorization page.
   - `select-options.ts:110`, the timezone label.
-  - `components.tsx:1211`, every page title: `` `${title} — ${APP_NAME}` ``.
+  - `components.tsx:1219`, every page title: `` `${title} — ${APP_NAME}` ``.
   - `TemplatesPage.tsx:713`, "never — every date is skipped".
-  - `AccountsPage.tsx:660-661`, the sentence explaining what a frozen account
-    still does, and `BudgetsPage.tsx:1578`, the note under an average with
+  - `AccountsPage.tsx:679-680`, the sentence explaining what a frozen account
+    still does, and `BudgetsPage.tsx:1608`, the note under an average with
     nothing behind it. Both arrived in 0.2.0.
-  - `SettingsPage.tsx:523`, the warning about what cancelling takes with it.
-  - `PlanPage.tsx:1980` and `:2000`, the "Annual — $30.00 a year" price
+  - `SettingsPage.tsx:554`, the warning about what cancelling takes with it.
+  - `PlanPage.tsx:1974` and `:1994`, the "Annual — $30.00 a year" price
     labels.
 
   The review queue's inline-edit labels were a ninth, and are off the list: they
@@ -1093,8 +1093,8 @@ edit.
   the line the label check reads. They join their halves with a comma now.
 
   The lone "—" in an empty table cell is a placeholder glyph rather than
-  punctuation and is not counted. Two further sites, `SettingsPage.tsx:143` and
-  `ReportsPage.tsx:252-256`, are prose inside JSX and read as copy but are
+  punctuation and is not counted. Two further sites, `SettingsPage.tsx:148` and
+  `ReportsPage.tsx:263-267`, are prose inside JSX and read as copy but are
   comments, so they answer to the comment rule rather than to this one.
 
   The inline-edit citation is the one worth dwelling on. It read

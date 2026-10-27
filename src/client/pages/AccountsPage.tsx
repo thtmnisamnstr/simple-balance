@@ -11,7 +11,7 @@ import {
   WalletCards,
 } from "lucide-react";
 import { useId, useMemo, useState } from "react";
-import { Link, useLocation } from "../router.js";
+import { Link, useLocation, useSearchParams } from "../router.js";
 import {
   accountTypeLabels,
   groupAccountsByType,
@@ -31,6 +31,7 @@ import {
   Button,
   compareForSort,
   ConfirmDialog,
+  countInWords,
   EmptyState,
   formatCount,
   Modal,
@@ -72,7 +73,20 @@ const readableNames = (names: readonly string[]) =>
 
 export default function AccountsPage({ session }: { session: Session }) {
   const [editing, setEditing] = useState<Account | "new" | null>(null);
-  const [includeArchived, setIncludeArchived] = useState(false);
+  // In the URL rather than in state (`web.md` 11.8), under the key Overview
+  // and Reports already use. The Simple Balance file's result tells somebody
+  // to restore an account that arrived archived "from Accounts", and a link
+  // to a list that hid archived accounts by default landed them on a page
+  // without the account they were sent to restore. A trip into an account's
+  // card and back keeps it too, since the detail link carries the search.
+  const [params, setParams] = useSearchParams();
+  const includeArchived = params.get("archived") === "1";
+  const setIncludeArchived = (next: boolean) => {
+    const updated = new URLSearchParams(params);
+    if (next) updated.set("archived", "1");
+    else updated.delete("archived");
+    setParams(updated, { replace: true });
+  };
   const [search, setSearch] = useState("");
   const removal = useConfirm<Account>();
   const location = useLocation();
@@ -159,7 +173,7 @@ export default function AccountsPage({ session }: { session: Session }) {
     { set: Boolean(search.trim()), clear: "clear the search" },
     {
       set: !includeArchived,
-      clear: "turn on Show archived accounts to look at the ones you have put away",
+      clear: "turn on Show archived accounts to include any archived ones",
       fromTheStart: true,
     },
   ]);
@@ -452,12 +466,17 @@ export default function AccountsPage({ session }: { session: Session }) {
             // duplicate of that gate: the list hides archived accounts by
             // default and the limit counts them, so somebody at the limit with
             // everything archived sees this empty state rather than the list.
+            //
+            // Named as the header button is, because it opens the same form.
+            // "Create an account" lost its article, and "Create account" is
+            // the form's own submit, which sits over this button while the
+            // form is open: two controls with one name on one screen.
             <Button
               onClick={() => setEditing("new")}
               disabled={!allowance.ok}
               disabledReason={allowance.ok ? undefined : allowance.message}
             >
-              Create an account
+              New account
             </Button>
           }
         />
@@ -656,11 +675,11 @@ export function ActiveAccountChooser({
           <h2>{choosing ? "Choose which accounts stay usable" : "Accounts you are using"}</h2>
           <p>
             {choosing
-              ? `Your plan keeps ${limit} accounts usable at a time, and this is the one time you ` +
+              ? `Your plan keeps ${countInWords(limit)} accounts usable at a time, and this is the one time you ` +
                 "pick them. The rest stay here in full — every balance, every entry, every " +
                 "report — and refuse changes until a place opens up. Nothing is deleted, and " +
                 "nothing is hidden."
-              : `Your plan keeps ${limit} accounts usable at a time. These are fixed: an account ` +
+              : `Your plan keeps ${countInWords(limit)} accounts usable at a time. These are fixed: an account ` +
                 "you are using stays that way until you archive or delete it. When that frees a " +
                 "place you can bring a frozen one back here."}
           </p>
@@ -715,7 +734,7 @@ export function ActiveAccountChooser({
           disabled={over || unchanged}
           disabledReason={
             over
-              ? `Your plan keeps ${limit} accounts usable. Clear one to pick another.`
+              ? `Your plan keeps ${countInWords(limit)} accounts usable. Clear one to pick another.`
               : unchanged
                 ? "Nothing to save yet."
                 : undefined

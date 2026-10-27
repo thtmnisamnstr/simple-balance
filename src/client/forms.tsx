@@ -871,7 +871,7 @@ function CategoryLegs({
           disabled={atCap}
           aria-describedby={atCap ? capId : undefined}
         >
-          Add a category
+          Add category
         </button>
         {/* `web.md` 12.3: a control that is dead says why, and this one went
             dead at the cap with nothing saying so. */}
@@ -1374,7 +1374,11 @@ export function TemplateForm({
                 <Field
                   name="notification.interval"
                   label={`Every N ${FREQUENCY_UNITS[reminderFrequency]}s`}
-                  hint="1 means every one."
+                  // Says that blank is taken, because the form's own note says
+                  // every field is required unless it says otherwise and this
+                  // one is neither required nor marked (`web.md` 8.4): blank is
+                  // read as every one, deliberately, rather than refused.
+                  hint="1 means every one, and so does leaving it blank."
                 >
                   <Input
                     type="number"
@@ -2421,15 +2425,17 @@ export function TransactionForm({
           </Field>
         ) : null}
       </div>
-      <div className="two-columns">
-        <Field label="Description" optional name="draft.description">
-          <Input
-            value={description ?? ""}
-            onChange={(event) => setDescription(event.target.value)}
-            placeholder="Additional details"
-          />
-        </Field>
-      </div>
+      {/* Full width, as the template and recurrence forms draw it. It sat
+          alone in a `.two-columns` row — left there when Category, its old
+          partner, moved out to hold a split's legs — so it was the one
+          half-width control in a column of full-width ones. */}
+      <Field label="Description" optional name="draft.description">
+        <Input
+          value={description ?? ""}
+          onChange={(event) => setDescription(event.target.value)}
+          placeholder="Additional details"
+        />
+      </Field>
       {type === "transfer" ? null : (
         <Field
           label="Category"
@@ -3234,7 +3240,8 @@ export function RecurrenceForm({
           </Field>
           <Field
             label={`Every N ${FREQUENCY_UNITS[frequency]}s`}
-            hint="1 means every one."
+            // Blank is read as every one; see the reminder's interval above.
+            hint="1 means every one, and so does leaving it blank."
             name="schedule.interval"
           >
             <Input

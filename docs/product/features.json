@@ -22,7 +22,7 @@
       "tier": "A",
       "rank": 2,
       "name": "Every account in one place",
-      "plain": "See what you have across every bank account, card, and wallet on a single page, in whatever currency each one is in.",
+      "plain": "See what you have across every bank account, card, and wallet on a single page, in whatever currency each one is in. Close an account and its history stays; tick a box to count it back in.",
       "why": "Most people's money is spread across five or six logins and nobody adds it up. Table stakes rather than a reason to choose this: eight competitors lead on it, so it belongs on the page and not at the top of it.",
       "screen": "/",
       "screenshot": "dashboard"
@@ -42,10 +42,10 @@
       "tier": "A",
       "rank": 4,
       "name": "Your records stay yours",
-      "plain": "Run it on your own machine and nobody else has a copy. Export every transaction to a spreadsheet whenever you want, or the whole ledger, budgets and templates included, as one Simple Balance file.",
+      "plain": "Run it on your own machine and nobody else has a copy. Export every transaction to a spreadsheet whenever you want, or the whole ledger, budgets and templates included, as one Simple Balance file another copy can take in whole.",
       "why": "It is a record of everything somebody spends money on.",
-      "screen": "/settings",
-      "screenshot": "settings"
+      "screen": "/import",
+      "screenshot": "import"
     },
     {
       "id": "register",
@@ -138,9 +138,19 @@
       "screenshot": "transactions"
     },
     {
-      "id": "bulk-edits",
+      "id": "move-a-ledger",
       "tier": "C",
       "rank": 2,
+      "name": "Move your books to another copy",
+      "plain": "Moving from the hosted app to your own computer, or back? Export one file and move it into the new copy: every transaction, deleted ones and closed accounts included, goes straight into the books, and each balance is checked against the file. Into a ledger that already has entries, the file is added instead, and its transactions wait for you to review.",
+      "why": "Changing where your books live is where people lose them: a spreadsheet carries the transactions and nothing else, so every account, budget and recurring payment had to be built again by hand.",
+      "screen": "/import",
+      "screenshot": "import"
+    },
+    {
+      "id": "bulk-edits",
+      "tier": "C",
+      "rank": 3,
       "name": "Fix thousands of rows at once",
       "plain": "Change or delete up to ten thousand transactions at once, after seeing exactly what it will touch.",
       "why": "One mis-mapped import can put a year of entries in the wrong category.",
@@ -150,7 +160,7 @@
     {
       "id": "templates",
       "tier": "C",
-      "rank": 3,
+      "rank": 4,
       "name": "Templates for repeat entries",
       "plain": "Save the transactions you type over and over and reuse them in a click.",
       "why": "Cash spending is the part nobody imports, and typing it is the part nobody keeps up.",
@@ -160,9 +170,9 @@
     {
       "id": "agents",
       "tier": "C",
-      "rank": 4,
+      "rank": 5,
       "name": "Let an AI assistant do the filing",
-      "plain": "Connect an assistant and let it import statements and clean up categories. When you connect it you see exactly what it is asking to do and can refuse; an assistant limited to suggesting queues entries for you to approve, and Settings shows what each connected assistant can do and lets you cut it off.",
+      "plain": "Connect an assistant and let it import statements and clean up categories. When you connect it you see exactly what it is asking to do and can refuse; an assistant limited to suggesting queues entries for you to approve, and Settings shows what each connected assistant can do and lets you cut it off. It can also explain the basics, like balancing an account or building an emergency fund, from the same money guides smpl.money publishes.",
       "why": "It is genuinely useful and genuinely alarming, so the limits matter more than the capability. It is not a reason to choose this over anything else: PocketSmith shipped the same idea, down to the permission levels, and a capability two products share decides nothing.",
       "screen": "/settings",
       "screenshot": "settings"
@@ -170,7 +180,7 @@
     {
       "id": "payees",
       "tier": "C",
-      "rank": 5,
+      "rank": 6,
       "name": "Everyone you have paid",
       "plain": "A list of everyone you have paid, and everything you have paid them.",
       "why": "It is how you notice the subscription you forgot about.",

@@ -3,7 +3,7 @@
 The one convention in this repository that is genuinely unusual, and the reason
 it pays.
 
-**27.3% of the non-blank lines in `src` are comments** — 21,091 of 77,144. That
+**27.7% of the non-blank lines in `src` are comments** — 21,581 of 78,030. That
 is far above what most codebases carry and far above what most style guides
 recommend. It is deliberate, and this guide exists so that nobody "tidies" it
 away and so that the density is spent on the right things.
@@ -118,12 +118,12 @@ a paragraph arguing why the rule is wrong about that line:
 // oxlint-disable-next-line jsx-a11y/no-static-element-interactions
 ```
 
-That one is `src/client/forms.tsx:576`. `src/client/components.tsx:990`
+That one is `src/client/forms.tsx:576`. `src/client/components.tsx:991`
 silences two rules in a single comment and does not borrow this argument: it
 makes its own, that a keyboard user's activation of the buttons inside bubbles
 to the same handler, so the element is a catcher for its children's events
 rather than a mouse-only control. Thirteen of the fourteen paragraphs sit
-directly above the disable. The exception is `src/client/forms.tsx:1796`, where
+directly above the disable. The exception is `src/client/forms.tsx:1800`, where
 the reason is about the whole effect and sits above it, and the disable reaches
 only the first of the two lines inside that assign. The second lints clean
 anyway — the rule reports once per effect, on the first setter it sees — which
@@ -293,3 +293,15 @@ What decides is whether the failure leaves something a program can find. A bare
 disable does. A restatement does not, and nothing about tools changes that. This
 is still the guide that argues rather than enforces, which is appropriate for
 the one convention here that a newcomer is most likely to think is a mistake.
+
+**A count in a comment is left to review, on purpose.** A sweep after 0.2.1
+found four comments in the transports and the services helpers giving a count
+as the reason for a design — "seventy-one call sites", "thirty routes", "the
+three streaming paths" — each false by then, two of them since the day they
+were written. The fix was to give the reason without the number, and that is
+the advice: `writing.md`'s remedy for a measured number is a test or a date,
+and a test pinning a comment makes every new tool an edit to a sentence nobody
+re-reads. It is not checked mechanically because the defect is not the digit: a
+comment may state a count as history — "thirty-nine of seventy-seven" in a test
+header records a past state and should — and whether a count is claimed as
+current is a reading of the sentence.

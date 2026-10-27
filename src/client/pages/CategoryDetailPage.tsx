@@ -189,12 +189,22 @@ export default function CategoryDetailPage() {
           heading={{
             kind: "section",
             title: "Transactions",
-            description: "Filter, search, export, or add activity in this category.",
+            // "Or add" only where adding is offered, as on an account's page.
+            description: category.data.archivedAt
+              ? "Filter, search, or export activity in this category."
+              : "Filter, search, export, or add activity in this category.",
           }}
           includeStaged
           fixedCategoryId={categoryId}
           initialType={category.data.kind === "income" ? "deposit" : "withdrawal"}
           allowCreate={!category.data.archivedAt}
+          // The empty register's way out, where it would otherwise offer the
+          // add this page withholds. Restore is on the list in the sidebar.
+          createRefusal={
+            category.data.archivedAt
+              ? "This category is archived. Restore it from Categories to file entries under it."
+              : undefined
+          }
           showDateRange={false}
         />
       </section>

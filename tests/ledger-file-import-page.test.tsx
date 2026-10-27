@@ -378,7 +378,7 @@ describe("checking the file", () => {
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("table", { name: /Every record/ })).toBeNull();
     fireEvent.click(toggle);
-    expect(screen.getByRole("button", { name: "Hide the records" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Hide records" })).toHaveAttribute(
       "aria-expanded",
       "true",
     );
@@ -390,7 +390,7 @@ describe("checking the file", () => {
       within(checking)
         .getAllByRole("cell")
         .map((cell) => cell.textContent),
-    ).toEqual(["New", "Account", ""]);
+    ).toEqual(["New", "Account", "—"]);
     const oldCard = within(table).getByRole("rowheader", { name: "Old card" }).closest("tr")!;
     expect(oldCard).toHaveTextContent("New, arrives archived");
     const amounts = within(table)
@@ -684,6 +684,11 @@ describe("places on a plan that limits them", () => {
     expect(group).toHaveTextContent(
       "Your plan keeps 3 accounts in use, and 2 are in use here. This file brings 2 more, so choose at least 1 to arrive archived, or upgrade under Settings. 0 chosen so far.",
     );
+    // The group's description, not a sentence beside it: somebody sent here
+    // by "Still to decide" hears what they have to do (web.md 8.1).
+    expect(group).toHaveAccessibleDescription(
+      expect.stringContaining("choose at least 1 to arrive archived"),
+    );
     expect(addButton()).toBeDisabled();
     fireEvent.click(within(group).getByRole("checkbox", { name: "Brokerage USD" }));
     expect(group).toHaveTextContent("1 chosen so far.");
@@ -840,6 +845,35 @@ describe("adding", () => {
       "href",
       `/staged?importBatchId=${origin(5001)}&preset=all-time`,
     );
+    // With archived accounts shown, since the sentence above sends somebody to
+    // restore one and the list hides them by default (web.md 11.8).
+    expect(screen.getByRole("link", { name: "Open Accounts" })).toHaveAttribute(
+      "href",
+      "/accounts?archived=1",
+    );
+  });
+
+  it("links to Accounts as it is when nothing arrived archived", async () => {
+    const json = wholeLedger();
+    json.accounts = (json.accounts as Json[]).filter((account) => account.key !== "Old card");
+    const stream = streamedResponse();
+    let sent: LedgerFileAddInput | undefined;
+    stubServer({
+      facts: factsOf(),
+      answer: (body) => {
+        sent = body;
+        return stream.response;
+      },
+    });
+    renderImport();
+    choose(json);
+    await checked();
+    fireEvent.click(addButton());
+    await waitFor(() => expect(sent).toBeDefined());
+    stream.push({ type: "result", value: resultFor(sent!, factsOf(), new Set(), 2) });
+    stream.close();
+    await screen.findByText(/^Added "simple-balance-2026-10-25\.json" to this ledger\./);
+    expect(screen.queryByText(/arrived archived/)).toBeNull();
     expect(screen.getByRole("link", { name: "Open Accounts" })).toHaveAttribute(
       "href",
       "/accounts",
@@ -893,7 +927,7 @@ describe("an add that stops", () => {
       JSON.stringify({
         error: {
           code: "CONFLICT",
-          message: "This ledger changed while the file was being read. Check the file again.",
+          message: "This ledger changed while the file was being read. Check file again.",
         },
       }),
       { status: 409, headers: { "Content-Type": "application/json" } },
@@ -919,7 +953,7 @@ describe("an add that stops", () => {
     fireEvent.click(addButton());
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(
-      "This ledger changed while the file was being read. Check the file again. Nothing from part 2 was written. Part 1 of 3 is in.",
+      "This ledger changed while the file was being read. Check file again. Nothing from part 2 was written. Part 1 of 3 is in.",
     );
     // The same button, renamed, and still where focus was.
     const retry = screen.getByRole("button", { name: "Try part 2 of 3 again" });
@@ -1051,7 +1085,7 @@ describe("an add that stops", () => {
     await checked();
     fireEvent.click(addButton());
     await screen.findByRole("alert");
-    fireEvent.click(screen.getByRole("button", { name: "Check the file again" }));
+    fireEvent.click(screen.getByRole("button", { name: "Check file again" }));
     await waitFor(() => expect(previews).toHaveLength(6));
     const again = await screen.findByRole("button", { name: "Add to this ledger" });
     expect(screen.queryByRole("alert")).toBeNull();
@@ -1204,7 +1238,7 @@ describe("keyboard and names", () => {
     const form = name.closest("form")!;
     expect(addButton().closest("form")).toBe(form);
     expect(addButton()).toHaveAttribute("type", "submit");
-    expect(screen.getByRole("button", { name: /Check the file again/ })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: /Check file again/ })).toHaveAttribute(
       "type",
       "button",
     );
@@ -1245,7 +1279,7 @@ describe("moving a file", () => {
     choose(wholeLedger());
     const button = await ready();
     expect(modes()).toHaveAccessibleDescription(
-      "A move brings what adding cannot: deleted transactions, accounts archived on the day they were, and no transaction left to review. It is offered only while everything in this ledger came from a Simple Balance file, as in a new one; once a transaction is typed in or imported from a CSV, a file can only be added.",
+      "A move brings what adding cannot: deleted transactions, accounts archived on the day they were, and no transaction left to review. It is offered only while everything in this ledger came from a Simple Balance file, as in a new one. Once a transaction is typed in or committed from a CSV, a file can only be added; a row waiting in Staged stops a move only until it is discarded.",
     );
     expect(within(modes()).getAllByRole("radio")).toEqual([moveRadio(), addRadio()]);
     expect(moveRadio()).toHaveAccessibleDescription(
@@ -1445,7 +1479,7 @@ describe("moving a file", () => {
       arriveArchived: [],
     });
     for (const sentence of [
-      "Every balance came out as the file says: 2 accounts checked. 1 account archived where the file came from was not compared, holding nothing there to compare with.",
+      "Every balance came out as the file says: 2 accounts checked. 1 account was not compared: an account archived where the file came from holds nothing there to compare with, and one opening after the day the balances are for has not yet taken in the money it carries.",
       "Accounts: 3 created, 0 already here, 0 left out.",
       '1 archived account holds its transactions: "Old card". Restoring it posts its balance back.',
       "2 staged rows from the file went to Staged.",
@@ -1471,7 +1505,7 @@ describe("moving a file", () => {
     fireEvent.click(moveRadio());
     const group = screen.getByRole("group", { name: "Accounts to arrive archived" });
     expect(group).toHaveAccessibleDescription(
-      "An account that arrives archived uses no place. Its transactions are written into it, and it holds nothing from the day of the move; restoring it posts its balance back.",
+      "Your plan keeps 3 accounts in use, and 2 are in use here. This file brings 2 more, so choose at least 1 to arrive archived, or upgrade under Settings. 0 chosen so far. An account that arrives archived uses no place. Its transactions are written into it, and it holds nothing from the day of the move; restoring it posts its balance back.",
     );
     expect(
       within(group)
@@ -1574,7 +1608,7 @@ describe("moving a file", () => {
     expect(moves).toHaveLength(3);
     expect(moveRadio()).toBeDisabled();
     // Checked again, it is a new attempt with keys of its own.
-    fireEvent.click(screen.getByRole("button", { name: "Check the file again" }));
+    fireEvent.click(screen.getByRole("button", { name: "Check file again" }));
     await waitFor(() => expect(moveButton()).toBeEnabled());
     fireEvent.click(moveButton());
     await screen.findByText(/^Moved /);
@@ -1662,6 +1696,13 @@ describe("moving a file", () => {
       "The withdrawal of €80.00 dated Oct 4, 2026 with Market would be both income and spending here",
     );
     expect(open.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+    // And the choice that caused it is described by it, so somebody who picked
+    // the radio is told why it is refused without leaving it (web.md 8.1).
+    expect(
+      screen.getByRole("radiogroup", { name: 'Category "Groceries"' }),
+    ).toHaveAccessibleDescription(
+      expect.stringContaining("would be both income and spending here"),
+    );
   });
 
   it("writes a refused transaction's money and day in this page's figures", async () => {

@@ -36,12 +36,13 @@
       "CSV import with format detection and duplicate review",
       "CSV export, including multi-currency round trips",
       "Simple Balance file export of the whole ledger or chosen accounts, budgets, templates and recurring transactions included",
+      "Simple Balance file import, added to a ledger in use with its transactions reviewed first, or moved straight into a new one with every balance checked",
       "Budgets per category or group, with carry-over",
       "Recurring transactions that propose themselves",
       "Transaction templates",
       "Split transactions across several categories",
       "Bulk edit and delete, up to ten thousand rows",
-      "An MCP server with the same capabilities as the web app",
+      "An MCP server with the same capabilities as the web app, carrying the money guides smpl.money publishes",
       "Email reminders, where a mail server is configured"
     ],
     "paidPlanAdds": [

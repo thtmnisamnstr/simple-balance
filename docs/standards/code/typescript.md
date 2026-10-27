@@ -75,7 +75,7 @@ erases just as well.
 
 **Contested.** The flag is good advice in general and wrong here. All three
 sites it flags are Hono middleware
-(`src/server/api.ts:1628`, `src/server/http-security.ts:530` and `:1002`),
+(`src/server/api.ts:1643`, `src/server/http-security.ts:530` and `:1002`),
 where a `MiddlewareHandler` returns a `Response` to answer the request or
 nothing at all to let the next handler run. "Returns on some paths and not
 others" is the contract, not a mistake.
@@ -185,8 +185,8 @@ that never had anything to find.
 
 ### 2.2 Assertions are rare and each has a reason
 
-**House.** Four `as unknown as` in the whole of `src`, and **167 non-null
-assertions across 37 files**, counted with
+**House.** Four `as unknown as` in the whole of `src`, and **238 non-null
+assertions across 45 files** on 2026-10-26, counted with
 `npx oxlint -D typescript/no-non-null-assertion src` for the reason 2.1 gives:
 a `!` is punctuation, and a grep meets it in `!==` and in every negation this
 codebase writes. Neither number is zero and neither should be: a `!` after a
@@ -240,7 +240,7 @@ export type CategoryKind = (typeof categoryKinds)[number];
 
 The array is the single source: Zod validates from it, the database enum is
 generated from it (`src/server/db/schema.ts:200`),
-and the UI iterates it (`src/client/pages/CategoriesPage.tsx:137`).
+and the UI iterates it (`src/client/pages/CategoriesPage.tsx:138`).
 Adding a member is one edit, and every one of those follows.
 
 *Checked by:* `npm run typecheck`, for the half of it that is a refusal:
@@ -248,7 +248,23 @@ Adding a member is one edit, and every one of those follows.
 from the array rather than written beside it, a member added in one place cannot
 disagree with a reader that already exists. And `tests/closed-sets.test.ts` for
 the half nothing asked: a closed set hand-written as a bare union of string
-literals used to pass every check here.
+literals used to pass every check here. It also reads plain arrays of string
+literals that are not `as const`, and refuses one whose members equal a union
+alias: `LedgerTier` was a bare union while the MCP instructions filtered the
+same three scopes out of a plain array, which widens to `string[]`, so a tier
+renamed in the type compiled and the instructions went on naming the old one.
+It is a tuple now (`src/server/mcp.ts`), and the array is that tuple.
+
+**Not caught: a `z.enum` of literals that restates a tuple.** The case that reads
+literal enums looks only for sets *nobody* wrote a tuple for, and the case that
+compares against tuples reads unions alone, so the one spelling between them
+passes both. There is one: the direction in a move's report of transactions
+whose other half lands on another side here, `driftSchema`
+(`src/shared/ledger-file-import.ts:710-711`), spells `"deposit"` and
+`"withdrawal"` where `entryTypes` in `src/shared/domain.ts:126` already holds
+them, unexported. Found by the release audit of October 2026 and left open,
+because closing it is an export and a third comparison in that test rather
+than a sentence here.
 
 `tests/client-closed-sets.test.ts` covers the one position that check cannot
 reach. Its `inlineUnions()` anchors on what may precede a *type* — a property, an
@@ -314,7 +330,7 @@ export const budgetPeriodUnits = [
 ] as const satisfies readonly ReportBucket[];
 ```
 
-(`src/shared/domain.ts:1484`.)
+(`src/shared/domain.ts:1511`.)
 
 `as const` keeps the four literals; `satisfies` checks that every one of them is
 a bucket the report engine can group by. Annotating the constant
@@ -326,7 +342,7 @@ either of the other two that the rule working was a deviation from it. Both pass
 the test the `securityHeaderOptions` paragraph below sets, and one of them is
 load-bearing by `AGENTS.md`:
 
-- `PLAN_LABELS` (`src/shared/domain.ts:3570-3573`) is, in `AGENTS.md`'s words,
+- `PLAN_LABELS` (`src/shared/domain.ts:3597-3600`) is, in `AGENTS.md`'s words,
   "the one place a plan's name is written". `satisfies Record<Plan, string>` is
   what makes a plan added without a label fail to compile; `as const` is what
   keeps `PLAN_LABELS.plus` the literal `"Premium"` rather than `string`, which
@@ -357,7 +373,7 @@ totalled: a fourth arriving does not falsify a sentence here.
 ### 2.5 Discriminated unions carry the discriminant in the name
 
 **House.** A transaction draft is a union on `type`, and each member declares it
-as a literal (`src/shared/domain.ts:615`). Every
+as a literal (`src/shared/domain.ts:642`). Every
 function that takes one either handles all three or narrows first. This is why
 `noFallthroughCasesInSwitch` was free: there was nothing to find.
 
@@ -617,10 +633,18 @@ needs, then optionals with defaults, and `transaction?: DbTransaction` last:
 ```ts
 createTransaction(actor, draft, idempotencyKey, allowDuplicate?, transaction?)
 updateTransaction(actor, id, input, transaction?)
-setTransactionDeleted(actor, id, expectedVersion, deleted, allowDuplicate?, transaction?)
+setTransactionDeleted(actor, id, expectedVersion, deleted, allowDuplicate?, options?, transaction?)
 ```
 
-(`src/server/services/transactions.ts:1191`, `:2470` and `:2585`.)
+(`src/server/services/transactions.ts:1191`, `:2477` and `:2593`.)
+
+An options object is an optional with a default, so it comes before the
+transaction too. Eight services had it after — the creates the Simple Balance
+file's add and move pass an archive instant or an audit operation to, and the
+void — beside `addLedgerFile` and `moveLedgerFile` written the other way in the
+same branch, which is the guessing this section exists to stop. The compiler
+refuses the wrong order (an options object is not a transaction), so the cost
+was a reader's, never a running one.
 
 Note that `updateTransaction` takes `input: unknown` and parses it, rather than
 a typed object: the version and the draft arrive together inside it. An update
@@ -631,8 +655,16 @@ This is written down because guessing it wrong is the most common mistake made
 against this codebase — including in an earlier draft of this very section,
 which stated two of these three signatures incorrectly. Read the function.
 
-*Checked by:* `human`. The compiler reads a call against the signature and has
-nothing to say about the signature, which is the side this rule is about.
+*Checked by:* `tests/typescript-guide.test.ts` ("4.1 an optional transaction is
+the last parameter") for the half the compiler cannot read: every optional
+`DbTransaction` parameter in `src`, found by its type rather than by a list of
+services, is the last in its signature, options objects included. The compiler
+reads a call against the signature and has nothing to say about the signature,
+which is the side the eight were wrong on. Mutation-proved by putting
+`createAccount`'s options back after its transaction. The rest — actor first,
+the thing acted on second — stays `human`: which parameter is "the thing acted
+on" is a reading of what the function does, and services.md 1.1's table already
+counts the actor-first half.
 
 ### 4.2 A function that can fail says how in its type
 
@@ -661,7 +693,7 @@ reads.
 | 2.2 Assertions carry a reason | Not mechanizable. The count of them is not checked either, for the reason in the row above. |
 | 2.4 `satisfies` earns the keyword | `tsc` checks what each one asserts; whether a value has one shape or two, which is where the keyword stops being the right tool, is a judgement. The three are named rather than counted, so there is no total to go stale. |
 | 2.6 The comment beside a boundary cast | The test sees that a cast is confined to one property. Whether the sentence above it says what the vendor does is a reviewer's. |
-| 4.1 Argument order | A signature is read, not called, and nothing reads one. |
+| 4.1 Argument order, past the transaction | Where an optional transaction sits is checked. Which parameter is "the thing acted on", and so second, is a reading of what the function does. |
 | 4.2 Throw or return a result | Which of the two a caller needs is a judgement about the caller. |
 
 Six rows, where there were five, and the direction is the opposite of the
@@ -677,4 +709,5 @@ What the two previous rounds added is still here:
 `tests/module-boundaries.test.ts` walks the import graph for 3.3.
 `tests/typescript-guide.test.ts` is this round's, and holds 1.2's infrastructure
 half, 1.3, the `src` half of 1.4, 2.2's register, 2.6, 3.1's two populations and
-3.5.
+3.5, and since a sweep after 0.2.1 the transaction half of 4.1, which eight
+services had broken in one branch.

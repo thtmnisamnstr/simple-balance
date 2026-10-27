@@ -450,6 +450,33 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
     expect((error.details as { currentVersion: number }).currentVersion).toBe(account.version);
   });
 
+  /**
+   * The same split on a bulk call's not-found. The browser's "Reload the list"
+   * is advice an agent cannot take, and "one or more" with no ids left it
+   * listing everything to find the one that missed — out of up to ten
+   * thousand. The id comes back in the details and the sentence names both the
+   * field and the call that reads ids.
+   */
+  it("tells an agent which ids a mass edit missed, and where to find real ones", async () => {
+    const ghost = "00000000-0000-4000-8000-00000000dead";
+    const out = await client.callTool({
+      name: "bulk_edit_transactions",
+      arguments: {
+        selection: { mode: "ids", items: [{ id: ghost, expectedVersion: 1 }] },
+        patch: { notes: "x" },
+        idempotencyKey: "ghost-bulk-edit",
+      },
+    });
+    expect(out.isError).toBe(true);
+    const error = (out.structuredContent as { result: { error: Record<string, unknown> } }).result
+      .error;
+    expect(error.code).toBe("NOT_FOUND");
+    expect(error.message).toMatch(/details\.transactionIds/);
+    expect(error.message).toMatch(/list_transactions/);
+    expect(error.message).not.toMatch(/Reload/);
+    expect(error.details).toEqual({ transactionIds: [ghost] });
+  });
+
   // The one key a template refuses rather than drops, checked through the
   // transport an agent actually uses rather than against the schema directly.
   it("refuses a template carrying an import reference", async () => {

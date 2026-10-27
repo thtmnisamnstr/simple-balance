@@ -264,9 +264,12 @@ describe("the recurrence schedule preview", () => {
     fireEvent.change(interval, { target: { value: "0" } });
     expect(previewDates(container)).toBe(0);
 
-    // Blank is the form's way of saying every one, so the list comes back.
+    // Blank is the form's way of saying every one, so the list comes back —
+    // and the field says so, since the form's note calls every field without
+    // a word otherwise required (`web.md` 8.4).
     fireEvent.change(interval, { target: { value: "" } });
     expect(previewDates(container)).toBe(5);
+    expect(interval).toHaveAccessibleDescription(/so does leaving it blank/);
 
     fireEvent.change(interval, { target: { value: "0" } });
     expect(previewDates(container)).toBe(0);

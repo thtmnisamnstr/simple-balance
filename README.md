@@ -253,31 +253,31 @@ guides rather than restating them, so the rules still live in one place.
 
 Run **`release-prep`**. It is the one step, because it runs the others itself,
 in an order that matters — a later phase can change what an earlier one
-checked:
+checked. It reads what the branch changed and what that change reaches, not
+the whole product, and reads each part once:
 
-1. It audits the branch for anything that would break an upgrade, then hunts
-   for defects in what the branch changed, and fixes both.
+1. It audits the branch for anything that would break an upgrade, and fixes
+   a break that redesigns something before going further.
 2. **`guides-update`** brings the guides, `AGENTS.md`, `CHANGELOG.md` and
    `docs/upgrades.md` true for the branch, so the sweep after it holds the code
    to rules that describe it.
-3. **`guides-comply`** sweeps the whole product against those guides — not only
-   what the branch touched — fixes what violates them, and builds checks for
-   the rules nothing enforces yet.
-4. **`design-review`** compares every section of every page against
-   `docs/standards/web.md` and fixes what it finds. It is skipped, and the
-   report says so, only when the branch changed no page.
+3. **`guides-comply`** sweeps what the branch changed and reached against those
+   guides, hunting for defects in the same reading, and fixes each finding it
+   can reproduce, with a test, recording the ones it cannot.
+4. **`design-review`** photographs the pages the branch changed and compares
+   them with every other page in `docs/product/screenshots/`. It is skipped, and
+   the report says so, only when the branch changed no page.
 5. It removes dead code, then **`product-kit`** rebuilds the screenshots and
    feature list in `docs/product/` that the marketing site reads.
-6. **`guides-update`** runs again for what the sweeps changed, then the guides'
-   measured numbers are recounted, all three test tiers run, and it commits,
-   pushes, and waits for every check to go green.
+6. The guides' measured numbers are recounted, all three test tiers run, and
+   it commits, pushes, and waits for every check to go green.
 
 It never merges and never cuts a version. Merge the pull request yourself once
 every check is green.
 
-Each of those skills can also be run alone — `design-review` after a change to
-one page, `product-kit` to refresh the marketing screenshots between releases —
-but none of them needs to be run beside `release-prep`.
+Each can also be run alone, and alone `guides-comply` and `design-review` cover
+the whole product: run them so every few releases, or after changing something
+every page or service uses. None needs to be run beside `release-prep`.
 
 `cut-release` comes after the merge, from `main`, and only when you decide to
 ship a version and name it. It settles open Dependabot pull requests, sets the

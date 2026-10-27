@@ -190,8 +190,8 @@ together when both match.
 
 Lists order by any column they show, in either direction. Order is presentation
 rather than scope, so it stays out of the fingerprinted bulk selection. A cursor
-records the ordering it was issued for and is refused under another; orderings a
-keyset cannot resume page by number instead.
+records the ordering and the filters it was issued for and is refused if either
+changes; orderings a keyset cannot resume page by number instead.
 
 Budgeting sits over the ledger and never inside it. A budget is a comparison
 against the postings, not an entry among them: nothing in a budget writes a

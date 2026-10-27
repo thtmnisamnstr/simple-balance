@@ -375,7 +375,8 @@ export function selectionFingerprint(rows: readonly { id: string; version: numbe
  * Serialize mutations involving account references that cannot all be
  * represented by foreign keys (notably staged JSON drafts). Always acquire all
  * account locks in sorted order, then the account namespace lock, then the
- * category namespace lock, then the payee namespace lock.
+ * category namespace lock, then the payee namespace lock, then the template,
+ * the recurrence and the duplicate locks.
  */
 export async function lockAccountReferences(
   tx: DbTransaction,
@@ -412,14 +413,24 @@ export async function lockCategoryNamespace(tx: DbTransaction, actor: Actor) {
 /**
  * Serialize changes to the tenant's template names, which are compared the way
  * category names are and so need the same protection against two requests each
- * finding the name free. Taken last of all the namespace locks, because nothing
- * else ever takes it.
+ * finding the name free.
+ *
+ * Taken after the payee namespace and before the recurrence namespace, with the
+ * duplicate lock after both. The template and recurrence services each take
+ * only their own of the two, so either alone joins no ordering; adding or
+ * moving a Simple Balance file is the path that takes both, and the duplicate
+ * lock after them, so a second path taking them the other way round would
+ * deadlock against it. This said "taken last, because nothing else ever takes
+ * it" until the file's add and move made both halves of that untrue.
  */
 export async function lockTransactionTemplateNamespace(tx: DbTransaction, actor: Actor) {
   await takeTransactionLock(tx, `transaction-templates:${actor.userId}`);
 }
 
-/** Serialize changes to the tenant's recurrence names, which are unique. */
+/**
+ * Serialize changes to the tenant's recurrence names, which are unique. Taken
+ * after the template namespace and before the duplicate lock.
+ */
 export async function lockRecurrenceNamespace(tx: DbTransaction, actor: Actor) {
   await takeTransactionLock(tx, `recurrences:${actor.userId}`);
 }
@@ -451,6 +462,28 @@ export async function lockPayeeNamespace(tx: DbTransaction, actor: Actor) {
   await takeTransactionLock(tx, `payees:${actor.userId}`);
 }
 
+/**
+ * Serialize the duplicate check: the read that asks whether an entry like this
+ * one is already in the books, and the write that makes it so.
+ *
+ * One lock for the tenant, not one per fingerprint. It was one per fingerprint,
+ * held to commit, and advisory locks live in PostgreSQL's shared lock table
+ * rather than the fast path, which holds about `max_locks_per_transaction`
+ * times the connections allowed: a move part or a commit of ten thousand rows
+ * took ten to twenty thousand of them, and on the `single` profile's fifty
+ * connections that ran the server out of shared memory forty seconds in,
+ * refusing every other tenant's writes with it. The per-key locks bought
+ * nothing besides, because every path that takes this already holds the payee
+ * namespace lock, and every fingerprint is the tenant's, so no two transactions
+ * ever waited on one key that the payee lock had not already made one wait for
+ * the other. It stays a lock of its own, after the payee lock, so the
+ * duplicate check says what it relies on rather than leaning on a lock taken
+ * for another reason.
+ */
+export async function lockTransactionDuplicates(tx: DbTransaction, actor: Actor) {
+  await takeTransactionLock(tx, `transaction-duplicates:${actor.userId}`);
+}
+
 export async function setIdempotent(
   tx: DbTransaction,
   actor: Actor,
@@ -472,6 +505,25 @@ export function serializeRow<T>(row: T): T {
   return JSON.parse(
     JSON.stringify(row, (_key, value) => (value instanceof Date ? value.toISOString() : value)),
   ) as T;
+}
+
+/**
+ * `serializeRow` for an entry's or a staged row's audit snapshot, without its
+ * import origin, for the reason `transactionView` and `stageView` leave it out:
+ * the history is served over both transports and written into every Simple
+ * Balance file that carries it, and a field published by accident is one a
+ * later release could only take away behind a deprecation. The merges and the
+ * mass delete snapshot raw rows rather than views, so the views' omission never
+ * reached them, and a row with no origin carried `"importOrigin": null` from
+ * any ledger that never saw a file. Undefined stays undefined, as an audit
+ * entry with no before has none.
+ */
+export function auditedRow<T extends { importOrigin?: unknown }>(
+  row: T | undefined,
+): Omit<T, "importOrigin"> | undefined {
+  if (row === undefined) return undefined;
+  const { importOrigin: _importOrigin, ...recorded } = row;
+  return serializeRow(recorded);
 }
 
 /**
@@ -541,13 +593,19 @@ export async function pruneIdempotencyRecords(
  * draft was read from, keyed by that file's headers, and on
  * `create_staged_transaction` it is whatever the caller sent. Walking into it
  * would let an agent stage a row and read back a different one.
+ *
+ * `preview_ledger_file`'s `here.ids` is the third: it maps each record's key,
+ * which is the record's own name, to its id. An account somebody called
+ * `userId` is a key there like any other, and dropping it left the agent's
+ * preview listing the record in `here.accounts` with no id, while the page's
+ * preview of the same file had one. Nothing else replies with an `ids` key.
  */
-const OWNER_ID_OPAQUE_KEYS = new Set(["rows", "rawData"]);
+const OWNER_ID_OPAQUE_KEYS = new Set(["rows", "rawData", "ids"]);
 
 /**
  * The owner id, gone from every reply.
  *
- * One walk rather than seventy-one per-tool mappings: every row a tool returns
+ * One walk rather than a mapping per tool: every row a tool returns
  * belongs to the actor that authorized the connection, so `userId` is one
  * constant repeated on every row of every page, and `AGENTS.md`'s "Never accept
  * a public `userId`" means no next call can ever send it back. The output

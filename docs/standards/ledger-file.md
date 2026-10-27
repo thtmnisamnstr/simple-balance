@@ -24,7 +24,7 @@ check's sentences. `src/server/services/ledger-file.ts` reads a ledger and
 writes the file, adds a file to a ledger, and moves one into a ledger that
 holds nothing else. `GET /api/v1/ledger-file`,
 `POST /api/v1/ledger-file:preview`, `POST /api/v1/ledger-file:add` and
-`POST /api/v1/ledger-file:move` (`src/server/api.ts:2185-2236`), and the
+`POST /api/v1/ledger-file:move` (`src/server/api.ts:2196-2247`), and the
 `export_ledger_file`, `preview_ledger_file`, `add_ledger_file` and
 `move_ledger_file` tools, are the ways in, and the Import a Simple Balance file
 and Export sections of **Import and export** are the page that uses them. A
@@ -99,7 +99,7 @@ a side can only ever name an account.
 **House. The layout is fixed, so the bytes are.** The top level indented two
 spaces, every record of every list on a line of its own, an empty list as `[]`,
 keys within a record in the order the schema declares them, and a newline at the
-end (`serializeLedgerFile`, `src/shared/ledger-file.ts:1383-1401`). Fully
+end (`serializeLedgerFile`, `src/shared/ledger-file.ts:1381-1399`). Fully
 indented, one entry is fifteen lines; on one line, a diff of two exports is one
 changed line of forty megabytes. One record per line is what lets somebody find
 an entry by its payee and read it whole. And because the reader hands keys back
@@ -237,7 +237,7 @@ does: `"from":"Checking"`. `key` and `name` are separate fields for two reasons.
 An older ledger can hold two names that fold together under
 `normalizeHumanName`, which today's rules refuse and yesterday's did not; the
 exporter gives the later one the first free suffix, `"Checking (2)"`, and leaves
-its `name` alone (`assignLedgerKeys`, `src/shared/ledger-file.ts:1291-1308`). A
+its `name` alone (`assignLedgerKeys`, `src/shared/ledger-file.ts:1289-1306`). A
 suffix never takes a name somebody actually used, because every first-of-its-fold
 name is reserved before any suffix is handed out. And a rename on the way into
 another ledger changes a `name` and touches no reference.
@@ -286,7 +286,7 @@ by the copy it started in. A staged row is the same.
 **A row committed from the queue keeps the row's identity.** A staged row with
 no origin of its own is exported under its own id, and committing it gives the
 entry a new one. So an entry committed from such a row is exported under the
-row's id (`readCommittedFrom`, `src/server/services/ledger-file.ts:687-710`),
+row's id (`readCommittedFrom`, `src/server/services/ledger-file.ts:758-781`),
 and a file written while the row still waited is skipped once the row is in
 the books, whether or not the entry was deleted since. The id is worked out
 from the queue at export rather than stored in `import_origin`, because an
@@ -313,7 +313,7 @@ row's identity once it is committed, so a later file adds nothing").
 | Budgets | Every plan and every one-period amount, aimed at a category or a group by key |
 | Staged rows | The draft as the queue holds it, with keys where it could resolve them, and the raw row it came from |
 | Settings | Timezone, default currency and theme, when the person chose them |
-| Activity history | When asked for, every event as stored, without the owner's id on every snapshot or which agent did it |
+| Activity history | When asked for, every event as stored, without the owner's id — on a snapshot, or as what an event is about, which says `owner` instead — or which agent did it |
 
 | Not preserved | Why |
 | --- | --- |
@@ -334,7 +334,7 @@ holding it.
 
 **The request is the page's own selection.** One schema for the page, the route
 and the tool (`ledgerFileSelectionSchema`,
-`src/shared/ledger-file.ts:1575-1644`), strict, so an agent can ask for exactly
+`src/shared/ledger-file.ts:1573-1642`), strict, so an agent can ask for exactly
 what the page can. `kinds` names the kinds that travel whole, from
 `preferences`, `categories`, `accounts`, `entries`, `deletedEntries`,
 `templates`, `recurrences`, `budgets`, `staged` and `history`, and the page
@@ -361,7 +361,7 @@ history events by the instant they happened, from the start of `start` to the
 start of the day after `end` where the person lives — worked out by
 `startOfDayIn` rather than by asking the database what day an event fell on,
 which `calendarDayIn` answers and PostgreSQL answers differently for a bare
-offset (`historyConditions`, `src/server/services/ledger-file.ts:499-508`).
+offset (`historyConditions`, `src/server/services/ledger-file.ts:527-536`).
 With entries ranged, **every** whole account carries `carriedForward`, dated
 `start`, whatever its opening date: its `amount` is what the account's postings
 summed to the day before, future-dated ones included, since those entries are
@@ -395,24 +395,40 @@ sum over the cap is refused with both numbers in `details` as `limit` and
 moves that would work: narrow with a start and end date whatever a range
 narrows, export the staged rows, budgets or history separately when they are
 beside something else, and failing both, commit or discard some staged rows —
-or, for budget amounts alone, say that no one export can carry that many
-(`src/server/services/ledger-file.ts:308-314`, `:530-560`). The activity history
-has a second limit, on the bytes of its before and after snapshots, because rows
-do not bound it the way they bound everything else: an event about an edited
-split is ten times an entry's line. Its refusal carries `limit` and `bytes` and
-names the range. Each transport chooses both limits:
+or, for budget amounts alone, say that this export cannot carry that many
+(`src/server/services/ledger-file.ts:336-348`, `:569-601`). This export, and not
+no export, because the download carries ten times an agent's call. There is a
+second limit, on content: the bytes of what the row cap does not bound, because
+it is not the same size on every row — the entries' free text, every leg of a
+split, staged rows' drafts and source data, and the activity history's before
+and after snapshots. It was the history's alone until a hundred thousand entries
+with the longest notes made a 450 MB file and fifty noted legs on a third of
+that many passed the longest string V8 builds, each a 500 or the server's heap
+where a refusal naming a range belonged. Its refusal names what was counted,
+carries `limit` and `bytes`, and ends with the same moves as the row cap's. Each
+transport chooses both limits:
 
-| | Rows | History |
+| | Rows | Content |
 | --- | --- | --- |
-| The download | 100,000, `CSV_EXPORT_MAX_ROWS`, because the way out should never be narrower than the way in | 16 MiB, `LEDGER_FILE_HISTORY_MAX_BYTES` (`src/server/config-limits.ts:48`) |
-| The MCP tool | 10,000, one import part, because the reply is serialized twice and cannot stream | 4 MiB, `MCP_LEDGER_FILE_HISTORY_MAX_BYTES` (`:56`) |
+| The download | 100,000, `CSV_EXPORT_MAX_ROWS`, because the way out should never be narrower than the way in | 16 MiB, `LEDGER_FILE_CONTENT_MAX_BYTES` (`src/server/config-limits.ts:57`) |
+| The MCP tool | 10,000, one import part, because the reply is serialized twice and cannot stream | 4 MiB, `MCP_LEDGER_FILE_CONTENT_MAX_BYTES` (`:65`) |
 
-The largest file the download's two limits allow together came to 33 MiB and
-peaked under 400 MiB resident in the heap a one-gibibyte container gives Node,
-measured on 2026-10-25.
+The largest file the download's two limits allowed with the history alone
+counted came to 33 MiB and peaked under 400 MiB resident in the heap a
+one-gibibyte container gives Node, measured on 2026-10-25; a hundred thousand
+entries carrying sixteen mebibytes of notes came to 32 MiB and peaked at
+384 MiB, measured the same way on 2026-10-26.
+
+**The tool's file is one part.** The MCP tool also holds the finished file to
+one import part's 16 MiB (`maxBytes`), measured in UTF-8 as the import's own
+schema measures it, because a file inside both limits above with splits wide
+enough was over it, and every import tool refused the file the export tool had
+just made, pointing at a page an agent cannot use. Its refusal carries `limit`
+and `bytes` and the same moves. The download has no such limit: the import page
+cuts it into parts.
 
 **One snapshot.** Every read happens in one `REPEATABLE READ, READ ONLY`
-transaction (`src/server/services/ledger-file.ts:249-274`), so the sections of a
+transaction (`src/server/services/ledger-file.ts:264-302`), so the sections of a
 file agree with each other. Several reads at the default isolation could name
 an account created between two of them.
 
@@ -458,7 +474,7 @@ holds.
 
 **House.** The ten-thousand-row cap is the same number everywhere, so a file
 larger than that is read in parts, and `splitLedgerFile`
-(`src/shared/ledger-file.ts:1473-1564`) is what cuts them. It shipped with the
+(`src/shared/ledger-file.ts:1471-1562`) is what cuts them. It shipped with the
 export, so the format and its splitter were tested together before anything
 read a part, and the import page cuts every file it is given with it (section
 15).
@@ -482,7 +498,7 @@ read a part, and the import page cuts every file it is given with it (section
   records — groups, categories, accounts, templates, recurring transactions and
   budget plans, references included — which every part would carry, so no
   number of parts makes it fit an import's cap on them (`ledgerFileRecordCount`,
-  `:1327-1341`); a records section larger than a part on its own; and a single
+  `:1325-1339`); a records section larger than a part on its own; and a single
   row too large to fit beside it, which the sentence names — an entry by its
   date and payee.
 
@@ -493,7 +509,7 @@ mutation-checked.
 ## 10. Refusals
 
 **House.** A file is read in four steps, and reading stops at the first that
-fails (`parseLedgerFile`, `src/shared/ledger-file.ts:854-891`):
+fails (`parseLedgerFile`, `src/shared/ledger-file.ts:852-889`):
 
 1. **Is it JSON.** Text that is not is far more often a CSV chosen in the wrong
    place, or a download cut short, than anything else, so the sentence says
@@ -515,7 +531,7 @@ fails (`parseLedgerFile`, `src/shared/ledger-file.ts:854-891`):
    add an optional field under the same token and a strict reader refusing it
    by name would read as a damaged file.
 4. **Does it hold together**, which no one record can say (`ledgerFileProblems`,
-   `:973-1133`): keys unique within a kind once case and spacing are set aside;
+   `:971-1131`): keys unique within a kind once case and spacing are set aside;
    every reference naming a key of its kind that is there; origins unique across
    the entries and the queue; an entry filed under a category or split, not
    both; a budget about exactly one target, once per target, currency, period
@@ -589,7 +605,7 @@ taken for the one here, is a guess: "Checking" in one ledger and "Checking" in
 another can be two banks, and a guess never overwrites a decision.
 
 **House. One planner, at both ends.** What decides every record is
-`planLedgerFileAdd` (`src/shared/ledger-file-import.ts:1583-2992`), pure, and
+`planLedgerFileAdd` (`src/shared/ledger-file-import.ts:1604-3027`), pure, and
 the page and the server both run it. The page runs it over the whole file each
 time somebody decides something; the server runs it again over each part, on
 what it reads under the locks its writes will hold, and refuses with the very
@@ -597,7 +613,7 @@ problems the preview listed: the first one's sentence as the message and its
 numbers as fields beside it, and every one, with its own numbers, in
 `details.issues`. A record here is compared with the file's in the form a file
 writes it: the destination is read by the exporter's own snapshot and assembly
-(`readLedgerFileFacts`, `src/server/services/ledger-file.ts:1490-1574`), so "the
+(`readLedgerFileFacts`, `src/server/services/ledger-file.ts:1593-1678`), so "the
 same record" means "would export to the same record". That is what makes a
 record an earlier part created read as the same one when the next part arrives,
 and a file added twice write nothing the second time, without anything keeping a
@@ -704,7 +720,7 @@ file came from those were two records, and the one here may be the other one,
 made by an earlier part. An account created from a reference opens at zero on
 the earliest day a live entry or a staged row in the part names it, or the
 file's last day when none does (`ledgerReferenceOpeningDate`,
-`src/shared/ledger-file-import.ts:1091-1104`), and a file sent in parts sends
+`src/shared/ledger-file-import.ts:1112-1125`), and a file sent in parts sends
 `openingDate` on the decision, worked out over the whole file, so the account
 opens on the same day whichever part creates it. Once `create` is chosen the
 record says so, and that its balance will be only what the file's entries move:
@@ -715,12 +731,16 @@ carried-forward balance, the file's own. An account opened before a ranged
 file's first day opens on that day at what it held the day before; one opened
 inside the range keeps its own day, and the money dated before the range,
 which no entry carries, is added to its opening balance
-(`ledgerAccountOpening`, `src/shared/ledger-file-import.ts:1013-1031`). An
+(`ledgerAccountOpening`, `src/shared/ledger-file-import.ts:1034-1052`). An
 account has one opening, so one of the two figures has to move, and moving the
 money keeps the day the person sees and makes every balance from it on exact.
 A duplicate account whose opening differs says both openings and what using
 the one here does to the gap, rather than "it differs", because that is the
-difference that decides a balance and using the one here keeps its own.
+difference that decides a balance and using the one here keeps its own. A move
+says the two openings and stops there: whether the one here may be used at all
+is the move's own sentence, which follows (section 17), and the add's "using
+the one here keeps its own opening" would offer a choice the move has just
+taken away.
 
 **Some records are left out, with the reason, and nothing to decide.** A
 recurring transaction whose account is not coming in; an account, a template
@@ -767,7 +787,7 @@ than flagged. Two entries with different origins are never duplicates of each
 other: not at stage, at commit, on an edit or a restore, or in a mass edit."
 
 **House. Every live entry stages as a complete draft wherever its references
-resolve** (`ledgerEntryDraft`, `src/shared/ledger-file-import.ts:1262-1307`). A
+resolve** (`ledgerEntryDraft`, `src/shared/ledger-file-import.ts:1283-1328`). A
 transfer carries both sides and both amounts, always, so a transfer in two
 accounts' files stages whole the first time and is skipped by its origin the
 second, and a conversion arrives with the two figures that moved. A category is
@@ -781,14 +801,20 @@ its usual issue. The file's own staged rows stage again, with their keys turned
 back into ids and their raw data kept. Each part's rows go under an import batch
 of their own, of kind `ledger_file`, which the Staged page's batch filter names
 as a Simple Balance file; a part that stages nothing makes no batch. Neither
-origin is ever sent in a view of an entry or a staged row, or accepted in a
-draft: a field the API sends has to be rendered
+origin is ever sent in a view of an entry or a staged row, written into an
+audit snapshot of one, or accepted in a draft: a field the API sends has to be
+rendered
 ([`web.md`](web.md#119-a-field-the-api-sends-is-rendered-or-its-absence-is-argued)),
-and an origin is for recognizing an entry rather than for showing one.
+and an origin is for recognizing an entry rather than for showing one. The
+history is the easy one to miss, because it is sent too — over both transports,
+and inside every file that carries it — and the two merges and the mass delete
+snapshot the raw row rather than a view, so the views' omission never reached
+them. Every snapshot of an entry or a staged row goes through `auditedRow`
+(`src/server/services/helpers.ts:521-527`), which leaves the origin out.
 
 **An origin found here is skipped and counted, never flagged.** One statement
 looks in five places (`findImportOrigins`,
-`src/server/services/ledger-file.ts:1338-1365`), so a commit landing between
+`src/server/services/ledger-file.ts:1416-1443`), so a commit landing between
 two lookups cannot slip an origin past both: an entry's own id, which is what a
 file re-imported into the ledger it left carries; an entry's `import_origin`,
 deleted entries included, because deleting an entry is a decision about it and
@@ -807,12 +833,12 @@ per origin" unique indexes. The commit copies a row's origin onto the entry it
 becomes, and a violation is a sentence rather than a constraint: from the
 commit, *This entry is already in the ledger, so it was not committed again.*,
 and from the add, *Another import staged this file's transactions a moment
-ago. Check the file again.*, with an agent told to call `preview_ledger_file`
+ago. Check file again.*, with an agent told to call `preview_ledger_file`
 again. On a Citus cluster the index's name carries a shard
 suffix, so the violation is recognized by the name it starts with.
 
 **Different origins are never duplicates, and no origin is compared as it always
-was.** `importOriginsDiffer` (`src/shared/ledger-file-import.ts:3069-3074`) is
+was.** `importOriginsDiffer` (`src/shared/ledger-file-import.ts:3104-3109`) is
 true only when both rows carry an origin and the two differ: two coffees bought
 the same morning and committed apart are two entries, so nothing pairs them —
 not the check at stage or at commit, on an edit or a restore, in a mass edit, or
@@ -832,14 +858,15 @@ stated amount.
 "tells two entries apart by origin only when both have one"),
 `tests/unique-violation.test.ts` for the violation under both names, and
 `tests/integration/ledger-file-add.integration.test.ts` ("makes the same books
-once its entries are committed, and copies each origin", "skips an entry
-already here by origin, deleted or not, and stages a discarded row again", "is
-skipped by the ledger it came from, all the way round", "lands a transfer once
-from two accounts' files", "refuses an entry already in the books at commit
-with a sentence, not a constraint", "matches and touches nothing of anybody
-else's", and "never sends an origin in a view of an entry or a staged row"),
-with `tests/integration/ledger-file-add-route.integration.test.ts` ("sends no
-origin in a staged row or an entry") for the same over HTTP.
+once its entries are committed, and copies each origin", "skips an entry already
+here by origin, deleted or not, and stages a discarded row again", "is skipped
+by the ledger it came from, all the way round", "lands a transfer once from two
+accounts' files", "refuses an entry already in the books at commit with a
+sentence, not a constraint", "matches and touches nothing of anybody else's",
+and "never sends an origin in a view of an entry or a staged row", which also
+runs both merges and a mass delete and reads back the history they wrote), with
+`tests/integration/ledger-file-add-route.integration.test.ts` ("sends no origin
+in a staged row or an entry") for the same over HTTP.
 
 ## 15. Parts, places and settings
 
@@ -848,7 +875,7 @@ rows, the cap `AGENTS.md` fixes for every bulk write, and at most 10,000
 records apart from its rows, because every part carries all of them and its
 one transaction creates or matches each under every namespace lock; a part
 over either is refused with `limit` and `count` before the ledger is read
-(`readPart`, `src/server/services/ledger-file.ts:1280-1309`). The splitter
+(`readPart`, `src/server/services/ledger-file.ts:1358-1387`). The splitter
 never cuts a part over the row cap, and refuses up front a file whose records
 alone are over the other. So the part that meets the row refusal is one nobody
 cut: a file made by hand, or the browser's download — up to 100,000 rows —
@@ -969,7 +996,8 @@ itself held to.
 **Whether a move is offered instead is the preview's to say.**
 `move.qualifies` is true where every entry and waiting staged row in this
 ledger came from a Simple Balance file, and `move.reason` says why not
-otherwise; section 17 is what a move does.
+otherwise, with `move.stagedRows` counting the waiting rows when they are all
+that is in the way; section 17 is what a move does.
 
 *Checked by:* `tests/ledger-file-import.test.ts` ("count what the rows will
 do"), and `tests/integration/ledger-file-add.integration.test.ts`: "previews an
@@ -1000,9 +1028,16 @@ qualifies while it holds no entry without an origin, deleted or not, and no
 waiting staged row without one; records, settings, openings and closes are not
 entries and do not count. A new sign-up, a fresh install, a ledger that only
 ever took files, and one part-way through a move all qualify. One transaction
-typed here, or one row a CSV staged, ends it, and a deleted one still counts,
-because somebody typed into this ledger. The read is one statement, made by
-the preview and again by the move under the locks its writes hold. Every path
+typed here ends it, and a deleted one still counts, because somebody typed into
+this ledger. A row waiting in Staged without an origin — a CSV staged and not
+committed, a row typed into the queue, a recurrence's proposal — stops it only
+until it is discarded, and its refusal says so in words of its own
+(`ledgerFileMoveStagedBlocked`, with the rows counted in `move.stagedRows` and
+in the problem's `count`), because the entries' sentence sent people to add
+instead, over a row they could have discarded; committing one makes it a
+transaction, and that ends it. Where both are here the entries' sentence wins,
+since discarding would not help. The read is one statement, made by the preview
+and again by the move under the locks its writes hold. Every path
 by which a person or an agent writes an entry or stages a row — a form, a tool,
 a CSV, a commit — takes the payee lock the move holds, so none of them slips in
 between the check and the first write. A recurring transaction's proposal does
@@ -1058,7 +1093,9 @@ numbers it states as fields, refuse the part before anything is written. The
 first two lead the list, before any decision, because no answer cures either;
 the other three follow the add's own problems.
 
-1. The ledger does not qualify, in `move.reason`'s sentence.
+1. The ledger does not qualify, in `move.reason`'s sentence — with the waiting
+   rows as `count` when they are all that stops it, since discarding them
+   clears it.
 2. Some of the file's transactions are waiting in Staged from an earlier add of
    it (`count`). A move would skip them by origin and come out short, so
    committing or discarding them clears it.
@@ -1204,7 +1241,7 @@ add's, said the same way and told to check the file again: an account the plan
 uses that was not locked as the part began, and another import writing one of
 the same transactions between the part's lookup and its write, which the
 one-entry-per-origin index refuses as *Another import wrote this file's
-transactions a moment ago. Check the file again.* Recurring transactions are
+transactions a moment ago. Check file again.* Recurring transactions are
 created by the part numbered last: one created earlier could propose its next
 occurrence before the next part lands, and a row nobody imported waiting in
 Staged is exactly what ends a ledger's taking the rest of a file. A spent
@@ -1224,8 +1261,13 @@ transactions: a range is a file of its own and its own last part, so its
 recurring transactions are created as it lands, and one could propose a row
 nobody imported before the next range arrives. `export_ledger_file`'s
 description says both, and `move_ledger_file`'s says the order, because an
-agent never reads this guide. The browser cuts any file into parts itself and
-never needs this.
+agent never reads this guide. The browser cuts any one file into parts itself,
+but a ledger over the download's 100,000 rows is exported a range at a time
+there too, so the export page's range question — **Transactions from** — says
+the same about recurring transactions once a range is chosen and whenever they
+are in the file. A row one of them proposes is a
+waiting row with no origin, and the move's refusal says so and that discarding
+it lets the next range through (`ledgerFileMoveStagedBlocked`).
 
 **Measured.** A part of 10,000 transactions — 9,000 written and 1,000 written
 and then voided, with splits, transfers and refunds among them, in a file of
@@ -1297,7 +1339,8 @@ places and a frozen account;
 `tests/integration/ledger-file-move-route.integration.test.ts` for the colon
 path and the frames; and
 `tests/integration/ledger-file-move-facts.integration.test.ts` for the reads
-that decide whether a ledger qualifies and what is waiting.
+that decide whether a ledger qualifies and what is waiting, including "says a
+row waiting in Staged is what stops a move, and moves once it is discarded".
 
 ## 18. What is checked, and what is not
 

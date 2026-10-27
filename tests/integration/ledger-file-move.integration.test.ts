@@ -20,7 +20,7 @@ import {
 } from "../../src/shared/ledger-file-import.js";
 import type { LedgerFileMoveResult } from "../../src/shared/ledger-file-move.js";
 import { addDays, todayIn } from "../../src/shared/recurrence-dates.js";
-import { LEDGER_FILE_HISTORY_MAX_BYTES } from "../../src/server/config-limits.js";
+import { LEDGER_FILE_CONTENT_MAX_BYTES } from "../../src/server/config-limits.js";
 import { getDb } from "../../src/server/db/client.js";
 import {
   auditEvents,
@@ -34,7 +34,11 @@ import {
   user,
 } from "../../src/server/db/schema.js";
 import { createMcpServer } from "../../src/server/mcp.js";
-import { ledgerFileRowsMoved, ledgerFileRowsStaged } from "../../src/server/metrics.js";
+import {
+  ledgerFileRowsMoved,
+  ledgerFileRowsStaged,
+  ledgerWrites,
+} from "../../src/server/metrics.js";
 import { createAccount, setAccountArchived } from "../../src/server/services/accounts.js";
 import {
   createBudgetPlan,
@@ -126,7 +130,7 @@ const connection = process.env.TEST_DATABASE_URL;
 const integration = describe.skipIf(!connection);
 const database = scratchDatabase("ledger_file_move");
 const TIMEZONE = "Europe/Berlin";
-const LIMITS = { maxRows: 100_000, maxHistoryBytes: LEDGER_FILE_HISTORY_MAX_BYTES };
+const LIMITS = { maxRows: 100_000, maxContentBytes: LEDGER_FILE_CONTENT_MAX_BYTES };
 const everything = { kinds: defaultLedgerFileKinds.filter((kind) => kind !== "history") };
 
 const person = (id: string): Actor => ({ userId: `lf-move-${id}`, source: "web" });
@@ -856,7 +860,7 @@ integration("moving a Simple Balance file straight into the books", () => {
     const before = await footprint(whole);
     const preview = await previewLedgerFile(whole, { ledgerFile: wholeFile });
     expect(await footprint(whole)).toEqual(before);
-    expect(preview.move).toEqual({ qualifies: true, reason: null });
+    expect(preview.move).toEqual({ qualifies: true, reason: null, stagedRows: 0 });
     expect(preview.movePlan.ok).toBe(true);
     const live = parsedWhole.entries.filter((each) => !each.deleted).length;
     expect(preview.movePlan.move).toMatchObject({
@@ -904,25 +908,33 @@ integration("moving a Simple Balance file straight into the books", () => {
 
   it("moves a whole ledger in one part, and the books are the ones it came from", async () => {
     const whole = person("whole");
+    const writes = async (operation: string) =>
+      (await ledgerWrites.get()).values.find((value) => value.labels.operation === operation)
+        ?.value ?? 0;
     const counted = async () => ({
       moved: (await ledgerFileRowsMoved.get()).values[0]?.value ?? 0,
       staged: (await ledgerFileRowsStaged.get()).values[0]?.value ?? 0,
+      created: await writes("create"),
+      voided: await writes("delete"),
     });
     const before = await counted();
     const key = randomUUID();
     const result = await move(whole, wholeFile, { idempotencyKey: key });
     const live = parsedWhole.entries.filter((each) => !each.deleted).length;
     // Counted once the part has committed, the voided ones included, and
-    // never again for a replay of it.
-    expect(await counted()).toEqual({
+    // never again for a replay of it. In `ledger_writes_total` too: every
+    // transaction a create, and each deleted one a delete, whose count was
+    // queued on the move's own transaction and never released until the move
+    // flushed what it opened (`services.md` 2.10).
+    const after = {
       moved: before.moved + parsedWhole.entries.length,
       staged: before.staged + 2,
-    });
+      created: before.created + parsedWhole.entries.length,
+      voided: before.voided + 2,
+    };
+    expect(await counted()).toEqual(after);
     expect(await move(whole, wholeFile, { idempotencyKey: key })).toEqual(result);
-    expect(await counted()).toEqual({
-      moved: before.moved + parsedWhole.entries.length,
-      staged: before.staged + 2,
-    });
+    expect(await counted()).toEqual(after);
     expect(result).toMatchObject({
       part: { index: 1, count: 1 },
       written: { entries: live, deleted: 2 },
@@ -1303,7 +1315,11 @@ integration("moving a Simple Balance file straight into the books", () => {
       randomUUID(),
     );
     const preview = await previewLedgerFile(owner, { ledgerFile: parts[1]! });
-    expect(preview.move).toEqual({ qualifies: false, reason: LEDGER_FILE_MOVE_BLOCKED });
+    expect(preview.move).toEqual({
+      qualifies: false,
+      reason: LEDGER_FILE_MOVE_BLOCKED,
+      stagedRows: 0,
+    });
     expect(preview.movePlan.problems[0]).toEqual({
       field: "move",
       message: LEDGER_FILE_MOVE_BLOCKED,
@@ -1321,7 +1337,7 @@ integration("moving a Simple Balance file straight into the books", () => {
     expect(refused.code).toBe("VALIDATION_ERROR");
     expect(refused.message).toBe(LEDGER_FILE_MOVE_BLOCKED);
     expect(refused.agentMessage).toBe(
-      "This ledger holds entries that did not come from a Simple Balance file, so a file cannot be moved into it. Call add_ledger_file with the same parts and decisions instead; its entries go to Staged for review.",
+      "This ledger holds transactions that did not come from a Simple Balance file, so a file cannot be moved into it. Call add_ledger_file with the same parts and decisions instead; its transactions go to Staged for review.",
     );
     expect(await footprint(owner)).toEqual(before);
 
@@ -1411,7 +1427,7 @@ integration("moving a Simple Balance file straight into the books", () => {
     const refused = await refusal(move(owner, smallFile));
     expect(refused.code).toBe("CONFLICT");
     expect(refused.message).toBe(
-      "Another import wrote this file's transactions a moment ago. Check the file again.",
+      "Another import wrote this file's transactions a moment ago. Check file again.",
     );
     expect(refused.agentMessage).toBe(
       "Another import wrote this file's transactions a moment ago. Call preview_ledger_file again, and send what it now says.",

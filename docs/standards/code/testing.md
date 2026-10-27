@@ -573,15 +573,15 @@ it, drop it in `afterAll`. Files then do not race, which matters because
 
 The sequence has a helper, and a new file should take it rather than re-roll
 it: `scratchDatabase()` in `tests/integration/support/scratch-database.ts`
-creates, migrates and registers the drop in one call, and 60 of the 91 files
+creates, migrates and registers the drop in one call, and 64 of the 96 files
 use it. The files that predate it manage their own admin client, and their
 teardowns had drifted to an unguarded four-step sequence where the first step
 throwing strands the database and the connection both — the exact failure the
 helper exists to end, and its docstring says so. `dropScratchDatabase` covers
 the 13 hand-rolled files that only need the guarded teardown.
 
-Sixty, thirteen and eighteen, which is the whole ninety-one. The last
-eighteen take neither helper and hand-roll all of it — their own admin client,
+Sixty-four, thirteen and nineteen, which is the whole ninety-six. The last
+nineteen take neither helper and hand-roll all of it — their own admin client,
 their own `create database`, their own `runMigrations`, their own drop. They are
 not doing anything else; they are the group the helper was written for and the
 group nothing has converted yet. Counting them is the point of writing the three

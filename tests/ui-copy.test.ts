@@ -168,6 +168,65 @@ describe("what the product says", () => {
   });
 
   /**
+   * `web.md` 16: a button's words drop their articles — "Add menu item", not
+   * "Add a menu item".
+   *
+   * The check above reads only a `<Button>` whose child is nothing but text, so
+   * it never saw a label beside an icon, a label chosen by a ternary, a plain
+   * `<button>`, a link drawn as a button or a `confirmLabel`, and fifteen of
+   * those carried an article — "Add a category" among them, which is the
+   * guide's own counterexample nearly word for word. This reads all five: the
+   * text between the tags with the icons taken out, and every string literal
+   * an expression there chooses between. A label put together from a value is
+   * read up to its first placeholder, and past that it is review.
+   */
+  it("drops the articles from every button's words", () => {
+    const ARTICLE = /\b(?:the|a|an)\b/i;
+    const withArticle: string[] = [];
+    let read = 0;
+    for (const path of globSync("src/client/**/*.tsx")) {
+      const source = readFileSync(path, "utf8");
+      const at = (index: number) => `${path}:${source.slice(0, index).split("\n").length}`;
+      const labels: [string, string][] = [];
+      for (const match of source.matchAll(
+        /<(Button|button|Link|a)\b((?:[^>{}]|\{(?:[^{}]|\{[^{}]*\})*\})*)>([\s\S]*?)<\/\1>/g,
+      )) {
+        const [, tag, props, children] = match;
+        // A link is a button only when it is drawn as one.
+        if ((tag === "Link" || tag === "a") && !/className="button\b/.test(props!)) continue;
+        const words = children!
+          .replace(/\{\/\*[\s\S]*?\*\/\}/g, " ")
+          .replace(/^\s*\/\/.*$/gm, " ")
+          .replace(/<[A-Z]\w*\b(?:[^>{}]|\{[^{}]*\})*\/>/g, " ");
+        const texts = [
+          ...words
+            .replace(/\{(?:[^{}]|\{[^{}]*\})*\}/g, " ")
+            .replace(/<[^>]*>/g, " ")
+            .split(/\s{2,}|\n/),
+          ...[...words.matchAll(/"([^"\n]+)"/g)].map((quoted) => quoted[1]!),
+          ...[...words.matchAll(/`([^`$\n]+)/g)].map((quoted) => quoted[1]!),
+        ];
+        for (const text of texts) labels.push([at(match.index), text]);
+      }
+      for (const match of source.matchAll(/confirmLabel=(?:"([^"]+)"|\{([^}]*)\})/g)) {
+        if (match[1]) labels.push([at(match.index), match[1]]);
+        else
+          for (const quoted of match[2]!.matchAll(/"([^"\n]+)"/g))
+            labels.push([at(match.index), quoted[1]!]);
+      }
+      for (const [where, raw] of labels) {
+        const text = raw.replace(/\s+/g, " ").trim();
+        if (!/[A-Za-z]/.test(text)) continue;
+        read += 1;
+        if (ARTICLE.test(text)) withArticle.push(`${where} "${text}"`);
+      }
+    }
+    // Two hundred labels today; a matcher that broke reads far fewer.
+    expect(read).toBeGreaterThan(150);
+    expect(withArticle, "drop the article: Add category, not Add a category").toEqual([]);
+  });
+
+  /**
    * `web.md` 6.1: Cancel is a ghost button wherever it is, so the action beside
    * it is the one that stands out. The two bulk-edit dialogs drew theirs as
    * secondary — an outlined button of the same weight as the action — while
@@ -845,6 +904,117 @@ describe("the word for an account that has been put away", () => {
   });
 });
 
+/**
+ * `web.md` 16, one word per concept, for the two things a person is sent
+ * somewhere by: a page, and the action that brings an archived record back.
+ *
+ * The error boundary — the one screen meant for recovery — said "Go to the
+ * dashboard" for a page the sidebar and its own header call Overview, and
+ * the MCP guide told an agent's operator to "unarchive" an account first, a
+ * button that exists nowhere: the product, its tool titles and the refusal an
+ * agent actually meets all say Restore. Each was a name a person could not
+ * find by looking for it.
+ *
+ * So a link or button that sends somebody to a page names it by its sidebar
+ * label, read out of `App.tsx`'s `nav` rather than listed here, and "unarchive"
+ * is a wire value — an audit operation, a result field — and never a word in a
+ * sentence, here or in the three guides written for people.
+ */
+describe("a page or an action named in the product's own words", () => {
+  const app = readFileSync("src/client/App.tsx", "utf8");
+  const navigation = app.slice(
+    app.indexOf("const nav = ["),
+    app.indexOf("];", app.indexOf("const nav = [")),
+  );
+  const pages = new Set([...navigation.matchAll(/label:\s*"([^"]+)"/g)].map((match) => match[1]!));
+
+  it("reads the sidebar it compares against", () => {
+    expect(pages.size, "the sidebar's labels are being read").toBeGreaterThan(10);
+    expect(pages).toContain("Overview");
+  });
+
+  it("sends somebody to a page by the name the sidebar gives it", () => {
+    const misnamed: string[] = [];
+    let sends = 0;
+    for (const file of sourceFiles("src/client")) {
+      // Across lines: a label sits on its own line between the tag and its
+      // close far more often than beside them. An interpolated destination
+      // stops at its brace and is a name only known at runtime.
+      for (const match of file.code.matchAll(/>\s*(?:Go to|Open)\s+([^<>{}]+?)\s*</g)) {
+        sends += 1;
+        const destination = match[1]!.replaceAll(/\s+/g, " ");
+        if (!pages.has(destination)) {
+          const line = file.code.slice(0, match.index).split("\n").length;
+          misnamed.push(`${file.path}:${line} "${destination}"`);
+        }
+      }
+    }
+    expect(sends, "no link sends anybody anywhere, so this examined nothing").toBeGreaterThan(1);
+    expect(misnamed, "name the page as the sidebar does").toEqual([]);
+  });
+
+  it("brings an archived record back with Restore, and never unarchives it", () => {
+    const unarchive = /\bun-?archiv/i;
+    const said: string[] = [];
+    for (const path of SOURCES) {
+      const source = readFileSync(path, "utf8");
+      for (const { text, line } of [...literals(source), ...jsxText(source)]) {
+        // A lone identifier is the wire value — the audit operation an archive
+        // undone is recorded under, or the import result's field — not a word.
+        if (!unarchive.test(text) || /^\w+$/.test(text.trim())) continue;
+        said.push(`${path}:${line} "${text.trim().slice(0, 70)}"`);
+      }
+    }
+    for (const path of ["docs/guide.md", "docs/how-to.md", "docs/mcp.md"]) {
+      readFileSync(path, "utf8")
+        .replaceAll(/```[\s\S]*?```/g, (block) => block.replaceAll(/[^\n]/g, " "))
+        .split("\n")
+        .forEach((line, index) => {
+          if (unarchive.test(line.replaceAll(/`[^`]*`/g, ""))) said.push(`${path}:${index + 1}`);
+        });
+    }
+    expect(said, "the product's word is Restore").toEqual([]);
+  });
+});
+
+/**
+ * `web.md` 11.8: the archived flag defines the view, so it lives in the
+ * address, and it is one key wherever a page has the box.
+ *
+ * Accounts and Categories kept theirs in component state until a link needed
+ * one: the Simple Balance file's result said "Restore it from Accounts" and
+ * its link landed on a list hiding that account, with nothing a link could
+ * carry to say otherwise. Written over every box rather than over those two,
+ * the check found the budget page's as well. The population is every checkbox
+ * whose `checked` is bound to a value named for archived records, so a sixth
+ * page's box is inside it by what it binds; each such value has to be read
+ * from `params.get("archived")` in the same file.
+ */
+describe("a box that shows or hides archived records", () => {
+  const boxes = sourceFiles("src/client").flatMap((file) =>
+    [...file.code.matchAll(/\bchecked=\{(\w*[Aa]rchived\w*)\}/g)].map((match) => ({
+      where: `${file.path}:${file.code.slice(0, match.index).split("\n").length}`,
+      fromTheAddress: new RegExp(`const ${match[1]!}\\s*=\\s*params\\.get\\("archived"\\)`).test(
+        file.code,
+      ),
+    })),
+  );
+
+  it("is found on every page that has one", () => {
+    expect(
+      boxes.length,
+      "a pattern that found nothing would pass by looking at nothing",
+    ).toBeGreaterThanOrEqual(5);
+  });
+
+  it("reads its value from the address, under the one key", () => {
+    expect(
+      boxes.filter((box) => !box.fromTheAddress).map((box) => box.where),
+      'read it from `params.get("archived")` and write it back with `setParams`',
+    ).toEqual([]);
+  });
+});
+
 describe("a cell with nothing in it", () => {
   it("writes the dash as a fallback and never as cell text", () => {
     const literal: string[] = [];
@@ -858,6 +1028,28 @@ describe("a cell with nothing in it", () => {
         });
     }
     expect(literal, "a dash is what a missing value renders as, not what a cell says").toEqual([]);
+  });
+
+  /**
+   * The other way to get a blank cell wrong: falling back to nothing at all.
+   * The ledger file's "Every record" table wrote `{record.message ?? ""}` under
+   * Why, so most rows had a silent empty cell beside sixteen tables that draw
+   * the dash — one state rendered two ways (`web.md` 6.2). Read across the
+   * client's table cells, so the next table cannot start a third way.
+   */
+  it("falls back to the dash and never to an empty string", () => {
+    const blank: string[] = [];
+    let cells = 0;
+    for (const file of sourceFiles("src/client")) {
+      for (const match of file.code.matchAll(/<td\b[^>]*>\s*\{([^{}]*)\}\s*<\/td>/g)) {
+        cells += 1;
+        if (/(?:\?\?|\|\|)\s*(?:""|''|``)\s*\)?\s*$/.test(match[1]!)) {
+          blank.push(`${file.path}:${file.code.slice(0, match.index).split("\n").length}`);
+        }
+      }
+    }
+    expect(cells, "no single-expression cells found, so this examined nothing").toBeGreaterThan(20);
+    expect(blank, "a missing value is drawn as the dash, not left blank").toEqual([]);
   });
 
   it("styles the uncategorized word the same way wherever it stands as text", () => {
@@ -993,7 +1185,7 @@ describe("a filtered list with nothing in it", () => {
     // Three preconditions rather than a list: no account, every account
     // frozen, and no file chosen yet. None of the three can be reached by
     // narrowing anything, because there is nothing to narrow until a file is.
-    "src/client/pages/ImportPage.tsx#Create an account first": "a precondition, not a list",
+    "src/client/pages/ImportPage.tsx#No account to import into": "a precondition, not a list",
     "src/client/pages/ImportPage.tsx#Every account is frozen": "a precondition, not a list",
     "src/client/pages/ImportPage.tsx#No file yet": "a precondition, not a list",
     // The agents a person has approved. Nothing on the page narrows that set:
@@ -1277,5 +1469,138 @@ describe("a list whose query failed", () => {
     expect(source).not.toMatch(
       /\{error \? <Alert>\{error\.message\}<\/Alert> : null\}\s*\{caughtUp\}/,
     );
+  });
+});
+
+/**
+ * `web.md` 12.1's error state, asked of every read rather than of every list.
+ *
+ * The check above holds a list's empty state behind its own query's error.
+ * What it cannot see is a read that feeds no list — the accounts and
+ * categories behind a picker, a label, a currency — and those are where the
+ * defect kept being found. The staged queue's accounts or categories failing
+ * read as every row on an "Unknown account", every amount a dash and every
+ * category "Uncategorized", with nothing on the page to say the facts were
+ * missing rather than absent; the CSV preview's categories the same. Written
+ * over the client rather than over those two pages, the check found three
+ * more: the settings page told somebody their deployment had no mail server
+ * because the read that would say so had failed, and the budget form and the
+ * recurrence form offered empty pickers with no word why.
+ *
+ * So the population is every `useQuery` and `useInfiniteQuery` bound to a name
+ * in `src/client`, found by the hook rather than by page, and each has its
+ * failure read in the component that holds it — `.error`, `.isError` or
+ * `.status` — or is registered here with what makes nothing on the page untrue
+ * while it has failed. What it cannot see is whether the reading is any good:
+ * an `.error` mentioned in a comment-free expression that renders nothing
+ * passes, and saying so is the honest version of this check.
+ */
+describe("a read whose failure nothing on the page says", () => {
+  /** Each top-level function or `const` of a file, `export default function` included. */
+  const components = (code: string) => {
+    const lines = code.split("\n");
+    const starts = lines.flatMap((line, index) =>
+      /^(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s|^(?:export\s+)?const\s+\w+\s*=/.test(
+        line,
+      )
+        ? [index]
+        : [],
+    );
+    return starts.map((start, position) => {
+      const body = lines.slice(start, starts[position + 1] ?? lines.length).join("\n");
+      return { name: /(?:function|const)\s+(\w+)/.exec(body)?.[1] ?? "(anonymous)", body };
+    });
+  };
+
+  /**
+   * Reads whose failure leaves the page saying nothing untrue, keyed by file,
+   * component and query name. Each reason says what the page shows without the
+   * answer; "it is only a lookup" is not one, because that is what the staged
+   * queue's two were.
+   */
+  const SAYS_NOTHING_WITHOUT_IT = new Map([
+    [
+      "src/client/App.tsx Shell deployment",
+      "The operator's privacy and terms links, drawn from the answer or not at all; nothing " +
+        "on the page says the deployment has neither.",
+    ],
+    [
+      "src/client/TransactionBrowser.tsx TransactionBrowser session",
+      "The shell's own session, served from its cache: the shell reads its failure and renders " +
+        "no page without it, so this copy is never the one that failed.",
+    ],
+    [
+      "src/client/TransactionBrowser.tsx TransactionBrowser payeeSuggestions",
+      "Suggestions under a text box. Without them the box takes what is typed, as it does for " +
+        "a payee nobody has used yet.",
+    ],
+    [
+      "src/client/forms.tsx PayeeInput payees",
+      "The same suggestions, in the transaction form's payee field.",
+    ],
+    [
+      "src/client/pages/StagingPage.tsx StagingPage payeeSuggestions",
+      "The same suggestions, in the queue's payee filter and its click-to-edit payee.",
+    ],
+    [
+      "src/client/forms.tsx TransactionForm templates",
+      "Start from a template is drawn only when there are templates to start from; without the " +
+        "answer the form is the form without that shortcut, and says nothing about templates.",
+    ],
+    [
+      "src/client/forms.tsx useNotificationsAvailable options",
+      "Answers undefined until the deployment has said whether it sends mail, and both forms " +
+        "that ask claim nothing about mail while it is undefined.",
+    ],
+    [
+      "src/client/pages/SettingsPage.tsx SettingsPage authOptions",
+      "The plan tab and the note under the password form are each drawn only from an answer; " +
+        "without one the tab is not offered and the note is not written.",
+    ],
+    [
+      "src/client/pages/ReportsPage.tsx ReportsPage accounts",
+      "Chooses only where an empty report's button goes. Without an answer it goes to " +
+        "Transactions, which is where it went before anybody asked, and says nothing about accounts.",
+    ],
+    [
+      "src/client/pages/StagingPage.tsx StagingPage duplicateCount",
+      "A shortcut into the duplicate review, offered only with a count. Every duplicate row " +
+        "still carries its own flag and the Status filter still finds them.",
+    ],
+  ]);
+
+  const reads = sourceFiles("src/client").flatMap((file) =>
+    components(file.code).flatMap(({ name, body }) =>
+      [...body.matchAll(/const\s+(\w+)\s*=\s*use(?:Infinite)?Query\b/g)].map((match) => {
+        const query = match[1]!;
+        return {
+          key: `${file.path} ${name} ${query}`,
+          read: new RegExp(`\\b${query}\\??\\.(?:error|isError|status)\\b`).test(body),
+        };
+      }),
+    ),
+  );
+
+  it("finds the reads it is about", () => {
+    // A pattern that stopped matching would pass every read it no longer saw.
+    expect(reads.length).toBeGreaterThan(50);
+    expect(reads.map((one) => one.key)).toContain(
+      "src/client/pages/StagingPage.tsx StagingPage categories",
+    );
+  });
+
+  it("says when one failed, or is registered with why nothing it shows is untrue", () => {
+    const silent = reads
+      .filter((one) => !one.read && !SAYS_NOTHING_WITHOUT_IT.has(one.key))
+      .map((one) => one.key);
+    expect(silent, "read the query's error where its answer is used").toEqual([]);
+  });
+
+  it("registers only reads that exist and still say nothing", () => {
+    const silent = new Set(reads.filter((one) => !one.read).map((one) => one.key));
+    for (const [key, reason] of SAYS_NOTHING_WITHOUT_IT) {
+      expect(silent.has(key), `${key} is gone, or reads its failure now`).toBe(true);
+      expect(reason.length).toBeGreaterThan(40);
+    }
   });
 });

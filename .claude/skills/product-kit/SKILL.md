@@ -72,9 +72,8 @@ is a claim about who uses this and what goes wrong for them. One sentence.
 
 ## 2. The screenshots
 
-They need this application running against a seeded database.
-`docs/standards/operations.md` owns the runbook this repeats in short; read it
-there if anything below does not work.
+They need this application running against a seeded database, and the block
+below is the whole runbook; no guide holds a longer one.
 `scripts/product-kit/seed.json` is the fixture, committed rather than
 generated: a screenshot of random data cannot be reproduced, so two captures
 a month apart cannot be compared and a layout regression hides in the noise.

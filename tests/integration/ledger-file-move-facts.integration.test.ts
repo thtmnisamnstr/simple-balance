@@ -3,14 +3,19 @@ import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
 import { defaultLedgerFileKinds, parseLedgerFileText } from "../../src/shared/ledger-file.js";
-import { LEDGER_FILE_MOVE_BLOCKED } from "../../src/shared/ledger-file-import.js";
-import { LEDGER_FILE_HISTORY_MAX_BYTES } from "../../src/server/config-limits.js";
+import {
+  LEDGER_FILE_MOVE_BLOCKED,
+  ledgerFileMoveStagedBlocked,
+} from "../../src/shared/ledger-file-import.js";
+import { LEDGER_FILE_CONTENT_MAX_BYTES } from "../../src/server/config-limits.js";
 import { getDb } from "../../src/server/db/client.js";
 import { stagedTransactions, user } from "../../src/server/db/schema.js";
 import { createAccount } from "../../src/server/services/accounts.js";
+import { AppError } from "../../src/server/services/errors.js";
 import {
   addLedgerFile,
   exportLedgerFile,
+  moveLedgerFile,
   previewLedgerFile,
 } from "../../src/server/services/ledger-file.js";
 import { commitStages, deleteStages } from "../../src/server/services/staging.js";
@@ -31,7 +36,7 @@ import { scratchDatabase } from "./support/scratch-database.js";
 const connection = process.env.TEST_DATABASE_URL;
 const integration = describe.skipIf(!connection);
 const database = scratchDatabase("ledger_file_move_facts");
-const LIMITS = { maxRows: 100_000, maxHistoryBytes: LEDGER_FILE_HISTORY_MAX_BYTES };
+const LIMITS = { maxRows: 100_000, maxContentBytes: LEDGER_FILE_CONTENT_MAX_BYTES };
 const everything = { kinds: defaultLedgerFileKinds.filter((kind) => kind !== "history") };
 
 const person = (id: string): Actor => ({ userId: `lf-move-${id}`, source: "web" });
@@ -39,13 +44,14 @@ const source = person("source");
 const empty = person("empty");
 const typed = person("typed");
 const pending = person("pending");
+const queued = person("queued");
 
 let file = "";
 
 integration("what a preview reads for a move", () => {
   beforeAll(async () => {
     await database.create();
-    for (const actor of [source, empty, typed, pending]) {
+    for (const actor of [source, empty, typed, pending, queued]) {
       await getDb()
         .insert(user)
         .values({ id: actor.userId, name: actor.userId, email: `${actor.userId}@example.com` });
@@ -83,7 +89,11 @@ integration("what a preview reads for a move", () => {
 
   it("finds the ledger a file came from holding entries of its own, deleted one included", async () => {
     const preview = await previewLedgerFile(source, { ledgerFile: file });
-    expect(preview.move).toEqual({ qualifies: false, reason: LEDGER_FILE_MOVE_BLOCKED });
+    expect(preview.move).toEqual({
+      qualifies: false,
+      reason: LEDGER_FILE_MOVE_BLOCKED,
+      stagedRows: 0,
+    });
     // The two live entries are on Checking. What each account here holds is
     // not read where no move is possible, which is every busy ledger.
     expect(preview.rows).toEqual({
@@ -218,9 +228,60 @@ integration("what a preview reads for a move", () => {
       randomUUID(),
     );
     await setTransactionDeleted(typed, String(entry.id), Number(entry.version), true);
-    // Deleted, and still somebody having typed into this ledger.
+    // Deleted, and still somebody having typed into this ledger. A row
+    // waiting beside it changes nothing: discarding it would not help, so the
+    // sentence is the entries' and no rows are counted.
+    await getDb().insert(stagedTransactions).values({ userId: typed.userId, draft: {} });
     const preview = await previewLedgerFile(typed, { ledgerFile: file });
-    expect(preview.move).toEqual({ qualifies: false, reason: LEDGER_FILE_MOVE_BLOCKED });
+    expect(preview.move).toEqual({
+      qualifies: false,
+      reason: LEDGER_FILE_MOVE_BLOCKED,
+      stagedRows: 0,
+    });
     expect(preview.movePlan.ok).toBe(false);
+  });
+
+  it("says a row waiting in Staged is what stops a move, and moves once it is discarded", async () => {
+    // A CSV staged and not committed, or a recurrence's proposal: no origin,
+    // and nothing in the books.
+    await getDb().insert(stagedTransactions).values({ userId: queued.userId, draft: {} });
+    const preview = await previewLedgerFile(queued, { ledgerFile: file });
+    expect(preview.move).toEqual({
+      qualifies: false,
+      reason: ledgerFileMoveStagedBlocked(1),
+      stagedRows: 1,
+    });
+    expect(preview.movePlan.problems[0]).toEqual({
+      field: "move",
+      message: ledgerFileMoveStagedBlocked(1),
+      count: 1,
+    });
+
+    const refused = await moveLedgerFile(queued, {
+      ledgerFile: file,
+      fileName: "simple-balance.json",
+      idempotencyKey: randomUUID(),
+      part: { index: 1, count: 1 },
+    }).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(refused).toBeInstanceOf(AppError);
+    expect((refused as AppError).message).toBe(ledgerFileMoveStagedBlocked(1));
+    expect((refused as AppError).agentMessage).toBe(
+      "A row waiting in Staged did not come from a Simple Balance file, and committing it would rule out a move for good. Discard it with delete_staged_transactions and call preview_ledger_file again to move the file, or call add_ledger_file with the same parts and decisions instead; its transactions go to Staged for review.",
+    );
+
+    const [row] = await getDb()
+      .select()
+      .from(stagedTransactions)
+      .where(eq(stagedTransactions.userId, queued.userId));
+    await deleteStages(queued, {
+      stagedIds: [row!.id],
+      expectedVersions: { [row!.id]: row!.version },
+    });
+    const after = await previewLedgerFile(queued, { ledgerFile: file });
+    expect(after.move).toEqual({ qualifies: true, reason: null, stagedRows: 0 });
+    expect(after.movePlan.ok).toBe(true);
   });
 });

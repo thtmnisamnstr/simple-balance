@@ -190,7 +190,7 @@ export const IN_SIMPLE_BALANCE: Readonly<Record<string, readonly LearnStep[]>> =
     {
       step: "Let it work out the amount",
       tools: ["get_budget_report"],
-      how: "Each period's worked-out figure is the row's `limit` in `get_budget_report`; the plan's own amount stays 0.",
+      how: "Each period's worked-out figure is the row's `limit` in `get_budget_report`; the standing budget's own amount stays 0.",
     },
     {
       step: "Pay the bill from the same category",
@@ -205,7 +205,7 @@ export const IN_SIMPLE_BALANCE: Readonly<Record<string, readonly LearnStep[]>> =
     {
       step: "One fund for each bill",
       tools: ["create_budget_plan"],
-      how: "One plan per category, each with its own `targetAmount` and `targetDate`.",
+      how: "One standing budget per category, each with its own `targetAmount` and `targetDate`.",
     },
   ],
   "budget-with-irregular-income": [

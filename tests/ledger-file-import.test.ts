@@ -104,7 +104,7 @@ function factsOf(records: Records = {}, options: FactsOptions = {}): LedgerFileF
       },
     },
     rows: { alreadyHere: 0, stagedAlreadyHere: 0, ...options.rows },
-    move: { qualifies: true, reason: null },
+    move: { qualifies: true, reason: null, stagedRows: 0 },
   });
 }
 
@@ -1592,7 +1592,7 @@ describe("the requests", () => {
       ledgerFilePreviewInputSchema.safeParse({ ledgerFile: "é".repeat(half + 1) }).error?.issues[0]
         ?.message,
     ).toBe(
-      "One part of a Simple Balance file is at most 16 MiB. A larger file goes in parts, each a file of its own, which the import page cuts for you.",
+      "One part of a Simple Balance file is at most 16 MiB. A larger file goes in parts, each a file of its own: the import page cuts one for you, and export_ledger_file returns one part a call, narrowed with a start and end date.",
     );
     expect(ledgerFilePreviewInputSchema.safeParse({ ledgerFile: "é".repeat(half) }).success).toBe(
       true,

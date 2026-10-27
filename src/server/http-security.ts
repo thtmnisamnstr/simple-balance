@@ -1156,7 +1156,7 @@ export function requestBodyLimit(path: string) {
  * answer are not HTML and have nowhere to put a meta tag, and a search engine
  * indexes files that are not pages too.
  */
-export const ROBOTS_DIRECTIVE = "noindex";
+const ROBOTS_DIRECTIVE = "noindex";
 
 /**
  * Every header every response from this process carries: what

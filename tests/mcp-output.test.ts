@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { createMcpServer } from "../src/server/mcp.js";
 import { withoutUserId } from "../src/server/services/helpers.js";
-import { actorSources, serviceErrorCodes } from "../src/shared/domain.js";
+import { actorSources, PLAN_LABELS, plans, serviceErrorCodes } from "../src/shared/domain.js";
 import {
   auditEventResultSchema,
   identityResultSchema,
@@ -386,6 +386,18 @@ describe("the owner id no agent can use", () => {
     ).toEqual({ id: "row", rawData: { userId: "1042", Payee: "Cafe", Amount: "4.20" } });
   });
 
+  it("keeps a record called userId in a ledger file preview's ids", () => {
+    // Keyed by each record's own name, so an account somebody called userId is
+    // a person's data, and the page's preview of the same file has its id.
+    const ids = { userId: "00000000-0000-4000-8000-000000000001", Checking: "c" };
+    expect(
+      withoutUserId({
+        userId: "u",
+        here: { ids: { account: ids, category: { userId: "k" }, group: {} } },
+      }),
+    ).toEqual({ here: { ids: { account: ids, category: { userId: "k" }, group: {} } } });
+  });
+
   it("leaves whoami's reply satisfying whoami's own closed schema", () => {
     const identity = {
       userId: "u1",
@@ -415,12 +427,40 @@ describe("the owner id no agent can use", () => {
  * The closed list of output fields whose names do not give their meaning.
  *
  * Describing everything would fight the payload ceiling — one sentence on
- * `version` costs about 4,700 characters because it is emitted 42 times — and
+ * `version` costs about 4,900 characters because it is emitted 43 times — and
  * most of the surface is `id`, `name`, `currency`, `date`, which need nothing.
  * These are the ones that mislead, and the rule is held per copy rather than by
  * a count, so a new result schema that spreads one of them undescribed fails
  * here rather than passing a total nobody remembers to raise.
  */
+/**
+ * `common.md` §A wire value and the word a person reads, closed for the one
+ * field it recorded as open. whoami sends `plan: "plus"`, and nothing on the
+ * agent surface said a person reads that as Premium, so an agent told a
+ * Premium subscriber they were on Plus. Read off the published schema an
+ * agent receives, not the module, because the description is what it reads.
+ */
+describe("whoami's plan", () => {
+  it("publishes the closed set and the word a person reads for each", async () => {
+    const whoami = (await publishedTools()).find((tool) => tool.name === "whoami")!;
+    // The reply is `{result}` where `result` is the identity or the error
+    // envelope, so the identity is the branch that has a `plan`.
+    type Field = { anyOf?: unknown[]; description?: string };
+    const schema = whoami.outputSchema as unknown as {
+      properties: { result: { anyOf: { properties?: Record<string, Field> }[] } };
+    };
+    const result = schema.properties.result.anyOf.find((branch) => branch.properties?.plan)!;
+    const plan = result.properties!.plan!;
+    const values = JSON.stringify(plan);
+    for (const wire of plans) {
+      expect(values, `the schema names ${wire}`).toContain(`"${wire}"`);
+      expect(plan.description, `and says ${wire} reads as ${PLAN_LABELS[wire]}`).toContain(
+        `${wire} as ${PLAN_LABELS[wire]}`,
+      );
+    }
+  });
+});
+
 describe("output fields whose names mislead", () => {
   const MUST_DESCRIBE = [
     "version",

@@ -311,7 +311,9 @@ describe("the budgets page", () => {
     );
     renderBudgets();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Change the budget for Groceries" }));
+    // Two actions, so both in the row's menu and no icon (`web.md` 9.8).
+    fireEvent.click(await screen.findByRole("button", { name: /Actions for Groceries/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
     fireEvent.change(within(screen.getByRole("dialog")).getByLabelText(/Ends after/), {
       target: { value: "2026-06-30" },
     });
@@ -553,7 +555,7 @@ describe("the budgets page", () => {
     );
     fireEvent.click(
       within(screen.getByRole("dialog", { name: /Rent, March 2026/ })).getByRole("button", {
-        name: /Use the standing budget/,
+        name: /Use standing budget/,
       }),
     );
 
@@ -587,6 +589,91 @@ describe("the budgets page", () => {
       await screen.findByText(/could not be loaded, so this is not a list/i),
     ).toBeInTheDocument();
     expect(screen.queryByText("No standing budgets yet.")).not.toBeInTheDocument();
+  });
+
+  /**
+   * `web.md` 12.1, the read behind a picker: the categories failing left "Set
+   * a budget" offering nothing to budget, and nothing said why.
+   */
+  it("says the categories failed rather than offering none to budget", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input), window.location.origin);
+        if (url.pathname === "/api/v1/budget-report") return Response.json(report);
+        if (url.pathname === "/api/v1/categories") {
+          return Response.json(
+            { error: { code: "INTERNAL_ERROR", message: "The categories could not be read." } },
+            { status: 500 },
+          );
+        }
+        return Response.json([]);
+      }),
+    );
+    renderBudgets();
+    const form = (await screen.findByRole("heading", { name: "Set a budget" })).closest(
+      "section",
+    ) as HTMLElement;
+    expect(
+      await within(form).findByText(
+        "Your categories did not load. The categories could not be read.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  /**
+   * `web.md` 11.8: the archived flag is a view choice and lives in the address,
+   * under the key the other four pages use. This page's default runs the other
+   * way, so absent counts archived spending and only leaving it out is written.
+   */
+  it("keeps its archived box in the address, with the default left unwritten", async () => {
+    const asked: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input), window.location.origin);
+        if (url.pathname === "/api/v1/budget-report") {
+          asked.push(url.searchParams.get("includeArchived") ?? "");
+          return Response.json(report);
+        }
+        if (url.pathname === "/api/v1/categories") return Response.json(categories);
+        return Response.json([]);
+      }),
+    );
+    renderBudgets();
+    const box = await screen.findByLabelText("Count spending through archived accounts");
+    expect(box).toBeChecked();
+    expect(window.location.search).not.toContain("archived");
+    await waitFor(() => expect(asked.at(-1)).toBe("true"));
+
+    fireEvent.click(box);
+    expect(new URLSearchParams(window.location.search).get("archived")).toBe("0");
+    await waitFor(() => expect(asked.at(-1)).toBe("false"));
+  });
+
+  it("opens with archived spending left out when the address says so", async () => {
+    stub();
+    window.history.replaceState(null, "", "/budgets?archived=0");
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({
+            defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+          })
+        }
+      >
+        <TimezoneProvider timezone="UTC">
+          <BrowserRouter>
+            <Routes>
+              <Route path="/budgets" element={<BudgetsPage session={session} />} />
+            </Routes>
+          </BrowserRouter>
+        </TimezoneProvider>
+      </QueryClientProvider>,
+    );
+    expect(
+      await screen.findByLabelText("Count spending through archived accounts"),
+    ).not.toBeChecked();
   });
 
   /** A period that has not finished is not a period somebody stayed within. */

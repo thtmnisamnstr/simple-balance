@@ -10,7 +10,7 @@ import {
 } from "../../src/shared/ledger-file.js";
 import type { LedgerFileMoveResult } from "../../src/shared/ledger-file-move.js";
 import { todayIn } from "../../src/shared/recurrence-dates.js";
-import { LEDGER_FILE_HISTORY_MAX_BYTES } from "../../src/server/config-limits.js";
+import { LEDGER_FILE_CONTENT_MAX_BYTES } from "../../src/server/config-limits.js";
 import { getDb } from "../../src/server/db/client.js";
 import { ledgerAccounts, user } from "../../src/server/db/schema.js";
 import { createAccount, setAccountArchived } from "../../src/server/services/accounts.js";
@@ -40,7 +40,7 @@ import { scratchDatabase } from "./support/scratch-database.js";
 const connection = process.env.TEST_DATABASE_URL;
 const integration = describe.skipIf(!connection);
 const database = scratchDatabase("ledger_file_move_edges");
-const LIMITS = { maxRows: 100_000, maxHistoryBytes: LEDGER_FILE_HISTORY_MAX_BYTES };
+const LIMITS = { maxRows: 100_000, maxContentBytes: LEDGER_FILE_CONTENT_MAX_BYTES };
 const TIMEZONE = "Europe/Berlin";
 
 const person = (id: string): Actor => ({ userId: `lf-move-edge-${id}`, source: "web" });
@@ -212,7 +212,6 @@ integration("the edges of moving a Simple Balance file", () => {
           openingDate: "2026-01-01",
           openingBalance: "0",
         },
-        undefined,
         { arriveArchived: true, archivedAt: new Date("2099-01-01T00:00:00.000Z") },
       ),
     ).rejects.toThrow("An archive instant cannot be later than now");

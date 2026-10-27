@@ -189,7 +189,12 @@ render time and says which.
 3. **`frontend.maxUploadSize` stays above the API's own CSV limit.** A CSV
    arrives as a JSON string, so the API sizes its limit at `CSV_MAX_BYTES` x 6
    plus overhead. Set this lower and nginx refuses a file the API would have
-   taken.
+   taken. Keep it at `52m` or more whatever `csvMaxBytes` is, too, and the
+   ingress's `proxy-body-size` with it: one part of a Simple Balance file is a
+   fixed `LEDGER_FILE_REQUEST_BODY_LIMIT_BYTES` on its own routes and on
+   `/mcp`, and nginx has one limit for every path. The CSV floor is refused at
+   render; this one is a warning `helm install` and `helm upgrade` print, because
+   a values file that lowered both beside `csvMaxBytes` rendered before it.
 
 ## Where a request came from
 

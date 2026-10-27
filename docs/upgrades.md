@@ -8,7 +8,10 @@ keep, so upgrading is swapping it for a newer one.
 This note is written as work lands rather than when the release is cut.
 
 **Nothing to do by hand unless you want metrics exported or the house ad
-shown, or you had `METRICS_ENABLED=true` on 0.2.1 with no `METRICS_TOKEN`.** One
+shown, or you had `METRICS_ENABLED=true` on 0.2.1 with no `METRICS_TOKEN`, or
+you lowered a proxy's body limit below 52 MiB and want Simple Balance files
+added or moved, or a health check on the single container aims at a `/health`
+path other than `/health/live`, `/health/ready` or `/health` itself.** One
 migration, which runs itself at startup and rewrites no rows, no new setting
 anybody has to set, and nothing turns itself on: a deployment that sets nothing
 new renders, starts and serves what it did, a stack that sets nothing new plans
@@ -40,19 +43,31 @@ is backfilled: an entry that never came from a file has no origin to give it.
 A 0.2.1 process still serving beside a new one during a rolling update writes
 rows the new one reads the same way, which is what they are.
 
-Its one cost is two partial unique indexes, which let the database itself
-refuse a second entry, or a second waiting staged row, with the same origin.
-`CREATE INDEX` scans its table while writes to that table wait, inside the
-migrator's one transaction and before readiness opens, and it cannot be
-`CONCURRENTLY` there. Both are partial on an origin being set, which no
-existing row has, so each build is one sequential scan with nothing to sort.
-Measured on 2026-10-25 on PostgreSQL 18.6 against 978,000 entries in a 153 MB
-table and 99,900 staged rows: 44 ms warm and 117 ms cold for the entries, under
-20 ms for the queue, and no table rewritten. Scaled to the thirty million
-entries `docs/capacity.md` measures, that is one and a half to three and a half
-seconds during which writes to the books wait. A Citus cluster takes it as it
-is, with no gate: the type, the columns and the indexes reach every shard, and
-`0023`'s own gate is untouched.
+Its cost is the length of its transaction. Adding a column takes PostgreSQL's
+strongest table lock, metadata-only or not, and the migrator runs every pending
+file in one transaction that holds all three until it commits. So for the
+whole migration, entries, staged rows and import batches can be neither read
+nor written: the register, the review queue and an export wait along with
+every write. What makes that time last is two partial unique indexes, which let
+the database itself refuse a second entry, or a second waiting staged row, with
+the same origin. `CREATE INDEX` scans its table, and it cannot be
+`CONCURRENTLY` inside that transaction. Both are partial on an origin being
+set, which no existing row has, so each build is one sequential scan with
+nothing to sort. Measured on 2026-10-25 on PostgreSQL 18.6 against 978,000
+entries in a 153 MB table and 99,900 staged rows: 44 ms warm and 117 ms cold
+for the entries, under 20 ms for the queue, and no table rewritten. Scaled to
+the thirty million entries `docs/capacity.md` measures, that is one and a half
+to three and a half seconds during which the books can be neither read nor
+written.
+
+On a rolling update there is a wait in front of that. The lock cannot be taken
+while a transaction is still open on any of the three tables, and every request
+that touches one queues behind the migration while it waits, so a 0.2.1 server
+partway through committing 10,000 staged rows holds the books still for
+whatever that commit has left, up to about fifty seconds. If that matters,
+upgrade at a quiet moment, or stop the 0.2.1 servers before the new one starts.
+A Citus cluster takes it as it is, with no gate: the type, the columns and the
+indexes reach every shard, and `0023`'s own gate is untouched.
 
 **Twenty-one dependency advisories are closed** by the packages this release
 installs. Five ship in the image and move with it: `zod`, which validates every
@@ -65,6 +80,16 @@ each; nothing about any of them needs an action from you.
 **The application answers `/metrics` at exactly that path.** A request whose
 target only resolves to it — `/api/..\metrics`, `/health/..\metrics` — is a 404,
 as though there were no such route, whatever sits in front.
+
+**The single container answers a path it does not have with a 404.** Under
+`/api`, `/mcp` and `/health`, and at `/metrics` or `/ads.txt` where neither is
+turned on, a path no route serves answered with the browser app's page and a
+200; it answers the JSON 404 the split deployment's API image already gave. A
+health check should point at `/health/live` or `/health/ready`, which are
+unchanged; one pointed at bare `/health` or `/health/` keeps passing, now as
+liveness. One aimed at any other `/health/…` path was passing on the page and
+will now fail — which is the mistake it was hiding, and the reason to check a
+probe's path before upgrading.
 
 **More series, and nothing renamed.** With `METRICS_ENABLED` on, a scrape
 carries these as well, every one named `simple_balance_…` and each labeled from
@@ -133,7 +158,7 @@ browser sent it; a proxy of your own that rewrites `:` as `%3A` turns each into
 a 404. `export_ledger_file` and `preview_ledger_file` are registered with the
 read tools, so every token holding any ledger scope lists two more, and
 `add_ledger_file` and `move_ledger_file` with the write tools: `tools/list` is
-5,026 and 30,523 characters longer at every tier for the first two — most of
+5,344 and 30,925 characters longer at every tier for the first two — most of
 the second is the preview's reply, which plans the file for a move beside an
 add — and 22,581 and 24,829 more at the write tier for the other two. None of
 them needs a scope a token did not already have.
@@ -145,19 +170,19 @@ internet, no setting turns them on, and neither reads anything of anybody's.
 They are registered with the read tools, so every token holding any ledger
 scope lists them, and no route reaches them. They cost 5,523 characters of
 `tools/list` at every tier. With the four Simple Balance file tools above, and
-another 3,167 at `ledger:read`, 3,462 at `ledger:stage` and 4,038 at
+another 3,527 at `ledger:read`, 3,830 at `ledger:stage` and 5,008 at
 `ledger:write` for the new fields and fuller descriptions below — the
 staged-row and import-batch tools saying which kind of import staged a row
 among them — a token's tool list against 0.2.1's, measured on 2026-10-26:
 
 | Token holds | 0.2.1 | 0.2.2 | Longer by |
 | --- | --- | --- | --- |
-| `ledger:read` | 173,131 | 217,370 | 44,239, 26% |
-| `ledger:stage` | 213,653 | 258,187 | 44,534, 21% |
-| `ledger:write` | 497,153 | 589,673 | 92,520, 19% |
+| `ledger:read` | 173,131 | 218,450 | 45,319, 26% |
+| `ledger:stage` | 213,653 | 259,275 | 45,622, 21% |
+| `ledger:write` | 497,153 | 591,363 | 94,210, 19% |
 
-At about four characters to a token that is some 54,000 tokens for a
-read-only connection and 147,000 for a writing one. A client that loads every
+At about four characters to a token that is some 55,000 tokens for a
+read-only connection and 148,000 for a writing one. A client that loads every
 tool up front and runs close to its context budget is the one to check; one
 that searches its tools loads what it uses. Nothing an agent already calls has
 been renamed, removed or given a new required argument.
@@ -189,26 +214,42 @@ again with a limit of its own, 4 MiB unless it is told otherwise, and 0.2.0 and
 with a bare 413. It is now given the route's limit, which is the larger of the
 CSV-derived one and the new one below.
 
+**A commit or a mass edit takes one duplicate lock, not one per row.** 0.2.1
+took an advisory lock for every transaction it compared for duplicates, and
+PostgreSQL's lock table is sized by `max_connections`: allowing 50, as the
+`single` profile's database does, it held 9,000 and refused 10,000, so a
+commit or a mass edit near the 10,000-row cap failed with "out of shared
+memory". It now takes one for the person. If you raised
+`max_locks_per_transaction` to get such a commit through, it can come back
+down; nothing else needs a change.
+
 **The download is buffered, like the CSV export.** One file holds at most
-100,000 rows and 16 MiB of activity history, counted before anything large is
-read and refused past either with both numbers; the largest file the two limits
-allow together came to 33 MiB and peaked under 400 MiB resident in the heap a
-1 GiB container gives Node. Its query string stays under 4 KiB at the most
+100,000 rows and 16 MiB of what rows do not bound — notes and the rest of the
+entries' free text, split legs, staged rows and the activity history — counted
+before anything large is read and refused past either with both numbers; a file
+at both limits came to about 33 MiB and peaked under 400 MiB resident in the
+heap a 1 GiB container gives Node. Its query string stays under 4 KiB at the most
 accounts one export may name, inside the 8 KiB request line nginx reads by
 default, so no proxy in front of it needs a change.
 
-**Adding or moving a file goes a part at a time, and the parts fit the
-proxies you have.** A part is at most 10,000 rows and 16 MiB, and the browser
-cuts a larger file into parts itself. The three new `POST` routes accept a body
-of about 52 MiB — the part twice over, since it travels as a JSON string, and
-the most decisions one request may carry — which is under the 61 MiB the
-frontend image's nginx and the `single` profile's Caddy already allow for a
-CSV, so neither needs a change. A proxy of your own needs to allow the same for
-those three paths, and for `/mcp`. Each part is one transaction of up to 10,000
-rows, as a commit is, holding one pooled connection while it runs. A move's
-part of 10,000 transactions took about fifty seconds on PostgreSQL 18 on a
-laptop, the same order as committing as many staged rows, so the long-request
-settings `docs/deployment.md` §Reverse proxy already gives a commit cover it.
+**Adding or moving a file goes a part at a time, and the parts fit the proxies
+you have.** A part is at most 10,000 rows and 16 MiB, and the browser cuts a
+larger file into parts itself. The three new `POST` routes accept a body of
+about 52 MiB — the part twice over, since it travels as a JSON string, and the
+most decisions one request may carry — which is under the 61 MiB the frontend
+image's nginx and the `single` profile's Caddy allow for a CSV as shipped, so at
+their defaults neither needs a change. If you lowered `SB_MAX_UPLOAD_SIZE`,
+`frontend.maxUploadSize`, the ingress's `proxy-body-size` annotation or
+`MAX_BODY_SIZE` along with `CSV_MAX_BYTES`, as the CSV rule allowed, raise it to
+at least 54,103,968 bytes — `52m` for nginx, `52MiB` for Caddy, not `52MB` — or
+adding or moving a file whose part is larger than your limit is refused at the
+proxy with a bare 413; the chart warns about it at install and upgrade, and
+refuses nothing. A proxy of your own needs to allow the same for those three
+paths, and for `/mcp`. Each part is one transaction of up to 10,000 rows, as a
+commit is, holding one pooled connection while it runs. A move's part of 10,000
+transactions took about fifty seconds on PostgreSQL 18 on a laptop, the same
+order as committing as many staged rows, so the long-request settings
+`docs/deployment.md` §Reverse proxy already gives a commit cover it.
 
 **`GET /api/v1/session` carries `houseAd`, and `advertises` can be true with no
 AdSense.** `houseAd` is a new field, always sent, and true only for somebody
@@ -475,6 +516,19 @@ start while both are. Unset all four `ADSENSE_*` together: an
 `PRIVACY_POLICY_URL` can stay. Nothing requires it any more, and it is still
 linked from sign-in and every page.
 
+**First, on every `single` machine built before this release: its
+`compose.yml`.** That file names every setting the container is given, and a
+setting it does not name is dropped without a word; a machine keeps the one it
+was built with, and 0.2.1's does not name `SB_HOUSE_AD`. Without this step the
+setting below reaches `.env` and never the process, so nothing changes and
+nothing says why — and with AdSense unset as well, free accounts see no
+advertising at all. Copy `deploy/compose/single/compose.yml` from a checkout of
+this release to `/opt/simple-balance/` (0644), keeping the `image:` line the
+machine's own `compose.yml` already has. A machine that took step 1 of the
+metrics section above already has it. On its own it is safe beside 0.2.1's
+overlays and unit: the collector and the host exporter it adds sit behind the
+`metrics` profile, so nothing new starts.
+
 **A stack built by `aws-single`, `oci-single`, `aws`, `gcp` or `oci`.** From the
 stack's directory, with `pulumi` run from a checkout of this release, whose
 programs know the setting:
@@ -503,11 +557,14 @@ installed with. If the AdSense ids were in an `existingSecret` and you set
 Secret.
 
 **A `single` deployment installed by hand, the split recipe, or one container.**
-`SB_HOUSE_AD=true` in `/opt/simple-balance/.env`, `deploy/compose/.env`, or the
-container's environment, the `ADSENSE_*` lines deleted from the same place, then
-`sudo systemctl restart simple-balance` on a `single` machine or `docker compose
-up -d` for the split recipe. The split recipe derives the frontend's
-`SB_ADS_CONFIGURED` from `ADSENSE_CLIENT_ID`, so it follows.
+A `single` machine takes this release's `compose.yml` first, as above; the split
+recipe runs the checkout's own `compose.distributed.yml`, which already names
+the setting. Then `SB_HOUSE_AD=true` in `/opt/simple-balance/.env`,
+`deploy/compose/.env`, or the container's environment, the `ADSENSE_*` lines
+deleted from the same place, then `sudo systemctl restart simple-balance` on a
+`single` machine or `docker compose up -d` for the split recipe. The split
+recipe derives the frontend's `SB_ADS_CONFIGURED` from `ADSENSE_CLIENT_ID`, so
+it follows.
 
 ### What to check afterwards
 
@@ -568,8 +625,18 @@ The collector's own series arrive as `service.name` `collector` at
 is what its default self-description would have made them; its `target_info`
 is dropped to keep that name.
 
-With the house ad on, the log at start says nothing about `SB_HOUSE_AD`. A line
-saying `SB_BILLING_ENABLED` is not true means nobody is shown it; a line saying
+With the house ad on, first make sure the process was given it, because a log
+that says nothing about `SB_HOUSE_AD` is also what a process that never got the
+setting prints. On a `single` machine:
+
+```sh
+sudo docker compose -f /opt/simple-balance/compose.yml config | grep SB_HOUSE_AD
+```
+
+prints `SB_HOUSE_AD: "true"`; nothing printed means the machine's `compose.yml`
+is older than this release. Then the log at start says nothing about
+`SB_HOUSE_AD`. A line saying `SB_BILLING_ENABLED` is not true means nobody is
+shown it; a line saying
 AdSense is configured means the `ADSENSE_*` settings are still in force. Once
 they are gone, every page is back on the strict policy and the stricter
 referrer, and `/ads.txt` names nobody:

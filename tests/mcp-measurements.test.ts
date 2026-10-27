@@ -398,6 +398,69 @@ describe("what mcp.md says it measured", () => {
    * tool in bare prose. A tool's name is the one identifier this can find
    * without a judgment, so every one is held to it.
    */
+  /**
+   * Five figures the guide argued from and nothing held, each of which had
+   * drifted against the surface while the pinned ones beside it passed: the
+   * tool count against the advice to stay under fifty, the gated tools the
+   * scope rule declines to annotate one by one, the tools taking
+   * `categoryName`, and the two shared descriptions whose per-field cost is the
+   * case for saying a convention once. Three disagreed with figures pinned
+   * elsewhere in the same guide.
+   */
+  it("holds the figures the guide argues from", async () => {
+    expect(tools.length).toBe(claimed(/parameter"\. (\d+) tools sits above that band/));
+
+    const reach = await Promise.all(
+      [["ledger:read"], ["ledger:stage"]].map((one) => listTools(one)),
+    );
+    const read = new Set(reach[0]!.map((tool) => tool.name));
+    const stage = new Set(reach[1]!.map((tool) => tool.name));
+    const gated = /all (\d+) gated tools \((\d+) write-only, (\d+) stage-tier\)/.exec(guide);
+    expect(gated, "the gated-tools sentence is still in mcp.md").not.toBeNull();
+    expect(tools.filter((tool) => !read.has(tool.name)).length).toBe(Number(gated![1]));
+    expect(tools.filter((tool) => !stage.has(tool.name)).length).toBe(Number(gated![2]));
+    expect([...stage].filter((name) => !read.has(name)).length).toBe(Number(gated![3]));
+
+    const taking = tools.filter((tool) => {
+      let found = false;
+      walk(tool.inputSchema, (node) => {
+        const properties = node["properties"] as Record<string, unknown> | undefined;
+        if (properties && "categoryName" in properties) found = true;
+      });
+      return found;
+    });
+    expect(taking.length).toBe(claimed(/It is on (\d+) tools\./));
+
+    const described = (side: "inputSchema" | "outputSchema", field: string) => {
+      const texts: string[] = [];
+      for (const tool of tools) {
+        walk(tool[side], (node) => {
+          const properties = node["properties"] as
+            | Record<string, { description?: unknown }>
+            | undefined;
+          const text = properties?.[field]?.description;
+          if (typeof text === "string") texts.push(text);
+        });
+      }
+      return texts;
+    };
+    const keys = described("inputSchema", "idempotencyKey");
+    expect(new Set(keys).size, "every idempotency key carries the one text").toBe(1);
+    const emitted =
+      /emitted\s+(\d+) times — (\d+) characters each, ([\d,]+) on the published surface/.exec(
+        guide,
+      );
+    expect(emitted, "the idempotency-key sentence is still in mcp.md").not.toBeNull();
+    expect(keys.length).toBe(Number(emitted![1]));
+    expect(keys[0]!.length).toBe(Number(emitted![2]));
+    expect(keys.length * keys[0]!.length).toBe(Number(emitted![3]!.replaceAll(",", "")));
+
+    const versions = described("outputSchema", "version");
+    expect(new Set(versions).size, "every published version carries the one text").toBe(1);
+    expect(versions.length).toBe(claimed(/because it is emitted (\d+) times/));
+    expect(versions[0]!.length).toBe(claimed(/one (\d+)-character sentence on `version`/));
+  });
+
   it("sets every tool it names in backticks", () => {
     const registered = new Set(tools.map((tool) => tool.name));
     const bare: string[] = [];

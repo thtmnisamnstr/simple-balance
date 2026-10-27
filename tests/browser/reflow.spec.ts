@@ -59,7 +59,7 @@ const payee = "Corner Market";
 /** The same sign-up the other browser specs do, and for the reason they give. */
 async function signUp(page: Page) {
   await page.goto("/");
-  const toggle = page.getByRole("button", { name: "Create an account" });
+  const toggle = page.getByRole("button", { name: "Sign up" });
   const heading = page.getByRole("heading", { name: "Create your account" });
   await expect(heading.or(toggle)).toBeVisible();
   if (await toggle.isVisible()) await toggle.click();
@@ -80,7 +80,9 @@ async function signUp(page: Page) {
  */
 async function seed(page: Page) {
   await page.goto("/accounts");
-  await page.getByRole("button", { name: "New account" }).click();
+  // The header's, which is first: on an empty ledger the empty state offers
+  // a second "New account", and a strict match fails once the list has loaded.
+  await page.getByRole("button", { name: "New account" }).first().click();
   await page.getByLabel(/^Account name/).fill(account);
   await page.getByLabel(/^Account type/).selectOption("checking");
   await page.getByLabel(/^Currency or crypto asset/).selectOption("USD");
@@ -324,22 +326,196 @@ test.describe("every page reflows", () => {
   test("with the Simple Balance file import in every state it can take", async () => {
     test.setTimeout(180_000);
     const overflowing: string[] = [];
+    const recordsClipped: string[] = [];
     await visitImportStates(page, async (state) => {
       for (const width of [320, 390, 781, 1050, 1440]) {
         await page.setViewportSize({ width, height: 900 });
         await page.evaluate(
           () => new Promise((resolve) => requestAnimationFrame(() => resolve(null))),
         );
-        const { scrollWidth, clientWidth } = await page.evaluate(() => ({
-          scrollWidth: document.documentElement.scrollWidth,
-          clientWidth: document.documentElement.clientWidth,
-        }));
+        const { scrollWidth, clientWidth, records } = await page.evaluate(() => {
+          // The "Every record" table, when it is shown: how wide it runs in its
+          // scroller, and where its second column ends against the scroller.
+          const wrap = document.querySelector(".ledger-import-records")?.closest(".table-wrap");
+          const second = wrap?.querySelector("thead th:nth-child(2)");
+          return {
+            scrollWidth: document.documentElement.scrollWidth,
+            clientWidth: document.documentElement.clientWidth,
+            records:
+              wrap && second
+                ? {
+                    overflow: wrap.scrollWidth - wrap.clientWidth,
+                    secondPast:
+                      second.getBoundingClientRect().right - wrap.getBoundingClientRect().right,
+                  }
+                : null,
+          };
+        });
         if (scrollWidth > clientWidth) {
           overflowing.push(`${state} at ${width}px: document is ${scrollWidth}px wide`);
+        }
+        // The cells that carry a name may break anywhere, so the harness's
+        // unbroken 58-character name no longer runs the table past its panel
+        // at 1440 — Why showed 37px of 435 — and on a phone the first two
+        // columns are the ones on screen, which the markup's comment says.
+        if (records && width === 1440 && records.overflow > 0) {
+          recordsClipped.push(`${state} at 1440px: the table runs ${records.overflow}px past`);
+        }
+        if (records && width === 390 && records.secondPast > 0.5) {
+          recordsClipped.push(`${state} at 390px: What happens ends ${records.secondPast}px past`);
         }
       }
       await page.setViewportSize({ width: 1440, height: 900 });
     });
     expect(overflowing, "the import section scrolls the page sideways").toEqual([]);
+    expect(recordsClipped, "a long name widens the Every record table").toEqual([]);
+  });
+
+  /**
+   * Where a bar's contents land, which is the half of 15 that "nothing scrolls
+   * sideways" cannot see: each of these defects left the document exactly as
+   * wide as the window, and each was found by looking, not by the walk above.
+   * Measured, because a stylesheet comment had once claimed a layout fixed that
+   * a browser never opened (`web.md` 12.3).
+   */
+  test("with each bar's contents where its layout puts them", async () => {
+    test.setTimeout(120_000);
+    const misplaced: string[] = [];
+    const frame = () =>
+      page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve(null))));
+    const accountId = await idOf(page, "/api/v1/accounts", account);
+
+    // A CSV batch under a long file name: a native select is as wide as its
+    // widest option, and Staged's batch option is the file name, a timestamp
+    // and the counts, so the fifth control dropped to a line of its own.
+    const csvStage = await page.request.post("/api/v1/csv/stage", {
+      data: {
+        csv: `date,payee,amount\n${today},Corner Market,-12.50\n`,
+        fileName: "checking-account-statement-january-through-december-export.csv",
+        idempotencyKey: randomUUID(),
+        defaultAccountId: accountId,
+        mapping: { date: "date", payee: "payee", amount: "amount" },
+        dryRun: false,
+      },
+      headers: { Origin: new URL(page.url()).origin },
+    });
+    expect(csvStage.status(), await csvStage.text()).toBeLessThan(300);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/staged");
+    await expect(page.getByRole("combobox", { name: /batch/i })).toBeVisible();
+    await frame();
+    const rows = await page
+      .locator(".filter-bar")
+      .first()
+      .evaluate((bar) =>
+        [...bar.children].map((child) => Math.round(child.getBoundingClientRect().top)),
+      );
+    if (new Set(rows).size > 1) misplaced.push(`Staged's filter bar wraps at 1440: tops ${rows}`);
+
+    // Below 560px the sort group stacks on the bar's left edge like the
+    // stretched selects, rather than flung to the right of a row of its own.
+    await page.goto("/accounts");
+    for (const width of [320, 390, 559]) {
+      await page.setViewportSize({ width, height: 900 });
+      await frame();
+      const edges = await page
+        .locator(".filter-bar")
+        .first()
+        .evaluate((bar) => {
+          const search = bar.querySelector(".search-box")!.getBoundingClientRect();
+          const sort = bar.querySelector(".sort-menu")!.getBoundingClientRect();
+          // The left edge only: at 559 the checkbox fits beside the group, as
+          // it does on Categories at 390, and the group ends where it starts.
+          return { left: sort.left - search.left };
+        });
+      if (Math.abs(edges.left) > 0.5) {
+        misplaced.push(`Accounts' sort group at ${width}px is ${JSON.stringify(edges)} off`);
+      }
+    }
+
+    // The form-wide note is a line of its own, and no field takes the row.
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/budgets");
+    await frame();
+    const budget = await page.locator(".budget-form").evaluate((form) => {
+      const note = form.querySelector(".required-note")!.getBoundingClientRect();
+      const first = form.querySelector(".field")!.getBoundingClientRect();
+      return {
+        noteAbove: note.bottom <= first.top + 0.5,
+        widest: Math.max(
+          ...[...form.querySelectorAll(".field")].map(
+            (field) => field.getBoundingClientRect().width,
+          ),
+        ),
+      };
+    });
+    if (!budget.noteAbove) misplaced.push("Set a budget's note sits beside its first field");
+    if (budget.widest > 360.5) misplaced.push(`a Set a budget field is ${budget.widest}px wide`);
+
+    // A section's description stops where the page's does.
+    await page.goto("/import");
+    await expect(page.getByRole("heading", { name: "Export a Simple Balance file" })).toBeVisible();
+    await frame();
+    const widths = await page
+      .locator(".section-title p")
+      .evaluateAll((all) => all.map((one) => one.getBoundingClientRect().width));
+    expect(widths.length, "Import has section descriptions to measure").toBeGreaterThan(1);
+    const wide = widths.filter((width) => width > 680.5);
+    if (wide.length) misplaced.push(`section descriptions wider than 680px: ${wide}`);
+
+    // The row menu is the categories report's last cell, at the row's end.
+    await page.goto("/reports/categories?preset=all-time");
+    const trigger = page.getByRole("button", { name: new RegExp(`^Actions for ${category}`) });
+    await expect(trigger.first()).toBeVisible();
+    const gap = await trigger.first().evaluate((button) => {
+      const table = button.closest("table")!.getBoundingClientRect();
+      return table.right - button.getBoundingClientRect().right;
+    });
+    // The cell's own padding and no more.
+    if (gap > 20) misplaced.push(`the report's row menu sits ${gap}px short of the row's end`);
+
+    // Description is as wide as the fields above and below it.
+    await page.goto("/transactions");
+    await page.getByRole("button", { name: "Add transaction" }).first().click();
+    const dialog = page.getByRole("dialog");
+    const description = await dialog.getByLabel("Description").boundingBox();
+    const notes = await dialog.getByLabel("Notes").boundingBox();
+    if (Math.abs((description?.width ?? 0) - (notes?.width ?? 0)) > 0.5) {
+      misplaced.push(`Description is ${description?.width}px beside Notes' ${notes?.width}px`);
+    }
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+
+    // Each template mass-edit row's value control beside the select it answers.
+    await page.goto("/templates");
+    await page
+      .getByRole("checkbox", { name: /^Select / })
+      .first()
+      .check();
+    await page.getByRole("button", { name: /^Edit/ }).first().click();
+    const editing = page.getByRole("dialog");
+    await expect(editing.locator(".bulk-edit-action").first()).toBeVisible();
+    const offsets = await editing.locator(".bulk-edit-field").evaluateAll((all) =>
+      all.flatMap((row) => {
+        const action = row.querySelector(".bulk-edit-action")?.getBoundingClientRect();
+        const value =
+          row.lastElementChild?.querySelector("select, input, textarea") ?? row.lastElementChild;
+        if (
+          !action ||
+          !value ||
+          row.lastElementChild?.contains(row.querySelector(".bulk-edit-action"))
+        )
+          return [];
+        const box = value.getBoundingClientRect();
+        return [Math.round(Math.abs(box.bottom - action.bottom))];
+      }),
+    );
+    expect(offsets.length, "the mass edit's rows were found").toBeGreaterThan(3);
+    if (offsets.some((offset) => offset > 0)) {
+      misplaced.push(`template mass-edit rows off their select by ${offsets}px`);
+    }
+    await page.keyboard.press("Escape");
+
+    expect(misplaced, "these sit where their layout does not put them").toEqual([]);
   });
 });

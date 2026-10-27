@@ -1,6 +1,8 @@
 import Papa from "papaparse";
 import { z } from "zod";
 import {
+  atMost,
+  enter,
   idempotencyKeySchema,
   isoDateSchema,
   positiveDecimalStringSchema,
@@ -177,7 +179,7 @@ export const csvMappingSchema = z
       .string()
       .optional()
       .describe(
-        "The heading of the column holding the longer note for each entry. A heading the file lacks reads blank on every row without complaint, so check it against the headings preview_csv returned before staging four thousand rows with their notes missing.",
+        "The heading of the column holding the longer note for each entry. A heading the file lacks reads blank on every row without complaint, so check it against the headings `preview_csv` returned before staging four thousand rows with their notes missing.",
       ),
     externalId: z
       .string()
@@ -636,14 +638,14 @@ export const csvStageInputSchema = z.object({
   fileName: z
     .string()
     .trim()
-    .min(1)
-    .max(240)
+    .min(1, enter("a file name"))
+    .max(240, atMost("A file name", 240))
     .describe(
       "What the file was called. Recorded on the import batch so somebody can tell one import from another later.",
     ),
   idempotencyKey: idempotencyKeySchema,
   defaultAccountId: uuid().describe(
-    "The account every row is posted against. Accounts are never read out of the file, so this is the only thing that decides where the rows land. Choose one that is neither archived nor frozen (list_accounts reports both): against either, every row stages with an issue and cannot commit.",
+    "The account every row is posted against. Accounts are never read out of the file, so this is the only thing that decides where the rows land. Choose one that is neither archived nor frozen (`list_accounts` reports both): against either, every row stages with an issue and cannot commit.",
   ),
   mapping: csvMappingSchema
     .optional()

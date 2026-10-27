@@ -546,8 +546,8 @@ export type RecurrenceCreateOptions = {
 export async function createRecurrence(
   actor: Actor,
   input: unknown,
+  options: RecurrenceCreateOptions = {},
   transaction?: DbTransaction,
-  options?: RecurrenceCreateOptions,
 ) {
   const parsed = recurrenceCreateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {

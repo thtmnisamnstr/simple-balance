@@ -89,6 +89,9 @@ integration("the free plan's account limit", () => {
     await expect(makeAccount(owner, "One too many")).rejects.toMatchObject({
       code: "CONFLICT",
       details: { limit: MAX_FREE_ACCOUNTS, current: MAX_FREE_ACCOUNTS },
+      // An agent is told the move it can make, not only the upgrade it cannot:
+      // archiving or deleting an account in use frees a place.
+      agentMessage: expect.stringMatching(/archive_account[\s\S]*delete_account/),
     });
   });
 
@@ -150,7 +153,10 @@ integration("the free plan's account limit", () => {
     const archived = await getAccount(owner, first.id);
     await expect(
       setAccountArchived(owner, first.id, archived.version, false),
-    ).rejects.toMatchObject({ code: "CONFLICT" });
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+      agentMessage: expect.stringMatching(/delete_account[\s\S]*archive_account/),
+    });
     // And the ledger is where it says it is: four accounts, three of them in use.
     await expect(makeAccount(owner, "Fifth")).rejects.toMatchObject({ code: "CONFLICT" });
   });
@@ -321,6 +327,7 @@ integration("the free plan's account limit", () => {
             openingDate: "2026-01-01",
             openingBalance: "0",
           },
+          {},
           tx,
         ),
       ),

@@ -49,7 +49,7 @@ import {
   uuid,
 } from "../shared/domain.js";
 import { getConfig } from "./config.js";
-import { MCP_LEDGER_FILE_HISTORY_MAX_BYTES } from "./config-limits.js";
+import { MCP_LEDGER_FILE_CONTENT_MAX_BYTES } from "./config-limits.js";
 import { apiRequestBodyLimit } from "./http-security.js";
 import { getDb, type DbTransaction } from "./db/client.js";
 import {
@@ -118,7 +118,7 @@ import {
   moveLedgerFile,
   previewLedgerFile,
 } from "./services/ledger-file.js";
-import { ledgerFileSelectionSchema } from "../shared/ledger-file.js";
+import { LEDGER_FILE_PART_MAX_BYTES, ledgerFileSelectionSchema } from "../shared/ledger-file.js";
 import {
   ledgerFileAddInputSchema,
   ledgerFileAddResultSchema,
@@ -388,8 +388,18 @@ const destructiveAnnotations = {
  */
 const unrecoverableAnnotations = destructiveAnnotations;
 
-/** The three tiers a tool can be registered behind, in widening order. */
-export type LedgerTier = "ledger:read" | "ledger:stage" | "ledger:write";
+/**
+ * The three tiers a tool can be registered behind, in widening order.
+ *
+ * A tuple with the type derived from it (`typescript.md` 2.3), because the
+ * instructions read the set at run time to say which of them a connection
+ * holds. It was a bare union beside a plain array spelling the same three, so
+ * a tier renamed in the type left the array filtering the old name and the
+ * compiler saw nothing: the array widened to `string[]`, and a connection
+ * holding the renamed tier was told it held no ledger scope at all.
+ */
+const ledgerTiers = ["ledger:read", "ledger:stage", "ledger:write"] as const;
+export type LedgerTier = (typeof ledgerTiers)[number];
 
 /**
  * Which block each tool is registered in, written out a second time.
@@ -549,9 +559,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
   // `ledger:write` reaches every read tool, but "ledger:read" is not a scope
   // anybody granted it, and naming one it does not hold is how an agent ends up
   // asking to be reconnected with less than it has.
-  const heldLedgerScopes = ["ledger:read", "ledger:stage", "ledger:write"].filter((scope) =>
-    scopes.has(scope),
-  );
+  const heldLedgerScopes = ledgerTiers.filter((scope) => scopes.has(scope));
   const server = new McpServer(
     {
       name: "simple-balance",
@@ -585,7 +593,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         // description. Saying it on every write tool would be the per-tool
         // convention this string exists to replace, and an agent that meets it
         // without this has been refused by a rule nothing warned it of.
-        "A plan may cap how many accounts stay active. The rest are frozen: still readable and counted in every total, closed to every change to what they hold, and no argument you can change gets past that. A frozen account can still be archived, or deleted while nothing is on it. whoami reports the plan and its ceiling, and list_accounts reports frozen on each account.",
+        "A plan may cap how many accounts stay active. The rest are frozen: still readable and counted in every total, closed to every change to what they hold, and no argument you can change gets past that. A frozen account can still be archived, or deleted while nothing is on it. `whoami` reports the plan and its ceiling, and `list_accounts` reports frozen on each account.",
         "",
         // Without this, "no such tool" and "not in your grant" are the same
         // message, character for character: gating is by non-registration, so a
@@ -611,7 +619,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
   );
 
   /**
-   * Every tool timed and counted, without touching seventy-one call sites.
+   * Every tool timed and counted, without touching a single call site.
    *
    * The name is the label worth having and `runTool` never sees it: the
    * registration knows it, the callback does not. Wrapping the registration is
@@ -1101,7 +1109,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Export a Simple Balance file",
         description:
-          "Export the ledger, or some of its accounts, as a Simple Balance file: one JSON document (simple-balance-ledger-1) holding accounts, categories and groups, entries with their splits, templates, recurring transactions, budgets, staged rows and settings, every reference by name, so it can move to another copy of Simple Balance, where `preview_ledger_file` reads it and `add_ledger_file` adds it, or `move_ledger_file` moves it into a ledger that holds nothing else yet. One call carries at most 10,000 rows — entries, staged rows, budget amounts and history events together — and at most 4 MiB of activity history, so export a larger ledger, or a long activity history, a date range at a time. To move a larger ledger that way, export consecutive ranges and move them oldest first into the same ledger, using the accounts the earlier ranges brought when movePlan asks; the last range's balance check says whether every earlier one is in, and only the latest range should carry recurrences, because one created by an earlier range can propose a row into Staged before the next lands and end the move. The file comes back as text; pass it on unchanged.",
+          "Export the ledger, or some of its accounts, as a Simple Balance file: one JSON document (simple-balance-ledger-1) holding accounts, categories and groups, entries with their splits, templates, recurring transactions, budgets, staged rows and settings, every reference by name, so it can move to another copy of Simple Balance, where `preview_ledger_file` reads it and `add_ledger_file` adds it, or `move_ledger_file` moves it into a ledger that holds nothing else yet. One call carries at most 10,000 rows — entries, staged rows, budget amounts and history events together — at most 4 MiB of notes, split legs, staged rows and activity history among them, and at most one import part's 16 MiB in all, so export a larger ledger, or a long activity history, a date range at a time. Staged rows and budget amounts have no date to narrow them by, so a queue or a set of budget amounts over that cannot leave through this tool; the person's download from Import and export in the browser carries up to 100,000 rows. To move a larger ledger that way, export consecutive ranges and move them oldest first into the same ledger, using the accounts the earlier ranges brought when movePlan asks; the last range's balance check says whether every earlier one is in, and only the latest range should carry recurrences, because one created by an earlier range can propose a row into Staged before the next lands and end the move. The file comes back as text; pass it on unchanged.",
         // The page's own selection, as is: the route parses the same schema out
         // of its query string, so an agent can ask for exactly what the page
         // can and nothing it cannot.
@@ -1112,12 +1120,16 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       // One import part's worth rather than the route's hundred thousand. The
       // reply is serialized twice, as structured content and as its text
       // mirror, with no streaming to spread it out, and a file of one part is
-      // one an agent can hand straight to an import.
+      // one an agent can hand straight to an import — in rows and in bytes,
+      // because a file inside the row cap with long enough notes was over the
+      // part's size, and every import tool refused the file this one made,
+      // pointing at a page an agent cannot use.
       (input) =>
         runTool(() =>
           exportLedgerFile(actor, input, {
             maxRows: MAX_BULK_SELECTION_ENTRIES,
-            maxHistoryBytes: MCP_LEDGER_FILE_HISTORY_MAX_BYTES,
+            maxContentBytes: MCP_LEDGER_FILE_CONTENT_MAX_BYTES,
+            maxBytes: LEDGER_FILE_PART_MAX_BYTES,
           }),
         ),
     );
@@ -1175,7 +1187,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "List standing budgets",
         description:
-          "List the standing budgets. One plan covers every period in its window, so a budget running all year is one row here rather than twelve. To see what was actually spent against them, call `get_budget_report`; this tool reports only what was intended.",
+          "List the standing budgets. One standing budget covers every period in its window, so a budget running all year is one row here rather than twelve. To see what was actually spent against them, call `get_budget_report`; this tool reports only what was intended.",
         inputSchema: toolInput({}),
         outputSchema: mcpOutputSchema(z.array(budgetPlanResultSchema)),
         annotations: readAnnotations,
@@ -1199,7 +1211,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "List single-period budget overrides",
         description:
-          "List the amounts set for one period only, which override whatever standing budget covers that period. An empty list is the normal state: most budgets are plans and need no entries at all.",
+          "List the amounts set for one period only, which override whatever standing budget covers that period. An empty list is the normal state: most budgets are standing budgets and need no entries at all.",
         inputSchema: toolInput({}),
         outputSchema: mcpOutputSchema(z.array(budgetEntryResultSchema)),
         annotations: readAnnotations,
@@ -1223,7 +1235,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Get budget against actual",
         description:
-          "What each budgeted category was allowed and what it actually spent, period by period. Group budgets, and the sums of sum_of_children groups, are in each period's groups beside the category rows; never add a group's figure to its members'. A budget belongs to a period unit, and this reports one unit at a time, defaulting to month: a weekly budget will not appear in a monthly report and its category will read limit: null, so check otherPeriodUnits in the reply before telling anybody a category is unbudgeted. Spending is signed, so a refund is negative and lowers the category it came back to. Figures stop at today where this person lives, whatever end date is asked for, and asOf reports the day used. Amounts never span currencies: a period appears once per currency and there is no converted total, because this ledger holds no exchange rate. Set includeUnbudgeted to false to see only categories that have a budget. includeArchived counts spending that ran through accounts since closed and is on by default, unlike every other report: a budget's limit was never scoped to an account, so leaving that spending out makes a budget spent to the penny read as underspent. Set it false to ask the other question. Every period also reports the perimeter — what the accounts the budget is about held at the end of it — and, where anything rolls over, toAssign: the money inside that perimeter no envelope has claimed. Where a budget rolls over, each row also carries what earlier periods handed it (carriedIn), what there was to spend (available) and what it hands on (carriedOut), and the reply's rollover field says which period the carry was folded from and whether that fold hit its bound. A budget whose amount is worked out from a rule reports the worked-out figure as its limit; the plan's own amount column is not it. Every period reports the income that arrived in it, and where any budget names a priority, each row also reports how much of its limit that income funds.",
+          "What each budgeted category was allowed and what it actually spent, period by period. Group budgets, and the sums of sum_of_children groups, are in each period's groups beside the category rows; never add a group's figure to its members'. A budget belongs to a period unit, and this reports one unit at a time, defaulting to month: a weekly budget will not appear in a monthly report and its category will read limit: null, so check otherPeriodUnits in the reply before telling anybody a category is unbudgeted. Spending is signed, so a refund is negative and lowers the category it came back to. Figures stop at today where this person lives, whatever end date is asked for, and asOf reports the day used. Amounts never span currencies: a period appears once per currency and there is no converted total, because this ledger holds no exchange rate. Set includeUnbudgeted to false to see only categories that have a budget. includeArchived counts spending that ran through accounts since closed and is on by default, unlike every other report: a budget's limit was never scoped to an account, so leaving that spending out makes a budget spent to the penny read as underspent. Set it false to ask the other question. Every period also reports the perimeter — what the accounts the budget is about held at the end of it — and, where anything rolls over, toAssign: the money inside that perimeter no envelope has claimed. Where a budget rolls over, each row also carries what earlier periods handed it (carriedIn), what there was to spend (available) and what it hands on (carriedOut), and the reply's rollover field says which period the carry was folded from and whether that fold hit its bound. A budget whose amount is worked out from a rule reports the worked-out figure as its limit; the standing budget's own amount is not it. Every period reports the income that arrived in it, and where any budget names a priority, each row also reports how much of its limit that income funds.",
         inputSchema: budgetReportQuerySchema.strict(),
         outputSchema: mcpOutputSchema(budgetReportResultSchema),
         annotations: readAnnotations,
@@ -1409,7 +1421,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       ({ idempotencyKey, ...input }) =>
         runTool(() =>
           runIdempotentMcpMutation(actor, "categoryGroup.create", idempotencyKey, input, (tx) =>
-            createCategoryGroup(actor, input, tx),
+            createCategoryGroup(actor, input, {}, tx),
           ),
         ),
     );
@@ -1478,7 +1490,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       ({ idempotencyKey, ...input }) =>
         runTool(() =>
           runIdempotentMcpMutation(actor, "budgetPlan.create", idempotencyKey, input, (tx) =>
-            createBudgetPlan(actor, input, tx),
+            createBudgetPlan(actor, input, {}, tx),
           ),
         ),
     );
@@ -1487,7 +1499,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Change a standing budget",
         description:
-          "Change the amount, the window, or the carry of a standing budget. Changing the amount changes every period the window covers, including ones already past, so to leave history alone end this plan and create another from the next period. Every field left out is left alone; activeTo, rolloverCap, targetAmount, targetDate, lookbackPeriods, percentOfPrevious and percentOfIncome accept null to clear them, which is how a sinking fund or a worked-out amount becomes an ordinary budget again. Sending one rule's parameter clears whichever other rule was there, because a budget works out its amount one way. Turning rollover off on a fund is refused rather than silently emptying it. Needs the current version, which `get_budget_plan` returns. Confirm it with the person when they did not ask for this exact change. It writes no postings, so nothing about the books moves.",
+          "Change the amount, the window, or the carry of a standing budget. Changing the amount changes every period the window covers, including ones already past, so to leave history alone end this standing budget and create another from the next period. Every field left out is left alone; activeTo, rolloverCap, targetAmount, targetDate, lookbackPeriods, percentOfPrevious and percentOfIncome accept null to clear them, which is how a sinking fund or a worked-out amount becomes an ordinary budget again. Sending one rule's parameter clears whichever other rule was there, because a budget works out its amount one way. Turning rollover off on a fund is refused rather than silently emptying it. Needs the current version, which `get_budget_plan` returns. Confirm it with the person when they did not ask for this exact change. It writes no postings, so nothing about the books moves.",
         inputSchema: budgetPlanUpdateSchema
           .extend({
             id: recordIdSchema,
@@ -1559,7 +1571,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       ({ idempotencyKey, ...input }) =>
         runTool(() =>
           runIdempotentMcpMutation(actor, "budgetEntry.set", idempotencyKey, input, (tx) =>
-            setBudgetEntry(actor, input, tx),
+            setBudgetEntry(actor, input, {}, tx),
           ),
         ),
     );
@@ -1605,7 +1617,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       ({ idempotencyKey, ...input }) =>
         runTool(() =>
           runIdempotentMcpMutation(actor, "recurrence.create", idempotencyKey, input, (tx) =>
-            createRecurrence(actor, input, tx),
+            createRecurrence(actor, input, {}, tx),
           ),
         ),
     );
@@ -1669,7 +1681,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
           clientId: z
             .string()
             .min(1)
-            .describe("The client id to cut off, as returned by list_connected_agents."),
+            .describe("The client id to cut off, as returned by `list_connected_agents`."),
           idempotencyKey: idempotencyKeySchema,
         }),
         outputSchema: mcpOutputSchema(revokedConnectedAppSchema),
@@ -1691,7 +1703,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Create account",
         description:
-          "Create a checking, savings, card, cash, loan, or other account. On a plan that limits how many accounts are active, creating one while every place is in use is refused with CONFLICT, and the details carry the limit and how many are in use.",
+          "Create a checking, savings, card, cash, loan, or other account. On a plan that limits how many accounts are active, creating one while every place is in use is refused with CONFLICT, and the details carry the limit and how many are in use; archiving or deleting an account in use frees one.",
         inputSchema: accountCreateSchema
           .extend({
             idempotencyKey: idempotencyKeySchema,
@@ -1703,7 +1715,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       ({ idempotencyKey, ...input }) =>
         runTool(() =>
           runIdempotentMcpMutation(actor, "account.create", idempotencyKey, input, (tx) =>
-            createAccount(actor, input, tx),
+            createAccount(actor, input, {}, tx),
           ),
         ),
     );
@@ -1819,7 +1831,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       ({ idempotencyKey, ...input }) =>
         runTool(() =>
           runIdempotentMcpMutation(actor, "category.create", idempotencyKey, input, (tx) =>
-            createCategory(actor, input, tx),
+            createCategory(actor, input, {}, tx),
           ),
         ),
     );
@@ -1925,7 +1937,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
             "transactionTemplate.create",
             idempotencyKey,
             input,
-            (tx) => createTransactionTemplate(actor, input, tx),
+            (tx) => createTransactionTemplate(actor, input, {}, tx),
           ),
         ),
     );
@@ -2054,7 +2066,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Merge payees",
         description:
-          "Rewrite selected committed and staged payee spellings to one canonical name. Confirm it with the person first: the source payees are gone afterward and there is no undo.",
+          "Rewrite every use of the selected payee spellings to one canonical name: committed transactions, staged rows, and every recurring transaction and saved template carrying a source spelling, so neither brings the old spelling back on its next use. The reply counts the transactions and staged rows only. Every spelling named, the target included, must be on at least one transaction or staged row, or the merge is refused as not found; and it is refused whole when an entry carrying a source spelling is on a frozen account. Confirm it with the person first: the source payees are gone afterward and there is no undo.",
         inputSchema: payeeMergeSchema.strict(),
         outputSchema: mcpOutputSchema(mergedPayeesResultSchema),
         annotations: unrecoverableAnnotations,
@@ -2152,7 +2164,8 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
             "transaction.delete",
             idempotencyKey,
             { id, expectedVersion, deleted, allowDuplicate },
-            (tx) => setTransactionDeleted(actor, id, expectedVersion, deleted, allowDuplicate, tx),
+            (tx) =>
+              setTransactionDeleted(actor, id, expectedVersion, deleted, allowDuplicate, {}, tx),
           ),
         ),
     );

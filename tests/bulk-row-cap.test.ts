@@ -101,6 +101,8 @@ describe("the CSV preview", () => {
     const csv = `date,payee,amount\n${"2026-01-01,Someone,1.00\n".repeat(50)}`;
     expect(() => getCsvPreview(csv)).toThrow(AppError);
     expect(() => getCsvPreview(csv)).toThrow(/64-byte limit/);
+    // And says what to do about it, as the row cap's refusal does.
+    expect(() => getCsvPreview(csv)).toThrow(/imported one range at a time/);
     // And as a field, so a client never parses the sentence for the number.
     expect(() => getCsvPreview(csv)).toThrow(
       expect.objectContaining({ details: { field: "csv", limit: 64 } }),
@@ -233,13 +235,14 @@ describe("the export cap against the import cap", () => {
   });
 
   /**
-   * Rows do not bound the activity history, whose events carry a whole record
-   * twice, so a file has a second limit on the history's bytes, chosen per
-   * transport like the row cap and smaller for an agent for the same reason.
-   * Its refusal names the one remedy that works, a range, which narrows the
-   * history as well as the entries.
+   * Rows do not bound what is not the same size on every row — notes, split
+   * legs, staged rows' source data, the activity history's snapshots — so a
+   * file has a second limit on those bytes, chosen per transport like the row
+   * cap and smaller for an agent for the same reason. Its refusal names the
+   * moves that work for what was asked for. The tool also holds its file to
+   * one import part's size, so what it returns is what its imports take.
    */
-  it("bounds a Simple Balance file's history by its bytes too, and names the way out", async () => {
+  it("bounds a Simple Balance file's content by its bytes too, and names the way out", async () => {
     const read = (path: string) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
     const [route, tool, service] = await Promise.all([
       read("src/server/api.ts"),
@@ -248,16 +251,14 @@ describe("the export cap against the import cap", () => {
     ]);
     const limits = await import("../src/server/config-limits.js");
     expect(route).toMatch(
-      /exportLedgerFile\([^;]*?maxHistoryBytes: LEDGER_FILE_HISTORY_MAX_BYTES/s,
+      /exportLedgerFile\([^;]*?maxContentBytes: LEDGER_FILE_CONTENT_MAX_BYTES,\s*\}/s,
     );
     expect(tool).toMatch(
-      /exportLedgerFile\([^;]*?maxHistoryBytes: MCP_LEDGER_FILE_HISTORY_MAX_BYTES/s,
+      /exportLedgerFile\([^;]*?maxContentBytes: MCP_LEDGER_FILE_CONTENT_MAX_BYTES,\s*maxBytes: LEDGER_FILE_PART_MAX_BYTES/s,
     );
-    expect(limits.MCP_LEDGER_FILE_HISTORY_MAX_BYTES).toBeLessThan(
-      limits.LEDGER_FILE_HISTORY_MAX_BYTES,
+    expect(limits.MCP_LEDGER_FILE_CONTENT_MAX_BYTES).toBeLessThan(
+      limits.LEDGER_FILE_CONTENT_MAX_BYTES,
     );
-    expect(service).toContain(
-      "Narrow the activity history with a start and end date, and export one range at a time.",
-    );
+    expect(service).toMatch(/counted\.contentBytes > maxContentBytes[^;]*capWayOut\(kinds\)/s);
   });
 });

@@ -66,7 +66,7 @@ describe("a tool named inside a field description", () => {
    * makes, one level down, where the surface has moved and that check does not
    * read.
    *
-   * Thirty-one field descriptions name a tool — `frozen` sends the agent to
+   * Thirty-four field descriptions name a tool — `frozen` sends the agent to
    * `set_active_accounts`, `accountLimit` to `create_account`, `notes` on
    * `stage_csv` back to `preview_csv` — and none of the seventeen there were
    * when this was written was covered.
@@ -124,6 +124,45 @@ describe("a tool named inside a field description", () => {
     // check does: a traversal that stopped matching would pass on nothing.
     expect(sites.size).toBeGreaterThanOrEqual(17);
     expect(claims).toBeGreaterThanOrEqual(sites.size);
+  });
+
+  /**
+   * `mcp.md` §Descriptions: backticks mark an identifier, because "an
+   * identifier set in prose is an identifier a model retypes wrong". Only the
+   * tool descriptions were held to it, so the field descriptions named a tool
+   * bare in twenty-eight places and in backticks in seven, and the
+   * instructions every connection reads named `whoami` and `list_accounts`
+   * bare. Matched against the registered names rather than a snake_case
+   * pattern, so a one-word tool such as `whoami` is read too.
+   */
+  it("sets it in backticks, and so do the instructions", async () => {
+    const { instructions } = await connect();
+    const registered = [...new Set(tools.map((tool) => tool.name))];
+    const named = new RegExp(`(\`?)\\b(${registered.join("|")})\\b(\`?)`, "g");
+    const bare: string[] = [];
+    let marked = 0;
+    const read = (where: string, text: string) => {
+      for (const match of text.matchAll(named)) {
+        if (match[1] === "`" && match[3] === "`") marked += 1;
+        else bare.push(`${where} names ${match[2]} in bare prose`);
+      }
+    };
+    for (const tool of tools) {
+      for (const schema of [tool.inputSchema, tool.outputSchema]) {
+        walk(schema, (node) => {
+          const properties = node["properties"];
+          if (!properties || typeof properties !== "object") return;
+          for (const [field, child] of Object.entries(properties as Record<string, unknown>)) {
+            const description = (child as { description?: unknown } | null)?.description;
+            if (typeof description === "string") read(`${tool.name}.${field}`, description);
+          }
+        });
+      }
+    }
+    read("the instructions", instructions);
+    expect([...new Set(bare)]).toEqual([]);
+    // A reader that stopped matching would pass on nothing.
+    expect(marked).toBeGreaterThanOrEqual(30);
   });
 });
 

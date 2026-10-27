@@ -98,8 +98,8 @@ export async function getCategoryGroup(actor: Actor, id: string): Promise<Catego
 export async function createCategoryGroup(
   actor: Actor,
   input: unknown,
+  options: CreateAuditOptions = {},
   transaction?: DbTransaction,
-  options?: CreateAuditOptions,
 ): Promise<CategoryGroupView> {
   const parsed = categoryGroupCreateSchema.parse(input);
   const normalizedName = normalizeHumanName(parsed.name);

@@ -20,6 +20,7 @@ import {
 import { accountFreeze, assertAccountsWritable } from "./accounts.js";
 import { conflict, duplicate, notFound, staleVersion, validationError } from "./errors.js";
 import {
+  auditedRow,
   getIdempotent,
   lockCategoryNamespace,
   lockIdempotencyKey,
@@ -529,8 +530,8 @@ export type CategoryCreateOptions = CreateAuditOptions & { readonly archivedAt?:
 export async function createCategory(
   actor: Actor,
   input: unknown,
+  options: CategoryCreateOptions = {},
   transaction?: DbTransaction,
-  options?: CategoryCreateOptions,
 ) {
   const parsed = categoryCreateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
@@ -1524,15 +1525,15 @@ export async function mergeCategories(
         entityType: "transaction",
         entityId: updated.id,
         operation: "category_merge",
-        before: serializeRow(transactionBeforeById.get(updated.id)),
-        after: serializeRow(updated),
+        before: auditedRow(transactionBeforeById.get(updated.id)),
+        after: auditedRow(updated),
       })),
       ...updatedStages.map((updated) => ({
         entityType: "staged_transaction",
         entityId: updated.id,
         operation: "category_merge",
-        before: serializeRow(stagedBeforeById.get(updated.id)),
-        after: serializeRow(updated),
+        before: auditedRow(stagedBeforeById.get(updated.id)),
+        after: auditedRow(updated),
       })),
       ...updatedRecurrences.map((updated) => ({
         entityType: "recurrence",

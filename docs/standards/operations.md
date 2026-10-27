@@ -183,7 +183,7 @@ fixture was wrong and all twelve refusals were passing for the wrong reason.
 subject.
 
 One policy about personal data in log lines, in one process.
-`account-deletion.ts:226-233` logs counts and no address, with the comment
+`account-deletion.ts:233-240` logs counts and no address, with the comment
 "Deliberately without the address: they asked to be gone." `sendMail` follows it:
 every `Message` carries `about`, a fixed phrase naming the kind of message
 (`src/server/mail.ts:97-107`), and that phrase is what the log line carries
@@ -206,7 +206,7 @@ relay's own sentence and may quote the address inside it; that is the relay
 talking, and an operator who cannot read it has to reproduce the failure by
 hand. A Drizzle error is narrowed for a harder reason, and it is narrowed in one
 place rather than at each transport: see §Logging below, which owns
-`log.failure` (`src/server/log.ts:76-102`). `src/server/api.ts:542-546` is the
+`log.failure` (`src/server/log.ts:76-102`). `src/server/api.ts:552-556` is the
 HTTP transport handing it over, with the comment saying why it stopped doing the
 narrowing itself.
 
@@ -817,7 +817,7 @@ default whenever the value was not a safe integer in range, so `CSV_MAX_ROWS`,
 `RECURRENCE_CLAIM_LIMIT` all fell back silently while `DATABASE_POOL_SIZE` threw.
 The five were made to do what the one did, and then all six were made to warn
 instead, which is where they are now
-(`src/server/config-limits.ts:67-111`).
+(`src/server/config-limits.ts:76-120`).
 
 **The reversal is the interesting half, and it is not a retreat from the rule.**
 A release upgrades cleanly from the one before it, which `AGENTS.md` states as a
@@ -833,22 +833,22 @@ it was given, the range it had to be in, and the number in force instead — and
 is printed once per name at startup, in front of whoever just deployed. What was
 kept from the first pass is the part that mattered most: all six are read at
 startup rather than at the call site. `configuredCsvMaxRows()` used to run inside
-an import (`src/server/services/import-export.ts:766`) and the recurrence limits
+an import (`src/server/services/import-export.ts:769`) and the recurrence limits
 inside a tick, so a message about either arrived hours later in a log nobody was
 reading, or on a deployment that never imported a CSV, not at all.
-`assertConfiguredLimits()` (`src/server/config-limits.ts:251-263`) reads all seven
+`assertConfiguredLimits()` (`src/server/config-limits.ts:260-272`) reads all seven
 and `getConfig()` calls it (`src/server/config.ts:243-255`), which every
 entrypoint runs before it serves anything.
 
 **The seventh bounded integer was read at its call site until 0.2.1**, which
 made it the live instance of the defect the two paragraphs above are about. `IDEMPOTENCY_RETENTION_HOURS` is parsed by
-`configuredIdempotencyRetentionHours` (`src/server/config-limits.ts:160-180`), a
+`configuredIdempotencyRetentionHours` (`src/server/config-limits.ts:169-189`), a
 deliberate sibling of the shared reader rather than a flag on it, because zero
 is a real answer here — the honest spelling of "do not prune" — where on a cap
 it would be a broken deployment. The sibling is right. What is missing is the
 line in `assertConfiguredLimits()`: the value is read inside a scheduler tick
 (`src/server/recurrence-scheduler.ts:215`) and inside the sweep itself
-(`src/server/services/helpers.ts:502`), so a typo in it warns on a timer rather
+(`src/server/services/helpers.ts:554`), so a typo in it warns on a timer rather
 than in front of whoever just deployed — and on a deployment that leaves
 retention off, which is the default, the warning says the value is having no
 effect in a log line nobody correlates with the deploy. `assertConfiguredLimits()`
@@ -1009,7 +1009,7 @@ exception is now five.** `SB_API_ORIGIN`, `SB_FRONTEND_PORT`,
 the nginx table at `docs/deployment.md:883-892` — belong to the nginx container,
 and no example file configures it: the root file serves the single container,
 which has no nginx in it, and the compose recipe sets each of them on the
-frontend service itself (`deploy/compose/compose.distributed.yml:315-339`),
+frontend service itself (`deploy/compose/compose.distributed.yml:316-340`),
 where a value can carry the reason it is what it is. Their defaults are in the
 image (`deploy/docker/frontend.Dockerfile:49-90`), so a deployment that changes
 none of them has nothing to write down. This is the same shape as
@@ -1154,7 +1154,7 @@ shutdown, is the slow half.** Migrations run at startup under advisory lock
 (`src/server/index.ts:29,80`; `src/server/scheduler.ts:70,100`), so readiness
 cannot open before they finish. The 0.1.5 notes record that the payee index
 "takes a moment to build while the container starts, before it opens readiness"
-(`docs/upgrades.md:1920-1922`). So the generous number is `--start-period`:
+(`docs/upgrades.md:1987-1989`). So the generous number is `--start-period`:
 300s in all three Node images, the same budget the compose recipe's
 `start_period` and the chart's startup probe give the same work, and the three
 are held to each other. It was 20s in the images, which reported a first start
@@ -1237,7 +1237,7 @@ alone.
 
 The argument is in the chart and it is an observation rather than a worry.
 `simple-balance.waitForDatabase`
-(`deploy/helm/simple-balance/templates/_helpers.tpl:542-639`) is in front of
+(`deploy/helm/simple-balance/templates/_helpers.tpl:566-663`) is in front of
 both application workloads (`server-deployment.yaml:65`,
 `scheduler-deployment.yaml:58`) and blocks until every Citus worker group is
 registered and active in `pg_dist_node`. It began as a TCP probe, which was
@@ -1386,7 +1386,7 @@ carry the id and not the payee, the search term or the bound parameter.
 
 **House, and off unless asked for.** `GET /metrics` answers in the Prometheus
 text format, on the port everything else is served on, and only when
-`METRICS_ENABLED=true` (`src/server/api.ts:461-463`). Registered rather
+`METRICS_ENABLED=true` (`src/server/api.ts:471-473`). Registered rather
 than refused: a deployment that never asked has no such route, which is the same
 answer the MCP surface gives for a tool outside a token's scope.
 
@@ -1407,7 +1407,7 @@ neither half can report alone.** `billing_webhook_deliveries_total` is the API's
 and only the API's — every exit of the webhook route but the signature refusal
 replies `200 {"received":true}`, so `http_requests_total` cannot tell a
 delivery that granted or revoked an entitlement from one that was acknowledged
-and ignored (`src/server/api.ts:1304`, `:1319`). `billing_sweeps_total` is the
+and ignored (`src/server/api.ts:1318`, `:1333`). `billing_sweeps_total` is the
 scheduler's, and it is the twelve-hourly catch-up for the same subscriptions
 (`src/server/recurrence-scheduler.ts:236-251`). An operator scraping one half
 can be told that the webhook has been failing for hours, or that the sweep keeps
@@ -1815,7 +1815,7 @@ which is the case most implementations miss and the one that makes Ctrl-C twice
 behave the way a person expects. The compose file sets
 `stop_grace_period: 30s` with a comment saying it is "Longer than the 10s drain
 the process gives itself on SIGTERM (DEFAULT_SHUTDOWN_DEADLINE_MS), so it is not
-killed mid-drain" (`deploy/compose/compose.distributed.yml:274-276`), and the
+killed mid-drain" (`deploy/compose/compose.distributed.yml:275-277`), and the
 chart sets `terminationGracePeriodSeconds: 30`
 (`deploy/helm/simple-balance/values.yaml:268`).
 
@@ -1856,7 +1856,7 @@ deploy the chart, so they inherit the Kubernetes spelling at
 **The one exception, stated because an unstated one reads as an oversight — and
 it is about the Docker entrypoint, not about PostgreSQL.** Two services take it,
 both running the `postgres:18` image under its own entrypoint:
-`deploy/compose/compose.distributed.yml`'s bundled `postgres` (`:220-225`) and
+`deploy/compose/compose.distributed.yml`'s bundled `postgres` (`:221-226`) and
 the `single` profile's database machine,
 `deploy/compose/single/compose.postgres.yml`'s `postgres` (`:250-258`). Both get
 `no-new-privileges` and both keep their capabilities, because that entrypoint
@@ -1926,7 +1926,7 @@ below it, the log rotation every other service on the machine has, and an image
 pinned by tag and by digest. In the chart the collector runs as 10001 with
 `runAsNonRoot`, `seccompProfile: RuntimeDefault`,
 `allowPrivilegeEscalation: false`, `readOnlyRootFilesystem: true` and every
-capability dropped (`deploy/helm/simple-balance/values.yaml:663-678`). What
+capability dropped (`deploy/helm/simple-balance/values.yaml:665-680`). What
 they take that no other service does is named rather than left to be found: on
 a single machine both share the host's network, and node-exporter mounts the
 host's root read-only. §Host metrics argues each, and the metadata rule the

@@ -402,6 +402,37 @@ describe("a noindex on every response", () => {
     expect(response.headers.get("x-robots-tag")).toBe("noindex");
   });
 
+  /**
+   * `http.md`: the single-page app never answers an API path. Only three
+   * prefixes were fenced, so the single container answered every other path
+   * under one this process owns with the shell and a 200 — HTML for an API
+   * client to parse, and "ready" from a probe at a mistyped health path with
+   * the database down. Matched on the body and the type as well as the status,
+   * because Hono's own 404 would pass on the status alone.
+   */
+  it.each([
+    "/api/v2/accounts",
+    "/api",
+    "/api/",
+    "/mcp/tools",
+    "/health/readyz",
+    "/metrics",
+    "/ads.txt",
+  ])("answers %s as an API path that is not there, never with the shell", async (target) => {
+    const response = await server.request(`${origin}${target}`);
+    expect(response.status).toBe(404);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    expect(await refusalCode(response)).toBe("NOT_FOUND");
+  });
+
+  // Bare `/health` answered 200 through the shell on the release before, and a
+  // load balancer pointed there must not take the backend out on an upgrade.
+  it.each(["/health", "/health/"])("keeps %s answering, as liveness", async (target) => {
+    const response = await server.request(`${origin}${target}`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ status: "ok" });
+  });
+
   it("is said on a refusal, which a guard answers before any route runs", async () => {
     const response = await server.request(`${origin}/api/v1/preferences`, {
       method: "PUT",

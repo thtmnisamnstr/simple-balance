@@ -114,13 +114,12 @@ export type LedgerImportKind = (typeof ledgerImportKinds)[number];
  *   answers to. The person decides, except about a template, whose provenance
  *   is simply dropped.
  */
-export const ledgerRecordOutcomes = [
-  "create",
-  "exists",
-  "duplicate",
-  "refused",
-  "missing",
-] as const;
+const ledgerRecordOutcomes = ["create", "exists", "duplicate", "refused", "missing"] as const;
+/**
+ * Nothing imports it, and it stays: `typescript.md` 2.3 gives every closed set
+ * a type derived from its tuple, as `ApiErrorCode` in `domain.ts` argues at
+ * length. A dead-code sweep that finds it narrows the tuple and leaves this.
+ */
 export type LedgerRecordOutcome = (typeof ledgerRecordOutcomes)[number];
 
 /**
@@ -131,7 +130,7 @@ export type LedgerRecordOutcome = (typeof ledgerRecordOutcomes)[number];
  * never invented: the importer chooses none on its own, because a name nobody
  * chose is a guess, and a guess never overwrites a decision.
  */
-export const ledgerDecisionActions = [
+const ledgerDecisionActions = [
   "use_existing",
   "skip",
   "rename",
@@ -151,7 +150,7 @@ export type LedgerDecisionAction = (typeof ledgerDecisionActions)[number];
  * answers to, which only ever named provenance. `undecided` is a question
  * still open, and a plan holding one is never carried out.
  */
-export const ledgerPlannedActions = [
+const ledgerPlannedActions = [
   "create",
   "use",
   "skip",
@@ -160,10 +159,10 @@ export const ledgerPlannedActions = [
   "refused",
   "undecided",
 ] as const;
-export type LedgerPlannedAction = (typeof ledgerPlannedActions)[number];
+type LedgerPlannedAction = (typeof ledgerPlannedActions)[number];
 
 /** What somebody says about the file's settings when this copy has chosen its own. */
-export const ledgerPreferencesChoices = ["file", "keep"] as const;
+const ledgerPreferencesChoices = ["file", "keep"] as const;
 export type LedgerPreferencesChoice = (typeof ledgerPreferencesChoices)[number];
 
 /**
@@ -185,7 +184,7 @@ export const MAX_LEDGER_FILE_ARRIVE_ARCHIVED = 1_000;
  * A bound on a label rather than on any work: every part is capped on its own,
  * and the export that wrote the file is capped at a hundred thousand rows.
  */
-export const MAX_LEDGER_FILE_PARTS = 1_000;
+const MAX_LEDGER_FILE_PARTS = 1_000;
 
 /**
  * A record's key as a decision names it. Longer than a file's own keys,
@@ -225,7 +224,7 @@ const newNameSchema = oneLine(
  * one is passed over there too, and a mistyped one surfaces as the real
  * budget's open question in the part that has it.
  */
-export const ledgerFileDecisionSchema = z
+const ledgerFileDecisionSchema = z
   .discriminatedUnion("action", [
     z
       .object({
@@ -325,10 +324,10 @@ const ledgerFileTextSchema = z
   .min(1, { error: () => "Choose a Simple Balance file" })
   .refine((text) => utf8Length(text) <= LEDGER_FILE_PART_MAX_BYTES, {
     error: () =>
-      `One part of a Simple Balance file is at most ${LEDGER_FILE_PART_MAX_BYTES / (1024 * 1024)} MiB. A larger file goes in parts, each a file of its own, which the import page cuts for you.`,
+      `One part of a Simple Balance file is at most ${LEDGER_FILE_PART_MAX_BYTES / (1024 * 1024)} MiB. A larger file goes in parts, each a file of its own: the import page cuts one for you, and export_ledger_file returns one part a call, narrowed with a start and end date.`,
   })
   .describe(
-    `A Simple Balance file (${LEDGER_FILE_FORMAT}), or one part of one, exactly as export_ledger_file returned it. A part is at most 10,000 entries, staged rows and budget amounts together, which is what one export call returns, so a file from export_ledger_file is always one part.`,
+    `A Simple Balance file (${LEDGER_FILE_FORMAT}), or one part of one, exactly as \`export_ledger_file\` returned it. A part is at most 10,000 entries, staged rows and budget amounts together, which is what one export call returns, so a file from \`export_ledger_file\` is always one part.`,
   );
 
 /** What the preview reads: the file, and nothing decided yet. */
@@ -348,8 +347,8 @@ export const ledgerFileAddInputSchema = z
     fileName: z
       .string()
       .trim()
-      .min(1)
-      .max(240)
+      .min(1, enter("a file name"))
+      .max(240, atMost("A file name", 240))
       .describe(
         "What the file was called. Recorded on the import batch its entries stage under, so somebody can tell one import from another later.",
       ),
@@ -444,16 +443,30 @@ export const ledgerFileHereSchema = z
   .describe(
     "This ledger's own records, in the form a Simple Balance file writes them, with the id each key stands for: what every record in the file is compared with.",
   );
-export type LedgerFileHere = z.infer<typeof ledgerFileHereSchema>;
 
 /**
  * Why a ledger cannot take a file straight into the books, said by the
  * preview beside the choice and by the move when it refuses. One sentence for
  * both, so the page never offers in one set of words what the server turns
- * down in another.
+ * down in another. "Transactions", because that is the page's word for what
+ * somebody typed in, and the sentence is read beside the page's own.
  */
 export const LEDGER_FILE_MOVE_BLOCKED =
-  "This ledger already has entries that did not come from a Simple Balance file, so a file can only be added to it, with its entries going to Staged for review.";
+  "This ledger already has transactions that did not come from a Simple Balance file, so a file can only be added to it, with its transactions going to Staged for review.";
+
+/**
+ * The same refusal when the only thing in the way is rows waiting in Staged —
+ * a CSV staged and not committed, a row typed into the queue, a recurrence's
+ * proposal — which is a different case with a better way out. Discarding them
+ * lets the move go ahead; committing them makes the transactions the sentence
+ * above is about, which rules a move out for good, since a deleted one still
+ * counts. Telling the person to add instead, as that sentence does, sent them
+ * to the worse of the two answers over a row they could have discarded.
+ */
+export function ledgerFileMoveStagedBlocked(n: number): string {
+  const them = n === 1 ? "it" : "them";
+  return `${n === 1 ? "A row waiting in Staged did" : `${n} rows waiting in Staged did`} not come from a Simple Balance file, and committing ${them} would rule out a move for good. Discard ${them} there and check the file again to move it, or add the file instead, with its transactions going to Staged for review.`;
+}
 
 /**
  * How a move problem that no answer cures ends for a person, which the server
@@ -538,6 +551,14 @@ export const ledgerFileFactsSchema = z
           .string()
           .nullable()
           .describe("Why it does not qualify, as a sentence, or null when it does."),
+        stagedRows: z
+          .number()
+          .int()
+          .nonnegative()
+          .default(0)
+          .describe(
+            "Rows waiting in Staged that did not come from a Simple Balance file, counted only when they are all that stops a move: discarding them lets the file be moved, and committing them rules a move out for good. Zero when a transaction here stops it, because discarding rows would not help then.",
+          ),
       })
       .strict(),
   })
@@ -734,7 +755,7 @@ const movePlanSchema = z
     drift: z.array(driftSchema),
   })
   .strict();
-export type LedgerFileMovePlan = z.infer<typeof movePlanSchema>;
+type LedgerFileMovePlan = z.infer<typeof movePlanSchema>;
 
 /**
  * What adding a file would do, and what still stops it.
@@ -827,7 +848,7 @@ export type LedgerFilePlan = z.infer<typeof ledgerFilePlanSchema>;
 export const ledgerFilePreviewSchema = ledgerFileFactsSchema.extend({
   plan: ledgerFilePlanSchema,
   movePlan: ledgerFilePlanSchema.describe(
-    "The same file planned for a move straight into the books, as a whole file or the last part of one: the choices a move offers, what it writes, the balances it is held to, and what stops it. A part before the last also leaves its recurring transactions to the last part, which move_ledger_file's result counts in plan.move.recurrencesDeferred; and an account here holding transactions this part does not carry is asked about, which for a later part includes what the earlier parts brought, so answer that question only from a whole file's preview.",
+    "The same file planned for a move straight into the books, as a whole file or the last part of one: the choices a move offers, what it writes, the balances it is held to, and what stops it. A part before the last also leaves its recurring transactions to the last part, which `move_ledger_file`'s result counts in plan.move.recurrencesDeferred; and an account here holding transactions this part does not carry is asked about, which for a later part includes what the earlier parts brought, so answer that question only from a whole file's preview.",
   ),
 });
 export type LedgerFilePreview = z.infer<typeof ledgerFilePreviewSchema>;
@@ -955,7 +976,7 @@ const subtractDecimalText = (left: string, right: string): string =>
  * What a key resolves to when something is written: the id of a record here,
  * a category to file by name when an entry is committed, or nothing.
  */
-export type LedgerRefTarget = { id: string } | { name: string; kind: CategoryKind } | null;
+type LedgerRefTarget = { id: string } | { name: string; kind: CategoryKind } | null;
 /** The kinds of record something in a file can name, and so the ones a key resolves for. */
 export type LedgerReferenceKind = "group" | "category" | "account" | "template";
 export type LedgerRefResolver = (kind: LedgerReferenceKind, key: string) => LedgerRefTarget;
@@ -1515,7 +1536,7 @@ function accountDifferences(ours: FullAccount, theirs: FullAccount) {
 }
 
 /** How a file lands: records at once and transactions to Staged, or everything into the books. */
-export const ledgerFileImportModes = ["add", "move"] as const;
+const ledgerFileImportModes = ["add", "move"] as const;
 export type LedgerFileImportMode = (typeof ledgerFileImportModes)[number];
 
 export type LedgerFilePlanInput = {
@@ -1538,7 +1559,7 @@ export type LedgerFilePlanInput = {
 };
 
 /** One period's budget amount: written, or passed over. */
-export type LedgerBudgetEntryAction = "create" | "skip";
+type LedgerBudgetEntryAction = "create" | "skip";
 
 export type LedgerFilePlanned = {
   /** The plan as the preview and the result carry it. */
@@ -1608,7 +1629,16 @@ export function planLedgerFileAdd(input: LedgerFilePlanInput): LedgerFilePlanned
 
   // First, because no decision can cure either, and a refusal leads with its
   // first problem.
-  if (moving && !facts.move.qualifies) problem("move", LEDGER_FILE_MOVE_BLOCKED);
+  if (moving && !facts.move.qualifies) {
+    const rows = facts.move.stagedRows;
+    problem(
+      "move",
+      facts.move.reason ?? LEDGER_FILE_MOVE_BLOCKED,
+      undefined,
+      undefined,
+      rows > 0 ? { count: rows } : undefined,
+    );
+  }
   if (moving && facts.rows.waiting > 0) {
     const n = facts.rows.waiting;
     problem(
@@ -2205,7 +2235,10 @@ export function planLedgerFileAdd(input: LedgerFilePlanInput): LedgerFilePlanned
     // hid it at the moment somebody chose: using the one here keeps its own,
     // so the file's opening never arrives and no later check says so. Both
     // openings are said, and what the gap between them does, rather than a
-    // balance, because the account here may hold entries of its own.
+    // balance, because the account here may hold entries of its own. A move
+    // says the openings and stops: whether the one here may be used at all is
+    // `narrowForMove`'s sentence, which follows, and an add's "using the one
+    // here keeps its own" would offer a choice the move has just taken away.
     (incoming, at) => {
       const { fields, opening, hereOpening, openingDiffers } = accountDifferences(
         incoming.record as FullAccount,
@@ -2214,6 +2247,8 @@ export function planLedgerFileAdd(input: LedgerFilePlanInput): LedgerFilePlanned
       const currency = (at.record as FullAccount).currency;
       const differs = `There is already an account called "${at.name}" here, and it differs from the file's in ${andList(fields)}.`;
       if (!openingDiffers) return differs;
+      const openings = `Here it opens on ${hereOpening.openingDate} at ${hereOpening.openingBalance} ${currency}, and the file's on ${opening.openingDate} at ${opening.openingBalance} ${currency}.`;
+      if (moving) return `${differs} ${openings}`;
       const gap = subtractDecimalText(opening.openingBalance, hereOpening.openingBalance);
       const keeps =
         gap === "0"
@@ -2221,7 +2256,7 @@ export function planLedgerFileAdd(input: LedgerFilePlanInput): LedgerFilePlanned
           : gap.startsWith("-")
             ? `Using the one here keeps its own opening, which is ${gap.slice(1)} ${currency} more than the file's`
             : `Using the one here keeps its own opening, so the ${gap} ${currency} more that the file's opens with does not come with it`;
-      return `${differs} Here it opens on ${hereOpening.openingDate} at ${hereOpening.openingBalance} ${currency}, and the file's on ${opening.openingDate} at ${opening.openingBalance} ${currency}. ${keeps}; bringing it in under another name keeps the file's.`;
+      return `${differs} ${openings} ${keeps}; bringing it in under another name keeps the file's.`;
     },
   );
   planReferences("account", file.accounts);

@@ -220,15 +220,17 @@ app, or a copy you run yourself.
    or `simple-balance-accounts-` and the date for chosen accounts.
 
 Anything you leave out still travels by name wherever something in the file
-refers to it, so unticking budgets does not break the categories they were
-about, and a transfer to an account you did not choose names that account and
-nothing more. A transfer between two accounts you did choose is in the file
-once. With a date range, each account carries what it held the day before the
-range starts, so its balance in the file still adds up.
+refers to it. Leave out categories, and each one a transaction files under or a
+budget is about still comes along by name; a transfer to an account you did not
+choose names that account and nothing more. A transfer between two accounts you
+did choose is in the file once. With a date range, each account carries what it
+held the day before the range starts, so its balance in the file still adds up.
 
 One file holds up to 100,000 transactions, staged rows, budget amounts and
-history events together. A larger ledger is refused with a sentence saying what
-to narrow — usually a date range at a time.
+history events together, and up to 16 MiB of what is not the same size on every
+row: notes and the rest of a transaction's text, the lines of a split, staged
+rows and the history. A larger ledger is refused with a sentence saying what to
+narrow — usually a date range at a time.
 
 To bring the file into another copy, see the next two sections; that copy
 needs this release or a later one. For a spreadsheet of your transactions,
@@ -285,7 +287,7 @@ parts before it are in; if the connection drops instead, the page says it
 cannot tell whether the part finished. Either way the same button becomes
 **Try part 2 of 3 again** (**Try again** for a file of one part), which sends
 that part again with the same answers, and a part that did finish is not added
-twice. **Check the file again**, or choosing the same file again, reads the
+twice. **Check file again**, or choosing the same file again, reads the
 ledger afresh and keeps what you decided: what earlier parts brought in is
 recognized and skipped.
 
@@ -344,7 +346,7 @@ before it are in. If an account's balance did not come out, the page lists
 each one with both figures, and trying again would meet the same figures, so
 **Try again** is disabled: the account on this side probably holds
 transactions that are not in the file. Rename it under **Accounts** and press
-**Check the file again**, so the file's comes in as a new account, or add the
+**Check file again**, so the file's comes in as a new account, or add the
 file instead. If anything else stopped it, **Try part 2 of 3 again** (**Try
 again** for a file in one part) sends that part again, and a part that did
 finish is not moved twice.

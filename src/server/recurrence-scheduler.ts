@@ -320,7 +320,11 @@ export function createRecurrenceScheduler(
           const bound = setTimeout(resolve, STOP_GRACE_MS);
           bound.unref();
         }),
-      ]).catch(() => undefined);
+      ]).catch(
+        // Nothing reaches this: a tick catches and logs its own failure and
+        // answers false. It is here so that stopping cannot reject, as above.
+        () => undefined,
+      );
     },
   };
 }

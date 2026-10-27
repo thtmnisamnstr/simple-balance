@@ -6,8 +6,6 @@
  */
 export declare const PACK_FORMAT: "simple-balance-learn-pack-1";
 export declare const SITE: string;
-export declare const PRODUCT_HEADING: string;
-export declare const SITE_LICENSE: string;
 export declare const EXIT_CODES: Readonly<{ inSync: 0; drifted: 1; unknown: 2 }>;
 
 export declare class SyncError extends Error {}

@@ -61,5 +61,18 @@
     { "day": 4, "type": "withdrawal", "from": "Travel Card", "amount": "23.50", "payee": "Cityline Transit", "description": "Monthly pass top-up", "category": "Transportation" },
     { "day": 4, "type": "deposit",    "to": "Everyday Checking", "amount": "19.99", "payee": "Streamly", "description": "Refund for a duplicate charge", "category": "Subscriptions" },
     { "day": 5, "type": "withdrawal", "from": "Everyday Checking", "amount": "42.00", "payee": "Paper & Ink", "description": "Card purchase" }
+  ],
+  "templates": [
+    { "name": "Weekly groceries", "type": "withdrawal", "from": "Everyday Checking", "payee": "Greenline Market", "description": "Weekly groceries", "category": "Groceries" },
+    { "name": "Dinner out", "type": "withdrawal", "from": "Travel Card", "payee": "Rosetta Trattoria", "description": "Dinner", "category": "Dining out" },
+    { "name": "Freelance invoice", "type": "deposit", "to": "Everyday Checking", "payee": "Halberd Design", "category": "Freelance" },
+    { "name": "Rail fare", "type": "withdrawal", "from": "Euro Account", "payee": "Trenitalia", "description": "Rail fare", "category": "Transportation" }
+  ],
+  "recurrences": [
+    { "name": "Salary", "day": 1, "type": "deposit", "to": "Everyday Checking", "amount": "4200.00", "payee": "Northwind Systems", "description": "Monthly salary", "category": "Salary" },
+    { "name": "Rent", "day": 2, "type": "withdrawal", "from": "Everyday Checking", "amount": "1850.00", "payee": "Bayview Properties", "description": "Rent", "category": "Rent" },
+    { "name": "Electricity", "day": 3, "type": "withdrawal", "from": "Everyday Checking", "payee": "Meridian Power", "description": "Electricity", "category": "Utilities" },
+    { "name": "Everstream", "day": 5, "type": "withdrawal", "from": "Travel Card", "amount": "17.99", "payee": "Everstream", "description": "Subscription", "category": "Subscriptions" },
+    { "name": "Monthly savings", "day": 17, "type": "transfer", "from": "Everyday Checking", "to": "Savings", "amount": "600.00", "payee": "Pacific Mutual", "description": "Monthly savings" }
   ]
 }

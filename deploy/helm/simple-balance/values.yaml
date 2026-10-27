@@ -336,7 +336,9 @@ frontend:
   # string, and the API sizes its own limit for those routes at
   # config.csvMaxBytes x 6 plus 64 KiB for worst-case escaping, which is ~60 MiB
   # at the 10 MiB default. Under that, nginx refuses a CSV the API behind it
-  # would have taken. Raise it with config.csvMaxBytes.
+  # would have taken. Raise it with config.csvMaxBytes. Keep it at 52m or more
+  # whatever csvMaxBytes is: one part of a Simple Balance file is a fixed
+  # LEDGER_FILE_REQUEST_BODY_LIMIT_BYTES, and NOTES.txt warns below it.
   maxUploadSize: 61m
 
   # Whether Stripe is configured for this deployment. nginx needs to know, and
@@ -703,7 +705,8 @@ ingress:
   annotations:
     # ingress-nginx caps a body at 1 MiB, which refuses a CSV import long before
     # it reaches the nginx inside the frontend container, let alone the API.
-    # Keep this in step with frontend.maxUploadSize. Other controllers spell it
+    # Keep this in step with frontend.maxUploadSize, and at 52m or more for a
+    # part of a Simple Balance file. Other controllers spell it
     # differently: HAProxy uses haproxy.org/client-body-size, Traefik imposes no
     # limit of its own, and a cloud load balancer may cap it outside Kubernetes
     # altogether.

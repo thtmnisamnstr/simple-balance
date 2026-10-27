@@ -39,6 +39,8 @@ const NOT_A_NUMBER: Record<string, string> = {
     "What a Simple Balance file's cap counts, in words: entries, staged rows and so on.",
   "capWayOut(kinds)":
     "The move that gets under that cap, in words, built from the kinds that were asked for.",
+  "contentNouns(kinds)":
+    "What a Simple Balance file's content limit counts, in words: entries, staged rows and the activity history.",
 };
 
 /**
@@ -65,7 +67,7 @@ const COMPOSED: Record<string, { readonly because: string; readonly carries?: st
   },
   "first.message": {
     because:
-      "The first problem a Simple Balance file's reader or its import plan found, each a sentence from `src/shared`. Every problem travels in `issues`, and each one with a number in it carries that number as a field of its own — the places a free plan keeps, the template and recurring-transaction caps, a budget's conflicting periods, and a move's transactions still waiting in Staged, on a frozen account or filed so they would be both income and spending, as `count` — which `planRefusal` spreads beside the message.",
+      "The first problem a Simple Balance file's reader or its import plan found, each a sentence from `src/shared`. Every problem travels in `issues`, and each one with a number in it carries that number as a field of its own — the places a free plan keeps, the template and recurring-transaction caps, a budget's conflicting periods, the rows waiting in Staged that stop a move, and a move's transactions still waiting in Staged, on a frozen account or filed so they would be both income and spending, as `count` — which `planRefusal` spreads beside the message.",
     carries: "issues",
   },
   "balance.message": {

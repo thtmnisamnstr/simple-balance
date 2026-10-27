@@ -201,6 +201,45 @@ describe("every line this product writes", () => {
     expect(empty).toBeGreaterThanOrEqual(2);
   });
 
+  /**
+   * The same rule for a promise's `.catch`, which the check above cannot read:
+   * it wants a `{` straight after `catch(…)`, and a handler has `=>` there, so
+   * no `.catch(() => null)` was ever examined. The duplicate review's was one,
+   * and it turned a failed read — a pool timeout, a dropped connection — into
+   * "nothing repeats this anymore", with nothing in the log.
+   *
+   * A handler that neither logs nor throws says why, in a comment inside the
+   * `.catch(…)` or on the line just above it. Several are right to stay
+   * quiet — a body that is not JSON is the client's input, not a failure — and
+   * the comment is the whole requirement, as it is above.
+   */
+  it("says why, wherever a promise's handler swallows what it caught", () => {
+    const silent: string[] = [];
+    let handlers = 0;
+    for (const file of sourceFiles("src/server")) {
+      const lines = file.text.split("\n");
+      for (const match of file.text.matchAll(/\.catch\(/g)) {
+        // The handler, to the parenthesis that closes `.catch(`.
+        let depth = 1;
+        let end = match.index + match[0].length;
+        for (; end < file.text.length && depth > 0; end += 1) {
+          if (file.text[end] === "(") depth += 1;
+          else if (file.text[end] === ")") depth -= 1;
+        }
+        const handler = file.text.slice(match.index, end);
+        if (!/=>/.test(handler)) continue;
+        handlers += 1;
+        if (/\blog(?:ger)?\.|\bthrow\b|\breject\(/.test(handler)) continue;
+        const line = file.text.slice(0, match.index).split("\n").length;
+        const above = lines[line - 2] ?? "";
+        if (handler.includes("//") || /^\s*\/\//.test(above)) continue;
+        silent.push(`${file.path}:${line}`);
+      }
+    }
+    expect(silent, "say why nothing went wrong, or let it propagate").toEqual([]);
+    expect(handlers, "the scan is reading handlers").toBeGreaterThanOrEqual(10);
+  });
+
   it("keeps the configuration layer's exception real", () => {
     // An exception list that has quietly become unnecessary proves nothing, so
     // each name has to still be doing the thing it is excused for.
@@ -285,6 +324,28 @@ describe("what the work leaves in the log", () => {
     const said = debug.mock.calls.map((call) => String(call[0])).join("\n");
     expect(said).toContain("/api/v1/transactions");
     expect(said).not.toContain("divorce");
+  });
+
+  /**
+   * The emailed reset link reaches this process as
+   * `GET /api/auth/reset-password/<token>`, and that GET only checks the token
+   * and redirects, so the token is still good for up to an hour after the line
+   * that would have written it. Under `/api/auth` the line writes the closed
+   * pattern the metric uses (`code/observability.md` §2.4).
+   */
+  it("writes an auth route's pattern rather than a path carrying a credential", async () => {
+    const api = await freshApi("debug");
+    const debug = vi.spyOn(console, "debug").mockImplementation(() => {});
+    // The handler reads the database, which a unit run has none of.
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const token = "rEsEtToKeN0123456789abcdef";
+
+    await api.request(`http://localhost/api/auth/reset-password/${token}?callbackURL=%2F`);
+
+    const said = debug.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(said).toContain("/api/auth/reset-password/:token");
+    expect(said).not.toContain(token);
   });
 
   it("names the tool an agent called, its outcome and never its arguments", async () => {

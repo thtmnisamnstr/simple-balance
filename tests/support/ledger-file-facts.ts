@@ -30,7 +30,7 @@ export type Here = Partial<
 export type Settings = LedgerFileFacts["here"]["preferences"];
 
 /** Settings nobody chose, which is where a new sign-up starts. */
-export const UNCHOSEN: Settings = {
+const UNCHOSEN: Settings = {
   chosen: false,
   timezone: "UTC",
   defaultCurrency: "USD",

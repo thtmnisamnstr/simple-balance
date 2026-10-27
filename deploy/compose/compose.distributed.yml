@@ -107,7 +107,8 @@ x-app-config: &app-config
   # Move these together with SB_MAX_UPLOAD_SIZE below: nginx refuses a body over
   # its limit before the API sees it, and the API sizes its own limit for the
   # import routes at CSV_MAX_BYTES x 6 plus 64 KiB, because a CSV arrives as a
-  # JSON string.
+  # JSON string. Never below 52m, though: one part of a Simple Balance file is
+  # a fixed 54,103,968 bytes that lowering CSV_MAX_BYTES never lowers.
   CSV_MAX_BYTES: "10485760"
   CSV_MAX_ROWS: "10000"
 

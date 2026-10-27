@@ -20,6 +20,7 @@ import { accountFreeze, assertAccountsWritable } from "./accounts.js";
 import { notFound, validationError } from "./errors.js";
 import { stagedDuplicateKey } from "./transactions.js";
 import {
+  auditedRow,
   getIdempotent,
   lockIdempotencyKey,
   lockPayeeNamespace,
@@ -405,8 +406,8 @@ export async function mergePayees(actor: Actor, input: unknown, transaction?: Db
         entityType: "transaction",
         entityId: updated.id,
         operation: "payee_merge",
-        before: serializeRow(transactionBeforeById.get(updated.id)),
-        after: serializeRow(updated),
+        before: auditedRow(transactionBeforeById.get(updated.id)),
+        after: auditedRow(updated),
       });
     }
     // The fingerprint the queue flags repeats by includes the payee, so renaming
@@ -442,8 +443,8 @@ export async function mergePayees(actor: Actor, input: unknown, transaction?: Db
         entityType: "staged_transaction",
         entityId: updated.id,
         operation: "payee_merge",
-        before: serializeRow(stagedBeforeById.get(updated.id)),
-        after: serializeRow(updated),
+        before: auditedRow(stagedBeforeById.get(updated.id)),
+        after: auditedRow(updated),
       });
     }
 

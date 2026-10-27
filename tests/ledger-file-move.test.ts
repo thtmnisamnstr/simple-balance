@@ -7,6 +7,7 @@ import {
   LEDGER_FILE_MOVE_BLOCKED,
   ledgerEntryLabel,
   ledgerFileFactsSchema,
+  ledgerFileMoveStagedBlocked,
   ledgerFilePlanSchema,
   ledgerFilePreviewSchema,
   mergeLedgerFileFacts,
@@ -93,7 +94,7 @@ function factsOf(
       preferences: { chosen: false, timezone: "UTC", defaultCurrency: "USD", theme: "system" },
     },
     rows: { alreadyHere: 0, stagedAlreadyHere: 0, ...options.rows },
-    move: { qualifies, reason: qualifies ? null : LEDGER_FILE_MOVE_BLOCKED },
+    move: { qualifies, reason: qualifies ? null : LEDGER_FILE_MOVE_BLOCKED, stagedRows: 0 },
   });
 }
 
@@ -164,6 +165,28 @@ describe("a ledger that may take a move", () => {
     expect(add(whole(), facts).ok).toBe(true);
   });
 
+  it("is refused in other words, with the rows counted, when only rows waiting in Staged stop it", () => {
+    // Discarding them is the way out, and the entries sentence sent people to
+    // add instead, which leaves the rest of the file in Staged.
+    const facts = factsOf();
+    const blocked = (n: number) => ({
+      ...facts,
+      move: { qualifies: false, reason: ledgerFileMoveStagedBlocked(n), stagedRows: n },
+    });
+    expect(move(whole(), blocked(2)).problems[0]).toEqual({
+      field: "move",
+      message:
+        "2 rows waiting in Staged did not come from a Simple Balance file, and committing them would rule out a move for good. Discard them there and check the file again to move it, or add the file instead, with its transactions going to Staged for review.",
+      count: 2,
+    });
+    expect(move(whole(), blocked(1)).problems[0]).toEqual({
+      field: "move",
+      message:
+        "A row waiting in Staged did not come from a Simple Balance file, and committing it would rule out a move for good. Discard it there and check the file again to move it, or add the file instead, with its transactions going to Staged for review.",
+      count: 1,
+    });
+  });
+
   it("is refused while the file's transactions wait in Staged from an earlier add", () => {
     const facts = factsOf({}, { rows: { alreadyHere: 2, waiting: 2 } });
     expect(move(whole(), facts).problems).toEqual([
@@ -190,7 +213,11 @@ describe("a ledger that may take a move", () => {
     const two = factsOf({}, { qualifies: false, rows: { deletedAlreadyHere: 3, waiting: 1 } });
     const merged = mergeLedgerFileFacts([one, two]);
     expect(merged.rows).toMatchObject({ deletedAlreadyHere: 4, waiting: 3 });
-    expect(merged.move).toEqual({ qualifies: false, reason: LEDGER_FILE_MOVE_BLOCKED });
+    expect(merged.move).toEqual({
+      qualifies: false,
+      reason: LEDGER_FILE_MOVE_BLOCKED,
+      stagedRows: 0,
+    });
     expect(mergeLedgerFileFacts([two, one]).move.qualifies).toBe(false);
     expect(mergeLedgerFileFacts([one, one]).move.qualifies).toBe(true);
   });
@@ -280,7 +307,7 @@ describe("a choice that would leave a transaction nowhere to be written", () => 
     expect(record(result, "account", "Checking")).toMatchObject({
       choices: ["rename"],
       message:
-        "There is already an account called \"Checking\" here, and it differs from the file's in its opening. Here it opens on 2019-01-01 at 1000 EUR, and the file's on 2019-01-01 at 1520.33 EUR. Using the one here keeps its own opening, so the 520.33 EUR more that the file's opens with does not come with it; bringing it in under another name keeps the file's. A move holds every balance to the file, and the one here keeps its own opening, so it cannot be used. 6 of this file's transactions name it, and a move writes each one straight into the books, so it has to come in.",
+        "There is already an account called \"Checking\" here, and it differs from the file's in its opening. Here it opens on 2019-01-01 at 1000 EUR, and the file's on 2019-01-01 at 1520.33 EUR. A move holds every balance to the file, and the one here keeps its own opening, so it cannot be used. 6 of this file's transactions name it, and a move writes each one straight into the books, so it has to come in.",
     });
     expect(result.problems[0]!.message).toMatch(
       /Choose whether to bring it in under another name\.$/,

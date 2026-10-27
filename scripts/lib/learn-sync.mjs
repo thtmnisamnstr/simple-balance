@@ -34,14 +34,14 @@ export const PACK_FORMAT = "simple-balance-learn-pack-1";
 export const SITE = "https://smpl.money";
 
 /** The heading every guide's product section carries, held by the site's own tests. */
-export const PRODUCT_HEADING = "## How to do it in Simple Balance";
+const PRODUCT_HEADING = "## How to do it in Simple Balance";
 
 /**
  * The site's license, carried in the pack because the words are the site's.
  * MIT text inside an AGPL-3.0 program is compatible, and the notice is what MIT
  * asks for in return.
  */
-export const SITE_LICENSE = "MIT License, Copyright (c) 2026 Gavin Johnson (simple-balance-web)";
+const SITE_LICENSE = "MIT License, Copyright (c) 2026 Gavin Johnson (simple-balance-web)";
 
 export const EXIT_CODES = Object.freeze({ inSync: 0, drifted: 1, unknown: 2 });
 

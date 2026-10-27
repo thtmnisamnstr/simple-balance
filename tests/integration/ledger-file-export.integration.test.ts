@@ -11,7 +11,7 @@ import {
   type LedgerFileAccount,
 } from "../../src/shared/ledger-file.js";
 import { addDays, todayIn } from "../../src/shared/recurrence-dates.js";
-import { LEDGER_FILE_HISTORY_MAX_BYTES } from "../../src/server/config-limits.js";
+import { LEDGER_FILE_CONTENT_MAX_BYTES } from "../../src/server/config-limits.js";
 import { getDb } from "../../src/server/db/client.js";
 import {
   auditEvents,
@@ -64,7 +64,7 @@ const database = scratchDatabase("ledger_file_export");
 const actor: Actor = { userId: "ledger-file-owner", source: "web" };
 const stranger: Actor = { userId: "ledger-file-stranger", source: "web" };
 const ROUTE_CAP = 100_000;
-const ROUTE_LIMITS = { maxRows: ROUTE_CAP, maxHistoryBytes: LEDGER_FILE_HISTORY_MAX_BYTES };
+const ROUTE_LIMITS = { maxRows: ROUTE_CAP, maxContentBytes: LEDGER_FILE_CONTENT_MAX_BYTES };
 const TIMEZONE = "Europe/Berlin";
 
 let checkingId = "";
@@ -88,10 +88,10 @@ const everything = { kinds: [...defaultLedgerFileKinds] };
 async function exportFile(
   input: unknown,
   maxRows = ROUTE_CAP,
-  maxHistoryBytes = LEDGER_FILE_HISTORY_MAX_BYTES,
+  maxContentBytes = LEDGER_FILE_CONTENT_MAX_BYTES,
   as: Actor = actor,
 ) {
-  const result = await exportLedgerFile(as, input, { maxRows, maxHistoryBytes });
+  const result = await exportLedgerFile(as, input, { maxRows, maxContentBytes });
   const parsed = parseLedgerFileText(result.ledgerFile);
   if (!parsed.ok) throw new Error(JSON.stringify(parsed.issues, null, 2));
   return { ...result, file: parsed.file };
@@ -825,6 +825,70 @@ integration("exporting a Simple Balance file", () => {
     await expect(exportFile(everything, 13)).resolves.toMatchObject({ rowCount: 13 });
   });
 
+  /**
+   * What the row cap cannot bound — notes, split legs, staged rows' drafts —
+   * is counted in bytes before anything is read, so a ledger of long notes is
+   * refused with the move that works instead of building a file the heap
+   * cannot hold.
+   */
+  it("refuses entries or staged rows whose content outweighs its limit, naming the way out", async () => {
+    const entries = await refusal(exportFile({ kinds: ["entries"] }, ROUTE_CAP, 50));
+    expect(entries).toMatchObject({ code: "VALIDATION_ERROR", details: { limit: 50 } });
+    const bytes = (entries.details as { bytes: number }).bytes;
+    expect(bytes).toBeGreaterThan(50);
+    expect(entries.message).toBe(
+      `The entries in this file would come to ${bytes.toLocaleString("en-US")} bytes, and one export carries at most 50. Narrow the entries with a start and end date, and export one range at a time.`,
+    );
+    const staged = await refusal(exportFile({ kinds: ["staged"] }, ROUTE_CAP, 50));
+    expect(staged).toMatchObject({ code: "VALIDATION_ERROR", details: { limit: 50 } });
+    expect(staged.message).toMatch(
+      /^The staged rows in this file would come to [\d,]+ bytes, and one export carries at most 50\. Commit or discard some of the staged rows, then export again\.$/,
+    );
+    await expect(exportFile({ kinds: ["entries"] }, ROUTE_CAP, bytes)).resolves.toBeDefined();
+  });
+
+  it("counts every leg of a split in the content, not only the entries' own text", async () => {
+    // Worked out here from the tables, independently of the service's sums:
+    // the live entries' free text, and every leg of a split among them whole.
+    const expected = await getDb().execute<{ text: number; legs: number }>(sql`
+      select
+        (select coalesce(sum(octet_length(payee) + coalesce(octet_length(description), 0)
+                  + coalesce(octet_length(notes), 0) + coalesce(octet_length(external_id), 0)), 0)::int
+           from ledger_transaction where user_id = ${actor.userId} and deleted_at is null) as text,
+        (select coalesce(sum(octet_length(l::text)), 0)::int
+           from transaction_leg l
+           join ledger_transaction t on t.id = l.transaction_id
+          where l.user_id = ${actor.userId} and t.deleted_at is null and t.leg_count > 0) as legs
+    `);
+    const { text, legs } = expected.rows[0]!;
+    expect(Number(legs), "this ledger holds a split").toBeGreaterThan(0);
+    const refused = await refusal(exportFile({ kinds: ["entries"] }, ROUTE_CAP, 1));
+    expect((refused.details as { bytes: number }).bytes).toBe(Number(text) + Number(legs));
+  });
+
+  /**
+   * The tool's limit: a file it returns is one its imports take, so one over a
+   * part's size is refused here with a range, rather than by every import tool
+   * with a page an agent cannot use.
+   */
+  it("holds a file to one part's size when asked, and names the way out", async () => {
+    const whole = await exportLedgerFile(actor, { kinds: ["entries"] }, ROUTE_LIMITS);
+    const size = Buffer.byteLength(whole.ledgerFile, "utf8");
+    const error = await refusal(
+      exportLedgerFile(actor, { kinds: ["entries"] }, { ...ROUTE_LIMITS, maxBytes: size - 1 }),
+    );
+    expect(error).toMatchObject({
+      code: "VALIDATION_ERROR",
+      details: { limit: size - 1, bytes: size },
+    });
+    expect(error.message).toBe(
+      `This file would come to ${size.toLocaleString("en-US")} bytes, and one import part carries at most ${(size - 1).toLocaleString("en-US")}. Narrow the entries with a start and end date, and export one range at a time.`,
+    );
+    await expect(
+      exportLedgerFile(actor, { kinds: ["entries"] }, { ...ROUTE_LIMITS, maxBytes: size }),
+    ).resolves.toBeDefined();
+  });
+
   it("writes nothing, not even a record that it was asked", async () => {
     const count = async () =>
       (
@@ -1032,7 +1096,7 @@ integration("exporting a Simple Balance file", () => {
           end: "2026-09-30",
         },
         ROUTE_CAP,
-        LEDGER_FILE_HISTORY_MAX_BYTES,
+        LEDGER_FILE_CONTENT_MAX_BYTES,
         late,
       );
       expect(file.throughDate).toBe("2026-09-30");
@@ -1067,14 +1131,14 @@ integration("exporting a Simple Balance file", () => {
       const everythingRanged = await exportFile(
         { kinds: ["accounts", "entries"], start: "2026-06-01", end: "2026-09-30" },
         ROUTE_CAP,
-        LEDGER_FILE_HISTORY_MAX_BYTES,
+        LEDGER_FILE_CONTENT_MAX_BYTES,
         late,
       );
       expect(whole(everythingRanged.file, "Late opened").carriedForward?.amount).toBe("-20");
       const historyRanged = await exportFile(
         { kinds: ["accounts", "history"], start: "2026-06-01" },
         ROUTE_CAP,
-        LEDGER_FILE_HISTORY_MAX_BYTES,
+        LEDGER_FILE_CONTENT_MAX_BYTES,
         late,
       );
       for (const account of historyRanged.file.accounts) {
@@ -1094,7 +1158,7 @@ integration("exporting a Simple Balance file", () => {
       const { file } = await exportFile(
         { kinds: ["accounts", "entries"], start },
         ROUTE_CAP,
-        LEDGER_FILE_HISTORY_MAX_BYTES,
+        LEDGER_FILE_CONTENT_MAX_BYTES,
         ahead,
       );
       expect(file.throughDate).toBe(aheadToday);
@@ -1112,14 +1176,14 @@ integration("exporting a Simple Balance file", () => {
       const tomorrow = await exportFile(
         { kinds: ["accounts", "entries"], start: addDays(aheadToday, 1) },
         ROUTE_CAP,
-        LEDGER_FILE_HISTORY_MAX_BYTES,
+        LEDGER_FILE_CONTENT_MAX_BYTES,
         ahead,
       );
       expect(whole(tomorrow.file, "Plain").balance).toBeUndefined();
       const fromToday = await exportFile(
         { kinds: ["accounts", "entries"], start: aheadToday },
         ROUTE_CAP,
-        LEDGER_FILE_HISTORY_MAX_BYTES,
+        LEDGER_FILE_CONTENT_MAX_BYTES,
         ahead,
       );
       expect(whole(fromToday.file, "Plain").balance).toBe(
@@ -1134,7 +1198,7 @@ integration("exporting a Simple Balance file", () => {
      */
     it("narrows the activity history to the days of the range, where the person lives", async () => {
       const day = { kinds: ["history"], start: "2026-03-01", end: "2026-03-01" };
-      const { file } = await exportFile(day, 2, LEDGER_FILE_HISTORY_MAX_BYTES, keeper);
+      const { file } = await exportFile(day, 2, LEDGER_FILE_CONTENT_MAX_BYTES, keeper);
       expect(file.history!.map((event) => event.operation)).toEqual([
         "first-moment",
         "last-moment",

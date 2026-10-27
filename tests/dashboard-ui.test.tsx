@@ -404,8 +404,15 @@ describe("the Overview's archived accounts", () => {
       await screen.findByRole("heading", { name: "No accounts in this view" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/Turn on Include archived accounts to count the ones you have put away\./),
+      screen.getByText(/Turn on Include archived accounts to count any archived ones\./),
     ).toBeInTheDocument();
+    // A link to a page is named as the page (`web.md` 16). It said "Create
+    // account", which is the submit of the form it does not open.
+    expect(screen.getByRole("link", { name: "Go to Accounts" })).toHaveAttribute(
+      "href",
+      "/accounts",
+    );
+    expect(screen.queryByRole("link", { name: "Create account" })).toBeNull();
   });
 });
 

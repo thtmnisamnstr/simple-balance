@@ -2,7 +2,10 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { apiRequestBodyLimit } from "../src/server/http-security.js";
+import {
+  apiRequestBodyLimit,
+  LEDGER_FILE_REQUEST_BODY_LIMIT_BYTES,
+} from "../src/server/http-security.js";
 
 const root = path.resolve(import.meta.dirname, "..");
 const read = (relative: string) => readFileSync(path.join(root, relative), "utf8");
@@ -106,6 +109,40 @@ describe("what the layers in front of an import will carry", () => {
     expect(caddy, "MAX_BODY_SIZE is below a ledger-file part").toBeGreaterThanOrEqual(ledgerFile);
     // And the MCP endpoint, which carries both tools, is never sized below it.
     expect(apiRequestBodyLimit("/mcp")).toBeGreaterThanOrEqual(ledgerFile);
+  });
+
+  /**
+   * The chart's half of the same rule. Its defaults have to carry a part too,
+   * and its warning names the number the API accepts, which it cannot import:
+   * held here so the two cannot drift. A warning rather than a refusal,
+   * because a values file that lowered both beside `csvMaxBytes`, as the CSV
+   * rule allowed, rendered under 0.2.1.
+   */
+  it("is what the chart warns below, and its defaults carry a part", () => {
+    expect(LEDGER_FILE_REQUEST_BODY_LIMIT_BYTES).toBe(
+      apiRequestBodyLimit("/api/v1/ledger-file:add"),
+    );
+    const helpers = read("deploy/helm/simple-balance/templates/_helpers.tpl");
+    const chart = /define "simple-balance\.ledgerFileBodyBytes" -\}\}(\d+)\{\{/.exec(helpers);
+    expect(chart, "the chart's ledgerFileBodyBytes").not.toBeNull();
+    expect(Number(chart![1])).toBe(LEDGER_FILE_REQUEST_BODY_LIMIT_BYTES);
+    const values = "deploy/helm/simple-balance/values.yaml";
+    const frontend = nginxBytes(setting(values, /^ {2}maxUploadSize: (\S+)$/m));
+    const ingress = nginxBytes(
+      setting(values, /nginx\.ingress\.kubernetes\.io\/proxy-body-size: (\S+)$/m),
+    );
+    expect(frontend, "frontend.maxUploadSize").toBeGreaterThanOrEqual(
+      LEDGER_FILE_REQUEST_BODY_LIMIT_BYTES,
+    );
+    expect(ingress, "the ingress's proxy-body-size").toBeGreaterThanOrEqual(
+      LEDGER_FILE_REQUEST_BODY_LIMIT_BYTES,
+    );
+    // The floor the documents give, in both spellings, clears it and a size
+    // less does not.
+    expect(nginxBytes("52m")).toBeGreaterThanOrEqual(LEDGER_FILE_REQUEST_BODY_LIMIT_BYTES);
+    expect(nginxBytes("51m")).toBeLessThan(LEDGER_FILE_REQUEST_BODY_LIMIT_BYTES);
+    expect(caddyBytes("52MiB")).toBeGreaterThanOrEqual(LEDGER_FILE_REQUEST_BODY_LIMIT_BYTES);
+    expect(caddyBytes("52MB")).toBeLessThan(LEDGER_FILE_REQUEST_BODY_LIMIT_BYTES);
   });
 
   it("is not more than the single profile's Caddy will pass", () => {

@@ -179,8 +179,13 @@ describe("the page", () => {
     renderPage({ accounts: [] });
     const csv = screen.getByRole("region", { name: "Import a CSV" });
     expect(
-      await within(csv).findByRole("heading", { name: "Create an account first" }),
+      await within(csv).findByRole("heading", { name: "No account to import into" }),
     ).toBeVisible();
+    // The way there, as the frozen branch beside it has always offered.
+    expect(within(csv).getByRole("link", { name: "Go to Accounts" })).toHaveAttribute(
+      "href",
+      "/accounts",
+    );
     expect(exportButton()).toBeEnabled();
   });
 
@@ -486,6 +491,8 @@ describe("a date range", () => {
     // GOV.UK's three agreeing signals, on the field the sentence is about.
     const endDate = within(section).getByLabelText("End date");
     expect(endDate).toHaveAttribute("aria-invalid", "true");
+    // The refusal alone: End date has no hint of its own since the advice on
+    // moving by ranges went to the range question it is about.
     expect(endDate).toHaveAccessibleDescription("The range cannot end before it starts");
     expect(within(section).getByLabelText("Start date")).not.toHaveAttribute("aria-invalid");
     expect(document.activeElement).toBe(summary.closest(".error-summary"));
@@ -524,6 +531,23 @@ describe("a date range", () => {
     expect(within(section).getByLabelText("Start date")).toHaveAccessibleDescription(
       "Each account carries what it held the day before, so its balance in the file still adds up.",
     );
+  });
+
+  it("says on the range question that only the latest range of a move should carry recurring transactions", () => {
+    renderPage();
+    const section = exportSection();
+    const question = within(section).getByRole("radiogroup", { name: "Transactions from" });
+    const advice =
+      "When a ledger moves a range at a time, only the latest range should carry recurring transactions: one an earlier range brings can propose a row into Staged before the next range is moved, which stops the move until that row is discarded.";
+    // Said once a range is chosen, on the choice that makes one — not on End
+    // date, which it says nothing about.
+    expect(question).not.toHaveAccessibleDescription(advice);
+    fireEvent.click(within(section).getByRole("radio", { name: "Date range" }));
+    expect(question).toHaveAccessibleDescription(advice);
+    expect(within(section).getByLabelText("End date")).not.toHaveAccessibleDescription(advice);
+    // Said only while recurring transactions are in the file.
+    fireEvent.click(within(section).getByRole("checkbox", { name: "Recurring transactions" }));
+    expect(question).not.toHaveAccessibleDescription(advice);
   });
 
   it("needs both of its days, and the browser says so rather than the page", async () => {

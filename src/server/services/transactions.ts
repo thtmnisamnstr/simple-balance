@@ -62,6 +62,7 @@ import {
 import { duplicate, notFound, staleVersion, validationError } from "./errors.js";
 import { collectionFingerprint, decodeCursor, encodeCursor } from "./cursor.js";
 import {
+  auditedRow,
   canonicalDecimal,
   decimal,
   exceedsBulkSelectionCap,
@@ -72,6 +73,7 @@ import {
   lockCategoryNamespace,
   lockIdempotencyKey,
   lockPayeeNamespace,
+  lockTransactionDuplicates,
   patchChangesNothing,
   sameStoredValue,
   selectionFingerprint,
@@ -807,11 +809,9 @@ async function resyncLegs(
  */
 function auditedTransaction(row: TransactionRow, legs: readonly TransactionLegRow[]) {
   const live = legs.filter((leg) => !decimal(leg.amount).isZero());
-  // Without the origin, for the reason `transactionView` leaves it out: the
-  // history is served over both transports, and a staged row's snapshot,
-  // built from its view, already has none.
-  const { importOrigin: _importOrigin, ...recorded } = row;
-  const serialized = serializeRow(recorded);
+  // Without the origin (`auditedRow`), as every snapshot of an entry or a
+  // staged row is.
+  const serialized = auditedRow(row)!;
   if (!live.length) return serialized;
   return {
     ...serialized,
@@ -1910,8 +1910,15 @@ async function selectBulkSnapshot(
     .where(and(eq(transactions.userId, actor.userId), inArray(transactions.id, ids)))
     .orderBy(transactions.id);
   if (rows.length !== ids.length) {
+    // "They may have been deleted" was false here: deleting voids an entry and
+    // the row stays, and this read does not filter deleted rows, so an id that
+    // misses is one that was never in this ledger. The ids travel back so an
+    // agent sending ten thousand is not left to find the one by listing.
+    const found = new Set(rows.map((row) => row.id));
     throw notFound(
-      "One or more of those transactions were not found; they may have been deleted. Reload the list and try again.",
+      "One or more of those transactions were not found. Reload the list and try again.",
+      { transactionIds: ids.filter((id) => !found.has(id)) },
+      "These transaction ids are not in this ledger, and details.transactionIds lists them. A deleted entry is still found, so each is an id that was never here. Use ids from list_transactions and send the call again without them.",
     );
   }
   const expectedVersions = new Map(selection.items.map((item) => [item.id, item.expectedVersion]));
@@ -2430,7 +2437,7 @@ export async function bulkDeleteTransactions(
         .returning();
       if (!updated) throw staleVersion({ id: before.id });
       await repostTransaction(tx, actor, before.id, []);
-      deleted.push({ before, after: serializeRow(updated) });
+      deleted.push({ before, after: auditedRow(updated) });
     }
     // Collected rather than sent per row, for the same reason as the edit above.
     await writeAuditMany(
@@ -2440,7 +2447,7 @@ export async function bulkDeleteTransactions(
         entityType: "transaction",
         entityId: before.id,
         operation: "bulk_delete",
-        before: serializeRow(before),
+        before: auditedRow(before),
         after,
       })),
     );
@@ -2580,7 +2587,8 @@ export async function updateTransaction(
  * that somebody deleted it today, and `deferArchivedClose` leaves the archived
  * accounts it touched for the move to close once, at the end of the part,
  * which is why it needs the caller's transaction — on one of its own the void
- * would commit with an archived account holding money.
+ * would commit with an archived account holding money. `freeze` is the one the
+ * move read on that same transaction, so a part's voids read it once.
  */
 export async function setTransactionDeleted(
   actor: Actor,
@@ -2588,8 +2596,8 @@ export async function setTransactionDeleted(
   expectedVersion: number,
   deleted: boolean,
   allowDuplicate = false,
+  options: { deferArchivedClose?: boolean; auditOperation?: string; freeze?: AccountFreeze } = {},
   transaction?: DbTransaction,
-  options: { deferArchivedClose?: boolean; auditOperation?: string } = {},
 ) {
   if (options.deferArchivedClose && transaction === undefined) {
     throw new Error("A deferred close needs the caller's transaction");
@@ -2632,7 +2640,13 @@ export async function setTransactionDeleted(
       }
       await lockPayeeNamespace(tx, actor);
     }
-    assertAccountsWritable(await accountFreeze(tx, actor), entryAccountIds);
+    // A batch that already holds the freeze on this transaction hands it down
+    // (`services.md` 2.8): the move voids every entry deleted where its file
+    // came from, and reading the entitlement and the whole account table once
+    // per entry made a part of ten thousand cost thirty thousand statements it
+    // did not need. Safe only because it was read on this same `tx`, and
+    // nothing between that read and this one changes which accounts are active.
+    assertAccountsWritable(options.freeze ?? (await accountFreeze(tx, actor)), entryAccountIds);
     if (!deleted && before.deletedAt) {
       await assertDuplicateAllowed(
         tx,
@@ -2871,40 +2885,19 @@ export function stagedDuplicateKey(draft: TransactionDraft): string | null {
   return keys.find((key) => key.startsWith("external:")) ?? keys[0] ?? null;
 }
 
+/**
+ * Hold the duplicate check still for these drafts: `lockTransactionDuplicates`,
+ * taken only when a draft has a key to be compared by, so an empty batch takes
+ * nothing. The drafts are still passed so that stays true, and so the callers
+ * say what they are about to compare.
+ */
 export async function lockTransactionDuplicateKeys(
   tx: DbTransaction,
   actor: Actor,
   drafts: TransactionDraft[],
 ) {
-  const fingerprints = [
-    ...new Set(
-      drafts.flatMap((draft) =>
-        transactionDuplicateKeys(draft).map((key) => `${actor.userId}:${key}`),
-      ),
-    ),
-  ].sort();
-  if (!fingerprints.length) return;
-  // One statement, not one per key. A mass commit carries up to ten thousand
-  // drafts and each can contribute two fingerprints, so this was up to twenty
-  // thousand round trips taken inside an open transaction — measured at 346ms
-  // for two thousand keys on a local socket, and about a second per thousand
-  // over a network link, all of it latency.
-  //
-  // Sorted before it is sent, and that still matters: two transactions taking
-  // the same locks in different orders deadlock, and PostgreSQL resolves that by
-  // aborting one of them. `unnest` emits in array order and the lock is taken as
-  // each row is projected, so the order the array arrives in is the order the
-  // locks are taken in — checked against a deliberately unsorted array and
-  // against five hundred keys, both of which came back in exactly the order they
-  // were given.
-  // `sql.param` because a bare array in a template is expanded into one
-  // placeholder per element, which is what `in (...)` wants and not what this
-  // does: it bound the first key alone and PostgreSQL rejected it as a malformed
-  // array literal.
-  await tx.execute(
-    sql`select pg_advisory_xact_lock(hashtextextended(key, 0))
-        from unnest(${sql.param(fingerprints)}::text[]) as keys(key)`,
-  );
+  if (!drafts.some((draft) => transactionDuplicateKeys(draft).length)) return;
+  await lockTransactionDuplicates(tx, actor);
 }
 
 async function assertDuplicateAllowed(
@@ -2916,8 +2909,14 @@ async function assertDuplicateAllowed(
   importOrigin: string | null = null,
 ) {
   await lockTransactionDuplicateKeys(tx, actor, [draft]);
+  // Locked even when duplicates are allowed, so a write that does not allow
+  // them waits here and then sees this one. The lookup's only use is to
+  // refuse, so a write that allows them skips it, as
+  // `assertBulkDuplicatesAllowed` does: a move asked it ten thousand times a
+  // part and threw every answer away.
+  if (allowDuplicate) return;
   const duplicateOfId = await findDuplicate(tx, actor, draft, excludeTransactionId, importOrigin);
-  if (duplicateOfId && !allowDuplicate) {
+  if (duplicateOfId) {
     throw duplicate("This transaction appears to be a duplicate", {
       duplicateOfId,
     });

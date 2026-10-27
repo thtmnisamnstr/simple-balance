@@ -524,7 +524,7 @@ function moveSentences(plan: LedgerFilePlan, parts: number, file: LedgerFile): s
       ? `${counted(move.templateDropped, "transaction")} made from a template that is not coming in ${move.templateDropped === 1 ? "arrives" : "arrive"} without saying which template ${move.templateDropped === 1 ? "it was" : "they were"} made from.`
       : null,
     compared.length
-      ? `${compared.length === 1 ? "The balance of 1 account is" : `The balances of ${formatCount(compared.length)} accounts are`} checked against the file ${parts > 1 ? "once the last part is in, and that part is not written" : "as the move ends, and nothing is written"} if one comes out different.`
+      ? `${compared.length === 1 ? "The balance of one account is" : `The balances of ${formatCount(compared.length)} accounts are`} checked against the file ${parts > 1 ? "once the last part is in, and that part is not written" : "as the move ends, and nothing is written"} if one comes out different.`
       : null,
     passedOver.length
       ? `${quotedList(passedOver.map((check) => check.name))} ${passedOver.length === 1 ? "is" : "are"} not checked: archived where the file came from, ${passedOver.length === 1 ? "it holds" : "they hold"} nothing there to check against.`
@@ -1172,7 +1172,7 @@ export function LedgerFileImport({ partLimits }: { partLimits?: LedgerFilePartLi
 }
 
 /**
- * The buttons under the preview: check the file again, and bring it in.
+ * The buttons under the preview: Check file again, and bring it in.
  *
  * One button whatever the state, in one place, so the element a keyboard
  * pressed is the element that is there when the answer comes. "Add to this
@@ -1240,7 +1240,7 @@ function RunActions({
           changing, and the busy button's own state already says why. */}
       {pending ? null : (
         <Button type="button" variant="secondary" loading={checking} onClick={onCheckAgain}>
-          <RotateCcw size={16} /> Check the file again
+          <RotateCcw size={16} /> Check file again
         </Button>
       )}
       <Button
@@ -1409,8 +1409,9 @@ function ModeChoice({
       <span className="field-hint" id={`${group}-why`}>
         A move brings what adding cannot: deleted transactions, accounts archived on the day they
         were, and no transaction left to review. It is offered only while everything in this ledger
-        came from a Simple Balance file, as in a new one; once a transaction is typed in or imported
-        from a CSV, a file can only be added.
+        came from a Simple Balance file, as in a new one. Once a transaction is typed in or
+        committed from a CSV, a file can only be added; a row waiting in Staged stops a move only
+        until it is discarded.
       </span>
       <div
         className="commit-choice"
@@ -1628,8 +1629,8 @@ function PreviewBody({
             onClick={() => setShowRecords(!showRecords)}
           >
             {showRecords
-              ? "Hide the records"
-              : `Show ${plan.records.length === 1 ? "the record" : `all ${formatCount(plan.records.length)} records`}`}
+              ? "Hide records"
+              : `Show ${plan.records.length === 1 ? "record" : `all ${formatCount(plan.records.length)} records`}`}
           </Button>
         </div>
         {showRecords ? (
@@ -1640,7 +1641,7 @@ function PreviewBody({
             role="region"
             aria-label="Every record in the file, and what happens to it"
           >
-            <table className="data-table">
+            <table className="data-table ledger-import-records">
               <caption className="sr-only">
                 Every record in the file, and what happens to it
               </caption>
@@ -1648,7 +1649,10 @@ function PreviewBody({
                 <tr>
                   {/* What happens second: a table scrolls rather than
                       reflows, and on a phone the first two columns are the
-                      ones on screen. */}
+                      ones on screen — which holds because the cells that
+                      carry a name may break anywhere (the stylesheet's
+                      `.ledger-import-records`), so one long name cannot
+                      make either column wider than the phone. */}
                   <th scope="col">Record</th>
                   <th scope="col">What happens</th>
                   <th scope="col">Kind</th>
@@ -1670,7 +1674,7 @@ function PreviewBody({
                         <Badge tone={outcome.tone}>{outcome.text}</Badge>
                       </td>
                       <td>{KIND_NAMES[record.kind].one}</td>
-                      <td>{record.message ?? ""}</td>
+                      <td className="ledger-import-why">{record.message ?? "—"}</td>
                     </tr>
                   );
                 })}
@@ -1919,6 +1923,14 @@ function RecordDecision({
   const nameProblem = sentences(aboutName);
   const idProblem = sentences(aboutId);
   const rest = shown.filter((problem) => !aboutName(problem) && !aboutId(problem));
+  // A sentence about the record as a whole describes the choice it is about,
+  // as the record's own reason does. Written as paragraphs and pointed at by
+  // nothing, a refusal that appeared after a radio was picked was neither
+  // announced nor read with the choice when focus came back to it (8.1).
+  const describedBy =
+    [record.message ? `${group}-why` : null, ...rest.map((_, index) => `${group}-problem-${index}`)]
+      .filter(Boolean)
+      .join(" ") || undefined;
   const only = record.choices.length === 1 ? record.choices[0]! : null;
   return (
     <div className="ledger-import-decision" id={id}>
@@ -1938,7 +1950,7 @@ function RecordDecision({
             <input
               type="checkbox"
               aria-labelledby={`${group}-question ${group}-answer`}
-              aria-describedby={record.message ? `${group}-why` : undefined}
+              aria-describedby={describedBy}
               checked={action === only}
               disabled={locked}
               onChange={(event) => (event.target.checked ? choose(only) : onClear())}
@@ -1951,7 +1963,7 @@ function RecordDecision({
           className="radio-row"
           role="radiogroup"
           aria-labelledby={`${group}-question`}
-          aria-describedby={record.message ? `${group}-why` : undefined}
+          aria-describedby={describedBy}
         >
           {record.choices.map((choice) => (
             <label className="check-label" key={choice}>
@@ -2012,7 +2024,11 @@ function RecordDecision({
         </div>
       ) : null}
       {rest.map((problem, index) => (
-        <p className="ledger-import-problem" key={`${index}-${problem.field}`}>
+        <p
+          className="ledger-import-problem"
+          id={`${group}-problem-${index}`}
+          key={`${index}-${problem.field}`}
+        >
           {problem.message}
         </p>
       ))}
@@ -2069,17 +2085,23 @@ function ArriveArchived({
         // Places only where a plan keeps a number of them: a copy that sells
         // nothing, and the paid plan, have none (common.md's glossary), and the
         // choice is offered there anyway because an agent can make it.
+        //
+        // What the person has to do opens the hint rather than sitting in a
+        // Note beside the group, which no control pointed at (`web.md` 8.1's
+        // third defect): somebody who followed "Still to decide" here heard
+        // the first box, the group and the hint, and not that at least so many
+        // had to be checked. In the hint it is the group's description, and
+        // the count chosen so far is read again whenever focus enters it.
         hint={
           limit !== null
-            ? `An account that arrives archived uses no place. ${after}`
+            ? `${
+                needed > 0
+                  ? `Your plan keeps ${formatCount(limit)} accounts in use, and ${formatCount(inUse)} ${inUse === 1 ? "is" : "are"} in use here. This file brings ${formatCount(arriving)} more, so choose at least ${formatCount(needed)} to arrive archived, or upgrade under Settings. ${formatCount(chosen)} chosen so far. `
+                  : ""
+              }An account that arrives archived uses no place. ${after}`
             : `An account that arrives archived is put away as it arrives. ${after}`
         }
       >
-        {limit !== null && needed > 0 ? (
-          <Note>
-            {`Your plan keeps ${formatCount(limit)} accounts in use, and ${formatCount(inUse)} ${inUse === 1 ? "is" : "are"} in use here. This file brings ${formatCount(arriving)} more, so choose at least ${formatCount(needed)} to arrive archived, or upgrade under Settings. ${formatCount(chosen)} chosen so far.`}
-          </Note>
-        ) : null}
         <ul className="ledger-import-choices">
           {offered.map((record) => (
             <li key={record.key}>
@@ -2239,7 +2261,14 @@ type StagedBatch = { id: string; part: { index: number }; staged: number };
  * staged, and all-time, because the queue's this-month default hid every
  * imported row dated outside the month (the CSV import's precedent).
  */
-function ResultLinks({ batches }: { batches: readonly StagedBatch[] }) {
+function ResultLinks({
+  batches,
+  archived,
+}: {
+  batches: readonly StagedBatch[];
+  /** Whether a sentence above tells somebody to restore an account. */
+  archived: boolean;
+}) {
   return (
     <div className="ledger-import-links">
       {batches.map((batch) => (
@@ -2256,7 +2285,15 @@ function ResultLinks({ batches }: { batches: readonly StagedBatch[] }) {
             : `Review ${counted(batch.staged, "staged row")}`}
         </Link>
       ))}
-      <Link className="button button-secondary" to="/accounts">
+      {/* With archived accounts shown, where a sentence above sends somebody
+          to restore one: the list hides them by default, so a bare link
+          landed on a page without the account it named (`web.md` 11.8). */}
+      <Link
+        className="button button-secondary"
+        to={
+          archived ? { pathname: "/accounts", search: queryString({ archived: "1" }) } : "/accounts"
+        }
+      >
         Open Accounts
       </Link>
     </div>
@@ -2336,7 +2373,7 @@ function AddResult({
           </li>
         ))}
       </ul>
-      <ResultLinks batches={batchesOf(results)} />
+      <ResultLinks batches={batchesOf(results)} archived={putAway.length > 0} />
     </div>
   );
 }
@@ -2437,7 +2474,7 @@ function MoveResult({
       <ul className="ledger-import-notes">
         {balances ? (
           <li>
-            {`Every balance came out as the file says: ${counted(balances.checked, "account")} checked.${balances.notCompared ? ` ${counted(balances.notCompared, "account")} archived where the file came from ${balances.notCompared === 1 ? "was" : "were"} not compared, holding nothing there to compare with.` : ""}`}
+            {`Every balance came out as the file says: ${counted(balances.checked, "account")} checked.${balances.notCompared ? ` ${counted(balances.notCompared, "account")} ${balances.notCompared === 1 ? "was" : "were"} not compared: an account archived where the file came from holds nothing there to compare with, and one opening after the day the balances are for has not yet taken in the money it carries.` : ""}`}
           </li>
         ) : (
           <li>This file carried no balances to check.</li>
@@ -2486,7 +2523,7 @@ function MoveResult({
           </li>
         ) : null}
       </ul>
-      <ResultLinks batches={batchesOf(results)} />
+      <ResultLinks batches={batchesOf(results)} archived={holding.length > 0} />
     </div>
   );
 }

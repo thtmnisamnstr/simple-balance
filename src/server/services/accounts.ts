@@ -732,9 +732,14 @@ async function assertAccountAllowance(tx: DbTransaction, actor: Actor) {
     allowance.message,
     { limit: allowance.limit, current: allowance.current, plan: entitlement.plan },
     // An agent cannot buy anything, so telling it to upgrade would be telling it
-    // to do something it has no way to do. It gets the number and who to ask.
-    `This ledger is on a plan that keeps ${allowance.limit} accounts and has ${allowance.current}. ` +
-      "Only the person who owns it can raise that, from Settings in the browser.",
+    // to do something it has no way to do. It gets the number, the move it can
+    // make — the one the browser's sentence offers beside the upgrade, and the
+    // restore refusal and the ledger file name too — and who to ask for more.
+    // "In use", because that is what is counted: a frozen or archived account
+    // takes no place, and "has 3" beside a list of five read as a wrong count.
+    `This ledger is on a plan that keeps ${allowance.limit} accounts in use and has ${allowance.current} in use. ` +
+      "Archiving one of them with archive_account, or deleting one with no history with delete_account, frees a place; confirm either with the person first. " +
+      "Only the person who owns the ledger can raise the limit, from Settings in the browser.",
   );
 }
 
@@ -1063,8 +1068,8 @@ export type AccountCreateOptions = {
 export async function createAccount(
   actor: Actor,
   input: unknown,
+  options: AccountCreateOptions = {},
   transaction?: DbTransaction,
-  options?: AccountCreateOptions,
 ) {
   const parsed = accountCreateSchema.parse(input);
   const archived = options?.arriveArchived === true;
@@ -1282,7 +1287,7 @@ export async function setAccountArchived(
           throw conflict(
             allowance.message,
             { limit: allowance.limit, current: allowance.current, plan: entitlement.plan },
-            `This ledger's plan keeps ${allowance.limit} accounts active and all of them are in use. Deleting or archiving one frees a place.`,
+            `This ledger's plan keeps ${allowance.limit} accounts active and all of them are in use. Deleting one with delete_account or archiving one with archive_account frees a place.`,
           );
         }
       }

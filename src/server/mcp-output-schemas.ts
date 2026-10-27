@@ -25,6 +25,8 @@ import {
   budgetGroupLimitSources,
   budgetLimitSources,
   importBatchKinds,
+  PLAN_LABELS,
+  plans,
 } from "../shared/domain.js";
 import { categoryResolutions, payeeResolutions, type CsvMapping } from "../shared/csv.js";
 import { ledgerFileHereSchema, ledgerFilePreviewSchema } from "../shared/ledger-file-import.js";
@@ -162,7 +164,7 @@ export const accountResultSchema = z
     frozen: z
       .boolean()
       .describe(
-        "Whether this account is closed to changes. A plan that limits how many accounts may be active leaves the rest frozen: still readable, and refusing every change to what it holds — no new entry, no edit, no deleted entry, not even a rename — though it can still be archived, or deleted while nothing is on it. Everything about it still counts toward balances and reports. Which accounts are active is chosen with set_active_accounts or on the Accounts page, and the choice is made once: afterward a frozen account can only take a place that opens up when an account in use is archived or deleted, unless time on the paid plan left more accounts marked active than the plan keeps, which opens the choice again (see set_active_accounts).",
+        "Whether this account is closed to changes. A plan that limits how many accounts may be active leaves the rest frozen: still readable, and refusing every change to what it holds — no new entry, no edit, no deleted entry, not even a rename — though it can still be archived, or deleted while nothing is on it. Everything about it still counts toward balances and reports. Which accounts are active is chosen with `set_active_accounts` or on the Accounts page, and the choice is made once: afterward a frozen account can only take a place that opens up when an account in use is archived or deleted, unless time on the paid plan left more accounts marked active than the plan keeps, which opens the choice again (see `set_active_accounts`).",
       ),
   })
   .passthrough();
@@ -738,7 +740,7 @@ export const csvFilePreviewResultSchema = z.object({
   simpleBalanceExport: z
     .boolean()
     .describe(
-      "True when the file is a Simple Balance CSV export, whose columns are already known: stage_csv needs no mapping for it.",
+      "True when the file is a Simple Balance CSV export, whose columns are already known: `stage_csv` needs no mapping for it.",
     ),
   // Every field optional, and only the reference described: the rest are
   // `stage_csv`'s mapping, one call away, and repeating eight sentences here
@@ -765,7 +767,7 @@ export const csvFilePreviewResultSchema = z.object({
         ),
     } satisfies Record<keyof CsvMapping, z.ZodOptional<z.ZodString>>)
     .describe(
-      "The import page's own guess at stage_csv's mapping, from the headings alone: a guess, so confirm it against rows before staging. A field it could not place is absent. Empty for a Simple Balance export.",
+      "The import page's own guess at `stage_csv`'s mapping, from the headings alone: a guess, so confirm it against rows before staging. A field it could not place is absent. Empty for a Simple Balance export.",
     ),
 });
 
@@ -781,15 +783,25 @@ export const identityResultSchema = z.object({
     .describe(
       "What this token may do, sorted. ledger:stage and ledger:write both include ledger:read. A tool you cannot reach is not in your tool list at all, so this is how you tell a capability you were not granted from one that does not exist.",
     ),
-  plan: nullableStringSchema.describe(
-    "Which plan these books are on, or null when this deployment sells none and nothing is limited.",
-  ),
+  // The wire value, and the word a person reads for it built from the one map
+  // that writes it, so an agent says what the plan tab says. A bare string told
+  // an agent nothing of the kind, and "Plus" is what it then told a subscriber
+  // who pays for Premium (`common.md` §A wire value and the word a person
+  // reads). Interpolated rather than written, because `PLAN_LABELS` is the one
+  // place a plan's name is written. The enum is the whole closed set the
+  // server sends, so narrowing to it refuses nothing it ever said.
+  plan: z
+    .enum(plans)
+    .nullable()
+    .describe(
+      `Which plan these books are on, or null when this deployment sells none and nothing is limited. The value is an identifier, not the plan's name: a person reads ${plans.map((plan) => `${plan} as ${PLAN_LABELS[plan]}`).join(" and ")}, so use that word with them.`,
+    ),
   accountLimit: z
     .number()
     .int()
     .nullable()
     .describe(
-      "How many financial accounts this plan keeps usable at a time. Null means no limit. create_account refuses once accountsUsed reaches it, and only the person who owns these books can raise it, so check this before proposing a new account rather than after. Accounts beyond it are frozen rather than lost: fully readable, and refusing every change to what they hold, though one can still be archived, or deleted while nothing is on it.",
+      "How many financial accounts this plan keeps usable at a time. Null means no limit. `create_account` refuses once accountsUsed reaches it, and only the person who owns these books can raise it, so check this before proposing a new account rather than after. Accounts beyond it are frozen rather than lost: fully readable, and refusing every change to what they hold, though one can still be archived, or deleted while nothing is on it.",
     ),
   accountsUsed: z
     .number()
@@ -801,7 +813,7 @@ export const identityResultSchema = z.object({
   activeChoicePending: z
     .boolean()
     .describe(
-      "True while that one-time choice is open: more accounts are marked active than the plan keeps, as a downgrade leaves behind, so set_active_accounts may name any set within accountLimit. False wherever no limit is in force.",
+      "True while that one-time choice is open: more accounts are marked active than the plan keeps, as a downgrade leaves behind, so `set_active_accounts` may name any set within accountLimit. False wherever no limit is in force.",
     ),
 });
 
@@ -1004,7 +1016,7 @@ export const budgetPlanResultSchema = z
     rollover: z
       .boolean()
       .describe(
-        "True when what a period does not spend belongs to the next one, and an overspend is owed by it. Nothing is stored per period either way: the carry is worked out at read time by get_budget_report.",
+        "True when what a period does not spend belongs to the next one, and an overspend is owed by it. Nothing is stored per period either way: the carry is worked out at read time by `get_budget_report`.",
       ),
     rolloverCap: nullableStringSchema.describe(
       "The most that may be carried in either direction, as a decimal string, or null for no limit.",
@@ -1039,7 +1051,7 @@ export const budgetPlanResultSchema = z
     amountRule: z
       .enum(budgetAmountRules)
       .describe(
-        "How the per-period amount is arrived at. Derived from the row rather than chosen: a lookback makes it a trailing average, a percentage of the last period makes it incremental, a percentage of income makes it a share of what came in, a target and a date make it a sinking fund, and everything else is fixed. The amount column is the first period's figure under incremental, the seed a trailing average uses until it has finished periods to average, and ignored under the other derived rules; get_budget_report is where the worked-out figure appears.",
+        "How the per-period amount is arrived at. Derived from the row rather than chosen: a lookback makes it a trailing average, a percentage of the last period makes it incremental, a percentage of income makes it a share of what came in, a target and a date make it a sinking fund, and everything else is fixed. The amount column is the first period's figure under incremental, the seed a trailing average uses until it has finished periods to average, and ignored under the other derived rules; `get_budget_report` is where the worked-out figure appears.",
       ),
     version: versionSchema,
   })
@@ -1233,7 +1245,7 @@ export const forecastResultSchema = z.object({
   otherPeriodUnits: z
     .array(z.enum(budgetPeriodUnits))
     .describe(
-      "Period units this person budgets in that this projection did not read. A monthly forecast counts monthly plans alone, so weekly budgets exist outside its figures; ask again per unit named here, exactly as with the budget report's field of the same name.",
+      "Period units this person budgets in that this projection did not read. A monthly forecast counts monthly budgets alone, so weekly budgets exist outside its figures; ask again per unit named here, exactly as with the budget report's field of the same name.",
     ),
   currencies: z.array(
     z.object({
@@ -1252,7 +1264,7 @@ export const forecastResultSchema = z.object({
           budgetedSpending: z
             .string()
             .describe(
-              "What the budgets intend for this period, reported whether or not the basis uses it: a period whose budgets dwarf its recurrences is one where the projected balance is optimistic, and only this says so. It counts the plans whose amount is the number on them — a trailing average, a share of income and a sinking fund work theirs out from periods that have not happened, and are listed in unprojectable instead — and it counts categories rather than groups, so it will not always equal the budget report's own total for the same month.",
+              "What the budgets intend for this period, reported whether or not the basis uses it: a period whose budgets dwarf its recurrences is one where the projected balance is optimistic, and only this says so. It counts the budgets whose amount is the number on them — a trailing average, a share of income and a sinking fund work theirs out from periods that have not happened, and are listed in unprojectable instead — and it counts categories rather than groups, so it will not always equal the budget report's own total for the same month.",
             ),
           uncoveredBudget: z
             .string()

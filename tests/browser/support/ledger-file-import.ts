@@ -25,7 +25,7 @@ import { moveResultFor, qualifying, typedInto } from "../../support/ledger-file-
  * made.
  */
 
-export type AddCall = {
+type AddCall = {
   readonly body: LedgerFileAddInput;
   readonly raw: Record<string, unknown>;
   readonly accept: string | null;
@@ -78,7 +78,7 @@ export async function liveStream() {
 }
 
 /** A refusal, the way the route sends one before it has streamed anything. */
-export const refused = (status: number, code: string, message: string): Answer => ({
+const refused = (status: number, code: string, message: string): Answer => ({
   status,
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({ error: { code, message } }),
@@ -153,10 +153,10 @@ export async function answerLedgerFileImport(
  * An account name with nothing to break it at, which is the record list, a
  * question's heading and a checkbox's words at their widest.
  */
-export const LONG = "JointHouseholdEverydayCheckingAccountAtTheCooperativeBank";
+const LONG = "JointHouseholdEverydayCheckingAccountAtTheCooperativeBank";
 
 /** `wholeLedger`, with the long name standing for Checking everywhere the file names it. */
-export const longLedger = () =>
+const longLedger = () =>
   JSON.parse(JSON.stringify(wholeLedger()).replaceAll('"Checking"', `"${LONG}"`)) as Record<
     string,
     unknown
@@ -167,7 +167,7 @@ export const longLedger = () =>
  * here already and differs, the plan keeps three places with two in use, and
  * this copy chose settings of its own that the file's differ from.
  */
-export const askingEverything = () =>
+const askingEverything = () =>
   factsOf(
     { accounts: [ownAccount(LONG), ownAccount("Wallet")] },
     {
@@ -221,7 +221,7 @@ export async function visitImportStates(page: Page, measure: (state: string) => 
         ? refused(
             409,
             "CONFLICT",
-            "This ledger changed while the file was being read. Check the file again.",
+            "This ledger changed while the file was being read. Check file again.",
           )
         : streamed([
             { type: "progress", event: { phase: "staging", done: 7, total: 7 } },
@@ -275,10 +275,10 @@ export async function visitImportStates(page: Page, measure: (state: string) => 
  * copy, and three places with two in use, so one account has to arrive
  * archived.
  */
-export const movingEverything = () => qualifying(askingEverything());
+const movingEverything = () => qualifying(askingEverything());
 
 /** The refusal a last part meets when two accounts come out different, as the route sends it. */
-export const balanceRefusal = () => {
+const balanceRefusal = () => {
   const refusal = ledgerBalanceRefusal(
     [
       {
@@ -357,7 +357,7 @@ async function visitMoveStates(
   await measure("a move stopped by balances that did not come out");
 
   // Checked again, sent again, and finished.
-  await section.getByRole("button", { name: "Check the file again" }).click();
+  await section.getByRole("button", { name: "Check file again" }).click();
   await section.getByRole("button", { name: "Move into this ledger" }).click();
   await expect(section.getByText(/^Moved "/)).toBeVisible();
   await measure("a move that finished");
