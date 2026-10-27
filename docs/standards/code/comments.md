@@ -3,7 +3,7 @@
 The one convention in this repository that is genuinely unusual, and the reason
 it pays.
 
-**27.7% of the non-blank lines in `src` are comments** — 21,581 of 78,030. That
+**27.7% of the non-blank lines in `src` are comments** — 21,592 of 78,058. That
 is far above what most codebases carry and far above what most style guides
 recommend. It is deliberate, and this guide exists so that nobody "tidies" it
 away and so that the density is spent on the right things.
@@ -123,7 +123,7 @@ silences two rules in a single comment and does not borrow this argument: it
 makes its own, that a keyboard user's activation of the buttons inside bubbles
 to the same handler, so the element is a catcher for its children's events
 rather than a mouse-only control. Thirteen of the fourteen paragraphs sit
-directly above the disable. The exception is `src/client/forms.tsx:1800`, where
+directly above the disable. The exception is `src/client/forms.tsx:1803`, where
 the reason is about the whole effect and sits above it, and the disable reaches
 only the first of the two lines inside that assign. The second lints clean
 anyway — the rule reports once per effect, on the first setter it sees — which

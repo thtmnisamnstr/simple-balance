@@ -46,7 +46,7 @@ import {
 } from "../components.js";
 import { formatMoney, isNegativeMoney, isPositiveMoney, compareMoney } from "../money.js";
 import { AccountForm } from "../forms.js";
-import { calendarDateInTimezone } from "../timezone.js";
+import { useToday } from "../timezone.js";
 import { emptyScreen, waysOut } from "../list-filters.js";
 
 const iconFor = (type: AccountType) => {
@@ -115,7 +115,7 @@ export default function AccountsPage({ session }: { session: Session }) {
   // only reason anything is ever frozen.
   const entitlement = session.plan?.entitlement ?? { billing: false };
   const activeLimit = entitlement.billing ? entitlement.accountLimit : null;
-  const today = calendarDateInTimezone(new Date(), session.preferences.timezone);
+  const today = useToday(session.preferences.timezone);
   const accounts = useQuery({
     queryKey: ["accounts", "all", includeArchived, today],
     queryFn: () =>

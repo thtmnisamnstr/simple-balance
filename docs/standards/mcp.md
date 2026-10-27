@@ -28,7 +28,7 @@ contract. Anything in this guide that contradicts it loses.
   `:2338`), because a stream nothing can write to and a session that does not
   exist are not things to hand out.
 - **Where the target is not met, say so rather than claiming it.** The installed
-  SDK, `@modelcontextprotocol/sdk` 1.32.0, declares
+  SDK, `@modelcontextprotocol/sdk` 1.32.2, declares
   `LATEST_PROTOCOL_VERSION = "2025-11-25"` and supports nothing newer, so the
   endpoint negotiates 2025-11-25 today. Three 2026-07-28 obligations are
   unreachable from here and none of them is a design decision: `server/discover`,

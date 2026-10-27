@@ -19,7 +19,7 @@ stale one.
 
 The exception is a form editing something loaded: the query result seeds the
 initial state and then the state is the truth until the save. That is a
-deliberate copy with a defined end, and `src/client/forms.tsx:1794` is the site
+deliberate copy with a defined end, and `src/client/forms.tsx:1797` is the site
 that cites this sentence for it.
 
 *Checked by:* nothing, and §4 says why — the two shapes are the same three
@@ -65,7 +65,7 @@ invalidation written by hand, and no test will remind you.
 **Binding, mostly.** If it can be worked out from what is already in state, work
 it out during render. `splitting`, `showsCategoryPicker`, `splitSettled` and
 `entrySide` in `TransactionForm` are all plain `const`s
-(`src/client/forms.tsx:1868-1882` and `:1938`), and every one of them would be
+(`src/client/forms.tsx:1871-1885` and `:1941`), and every one of them would be
 a synchronization bug as state.
 
 `react/set-state-in-effect` found thirteen sites and every one has been
@@ -352,7 +352,7 @@ What is left for this guide is the code-side half: where in `src/client` the
 field has to become reachable. A request type in `api.ts` that carries the
 field is not reachability — it makes the field settable by code and by nobody
 at a screen. The control is what closes it, and the shape has recurred three
-times: a body field (`src/client/forms.tsx:2983-2990`), a creation field
+times: a body field (`src/client/forms.tsx:2986-2993`), a creation field
 (`src/client/pages/CategoriesPage.tsx:315-318`) and a list filter
 (`src/client/pages/StagingPage.tsx:879-883`), each site carrying the same note
 about the one before it. Three instances is a pattern rather than a scar: when

@@ -81,7 +81,7 @@ import {
   type TransactionFormLeg,
 } from "./staged-draft.js";
 import { currencyOptionLabel, currencyOptions } from "./select-options.js";
-import { calendarDateInTimezone, useTimezone } from "./timezone.js";
+import { calendarDateInTimezone, useTimezone, useToday } from "./timezone.js";
 import { newIdempotencyKey } from "./idempotency.js";
 import { cleanHumanName, normalizeHumanName } from "../shared/names.js";
 
@@ -109,7 +109,7 @@ export function AccountForm({
   const [type, setType] = useState<UserAccountType>(account?.type ?? "checking");
   const [currency, setCurrency] = useState(account?.currency ?? defaultCurrency);
   const [openingDate, setOpeningDate] = useState(
-    account?.openingDate ?? calendarDateInTimezone(new Date(), timezone),
+    () => account?.openingDate ?? calendarDateInTimezone(new Date(), timezone),
   );
   const [openingBalance, setOpeningBalance] = useState(() => {
     if (!account) return "0";
@@ -1005,7 +1005,7 @@ export function TemplateForm({
   );
   const [reminderInterval, setReminderInterval] = useState(String(reminder?.interval ?? 1));
   const [reminderDate, setReminderDate] = useState(
-    reminder?.anchorDate ?? calendarDateInTimezone(new Date(), timezone),
+    () => reminder?.anchorDate ?? calendarDateInTimezone(new Date(), timezone),
   );
   const [reminderTime, setReminderTime] = useState(reminder?.time ?? "09:00");
   const [reminderMonthPolicy, setReminderMonthPolicy] = useState(
@@ -1691,7 +1691,9 @@ export function TransactionForm({
   const initialFormType = initial?.type ?? createType;
   const initialAccountIds = defaultAccountIds(initialFormType);
   const [type, setType] = useState<TransactionType>(initialFormType);
-  const [date, setDate] = useState(initial?.date ?? calendarDateInTimezone(new Date(), timezone));
+  const [date, setDate] = useState(
+    () => initial?.date ?? calendarDateInTimezone(new Date(), timezone),
+  );
   const [description, setDescription] = useState(initial?.description ?? "");
   const [payee, setPayee] = useState(initial?.payee ?? initialPayee ?? "");
   const [categoryId, setCategoryId] = useState(initial?.categoryId ?? initialCategoryId ?? "");
@@ -1764,7 +1766,8 @@ export function TransactionForm({
   const templateApplied = useRef<Set<string>>(new Set());
   const templateBaseline = useRef({
     type: initialFormType,
-    date: initial?.date ?? calendarDateInTimezone(new Date(), timezone),
+    // The state's first value, which is all a ref's argument is ever used for.
+    date,
     payee: initial?.payee ?? initialPayee ?? "",
     description: initial?.description ?? "",
     notes: initial?.notes ?? "",
@@ -2725,7 +2728,7 @@ export function RecurrenceForm({
   // groups — a constant would merge them and choosing in one would clear the
   // other.
   const monthDayGroup = useId();
-  const today = calendarDateInTimezone(new Date(), timezone);
+  const today = useToday(timezone);
   const shape = recurrence?.shape ?? initialShape;
   const [name, setName] = useState(recurrence?.name ?? "");
   const [type, setType] = useState<TransactionType>(shape?.type ?? "withdrawal");

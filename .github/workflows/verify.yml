@@ -62,7 +62,7 @@ jobs:
       # the checkout then runs code from that ref with write access to a cache the
       # default branch reads — which is the whole of the cache-poisoning problem.
       # A pull request has no such input, so it keeps the cache and the speed.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node }}
           cache: ${{ inputs.ref == '' && 'npm' || '' }}
@@ -112,7 +112,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
           cache: ${{ inputs.ref == '' && 'npm' || '' }}
@@ -583,7 +583,7 @@ jobs:
       # everywhere else — the frontend image's nginx template shipped a fatal
       # error for exactly this reason, because every check read it as text.
       # Same reasoning as the verify job above.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: ${{ inputs.ref == '' && 'npm' || '' }}

@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { queryString } from "../src/client/api.js";
 import { DateRangeBar } from "../src/client/components.js";
 import { rangeForPreset, useDateRange } from "../src/client/date-range.js";
@@ -107,5 +107,27 @@ describe("visible date range", () => {
     expect(screen.getByTestId("preset")).toHaveTextContent("this-month");
     expect(startInput()).toHaveValue(expected.start);
     expect(endInput()).toHaveValue(expected.end);
+  });
+});
+
+describe("today, in a page left open", () => {
+  afterEach(() => vi.useRealTimers());
+
+  // The default range ends today. Read during render, a tab left open across
+  // midnight went on ending it yesterday until something else re-rendered it;
+  // read from a store, it moves when the window comes back.
+  it("moves to the new day when the window comes back into view", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-07-31T23:59:00.000Z"));
+    renderRange();
+    expect(endInput()).toHaveValue("2026-07-31");
+
+    vi.setSystemTime(new Date("2026-08-01T08:00:00.000Z"));
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+
+    expect(endInput()).toHaveValue("2026-08-01");
+    expect(startInput()).toHaveValue("2026-08-01");
   });
 });
