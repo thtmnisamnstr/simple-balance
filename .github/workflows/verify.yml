@@ -121,6 +121,14 @@ jobs:
       # carries the system libraries, and installing them again is a minute per
       # run for nothing.
       - run: npx playwright install chromium
+      # Inter, because the stylesheet names it first and every layout the
+      # browser specs measure was drawn on a machine that has it. Without it
+      # the runner falls back to DejaVu Sans, about a sixth wider, and the
+      # house ad's title took four lines at 320px where it takes three. That
+      # failed here on every push while passing on every laptop, and hid the
+      # specs after it. The face users get is web.md §5's open question; this
+      # only makes the runner render what the developers render.
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-inter
       # `list` rather than the HTML report: a failure prints the assertion and
       # the trace path in the log, and uploading the report would mean pinning
       # another action by digest for something the log already says.

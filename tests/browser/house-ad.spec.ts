@@ -785,6 +785,9 @@ test("lights the drawing with no seam at its edges", async ({ browser }) => {
  * `<main>` and for every block in it, at a desktop and a phone width.
  */
 test("moves nothing on the page, and changes nothing where it is absent", async ({ browser }) => {
+  // Twenty-four loads, each waiting for the network to go quiet: 27.6s on a
+  // laptop, so the default 30s was a timeout waiting for a slower runner.
+  test.setTimeout(120_000);
   const without = await signedIn(browser, { width: 1440, height: 900, houseAd: false });
   const withAd = await signedIn(browser, { width: 1440, height: 900 });
   const layout = (page: Page) =>

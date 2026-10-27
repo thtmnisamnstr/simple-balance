@@ -714,6 +714,14 @@ between them because it is a hosting decision:
    `font-src 'self'` addition to both CSP declarations.
 2. Delete Inter from the stack and write the stack that is actually in use.
 
+Until then every layout the browser tier measures is measured in Inter, because
+the machines the app is drawn on have it and the CI runner installs it
+(`fonts-inter`, in `.github/workflows/verify.yml`). Without it the runner fell
+back to DejaVu Sans, about a sixth wider, and the house ad's title took four
+lines at 320px against the three its spec allows, and at 781px the drawing fell
+back to the struck-out ad alone. That is what a reader without Inter sees, and
+nothing measures it.
+
 Either way the tabular-figures rule in section 10 depends on the answer, because
 whether the rendered font supports the OpenType `tnum` feature was not
 established and must be verified against the font that actually ships.
