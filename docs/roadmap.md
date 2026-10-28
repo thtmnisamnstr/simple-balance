@@ -467,6 +467,75 @@ was never scoped to an account, so money spent on a card since closed is money
 the budget covered, and filtering it makes a budget spent to the penny read as
 underspent.
 
+## SB-031 — Sign-in on better-auth 1.7
+
+**Priority 195. Next, alongside SB-032. Depends on nothing; lifts two holds in
+`.github/dependabot.yml`.**
+
+Every security fix better-auth publishes now lands on 1.7 only, and this product
+is pinned to 1.6.33, the last of the 1.6 line. Four advisories against it were
+published on 2026-10-27, each fixed in 1.7 and in no 1.6 release:
+
+| Advisory | Severity | Needs | Reaches this product |
+| --- | --- | --- | --- |
+| [GHSA-965c-763c-88jm](https://github.com/advisories/GHSA-965c-763c-88jm), an OAuth state accepted as a Magic Link token | Critical | The Magic Link plugin | No: `src/server/auth.ts` enables only `mcp()` |
+| [GHSA-r4xp-prcw-77qf](https://github.com/advisories/GHSA-r4xp-prcw-77qf), the OAuth Proxy trusting any profile it can decrypt | High | The OAuth Proxy plugin | No |
+| [GHSA-q84f-53jg-9ppm](https://github.com/advisories/GHSA-q84f-53jg-9ppm), device login approval not naming the client | High | `deviceAuthorization()` | No |
+| [GHSA-44jh-23m7-hpcf](https://github.com/advisories/GHSA-44jh-23m7-hpcf), database rate limits exceeded by concurrent requests | Low | Rate limits stored in PostgreSQL through the Drizzle adapter | **Yes**: sign-in limits are counted in PostgreSQL so every replica shares them, and a burst of simultaneous attempts can pass the limit by about the number of concurrent connections |
+
+None of the four is a reason to rush and all of them together are a reason not
+to wait, because the next one may need nothing this product lacks.
+
+It is a story rather than a version bump because 1.7 is a minor by its number
+and a rewrite by its contents, which is why `.github/dependabot.yml` holds it.
+The MCP plugin moves out into `@better-auth/mcp`, so `mcp`, `withMcpAuth`,
+`oAuthDiscoveryMetadata` and `oAuthProtectedResourceMetadata` no longer exist
+on `better-auth/plugins` and the server does not compile against it. The
+`oauthApplication` model is renamed `oauthClient`, two tables are new, and
+`Account.issuer` wants a backfill, which here is a migration of this product's
+own, `0027`, because every shipped one is frozen.
+
+The design question to settle first is the rename under a rolling update. The
+split deployment and the chart run two releases side by side while a rollout
+moves, and a replica still on 0.2.2 reads `oauth_application` by that name. A
+rename in one step breaks every agent's sign-in on the old replicas for the
+length of the rollout; copying into the new table and keeping the old one until
+the release after is the shape `AGENTS.md`'s upgrade rule asks for, at the cost
+of two tables saying the same thing for one release.
+
+**Acceptance criteria**
+
+- better-auth at the then-current 1.7 in both manifests, and `npm audit` reports
+  none of the four advisories above
+- Every agent authorized before the upgrade keeps working after it: its
+  dynamically registered client, its access token and its refresh token all
+  survive, checked against a database written by 0.2.2 rather than a fresh one
+- The discovery documents answer at every path they answered at, with the same
+  narrowed scopes, and `tests/mcp-parity.test.ts` and the OAuth integration
+  tests pass unchanged
+- A rolling update from 0.2.2 leaves no replica, old or new, unable to sign an
+  agent in at any point during it
+- Concurrent sign-in attempts against the database-stored limit stop at the
+  limit, held by an integration test that fires them at once
+- Local and Google sign-in, the first-account claim, `ALLOWED_EMAILS` and the
+  setup code behave exactly as before; `tests/auth-policy-paths.test.ts` passes
+  unchanged
+- Both holds in `.github/dependabot.yml` are lifted in the same change:
+  better-auth's own, and vitest 5's, which exists only because 1.6's peer range
+  makes the npm that ships with Node 22 crash `npm ci`
+
+## SB-032 — Budgets, the next round
+
+**Priority 196. Next, alongside SB-031. Depends on SB-019 and SB-025 through
+SB-029.**
+
+Scope not decided. The owner named budgets as the next area to grow once the
+budgeting arc had shipped, and this entry holds its place in the order until
+there is something to write in it. It gets its evidence and its acceptance
+criteria before anything is built, like every item above it; the table under
+SB-019 of what each method needed is where the design starts, since it records
+what the model already covers without a mode of its own.
+
 ## SB-020 — Widen what an agent may propose
 
 **Priority 200. Depends on SB-016.**

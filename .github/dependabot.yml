@@ -53,7 +53,7 @@ updates:
       # comes through, which is the point — 1.6.26 fixed JWT key minting inside
       # a transaction and 1.6.30 an async-storage race on cold start, both of
       # which this deployment meets. Lift this in the change that does the
-      # migration, not before.
+      # migration, not before: SB-031 in docs/roadmap.md.
       - dependency-name: "better-auth"
         versions: [">=1.7.0"]
       # Held with it. better-auth 1.6 declares an optional peer of vitest
