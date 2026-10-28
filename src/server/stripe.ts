@@ -49,9 +49,11 @@ export function getStripe(): Stripe {
       // The API version is deliberately not set here. The SDK pins one of its
       // own, and passing a different string is how a payload shape and the
       // types describing it come to disagree: upgrading the package would then
-      // change nothing until somebody remembered this line. `stripe@22.6.2`
-      // pins `2026-08-26.dahlia`, and the webhook endpoint in the dashboard is
-      // set to match it.
+      // change nothing until somebody remembered this line. `stripe@23.0.1`
+      // pins `2026-09-30.endive`, and a webhook endpoint made from here on is
+      // set to match it; one made under 22 stays on `2026-08-26.dahlia`, which
+      // is safe because the handler reads nothing the two shape differently
+      // (`docs/billing-operations.md` §The webhook endpoint).
       timeout: STRIPE_TIMEOUT_MS,
       // Safe because every mutating call in this product carries an explicit
       // idempotency key, so a retried POST is the same POST to Stripe rather
@@ -574,7 +576,7 @@ export async function createStripeSubscription(
  *
  * And beside it, what the update actually raised, because "the difference was
  * charged to your payment method" was being written from the button that was
- * pressed rather than from anything Stripe did. `billing_cycle_anchor: "now"`
+ * pressed rather than from anything Stripe did. Anchoring the cycle on now
  * bills on the spot in the ordinary case and the sentence was true there, but
  * a subscription carrying a `cancel_at` has its new term capped at the
  * cancellation, so Stripe raises no invoice at all and parks the proration as
@@ -599,7 +601,7 @@ export async function switchStripeSubscriptionNow(
       {
         items: [{ id: input.itemId, price: input.priceId }],
         proration_behavior: "create_prorations",
-        // `billing_cycle_anchor: "now"` is what bills the difference on the
+        // Anchoring the cycle on now is what bills the difference on the
         // spot rather than parking it on the next invoice: the person is
         // upgrading in order to be upgraded, and an unpaid balance sitting
         // until renewal is a surprise either way. It also resets the renewal
@@ -611,7 +613,11 @@ export async function switchStripeSubscriptionNow(
         // delivery for it brings the person back here to pay — rather than
         // deciding whether to charge at all.
         payment_behavior: "allow_incomplete",
-        billing_cycle_anchor: "now",
+        // An object since `2026-09-30.endive`, where the bare string it
+        // replaced was `"now"`. It reaches Stripe as
+        // `billing_cycle_anchor[type]=now`, which the changelog names as that
+        // string's replacement, so the request asks for exactly what it did.
+        billing_cycle_anchor: { type: "now" },
         // Expanded rather than fetched afterward, because the invoice's status
         // is the whole answer and a second read would be a second chance to
         // fail on the path that has just taken somebody's money.

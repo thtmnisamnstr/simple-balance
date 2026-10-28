@@ -123,6 +123,18 @@ also what keeps `ready` from reading 0 before the first probe.
 
 ### What changed under you
 
+**Stripe is called at API version `2026-09-30.endive`.** The release takes
+`stripe` 23, which pins it, so if you sell plans every request your deployment
+makes to Stripe moves from `2026-08-26.dahlia` to endive with no setting of
+yours involved. Leave your webhook endpoint where it is: it stays on dahlia,
+which keeps working, because nothing the handler reads from an event is shaped
+differently in the two. An endpoint's version cannot be changed in place, so
+matching it means a new endpoint at endive and its new `whsec_…` in
+`STRIPE_WEBHOOK_SECRET`, at a time of your choosing
+(`docs/billing-operations.md` §The webhook endpoint). The one request endive
+reshaped is the switch from monthly to annual on the spot; try it, and a
+3-D Secure payment, in a sandbox before you rely on either.
+
 **Import CSV is now Import and export, at the same address.** The sidebar
 label and the page's heading changed; the path is still `/import`, so a bookmark
 or a link in somebody's notes still lands there. The CSV import is first on the

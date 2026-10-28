@@ -4504,7 +4504,7 @@ export type OwedInvoiceOutcome = (typeof owedInvoiceOutcomes)[number];
  * Shaped after `owedInvoiceOutcomes` above and for the same reason one step
  * along: the page was writing "the difference was charged to your payment
  * method" from the button that was pressed, never from anything Stripe did.
- * `billing_cycle_anchor: "now"` does bill on the spot in the ordinary case, so
+ * Anchoring the billing cycle on now does bill on the spot in the ordinary case, so
  * the sentence was true until it was not — a subscription carrying a `cancel_at`
  * has its new term capped at the cancellation, so Stripe raises no invoice at
  * all and parks the proration as uninvoiced items for later. The person was

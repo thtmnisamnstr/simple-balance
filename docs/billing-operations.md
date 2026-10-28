@@ -125,7 +125,11 @@ mode when you go live, because nothing made in one mode exists in the other.
 3. **The webhook endpoint**, at `https://your-host/api/billing/webhook`, for
    events on your own account, with snapshot payloads rather than thin ones —
    the handler reads the object the event carries — and set to API version
-   `2026-08-26.dahlia`, the one `stripe@22.6.2` pins. Subscribe it to exactly
+   `2026-09-30.endive`, the one `stripe@23.0.1` pins. An endpoint made for
+   0.2.1 or earlier is on `2026-08-26.dahlia` and can stay there: nothing the
+   handler reads from an event is shaped differently in the two, and an
+   endpoint's version cannot be changed in place — moving it means a new
+   endpoint and a new signing secret. Subscribe it to exactly
    these: `customer.subscription.created`, `customer.subscription.updated`,
    `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed`,
    `setup_intent.succeeded`, `customer.deleted`, `charge.refunded`,

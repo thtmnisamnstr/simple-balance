@@ -224,7 +224,7 @@ and the wait is now `db_pool_acquire_duration_seconds` alone.
 HTTP request becomes JSON-RPC (`countRpcMessages`, `src/server/mcp.ts:2416`),
 the one place a call the protocol refused and a call a tool answered both pass;
 the tool wrapper sees only the second. A Stripe call is counted, timed and
-classified in `measured` (`src/server/stripe.ts:85`). A failure nobody meant is
+classified in `measured` (`src/server/stripe.ts:87`). A failure nobody meant is
 counted at the one place each surface turns it into an `INTERNAL_ERROR`, and
 never for a refusal the caller can act on: `errorEnvelope` for a 500 and for a
 streamed `error` frame, told apart by the surface its caller names
@@ -389,7 +389,7 @@ error goes by its class and its code and never its message, which can quote a
 customer or an amount. And where a log line and a metric both classify the
 same thing, one is derived from the other: `isKeyRefusal`, which decides the
 line naming a key's missing permission, is two names out of `failureReason`
-(`src/server/stripe.ts:137`, `:154`), so the line and the count cannot
+(`src/server/stripe.ts:139`, `:156`), so the line and the count cannot
 disagree about which failures were the key's.
 
 Exported rather than written at the call site, because three readers need the
@@ -590,7 +590,7 @@ says which, and none pretends to be the other.
 - **Checked again whenever the prices are read: `stripe_prices`.** The plan
   tab, the point of sale and the billing sweep each read them, the point of
   sale refuses on the newest verdict, and every verdict is written over the
-  last (`recordPriceCheck`, `src/server/stripe.ts:1474-1481`); a gauge that
+  last (`recordPriceCheck`, `src/server/stripe.ts:1480-1487`); a gauge that
   kept the boot's would read 1 beside a deployment refusing every sale. The
   boot writes it as well, and the two writers agree: a read that never reached
   Stripe writes nothing and keeps the verdict it had, as the point of sale
@@ -598,7 +598,7 @@ says which, and none pretends to be the other.
 - **A startup check that could not run is 0**, because it passed nothing. That
   needed the check to say so: `checkStripeAccess` returns the resources the
   key was refused, and `null` where it refused none but could not ask about
-  them all (`src/server/stripe.ts:1686`), so an unreachable Stripe no longer
+  them all (`src/server/stripe.ts:1692`), so an unreachable Stripe no longer
   reads as a key that may read everything. A standard `sk_` key holds every
   permission and is never asked, so it reads 1.
 - **A dependency the deployment does not use is absent, not 0.** `AGENTS.md`:
@@ -930,8 +930,8 @@ mistake (`src/server/config-limits.ts:110`, and `warnOnce` at
 **Binding.** Everything this product degrades rather than fails on says so: a
 relay that refuses its credentials at startup, a reminder sweep that throws, a
 tick that throws, an OAuth client sweep that fails, the two Stripe checks both
-entrypoints make at boot — the prices (`src/server/stripe.ts:1583`) and what
-the key may read (`:1668-1683`) — and the reconciliation sweep carrying on
+entrypoints make at boot — the prices (`src/server/stripe.ts:1589`) and what
+the key may read (`:1674-1689`) — and the reconciliation sweep carrying on
 past a subscription Stripe cannot answer about
 (`src/server/services/billing.ts:2209`). Each logs and continues,
 because the alternative — a `catch` with an empty body — produces a deployment

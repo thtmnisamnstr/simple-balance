@@ -247,6 +247,17 @@ way, as the Budgets page always has.
 
 ### Changed
 
+**Stripe's API version is now `2026-09-30.endive`.** The server SDK moved to
+`stripe` 23, which pins it, with Stripe.js 10 and React Stripe.js 7 beside it in
+the browser, because Stripe keeps the two on one release. Every request this
+deployment sends to Stripe is now made at endive. One call changed shape: the
+switch from monthly to annual on the spot sends its billing-cycle anchor as
+`{ type: "now" }`, which endive takes in place of the bare `"now"` and which
+asks for exactly what it did. A webhook endpoint made for an earlier release
+stays on `2026-08-26.dahlia` and needs nothing: no field the handler reads is
+shaped differently in the two. `docs/billing-operations.md` says how to make a
+new one at endive, which takes a new signing secret.
+
 **An agent is handed the import page's own reading of a CSV.** `preview_csv`,
 and `POST /api/v1/csv/preview`, now return `simpleBalanceExport`, whether the
 file is one of this product's own exports and so needs no mapping, and
