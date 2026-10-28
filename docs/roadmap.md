@@ -536,6 +536,79 @@ criteria before anything is built, like every item above it; the table under
 SB-019 of what each method needed is where the design starts, since it records
 what the model already covers without a mode of its own.
 
+## SB-033 — CSV export and import across accounts
+
+**Priority 197. Next, alongside SB-031 and SB-032. Depends on nothing; reverses
+a rule in `docs/standards/csv.md` §6, on the record.**
+
+A CSV export can already cover every account: the Transactions page exports
+whatever its filters show, and with no account filter that is the whole ledger.
+What the file does not do is say plainly which account a row belongs to. It
+names accounts in four columns split by direction — `source_account_name` and
+`source_account_id` for money leaving, `destination_account_name` and
+`destination_account_id` for money arriving — so a deposit's account is in one
+pair, a withdrawal's in the other, and a transfer's in both. Correct, and not
+something a person filtering a spreadsheet by account can use without knowing
+the convention.
+
+The import is the harder half. Every CSV import lands in one account, chosen on
+the page or passed as `defaultAccountId`, and the four account columns are
+written and deliberately never read: they name accounts in the ledger the file
+came from, which a different account, person or install resolves none of
+(`docs/standards/csv.md` §6). `tests/integration/import-export.integration.test.ts`
+holds it ("posts an export against the account chosen for the import"). So a
+whole-ledger CSV can only come back one account at a time, by hand, and a bank
+or another product's export that lists several accounts in one file has to be
+split before it can be imported at all.
+
+The Simple Balance file already moves whole ledgers with their accounts. This is
+for the CSV: the file people open in a spreadsheet, and the file other products
+write.
+
+**What the design has to settle**
+
+- **An account column a person can read**, one per row, written beside the four
+  that exist. It goes outside the recognition set, because adding to that set
+  would stop every file written so far from being recognized
+  (`docs/standards/csv.md` §6, "The recognition set is frozen").
+- **How a name in the file finds an account here.** The rule already exists for
+  categories and payees (`docs/standards/csv.md` §9): `normalizeHumanName`. What
+  is new is what the preview offers for a name that matches nothing: use an
+  account here, create one, or leave its rows for review — the choices a Simple
+  Balance file's add already offers for a record it only names, which is the
+  precedent to reuse rather than invent beside. An account in another currency
+  is never a match.
+- **A transfer between two accounts the file names** should arrive as one
+  transfer with both sides filled in, where today staging asks for the other
+  side at commit. The same transfer appears twice when a person exports two
+  accounts separately and imports both files, so the duplicate rule has to know
+  it is one movement.
+- **Mapping an account column in a bank file**, so a file the app did not write
+  can name its account per row, with the account chosen on the page kept as the
+  fallback for a row that names none.
+
+Not established for this entry: which other products' exports carry an account
+column, and what they call it. That decides the mapping's defaults and was not
+researched.
+
+**Acceptance criteria**
+
+- An export carries one column naming each row's account, in every file, and
+  every file written before it still imports exactly as it does today
+- One CSV import can stage rows into several accounts, each named in the file
+  and matched to an account here, with the preview showing every name and what
+  it will land in before anything is staged
+- A name that matches nothing is the person's to decide in the preview, and no
+  account is created or picked without them
+- A transfer between two accounts in the file stages once, complete on both
+  sides, and importing two single-account exports that both carry it stages it
+  once
+- A file with no account column, or a row naming none, lands in the account
+  chosen on the page, as today
+- The CSV standard, the MCP tools `preview_csv` and `stage_csv`, and the page
+  change together, and the parity test passes
+- The ten-thousand-row cap and every existing CSV refusal are unchanged
+
 ## SB-020 — Widen what an agent may propose
 
 **Priority 200. Depends on SB-016.**
