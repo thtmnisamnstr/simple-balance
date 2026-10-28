@@ -453,7 +453,7 @@ out.
   item is built**; the line under it carries the mechanics, including whether it
   has shipped. `docs/roadmap.md:67-69` reads SB-017, "Split transactions",
   **done**, then "Priority 160. Depends on SB-015. Shipped as migration 0005."
-  Nine of the eighteen headings carry the state today: SB-016, SB-017 and
+  Nine of the nineteen headings carry the state today: SB-016, SB-017 and
   SB-018, whose lines name the migration or the release that carried them, and
   SB-019 and SB-025 through SB-029, whose lines say "Built, unreleased". This
   paragraph said "once the item has shipped" for a while, and the practice never

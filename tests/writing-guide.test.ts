@@ -235,6 +235,7 @@ describe("what writing.md says there are", () => {
       16: "sixteen",
       17: "seventeen",
       18: "eighteen",
+      19: "nineteen",
     };
     // The roadmap's own convention is that the heading answers "is there
     // anything left to write". This guide quotes the tally, and a tally in

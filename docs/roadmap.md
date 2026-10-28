@@ -609,6 +609,93 @@ researched.
   change together, and the parity test passes
 - The ten-thousand-row cap and every existing CSV refusal are unchanged
 
+## SB-034 — Bulk writes in batches of 500
+
+**Priority 198. Next, alongside SB-031 through SB-033. Depends on nothing;
+rewrites three invariants in `AGENTS.md`, on the record.**
+
+Committing more than about seven thousand staged rows at once fails on
+app.smpl.money, which runs 0.2.1, and the way through today is to select and
+commit smaller batches by hand. Staging a large CSV may do the same; that has
+not been tried.
+
+The likeliest cause is fixed in 0.2.2 and is not the argument for this story.
+Through 0.2.1 a commit, a mass edit and a move part took one advisory lock per
+row, and PostgreSQL's shared lock table is sized by `max_connections`: on a
+database allowing 50, as the `single` profile's does, 9,000 locks fitted and
+10,000 failed with SQLSTATE 53200, and a busy server has fewer to spare. 0.2.2
+takes one lock per person instead (`docs/standards/code/database.md` §4.3).
+
+The argument is the shape of the write. Every one of these actions is one
+database transaction over everything it touches — up to ten thousand rows —
+and for its whole length it holds its locks and its row versions on a database
+every tenant shares. One person's import should not be able to take that much
+of it, however rarely it happens. **Five hundred rows is the unit of one
+transaction**, chosen by the owner as a size that is safe on a multi-tenant
+deployment. Ten thousand stays the limit on one action, so nothing anybody can
+ask for today is refused.
+
+It covers every write that takes a batch:
+
+- committing staged rows;
+- staging a CSV;
+- the transaction mass edit and mass delete, and the staged mass edit;
+- adding and moving a Simple Balance file, whose parts ship in 0.2.2 at up to
+  ten thousand rows each.
+
+**What it reverses.** `AGENTS.md` says bulk commits are "explicit-ID,
+validate-first, and atomic", that transaction and staged mass edits are atomic,
+and that each ledger-file part is atomic. Batching makes each batch atomic and
+the action as a whole resumable instead, which is the contract the ledger file's
+parts already keep with the browser, and the rewrite of those three sentences
+belongs in the same change as the code.
+
+**What the design has to settle**
+
+- **Where the batching happens.** In the server, inside one request, keeps every
+  client that sends ten thousand rows today working, which the upgrade rule
+  requires, and keeps the browser and an agent on one behavior. The browser
+  sending batches itself would be simpler to show progress for and would need
+  every client changed.
+- **Validate first, still.** Everything that can be known before writing — a
+  frozen account, a stale fingerprint, a row that cannot commit — should still
+  refuse the whole action before the first batch, so the only partial result is
+  one nobody could have predicted.
+- **A failure partway.** What committed stays committed, because postings are
+  append-only. The answer says how far it got, and sending the same action
+  again finishes it without writing anything twice: idempotent by key, and by
+  row id and version for what is already done.
+- **A selection that moves between batches.** A mass edit checks its `id:version`
+  fingerprint once, before the first batch. Each batch checks its own rows'
+  versions again, and a row somebody changed in between is refused and
+  reported rather than overwritten.
+- **A move part's balance check.** Today the part carrying the file's balances
+  is refused when an account comes out different, which is checked after the
+  writes inside the part's one transaction. Across batches that check has to
+  be worked out before anything is written, or a failed check leaves a move
+  half done with nothing to undo it.
+
+Not measured for this entry: how long a ten-thousand-row commit, CSV stage or
+move part holds its transaction today, and what that costs the other tenants'
+requests while it does. The first step is to measure both, so the change can be
+shown to have helped.
+
+**Acceptance criteria**
+
+- No transaction opened by a bulk write touches more than 500 rows, held by a
+  test rather than by reading the code
+- A ten-thousand-row commit, CSV stage, mass edit, mass delete, Simple Balance
+  file add and move part each complete on a database allowing 50 connections,
+  with another tenant's requests answering throughout
+- Anything that can refuse the whole action still refuses it before anything is
+  written
+- A failure partway says exactly what was written and what was not, and sending
+  the action again finishes it without duplicating a row, a posting or an audit
+  entry
+- A client that sends up to ten thousand rows in one request today gets the
+  same answer it gets now, and the MCP tools behave as the browser does
+- `AGENTS.md`'s three atomicity sentences are rewritten in the same change
+
 ## SB-020 — Widen what an agent may propose
 
 **Priority 200. Depends on SB-016.**
