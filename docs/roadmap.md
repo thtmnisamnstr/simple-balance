@@ -696,21 +696,24 @@ shown to have helped.
   same answer it gets now, and the MCP tools behave as the browser does
 - `AGENTS.md`'s three atomicity sentences are rewritten in the same change
 
-## SB-035 — OFX, QFX and QIF import and export
+## SB-035 — QIF, OFX, QFX and camt import and export, beside CSV
 
 **Priority 199. Next, alongside SB-031 through SB-034. Depends on SB-033;
 reverses `docs/standards/csv.md` §1 and §14, on the record.**
 
 CSV is the only file a bank statement can arrive in today, and every bank's CSV
 needs its columns mapped by hand the first time. Most banks also offer their
-statements as OFX, QFX (Quicken's branded OFX) or QIF, which carry the same
-fields in fixed places and need no mapping at all. And somebody leaving Quicken,
-Money, GnuCash or most desktop ledgers holds their history in one of those three
-rather than in a CSV.
+statements as OFX, QFX (Quicken's branded OFX) or QIF, and European banks as
+camt.053, the ISO 20022 end-of-day statement; all four carry the same fields in
+fixed places and need no mapping at all. And somebody leaving Quicken, Money,
+GnuCash or most desktop ledgers holds their history in QIF or OFX rather than
+in a CSV. CSV stays exactly as it is; the goal is that a statement in any of the
+five imports, and a ledger exports to any of them.
 
 `docs/standards/csv.md` §1 decided against this: "CSV is the interchange format
 … There is no second one and no plan for one", on the grounds that OFX needs a
-bank relationship and QFX is proprietary. That reasoning was about which format
+bank relationship, QFX is proprietary and camt.053 "arrives from a bank or not
+at all". That reasoning was about which format
 a self-hosted ledger can count on *receiving*, and it holds: nobody is promised
 an OFX file. It does not argue against reading one when a bank hands it over,
 and the section's own evidence points the other way — OFX carries an id per
@@ -726,21 +729,27 @@ on it.
 
 **What the design has to settle**
 
-- **Which way each goes.** Import of all three is the case people have. Export
-  is for leaving: QIF is what most desktop ledgers still import, and OFX is the
-  one with an id to keep. Whether export ships with import or after it is a
-  scope decision, not a technical one.
-- **The id.** OFX and QFX carry `FITID` per transaction, which maps to the
-  existing `externalId` and makes re-importing an overlapping statement skip
-  what is already here. QIF carries none, so it falls back to the duplicate
-  heuristic a CSV gets.
-- **Accounts.** An OFX statement names its account, and a QIF file can hold
-  several (`!Account` blocks), so both need SB-033's matching and preview rather
+- **Export.** Import is the case people have most; export is for leaving, and
+  the owner asked for both. QIF is what most desktop ledgers still import, OFX
+  keeps an id per transaction, and camt.053 is what a European tool expects.
+  Writing camt.053 means producing a bank's statement document from a ledger
+  that is not a bank, so its required account and servicer fields need a
+  decided answer rather than a filler.
+- **The id.** OFX and QFX carry `FITID` per transaction and camt.053 an
+  `AcctSvcrRef` (and often an `EndToEndId`), each of which maps to the existing
+  `externalId` and makes re-importing an overlapping statement skip what is
+  already here. QIF carries none, so it falls back to the duplicate heuristic a
+  CSV gets.
+- **Accounts.** An OFX statement names its account, a camt.053 document
+  carries one `Stmt` per account identified by IBAN, and a QIF file can hold
+  several (`!Account` blocks), so all of them need SB-033's matching and preview rather
   than the single account a CSV import takes today.
 - **Dates and amounts.** QIF writes dates in the exporting program's locale
   with no marker for which, and uses `'` for two-digit years in some producers;
   the reader has to ask, as the CSV import already asks for a date format,
-  rather than guess. Amounts are signed and decimal in all three, and go
+  rather than guess. camt.053 states direction in `CdtDbtInd` beside an
+  unsigned amount, the shape `csv.md` §14 lists as the CSV reader's cheapest
+  missing feature. Amounts are decimal in all four, and go
   through the same decimal-string path as a CSV's, never a float.
 - **Investment records.** OFX's investment statements and QIF's `!Type:Invst`
   describe holdings, prices and lots, which this ledger does not model
@@ -748,22 +757,23 @@ on it.
   are refused by name rather than half read.
 
 Not established for this entry: which banks in practice still serve OFX or
-QFX downloads without a paid aggregator, and which QIF dialects (Quicken,
-Microsoft Money, GnuCash, banks) differ in what ways. Both decide how much of
+QFX downloads without a paid aggregator, which QIF dialects (Quicken,
+Microsoft Money, GnuCash, banks) differ in what ways, and which camt.053
+versions (`.001.02` through `.001.13`) banks actually send. Both decide how much of
 the reader is quirks rather than format, and neither was researched.
 
 **Acceptance criteria**
 
-- An OFX, QFX or QIF bank or card statement stages for review the way a CSV
-  does, with no column mapping, through the page and through the MCP tools
-- A transaction's `FITID` becomes its external id, and importing an
+- A QIF, OFX, QFX or camt.053 bank or card statement stages for review the way
+  a CSV does, with no column mapping, through the page and through the MCP tools
+- A transaction's `FITID` or `AcctSvcrRef` becomes its external id, and importing an
   overlapping statement twice stages nothing twice
 - A file naming an account, or several, goes through SB-033's account matching
   and preview
 - A QIF date the reader cannot place unambiguously is asked about, not guessed
 - An investment statement is refused with a sentence saying why
-- Exporting writes at least one of the three, chosen and argued in the change,
-  and a file this product writes reads back to the same rows
+- A ledger, or chosen accounts, exports to each of the four, and a file this
+  product writes reads back to the same rows
 - The ten-thousand-row cap, the duplicate rules and every CSV behavior are
   unchanged, and `csv.md` §1 and §14 are rewritten in the same change
 
