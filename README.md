@@ -1,7 +1,10 @@
 # Simple Balance
 
-Personal finance that's simple. Every account on one page, and any figure you
-doubt opens into the entries that produced it.
+Simple Balance is a free budget app and spending tracker. Every account is on
+one page, and any figure you doubt opens into the entries that produced it. Use
+it in your browser at [app.smpl.money](https://app.smpl.money), or run your own
+copy. Its website and docs are at [smpl.money](https://smpl.money). There is no
+bank connection today: you download a CSV from your bank and import it.
 
 - **Numbers you can follow back.** Every account has a register: each posting
   with the balance before and after it, so a total that looks wrong has a row
