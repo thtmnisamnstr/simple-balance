@@ -1,37 +1,11 @@
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { Actor } from "../../shared/domain.js";
-import { currencyCodeSchema, themes } from "../../shared/domain.js";
+import { preferencesSchema } from "../../shared/domain.js";
 import { getDb, type DbTransaction, withTransaction } from "../db/client.js";
 import { userPreferences } from "../db/schema.js";
 import { validationError } from "./errors.js";
 import { serializeRow, writeAudit, type Executor } from "./helpers.js";
-
-const preferenceSchema = z.object({
-  timezone: z
-    .string()
-    .min(1)
-    .max(100)
-    .refine((value) => {
-      try {
-        new Intl.DateTimeFormat("en", { timeZone: value });
-        return true;
-      } catch {
-        return false;
-      }
-    }, "Timezone is not recognized")
-    .describe(
-      "An IANA timezone name such as America/New_York. It decides what today means everywhere a date is worked out: which day an open-ended range stops at, and which day an entry dated today lands on.",
-    ),
-  defaultCurrency: currencyCodeSchema.describe(
-    "The currency a new account and a new entry start in. It is a default and nothing else: it changes no figure already recorded, and the person may change it whenever they like.",
-  ),
-  theme: z
-    .enum(themes)
-    .describe(
-      "system, light or dark. `system` follows the person's own machine and is the only one that keeps following it when they change it. Set it only when asked to: it is what their screen looks like and you cannot see it.",
-    ),
-});
 
 /**
  * What a person gets before they have chosen anything. One copy, because the
@@ -74,7 +48,7 @@ export async function getPreferences(actor: Actor, executor: Executor = getDb())
  * have to send the other back or risk overwriting it with a guess. What is left
  * out keeps whatever is there now.
  */
-export const preferencePatchSchema = preferenceSchema.partial();
+export const preferencePatchSchema = preferencesSchema.partial();
 
 /**
  * Whether this write is a guess that must lose to a decision.
@@ -131,7 +105,7 @@ export async function setPreferences(actor: Actor, input: unknown, transaction?:
     // it was not given is never part of the statement and cannot be
     // overwritten. The insert still needs both, because a row that does not
     // exist yet has no other side to take them from.
-    const inserted = preferenceSchema.parse({
+    const inserted = preferencesSchema.parse({
       timezone: patch.timezone ?? unchosenPreferences.timezone,
       defaultCurrency: patch.defaultCurrency ?? unchosenPreferences.defaultCurrency,
       theme: patch.theme ?? unchosenPreferences.theme,

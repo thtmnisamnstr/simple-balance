@@ -2,7 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BudgetReport, Summary } from "../src/client/api.js";
 import DashboardPage from "../src/client/pages/DashboardPage.js";
@@ -329,6 +329,90 @@ describe("the Overview's figures", () => {
     renderOverview();
     const balance = await screen.findByRole("article", { name: "Balance" });
     expect(within(balance).getByText("-$250.00")).toHaveClass("money-negative");
+  });
+});
+
+/**
+ * The summary's one filter, which `get_financial_summary` took and no page
+ * sent: an agent could count archived accounts on the Overview's figures and
+ * a person could not. The box is the Reports page's, under the same name and
+ * the same address key, so a link between the two keeps one meaning.
+ */
+describe("the Overview's archived accounts", () => {
+  /** Every summary request the page made, as the URL it asked for. */
+  function stubAndRecord(overview: Summary = summary) {
+    const asked: URL[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input), window.location.origin);
+        if (url.pathname === "/api/v1/summary") {
+          asked.push(url);
+          return Response.json(overview);
+        }
+        if (url.pathname === "/api/v1/budget-report") return Response.json(report);
+        return Response.json([]);
+      }),
+    );
+    return asked;
+  }
+
+  it("leaves them out until the box is ticked, then asks for them and says so in the address", async () => {
+    const asked = stubAndRecord();
+    renderOverview();
+    const box = await screen.findByRole("checkbox", { name: "Include archived accounts" });
+    expect(box).not.toBeChecked();
+    await waitFor(() => expect(asked).toHaveLength(1));
+    expect(asked[0]!.searchParams.has("includeArchived")).toBe(false);
+
+    fireEvent.click(box);
+    await waitFor(() => expect(asked.at(-1)!.searchParams.get("includeArchived")).toBe("true"));
+    expect(new URLSearchParams(window.location.search).get("archived")).toBe("1");
+    expect(box).toBeChecked();
+  });
+
+  it("marks an archived account in the list it adds it to", async () => {
+    stubAndRecord({
+      ...summary,
+      includesArchived: true,
+      currencies: [
+        {
+          ...summary.currencies[0]!,
+          accounts: [
+            ...summary.currencies[0]!.accounts,
+            {
+              id: "a2",
+              name: "Old card",
+              type: "credit_card",
+              balance: "0",
+              archivedAt: "2026-02-01T00:00:00.000Z",
+            },
+          ],
+        },
+      ],
+    });
+    renderOverview();
+    const row = await screen.findByRole("link", { name: /Old card/ });
+    expect(row).toHaveTextContent("(archived)");
+    expect(screen.getByRole("link", { name: /Current/ })).not.toHaveTextContent("(archived)");
+  });
+
+  it("names the box as a way out when the ledger shows nothing", async () => {
+    stubAndRecord({ ...summary, currencies: [] });
+    renderOverview();
+    expect(
+      await screen.findByRole("heading", { name: "No accounts in this view" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Turn on Include archived accounts to count any archived ones\./),
+    ).toBeInTheDocument();
+    // A link to a page is named as the page (`web.md` 16). It said "Create
+    // account", which is the submit of the form it does not open.
+    expect(screen.getByRole("link", { name: "Go to Accounts" })).toHaveAttribute(
+      "href",
+      "/accounts",
+    );
+    expect(screen.queryByRole("link", { name: "Create account" })).toBeNull();
   });
 });
 

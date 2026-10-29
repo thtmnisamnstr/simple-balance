@@ -25,9 +25,11 @@ Twenty-six migrations, `0000_initial.sql` through
 `0025_subscription_cancel_at.sql`. Frozen is about shipping, not about existing:
 every one of them went out in a released version and may never change — the
 budget set, `0013` through `0021`, in 0.1.6, and the plans, billing and
-distribution set, `0022` through `0025`, in 0.2.0. The next schema change
-starts at `0026`. A change to what has shipped is a new forward-only migration,
-generated with `npm run db:generate`.
+distribution set, `0022` through `0025`, in 0.2.0. `0026_ledger_file_origins.sql`
+is written and unreleased, so it is the one file that may still change, under
+1.5's condition; the next schema change after it starts at `0027`. A change to
+what has shipped is a new forward-only migration, generated with
+`npm run db:generate`.
 
 The freeze line moves at every cut and this paragraph has to move with it. It
 did not, once: it went on naming `0013` through `0021` as the regenerable set
@@ -72,8 +74,8 @@ in one migration: the deploy that stops writing a column and the deploy that
 drops it should be far enough apart that a rollback is possible in between.
 
 *Checked by:* `tests/migrations.test.ts`, file by file rather than as a rule.
-Ten of the twenty-six are asserted to add and never remove — `0005` through
-`0011`, and the three unreleased additive ones, `0022`, `0024` and `0025` — and
+Eleven of the twenty-seven are asserted to add and never remove — `0005` through
+`0011`, and the four additive ones since, `0022`, `0024`, `0025` and `0026` — and
 several go further: a column added to an existing table carries a constant
 default, so PostgreSQL fills it without rewriting a row. `0000` is held
 separately, to adding no column to anything and running no `UPDATE`. `0010` is
@@ -83,7 +85,7 @@ all — it takes sixty-seven constraints off and puts them back — and is held 
 its own gates instead; see 1.6.
 
 What has no mechanism is the rule, as opposed to these ten instances of it.
-§5 carries that: the twenty-seventh migration is asserted by nothing, and a
+§5 carries that: the twenty-eighth migration is asserted by nothing, and a
 `drop column` in it would be caught by review or not at all.
 
 ### 1.4 A new table names its cascade
@@ -105,7 +107,7 @@ A table added without its cascade makes deletion fail rather than silently
 orphan rows, which is the right failure and still a bug.
 
 One table must **not** cascade, and naming it is part of the rule rather than an
-aside. `billing_webhook_event` (`src/server/db/schema.ts:1643`) carries no
+aside. `billing_webhook_event` (`src/server/db/schema.ts:1688`) carries no
 `user_id` and hangs from nobody: it records which deliveries Stripe has already
 been answered for, which is the deployment's fact rather than any person's.
 Letting it cascade would drop that record with the account and let a retry
@@ -170,7 +172,7 @@ column is part of the constraint — in every spelling, including PostgreSQL 15'
 column list — so `drizzle/0023_citus_distribution.sql:277` reinstalls the same
 key as `NO ACTION`, under which deleting a group that still holds categories
 fails outright rather than orphaning them. The service clears the column itself
-(`src/server/services/category-groups.ts:286`), and that statement is what makes
+(`src/server/services/category-groups.ts:292`), and that statement is what makes
 the two schemas behave the same way. It deliberately does not bump the
 category's `version`: the foreign key never did, and a cluster refusing an edit
 a single node accepts is the same divergence one step along.
@@ -212,7 +214,7 @@ review is what makes it. §5 carries it.
 ### 2.1 Money is `numeric(44, 18)`
 
 **Binding.** `AGENTS.md`. Every amount column, without exception
-(`src/server/db/schema.ts:292`).
+(`src/server/db/schema.ts:294`).
 Drizzle returns `numeric` as a string, which is exactly what the rest of the
 codebase wants, so nothing casts.
 
@@ -228,13 +230,13 @@ else at some other scale would pass.
 ### 2.2 An enum column is generated from the shared tuple
 
 **Binding.** `pgEnum` takes the same `as const` array the domain and the UI use
-(`src/server/db/schema.ts:199`), so there is no second list of the members —
+(`src/server/db/schema.ts:200`), so there is no second list of the members —
 with one exception the next paragraph owns up to.
 
 *Checked by:* `npm run typecheck`, in both directions. A member the schema drops
 is refused where a parsed value is inserted, and one the schema adds alone is
 refused where a stored row is read back into shared-typed code. A copy that
-agrees today is caught as well, because each of these fifteen tuples is named
+agrees today is caught as well, because each of these sixteen tuples is named
 exactly once outside its import, so writing the members out again leaves the
 import unread and `noUnusedLocals` fails — which holds by arithmetic rather
 than by design, and would stop holding the day a tuple earns a second use in
@@ -247,13 +249,13 @@ above could not fire for it: the inline literal imports nothing for
 `noUnusedLocals` to catch, and a member added to the `pgEnum` alone would have
 surfaced only when a tool's output validation refused the reply in front of an
 agent. It now reads `stagedStatuses` from `src/shared/domain.ts`, like the other
-fourteen.
+fifteen.
 
 *Also checked by:* `tests/closed-sets.test.ts`, which refuses any `pgEnum` given
 an array literal rather than an identifier. That is the half `npm run typecheck`
 structurally cannot do — `pgEnum` takes an array, so a fourth value added to the
 tuple and not to the enum compiles everywhere and is refused by the database at
-run time — and it is what stops a sixteenth enum arriving the way this one did.
+run time — and it is what stops a seventeenth enum arriving the way this one did.
 
 `billing_subscription.status` is the one column that deliberately is not an enum
 and argues for itself in the schema: the set is Stripe's rather than ours, and a
@@ -272,11 +274,11 @@ into something that cannot hold, or the next unscoped read gets waved through by
 analogy to the one already there.
 
 The exception is the webhook path, which has no actor at all. Stripe names a
-customer; `src/server/services/billing.ts:487` reads `billing_customer` by
+customer; `src/server/services/billing.ts:494` reads `billing_customer` by
 `stripe_customer_id` alone to find out whose it is. There is nothing to scope it
 by, because this read is *how* the user is derived. It is safe for one reason,
 and the reason is what a second unscoped read would have to supply too:
-`src/server/db/schema.ts:1454` makes `stripe_customer_id` unique across the
+`src/server/db/schema.ts:1499` makes `stripe_customer_id` unique across the
 table, and the value is issued by Stripe rather than typed by anybody, so the
 row it returns is the only row it could return. A read keyed on something a
 person can choose has no such argument, and everything downstream of this one is
@@ -304,7 +306,7 @@ A stored `periodStart` is therefore a **name for a period**, not a boundary to
 compare dates against.
 
 The read side widens spending to whole periods at **both** ends
-(`src/server/services/budgets.ts:1196`):
+(`src/server/services/budgets.ts:1194`):
 
 ```sql
 and p.date >= date_trunc(${unit}, ${queryStart}::date)::date
@@ -387,8 +389,8 @@ so this is a plain-PostgreSQL rule that happens to be triggered by a migration.
 Five sites were found this way and all five name both columns:
 `src/server/services/accounts.ts:542` and `:647`,
 `src/server/services/summary.ts:59`, and the two written in Drizzle's builder,
-`src/server/services/category-groups.ts:74` and
-`src/server/services/import-export.ts:139`.
+`src/server/services/category-groups.ts:79` and
+`src/server/services/import-export.ts:153`.
 
 The obvious alternative is to leave it until there is a cluster to fail on.
 Grouping by the id alone is legal today, passes the entire suite, and breaks the
@@ -418,9 +420,9 @@ positional.
 **House, with a reason.** Names are compared after normalization — case folded,
 whitespace collapsed, NFKC — so a unique index on the raw column would not
 express the rule. The lock serializes the read-then-create
-(`src/server/services/helpers.ts:297`), and it is scoped per user so two people
+(`src/server/services/helpers.ts:326`), and it is scoped per user so two people
 naming a category at once do not queue behind each other.
-`src/server/services/helpers.ts:375` is the account namespace's, taken by every
+`src/server/services/helpers.ts:405` is the account namespace's, taken by every
 path that changes the live set.
 
 *Checked by:* `tests/name-locks.test.ts` for the shape, and
@@ -435,15 +437,48 @@ specifically.
 **Binding.** `AGENTS.md`. Startup is the only production migration path, so two
 instances starting together must not both migrate.
 
+### 4.3 A write takes its advisory locks per person or per record, never per row
+
+**House, with a measurement.** A transaction-scoped advisory lock holds an
+entry in PostgreSQL's shared lock table until commit, and that table is sized
+by `max_locks_per_transaction` times the connections the server allows and
+shared by every session on it. On PostgreSQL 18.6 allowing the `single`
+profile's 50 connections, one transaction took 9,000 advisory locks and could
+not take 10,000, failing with "out of shared memory"; allowing 100, it took
+12,000 and could not take 15,000 (measured 2026-10-26). `AGENTS.md` caps a bulk write
+at 10,000 rows, so a lock per row is a write that fails at its own cap and, for
+as long as it holds, takes room every other person's transactions need. That is
+not arithmetic only: committing 10,000 staged rows against the 50-connection
+server failed with "out of shared memory" and wrote nothing, and with one lock
+for the person the same commit wrote all 10,000.
+
+The duplicate check was exactly that until this release: one lock per
+fingerprint, up to two per row, taken by a commit, a mass edit and every entry
+a move writes. It is one lock per person now (`lockTransactionDuplicates`,
+`src/server/services/helpers.ts:483-485`). The finer locks looked like the
+concurrent choice and bought no concurrency at all, because every path that
+took them already held the person's payee namespace lock (2.4 in
+[`services.md`](services.md)), so no two of those writes ever ran at once. That
+is the question to ask before keying a lock by row: what already serializes the
+paths that would take it. Locks keyed by a record somebody names are fine —
+`lockAccountReferences` takes one per account a write names, bounded by the
+accounts a person keeps rather than by the rows they import.
+
+*Checked by:* `tests/integration/duplicate-lock.integration.test.ts`, which
+counts the advisory locks a call of two thousand drafts holds in `pg_locks` —
+one — and fails against the per-fingerprint locks. A new per-row lock anywhere
+else is §5's.
+
 ## 5. What is not enforced
 
 | Rule | Why it is only a sentence |
 | --- | --- |
 | 1.2 A name rather than a generator's slug | A test holds a name steady once it is written; none can tell a chosen name from a generated one. |
-| 1.3 Additive by default | Ten of the twenty-six migrations are asserted additive one file at a time, which is not the same as holding the rule: the twenty-seventh is read by nobody. A migration linter could catch `drop column` in it; none exists. |
+| 1.3 Additive by default | Eleven of the twenty-seven migrations are asserted additive one file at a time, which is not the same as holding the rule: the twenty-eighth is read by nobody. A migration linter could catch `drop column` in it; none exists. |
 | 1.6 The service standing in for what a profile's schema cannot say | Its second half is checked. Its first is a judgement about where a rule belongs, and the only thing that makes it is somebody knowing both profiles. |
 | 3.1 One grid query | Nothing stops a second one being written. |
 | 4.2 Migrations under a lock | Only a second process starting against the same database at the same moment can tell the lock is there, and nothing starts one. The suite runs `runMigrations()` and would run it unlocked just as happily. |
+| 4.3 Locks per person or per record | The duplicate lock is counted. A lock keyed by row written anywhere else fails only near the 10,000-row cap on a server allowing few connections, and the suite runs against none. |
 
 4.1 used to be a row here, and its stated reason was wrong rather than merely
 out of date: "a missing lock produces a rare duplicate, which no test
@@ -456,8 +491,9 @@ job is narrower than the row claimed: the name comparison itself, where two
 transactions each find a normalized name free and the duplicate they leave is
 a row rather than a count.
 
-Five `human` rules in this guide, the same number as before and not the same
-five. 1.6 arrived with one half mechanized and one half not; 4.1 left, because
-the thing it said could not be tested is tested four times over.
+Six `human` rules in this guide. It held at five while its rules changed — 1.6
+arrived with one half mechanized and one half not, and 4.1 left, because the
+thing it said could not be tested is tested four times over — and 4.3 arrived
+with its one known case counted and the next one not.
 `tests/count-casts.test.ts` still holds 3.4, and it knows the shapes this schema
 actually writes rather than refusing every `count(*)` it sees.

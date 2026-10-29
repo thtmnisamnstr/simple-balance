@@ -66,8 +66,8 @@ demonstrated: an unlisted document has no reader and no mode written down
 anywhere, which is exactly the state this rule exists to stop a document being
 created in.
 
-**House, and the reason the skills are not a sixteenth guide.** This set is
-fifteen guides and two indexes; the sentence here said "a tenth guide" while the
+**House, and the reason the skills are not a seventeenth guide.** This set is
+sixteen guides and two indexes; the sentence here said "a tenth guide" while the
 set stood at fifteen, which is the same failure as the table above and the
 reason both now answer to a test. Six procedures repeat — bringing the documents
 back to true after work lands, sweeping the product against the guides,
@@ -229,9 +229,10 @@ convention expects.
   headings; leave it.
 - **A change a person would notice gets an entry.** "Notice" means one of four
   things: behavior on a screen, a value on the wire in any of the three
-  contracts, something an operator configures, or something that changes at
-  startup. A refactor with none of those is not an entry. This is the rule that
-  decides, and it decides at commit time, not at release time.
+  contracts or in a Simple Balance file, something an operator configures, or
+  something that changes at startup. A refactor with none of those is not an
+  entry. This is the rule that decides, and it decides at commit time, not at
+  release time.
 - **An entry says why, not only what.** The entry that reads well a year later
   is the one carrying the reason, including the limits: "ten categorical colors
   cannot all be told apart by somebody with dichromatic vision" is the model.
@@ -242,7 +243,7 @@ convention expects.
 answer: that the list items stay at the five that earned their shape, and that
 the lines running past 80 columns do not grow past where they already are.
 *Not checked:* that the top heading matches `package.json`. That is a hand step
-in the release recipe at `docs/upgrades.md:1597`, step 4, "Date the
+in the release recipe at `docs/upgrades.md:2236`, step 4, "Date the
 `## Unreleased` heading in `CHANGELOG.md`", and it has already been the subject
 of a commit ("Date 0.1.4 the day it is cut"). Nor is whether an entry describes
 a change somebody would notice, which is the judgement this section is mostly
@@ -263,7 +264,7 @@ and nothing else, so `npm run set-version 0.2.0-rc.1` succeeded, the suite
 stayed green, and the build loop then refused to start on an error two steps
 from its cause. The schema now carries the same pattern as the other two.
 
-This product is not a library, so "breaking" has to be defined against the four
+This product is not a library, so "breaking" has to be defined against the five
 things somebody can depend on:
 
 | Surface | A breaking change is |
@@ -271,15 +272,17 @@ things somebody can depend on:
 | HTTP `/api/v1` | A field removed or renamed, an accepted input narrowed, a status or error code changed for an unchanged request, a default changed. [`http.md`](http.md#what-counts-as-a-breaking-change) holds the full list and the deprecation policy this obliges. |
 | MCP | A tool removed or renamed, a required argument added, a scope widened for an existing tool, an output field removed. |
 | CSV | A recognized column removed from `APP_CSV_COLUMNS`, or an existing column's meaning changed. Adding a column is not breaking and column order is not part of the contract; [`csv.md`](csv.md#6-the-columns) says why. |
+| The Simple Balance file | A published format token no longer read, a field it carries removed or given a new meaning, or a field added that a file without it cannot be read past. A new field arrives optional under the same token; anything else is a new token, and every release goes on reading every token ever published, because somebody's file written today has to import into a copy upgraded years later. [`ledger-file.md`](ledger-file.md#11-changing-the-format) says how. |
 | The deployment | A configuration variable renamed, removed, or made required; a refusal to start on a configuration the previous version accepted; a new external dependency; a raised floor on PostgreSQL or Node. |
 
 **A surface's own version and the release version answer different questions**,
-which is why two of the four carry a version of their own. `/api/v1` and
-`simple-balance-csv-1` say *which* contract a caller is holding, so a client can
-detect the break; the release version says *when* it happened, so an operator can
-avoid it. A break in a wire contract moves both. Nothing here means a wire
-contract versions instead of the release, and the MCP surface, which carries no
-version at all, has only the release number to say so.
+which is why three of the five carry a version of their own. `/api/v1`,
+`simple-balance-csv-1` and `simple-balance-ledger-1` say *which* contract a
+caller is holding, so a client can detect the break; the release version says
+*when* it happened, so an operator can avoid it. A break in a wire contract
+moves both. Nothing here means a wire contract versions instead of the release,
+and the MCP surface, which carries no version at all, has only the release
+number to say so.
 
 The schema is not on that list, and deliberately. A migration is never a
 breaking change under this scheme, because migrations run forward on their own
@@ -361,12 +364,12 @@ publish runs `npm run verify` first, so an unwritten note now stops the release
 rather than reaching an operator mid-upgrade. *Also checked:* the frozen
 migration list, which `tests/migrations.test.ts` holds to what is on disk.
 *Not checked:* the changelog heading, a hand step in the release recipe at
-`docs/upgrades.md:1597`, and which release a migration is attributed to, which
+`docs/upgrades.md:2236`, and which release a migration is attributed to, which
 is prose inside a list a test can only check the membership of.
 
 ## Upgrade notes
 
-**Binding, quoting `AGENTS.md:338-390`, the frozen migration list:** "Every
+**Binding, quoting `AGENTS.md:416-475`, the frozen migration list:** "Every
 migration that has shipped is frozen" and "Never edit or regenerate one:
 someone's database has already run it, and changing it would leave their schema
 and its recorded history disagreeing." What follows is the documentation the
@@ -376,7 +379,7 @@ end of the bullet — it grew, and the number did not.
 
 **House, the shape.** A `## Before you upgrade to X.Y.Z` section, and its first
 sentence tells an operator whether they can stop reading. The 0.1.6 note at
-`docs/upgrades.md:1256-1257` is the model: "Nothing refuses to start that 0.1.5
+`docs/upgrades.md:1895-1896` is the model: "Nothing refuses to start that 0.1.5
 accepted, and nothing about an existing configuration has to change. Five
 things are worth knowing." The 0.1.4 section is the other model, because the
 answer there was different: "0.1.4 refuses to start on three configurations
@@ -398,17 +401,17 @@ Then four parts, in this order:
 in a specification or in `AGENTS.md` asks for one; a past failure does. The best
 example in the repository: the 0.1.5 note promises the theme column is a
 constant default and therefore rewrites no table, and the test at
-`tests/migrations.test.ts:413` is called "adds the theme without rewriting a
-row". Nine assertions of that kind sit in that file now, plus three on the one
+`tests/migrations.test.ts:487` is called "adds the theme without rewriting a
+row". Ten assertions of that kind sit in that file now, plus three on the one
 migration that decides at runtime whether to run at all, and between them they
-cover 0005 through 0011 and 0022 through 0025, every migration an upgrade note
+cover 0005 through 0011 and 0022 through 0026, every migration an upgrade note
 has made a promise about. A note that
 makes a promise about somebody's data and has no test behind it has been wrong
 before: the 0.1.5 contrast note quoted a number that was not the old value, and
 the change it described as an improvement was a small regression.
 
 *Checked by:* `tests/migrations.test.ts`, three ways. Per-migration behavior
-assertions cover 0005 through 0011 and 0022 through 0025. The frozen ordering
+assertions cover 0005 through 0011 and 0022 through 0026. The frozen ordering
 list at `:39-45` names the first five explicitly and holds the rest by number,
 file and snapshot rather than by name, so 0012 has no assertion of its own. And
 the same file reads `AGENTS.md` and fails when a file in `drizzle/` is not named
@@ -450,7 +453,7 @@ out.
   item is built**; the line under it carries the mechanics, including whether it
   has shipped. `docs/roadmap.md:67-69` reads SB-017, "Split transactions",
   **done**, then "Priority 160. Depends on SB-015. Shipped as migration 0005."
-  Nine of the fifteen headings carry the state today: SB-016, SB-017 and
+  Nine of the twenty headings carry the state today: SB-016, SB-017 and
   SB-018, whose lines name the migration or the release that carried them, and
   SB-019 and SB-025 through SB-029, whose lines say "Built, unreleased". This
   paragraph said "once the item has shipped" for a while, and the practice never
@@ -505,7 +508,7 @@ The reasoning, which is what the next person should argue with:
 So, taking Nygard's Status field and immutability rule without the ceremony:
 
 - **House. A recorded decision names the release it was made in.** The exemplar
-  is `AGENTS.md:338-390`, the frozen migration list, which names every migration
+  is `AGENTS.md:416-475`, the frozen migration list, which names every migration
   and the release it shipped in, and is the most reliable section in the file
   for exactly that reason.
 - **House. A reversal edits the old text to say it is superseded, and says by
@@ -530,7 +533,7 @@ with `docs/guide.md` keeping the explanations.
   "**Statements that file themselves.**", not "CSV importer". The commit that
   set this was "Sell what somebody gets, not how it is built".
 - **One screenshot, with alt text that says what the picture shows** rather than
-  naming the page. `README.md:38` carries 185 characters of it, naming every
+  naming the page. `README.md:41` carries 185 characters of it, naming every
   figure on the page and the fact that currencies are reported separately.
 - **A section per question somebody actually asks**, in this order: what it is,
   everything else it does, run it locally, run the tests, host it, connect an
@@ -539,7 +542,7 @@ with `docs/guide.md` keeping the explanations.
   it said where the section sits, which is the shape of error an ordered list
   invites: it reads as complete and nobody counts it against the file.
 - **The license is stated in the README, not only in `LICENSE`.** For an AGPL
-  project the license is a term of use. `README.md:288-298` names it, links it,
+  project the license is a term of use. `README.md:330-340` names it, links it,
   and explains what section 13 adds, including for versions published under the
   older license.
 - **No badge wall.** There are none today.
@@ -755,12 +758,12 @@ them cover the whole range:
   Note the last line, which states the bound: "Unbounded on purpose: the keys
   are locale-and-currency pairs and a ledger holds a handful of currencies, so
   there is nothing here to grow."
-- **The trade named, not only the choice.** `src/client/components.tsx:882-906`:
+- **The trade named, not only the choice.** `src/client/components.tsx:883-907`:
   a fixed popover, why absolute fails in a scrolling table card, what fixed
   costs, and then the harder half: "Deliberately not `role="menu"` ... menu
   roles without the keyboard behavior they imply are worse than none."
 - **The invariant with the consequence of breaking it.**
-  `src/shared/domain.ts:2462-2464`: "`.strict()` is the load-bearing part: a
+  `src/shared/domain.ts:2568-2570`: "`.strict()` is the load-bearing part: a
   filter this cannot honor is an error rather than a key quietly dropped,
   because a selection resolves twice and an ignored filter makes the count and
   the fingerprint agree about the wrong set."
@@ -860,7 +863,7 @@ What is checked:
 
 | Correspondence | Checked by |
 | --- | --- |
-| Every MCP tool name appears in `docs/mcp.md` | `tests/mcp-parity.test.ts:314-324`, by name rather than by count, "so the failure says which" |
+| Every MCP tool name appears in `docs/mcp.md` | `tests/mcp-parity.test.ts:369-379`, by name rather than by count, "so the failure says which" |
 | Every pinned image tag in the tree matches the release, *and* is a file `set-version` rewrites | `tests/version.test.ts:232-262`, which finds them by sweeping the repository rather than by holding a list — the list had gone stale once, leaving a third file deploying the release it was written during |
 | The product backlog's version matches the manifest | `tests/version.test.ts:321-323` |
 | `docs/deployment.md`'s settings tables against `.env.example` and `deploy/compose/.env.example`, both directions | `tests/env-example.test.ts`, which documents every variable an example names and shows an example of every variable the tables document, and holds its own two exception lists to being genuinely exceptional. Two of the four example files are outside this row: `deploy/compose/single/.env.example` and `deploy/compose/single/.env.postgres.example` arrived with the `single` profile, and no table on the deployment page describes either |
@@ -906,7 +909,7 @@ default argued to belong to the nginx container has to say so by name.
 **House, and specific to this product.** Any convention stated in `docs/mcp.md`
 prose that an agent must obey also appears in a tool or field description,
 because an agent never reads the prose. The document already articulates the
-principle at `:105`: "Fields carry descriptions, so an agent reading the schema
+principle at `:107`: "Fields carry descriptions, so an agent reading the schema
 learns the conventions that matter."
 [`mcp.md`](mcp.md#descriptions) owns the rule; it is repeated here because the
 temptation is to write the convention down in the guide and consider it
@@ -1039,7 +1042,7 @@ that moved them "fixed" the history into something false: one landed on prose
 it claims is a closing fence. So a number quoted as it once was is written
 `` `AGENTS.md`:289-326 ``, the line outside the backticks, which no check and
 no repoint pass reads as a pointer — and a citation meant to be followed is
-written as one span, `` `AGENTS.md:338` ``, and is repointed when it drifts.
+written as one span, `` `AGENTS.md:416` ``, and is repointed when it drifts.
 
 *Checked by:* `tests/standards-citations.test.ts`, as far as a test can go: that
 the file exists, that the lines are inside it, that a range does not run
@@ -1073,15 +1076,15 @@ edit.
   than the four sites this bullet used to name, each cited by what it is as well
   as by where it is:
 
-  - `App.tsx:710`, the scope description on the authorization page.
+  - `App.tsx:734`, the scope description on the authorization page.
   - `select-options.ts:110`, the timezone label.
-  - `components.tsx:1211`, every page title: `` `${title} — ${APP_NAME}` ``.
+  - `components.tsx:1219`, every page title: `` `${title} — ${APP_NAME}` ``.
   - `TemplatesPage.tsx:713`, "never — every date is skipped".
-  - `AccountsPage.tsx:660-661`, the sentence explaining what a frozen account
-    still does, and `BudgetsPage.tsx:1578`, the note under an average with
+  - `AccountsPage.tsx:679-680`, the sentence explaining what a frozen account
+    still does, and `BudgetsPage.tsx:1608`, the note under an average with
     nothing behind it. Both arrived in 0.2.0.
-  - `SettingsPage.tsx:523`, the warning about what cancelling takes with it.
-  - `PlanPage.tsx:1980` and `:2000`, the "Annual — $30.00 a year" price
+  - `SettingsPage.tsx:554`, the warning about what cancelling takes with it.
+  - `PlanPage.tsx:1974` and `:1994`, the "Annual — $30.00 a year" price
     labels.
 
   The review queue's inline-edit labels were a ninth, and are off the list: they
@@ -1090,8 +1093,8 @@ edit.
   the line the label check reads. They join their halves with a comma now.
 
   The lone "—" in an empty table cell is a placeholder glyph rather than
-  punctuation and is not counted. Two further sites, `SettingsPage.tsx:143` and
-  `ReportsPage.tsx:252-256`, are prose inside JSX and read as copy but are
+  punctuation and is not counted. Two further sites, `SettingsPage.tsx:148` and
+  `ReportsPage.tsx:263-267`, are prose inside JSX and read as copy but are
   comments, so they answer to the comment rule rather than to this one.
 
   The inline-edit citation is the one worth dwelling on. It read
@@ -1132,7 +1135,7 @@ edit.
   browser-only surface if anything here is.
 - **No `CONTRIBUTING.md`**, on a published AGPL project that accepts dependabot
   pull requests. The README carries a `## Contributing` section
-  (`README.md:228`) and `tests/docs-conventions.test.ts` holds it to not
+  (`README.md:238`) and `tests/docs-conventions.test.ts` holds it to not
   answering the question by pointing at the invariants file, so the half that
   was missing is the separate document a forge links to from a pull request
   form. Whether pull requests are taken at all is the owner's answer to give,

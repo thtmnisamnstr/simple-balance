@@ -77,6 +77,67 @@ partial="$target.partial"
 		cat "$settings"
 	fi
 } >"$partial"
+
+# The last assignment of a name in a file, which is the one Compose reads,
+# with one pair of quotes taken off so an operator who quoted the value gets
+# the same answer. Empty when the name is not there.
+last_value() {
+	sed -n "s/^$1=//p" "$2" | tail -1 | sed 's/^"\(.*\)"$/\1/; s/^'"'"'\(.*\)'"'"'$/\1/'
+}
+
+# Metrics export, which a stack turns on with one setting and Compose needs
+# two more to act on. SB_METRICS_EXPORT_ENDPOINT says where the figures go;
+# COMPOSE_PROFILES=metrics is what starts the collector and node-exporter at
+# all, and METRICS_ENABLED=true is what gives the collector the application's
+# own figures to send. Neither of those two can be set in the stack —
+# COMPOSE_PROFILES is not a setting the application reads, and asking an
+# operator to set METRICS_ENABLED beside the endpoint is asking them to
+# remember a second thing whose absence is silent — so they are derived here,
+# and only when the file does not already say. A value somebody chose wins:
+# a COMPOSE_PROFILES this machine was given is left as it is, and a
+# METRICS_ENABLED=false in the stack stays false and is said out loud at
+# every start, because it means the collector runs and sends this machine's
+# figures and none of the application's.
+#
+# Not in compose.yml, where it would reach hand installs too, because Compose
+# has no way to write "true when the endpoint is set, otherwise false": the
+# nearest spelling renders METRICS_ENABLED empty when neither is set, and the
+# server refuses an empty one — the deployment that set nothing would be the
+# one that stopped. Appended, so the order of the parts above is untouched,
+# and inside the partial file, so a fold that fails leaves the last .env.
+#
+# The unit's ExecStop runs `docker compose down` against the .env from before
+# this fold, so a deployment whose endpoint was just removed still names the
+# profile on the way down and its collector is removed with it.
+#
+# Nothing is derived while this directory lacks either half of the collector
+# — collector.yaml, or a compose.yml that defines the service — which is a
+# machine built before the collector existed whose files were only partly
+# brought up to date. The profile on over a compose.yml without the service is
+# a project Compose refuses, and over one without collector.yaml a bind it
+# refuses, since compose.yml binds that file with create_host_path off. The
+# unit starts the books in an `up` of their own first, so either is a collector
+# that fails at every start rather than an application that does; the settings
+# timer restarts the deployment within five minutes of the setting changing,
+# so nobody would be watching when it began. It is said instead, at every
+# start. The same check keeps METRICS_ENABLED=true off a compose.yml from
+# before the collector, whose Caddyfile may be old enough to proxy /metrics.
+if [ -z "$(last_value SB_METRICS_EXPORT_ENDPOINT "$partial")" ]; then
+	:
+elif [ ! -f "$SB_COMPOSE_DIR/collector.yaml" ] || ! grep -qs '^  collector:' "$SB_COMPOSE_DIR/compose.yml"; then
+	echo "simple-balance-env: $SB_COMPOSE_DIR has no collector.yaml, or a compose.yml with no collector, so no collector starts." >&2
+else
+	derived=$(
+		grep -q '^COMPOSE_PROFILES=' "$partial" || echo COMPOSE_PROFILES=metrics
+		grep -q '^METRICS_ENABLED=' "$partial" || echo METRICS_ENABLED=true
+	)
+	[ -z "$derived" ] || printf '# --- derived from SB_METRICS_EXPORT_ENDPOINT ---\n%s\n' "$derived" >>"$partial"
+	case $(last_value METRICS_ENABLED "$partial") in
+	[Tt][Rr][Uu][Ee]) ;;
+	*) echo "simple-balance-env: METRICS_ENABLED is not true, so the collector sends none of the application's figures." >&2 ;;
+	esac
+fi
+
 chmod 0600 "$partial"
 mv "$partial" "$target"
 
@@ -107,7 +168,7 @@ fi
 #
 # The last assignment, because that is the one Compose reads, with its quotes
 # removed so an operator who quoted the value gets the same answer.
-folded_url=$(sed -n 's/^DATABASE_URL=//p' "$target" | tail -1 | sed 's/^"\(.*\)"$/\1/; s/^'"'"'\(.*\)'"'"'$/\1/')
+folded_url=$(last_value DATABASE_URL "$target")
 if [ -n "$folded_url" ]; then
 	case "$folded_url" in
 	*[?\&]sslmode=disable | *[?\&]sslmode=disable\&*)

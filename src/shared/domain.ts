@@ -168,7 +168,7 @@ export type TransactionType = (typeof transactionTypes)[number];
  * beside the field while the service turns the same sentence into a 422.
  */
 export type EntrySide =
-  | { ok: true; counterKind: "income" | "expense"; reversal: boolean }
+  | { ok: true; counterKind: CounterKind; reversal: boolean }
   | { ok: false; message: string };
 
 export function resolveEntrySide(type: EntryType, namedKinds: Iterable<CategoryKind>): EntrySide {
@@ -350,7 +350,7 @@ export const idempotencyKeySchema = z
 const forbiddenAnywhere = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u;
 const forbiddenOnOneLine = /[\u0000-\u001F\u007F]/u;
 
-const oneLine = <T extends z.ZodString>(schema: T) =>
+export const oneLine = <T extends z.ZodString>(schema: T) =>
   schema.refine(
     (value) => !forbiddenOnOneLine.test(value),
     "Text cannot contain line breaks or control characters",
@@ -370,9 +370,36 @@ const freeText = <T extends z.ZodString>(schema: T) =>
  * characters", reached by typing a space where a category name goes, since
  * every one of these is trimmed before it is measured.
  */
-const enter = (what: string) => ({ error: () => `Enter ${what}` });
-const atMost = (what: string, max: number) => ({
+export const enter = (what: string) => ({ error: () => `Enter ${what}` });
+export const atMost = (what: string, max: number) => ({
   error: () => `${what} must be ${max.toLocaleString("en-US")} characters or fewer`,
+});
+
+/**
+ * How long a sign-in password may be, written once.
+ *
+ * Better Auth enforces it on sign-up, a reset and a change (`src/server/auth.ts`),
+ * the sign-up screen reads the minimum from the published auth options, the
+ * settings and reset forms preview both, and the route that adds a password to
+ * a Google-only account enforces both again. That was five spellings of 12 and
+ * 128, and the route's own left the sentence to Zod: "Too small: expected
+ * string to have >=12 characters" (`code/errors.md` 3.3).
+ */
+export const PASSWORD_MIN_LENGTH = 12;
+export const PASSWORD_MAX_LENGTH = 128;
+/**
+ * The body of `POST /api/v1/auth/local-password`. Not strict, and with no
+ * one-line or control-character refinement, because the route accepted any
+ * string of the right length on 0.2.1 and a password is the one field where
+ * refusing a character somebody already chose locks them out.
+ */
+export const localPasswordSchema = z.object({
+  newPassword: z
+    .string()
+    .min(PASSWORD_MIN_LENGTH, {
+      error: () => `A password must be at least ${PASSWORD_MIN_LENGTH} characters`,
+    })
+    .max(PASSWORD_MAX_LENGTH, atMost("A password", PASSWORD_MAX_LENGTH)),
 });
 /**
  * A template mass edit's patch: a key left out keeps the field, `null` clears
@@ -406,7 +433,7 @@ export const MAX_TRANSACTION_LEGS = 50;
  * `amount` is unsigned. Direction belongs to the entry — every leg of a
  * withdrawal is money out — so a signed leg could only ever contradict it.
  */
-const transactionLegSchema = z
+export const transactionLegSchema = z
   .object({
     id: uuid()
       .optional()
@@ -768,7 +795,7 @@ const stagedDraftSchema = z
       .unknown()
       .optional()
       .describe(
-        "The split, if the proposal came with one: an array shaped like create_transaction's legs — amount, and categoryId or categoryName with its own categoryKind, plus an optional note. The legs have to add up to the amount before the row can commit, and a transfer may not carry any. Leaving it out of an update clears the split, because an update replaces the draft whole.",
+        "The split, if the proposal came with one: an array shaped like `create_transaction`'s legs — amount, and categoryId or categoryName with its own categoryKind, plus an optional note. The legs have to add up to the amount before the row can commit, and a transfer may not carry any. Leaving it out of an update clears the split, because an update replaces the draft whole.",
       ),
   })
   .catchall(z.unknown());
@@ -816,7 +843,7 @@ const emptyListToAbsent = <T extends z.ZodTypeAny>(schema: T) =>
  * Legs carry no id, because nothing resyncs a template: the stored list is the
  * whole of what it remembers, and the order is the order it was typed in.
  */
-const transactionTemplateLegSchema = z
+export const transactionTemplateLegSchema = z
   .object({
     categoryId: blankToAbsent(uuid()).describe(
       "Which existing category this share of the split goes to. One that no longer resolves is cleared with a notice when the template is used, so the leg reads as unfinished rather than showing an empty picker holding a dead id.",
@@ -1588,7 +1615,7 @@ const budgetTarget = {
   periodUnit: z
     .enum(budgetPeriodUnits)
     .describe(
-      "The length of one budget period. Both ends of the plan's window snap to the start of a period of this length, so a stored period start is the period's name rather than an arbitrary date.",
+      "The length of one budget period. Both ends of the budget's window snap to the start of a period of this length, so a stored period start is the period's name rather than an arbitrary date.",
     ),
 };
 
@@ -1636,7 +1663,7 @@ const budgetRule = {
     .nullable()
     .optional()
     .describe(
-      "Budget the average of what was actually spent over this many finished periods, rather than a fixed amount. The current period is never part of its own average, and early in a budget's life it averages the periods that exist rather than counting the ones before it started as nothing — until there are none at all, where the plan's own amount is used as the seed. Send null to go back to a fixed amount. Refused alongside percentOfPrevious or percentOfIncome, because a budget can only be worked out one way.",
+      "Budget the average of what was actually spent over this many finished periods, rather than a fixed amount. The current period is never part of its own average, and early in a budget's life it averages the periods that exist rather than counting the ones before it started as nothing — until there are none at all, where the budget's own amount is used as the seed. Send null to go back to a fixed amount. Refused alongside percentOfPrevious or percentOfIncome, because a budget can only be worked out one way.",
     ),
   percentOfPrevious: decimalStringSchema
     .nullable()
@@ -1674,7 +1701,7 @@ const budgetCarry = {
     .boolean()
     .optional()
     .describe(
-      "Carry the difference into the next period: what is left over is added to it, and an overspend is subtracted from it as a debt. Off, which is the default, means every period starts again at the amount. This stores nothing per period — the carry is worked out from the same plans, entries and postings the figures already come from.",
+      "Carry the difference into the next period: what is left over is added to it, and an overspend is subtracted from it as a debt. Off, which is the default, means every period starts again at the amount. This stores nothing per period — the carry is worked out from the same standing budgets, single-period entries and postings the figures already come from.",
     ),
   rolloverCap: decimalStringSchema
     .nullable()
@@ -1851,6 +1878,85 @@ export const budgetPlanCreateSchema = z
   .refine(incomeShareIsAShare, incomeShareIsAShareMessage)
   .refine(stepIsNotBelowNothing, stepIsNotBelowNothingMessage)
   .refine(oneTarget, oneTargetMessage);
+
+/** Two decimal strings compared exactly, as integers at the longer scale, the way `sumsExactly` adds them. */
+function decimalLessThan(left: string, right: string) {
+  const places = (value: string) => {
+    const point = value.indexOf(".");
+    return point < 0 ? 0 : value.length - point - 1;
+  };
+  const [a, b] = [left.trim().replace(/^\+/, ""), right.trim().replace(/^\+/, "")];
+  const scale = Math.max(places(a), places(b));
+  const asInteger = (value: string) => {
+    const [integer = "0", fraction = ""] = value.split(".");
+    return BigInt((integer || "0") + fraction.padEnd(scale, "0"));
+  };
+  return asInteger(a) < asInteger(b);
+}
+
+/**
+ * The rules a budget's own fields break together, beyond the ones its schema
+ * refines: the sentence the service refuses with, and the field it is about
+ * when it names one, or null.
+ *
+ * One function for the service and for an import's preview, because a
+ * Simple Balance file is read by a format schema that carries the fields and
+ * none of these rules, and a rule the preview did not know is a part the
+ * server refuses after the page said it was ready (`AGENTS.md`: a rule the
+ * browser previews and the server enforces has to be one function). The rule
+ * left to the service alone is a fund's target date, which is snapped to a
+ * period by the database before it is compared.
+ */
+export function budgetPlanRefusal(input: {
+  amount: string;
+  rollover: boolean;
+  rolloverCap: string | null;
+  targetAmount: string | null;
+  priority: number;
+  isGroup: boolean;
+}): { message: string; field?: string } | null {
+  const isFund = input.targetAmount !== null;
+  // Refused rather than ignored. A fund works out each period's figure from
+  // what is left to save, so an amount beside it is a number nothing reads —
+  // and a number nothing reads on a budget page is a number somebody will
+  // believe.
+  if (isFund && !/^[+-]?0*(\.0*)?$/.test(input.amount.trim())) {
+    return {
+      message:
+        "A sinking fund works out its own amount each period, from what is still needed and how many periods are left. Set the amount to zero, or remove the target to budget a fixed amount.",
+    };
+  }
+  if (input.priority !== 0 && input.isGroup) {
+    return {
+      message:
+        "A funding order is about categories. Ranking a group and the categories under it would spend the same income twice, so a group's budget carries no priority.",
+    };
+  }
+  if (!input.rollover && input.rolloverCap !== null) {
+    return {
+      message:
+        "A carry cap only means something when rollover is on, and this budget does not carry anything forward.",
+    };
+  }
+  // A fund saves by carrying, so a cap under the target caps the saving: each
+  // period's contribution is pinned back to the cap, the fund re-budgets what
+  // the cap just discarded, and the target date arrives with the whole
+  // shortfall due at once. The two numbers contradict each other, so the pair
+  // is refused rather than obeyed in the wrong order — and the browser offers
+  // the combination, which is exactly why the server has to say no.
+  if (
+    isFund &&
+    input.rolloverCap !== null &&
+    decimalLessThan(input.rolloverCap, input.targetAmount!)
+  ) {
+    return {
+      message:
+        "This cap is below what the fund is saving for, so it would throw away each period's contribution and leave the whole amount due at the end. Raise the cap to at least the target, or remove it.",
+      field: "rolloverCap",
+    };
+  }
+  return null;
+}
 
 export const budgetPlanUpdateSchema = z
   .object({
@@ -2126,7 +2232,7 @@ export const listQuerySchema = dateRangeSchema.extend({
     .max(500)
     .optional()
     .describe(
-      "Resume token from a previous page, taken from `nextCursor`. It records the ordering it was issued for and is refused under another, so re-read from page 1 after changing `sort` or `direction`. Some orderings cannot be resumed and offer no cursor; page through those by number instead.",
+      "Resume token from a previous page, taken from `nextCursor`. It records the ordering and the filters it was issued for and is refused if either changes, so re-read from page 1 after changing `sort`, `direction` or any filter; `limit` may change between pages. Some orderings cannot be resumed and offer no cursor; page through those by number instead.",
     ),
   page: z.coerce
     .number()
@@ -2445,7 +2551,7 @@ export const stageListQuerySchema = listQuerySchema
       .describe(
         "Which column to order by. Ordering is presentation only and never changes which rows match.",
       ),
-    importBatchId: uuid().optional().describe("Only rows from this CSV import."),
+    importBatchId: uuid().optional().describe("Only rows from this CSV or Simple Balance file."),
     recurrenceId: uuid().optional().describe("Only rows proposed by this recurrence."),
     validity: z
       .enum(["valid", "invalid", "duplicate"])
@@ -2829,7 +2935,7 @@ export const MAX_RECURRENCE_INTERVAL = 366;
  * is required: legs are how the total is divided, and a division with a part
  * missing is not something a person can complete from the queue.
  */
-const recurrenceLegSchema = z
+export const recurrenceLegSchema = z
   .object({
     categoryId: uuid()
       .optional()
@@ -4398,7 +4504,7 @@ export type OwedInvoiceOutcome = (typeof owedInvoiceOutcomes)[number];
  * Shaped after `owedInvoiceOutcomes` above and for the same reason one step
  * along: the page was writing "the difference was charged to your payment
  * method" from the button that was pressed, never from anything Stripe did.
- * `billing_cycle_anchor: "now"` does bill on the spot in the ordinary case, so
+ * Anchoring the billing cycle on now does bill on the spot in the ordinary case, so
  * the sentence was true until it was not — a subscription carrying a `cancel_at`
  * has its new term capped at the cancellation, so Stripe raises no invoice at
  * all and parks the proration as uninvoiced items for later. The person was
@@ -4414,3 +4520,78 @@ export type OwedInvoiceOutcome = (typeof owedInvoiceOutcomes)[number];
  */
 const planChangeInvoices = ["none", "paid", "owed"] as const;
 export type PlanChangeInvoice = (typeof planChangeInvoices)[number];
+
+/**
+ * The two counter-accounts the other half of a deposit or a withdrawal can land
+ * on, which is the answer `resolveEntrySide` gives.
+ *
+ * A tuple rather than the inline union `EntrySide` used to spell, because a
+ * Simple Balance file records which of the two an entry's postings actually hit
+ * (`postedAs`), and a second spelling of the pair in the file's schema would be
+ * the same set written twice: a third counter-side added to one and not the
+ * other would typecheck and then refuse every file that used it.
+ *
+ * Down here rather than beside `resolveEntrySide` so that adding it moved none
+ * of the lines the guides cite in this file.
+ */
+export const counterKinds = ["income", "expense"] as const;
+export type CounterKind = (typeof counterKinds)[number];
+
+/**
+ * A person's regional settings and theme, as a write states them whole.
+ *
+ * In `src/shared` rather than beside the service that stores them, because a
+ * Simple Balance file carries them and the browser checks a file before
+ * anything is sent: a timezone the import page accepted and the server then
+ * refused would be the preview showing something the server refuses, which
+ * `AGENTS.md` rules out by making the two one function. The service imports it
+ * from here, so `set_preferences` publishes exactly the schema it did.
+ *
+ * The timezone is checked by asking `Intl` to use it, which is the same
+ * question every date this product works out asks later. A name `Intl` does
+ * not know would be stored and then fail on the first "what day is it" anybody
+ * asked.
+ */
+export const preferencesSchema = z.object({
+  timezone: z
+    .string()
+    // `abort`, so a blank or overlong one is told the one thing wrong with it
+    // rather than that and "not recognized" after it.
+    .min(1, { ...enter("a timezone"), abort: true })
+    .max(100, { ...atMost("A timezone", 100), abort: true })
+    .refine((value) => {
+      try {
+        new Intl.DateTimeFormat("en", { timeZone: value });
+        return true;
+      } catch {
+        return false;
+      }
+    }, "Timezone is not recognized")
+    .describe(
+      "An IANA timezone name such as America/New_York. It decides what today means everywhere a date is worked out: which day an open-ended range stops at, and which day an entry dated today lands on.",
+    ),
+  defaultCurrency: currencyCodeSchema.describe(
+    "The currency a new account and a new entry start in. It is a default and nothing else: it changes no figure already recorded, and the person may change it whenever they like.",
+  ),
+  theme: z
+    .enum(themes)
+    .describe(
+      "system, light or dark. `system` follows the person's own machine and is the only one that keeps following it when they change it. Set it only when asked to: it is what their screen looks like and you cannot see it.",
+    ),
+});
+
+/**
+ * What an import batch was read from: a CSV, or a Simple Balance file.
+ *
+ * A batch records the file it came from, and three of its columns — the
+ * delimiter, the column mapping and the hash — say what a CSV was. A batch of
+ * rows staged from a Simple Balance file has no delimiter and no mapping, so
+ * without this a reader of the batch would take an empty mapping for a CSV
+ * nobody mapped. Every batch before the ledger-file import is a CSV, which is
+ * what the column's default says on a ledger that already has some.
+ *
+ * Down here, like the two blocks above, so that adding it moved none of the
+ * lines the guides cite in this file.
+ */
+export const importBatchKinds = ["csv", "ledger_file"] as const;
+export type ImportBatchKind = (typeof importBatchKinds)[number];

@@ -11,7 +11,13 @@ import {
   Select,
   Textarea,
 } from "../src/client/components.js";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { Session } from "../src/client/api.js";
 import { CategoryPicker } from "../src/client/forms.js";
+import SettingsPage from "../src/client/pages/SettingsPage.js";
+import { BrowserRouter } from "../src/client/router.js";
+import { TimezoneProvider } from "../src/client/timezone.js";
+import { sourceFiles } from "./support/source.js";
 
 /**
  * The three things `Field` was wrong about, and the one it still cannot do.
@@ -237,9 +243,20 @@ describe("a field around a composite", () => {
  * named by its own text rather than its line number, which moved every time
  * something was added above it and failed a test about a control nobody had
  * touched.
+ *
+ * The second is the Simple Balance file's drop zone, and its case is the
+ * first one's: the same `.file-drop` label, whose words — "Choose a Simple
+ * Balance file", what the file is, and that nothing is written until it is
+ * added — are the whole affordance. It is refused while a file is being
+ * checked or added, which is a reason to say nothing more beside it: the
+ * sentence saying which part is being read sits directly under it. Refused
+ * rather than disabled, the way `Button` refuses, because a browser blurs an
+ * element it disables; and so written over several lines, which is why an
+ * entry here is a tag's whole text with its whitespace run together.
  */
 const NOT_A_FIELD = new Set([
-  'src/client/pages/ImportPage.tsx:<input type="file" accept=".csv,text/csv" onChange={chooseFile} />',
+  'src/client/pages/ImportPage.tsx:<input type="file" accept=".csv,text/csv" aria-disabled={fileBusy || undefined} onClick={(event) => { if (fileBusy) event.preventDefault(); }} onChange={chooseFile} />',
+  'src/client/LedgerFileImport.tsx:<input type="file" accept=".json,application/json" aria-disabled={busy || undefined} onClick={(event) => { if (busy) event.preventDefault(); }} onChange={chooseFile} />',
 ]);
 
 describe("every control in the client", () => {
@@ -258,7 +275,12 @@ describe("every control in the client", () => {
         // bounded so a malformed file cannot run to the end.
         const tag = lines.slice(index, index + 12).join(" ");
         if (/type="(?:checkbox|radio)"/.test(tag.slice(0, tag.indexOf(">") + 1))) return;
-        if (NOT_A_FIELD.has(`${path}:${line.trim()}`)) return;
+        const whole = tag
+          .slice(0, tag.indexOf("/>") + 2)
+          .replace(/\s+/g, " ")
+          .trim();
+        if (NOT_A_FIELD.has(`${path}:${line.trim()}`) || NOT_A_FIELD.has(`${path}:${whole}`))
+          return;
         raw.push(`${path}:${index + 1}`);
       });
     }
@@ -427,12 +449,19 @@ describe("a disabled button", () => {
    * brace, so appending `|| mutation.isPending` to a genuinely blocking
    * predicate excused the whole button — a register written to name four
    * buttons in fact named three whole files.
+   *
+   * Categories is the fifth, found by the check below rather than by a reader:
+   * Add category and Add group share a mutation with every row's rename,
+   * archive and delete, and are held while a row's request runs. The row that
+   * was changed is what is working, so nothing beside the held button has a
+   * question to answer.
    */
   const WORKING_NOT_BLOCKED = new Set([
     "src/client/App.tsx",
     "src/client/TransactionBrowser.tsx",
     "src/client/pages/StagingPage.tsx",
     "src/client/pages/PlanPage.tsx",
+    "src/client/pages/CategoriesPage.tsx",
   ]);
 
   /**
@@ -502,6 +531,158 @@ describe("a disabled button", () => {
 });
 
 /**
+ * `web.md` 13.3: a file input that is busy refuses the way a working button
+ * does — `aria-disabled`, and its click prevented — and is never `disabled`.
+ *
+ * The Simple Balance file's drop zone was disabled while its file was checked,
+ * so the input that had just been used let go of focus; the CSV drop zone
+ * beside it was neither, so a second file chosen while the first was still
+ * being read raced it, and the answer that arrived last won rather than the
+ * file chosen last. Both inputs do it now. The population is every
+ * `type="file"` in the client, so a third drop zone is inside it.
+ */
+describe("a file input while its file is being read", () => {
+  const inputs = sourceFiles("src/client").flatMap((file) =>
+    [
+      ...file.code.matchAll(
+        /<input\b(?:[^>{}]|\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\})*?type="file"(?:[^>{}]|\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\})*\/?>/g,
+      ),
+    ].map((match) => ({
+      where: `${file.path}:${file.code.slice(0, match.index).split("\n").length}`,
+      tag: match[0],
+    })),
+  );
+
+  it("is found wherever there is one", () => {
+    expect(
+      inputs.length,
+      "a pattern that found nothing would pass by looking at nothing",
+    ).toBeGreaterThanOrEqual(2);
+  });
+
+  it("refuses a second pick the way a working button does, and keeps focus", () => {
+    const wrong = inputs.flatMap(({ where, tag }) => {
+      const busy = /aria-disabled=\{\s*(\w+)\s*\|\|\s*undefined\s*\}/.exec(tag)?.[1];
+      if (/\sdisabled=/.test(tag)) return [`${where} is disabled, which takes focus off it`];
+      if (!busy) return [`${where} is never aria-disabled`];
+      if (!new RegExp(`if \\(${busy}\\) event\\.preventDefault\\(\\)`).test(tag))
+        return [`${where} lets a click open the chooser while ${busy}`];
+      return [];
+    });
+    expect(wrong).toEqual([]);
+  });
+});
+
+/**
+ * `web.md` 12.3, "only the work that is running spins", over the whole client.
+ *
+ * `tests/browser/selection-bar.spec.ts` holds the one pair the rule was
+ * written about, the staged queue's Commit and Delete. A second pair shipped
+ * beside it unseen: the CSV import's Dry run and Stage all rows both carried
+ * `loading={stageMutation.isPending}`, so a dry run drew a spinner and
+ * announced "Working…" on the button that writes rows. And written over the
+ * product rather than over one page, the check found a third the sweep had not
+ * — Add category and Add group spun through a row's archive, rename or delete,
+ * because every one of those runs through the same mutation as the create.
+ *
+ * The defect has one shape: a bare `loading={m.isPending}` in a component that
+ * starts `m` from more than one place, or draws that spinner on more than one
+ * button. A press anywhere else then spins this button. So the population is
+ * every bare `loading={….isPending}` in `src/client`, found by the attribute
+ * rather than by a list of pages, and the mutation's call sites are counted in
+ * the component that holds it. What it cannot see: a busy flag handed down as a
+ * prop under another name (`loading={busy}`), which is the child's to answer
+ * and is checked where the flag is built, if anywhere.
+ */
+describe("one mutation behind several buttons", () => {
+  /**
+   * Each top-level function or `const` of a client file, by the column-zero
+   * line that starts it. Not `topLevelDeclarations`, which does not start a
+   * declaration at `export default function` — every page component is one,
+   * so it would hand back each page fused to whatever was declared above it.
+   */
+  const components = (code: string) => {
+    const lines = code.split("\n");
+    const starts = lines.flatMap((line, index) =>
+      /^(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s|^(?:export\s+)?const\s+\w+\s*=/.test(
+        line,
+      )
+        ? [index]
+        : [],
+    );
+    return starts.map((start, position) => {
+      const body = lines.slice(start, starts[position + 1] ?? lines.length).join("\n");
+      return { name: /(?:function|const)\s+(\w+)/.exec(body)?.[1] ?? "(anonymous)", body };
+    });
+  };
+
+  /**
+   * One action through a second door, where the spinner on the first door is
+   * true. Keyed by file, component and mutation, so a new door on any other
+   * mutation is a decision and not a pass.
+   */
+  const ONE_ACTION = new Map([
+    [
+      "src/client/forms.tsx TransactionForm mutation",
+      "Commit anyway sends the same commit again with the duplicate allowed. It sits in the " +
+        "error summary, which the new request clears, so the submit's spinner is the only one " +
+        "left and it is saying what is happening.",
+    ],
+    [
+      "src/client/TransactionBrowser.tsx TransactionBrowser bulkMutation",
+      "Apply anyway is the same mass edit again with duplicates allowed, from the refusal the " +
+        "first press left; the request it starts clears that refusal and the button with it.",
+    ],
+    [
+      "src/client/pages/BudgetsPage.tsx BudgetsPage clearEntry",
+      "A row's clear and the override dialog's Use standing budget never share a screen: the " +
+        "dialog makes the page behind it inert, so the one spinner is on the one door open.",
+    ],
+  ]);
+
+  const found = sourceFiles("src/client").flatMap((file) =>
+    components(file.code).flatMap(({ name, body }) => {
+      const bare = [...body.matchAll(/\bloading=\{\s*(\w+)\.isPending\s*\}/g)].map(
+        (match) => match[1]!,
+      );
+      return [...new Set(bare)].map((mutation) => ({
+        key: `${file.path} ${name} ${mutation}`,
+        spinners: bare.filter((one) => one === mutation).length,
+        starts: (body.match(new RegExp(`\\b${mutation}\\.mutate(?:Async)?\\(`, "g")) ?? []).length,
+      }));
+    }),
+  );
+
+  it("finds the busy buttons it is about", () => {
+    // A matcher that stopped matching would pass every button it no longer saw.
+    expect(found.length).toBeGreaterThan(20);
+    expect(found.map((one) => one.key)).toContain(
+      "src/client/pages/SettingsPage.tsx SettingsPage passwordMutation",
+    );
+    for (const one of found) expect(one.starts, `${one.key} is never started`).toBeGreaterThan(0);
+  });
+
+  it("asks which action is running wherever one mutation runs several", () => {
+    const shared = found
+      .filter((one) => one.spinners > 1 || one.starts > 1)
+      .filter((one) => !ONE_ACTION.has(one.key))
+      .map((one) => `${one.key}: ${one.spinners} spinners, started from ${one.starts} places`);
+    expect(
+      shared,
+      "qualify the spinner with the action (`loading={m.isPending && m.variables === …}`) and hold the rest",
+    ).toEqual([]);
+  });
+
+  it("registers only doors that still exist", () => {
+    const shared = new Set(found.filter((one) => one.starts > 1).map((one) => one.key));
+    for (const [key, reason] of ONE_ACTION) {
+      expect(shared.has(key), `${key} no longer shares its mutation`).toBe(true);
+      expect(reason.length).toBeGreaterThan(40);
+    }
+  });
+});
+
+/**
  * The same rule where `Button` cannot reach it: a plain `<button>`.
  *
  * `RowMenu` holds bare buttons rather than `Button`s, because the popover lays
@@ -558,7 +739,7 @@ describe("a disabled button that is not a `Button`", () => {
         const inMenu = menus.some((menu) => at > menu.open && at < menu.close);
         // And any plain button disabled on its own tag, wherever it is. This
         // read only row menus and spreads, so the staged queue's Commit icon
-        // and the split editor's "Add a category" went gray with no reason
+        // and the split editor's "Add category" went gray with no reason
         // for a release each, in plain sight of a check about exactly that.
         if (!inMenu && !tag.includes("{...") && !/\sdisabled=\{/.test(tag)) continue;
         found.push({ where: `${path}:${source.slice(0, at).split("\n").length}`, tag, source });
@@ -646,5 +827,73 @@ describe("a disabled button that is not a `Button`", () => {
       plainButtons().filter(goesGray).length,
       "the census is really finding them, spreads included",
     ).toBeGreaterThan(8);
+  });
+});
+
+/**
+ * A check the browser makes about one field is that field's error.
+ *
+ * Settings' password form threw "New passwords do not match" from inside its
+ * mutation, so the sentence came out of the generic alert at the foot of the
+ * form: Confirm new password got no `aria-invalid` and nothing describing it,
+ * though the check is about it alone — the case `Field`'s `error` exists for
+ * (`web.md` 8.1). And the sentence about what changing a password does was a
+ * bare `<small>` nothing pointed at, directly above the button it is about.
+ */
+describe("the password form's own check", () => {
+  const session = {
+    user: { id: "u1", name: "Ada", email: "ada@example.com" },
+    preferences: {
+      userId: "u1",
+      timezone: "UTC",
+      defaultCurrency: "USD",
+      chosen: true,
+      theme: "system",
+    },
+    auth: {
+      localEnabled: true,
+      googleEnabled: false,
+      localPasswordConfigured: true,
+      googleLinked: false,
+    },
+  } as unknown as Session;
+
+  it("puts a mismatch on Confirm new password, and moves focus there", () => {
+    // Nothing here is about the server; every read stays pending.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>(() => {})),
+    );
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <BrowserRouter>
+          <TimezoneProvider timezone="UTC">
+            <SettingsPage session={session} />
+          </TimezoneProvider>
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+    fireEvent.change(screen.getByLabelText("Current password"), {
+      target: { value: "old-password-long-enough" },
+    });
+    fireEvent.change(screen.getByLabelText(/^New password/), {
+      target: { value: "first-password-long-enough" },
+    });
+    const confirm = screen.getByLabelText("Confirm new password");
+    fireEvent.change(confirm, { target: { value: "second-password-long-enough" } });
+    const submit = screen.getByRole("button", { name: "Change password" });
+    expect(submit).toHaveAccessibleDescription(
+      /^Changing your password signs out every other session/,
+    );
+    fireEvent.submit(submit.closest("form")!);
+
+    expect(confirm).toHaveAttribute("aria-invalid", "true");
+    expect(confirm).toHaveAccessibleDescription("Passwords do not match");
+    // A field's error is not a live region, so focus is what gets it read.
+    expect(document.activeElement).toBe(confirm);
+    expect(
+      screen.queryAllByRole("alert").filter((alert) => /match/.test(alert.textContent ?? "")),
+    ).toEqual([]);
+    vi.unstubAllGlobals();
   });
 });

@@ -2,7 +2,8 @@ import { expect, test, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { reportNames } from "../../src/shared/domain.js";
 import { todayIn } from "../../src/shared/recurrence-dates.js";
-import { answerPlanStatus, pagesToVisit, type Fill } from "./support/routes.js";
+import { visitImportStates } from "./support/ledger-file-import.js";
+import { answerHouseAd, answerPlanStatus, pagesToVisit, type Fill } from "./support/routes.js";
 
 /**
  * SC 1.4.10 Reflow, level AA: no horizontal scrollbar on the document, at any
@@ -26,8 +27,17 @@ import { answerPlanStatus, pagesToVisit, type Fill } from "./support/routes.js";
  * **Why these widths.** The four breakpoints are 1050, 980, 780 and 560, and a
  * rule that is going to be missing is missing *between* two of them — which is
  * where this defect lived and why a test at 1440 and 390 would have stayed
- * green. So: each breakpoint, each breakpoint minus one pixel, and the middle of
+ * green. So: each breakpoint and the pixel either side of it, and the middle of
  * each gap, plus 320, which is the width the success criterion actually names.
+ * The pixel above matters as much as the one below: every block is a
+ * `max-width`, so 781 is the first width the 780 block has stopped applying to,
+ * and the narrowest a layout above it is ever asked to fit. The house ad is
+ * side by side there, beside the sidebar, at its most cramped.
+ *
+ * **Every page carries the house ad** but the plan tab, which never does. The
+ * ad sits on every page in the shell, so a width it overflows at is a width
+ * every page overflows at; the tier has no Stripe and would never be shown
+ * one, so the session is told to show it.
  *
  * **What is measured is the document, not a container.** A `.table-wrap`
  * scrolling sideways is the criterion's own exception for a data table and is
@@ -49,7 +59,7 @@ const payee = "Corner Market";
 /** The same sign-up the other browser specs do, and for the reason they give. */
 async function signUp(page: Page) {
   await page.goto("/");
-  const toggle = page.getByRole("button", { name: "Create an account" });
+  const toggle = page.getByRole("button", { name: "Sign up" });
   const heading = page.getByRole("heading", { name: "Create your account" });
   await expect(heading.or(toggle)).toBeVisible();
   if (await toggle.isVisible()) await toggle.click();
@@ -70,7 +80,9 @@ async function signUp(page: Page) {
  */
 async function seed(page: Page) {
   await page.goto("/accounts");
-  await page.getByRole("button", { name: "New account" }).click();
+  // The header's, which is first: on an empty ledger the empty state offers
+  // a second "New account", and a strict match fails once the list has loaded.
+  await page.getByRole("button", { name: "New account" }).first().click();
   await page.getByLabel(/^Account name/).fill(account);
   await page.getByLabel(/^Account type/).selectOption("checking");
   await page.getByLabel(/^Currency or crypto asset/).selectOption("USD");
@@ -162,7 +174,7 @@ async function seedDetails(page: Page): Promise<Fill> {
 
 /** The four breakpoints, their edges, the gaps between them, and the floor. */
 const WIDTHS = [
-  320, 390, 480, 559, 560, 620, 700, 779, 780, 820, 900, 979, 980, 1049, 1050,
+  320, 390, 480, 559, 560, 561, 620, 700, 779, 780, 781, 820, 900, 979, 980, 981, 1049, 1050, 1051,
 ] as const;
 
 test.describe.configure({ mode: "serial" });
@@ -174,6 +186,7 @@ test.describe("every page reflows", () => {
   test.beforeAll(async ({ browser }) => {
     page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     await answerPlanStatus(page);
+    await answerHouseAd(page);
     await signUp(page);
     await seed(page);
     fill = await seedDetails(page);
@@ -202,10 +215,14 @@ test.describe("every page reflows", () => {
     expect(pages.length, "the route table was read").toBeGreaterThan(20);
     expect(pages.map((visit) => visit.pattern)).toContain("/settings/plan");
     const overflowing: string[] = [];
-    for (const { url } of pages) {
+    const advertised: string[] = [];
+    for (const { pattern, url } of pages) {
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.goto(url);
       await page.waitForLoadState("networkidle");
+      if (await page.getByRole("complementary", { name: "Advertisement" }).count()) {
+        advertised.push(pattern);
+      }
       for (const width of WIDTHS) {
         await page.setViewportSize({ width, height: 900 });
         // A frame, so the resize has been laid out before it is measured.
@@ -222,5 +239,283 @@ test.describe("every page reflows", () => {
       }
     }
     expect(overflowing, "these pages scroll sideways").toEqual([]);
+    // Measured with the ad on screen, or this said nothing about it.
+    expect(advertised, "the house ad was on every page but the plan tab").toEqual(
+      pages.map((visit) => visit.pattern).filter((pattern) => pattern !== "/settings/plan"),
+    );
+  });
+
+  /**
+   * The export form on Import and export, in the states the walk above never
+   * reaches.
+   *
+   * The walk opens `/import` as it loads, on Everything with no range, which is
+   * the narrowest the form ever is. What it holds grows with what is chosen —
+   * two date fields and the sentence under them, a checklist of every account
+   * with a badge on the archived ones, a refusal summary at the top — and
+   * section 15 asks for a bar to be measured with each of its contents present.
+   * An archived account with a name that has no break in it is the list at its
+   * widest. At the widths the request names: the floor, a phone, the first
+   * pixel the sidebar is back, the wide step, and a desktop.
+   */
+  test("with the export form in every state it can take", async () => {
+    test.setTimeout(120_000);
+    const long = `JointHouseholdEverydayChecking${Date.now()}`;
+    const archived = await post(page, "/api/v1/accounts", {
+      name: long,
+      type: "checking",
+      currency: "EUR",
+      openingDate: today,
+      openingBalance: "0",
+    });
+    const response = await page.request.post(`/api/v1/accounts/${archived.id}/archived`, {
+      data: { expectedVersion: 1, archived: true },
+      headers: { Origin: new URL(page.url()).origin },
+    });
+    expect(response.status(), await response.text()).toBeLessThan(300);
+
+    const measure = async (state: string) => {
+      const overflowing: string[] = [];
+      for (const width of [320, 390, 781, 1050, 1440]) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.evaluate(
+          () => new Promise((resolve) => requestAnimationFrame(() => resolve(null))),
+        );
+        const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+          scrollWidth: document.documentElement.scrollWidth,
+          clientWidth: document.documentElement.clientWidth,
+        }));
+        if (scrollWidth > clientWidth) {
+          overflowing.push(`${state} at ${width}px: document is ${scrollWidth}px wide`);
+        }
+      }
+      return overflowing;
+    };
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/import");
+    const form = page.getByRole("region", { name: "Export a Simple Balance file" });
+    await form.getByRole("radio", { name: "Date range" }).check();
+    await form.getByLabel("Start date").fill("2026-06-30");
+    await form.getByLabel("End date").fill("2026-01-01");
+    const overflowing = await measure("Everything, with a range");
+    // The shared schema's refusal, which the page shows before asking.
+    await form.getByRole("button", { name: "Export file" }).click();
+    await expect(form.getByRole("alert")).toContainText("The range cannot end before it starts");
+    overflowing.push(...(await measure("Everything, with a refusal")));
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await form.getByRole("radio", { name: /Some accounts/ }).check();
+    await form.getByRole("radio", { name: "In a date range" }).check();
+    await expect(form.getByRole("checkbox", { name: new RegExp(long) })).toBeVisible();
+    await expect(form.getByText("Archived", { exact: true })).toBeVisible();
+    overflowing.push(...(await measure("Some accounts, with a range")));
+    expect(overflowing, "the export form scrolls the page sideways").toEqual([]);
+  });
+
+  /**
+   * The Simple Balance file's import, which the walk above only ever sees
+   * empty: everything it shows arrives after a file is chosen and checked.
+   * Each state the section can take, at the same five widths as the export —
+   * a refusal listing places in the file, a question about a duplicate with a
+   * copy's name being typed, the places checklist and its sentence, the
+   * settings question, every record in a table, a part that stopped, a
+   * finished add, and a reference being matched — with an account name that
+   * has no break in it, which is every one of those at its widest.
+   */
+  test("with the Simple Balance file import in every state it can take", async () => {
+    test.setTimeout(180_000);
+    const overflowing: string[] = [];
+    const recordsClipped: string[] = [];
+    await visitImportStates(page, async (state) => {
+      for (const width of [320, 390, 781, 1050, 1440]) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.evaluate(
+          () => new Promise((resolve) => requestAnimationFrame(() => resolve(null))),
+        );
+        const { scrollWidth, clientWidth, records } = await page.evaluate(() => {
+          // The "Every record" table, when it is shown: how wide it runs in its
+          // scroller, and where its second column ends against the scroller.
+          const wrap = document.querySelector(".ledger-import-records")?.closest(".table-wrap");
+          const second = wrap?.querySelector("thead th:nth-child(2)");
+          return {
+            scrollWidth: document.documentElement.scrollWidth,
+            clientWidth: document.documentElement.clientWidth,
+            records:
+              wrap && second
+                ? {
+                    overflow: wrap.scrollWidth - wrap.clientWidth,
+                    secondPast:
+                      second.getBoundingClientRect().right - wrap.getBoundingClientRect().right,
+                  }
+                : null,
+          };
+        });
+        if (scrollWidth > clientWidth) {
+          overflowing.push(`${state} at ${width}px: document is ${scrollWidth}px wide`);
+        }
+        // The cells that carry a name may break anywhere, so the harness's
+        // unbroken 58-character name no longer runs the table past its panel
+        // at 1440 — Why showed 37px of 435 — and on a phone the first two
+        // columns are the ones on screen, which the markup's comment says.
+        if (records && width === 1440 && records.overflow > 0) {
+          recordsClipped.push(`${state} at 1440px: the table runs ${records.overflow}px past`);
+        }
+        if (records && width === 390 && records.secondPast > 0.5) {
+          recordsClipped.push(`${state} at 390px: What happens ends ${records.secondPast}px past`);
+        }
+      }
+      await page.setViewportSize({ width: 1440, height: 900 });
+    });
+    expect(overflowing, "the import section scrolls the page sideways").toEqual([]);
+    expect(recordsClipped, "a long name widens the Every record table").toEqual([]);
+  });
+
+  /**
+   * Where a bar's contents land, which is the half of 15 that "nothing scrolls
+   * sideways" cannot see: each of these defects left the document exactly as
+   * wide as the window, and each was found by looking, not by the walk above.
+   * Measured, because a stylesheet comment had once claimed a layout fixed that
+   * a browser never opened (`web.md` 12.3).
+   */
+  test("with each bar's contents where its layout puts them", async () => {
+    test.setTimeout(120_000);
+    const misplaced: string[] = [];
+    const frame = () =>
+      page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve(null))));
+    const accountId = await idOf(page, "/api/v1/accounts", account);
+
+    // A CSV batch under a long file name: a native select is as wide as its
+    // widest option, and Staged's batch option is the file name, a timestamp
+    // and the counts, so the fifth control dropped to a line of its own.
+    const csvStage = await page.request.post("/api/v1/csv/stage", {
+      data: {
+        csv: `date,payee,amount\n${today},Corner Market,-12.50\n`,
+        fileName: "checking-account-statement-january-through-december-export.csv",
+        idempotencyKey: randomUUID(),
+        defaultAccountId: accountId,
+        mapping: { date: "date", payee: "payee", amount: "amount" },
+        dryRun: false,
+      },
+      headers: { Origin: new URL(page.url()).origin },
+    });
+    expect(csvStage.status(), await csvStage.text()).toBeLessThan(300);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/staged");
+    await expect(page.getByRole("combobox", { name: /batch/i })).toBeVisible();
+    await frame();
+    const rows = await page
+      .locator(".filter-bar")
+      .first()
+      .evaluate((bar) =>
+        [...bar.children].map((child) => Math.round(child.getBoundingClientRect().top)),
+      );
+    if (new Set(rows).size > 1) misplaced.push(`Staged's filter bar wraps at 1440: tops ${rows}`);
+
+    // Below 560px the sort group stacks on the bar's left edge like the
+    // stretched selects, rather than flung to the right of a row of its own.
+    await page.goto("/accounts");
+    for (const width of [320, 390, 559]) {
+      await page.setViewportSize({ width, height: 900 });
+      await frame();
+      const edges = await page
+        .locator(".filter-bar")
+        .first()
+        .evaluate((bar) => {
+          const search = bar.querySelector(".search-box")!.getBoundingClientRect();
+          const sort = bar.querySelector(".sort-menu")!.getBoundingClientRect();
+          // The left edge only: at 559 the checkbox fits beside the group, as
+          // it does on Categories at 390, and the group ends where it starts.
+          return { left: sort.left - search.left };
+        });
+      if (Math.abs(edges.left) > 0.5) {
+        misplaced.push(`Accounts' sort group at ${width}px is ${JSON.stringify(edges)} off`);
+      }
+    }
+
+    // The form-wide note is a line of its own, and no field takes the row.
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/budgets");
+    await frame();
+    const budget = await page.locator(".budget-form").evaluate((form) => {
+      const note = form.querySelector(".required-note")!.getBoundingClientRect();
+      const first = form.querySelector(".field")!.getBoundingClientRect();
+      return {
+        noteAbove: note.bottom <= first.top + 0.5,
+        widest: Math.max(
+          ...[...form.querySelectorAll(".field")].map(
+            (field) => field.getBoundingClientRect().width,
+          ),
+        ),
+      };
+    });
+    if (!budget.noteAbove) misplaced.push("Set a budget's note sits beside its first field");
+    if (budget.widest > 360.5) misplaced.push(`a Set a budget field is ${budget.widest}px wide`);
+
+    // A section's description stops where the page's does.
+    await page.goto("/import");
+    await expect(page.getByRole("heading", { name: "Export a Simple Balance file" })).toBeVisible();
+    await frame();
+    const widths = await page
+      .locator(".section-title p")
+      .evaluateAll((all) => all.map((one) => one.getBoundingClientRect().width));
+    expect(widths.length, "Import has section descriptions to measure").toBeGreaterThan(1);
+    const wide = widths.filter((width) => width > 680.5);
+    if (wide.length) misplaced.push(`section descriptions wider than 680px: ${wide}`);
+
+    // The row menu is the categories report's last cell, at the row's end.
+    await page.goto("/reports/categories?preset=all-time");
+    const trigger = page.getByRole("button", { name: new RegExp(`^Actions for ${category}`) });
+    await expect(trigger.first()).toBeVisible();
+    const gap = await trigger.first().evaluate((button) => {
+      const table = button.closest("table")!.getBoundingClientRect();
+      return table.right - button.getBoundingClientRect().right;
+    });
+    // The cell's own padding and no more.
+    if (gap > 20) misplaced.push(`the report's row menu sits ${gap}px short of the row's end`);
+
+    // Description is as wide as the fields above and below it.
+    await page.goto("/transactions");
+    await page.getByRole("button", { name: "Add transaction" }).first().click();
+    const dialog = page.getByRole("dialog");
+    const description = await dialog.getByLabel("Description").boundingBox();
+    const notes = await dialog.getByLabel("Notes").boundingBox();
+    if (Math.abs((description?.width ?? 0) - (notes?.width ?? 0)) > 0.5) {
+      misplaced.push(`Description is ${description?.width}px beside Notes' ${notes?.width}px`);
+    }
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+
+    // Each template mass-edit row's value control beside the select it answers.
+    await page.goto("/templates");
+    await page
+      .getByRole("checkbox", { name: /^Select / })
+      .first()
+      .check();
+    await page.getByRole("button", { name: /^Edit/ }).first().click();
+    const editing = page.getByRole("dialog");
+    await expect(editing.locator(".bulk-edit-action").first()).toBeVisible();
+    const offsets = await editing.locator(".bulk-edit-field").evaluateAll((all) =>
+      all.flatMap((row) => {
+        const action = row.querySelector(".bulk-edit-action")?.getBoundingClientRect();
+        const value =
+          row.lastElementChild?.querySelector("select, input, textarea") ?? row.lastElementChild;
+        if (
+          !action ||
+          !value ||
+          row.lastElementChild?.contains(row.querySelector(".bulk-edit-action"))
+        )
+          return [];
+        const box = value.getBoundingClientRect();
+        return [Math.round(Math.abs(box.bottom - action.bottom))];
+      }),
+    );
+    expect(offsets.length, "the mass edit's rows were found").toBeGreaterThan(3);
+    if (offsets.some((offset) => offset > 0)) {
+      misplaced.push(`template mass-edit rows off their select by ${offsets}px`);
+    }
+    await page.keyboard.press("Escape");
+
+    expect(misplaced, "these sit where their layout does not put them").toEqual([]);
   });
 });

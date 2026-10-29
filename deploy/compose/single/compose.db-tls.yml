@@ -41,3 +41,35 @@ services:
         read_only: true
         bind:
           create_host_path: false
+
+  # The same directory for the metrics collector, which checks the database
+  # machine's node-exporter against the same CA: that exporter serves the
+  # database's own certificate, so one CA vouches for both of the machine's
+  # listeners and there is no second one to issue, deliver or rotate.
+  #
+  # Its profile repeated here, so that on Compose 2.26 or later this file laid
+  # over a compose.yml from before the collector existed renders what it did,
+  # while the profile is off. Not on 2.25 or earlier, Ubuntu 24.04's own 2.24.6
+  # among them, which refuse a service with no image whether or not its
+  # profile is on, and not on any version with the profile on. This file,
+  # compose.yml and collector.yaml are brought up to date together; the fold
+  # on a cloud machine turns the profile on only once compose.yml defines the
+  # collector.
+  #
+  # SB_METRICS_DATABASE_CA_FILE is derived and never set: the file's path when
+  # there is a database machine to scrape, and empty when there is none.
+  # Naming a CA makes the collector read it every time it reloads its scrape
+  # jobs, target or no target, so naming it on a machine with nothing to
+  # scrape — a managed database, a stack that built no database node, whose
+  # directory may hold no certificate — would log a failure forever.
+  collector:
+    profiles: ["metrics"]
+    environment:
+      SB_METRICS_DATABASE_CA_FILE: ${SB_METRICS_DATABASE_TARGET:+/var/lib/simple-balance/tls/db-ca.pem}
+    volumes:
+      - type: bind
+        source: /var/lib/simple-balance/tls
+        target: /var/lib/simple-balance/tls
+        read_only: true
+        bind:
+          create_host_path: false

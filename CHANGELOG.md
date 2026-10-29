@@ -4,7 +4,561 @@ Notable changes, newest first.
 
 ## Unreleased
 
+### Added
+
+**A whole ledger, or some of its accounts, can be exported as one Simple Balance
+file.** A CSV carries transactions and nothing else, so moving between our cloud
+app and a copy you run yourself meant rebuilding every account, budget, template
+and recurring transaction by hand, and picking the other account of every
+transfer again. The menu's Import CSV is now **Import and export**, at the same
+address, and below the CSV import it makes one JSON file in the
+`simple-balance-ledger-1` format: accounts with their opening balances and the
+day each was archived, categories and groups, every transaction with its splits
+and both sides of every transfer, deleted ones too unless you untick them,
+templates with their reminders, recurring transactions, budgets, rows still
+waiting in Staged transactions, and your regional defaults and theme once you
+have chosen them. Records name each other by name rather than by id, so the file
+means the same thing in another copy, and a kind you leave out still travels by
+name wherever something refers to it, so unticking one breaks nothing. **Some
+accounts** takes up to a hundred of them, with their details alone, all their
+transactions, or a date range, and a transfer between two of them is in the file
+once. A ranged file carries what each account held the day before it starts, and
+a file with transactions gives every account a balance check worked out from its
+postings. The activity history can come along, unticked to begin with, with
+the owner's id taken out of it, and is never read back.
+
+Agents get the same file from `export_ledger_file`, and
+`GET /api/v1/ledger-file` serves it as a download. One download holds up to
+100,000 rows and 16 MiB of what rows do not bound — notes and the rest of the
+entries' free text, split legs, staged rows and the activity history — and one
+agent's call 10,000 rows and 4 MiB, because a tool's reply cannot stream, in a
+file of at most one import part's 16 MiB, so what an agent is handed is a file
+it can add as it is. A larger export is refused with both numbers and the way
+out that works for what was asked, usually a date range at a time; staged rows
+and budget amounts have no date to narrow them by, so past an agent's limit they
+leave through the browser's download. Exporting writes nothing, not even a line
+in the activity log. The page's two empty states, no account yet and every
+account frozen, now cover only the CSV import, so the export is there for
+somebody with either. A file it makes can be added to another copy or moved into
+one, as the next two entries say. The CSV import and export are exactly as they
+were.
+
+**A Simple Balance file can be added to a ledger, including one that already
+holds things of its own.** **Import a Simple Balance file**, between the CSV
+import and the export, reads the file, checks it against this ledger and says
+what adding it would do before anything is written. Accounts, categories and
+groups, templates with their reminders, recurring transactions and budgets that
+nothing here is like are created at once, without the review queue: a new
+account has nothing to review except whether it is already here, and that is
+the preview's question. Where something here has the same name and differs, the
+preview asks — use the one here, leave the file's out, or bring it in under
+another name — and an account in another currency is never taken for the one
+here. One the same in every field is used with nothing asked, and nothing here
+is overwritten. The file's transactions go to Staged like any import's, complete
+with both sides of every transfer, so bringing accounts across one file at a
+time no longer means choosing the other account of every transfer by hand.
+
+Every transaction carries the id it was first written under, kept in a new
+`import_origin` column, and one already here by that id — as an entry, deleted
+or not, or as a row in Staged, waiting or since committed — is skipped and
+counted rather than flagged as a duplicate. A transfer in two accounts' files
+lands once, the same file added twice adds nothing the second time, and two
+look-alike transactions from a file are never taken for each other at stage, at
+commit or in a bulk edit; one with no origin is compared as it always was.
+Deleted transactions are not added, and an account archived where the file came
+from arrives archived, closed today rather than on its original day; moving a
+file, in the next entry, brings both as they were. A file of
+more than 10,000 rows is applied in parts, each all or nothing, and choosing it
+again after a part stopped picks up where it left off. On a free plan with
+fewer places than the file brings accounts in use, the person chooses which
+of the new ones arrive archived, with none chosen for them, and their
+transactions wait in Staged until a place is free. The file's regional settings
+apply only where this copy never chose its own, or where the person says to. A
+reminder already sent is not sent again, and a recurring transaction does not
+propose a day the other copy already did.
+
+Agents have `preview_ledger_file`, a read, and `add_ledger_file`, which needs
+`ledger:write` because it creates records rather than proposing them, and is
+marked destructive because it can replace the settings chosen here. Over HTTP
+they are `POST /api/v1/ledger-file:preview` and `POST /api/v1/ledger-file:add`,
+and the add streams its progress when asked. Every record and row the add
+creates is audited as `create_from_ledger_file`, and Staged's batch filter
+marks a batch that came from a file. An agent handed a whole download larger
+than one part is told the rules the page cuts a file by, so it can send the
+parts itself. A file can be added only to a copy running this release or later.
+
+**A Simple Balance file can be moved straight into the books of a new ledger.**
+Adding sends a file's transactions to Staged, which is right for a ledger with
+entries of its own, and it was the only way in: moving from a copy you run
+yourself to our cloud app, or back, meant committing every transaction a second
+time, leaving deleted ones behind, and finding each archived account put away on
+the day of the import rather than the day it was. **Import a Simple Balance
+file** now asks **How should this file come in?**, with neither answer chosen,
+and into a ledger where everything came from a Simple Balance file — a new
+sign-up, a fresh install, or one partway through a move — the file can be
+moved. Every transaction is written straight into the books through the same
+services a person's own entries go through, so its postings are worked out here
+rather than copied. Deleted transactions arrive deleted, an account archived
+where the file came from arrives archived on its own day holding its
+transactions, a reminder already sent stays sent, and a recurring transaction
+does not propose a day the other copy already did. Once one transaction is
+typed here or committed from a CSV, moving is refused with the reason, and the
+file can still be added. Rows still waiting in Staged stop a move only until
+they are discarded, and the refusal says so rather than sending anybody to add
+instead, since committing them would end the move for good. A ledger moved a
+date range at a time should carry its recurring transactions in the latest
+range only, and the export says so once a range is chosen: one an earlier range
+brings can propose a row into Staged before the next range arrives.
+
+Every transaction is written, or nothing of its part is. A move offers fewer
+answers than an add: an account or a category a transaction is filed under has
+to come in, and an account here whose balance could never come out as the file
+says cannot stand in for the file's. It is refused before anything is written
+while some of the file's transactions wait in Staged from an earlier add of
+it, while one would land on an account frozen here, while an account it brings
+in new already has some of its transactions here on another account, or while a
+category here would make one both income and spending. The part carrying the
+file's balances is held to them once it is written, and an account that does
+not hold what the file says on its last day refuses the part, naming the
+account, both figures and what to do. On a free plan the person chooses which
+new accounts arrive archived, as in an add, and those take their transactions
+with them, closed on the day of the move; restoring one posts its balance back.
+A refund filed under a category whose kind was widened afterwards counts on the
+side the category says here, and the move reports how many and how much, by
+currency, rather than overriding it; every balance is the same either way. A
+file of more than 10,000 rows moves in parts, each all or nothing and resumable,
+with recurring transactions created by the last, and a part of 10,000
+transactions took about fifty seconds on a laptop. A move is a one-time trip
+rather than a sync: a transaction already here is passed over, never updated.
+
+Agents have `move_ledger_file`, which needs `ledger:write` and is marked
+destructive, because what it writes comes out only a transaction and a record
+at a time; over HTTP it is `POST /api/v1/ledger-file:move`, which streams its
+progress when asked, as the add does. The preview also returns `movePlan`, the
+same file planned for a move, and `move.stagedRows`, the waiting rows when they
+are all that stops one, so an agent reads the narrower choices and what
+would stop it before it calls. An agent moving a ledger larger than one call
+exports it a date range at a time and moves the ranges oldest first. The void
+of a deleted transaction is audited as `delete_from_ledger_file`, so Activity
+says it arrived deleted rather than that somebody deleted it today. Both copies
+need this release.
+
+**Metrics can be sent to New Relic, or to any backend that takes OTLP or
+Prometheus remote write, with no Prometheus of your own.** Every deployment
+profile can run an OpenTelemetry Collector beside the application, off until
+asked for. It scrapes the application's `/metrics` with its token, and on the
+Compose shapes each machine's CPU, memory, disks and network through
+node-exporter — the `single` profile's database machine included, over TLS with
+the database's own certificate — and sends the lot to one backend. Which backend
+is two settings, an endpoint and a header holding its credential, so leaving New
+Relic for Grafana Cloud or a Prometheus you run is a settings change and a
+restart. On the single-machine and cluster Pulumi programs the endpoint alone
+turns it on; by hand it is four lines in `.env`, or `collector.enabled` on the
+chart. It keeps nothing — no volume, no write-ahead log, a read-only filesystem
+— and on the `single` profile it fits on the application node it already has, so
+there is no machine to add and nothing on the bill. It is the collector rather
+than Prometheus in agent mode because it measured lighter on the same series:
+51.7 MiB against 72.3, and its OTLP about a quarter of the bytes Prometheus sent
+by remote write. The edge proxies, PostgreSQL and a cluster's nodes are not
+scraped, on purpose; `docs/deployment.md` says why, and gives the alerts worth
+setting in both PromQL and New Relic's NRQL.
+
+The application itself does not use OpenTelemetry, by decision rather than by
+omission. It keeps counting with `prom-client` and serving Prometheus' text
+format; the collector is what speaks OTLP, from outside the process, which
+leaves the request path as cheap as it was.
+
+**The application says more about itself.** Several things that failed quietly
+now have a number. Requests in flight, including a stream until its last frame;
+how a streamed write ended, since a commit that failed on its last row was a
+`200`; failures nobody meant on every surface in one series, where an MCP tool
+or a stream that failed looked like success; readiness, in the scheduler too;
+the auth routes by route and outcome, and each rate limiter's refusals; log
+lines at warning and error, counted whether or not `LOG_LEVEL` prints them;
+MCP messages refused before any tool ran; transactions committed and rolled
+back; how long a request waited for a database connection, and connections
+lost; the time each scheduler sweep last finished, and whether this process
+runs the schedule at all, which is the question that could not be answered
+when the scheduler ran inside the API; how long the mail relay takes; why a
+Stripe request failed, by Stripe's own classification; and whether the mail
+relay and Stripe passed the checks each process makes of them. No label names
+a person, an account or an amount, and every one is a closed set.
+
+**A free account can be shown this product's own advertisement for Premium
+instead of anybody else's.** `SB_HOUSE_AD=true` puts a bar across the foot of
+the window: the plan's name, one line saying what it adds, and a button that
+opens the plan tab, beside a small drawing of the free plan's three accounts,
+two more dropping in and an ad struck out. It is for an operator who wants the
+free plan to point at the paid one without a third party's script running on
+pages that show somebody's balances. It loads nothing from anywhere, so it
+widens no content security policy, serves no `/ads.txt`, needs no privacy
+policy and no consent notice, and records nothing about who saw it. Who sees it
+is decided the way AdSense is — never a subscriber, never on the plan tab, at
+sign-in or on paper, and never on a deployment that has stopped selling — and it
+stands down while the configured Stripe prices do not fit the plans, because the
+tab it leads to then sells nothing. With AdSense configured as well, a free
+account sees the house ad and no AdSense unit, and the process says at every
+start that the AdSense settings go on widening the policy until they are unset.
+
+The bar is pinned while the page scrolls, 72 pixels or less on a desktop and
+about 60 on a phone, where it is the words and the button alone. It rests below
+the content at the end of a page, sits on the window's foot under a short one,
+and is not pinned at all on a window both narrow and short, where it would have
+left the ledger a strip under the mobile header. Keyboard focus is scrolled
+clear of it at whatever height it is, including with widened text spacing. Its
+drawing moves once per page load, for three seconds, never on a phone and never
+for anybody whose system asks for reduced motion. It cannot be dismissed, and an
+AdSense unit is never pinned. Nothing changes on a deployment that does not set
+it. A `single` machine built before this release needs this release's
+`compose.yml` before the setting reaches the application at all, because its
+own passes the container only the settings it names; `docs/upgrades.md` has
+the step and the check.
+
+**An agent can answer from the money guides, and knows which of its tools do
+each step.** `list_learn_articles` and `get_learn_article` serve the twelve
+guides smpl.money publishes at /learn — tracking spending, budget categories,
+making a budget, zero-based and envelope budgeting, sinking funds, budgeting
+with irregular income or a credit card, balancing a checking account, finding
+subscriptions, net worth and an emergency fund — as the site's own Markdown,
+carried in the image rather than fetched, so a deployment with no internet has
+them too. Somebody asking their assistant how to balance an account, or what
+net worth is, can be answered from them. Each guide ends with how to do the
+job in the browser, and the reply maps every one of those steps to the tools
+here that do the same thing, with a sentence wherever the form's wording would
+mislead a program — a card's debt is typed as a plain number on the form and
+sent as a negative opening balance — and says whether the connection holds
+each tool, so a read-only agent can explain a step it cannot take. They read
+nothing from the ledger, need only `ledger:read`, and add 5,523 characters to
+every token's tool list. The copy is as of the day it was taken, which the
+reply says. No page calls a route for them, because a person reads the same
+guides on the site; the parity check now names every tool that no route
+reaches, with its reason, where before such a tool passed it unseen. A release
+carries the guides as the site published them, and the release workflow
+refuses to publish images from a copy taken from anywhere else.
+
+**The Overview can count archived accounts.** An **Include archived accounts**
+box under the date range puts archived accounts, and what moved through them,
+back into the totals, the account list and the spending, and marks each one
+"(archived)". It keeps its answer in the page's address under the same key
+Reports uses. Until now `get_financial_summary` took `includeArchived` and no
+page could send it, so only an agent could ask the Overview's question with
+archived accounts counted. The Budget panel counts archived spending either
+way, as the Budgets page always has.
+
+### Changed
+
+**Stripe's API version is now `2026-09-30.endive`.** The server SDK moved to
+`stripe` 23, which pins it, with Stripe.js 10 and React Stripe.js 7 beside it in
+the browser, because Stripe keeps the two on one release. Every request this
+deployment sends to Stripe is now made at endive. One call changed shape: the
+switch from monthly to annual on the spot sends its billing-cycle anchor as
+`{ type: "now" }`, which endive takes in place of the bare `"now"` and which
+asks for exactly what it did. A webhook endpoint made for an earlier release
+stays on `2026-08-26.dahlia` and needs nothing: no field the handler reads is
+shaped differently in the two. `docs/billing-operations.md` says how to make a
+new one at endive, which takes a new signing secret.
+
+**An agent is handed the import page's own reading of a CSV.** `preview_csv`,
+and `POST /api/v1/csv/preview`, now return `simpleBalanceExport`, whether the
+file is one of this product's own exports and so needs no mapping, and
+`suggestedMapping`, the page's guess at the column mapping from the headings.
+The guess was the page's alone, so an agent worked one out for itself from the
+bare headings and could start an import somewhere a person would not have. The
+page now reads both from the server; against a server from before this
+release, during a rolling update, it works them out with the same shared code.
+
+**`whoami` says whether the choice of accounts in use is open.**
+`activeChoicePending` is true while more accounts are marked active than the
+plan keeps, as a downgrade leaves behind — the moment the Accounts page shows
+its chooser — and an agent no longer has to list every account and apply the
+rule itself to find out. `GET /api/v1/session` carries it in `plan` too, which
+the browser does not read.
+
+**`export_transactions_csv` names its file.** The reply gains `fileName`, the
+same `transactions-` and today's date where the person lives that the browser's
+download is saved under, worked out in one place for both.
+
+**Tool descriptions say what the browser already knew.** The two template
+reads say how a template is used, which nothing told an agent: copy its draft
+into `create_transaction` or `create_staged_transaction`, fill in what it
+leaves out, send a transfer's figure as `sourceAmount`, and set `templateId`,
+without which the template never counts the entry. The budget tools say a
+category group can hold a budget of its own and that the report returns group
+figures beside the category rows, never to be added to them. A template's
+category name is created when an entry is made from it, not when it is saved.
+A frozen account is described as still free to be archived, or deleted while
+empty, which the server's instructions already said. `stage_csv` says to stage
+onto an account that is neither archived nor frozen, `summarize_own_data`
+names all nine things it counts, and `create_category` names `both` and
+`groupId`. Together with the fields above, these add 2,767 characters to a
+`ledger:read` token's tool list and 3,486 to a `ledger:write` token's.
+
+**The plan tab's sentence about ads follows either kind of ad.** It names the
+advertising Premium takes away wherever AdSense is configured, and now also
+where the house ad is on and the plan is for sale, so the tab says what the bar
+says. `GET /api/v1/billing` reports that as `advertises`. `GET /api/v1/session`
+gains `houseAd`, always sent, and true only for somebody the house ad is shown
+to; `ads` is null whenever it is. A browser bundle from 0.2.1 ignores the new
+field, and this release's bundle reads its absence as no, so neither half of a
+rolling update shows anybody an ad by mistake.
+
+**`simple_balance_db_transaction_duration_seconds` times every transaction.** It
+timed the ones that went through one helper, and started before the connection
+was acquired, so a full pool looked like slow transactions. It now covers every
+transaction the application opens on its pool — MCP writes, the scheduler's
+sweeps, billing, and the auth library's own — from `begin` to commit or
+rollback, and the wait for a connection has a histogram of its own. Expect its
+count to rise and its values to fall under contention; a dashboard built on it
+reads a different thing.
+
+**Some existing series gain values.** A page load the browser app answered is
+counted under `route="spa_shell"` rather than `unmatched`, which is left to the
+requests no route answered. The pool gauge reports its ceiling as `state="max"`.
+The request, tool, transaction and tick histograms gain buckets at ten and fifty
+milliseconds, Stripe's at thirty and sixty seconds, and the tick's at one, two
+and five minutes, so the requests worth looking at no longer all land in the
+last bucket. Nothing is renamed and no value is removed.
+
+**A `single` machine's unit starts the application before the metrics.** It runs
+`docker compose up` twice: the books first, waited for, and then the collector
+wherever it is turned on, with a failure there logged and not fatal. Turning
+export on is the one start that has to pull an image, unattended, and a
+registry that did not answer would otherwise have stopped the site. A machine
+built before this keeps the unit it has until it is copied.
+
+**Every hand-install recipe installs `.env` readable by its owner alone.** They
+copied it at the mode a checkout gives a file, which lets every user on the
+machine read the passwords in it — and on the database machine the new
+node-exporter reads the host's root as an unprivileged user.
+
+### Security
+
+**A password-reset link no longer reaches the log at `LOG_LEVEL=debug`.** The
+debug line written for every request named its path, and the emailed reset
+link arrives as `/api/auth/reset-password/<token>`, a GET that only checks the
+token and redirects, so the token stayed good for up to an hour after the line
+that held it. Under `/api/auth` the line now names the route's pattern, as the
+metric always did. Nothing changes at the default level, which writes no such
+line.
+
+**`/metrics` could be read from the internet behind the frontend nginx.** With
+`METRICS_ENABLED` on and no `METRICS_TOKEN`, a request for `/api/..\metrics`
+reached it: nginx reads a backslash as an ordinary character and proxied the
+request as an `/api` path, and the application resolved it to `/metrics`. That
+was the split recipe and the chart, whose documentation said the frontend never
+proxies the path. The application now answers only a request for exactly
+`/metrics`, whatever is in front of it, and the upgrade is the whole fix.
+
+**`/metrics` could be read from the internet behind the `single` profile's
+Caddy.** In the same configuration its Caddyfile proxied every path while the
+comment beside the setting said nothing in that profile did. The Caddyfile now
+answers the path 404 before proxying anything, so an existing machine needs the
+new file copied in, or a token set; `docs/upgrades.md` has how.
+
+**The metrics exporters cannot reach the instance metadata address on
+`aws-single` or `oci-single`.** The collector and node-exporter this release
+adds share the host's network, and what answers at 169.254.169.254 is the
+machine's own identity, which on the application node can read every stack
+secret, Stripe's key and the auth secret among them. On AWS they would sit
+inside the hop limit that keeps containers from the role, and on Oracle Cloud
+there is no hop limit at all to keep them from the instance principal's
+certificate and key. New machines on both clouds refuse the address to every
+user from 10000 to 65534, which covers the exporters and leaves root, the
+system accounts and uid 1000 as they were: at every boot on AWS, and saved with
+the host firewall on Oracle Cloud, whose image restores it before Docker
+starts. A machine built before this release needs the rule by hand before
+metrics are turned on; `docs/upgrades.md` has the line for each cloud.
+
+**Twenty-one dependency advisories are closed — four rated high, fourteen
+moderate and three low.** Five of the packages ship in the application's image,
+and three of those are loaded. `zod` moves to 4.6.7: it validates every request
+body the server accepts, and before 4.6.6 a long enough list that failed
+validation made it allocate without limit (high). Request bodies were already
+capped in size before they reach it, which bounded that rather than closing it.
+`nodemailer` moves to 10.2.1, closing three ways its address parser read text
+inside a quoted string or a comment as a further recipient; it parses the
+addresses this deployment sends mail to, where a mail server is configured.
+`fast-uri` moves to 3.1.9, closing four in URI parsing, and is loaded with the
+MCP SDK's schema validator. `body-parser` 2.4.0 (high) and `ip-address` 10.7.5
+arrive in the image under the MCP SDK's Express and its rate limiter, and are
+never loaded, because the server runs on Hono. Under the Pulumi programs
+`ip-address` moves too, with `undici` 6.29.1, both in the Pulumi CLI's own
+package fetching on the operator's machine. The rest are used only to build and
+test and are in no image: `vite` 8.3.5 closes six, three of them in the editor
+launcher its development server bundles, one of those rated high; `vitest`
+4.1.12 closes two in its mocking server; and `undici` 8.12.3, under jsdom,
+closes three. GitHub had raised seven alerts, all of them `vite` and `vitest`,
+and `npm audit` found the rest. The upgrade is the whole fix.
+
 ### Fixed
+
+**The single container answers an API path it does not have with a 404.** Only
+`/api/v1`, `/.well-known` and `/api/billing` were fenced, so `/api/v2/…`, a
+mistyped `/health/readyz`, a path under `/mcp`, and `/metrics` or `/ads.txt`
+where neither was turned on came back as the browser app's page and a 200 — HTML
+for an API client to parse, and "ready" from a probe whose database was down.
+They answer the JSON 404 the split deployment already gave them. Bare `/health`
+and `/health/` keep answering 200, now as liveness.
+
+**The review queue says so when its accounts or categories cannot be read.**
+Every row read "Unknown account", "—" and "Uncategorized" with nothing on the
+page to say the lookup had failed; it shows the error now, as the register does,
+and the CSV import's preview does the same for its categories. On the queue, a
+staged amount's edit button is named with the sign it shows, so a deposit and a
+withdrawal are no longer read out alike.
+
+**Three more pages say when a read they depend on failed, rather than stating
+what it would have said.** Settings told somebody with a password that their
+deployment had no mail server whenever the read that would say so was still in
+flight or had failed; the note now waits for the answer. The budget form's
+picker and the recurring transaction form's category picker were empty with
+nothing to say why when the categories could not be read; both pages show the
+error now.
+
+**Add category and Add group no longer spin while a row is changed.** Each
+shares its request with every row's rename, archive and delete, so archiving a
+category drew "Working…" on the button that creates one. They spin for their
+own press now and wait, gray, while a row's change finishes.
+
+**The budgets page keeps "Count spending through archived accounts" in the
+address**, as the four other pages with an archived box do, under the same key.
+It counts archived spending unless asked not to, so only that choice is written,
+as `?archived=0`; an address without it opens as before.
+
+**The CSV import shows the file it is reading, and spins only the button
+pressed.** Choosing a large file showed nothing until the preview answered, and
+a second pick could be overwritten by the first one's late answer; the file is
+named and its reading shown at once, and a second pick waits. A dry run no
+longer spins "Stage all rows", and a gray button names the one thing still
+missing — never "choose a file", which is never it, and never a column to map on
+one of our own exports. Its payee and category counts group their thousands.
+
+**Choosing which accounts arrive archived is said where a screen reader hears
+it.** The Simple Balance file's "choose at least 1 to arrive archived" sat
+beside the checkboxes connected to nothing; it is the group's description now,
+and a refusal about a whole record describes the choice it is about. The
+result's **Open Accounts** shows archived accounts when it has just told you to
+restore one, because Accounts and Categories keep their archived box in the
+address as Overview and Reports already did.
+
+**Sign-up and sign-in say what to do when they fail.** Both read only the flat
+half of a refusal, so a server error or a body the server would not take read
+"Account setup failed" or "Sign in failed" in place of a sentence that said what
+would work. Both read the envelope now.
+
+**An agent is told which ids a mass change missed, and how to free an account
+place.** Seven bulk tools refused an id that was not there with "Reload the list
+and try again", the browser's words, and five sent no ids; each now carries the
+ids that missed in its details and names the call that reads real ones. The
+transaction one stopped saying the rows "may have been deleted", which was
+never the reason. `create_account` on a full plan names `archive_account` and
+`delete_account` beside the upgrade only a person can make. `whoami`'s `plan`
+says a person reads `plus` as Premium. `merge_payees` says it rewrites recurring
+transactions and templates too, as the Payees page now does.
+
+**A template mass edit can no longer leave templates naming a deleted category
+or account.** It checked the account and category its patch set under no lock
+that the deletes count under, so a delete landing between the check and the
+write went through and left every template it touched unusable.
+
+**The duplicate review reports a failed read rather than a resolved pair.** A
+pool timeout looking up the committed entry read as "Nothing repeats this
+anymore", with nothing logged.
+
+**A move reads the plan once per part, and counts what it writes.** Each entry
+deleted where the file came from re-read the entitlement and the account table
+as it was voided; a part reads them once. And a move's transactions count in
+`ledger_writes_total` beside its own counter, where they had been missing and
+its voids queued and never released.
+
+**An archived account's or category's register no longer offers what it
+refuses.** The page withheld its Add button, while the section above still said
+"Filter, search, export, or add activity" and an empty register still offered
+to "add a deposit, a withdrawal or a transfer, or import a CSV". Both now leave
+adding out and say to restore it from Accounts or Categories first, and a
+frozen account's register says why it is frozen.
+
+**An empty page with no account sends somebody to Accounts.** The Overview was
+headed "Create your first account" over a link that created nothing and only
+went to Accounts; it reads "No accounts yet" and **Go to Accounts**. The CSV
+import's "Create an account first" had no button at all and now has that one.
+An empty report's **Add a transaction** led to a Transactions page that cannot
+add anything to a ledger with no account; it says **Go to Transactions**, or
+**Go to Accounts** when there is no account.
+
+**A failed read is said once, and says what failed.** In an outage every read
+gets the same sentence from the server, so the review queue stacked four
+identical red alerts, the register three and the Overview two, none saying what
+had not loaded. Each shows one now, opening with what did not load — "Your
+accounts and categories did not load." — which is what explains the "Unknown
+account" in the rows under it.
+
+**Closing a dialog opened from a row's menu puts focus back on the menu.** It
+was left on the page itself, so somebody on a keyboard who edited a template or
+cloned an entry started again from the top. Budgets' standing budgets, the last
+list drawing two bare icons, put Edit and Delete in a row menu like every other
+list with two actions.
+
+**A report's row menu is in the table's last column, and the footer totals the
+Total column.** The menu sat inside each row's name at the first column's right
+edge — mid-table, and in a different place in each currency's table — and the
+footer's last cell was empty, so with one period the footer's figure sat under
+the period and read as filed in the wrong column. For a balance report that
+last figure is what is held at the close.
+
+**Possible duplicates on Payees and Categories are a list.** Each group was an
+info alert, which ran its names into **Review merge** with no gap and put its
+icon at the far edge, and gave a page with five groups five live regions for a
+condition that stands on every visit. Each **Review merge** is described by the
+names it is for.
+
+**A new password that does not match is the confirm field's own error.**
+Settings said so in an alert above the button; it is now the error on **Confirm
+new password**, which takes focus, as a refusal does on every other form. The
+note that changing a password signs out every other session describes the
+button it is about.
+
+**Several layouts fit what they hold.** A long import batch no longer drops the
+review queue's batch filter onto a line of its own as a box showing eleven
+characters, and the register's account filter is held to the same width. The
+Simple Balance file's **Every record** table keeps a long name inside its panel,
+where one unbroken name ran it 400px past the edge and left only the record's
+name on a phone's screen. The template mass edit lines each value up with the
+select it answers. The budget form's note takes a line of its own, and a field
+stops at a field's width rather than its hint's. The transaction form's
+description takes the whole row. On a phone a sort control starts on the filter
+bar's left edge rather than at the far right of an empty row. A section's
+description wraps where the page's does, rather than at about 190 characters.
+
+**Smaller things.** Activity says "frozen by the choice of accounts in use"
+rather than ending a line on "freeze". The account limit reads "three" in a
+sentence. The CSV byte limit says how to bring in a larger export, as the row
+limit already did. Adding a sign-in password refuses a short one in a sentence
+rather than the validation library's words. Buttons drop their articles —
+**Check file again**, **Add category**, **Set password**, **Stay on annual
+plan** — the sign-in screen's toggle is **Sign up**, and an empty Accounts page
+offers **New account**, as its header does. A render error offers **Go to
+Overview**, the page's name. The "Every N" interval says that blank means every
+one. A record with nothing to explain shows the dash every other empty cell
+shows. The CSV import names the delimiter it found, "comma" rather than a bold
+comma a screen reader skips. An empty list whose archived or deleted rows are
+hidden offers to include "any archived ones", where a new ledger was told to
+count "the ones you have put away".
+
+**A CSV staged onto an archived or frozen account no longer previews as ready
+to commit.** Every row of such a file is stored with an issue that blocks its
+commit, and `stage_csv`'s `validCount`, `invalidCount` and `sample`, a dry
+run's included, counted and showed those rows as clean, so an agent reported
+a file ready whose every row would wait. They now carry the issue the stored
+rows do, in the same words. Nothing is refused
+that was accepted before: the rows still stage, and can be given another
+account in the queue. The page never offered either kind of account, so this
+was met through `POST /api/v1/csv/stage` and the tool.
+
+**Searching Payees finds what an agent's search finds.** The page lower-cased
+what was typed and matched it against each spelling as stored, so "acme co"
+missed "ACME  Co" in the browser while `list_payees` found it. Both now match
+the search against each name's normalized form, with one shared function.
 
 **The first `pulumi up` of a new `oci-single` stack no longer fails at the
 settings key, as 0.2.1's still could.** 0.2.1 waited for a new vault's
@@ -32,6 +586,47 @@ was never printed.** Step 4 of `nextSteps` on `aws-single` and `oci-single` said
 to find the first-run setup code in the application's log. The server prints one
 only when `allowedEmails` turns somebody away, so under `*` the log has none and
 the sign-up form never asks for it. With `*`, step 4 now says to sign up.
+
+**Search engines are let in to read that nothing here belongs in their index.**
+`/robots.txt` asked every crawler but AdSense's to stay out, and no response
+said `noindex`. That defeated itself: a crawler that may not fetch a page never
+reads anything on it, so an address somebody linked to could still be listed as
+a bare link, and the sign-in screen could stand in for the product on a search
+for its name. The robots file now lets every crawler in, and everything served
+says `X-Robots-Tag: noindex` — the pages, the files beside them, `/robots.txt`,
+`/ads.txt` and the API — from the application, and from the frontend image's
+nginx for the files it serves itself. AdSense's crawler keeps a group of its
+own, the only one it reads, as Google ignores `*` for it, and `noindex`
+does not stop it: it reads pages to match ads rather than to list them. A search
+engine drops an address it has already listed the next time it fetches it, not
+at the upgrade, and nothing has to be copied onto a machine.
+
+**An agent's request to `/mcp` is no longer cut off at 4 MiB.** The MCP SDK
+reads a request's body a second time, with a limit of its own of 4 MiB unless
+it is told otherwise, and 0.2.0 and 0.2.1 never told it. So `stage_csv` refused
+a CSV past that with a bare 413 before any tool ran, whatever `CSV_MAX_BYTES`
+allowed the route. The transport now takes the route's own limit, which is also
+what lets one sixteen-mebibyte part of a Simple Balance file reach the new
+tools.
+
+**Committing or mass-editing up to the 10,000-row cap no longer runs the
+database out of shared memory.** Both took a lock for every distinct
+transaction they compared for duplicates, held until they finished, and
+PostgreSQL keeps such locks in a table sized by how many connections it allows.
+On the `single` profile's database, which allows 50, nine thousand fitted and
+ten thousand did not, so a commit or a mass edit near the cap failed with "out
+of shared memory" and wrote nothing. A stock PostgreSQL allowing 100 took twelve
+thousand and not fifteen, which rows carrying a bank's reference, at two locks
+each, could pass. Both now take one lock for the person whose ledger it is,
+and nothing waits that did not wait before: every path that takes it already
+holds that person's payee lock, so no two of them ever ran at once.
+
+**A blank timezone, or a CSV staged under a blank or overlong file name, is
+refused in a sentence.** Both still answered in the validation library's words —
+"Too small: expected string to have >=1 characters" — which the browser never
+meets and an agent does, and a blank timezone was told it was not recognized as
+well. They now say "Enter a timezone" or "Enter a file name", or how long one
+may be, and nothing else.
 
 ## 0.2.1 - 2026-10-06
 

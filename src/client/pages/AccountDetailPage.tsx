@@ -156,6 +156,7 @@ export default function AccountDetailPage() {
         <p role="status">Loading account…</p>
       </>
     );
+  const canAdd = !account.data.archivedAt && !account.data.frozen;
 
   return (
     <>
@@ -211,13 +212,27 @@ export default function AccountDetailPage() {
           heading={{
             kind: "section",
             title: "Transactions",
-            description: "Filter, search, export, or add activity for this account.",
+            // "Or add" only where adding is offered: the button and the empty
+            // state's offer are both withheld below, and this line one row
+            // above them was the third place still promising it.
+            description: canAdd
+              ? "Filter, search, export, or add activity for this account."
+              : "Filter, search, or export activity for this account.",
           }}
           fixedAccountId={accountId}
           // A frozen account refuses a new entry exactly as an archived one
           // does, and the form this opens is preselected to it, so offering
           // the button would be offering a save the server then refuses.
-          allowCreate={!account.data.archivedAt && !account.data.frozen}
+          allowCreate={canAdd}
+          // Archived only: the browser says the frozen sentence itself, from
+          // the entitlement it already holds. Restore is the way back and it
+          // lives on the list in the sidebar, not on this page; "from
+          // Accounts" is how the file import's result already says it.
+          createRefusal={
+            account.data.archivedAt
+              ? "This account is archived. Restore it from Accounts to add to it."
+              : undefined
+          }
           showDateRange={false}
         />
       </section>

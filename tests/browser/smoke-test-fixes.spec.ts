@@ -24,7 +24,7 @@ let accountId: string;
 
 async function signUp(target: Page) {
   await target.goto("/");
-  const toggle = target.getByRole("button", { name: "Create an account" });
+  const toggle = target.getByRole("button", { name: "Sign up" });
   const heading = target.getByRole("heading", { name: "Create your account" });
   await expect(heading.or(toggle)).toBeVisible();
   if (await toggle.isVisible()) await toggle.click();

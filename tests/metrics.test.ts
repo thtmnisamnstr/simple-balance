@@ -1,7 +1,11 @@
+import { once } from "node:events";
+import { readFileSync } from "node:fs";
+import { connect, type AddressInfo } from "node:net";
+import { serve } from "@hono/node-server";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createMcpServer } from "../src/server/mcp.js";
+import { createMcpServer, handleMcpRequest } from "../src/server/mcp.js";
 import app from "../src/server/api.js";
 import { httpRequests, registry, resetMetrics } from "../src/server/metrics.js";
 
@@ -68,6 +72,121 @@ describe("the metric registry", () => {
     expect(text).toContain("# TYPE simple_balance_http_requests_total counter");
     expect(text).toMatch(
       /simple_balance_http_requests_total\{[^}]*route="\/health\/live"[^}]*\} 1/,
+    );
+  });
+});
+
+/** As much of a histogram as reading its buckets needs. */
+type Observable = {
+  observe: (labels: Record<string, string>, value: number) => void;
+  get: () => Promise<{
+    values: { labels: Record<string, string | number>; metricName?: string; value: number }[];
+  }>;
+};
+
+const histogram = (name: string) => registry.getSingleMetric(name) as unknown as Observable;
+
+/** Each finite boundary a histogram publishes and how many it holds, read as a scrape reads it. */
+async function bucketCounts(name: string) {
+  const { values } = await histogram(name).get();
+  return values
+    .filter((value) => value.metricName === `${name}_bucket`)
+    .map((value) => ({ le: Number(value.labels.le), count: value.value }))
+    .filter((bucket) => Number.isFinite(bucket.le));
+}
+
+/** The highest finite boundary, after one observation so a labeled histogram has a series. */
+async function topBucket(name: string, labels: Record<string, string> = {}) {
+  histogram(name).observe(labels, 0);
+  return Math.max(...(await bucketCounts(name)).map((bucket) => bucket.le));
+}
+
+/** A number as a source file writes it, `NAME = 10_000` or `name: 10_000`. */
+function sourceNumber(path: string, pattern: RegExp) {
+  const found = pattern.exec(readFileSync(path, "utf8"))?.[1];
+  // Thrown with the pattern and the file, rather than left to fail as a method
+  // called on `undefined`, which names neither and reads as a bug in the test.
+  if (found === undefined) throw new Error(`${String(pattern)} is not in ${path} any more`);
+  return Number(found.replaceAll("_", ""));
+}
+
+/**
+ * Where the bucket sets end, held against the numbers `metrics.ts` argues
+ * them from.
+ *
+ * Each top boundary is a claim about something outside the histogram — a
+ * timeout, a retry count, a default interval — and the failure it guards
+ * against is silent: a reading past the last boundary lands in `+Inf`, where
+ * how long it took cannot be read at all. So the outside number is read from
+ * the file that sets it rather than copied here, and the comparison fails when
+ * either side moves.
+ */
+describe("a histogram's buckets", () => {
+  beforeEach(() => {
+    resetMetrics();
+  });
+  afterEach(() => {
+    resetMetrics();
+  });
+
+  it("tell a request inside fifty milliseconds from one inside a hundred", async () => {
+    const name = "simple_balance_http_request_duration_seconds";
+    histogram(name).observe({ method: "GET", route: "/health/live" }, 0.04);
+
+    const counts = new Map((await bucketCounts(name)).map((bucket) => [bucket.le, bucket.count]));
+    // Forty milliseconds is past 0.025 and inside 0.05. The set used to go
+    // from 0.025 straight to 0.1, so an objective of fifty could not be read.
+    expect(counts.get(0.025)).toBe(0);
+    expect(counts.get(0.05)).toBe(1);
+  });
+
+  it("keep a Stripe request that timed out on every attempt out of +Inf", async () => {
+    const stripe = "src/server/stripe.ts";
+    const timeout = sourceNumber(stripe, /STRIPE_TIMEOUT_MS = ([\d_]+)/) / 1000;
+    const retries = sourceNumber(stripe, /maxNetworkRetries: ([\d_]+)/);
+    // The SDK sleeps half a second before its first retry and doubles that for
+    // each one after, capped at five and never more than the full value
+    // (`_getSleepTimeInMS` in its `RequestSender`). At ten seconds and two
+    // retries: 10 + 0.5 + 10 + 1 + 10 = 31.5, three times the old top bucket.
+    let worst = timeout * (retries + 1);
+    for (let retry = 1; retry <= retries; retry += 1) worst += Math.min(0.5 * 2 ** (retry - 1), 5);
+
+    expect(
+      await topBucket("simple_balance_stripe_request_duration_seconds", {
+        operation: "bucket_probe",
+      }),
+    ).toBeGreaterThanOrEqual(worst);
+  });
+
+  it("end a pool wait at the pool's own timeout, so +Inf is an acquire that gave up", async () => {
+    const timeout =
+      sourceNumber("src/server/db/client.ts", /connectionTimeoutMillis: ([\d_]+)/) / 1000;
+
+    // Equal, not merely at least: a boundary above the timeout is a bucket
+    // nothing can land in, and the reading `metrics.ts` promises — past the
+    // last boundary means gave up — would stop being true.
+    expect(await topBucket("simple_balance_db_pool_acquire_duration_seconds")).toBe(timeout);
+  });
+
+  it("end a tick at the default interval, so +Inf is a tick that overran it", async () => {
+    const interval = sourceNumber(
+      "src/server/config-limits.ts",
+      /DEFAULT_RECURRENCE_TICK_SECONDS = ([\d_]+)/,
+    );
+
+    expect(await topBucket("simple_balance_scheduler_tick_duration_seconds")).toBe(interval);
+  });
+
+  it("keep a mail send that hit every transport bound out of +Inf", async () => {
+    const mail = "src/server/mail.ts";
+    const bounds =
+      (sourceNumber(mail, /connectionTimeout: ([\d_]+)/) +
+        sourceNumber(mail, /greetingTimeout: ([\d_]+)/) +
+        sourceNumber(mail, /socketTimeout: ([\d_]+)/)) /
+      1000;
+
+    expect(await topBucket("simple_balance_mail_send_duration_seconds")).toBeGreaterThanOrEqual(
+      bounds,
     );
   });
 });
@@ -156,27 +275,46 @@ describe("an MCP tool call", () => {
   });
 
   /**
-   * What the wrapper cannot see, stated rather than implied.
+   * What the wrapper cannot see, and the counter that can.
    *
-   * The counter wraps `registerTool`, so it runs only once the SDK has parsed
-   * the arguments against the tool's own schema and found the tool. A call the
-   * protocol refuses first — an argument the schema rejects, a tool that does
-   * not exist, a tool outside this connection's scope — never reaches it and is
-   * counted nowhere.
+   * The tool counter wraps `registerTool`, so it runs only once the SDK has
+   * parsed the arguments against the tool's own schema and found the tool. A
+   * call the protocol refuses first — an argument the schema rejects, a tool
+   * that does not exist, a tool outside this connection's scope — never
+   * reaches it.
    *
-   * This test used to assert that such a call was *not* counted as `ok`, which
+   * This test once asserted that such a call was *not* counted as `ok`, which
    * is true of a series that does not exist and would have been true of a
-   * counter that had never been wired up at all. It asserts the real shape now:
-   * nothing at all, which is a gap somebody may want to close by counting at
-   * the transport, and which the metric's help text names.
+   * counter never wired up at all; then that it was counted nowhere, which was
+   * the gap stated. `mcp_requests_total` closes the gap at the transport, so
+   * the absence here is asserted beside the presence there, and the call goes
+   * in through `handleMcpRequest` rather than the in-memory pair, because the
+   * transport is where the second counter is and the pair never passes it.
    */
-  it("counts nothing for a call the protocol refuses before the tool runs", async () => {
-    const client = await connect();
-    await client
-      .callTool({ name: "list_transactions", arguments: { limit: -1 } })
-      .catch(() => undefined);
+  it("leaves a call the protocol refuses out of the tool counter, and counts it at the transport", async () => {
+    const response = await handleMcpRequest(
+      new Request("https://books.example/mcp", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "list_transactions", arguments: { limit: -1 } },
+        }),
+      }),
+      { userId: "metrics-agent", source: "mcp", clientId: "metrics-test" },
+      new Set(["ledger:read"]),
+    );
+    expect(response.status).toBe(200);
     const text = await registry.metrics();
     expect(text).not.toContain('tool="list_transactions"');
+    expect(text).toMatch(
+      /simple_balance_mcp_requests_total\{[^}]*rpc_method="tools\/call"[^}]*outcome="tool_error"[^}]*\} 1/,
+    );
   });
 });
 
@@ -254,5 +392,50 @@ describe("the metrics endpoint", () => {
       headers: { authorization: "Bearer a-long-enough-scrape-token" },
     });
     expect(response.status).toBe(200);
+  });
+
+  /**
+   * Over a real socket, because the hole was in what the adapter does with a
+   * raw request line and `app.request()` never has one. The frontend nginx
+   * reads `/api/..\metrics` as an /api path and proxies it; the adapter read
+   * the backslash as a slash, resolved the `..`, and answered with every
+   * number this process keeps — from the internet, with no token set.
+   */
+  it("answers only a request line that asked for /metrics itself", async () => {
+    process.env.METRICS_ENABLED = "true";
+    delete process.env.METRICS_TOKEN;
+    const listener = serve({ fetch: (await freshApp()).fetch, port: 0, hostname: "127.0.0.1" });
+    await once(listener, "listening");
+    const { port } = listener.address() as AddressInfo;
+    const ask = (target: string) =>
+      new Promise<string>((resolve, reject) => {
+        let answer = "";
+        const socket = connect(port, "127.0.0.1", () => {
+          socket.end(`GET ${target} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n`);
+        });
+        socket.setEncoding("utf8");
+        socket.on("data", (chunk: string) => (answer += chunk));
+        socket.on("end", () => resolve(answer));
+        socket.on("error", reject);
+      });
+    try {
+      for (const target of [
+        "/api/..\\metrics",
+        "/health/..\\metrics",
+        "/api/../metrics",
+        "/api/%2e%2e/metrics",
+      ]) {
+        const answer = await ask(target);
+        expect(answer, target).toMatch(/^HTTP\/1\.1 404 /);
+        expect(answer, target).not.toContain("simple_balance_");
+      }
+      for (const target of ["/metrics", "/metrics?scrape=1"]) {
+        const answer = await ask(target);
+        expect(answer, target).toMatch(/^HTTP\/1\.1 200 /);
+        expect(answer, target).toContain("simple_balance_");
+      }
+    } finally {
+      await new Promise((resolve) => listener.close(resolve));
+    }
   });
 });

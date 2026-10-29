@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { type SourceFile, sourceFiles, topLevelDeclarations } from "./support/source.js";
 
@@ -391,6 +392,79 @@ describe("services.md 2.10, a side effect waits for the commit", () => {
   });
 
   /**
+   * The other half of 2.10's heading: the transaction's owner releases it.
+   *
+   * `countAfterCommit` queues whenever it is handed a transaction, and only
+   * `flushDeferredCounts` empties that queue, so a function that opens a
+   * transaction and hands it to a service that counts has to flush it — or every
+   * count queued on it is collected away unflushed. `moveLedgerFile` did exactly
+   * that for a release: it voided each deleted entry through
+   * `setTransactionDeleted` on the transaction it opened, and the `delete` each
+   * void counted went nowhere.
+   *
+   * The population is every opener in `src/server` — `withTransaction(…, async
+   * (tx) =>` and `.transaction(async (tx) =>` — and what it hands its
+   * transaction to: a function in this tree that counts, directly or through
+   * another it hands a transaction to, or a parameter of its own, which is a
+   * callee it cannot see and so might count. That last is the MCP transport's
+   * shape: it runs whatever mutation a tool passes it.
+   */
+  it("has every opener that hands its transaction to a count release it", () => {
+    const all = read(sourceFiles("src/server"));
+    const transactionArgument = /\b(?:tx|transaction)\b/;
+    const counting = new Set(
+      all
+        .filter(
+          (one) => one.name !== "countAfterCommit" && /\bcountAfterCommit\s*\(/.test(one.body),
+        )
+        .map((one) => one.name),
+    );
+    // Through anything handed a transaction, until nothing new joins.
+    for (let grew = true; grew;) {
+      grew = false;
+      for (const one of all) {
+        if (counting.has(one.name)) continue;
+        const reaches = [...counting].some((name) =>
+          callSpans(one.body, name).some(([from, to]) =>
+            transactionArgument.test(one.body.slice(from, to)),
+          ),
+        );
+        if (reaches) {
+          counting.add(one.name);
+          grew = true;
+        }
+      }
+    }
+    expect(counting, "the counting services are being found").toContain("setTransactionDeleted");
+
+    const unreleased: string[] = [];
+    let openers = 0;
+    for (const one of all) {
+      const ownParameters = one.parameters
+        .split(",")
+        .map((parameter) => /^\s*(\w+)/.exec(parameter)?.[1])
+        .filter((name): name is string => Boolean(name));
+      for (const match of one.body.matchAll(
+        /(?:\bwithTransaction\s*\([^,]+,|\.transaction\s*\()\s*async\s*\(\s*(\w+)/g,
+      )) {
+        openers += 1;
+        const handed = new RegExp(`\\b${match[1]!}\\b`);
+        const handsOn = [...counting, ...ownParameters].some((name) =>
+          callSpans(one.body, name).some(([from, to]) => handed.test(one.body.slice(from, to))),
+        );
+        if (handsOn && !/\bflushDeferredCounts\s*\(/.test(one.body)) {
+          unreleased.push(one.where);
+        }
+      }
+    }
+    expect(openers, "the openers are being found").toBeGreaterThan(40);
+    expect(
+      unreleased,
+      "flush what was queued on a transaction you opened, after it resolves: `if (opened) flushDeferredCounts(opened)`",
+    ).toEqual([]);
+  });
+
+  /**
    * The span reader, against the shape it exists for: the same statement
    * deferred and not deferred, in one body.
    */
@@ -404,5 +478,65 @@ describe("services.md 2.10, a side effect waits for the commit", () => {
       spans.some(([from, to]) => match.index > from && match.index < to),
     );
     expect(sites).toEqual([true, false]);
+  });
+});
+
+/**
+ * The numbers `services.md` opens with, held to the directory they count.
+ *
+ * `writing.md` §A measured number carries a test or a date. These carried
+ * neither, and the Simple Balance file's export, add and move moved every one
+ * of them while the prose went on saying 422, 26 and 189 — and "nine places
+ * open a transaction directly" while eleven did, so a reviewer could not tell
+ * whether the two new ones were argued exceptions or violations. The three-way
+ * split is read by a classifier written down here, because the one the table
+ * was first filled in with was never written down and could not be rerun.
+ */
+describe("services.md's own counts", () => {
+  const text = readFileSync("docs/standards/code/services.md", "utf8").replaceAll(/\s+/g, " ");
+  const files = sourceFiles("src/server/services");
+  const declarations = files.flatMap((file) => topLevelDeclarations(file));
+  /** The type the first parameter is annotated with, or undefined. */
+  const firstType = (body: string) =>
+    (/^(?:export\s+)?(?:async\s+)?function\s+\w+\s*(?:<[^>]*>)?\(\s*\w+\s*:\s*([\w.]+)/.exec(
+      body,
+    ) ?? /^(?:export\s+)?const\s+\w+\s*=\s*(?:async\s*)?\(\s*\w+\s*:\s*([\w.]+)/.exec(body))?.[1];
+
+  it("states the declarations, the modules and the exported functions", () => {
+    const exportedFunctions = declarations.filter((one) =>
+      /^export (?:async )?function /.test(one.body),
+    ).length;
+    expect(declarations.length).toBeGreaterThan(300);
+    expect(text).toContain(
+      `${declarations.length} top-level declarations across ${files.length} modules, ${exportedFunctions} of them exported functions.`,
+    );
+    expect(text).toContain(`three rows count the same ${declarations.length} declarations`);
+  });
+
+  it("splits them three ways as its table says", () => {
+    const actor = declarations.filter((one) => firstType(one.body) === "Actor");
+    const tx = declarations.filter((one) => firstType(one.body) === "DbTransaction");
+    const other = declarations.length - actor.length - tx.length;
+    expect(actor.length, "the classifier is finding entry points").toBeGreaterThan(50);
+    expect(text).toContain(`Scopes every query by \`actor.userId\`. | ${actor.length} |`);
+    expect(text).toContain(`Takes \`actor\` second when it needs scoping. | ${tx.length} |`);
+    expect(text).toContain(`touching no database and needing no actor. | ${other} |`);
+    const exported = (rows: typeof actor) => rows.filter((one) => one.exported).length;
+    expect(text).toContain(
+      `${exported(actor)} of the ${actor.length} are exported and ${exported(tx)} of the ${tx.length} are`,
+    );
+  });
+
+  it("counts the places that open a transaction directly", () => {
+    const words = ["nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen"];
+    let opened = 0;
+    for (const file of files) {
+      opened += (file.code.match(/(?:getDb\(\)|\bdb)\s*\.transaction\(/g) ?? []).length;
+    }
+    const word = words[opened - 9];
+    expect(word, `${opened} is outside the words this check spells`).toBeDefined();
+    const capitalized = `${word![0]!.toUpperCase()}${word!.slice(1)}`;
+    expect(text).toContain(`${capitalized} places in this directory open a transaction directly`);
+    expect(text).toContain(`none of the ${word} advertises the parameter`);
   });
 });

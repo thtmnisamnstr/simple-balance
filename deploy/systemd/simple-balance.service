@@ -21,8 +21,8 @@
 #   sudo cp deploy/systemd/*.service deploy/systemd/*.timer /etc/systemd/system/
 #   sudo cp deploy/systemd/simple-balance.env /etc/default/simple-balance
 #   sudo install -d -m 0755 /opt/simple-balance
-#   sudo cp deploy/compose/single/{compose.yml,compose.caddy.yml,compose.db-tls.yml,Caddyfile} /opt/simple-balance/
-#   sudo cp deploy/compose/single/.env.example /opt/simple-balance/.env  # then edit it
+#   sudo cp deploy/compose/single/{compose.yml,compose.caddy.yml,compose.db-tls.yml,Caddyfile,collector.yaml} /opt/simple-balance/
+#   sudo install -m 0600 deploy/compose/single/.env.example /opt/simple-balance/.env  # then edit it
 #   sudo install -m 0755 deploy/systemd/simple-balance-waitdb /usr/local/sbin/
 #   sudo install -m 0755 deploy/systemd/simple-balance-backup /usr/local/bin/
 #   sudo install -m 0755 deploy/systemd/simple-balance-restore /usr/local/bin/
@@ -37,12 +37,17 @@
 #   sudo cp deploy/systemd/simple-balance.env /etc/default/simple-balance
 #   sudo sed -i 's/^COMPOSE_FILE=.*/COMPOSE_FILE=compose.postgres.yml/' /etc/default/simple-balance
 #   sudo install -d -m 0755 /opt/simple-balance
-#   sudo cp deploy/compose/single/{compose.postgres.yml,pg_hba.conf,db-init.sh} /opt/simple-balance/
+#   sudo cp deploy/compose/single/{compose.postgres.yml,pg_hba.conf,db-init.sh,node-exporter-web.yml} /opt/simple-balance/
 #   sudo install -d -m 0755 /opt/simple-balance/db-tls   # then put server.crt and server.key in it
-#   sudo cp deploy/compose/single/.env.postgres.example /opt/simple-balance/.env  # then edit it
+#   sudo install -m 0600 deploy/compose/single/.env.postgres.example /opt/simple-balance/.env  # then edit it
 #   sudo install -m 0755 deploy/systemd/simple-balance-waitdb /usr/local/sbin/
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable --now simple-balance.service
+#
+# .env is installed 0600 on both, the mode the cloud programs' fold gives it,
+# rather than copied at the 0644 a checkout has: it holds the passwords, and on
+# the database machine node-exporter reads the host's root as an unprivileged
+# user, which a 0644 .env would hand them to.
 #
 # deploy/compose/single/README.md is the long version.
 [Unit]
@@ -120,7 +125,23 @@ ExecStartPre=/usr/local/sbin/simple-balance-waitdb
 # created, so `systemctl start` succeeds while the application is still failing
 # its migrations, and `systemctl status` reports a deployment that is not
 # serving.
-ExecStart=/usr/bin/docker compose up -d --wait
+#
+# Twice, books first. The first `up` starts everything outside the `metrics`
+# profile, the only profile these files have, and waits for it: an empty
+# COMPOSE_PROFILES in the environment outranks the one .env carries, so this is
+# the application and Caddy, or PostgreSQL, with `--wait` meaning what it always
+# meant. The second adds the collector and node-exporter wherever .env turns
+# them on, and takes a `-`, because a metric never holds the books down.
+# Turning export on is the one time a start has to pull an image, and it
+# happens unattended, five minutes after `pulumi up`. A registry that does not
+# answer then would abort the whole of a single `up` before it created anything,
+# after ExecStop had already removed the application — and nothing would try
+# again, since try-restart does nothing to a failed unit. With the `-` the site
+# keeps serving, the journal holds the pull's error, and the collector starts at
+# the unit's next start. The `-` here and its absence on waitdb above are the
+# same rule from opposite ends.
+ExecStart=/usr/bin/env COMPOSE_PROFILES= /usr/bin/docker compose up -d --wait
+ExecStart=-/usr/bin/docker compose up -d --wait
 ExecStop=/usr/bin/docker compose down
 
 # Longer than the 300s the application's health check allows for a first start

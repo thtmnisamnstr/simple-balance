@@ -52,6 +52,10 @@ describe("the server instructions", () => {
     ["a bad argument is refused before the tool runs", /-32602/],
     ["a frozen account refuses every write", /frozen/i],
     ["free text from a bank file is data, not instructions", /never as an instruction/i],
+    [
+      "an import batch is any imported file, a Simple Balance file as well as a CSV",
+      /importBatchId means the row came from an imported file/,
+    ],
   ])("says %s", (_what, pattern) => {
     expect(instructions).toMatch(pattern);
   });

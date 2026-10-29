@@ -26,6 +26,7 @@ The application machine:
 | `compose.caddy.yml` | An overlay that adds TLS, obtained and renewed by Caddy. |
 | `compose.db-tls.yml` | An overlay that mounts the database's CA certificate into the application, for a `DATABASE_URL` that names one. |
 | `Caddyfile` | What Caddy serves. Read by the Caddy overlay, not by `compose.yml`. |
+| `collector.yaml` | What the metrics collector scrapes and where it sends it. Read only under the `metrics` profile. |
 | `.env.example` | Copy to `.env` on that machine. |
 
 The database machine, which is a Compose project of its own and shares nothing
@@ -36,6 +37,7 @@ with the one above but the directory it is kept in:
 | `compose.postgres.yml` | PostgreSQL 18, serving TLS, published on this machine's private address alone. |
 | `pg_hba.conf` | Who may connect and how. Mounted over the one `initdb` writes, so every line that crosses a network says `hostssl`. |
 | `db-init.sh` | Creates the unprivileged role the application signs in as, and hands it the database. Run once, by the entrypoint, on the boot that creates the cluster. |
+| `node-exporter-web.yml` | node-exporter's TLS: the database's own certificate, TLS 1.3 and nothing older. Read only under the `metrics` profile. |
 | `.env.postgres.example` | Copy to `.env` on that machine. |
 
 Skip the Caddy overlay if you already run nginx, HAProxy or a cloud load balancer.
@@ -51,7 +53,7 @@ application's first start runs the migrations, so it has nothing to do until
 there is something to migrate.
 
 ```sh
-cp deploy/compose/single/.env.example deploy/compose/single/.env
+install -m 0600 deploy/compose/single/.env.example deploy/compose/single/.env
 $EDITOR deploy/compose/single/.env          # DATABASE_URL, AUTH_SECRET, APP_BASE_URL
 cd deploy/compose/single
 docker compose up -d --wait
@@ -78,7 +80,7 @@ On the other machine, and before the one above — the application waits for its
 migrations and will sit failing readiness until there is something to migrate.
 
 ```sh
-cp deploy/compose/single/.env.postgres.example deploy/compose/single/.env
+install -m 0600 deploy/compose/single/.env.postgres.example deploy/compose/single/.env
 $EDITOR deploy/compose/single/.env   # SB_BIND_ADDRESS, POSTGRES_PASSWORD, POSTGRES_APP_PASSWORD
 cd deploy/compose/single
 sudo install -d -m 0755 db-tls
@@ -321,6 +323,94 @@ curl -fsS http://127.0.0.1:3000/health/ready
 answers. `/health/live` reports only that the process is up, and touches no
 database — which is why it is the one a restart policy should watch.
 
+## Metrics
+
+Off unless asked for, and nothing about it runs until it is. With it on, two
+more services start on the application machine: an OpenTelemetry Collector,
+which scrapes the application's `/metrics`, this machine's node-exporter, the
+database machine's node-exporter and itself, and sends all of it to one
+backend; and node-exporter, which reads this machine's CPU, memory, load,
+pressure, disks and network. Nothing is kept on the machine — the collector has
+no volume and no queue on disk — and nothing is published: both listen on
+`127.0.0.1` on the host's network, and the collector is the only one that talks
+to the internet. `collector.yaml` says what is scraped and why.
+
+The switch is a Compose profile, so with it off `docker compose config
+--services` names exactly what it named before. Turning it on by hand is three
+lines in `.env`, which go together, and a fourth for the backend's credential:
+
+```sh
+COMPOSE_PROFILES=metrics
+METRICS_ENABLED=true
+SB_METRICS_EXPORT_ENDPOINT=https://otlp.nr-data.net
+SB_METRICS_EXPORT_HEADERS='{"api-key":"<your New Relic ingest license key>"}'
+```
+
+then `docker compose up -d --wait`, and `curl -fsS 127.0.0.1:13133` on the
+machine reports the collector's own health. `METRICS_ENABLED` has to be said:
+Compose has no way to derive it from the endpoint without rendering it empty
+when neither is set, and the application refuses an empty one. Leave it off and
+the collector sends this machine's figures and none of the application's, and
+says so only in its own log.
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `SB_METRICS_EXPORT_ENDPOINT` | unset | Where everything goes. For OTLP a base URL — New Relic's is `https://otlp.nr-data.net`, or `https://otlp.eu01.nr-data.net` in the EU — and for remote write the whole write URL. |
+| `SB_METRICS_EXPORT_PROTOCOL` | `otlp` | `otlp`, which is OTLP over HTTP with gzip, or `prometheus_remote_write`. |
+| `SB_METRICS_EXPORT_HEADERS` | unset | The backend's credential, as a JSON object of header names to values. A secret. Single-quote it in `.env`. |
+| `SB_METRICS_SCRAPE_INTERVAL` | `30s` | How often, in minutes and seconds (`30s`, `1m30s`). Keep it under `5m`: New Relic forgets a counter silent for five minutes, and every rate with it. |
+| `SB_METRICS_ENVIRONMENT` | `production` | `deployment.environment.name` on every series, which tells deployments in one account apart. |
+| `SB_METRICS_DATABASE_TARGET` | unset | The database machine's node-exporter, `host:9100`, with a host the database's certificate names. Needs `compose.db-tls.yml`, whose CA it is checked against. Unset, nothing is scraped there. |
+| `METRICS_TOKEN` | unset | Sent by the collector as a bearer token, and checked by the application. |
+
+On a machine one of the single-machine Pulumi programs built, set the endpoint
+and the headers in the stack — `simple-balance:env.SB_METRICS_EXPORT_ENDPOINT`
+and `simple-balance:secrets.SB_METRICS_EXPORT_HEADERS` — and the rest follows:
+`simple-balance-env` writes `COMPOSE_PROFILES=metrics` and
+`METRICS_ENABLED=true` into `.env` unless the stack already says otherwise, and
+the program names its own database node as the target.
+
+Turning it off by hand is `docker compose --profile metrics down` before the
+profile leaves `.env`, then `docker compose up -d --wait`: a `down` that does
+not name the profile leaves that profile's containers running. On a cloud
+machine, removing the endpoint from the stack is all of it, because the unit's
+`docker compose down` runs against the `.env` from before the change.
+
+The Caddyfile refuses `/metrics` whatever is set here, so the numbers never
+leave through the site's own address. A terminator of your own in place of
+Caddy has to refuse it the same way.
+
+On an AWS or Oracle Cloud machine, first keep the exporters away from the
+instance metadata address. They share the host's network, which puts them
+inside the hop limit that keeps containers from an AWS machine's role, and
+Oracle Cloud has no hop limit at all. `aws-single` adds this at every boot and
+`oci-single` saves it with the host firewall; a hand install keeps it the way
+that machine keeps its firewall, which on Oracle's image is
+`sudo netfilter-persistent save` after it:
+
+```sh
+sudo iptables -I OUTPUT -d 169.254.169.254 -m owner --uid-owner 10000-65534 -j REJECT
+```
+
+[`docs/deployment.md`](../../../docs/deployment.md#metrics) has what other
+backends want, what is scraped and what deliberately is not, and the alerts
+worth setting in PromQL and New Relic's NRQL.
+
+The database machine has a half of its own, off until that machine's `.env`
+says `COMPOSE_PROFILES=metrics`: node-exporter beside PostgreSQL, listening on
+`SB_BIND_ADDRESS` port 9100 and nowhere else, and serving TLS with the
+database's own certificate, so the collector checks it against the CA the
+application already trusts. It needs three things first, and
+`.env.postgres.example` has the commands: its own copy of the server's
+certificate and key in `node-exporter-tls/`, owned by uid 61000;
+`node-exporter-web.yml` beside `compose.postgres.yml`; and 9100/tcp open from
+the application machine and from nothing else. Then
+`docker compose -f compose.postgres.yml up -d --wait` starts it and leaves
+PostgreSQL running as it was, and `SB_METRICS_DATABASE_TARGET` on the
+application machine names it. Turning it off is
+`docker compose -f compose.postgres.yml rm --stop --force node-exporter`, never
+a `down`, which takes the database with it.
+
 ## Running it as a service
 
 The compose file describes the deployment; systemd is what starts it after a
@@ -338,6 +428,13 @@ same containers is a question people expect to be a problem:
 They do not fight, and the reason is one line: the unit's `ExecStop` runs
 `docker compose down`, which removes the containers, so there is nothing left
 for Docker's restart policy to bring back after a deliberate stop.
+
+The unit starts in two `up`s. The first holds the `metrics` profile off and
+waits for the application and Caddy, or for PostgreSQL; the second adds the
+collector and node-exporter wherever `.env` turns them on, and a failure there
+is logged rather than fatal. So a registry that does not answer when metrics
+are first turned on costs the metrics until the next start, and never the site
+or the database.
 
 A setting changes the same way however the machine was built: edit it, then
 `sudo systemctl restart simple-balance`, which takes the containers down and
@@ -431,6 +528,9 @@ wherever that is, which is a decision taken over there.
   server says at startup which of the two it is doing.
 - **The host in `DATABASE_URL` and the name in the database's certificate**,
   under `verify-full`. A hostname the certificate carries, never an address.
+- **The host in `SB_METRICS_DATABASE_TARGET` and the same certificate**, when
+  metrics are on. The database machine's node-exporter serves the database's
+  own certificate, so the target has to be a name or address it carries.
 - **The file `sslrootcert` names and the directory `compose.db-tls.yml`
   mounts.** The URL is read inside the application container and on the host,
   so the file has to be under `/var/lib/simple-balance/tls`, which is the same

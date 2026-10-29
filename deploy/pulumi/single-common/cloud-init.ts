@@ -121,9 +121,20 @@ export interface CloudInitArgs {
    * It exists for OCI, whose Ubuntu images ship a netfilter ruleset that
    * accepts 22 and drops everything else — so opening 80 and 443 in the cloud's
    * own security list is necessary and not sufficient, and the symptom is a
-   * machine that answers SSH and times out on the web. AWS needs nothing here.
+   * machine that answers SSH and times out on the web. Oracle's machines put
+   * `IMDS_BLOCK` first here too, so that the save after it keeps it. AWS needs
+   * nothing here.
    */
   platformCommands?: string[];
+  /**
+   * Commands run in cloud-init's boot stage, at every boot and before Docker
+   * starts anything — the database node's field of the same name says why
+   * that stage. On AWS it is `IMDS_EXPORTER_BLOCK` in
+   * `../aws-single/platform.ts`, a firewall rule nothing saves across a
+   * reboot; empty on Oracle Cloud, whose image does save one, and the key is
+   * then left out of the document.
+   */
+  bootCommands?: string[];
   /**
    * The database node this stack built, when it built one.
    *
@@ -158,18 +169,20 @@ export interface ApplicationDatabase {
 /**
  * How a file writes a comment, which decides what can safely be left out of it.
  *
- * Only whole-line comments are ever removed, and only where the syntax says the
- * line is a comment rather than content: never a shebang, never a line inside a
- * heredoc or a quoted string that spans lines, never one inside a YAML block
- * scalar. A file with anything the readers below cannot account for is sent as
- * it is, because a copy that is a few hundred bytes longer is a better failure
- * than a script that means something different on the machine.
+ * Only whole-line comments are ever removed, and the blank lines between them,
+ * and only where the syntax says the line is a comment or a blank rather than
+ * content: never a shebang, never a line inside a heredoc or a quoted string
+ * that spans lines, never one inside a YAML block scalar, never the blank line
+ * that ends a shell command continued onto it. A file with anything the readers
+ * below cannot account for is sent as it is, because a copy that is a few
+ * hundred bytes longer is a better failure than a script that means something
+ * different on the machine.
  */
 export type CommentSyntax = "shell" | "yaml" | "systemd" | "caddyfile" | "hash";
 
 /**
- * The file with its whole-line comments removed, or unchanged where that is
- * not provably safe.
+ * The file with its whole-line comments and its blank lines removed, or
+ * unchanged where that is not provably safe.
  *
  * Why it is done at all: the providers cap user data — OCI at 32,000 bytes of
  * instance metadata, EC2 at 16,384 bytes before base64 — and this repository's
@@ -177,11 +190,22 @@ export type CommentSyntax = "shell" | "yaml" | "systemd" | "caddyfile" | "hash";
  * asks for. Compressed as it is, it fit EC2 by a couple of hundred bytes, which
  * is the next paragraph somebody adds to a script. The comments stay in the
  * repository, where they are read; the machine runs the same lines without them.
+ *
+ * The blank lines went later, and for the same reason: the metrics collector's
+ * configuration took the application node's document past the quarter of EC2's
+ * cap `tests/cloud-init.test.ts` keeps spare, and the blanks the comments used
+ * to separate were about ninety bytes of it compressed. Each reader drops a
+ * blank line exactly where it would drop a comment line, so nothing that is
+ * content anywhere — a heredoc's, a block scalar's, a quoted string's — is
+ * touched, and indentation is never touched at all: a script on the machine
+ * reads as its shape, only closer together.
  */
 export function stripComments(text: string, syntax: CommentSyntax): string {
   const lines = text.split("\n");
   const removable = removableLines(lines, syntax);
   if (!removable) return text;
+  // The empty string after the last newline is the newline, not a blank line.
+  if (lines[lines.length - 1] === "") removable.delete(lines.length - 1);
   return lines.filter((_, index) => !removable.has(index)).join("\n");
 }
 
@@ -214,11 +238,15 @@ function removableLines(lines: string[], syntax: CommentSyntax): Set<number> | n
  */
 function hashComments(lines: string[]): Set<number> {
   const removable = new Set<number>();
-  for (const [index, line] of lines.entries()) if (isCommentLine(line)) removable.add(index);
+  for (const [index, line] of lines.entries()) {
+    if (isCommentLine(line) || isBlankLine(line)) removable.add(index);
+  }
   return removable;
 }
 
 const isCommentLine = (line: string) => line.trimStart().startsWith("#");
+
+const isBlankLine = (line: string) => line.trim() === "";
 
 /**
  * POSIX shell, read the way sh reads it as far as comments are concerned.
@@ -245,7 +273,9 @@ function shellComments(lines: string[]): Set<number> | null {
       if (candidate === heredoc.delimiter) heredoc = pending.shift() ?? null;
       continue;
     }
-    if (stack.length === 0 && !continued && isCommentLine(line)) {
+    // A blank line after a backslash is where the continued command ends, so
+    // `continued` keeps it as surely as it keeps a comment there.
+    if (stack.length === 0 && !continued && (isCommentLine(line) || isBlankLine(line))) {
       if (!(index === 0 && line.startsWith("#!"))) removable.add(index);
       continue;
     }
@@ -357,8 +387,7 @@ function yamlComments(lines: string[]): Set<number> | null {
       if (line.trim() === "" || indent > block) continue;
       block = null;
     }
-    if (line.trim() === "") continue;
-    if (isCommentLine(line)) {
+    if (isBlankLine(line) || isCommentLine(line)) {
       removable.add(index);
       continue;
     }
@@ -413,7 +442,7 @@ function systemdComments(lines: string[]): Set<number> | null {
   const removable = new Set<number>();
   for (const [index, line] of lines.entries()) {
     const start = line.trimStart();
-    if (start.startsWith("#") || start.startsWith(";")) removable.add(index);
+    if (start === "" || start.startsWith("#") || start.startsWith(";")) removable.add(index);
   }
   return removable;
 }
@@ -436,7 +465,9 @@ function caddyfileComments(lines: string[]): Set<number> | null {
     );
   if (unsafe) return null;
   const removable = new Set<number>();
-  for (const [index, line] of lines.entries()) if (isCommentLine(line)) removable.add(index);
+  for (const [index, line] of lines.entries()) {
+    if (isCommentLine(line) || isBlankLine(line)) removable.add(index);
+  }
   return removable;
 }
 
@@ -492,63 +523,30 @@ export interface EmbeddedFile {
  * restore script would be paying for three files it has no service to run. The
  * split is also what makes "the server key is in one document and not the
  * other" a thing a test can check rather than a thing somebody remembers.
+ *
+ * In groups by kind — scripts, units, compose files, the Caddyfile — and within
+ * a kind in the order that measured smallest, because gzip finds more to share
+ * between neighbours that look alike. That was 161 bytes of the gzipped
+ * document against the order the files were added in, which paid for AWS's
+ * metadata rule, the unit's second `up` and the fold's look at compose.yml
+ * with some to spare. Nothing on the machine can tell, since the order
+ * `write_files` creates files in is part of none of them; a file that grows
+ * may move the best order, and measuring again is the cheapest way back under
+ * the budget `tests/cloud-init.test.ts` keeps.
  */
 export const APP_FILES: readonly EmbeddedFile[] = [
   {
-    // Both machines get it. On the database machine DATABASE_URL is unset, so
-    // it waits for nothing and exits immediately; shipping it to one machine
-    // only would make the unit's ExecStartPre a file that exists on one host
-    // and not the other, which is a start failure rather than a no-op.
-    source: "deploy/systemd/simple-balance-waitdb",
-    target: "/usr/local/sbin/simple-balance-waitdb",
-    permissions: "0755",
+    source: "deploy/systemd/simple-balance-env",
+    target: "/usr/local/sbin/simple-balance-env",
+    permissions: "0700",
     syntax: "shell",
   },
   {
-    source: "deploy/compose/single/compose.yml",
-    target: "/opt/simple-balance/compose.yml",
-    permissions: "0644",
-    syntax: "yaml",
-  },
-  {
-    source: "deploy/compose/single/compose.caddy.yml",
-    target: "/opt/simple-balance/compose.caddy.yml",
-    permissions: "0644",
-    syntax: "yaml",
-  },
-  {
-    source: "deploy/compose/single/compose.db-tls.yml",
-    target: "/opt/simple-balance/compose.db-tls.yml",
-    permissions: "0644",
-    syntax: "yaml",
-  },
-  {
-    source: "deploy/compose/single/Caddyfile",
-    target: "/opt/simple-balance/Caddyfile",
-    permissions: "0644",
-    syntax: "caddyfile",
-  },
-  {
-    source: "deploy/systemd/simple-balance.service",
-    target: "/etc/systemd/system/simple-balance.service",
-    permissions: "0644",
-    syntax: "systemd",
-  },
-  {
-    source: "deploy/systemd/simple-balance-backup.service",
-    target: "/etc/systemd/system/simple-balance-backup.service",
-    permissions: "0644",
-    syntax: "systemd",
-  },
-  {
-    source: "deploy/systemd/simple-balance-backup.timer",
-    target: "/etc/systemd/system/simple-balance-backup.timer",
-    permissions: "0644",
-    syntax: "systemd",
-  },
-  {
-    source: "deploy/systemd/simple-balance-backup",
-    target: "/usr/local/bin/simple-balance-backup",
+    // 0755 rather than the 0700 the first-boot script gets, because this one
+    // holds no secret and an operator reading `systemctl cat` should be able to
+    // read what it runs. It is still only ever started as root.
+    source: "deploy/systemd/simple-balance-growfs",
+    target: "/usr/local/sbin/simple-balance-growfs",
     permissions: "0755",
     syntax: "shell",
   },
@@ -559,23 +557,18 @@ export const APP_FILES: readonly EmbeddedFile[] = [
     syntax: "shell",
   },
   {
-    source: "deploy/systemd/simple-balance-env",
-    target: "/usr/local/sbin/simple-balance-env",
-    permissions: "0700",
+    source: "deploy/systemd/simple-balance-backup",
+    target: "/usr/local/bin/simple-balance-backup",
+    permissions: "0755",
     syntax: "shell",
   },
   {
-    source: "deploy/systemd/simple-balance-growfs.service",
-    target: "/etc/systemd/system/simple-balance-growfs.service",
-    permissions: "0644",
-    syntax: "systemd",
-  },
-  {
-    // 0755 rather than the 0700 the first-boot script gets, because this one
-    // holds no secret and an operator reading `systemctl cat` should be able to
-    // read what it runs. It is still only ever started as root.
-    source: "deploy/systemd/simple-balance-growfs",
-    target: "/usr/local/sbin/simple-balance-growfs",
+    // Both machines get it. On the database machine DATABASE_URL is unset, so
+    // it waits for nothing and exits immediately; shipping it to one machine
+    // only would make the unit's ExecStartPre a file that exists on one host
+    // and not the other, which is a start failure rather than a no-op.
+    source: "deploy/systemd/simple-balance-waitdb",
+    target: "/usr/local/sbin/simple-balance-waitdb",
     permissions: "0755",
     syntax: "shell",
   },
@@ -593,23 +586,83 @@ export const APP_FILES: readonly EmbeddedFile[] = [
     syntax: "shell",
   },
   {
+    source: "deploy/systemd/simple-balance-settings.timer",
+    target: "/etc/systemd/system/simple-balance-settings.timer",
+    permissions: "0644",
+    syntax: "systemd",
+  },
+  {
+    source: "deploy/systemd/simple-balance-growfs.service",
+    target: "/etc/systemd/system/simple-balance-growfs.service",
+    permissions: "0644",
+    syntax: "systemd",
+  },
+  {
+    source: "deploy/systemd/simple-balance-backup.service",
+    target: "/etc/systemd/system/simple-balance-backup.service",
+    permissions: "0644",
+    syntax: "systemd",
+  },
+  {
     source: "deploy/systemd/simple-balance-settings.service",
     target: "/etc/systemd/system/simple-balance-settings.service",
     permissions: "0644",
     syntax: "systemd",
   },
   {
-    source: "deploy/systemd/simple-balance-settings.timer",
-    target: "/etc/systemd/system/simple-balance-settings.timer",
+    source: "deploy/systemd/simple-balance.service",
+    target: "/etc/systemd/system/simple-balance.service",
     permissions: "0644",
     syntax: "systemd",
+  },
+  {
+    source: "deploy/systemd/simple-balance-backup.timer",
+    target: "/etc/systemd/system/simple-balance-backup.timer",
+    permissions: "0644",
+    syntax: "systemd",
+  },
+  {
+    source: "deploy/compose/single/compose.yml",
+    target: "/opt/simple-balance/compose.yml",
+    permissions: "0644",
+    syntax: "yaml",
+  },
+  {
+    source: "deploy/compose/single/compose.caddy.yml",
+    target: "/opt/simple-balance/compose.caddy.yml",
+    permissions: "0644",
+    syntax: "yaml",
+  },
+  {
+    // On every machine, whether or not the stack exports metrics today: the
+    // collector is the one service here that a setting starts, and a setting
+    // reaches a running machine where this file never would. Sent only when
+    // export was on at creation, an endpoint set later would start a
+    // collector whose configuration is not on the disk.
+    source: "deploy/compose/single/collector.yaml",
+    target: "/opt/simple-balance/collector.yaml",
+    permissions: "0644",
+    syntax: "yaml",
+  },
+  {
+    source: "deploy/compose/single/compose.db-tls.yml",
+    target: "/opt/simple-balance/compose.db-tls.yml",
+    permissions: "0644",
+    syntax: "yaml",
+  },
+  {
+    source: "deploy/compose/single/Caddyfile",
+    target: "/opt/simple-balance/Caddyfile",
+    permissions: "0644",
+    syntax: "caddyfile",
   },
 ];
 
 /**
  * Every repository file the database node receives.
  *
- * A short list, because that machine runs one service. It does not
+ * A short list, because that machine runs one service, and a second — the
+ * node-exporter — only while the stack exports metrics. It does not
  * get the backup or the restore script: the backups are taken from the
  * application node over the network onto its protected data volume, which is
  * what keeps `simple-balance-backup`'s "is postgres a service in this project"
@@ -636,6 +689,15 @@ export const DATABASE_FILES: readonly EmbeddedFile[] = [
   {
     source: "deploy/compose/single/compose.postgres.yml",
     target: "/opt/simple-balance/compose.postgres.yml",
+    permissions: "0644",
+    syntax: "yaml",
+  },
+  {
+    // To every database node, for the reason the collector's configuration
+    // goes to every application node: turning export on later is then a line
+    // in env.base rather than a file somebody has to fetch.
+    source: "deploy/compose/single/node-exporter-web.yml",
+    target: "/opt/simple-balance/node-exporter-web.yml",
     permissions: "0644",
     syntax: "yaml",
   },
@@ -726,22 +788,33 @@ function writeFiles(
   transform: (file: EmbeddedFile, text: string) => string,
 ): string {
   return files
-    .map((file) => {
-      const text = transform(file, repoFile(file.source));
-      return `  - path: ${file.target}
-    permissions: "${file.permissions}"
-    content: |
-${block(stripComments(text, file.syntax), 6)}`;
-    })
+    .map((file) =>
+      generatedFile(
+        file.target,
+        file.permissions,
+        stripComments(transform(file, repoFile(file.source)), file.syntax),
+      ),
+    )
     .join("\n\n");
 }
 
-/** One generated file, in the same shape as an embedded one. */
+/**
+ * One file `write_files` creates, embedded or generated, in the one shape both
+ * documents use.
+ *
+ * The list sits at the margin under `write_files:` — YAML lets a block sequence
+ * share its key's indentation — so every line of every file is indented four
+ * spaces rather than six. That is not tidiness: it is a hundred-odd bytes of the
+ * gzipped application document, which is what the metrics collector's
+ * configuration needed to fit inside the quarter of EC2's cap that
+ * `tests/cloud-init.test.ts` keeps spare, and it changes nothing on the machine,
+ * because the indentation of a block scalar is not part of its content.
+ */
 function generatedFile(target: string, permissions: string, contents: string): string {
-  return `  - path: ${target}
-    permissions: "${permissions}"
-    content: |
-${block(contents, 6)}`;
+  return `- path: ${target}
+  permissions: "${permissions}"
+  content: |
+${block(contents, 4)}`;
 }
 
 // ------------------------------------------------------------ database ---
@@ -837,6 +910,28 @@ export function databaseUrl(host: string, password: string): string {
     `postgresql://${DATABASE_ROLE}:${password}@${host}:${DATABASE_PORT}/${DATABASE_NAME}` +
     `?sslmode=verify-full&sslrootcert=${APPLICATION_CA_PATH}`
   );
+}
+
+/**
+ * The port the database node's node-exporter listens on, on that machine's
+ * private address. node-exporter's own default, so a person who knows the tool
+ * finds it where they look. compose.postgres.yml, both programs' firewall
+ * rules, Oracle's host rule and the target below are the five places it is
+ * written, and `tests/single-ingress.test.ts` holds them to one number.
+ */
+export const NODE_EXPORTER_PORT = 9100;
+
+/**
+ * SB_METRICS_DATABASE_TARGET, as the programs write it into the stack's
+ * settings when they built a database node and the stack exports metrics.
+ *
+ * The name DATABASE_URL dials, although the collector is Go and would verify
+ * the address against the certificate's IP SAN quite happily: one name for the
+ * machine is one thing to be wrong, and the DNS name is the certificate's
+ * subject, where the address is a second SAN that `./tls.ts` added for libpq.
+ */
+export function databaseMetricsTarget(host: string): string {
+  return `${requireDnsName(host)}:${NODE_EXPORTER_PORT}`;
 }
 
 /**
@@ -938,10 +1033,16 @@ ${generatedFile("/opt/simple-balance/env.db", "0600", `DATABASE_URL=${database.u
   // entirely without a store, and the fetch then has nothing to do.
   const settingsLines = settingsSource
     ? `
-      SB_SETTINGS_SOURCE=${settingsSource.kind}
-      SB_SETTINGS_ID=${settingsSource.id}
-      SB_SETTINGS_REGION=${settingsSource.region}
-      SB_SETTINGS_IMAGE=${settingsSource.image}`
+    SB_SETTINGS_SOURCE=${settingsSource.kind}
+    SB_SETTINGS_ID=${settingsSource.id}
+    SB_SETTINGS_REGION=${settingsSource.region}
+    SB_SETTINGS_IMAGE=${settingsSource.image}`
+    : "";
+
+  // In the blank line the document already had, so a render with none is the
+  // document it was before this field existed.
+  const bootCommands = args.bootCommands?.length
+    ? `\nbootcmd:\n${args.bootCommands.map((command) => `  - ${command}`).join("\n")}\n`
     : "";
 
   return `#cloud-config
@@ -961,7 +1062,7 @@ ${generatedFile("/opt/simple-balance/env.db", "0600", `DATABASE_URL=${database.u
 #
 # The settings are fetched at every start, so a rebuilt machine has them all.
 timezone: ${settings.timezone}
-
+${bootCommands}
 package_update: true
 packages:
   - docker.io
@@ -971,34 +1072,34 @@ packages:
 write_files:
 ${files}${databaseFiles}
 
-  - path: /etc/systemd/system/simple-balance.service.d/env.conf
-    permissions: "0644"
-    content: |
-      [Unit]
-      RequiresMountsFor=/var/lib/simple-balance
+- path: /etc/systemd/system/simple-balance.service.d/env.conf
+  permissions: "0644"
+  content: |
+    [Unit]
+    RequiresMountsFor=/var/lib/simple-balance
 
-      [Service]
-      ExecStartPre=/usr/local/sbin/simple-balance-settings
-      ExecStartPre=/usr/local/sbin/simple-balance-env
+    [Service]
+    ExecStartPre=/usr/local/sbin/simple-balance-settings
+    ExecStartPre=/usr/local/sbin/simple-balance-env
 
-  - path: /etc/default/simple-balance
-    permissions: "0644"
-    content: |
-      COMPOSE_FILE=compose.yml:compose.caddy.yml:compose.db-tls.yml
-      SB_BACKUP_DIR=/var/lib/simple-balance/backups
-      SB_BACKUP_KEEP=${settings.backupKeep}
-      SB_DATA_DEVICE=${dataDevice}
-      SB_PG_CLIENT_IMAGE=postgres:18${settingsLines}
+- path: /etc/default/simple-balance
+  permissions: "0644"
+  content: |
+    COMPOSE_FILE=compose.yml:compose.caddy.yml:compose.db-tls.yml
+    SB_BACKUP_DIR=/var/lib/simple-balance/backups
+    SB_BACKUP_KEEP=${settings.backupKeep}
+    SB_DATA_DEVICE=${dataDevice}
+    SB_PG_CLIENT_IMAGE=postgres:18${settingsLines}
 
-  - path: /opt/simple-balance/env.base
-    permissions: "0644"
-    content: |
-      APP_BASE_URL=https://${settings.hostname}
-      SITE_ADDRESS=${settings.hostname}
-      ACME_EMAIL=${settings.acmeEmail}
-      AUTH_MODE=local
-      ALLOWED_EMAILS=${settings.allowedEmails}
-      LOG_LEVEL=info
+- path: /opt/simple-balance/env.base
+  permissions: "0644"
+  content: |
+    APP_BASE_URL=https://${settings.hostname}
+    SITE_ADDRESS=${settings.hostname}
+    ACME_EMAIL=${settings.acmeEmail}
+    AUTH_MODE=local
+    ALLOWED_EMAILS=${settings.allowedEmails}
+    LOG_LEVEL=info
 
 runcmd:
 ${(args.platformCommands ?? []).map((command) => `  - ${command}`).join("\n")}
@@ -1050,23 +1151,47 @@ export interface DatabaseCloudInitArgs {
    * it is `IPV6_APT_REWRITE` in `../aws-single/platform.ts`, which carries why
    * it is still here now that the in-region EC2 mirror does publish an AAAA
    * record; the argument is not restated, so that there is one copy of it.
+   * Every AWS database node also gets `IMDS_EXPORTER_BLOCK` from the same
+   * file, after it, and for the other reason this stage exists: it runs at
+   * every boot, and that rule is one nothing saves across a reboot. An Oracle
+   * node saves the same rule with its firewall, in `platformCommands`.
    *
    * Empty everywhere else, and the `bootcmd:` key is then left out of the
    * document entirely rather than emitted empty, because an empty list is a
    * line of user data spent on nothing.
    */
   bootCommands?: string[];
+  /**
+   * Whether the stack exported metrics when this machine was made, which
+   * writes `COMPOSE_PROFILES=metrics` into env.base and so starts the
+   * node-exporter compose.postgres.yml runs beside PostgreSQL.
+   *
+   * Decided once, like everything else in this document. This machine fetches
+   * no settings, so an export the stack turns on later reaches it the way a
+   * PostgreSQL setting does: the same line added to env.base by hand and
+   * simple-balance-db-firstboot run again, which the header names. The port it
+   * opens is not this document's: the programs open 9100 in the cloud's
+   * firewall on every `pulumi up` that finds the stack exporting, and Oracle's
+   * host firewall gets its rule from `platformCommands`, which run once, at
+   * first boot, and only for a machine made while the stack was exporting — so
+   * a machine made before needs that rule by hand as well, and
+   * deploy/pulumi/README.md has the line.
+   */
+  metrics?: boolean;
 }
 
 /**
  * The whole of the database node's configuration, as cloud-init.
  *
  * A second render rather than a flag on the first, and the reason is that
- * almost nothing is shared: this machine runs one service, has no Caddy, no
- * ACME, no backup timer and no settings of the stack's, and it is measured
- * against the provider's cap on its own. A single render with branches would
- * be a document whose size depended on a boolean, which is exactly the thing
- * `tests/cloud-init.test.ts` measures and the thing a provider refuses late.
+ * almost nothing is shared: this machine runs PostgreSQL and at most a
+ * node-exporter beside it, has no Caddy, no ACME, no backup timer and no
+ * settings of the stack's, and it is measured against the provider's cap on its
+ * own. A single render with branches would be a document whose size depended
+ * on a boolean, which is exactly the thing `tests/cloud-init.test.ts` measures
+ * and the thing a provider refuses late. `metrics` is the one boolean this
+ * render does take, and it is a line in env.base and two reworded lines of the
+ * header, so the test measures the document with it on, which is the larger.
  *
  * Two secrets are in this text and both have to be: the server's private key,
  * because PostgreSQL cannot present a certificate without one and this machine
@@ -1116,14 +1241,22 @@ export function databaseCloudInit(args: DatabaseCloudInitArgs): string {
     ? `\nbootcmd:\n${args.bootCommands.map((command) => `  - ${command}`).join("\n")}\n`
     : "";
 
+  // Two lines either way, because the header's length is held equal to the
+  // application node's; and what the off case says is what it said before
+  // metrics existed, byte for byte.
+  const answers = args.metrics
+    ? `# This machine has no public address. It answers 5432, and 9100 for metrics,
+# to the application machine alone; a shell on it comes from the provider's agent —`
+    : `# This machine has no public address. It answers 5432 to the application
+# machine and nothing else; a shell on it comes from the provider's own agent —`;
+
   return `#cloud-config
 # Generated by deploy/pulumi/single-common and applied once, when this database
 # machine first booted. The files below are the repository's own, from
 # deploy/compose/single and deploy/systemd, with their comment lines left out
 # to fit the provider's limit on user data; the commented originals are there.
 #
-# This machine has no public address. It answers 5432 to the application
-# machine and nothing else; a shell on it comes from the provider's own agent —
+${answers}
 # Session Manager on AWS, a Bastion on Oracle Cloud — which opens no port.
 #
 # A later \`pulumi up\` neither re-runs this nor replaces the machine when it
@@ -1143,36 +1276,36 @@ packages:
 write_files:
 ${files}
 
-  - path: /etc/systemd/system/simple-balance.service.d/env.conf
-    permissions: "0644"
-    content: |
-      [Unit]
-      RequiresMountsFor=/var/lib/simple-balance
+- path: /etc/systemd/system/simple-balance.service.d/env.conf
+  permissions: "0644"
+  content: |
+    [Unit]
+    RequiresMountsFor=/var/lib/simple-balance
 
-      [Service]
-      ExecStartPre=/usr/local/sbin/simple-balance-env
+    [Service]
+    ExecStartPre=/usr/local/sbin/simple-balance-env
 
 ${generatedFile(SERVER_CERTIFICATE_PATH, "0644", args.serverCertificate)}
 
 ${generatedFile(SERVER_KEY_PATH, "0600", args.serverKey)}
 
-  - path: /etc/default/simple-balance
-    permissions: "0644"
-    content: |
-      COMPOSE_FILE=compose.postgres.yml
-      SB_DATA_DEVICE=${dataDevice}
-      SB_APP_CIDR=${applicationCidr}
+- path: /etc/default/simple-balance
+  permissions: "0644"
+  content: |
+    COMPOSE_FILE=compose.postgres.yml
+    SB_DATA_DEVICE=${dataDevice}
+    SB_APP_CIDR=${applicationCidr}
 
-  - path: /opt/simple-balance/env.base
-    permissions: "0644"
-    content: |
-      SB_BIND_ADDRESS=${bindAddress}
-      POSTGRES_SHARED_BUFFERS=${size.sharedBuffers}
-      POSTGRES_EFFECTIVE_CACHE_SIZE=${size.effectiveCacheSize}
-      POSTGRES_WORK_MEM=${size.workMem}
-      POSTGRES_MAINTENANCE_WORK_MEM=${size.maintenanceWorkMem}
-      POSTGRES_MAX_WAL_SIZE=${size.maxWalSize}
-      POSTGRES_MAX_CONNECTIONS=${database.maxConnections}
+- path: /opt/simple-balance/env.base
+  permissions: "0644"
+  content: |
+    SB_BIND_ADDRESS=${bindAddress}
+    POSTGRES_SHARED_BUFFERS=${size.sharedBuffers}
+    POSTGRES_EFFECTIVE_CACHE_SIZE=${size.effectiveCacheSize}
+    POSTGRES_WORK_MEM=${size.workMem}
+    POSTGRES_MAINTENANCE_WORK_MEM=${size.maintenanceWorkMem}
+    POSTGRES_MAX_WAL_SIZE=${size.maxWalSize}
+    POSTGRES_MAX_CONNECTIONS=${database.maxConnections}${args.metrics ? "\n    COMPOSE_PROFILES=metrics" : ""}
 
 ${generatedFile("/opt/simple-balance/env.db", "0600", `POSTGRES_APP_PASSWORD=${args.applicationPassword}\n`)}
 
@@ -1181,6 +1314,59 @@ ${(args.platformCommands ?? []).map((command) => `  - ${command}`).join("\n")}
   - [/usr/local/sbin/simple-balance-db-firstboot]
 `;
 }
+
+// --------------------------------------------------- the metadata rule ---
+
+/**
+ * The lowest and highest user a service on the host's network may run as and
+ * still be kept off the instance metadata service, on either cloud.
+ *
+ * The metrics collector and node-exporter run on the host's network, because
+ * that is the only place the machine's own NIC is visible, and from there they
+ * reach 169.254.169.254 exactly as the host does. What answers there is the
+ * machine's own identity — AWS's role, Oracle's instance principal — and on
+ * the application node that identity reads the stack's settings, every secret
+ * in them. On both nodes the same address serves the user data, which carries
+ * DATABASE_URL on one and the server key and the application role's password
+ * on the other. Why each cloud needs this on top of its own defaults, and how
+ * each keeps it across a reboot, is argued beside `IMDS_EXPORTER_BLOCK` in
+ * `../aws-single/platform.ts` and `PLATFORM_COMMANDS` in
+ * `../oci-single/platform.ts`.
+ *
+ * A range rather than the three users by name, because one rule is what fits
+ * in the AWS application node's user data, and because nothing that does need
+ * the metadata runs inside it: `useradd` numbers system accounts below 1000
+ * and ordinary ones upward from 1000, and these images have one or two of
+ * those. Each program names its own readers, and every one is root, a system
+ * account or uid 1000. Inside are nobody at 65534, the uids the compose files
+ * choose, 10001 and 61000, and systemd's dynamic users.
+ * `tests/cloud-init.test.ts` holds every host-network service's `user:` inside
+ * it, so one that changes user, or a new one, is a failing test rather than a
+ * quiet way back in.
+ * Proved on Ubuntu 24.04's iptables 1.8.10 (nf_tables): users 10000, 10001,
+ * 61000 and 65534 refused, 0, 999, 1000, 9999 and 65535 answered.
+ */
+export const IMDS_BLOCKED_USERS = [10000, 65534] as const;
+
+/**
+ * The rule itself, word for word on both clouds: every user in the range
+ * refused 169.254.169.254, on every port.
+ *
+ * OUTPUT with an owner match, because a host-network container's packets
+ * leave through the host's own chain under the user it runs as, with no
+ * user-namespace remapping in between. Inserted at the top rather than
+ * appended, because Oracle's image already sends the address to a chain of
+ * its own, InstanceServices, that accepts the metadata port for everybody —
+ * the image keeps iSCSI to root with the same owner match — and a REJECT after
+ * that jump would never be reached. Every port, as AWS's always was; on Oracle
+ * Cloud that also refuses the DNS and NTP the address serves there, and costs
+ * nothing, because a host-network service resolves through the host's own
+ * resolv.conf, which names systemd-resolved's stub on 127.0.0.53, and resolved
+ * and the clock ask the address as their own system accounts. REJECT rather
+ * than DROP, so a scraper that tried gets an answer at once rather than a
+ * timeout.
+ */
+export const IMDS_BLOCK = `iptables -I OUTPUT -d 169.254.169.254 -m owner --uid-owner ${IMDS_BLOCKED_USERS.join("-")} -j REJECT`;
 
 // -------------------------------------------------------- measuring it ---
 

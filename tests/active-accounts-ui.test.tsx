@@ -140,6 +140,17 @@ describe("choosing which accounts stay usable", () => {
     expect(saveButton()).toBeDisabled();
   });
 
+  /**
+   * `common.md` §Prose: the limit is a value in a sentence here, so it reads
+   * in words, as the grace period beside it on the plan tab always has. "All
+   * 3 places are in use" below is a figure beside a figure and stays a digit.
+   */
+  it("states the limit in words where it is a sentence", () => {
+    mount(firstChoice);
+    expect(MAX_FREE_ACCOUNTS).toBe(3);
+    expect(screen.getByText(/Your plan keeps three accounts usable at a time/)).toBeInTheDocument();
+  });
+
   it("fixes the accounts in use once the choice has been made", () => {
     // `d` is frozen and marked inactive, so somebody has chosen: the accounts
     // in use can no longer be given up, and only a free place takes another.

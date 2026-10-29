@@ -10,7 +10,15 @@
 - Treat `src/server/api.ts` and `src/server/mcp.ts` as transport adapters.
 - Keep the browser UI in `src/client`; server calculations are authoritative.
 - PostgreSQL is the only persistent dependency. Do not add Redis, SQLite, an
-  object store, sidecar, or writable-volume requirement.
+  object store, sidecar, or writable-volume requirement. The metrics collector a
+  deployment can run, and node-exporter beside it on a machine, are not one:
+  they start only where a deployment names somewhere to send metrics, the
+  application never calls either and runs the same with them gone, and neither
+  keeps anything — no volume, no write-ahead log, a queue in memory — so turning
+  them off loses the figures in flight and nothing else. The collector speaks
+  the backend's protocol, OTLP by default, so the application does not have to:
+  the application keeps `prom-client` and its text endpoint, and does not take
+  the OpenTelemetry SDK (`docs/standards/code/observability.md` §1.16).
 
 ## Non-negotiable ledger invariants
 
@@ -129,7 +137,11 @@
   compares them route by route. A new `/api/v1` route needs a tool in the same
   change, or a named exception carrying its reason. It runs the other way too:
   the agent surface never gets ahead of the browser, so a route no page calls
-  needs a named exception of its own. A capability a person cannot reach is not
+  needs a named exception of its own, and so does a tool no route reaches,
+  because every comparison starts from a route and such a tool passed them all
+  unseen. The money guides are two such tools: no page calls a route for them,
+  because a person reads the same guides at smpl.money/learn, and they read
+  nothing of anybody's. A capability a person cannot reach is not
   parity, it is a second product. Route by route is where the test can check,
   not where the rule stops: a request field only an agent ever sets is the same
   defect one level down, and it is invisible to a comparison of route lists.
@@ -179,13 +191,77 @@
   is revoking; and deleting the account, which leaves nothing for a stale
   version to protect.
 - Ten thousand rows is the cap, and it is the same number everywhere: a mass
-  edit, a mass delete, a commit, and a CSV import. An import that stages more
-  than one action can clear is a cap doing damage. A filtered selection is
-  bounded in SQL, not after the rows have been read.
+  edit, a mass delete, a commit, a CSV import, and a ledger-file part. An import
+  that stages more than one action can clear is a cap doing damage. A part's
+  records are held to the same number apart from its rows, because every part
+  carries all of them and its one transaction creates or matches each. A
+  filtered selection is bounded in SQL, not after the rows have been read.
 - `ledger:stage` proposes and never decides. Creating a category, bringing an
   archived one back, or widening what kind of entry it may carry are changes to
   the ledger's own records and need `ledger:write`, wherever they are reached
   from, including a CSV import.
+- Outside data reaches the books through the review queue. A Simple Balance
+  file's transactions stage like any import — complete where every reference
+  resolves, with both sides of a transfer filled in — and its deleted entries
+  are not added at all. Its records that are not transactions — accounts,
+  categories and groups, templates, recurring transactions, budgets — are
+  created directly when nothing like them is here, because a new record raises
+  none of the questions the queue is for: whether it is already here is the
+  only one, and the preview asks it. One here under the same name, once case
+  and spacing are set aside, that differs from the file's is the person's to
+  decide in the preview, before anything is written: use the one here, leave
+  the file's out, or bring it in under another name, and an account in another
+  currency is never the one here. A record the file only names that nothing
+  here answers to is theirs too: use another one here, create it, or leave
+  what names it for review. One the same in every field the file carries is
+  used with nothing asked. Nothing is decided for anybody, and no record here
+  is ever overwritten; the settings are the one thing a file replaces, and
+  only where this copy never chose its own or the person says to. Every direct
+  creation needs `ledger:write`, so adding a file does.
+- A Simple Balance file may instead be moved straight into the books, and only
+  into a ledger whose every entry, deleted or not, and every waiting staged row
+  came from a Simple Balance file — a new sign-up, a fresh install, a ledger
+  part-way through a move. A move writes through the services a person's own
+  writes use: postings are posted, never copied; a transaction's other half
+  lands where `resolveEntrySide` puts it from the categories here, and where
+  that is not where it landed in the file the difference is reported, never
+  reproduced; a deleted entry is written and then voided by the void service. An
+  account archived where the file came from arrives archived at its original
+  instant, never later than now. It, one somebody chose to have arrive archived
+  on a limited plan, archived now, and one archived here that the file's
+  transactions name — archived categories alike — take the file's transactions
+  for the length of the call, the one write into an archived record outside a
+  restore, and each such account is closed by `postClosingBalance` once, at the
+  end of the part, before it commits. A frozen account is never let through.
+  Every transaction is written or the part is refused: a choice that would leave
+  one without its account or category is not offered, nor one that would write
+  it into an account here whose balance could never come out as the file says;
+  and a frozen account, a waiting row of the same file, an account that would
+  come in new while some of its transactions are already here on another, or a
+  category whose kind here would make a transaction both income and spending
+  refuses the part before anything is written. Each part is at most ten thousand
+  rows, atomic, idempotent by key and by origin; the part carrying the file's
+  balances is refused when an account comes out different from them, closing
+  pairs left out on this side; recurring transactions are created by the last
+  part, so nothing proposes a row nobody imported while a move is under way. The
+  archive instant, the deferred close and the archived accounts and categories
+  allowed for the call are arguments, never fields, and only
+  `src/server/services/ledger-file.ts` passes them
+  (`tests/ledger-file-import-only-options.test.ts`).
+- An entry's origin is the id it was first written under. It travels in every
+  ledger file, and the same entry arriving twice — from two accounts' files, or
+  back from the copy it moved to — is skipped rather than flagged. Two entries
+  with different origins are never duplicates of each other: not at stage, at
+  commit, on an edit or a restore, or in a mass edit. A row without one, typed
+  or read from a CSV, is compared as it always was. An entry or a staged row is
+  skipped and counted wherever its origin is found here — as an entry's id, an
+  entry's `import_origin` deleted or not, a waiting staged row's id or
+  `import_origin`, or the id of a row with no origin that has since been
+  committed. That last is the origin its entry is exported under, worked out
+  from the queue rather than stored, because a file written while the row
+  waited carried it, and a stored origin would make a typed entry read as one
+  that came from a file. An origin is an argument to the services that write
+  it and never a draft field, so no form or tool can claim one.
 - An audit entry records what changed, and for a split that includes the legs:
   relabeling one writes no posting and touches no column on the transaction.
 - Budgeting sits over the ledger and never inside it. An assignment is not a
@@ -280,7 +356,8 @@
   free place like any restore. Refusing that left somebody who had downgraded
   with accounts they could read and could not tidy away, which is a penalty
   rather than a limit. Archived accounts are outside all of it: they already
-  refuse every write, so they are never frozen and use up none of the places.
+  refuse every write (a move's own writes excepted, which close them again), so
+  they are never frozen and use up none of the places.
   **The choice is made once.** An account
   in use stays in use until it is archived or deleted, and only then may a
   frozen one take its place — `activeAccountChange` is that rule, and
@@ -303,8 +380,9 @@
   no more than `MAX_FREE_ACCOUNTS`, whatever plan is in force, because a column
   left false there goes stale and freezes the accounts somebody has been using
   the next time a limit returns. Every path that changes the live set — create,
-  archive, restore, delete and the choice itself — holds `lockAccountNamespace`,
-  or two of them racing could both take the last place.
+  archive, restore, delete and the choice itself, and adding or moving a Simple
+  Balance file, which creates accounts live or archived — holds
+  `lockAccountNamespace`, or two of them racing could both take the last place.
 - **`docs/product/` is this repository's public description of itself**, and
   the marketing site at smpl.money is its only consumer. `facts.json` is the
   machine contract, `features.json` is what the product does tiered by how
@@ -350,7 +428,9 @@
   `0020_reference_indexes.sql` and `0021_idempotency_retention.sql` in 0.1.6.
   `0022_plans_and_billing.sql`, `0023_citus_distribution.sql`,
   `0024_active_accounts.sql` and `0025_subscription_cancel_at.sql` in 0.2.0.
-  Nothing on disk is unreleased, and the next schema change starts at `0026`.
+  `0026_ledger_file_origins.sql` is written and unreleased, so it is the one
+  here that may still be regenerated, under the condition below; it freezes
+  when it ships, and the next schema change after it starts at `0027`.
   A migration written between releases may be regenerated only while no
   database anywhere has run it, and permitted is not the same as free:
   drizzle's migrator runs a file only where the recorded timestamp is older
@@ -364,7 +444,12 @@
   `0024` adds one column with a constant default, which rewrites no rows on any
   PostgreSQL and which Citus propagates to the shards without a gate; `0025`
   adds a nullable one with no default, which is metadata-only for the same
-  reason. `0023` is
+  reason. `0026` adds three columns on the same terms and two partial unique
+  indexes, and its cost is the length of its transaction: each added column
+  takes a lock that blocks reads as well as writes, the migrator's one
+  transaction holds it through both index scans, and on a rolling update it
+  first waits for any transaction already open on the three tables — all
+  said in the file's header, which measures the scans. `0023` is
   the one migration that does nothing on most
   deployments and says so at the top: it distributes the ledger and is gated on
   the Citus extension being installed, so the `single` profile — whose database
@@ -434,8 +519,10 @@
   account name or an amount. A metric is read by whoever can reach the scrape
   endpoint, which is not the person whose ledger it counts, and the same rule
   keeps the cardinality bounded — a path with an id in it is counted under its
-  route pattern, never under the path. `/metrics` is off unless asked for and
-  registered rather than refusing, so a deployment that never set
+  route pattern, never under the path. It holds on the way out too: what a
+  collector adds to a series names the deployment, the job and the address or
+  pod it scraped, and never anything of anybody's. `/metrics` is off unless
+  asked for and registered rather than refusing, so a deployment that never set
   `METRICS_ENABLED` has no such route.
 
 ## Standards
@@ -457,7 +544,7 @@ disagreement rather than quietly losing it.
 Two habits from those guides are worth knowing before the first edit, because
 both look like mistakes:
 
-- **Comments are dense on purpose** — 26.6% of non-blank lines in `src`. They
+- **Comments are dense on purpose** — 27.7% of non-blank lines in `src`. They
   carry why the obvious alternative is wrong. Do not tidy them away.
   (`docs/standards/code/comments.md`.)
 - **Some loops must not be parallelized.** Legs resolve one at a time so two
@@ -506,8 +593,11 @@ the order and the traps do not have to be rediscovered:
   the guides, and mechanize rules nothing checks.
 - `design-review` — review the browser app against `docs/standards/web.md`,
   comparing each section across pages rather than reading a page at a time.
-- `release-prep` — upgrade-safety audit, adversarial audit, dead code, recount,
-  three test tiers, commit and push. Cuts nothing.
+- `release-prep` — the one procedure before a merge or a release, over what
+  the branch changed and reached: upgrade-safety audit, then `guides-update`,
+  `guides-comply` with the defect hunt in the same reading, and
+  `design-review`, dead code, `product-kit`, recount, three test tiers, commit
+  and push. Cuts nothing.
 - `cut-release` — the procedure in `docs/upgrades.md`, and only on an explicit
   go-ahead.
 - `product-kit` — rebuild `docs/product/`: the tiered feature list, and a

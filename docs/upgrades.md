@@ -7,9 +7,351 @@ keep, so upgrading is swapping it for a newer one.
 
 This note is written as work lands rather than when the release is cut.
 
-**Nothing to do by hand.** Every change is to the single-machine programs, and
-a stack that is already up plans no change beyond the text of its `nextSteps`
-output.
+**Nothing to do by hand unless you want metrics exported or the house ad
+shown, or you had `METRICS_ENABLED=true` on 0.2.1 with no `METRICS_TOKEN`, or
+you lowered a proxy's body limit below 52 MiB and want Simple Balance files
+added or moved, or a health check on the single container aims at a `/health`
+path other than `/health/live`, `/health/ready` or `/health` itself.** One
+migration, which runs itself at startup and rewrites no rows, no new setting
+anybody has to set, and nothing turns itself on: a deployment that sets nothing
+new renders, starts and serves what it did, a stack that sets nothing new plans
+no change beyond the text of its `nextSteps` output, and a chart upgraded with
+the values it had renders the same objects. Two things change unasked: what a
+search engine reads — every page and file says `noindex`, and the robots file
+turns no crawler away — and what an agent is offered: six more tools, two of
+them the money guides, which make every token's tool list longer, by about a
+quarter at `ledger:read`, with the numbers below. Everything else new is a
+metrics collector that is off until asked for, the series the application
+publishes about itself, two holes in `/metrics` closed, an advertisement for
+Premium of this product's own that is off until asked for, an export of a whole
+ledger as one Simple Balance file and two ways to read one back — added to any
+ledger, or moved into a new one — with four routes and four MCP tools between
+them, two more that carry the money guides, a few new fields on replies an
+older client ignores, a box on the Overview that counts archived accounts, an
+agent's request to `/mcp` no longer cut off at 4 MiB, and twenty-one dependency
+advisories closed.
+
+### What runs automatically
+
+**One migration, `0026_ledger_file_origins.sql`, and it rewrites no rows.** It
+adds `import_origin`, a nullable `uuid` with no default, to `ledger_transaction`
+and to `staged_transaction`, and `import_batch.kind`, an enum of `csv` and
+`ledger_file` whose default is the constant `csv`. PostgreSQL 11 and later
+record all three without writing into a row, so every entry, staged row and
+batch reads exactly as it did, with no origin and a kind of `csv`, and nothing
+is backfilled: an entry that never came from a file has no origin to give it.
+A 0.2.1 process still serving beside a new one during a rolling update writes
+rows the new one reads the same way, which is what they are.
+
+Its cost is the length of its transaction. Adding a column takes PostgreSQL's
+strongest table lock, metadata-only or not, and the migrator runs every pending
+file in one transaction that holds all three until it commits. So for the
+whole migration, entries, staged rows and import batches can be neither read
+nor written: the register, the review queue and an export wait along with
+every write. What makes that time last is two partial unique indexes, which let
+the database itself refuse a second entry, or a second waiting staged row, with
+the same origin. `CREATE INDEX` scans its table, and it cannot be
+`CONCURRENTLY` inside that transaction. Both are partial on an origin being
+set, which no existing row has, so each build is one sequential scan with
+nothing to sort. Measured on 2026-10-25 on PostgreSQL 18.6 against 978,000
+entries in a 153 MB table and 99,900 staged rows: 44 ms warm and 117 ms cold
+for the entries, under 20 ms for the queue, and no table rewritten. Scaled to
+the thirty million entries `docs/capacity.md` measures, that is one and a half
+to three and a half seconds during which the books can be neither read nor
+written.
+
+On a rolling update there is a wait in front of that. The lock cannot be taken
+while a transaction is still open on any of the three tables, and every request
+that touches one queues behind the migration while it waits, so a 0.2.1 server
+partway through committing 10,000 staged rows holds the books still for
+whatever that commit has left, up to about fifty seconds. If that matters,
+upgrade at a quiet moment, or stop the 0.2.1 servers before the new one starts.
+A Citus cluster takes it as it is, with no gate: the type, the columns and the
+indexes reach every shard, and `0023`'s own gate is untouched.
+
+**Twenty-one dependency advisories are closed** by the packages this release
+installs. Five ship in the image and move with it: `zod`, which validates every
+request body, `nodemailer` and `fast-uri`, and `body-parser` and `ip-address`,
+which arrive under the MCP SDK's Express and are never loaded. `ip-address` and
+`undici` move under the Pulumi programs too, and `npm ci` in `deploy/pulumi`
+installs them. The rest are used only to build and test. The changelog names
+each; nothing about any of them needs an action from you.
+
+**The application answers `/metrics` at exactly that path.** A request whose
+target only resolves to it — `/api/..\metrics`, `/health/..\metrics` — is a 404,
+as though there were no such route, whatever sits in front.
+
+**The single container answers a path it does not have with a 404.** Under
+`/api`, `/mcp` and `/health`, and at `/metrics` or `/ads.txt` where neither is
+turned on, a path no route serves answered with the browser app's page and a
+200; it answers the JSON 404 the split deployment's API image already gave. A
+health check should point at `/health/live` or `/health/ready`, which are
+unchanged; one pointed at bare `/health` or `/health/` keeps passing, now as
+liveness. One aimed at any other `/health/…` path was passing on the page and
+will now fail — which is the mistake it was hiding, and the reason to check a
+probe's path before upgrading.
+
+**More series, and nothing renamed.** With `METRICS_ENABLED` on, a scrape
+carries these as well, every one named `simple_balance_…` and each labeled from
+a closed set:
+`http_requests_in_flight`, `http_stream_outcomes_total`,
+`http_requests_aborted_total`, `csp_violations_total`,
+`internal_errors_total`, `readiness_checks_total`, `ready`,
+`auth_requests_total`, `rate_limited_total`, `rate_limit_store_failures_total`,
+`log_messages_total`, `mcp_requests_total`, `db_transactions_total`,
+`db_pool_acquire_duration_seconds`, `db_pool_errors_total`,
+`scheduler_enabled`, `scheduler_tick_interval_seconds`,
+`scheduler_last_success_timestamp_seconds`, `mail_send_duration_seconds`,
+`stripe_request_failures_total` and `dependency_up`, and two unlabeled ones for
+the Simple Balance file: `ledger_file_rows_staged_total`, the rows a file put
+in Staged, and `ledger_file_rows_moved_total`, the transactions a move wrote
+straight into the books, which are the only ones that reach the books without
+review. A labeled one has no samples until the first thing it counts happens.
+`docs/deployment.md` §What to alert on says which of them to watch.
+
+**Three of them read in ways worth knowing before an alert is written on one.**
+`dependency_up` is 1 when the last check a process made of a dependency passed,
+0 when it failed, and absent for a dependency the deployment does not use.
+`smtp` and `stripe_access` are checked as the process starts and not again, so
+a relay fixed since then reads 0 until a restart; `stripe_prices` follows every
+price check. A startup check that could not reach its dependency reads 0, and
+so does `stripe_access` when Stripe could not be asked; a standard `sk_…` key
+reads 1 without being asked. `http_requests_in_flight` counts the scrape that
+reads it, so an idle API reads 1. And `readiness_checks_total` moves with the
+platform's probes, plus one check as each process starts listening, which is
+also what keeps `ready` from reading 0 before the first probe.
+
+### What changed under you
+
+**Stripe is called at API version `2026-09-30.endive`.** The release takes
+`stripe` 23, which pins it, so if you sell plans every request your deployment
+makes to Stripe moves from `2026-08-26.dahlia` to endive with no setting of
+yours involved. Leave your webhook endpoint where it is: it stays on dahlia,
+which keeps working, because nothing the handler reads from an event is shaped
+differently in the two. An endpoint's version cannot be changed in place, so
+matching it means a new endpoint at endive and its new `whsec_…` in
+`STRIPE_WEBHOOK_SECRET`, at a time of your choosing
+(`docs/billing-operations.md` §The webhook endpoint). The one request endive
+reshaped is the switch from monthly to annual on the spot; try it, and a
+3-D Secure payment, in a sandbox before you rely on either.
+
+**Import CSV is now Import and export, at the same address.** The sidebar
+label and the page's heading changed; the path is still `/import`, so a bookmark
+or a link in somebody's notes still lands there. The CSV import is first on the
+page and behaves exactly as it did, and the CSV export on Transactions, its
+route, its columns and every file it ever wrote are untouched. Below the import
+is a new section, **Import a Simple Balance file**, and after it the new
+export, a Simple Balance file of the whole ledger or of chosen accounts. Adding
+a file creates the accounts, categories, templates, recurring transactions and
+budgets nothing here is like straight away, asks in its preview about every one
+that collides with a record of the same name, and stages the file's
+transactions for review like any import. Moving a file, offered only into a
+ledger where everything came from a Simple Balance file — a new sign-up, a
+fresh install — writes its transactions straight into the books instead,
+deleted ones and the days accounts were archived included, and checks every
+account's balance against the file before the last part commits. A ledger
+that already holds transactions typed into it, which is every ledger in use
+before this upgrade, is offered adding alone. **Both copies need this
+release**: a 0.2.1 copy has nothing that reads a file, so a ledger moving from
+one — to our cloud app, say — has to upgrade first to make the file, and one
+moving to one has to upgrade first to take it in.
+
+**Four new routes and four new tools.** `GET /api/v1/ledger-file`
+(`ledger:read`) answers with the file as `application/json`, an attachment named
+for the day where the person lives. `POST /api/v1/ledger-file:preview`
+(`ledger:read`) checks a file against the ledger and writes nothing.
+`POST /api/v1/ledger-file:add` (`ledger:write`) adds one part of a file, and
+`POST /api/v1/ledger-file:move` (`ledger:write`) moves one; both take an
+`idempotencyKey` and stream progress frames when asked with
+`Accept: text/event-stream`, as `POST /api/v1/csv/stage` does. A 0.2.1 client
+never calls any of them, and they changed no route that client does call. The
+three `POST` paths carry a literal colon, which the shipped proxies pass as the
+browser sent it; a proxy of your own that rewrites `:` as `%3A` turns each into
+a 404. `export_ledger_file` and `preview_ledger_file` are registered with the
+read tools, so every token holding any ledger scope lists two more, and
+`add_ledger_file` and `move_ledger_file` with the write tools: `tools/list` is
+5,344 and 30,925 characters longer at every tier for the first two — most of
+the second is the preview's reply, which plans the file for a move beside an
+add — and 22,581 and 24,829 more at the write tier for the other two. None of
+them needs a scope a token did not already have.
+
+**Two more read tools, and every tool list is longer.** `list_learn_articles`
+and `get_learn_article` serve the money guides smpl.money publishes at
+`/learn`, from a copy in the image: nothing is fetched, nothing needs the
+internet, no setting turns them on, and neither reads anything of anybody's.
+They are registered with the read tools, so every token holding any ledger
+scope lists them, and no route reaches them. They cost 5,523 characters of
+`tools/list` at every tier. With the four Simple Balance file tools above, and
+another 3,527 at `ledger:read`, 3,830 at `ledger:stage` and 5,008 at
+`ledger:write` for the new fields and fuller descriptions below — the
+staged-row and import-batch tools saying which kind of import staged a row
+among them — a token's tool list against 0.2.1's, measured on 2026-10-26:
+
+| Token holds | 0.2.1 | 0.2.2 | Longer by |
+| --- | --- | --- | --- |
+| `ledger:read` | 173,131 | 218,450 | 45,319, 26% |
+| `ledger:stage` | 213,653 | 259,275 | 45,622, 21% |
+| `ledger:write` | 497,153 | 591,363 | 94,210, 19% |
+
+At about four characters to a token that is some 55,000 tokens for a
+read-only connection and 148,000 for a writing one. A client that loads every
+tool up front and runs close to its context budget is the one to check; one
+that searches its tools loads what it uses. Nothing an agent already calls has
+been renamed, removed or given a new required argument.
+
+**New fields on replies, which an older client ignores.** `preview_csv` and
+`POST /api/v1/csv/preview` gain `simpleBalanceExport` and `suggestedMapping`,
+the import page's own reading of a file's headings, which it now takes from
+the server. `whoami` gains `activeChoicePending`, and `GET /api/v1/session`
+carries it inside `plan`. `export_transactions_csv` gains `fileName`, the name
+the CSV download is saved under. A 0.2.2 browser bundle served against a 0.2.1
+server during a rolling update works the first two out itself, as 0.2.1 did,
+so the update needs no particular order.
+
+**A CSV staged onto an archived or frozen account is counted as it is
+stored.** `stage_csv` and `POST /api/v1/csv/stage` stage such a file as they
+did, every row with an issue blocking its commit, and `validCount`,
+`invalidCount` and `sample`, a dry run's included, now say so rather than
+counting those rows valid. A client that read `validCount` from a dry run as a
+promise sees lower numbers for exactly the files that were never going to
+commit; what is stored is unchanged.
+
+**The Overview has an Include archived accounts box**, off until ticked, so the
+page reads as it did. The Payees search now matches the way an agent's does,
+ignoring case and repeated spaces in what was typed.
+
+**`/mcp` takes the request bodies its route allows.** The MCP SDK reads a body
+again with a limit of its own, 4 MiB unless it is told otherwise, and 0.2.0 and
+0.2.1 never told it, so an agent's `stage_csv` with a larger file was refused
+with a bare 413. It is now given the route's limit, which is the larger of the
+CSV-derived one and the new one below.
+
+**A commit or a mass edit takes one duplicate lock, not one per row.** 0.2.1
+took an advisory lock for every transaction it compared for duplicates, and
+PostgreSQL's lock table is sized by `max_connections`: allowing 50, as the
+`single` profile's database does, it held 9,000 and refused 10,000, so a
+commit or a mass edit near the 10,000-row cap failed with "out of shared
+memory". It now takes one for the person. If you raised
+`max_locks_per_transaction` to get such a commit through, it can come back
+down; nothing else needs a change.
+
+**The download is buffered, like the CSV export.** One file holds at most
+100,000 rows and 16 MiB of what rows do not bound — notes and the rest of the
+entries' free text, split legs, staged rows and the activity history — counted
+before anything large is read and refused past either with both numbers; a file
+at both limits came to about 33 MiB and peaked under 400 MiB resident in the
+heap a 1 GiB container gives Node. Its query string stays under 4 KiB at the most
+accounts one export may name, inside the 8 KiB request line nginx reads by
+default, so no proxy in front of it needs a change.
+
+**Adding or moving a file goes a part at a time, and the parts fit the proxies
+you have.** A part is at most 10,000 rows and 16 MiB, and the browser cuts a
+larger file into parts itself. The three new `POST` routes accept a body of
+about 52 MiB — the part twice over, since it travels as a JSON string, and the
+most decisions one request may carry — which is under the 61 MiB the frontend
+image's nginx and the `single` profile's Caddy allow for a CSV as shipped, so at
+their defaults neither needs a change. If you lowered `SB_MAX_UPLOAD_SIZE`,
+`frontend.maxUploadSize`, the ingress's `proxy-body-size` annotation or
+`MAX_BODY_SIZE` along with `CSV_MAX_BYTES`, as the CSV rule allowed, raise it to
+at least 54,103,968 bytes — `52m` for nginx, `52MiB` for Caddy, not `52MB` — or
+adding or moving a file whose part is larger than your limit is refused at the
+proxy with a bare 413; the chart warns about it at install and upgrade, and
+refuses nothing. A proxy of your own needs to allow the same for those three
+paths, and for `/mcp`. Each part is one transaction of up to 10,000 rows, as a
+commit is, holding one pooled connection while it runs. A move's part of 10,000
+transactions took about fifty seconds on PostgreSQL 18 on a laptop, the same
+order as committing as many staged rows, so the long-request settings
+`docs/deployment.md` §Reverse proxy already gives a commit cover it.
+
+**`GET /api/v1/session` carries `houseAd`, and `advertises` can be true with no
+AdSense.** `houseAd` is a new field, always sent, and true only for somebody
+shown the house ad, when `ads` is null. `advertises` on `GET /api/v1/billing` is
+true where AdSense is configured, as before, and also where the house ad is on
+and the plan is for sale. With `SB_HOUSE_AD` unset, which is every deployment
+upgrading, `houseAd` is false for everybody and `advertises` answers exactly
+what it did. A 0.2.1 browser bundle against this server and this bundle
+against a 0.2.1 server both show no house ad, so a rolling update needs no
+particular order.
+
+**`/metrics` was reachable from the internet in two shapes, and both are
+closed.** Each needed `METRICS_ENABLED=true` and no `METRICS_TOKEN`; with a
+token, a request still needed it.
+
+- **Behind the frontend nginx** — the split recipe and the chart. nginx reads a
+  backslash as an ordinary character, so it proxied `/api/..\metrics` as an
+  `/api` path, and the application resolved it to `/metrics` and answered. The
+  0.2.2 image refuses it, so this one closes with the image and nothing else.
+- **Behind the `single` profile's Caddy.** Its Caddyfile proxied every path,
+  `/metrics` included, while the comment in `compose.yml` said no terminator
+  there did. 0.2.2's Caddyfile answers it 404 before proxying anything. The
+  image cannot close this one, because the request Caddy forwards is exactly
+  `/metrics`, and a machine keeps the Caddyfile it was built with — so copy
+  0.2.2's to `/opt/simple-balance/Caddyfile` and
+  `sudo systemctl restart simple-balance`, or set a token.
+  A proxy of your own wants the same refusal; `docs/deployment.md` §Reverse
+  proxy has it for Caddy and nginx.
+
+**Search engines are let in, and everything served tells them to leave it out of
+their index.** 0.2.1's `/robots.txt` asked every crawler but AdSense's to stay
+out, which kept them from reading anything that said not to list a page, so an
+address somebody linked to could still turn up as a bare link. 0.2.2's lets
+every crawler in, and the pages, the files beside them, `/robots.txt`,
+`/ads.txt` and the API all carry `X-Robots-Tag: noindex`. Both arrive with the
+images: the single container's process sets the header on everything it answers
+and the frontend image's nginx on the files it serves itself, so no machine has
+a file to copy, and Caddy, an ingress or a load balancer passes it through. An
+error a proxy writes itself, such as a 502 while the API is down, carries none
+and is never indexed. A robots file served by whatever terminates TLS replaces
+this one, and if it still turns crawlers away it keeps the old problem. A search
+engine drops an address it has listed when it next fetches it.
+
+**Some series read differently.** None is renamed and no label value is removed,
+but a dashboard reading one of these will see it move:
+
+- **New label values.** `route="spa_shell"` on `http_requests_total` and
+  `http_request_duration_seconds` for a page load the single-page app answered,
+  the bundle-root files included; those were `unmatched`, which now means a
+  method no route takes or a request refused before any route ran.
+  `db_pool_connections` gains `state="max"`, the pool's ceiling.
+- **New buckets.** `le="0.01"` and `le="0.05"` on
+  `http_request_duration_seconds`, `mcp_tool_duration_seconds`,
+  `db_transaction_duration_seconds` and `scheduler_tick_duration_seconds`;
+  `le="30"` and `le="60"` on `stripe_request_duration_seconds`; and `le="60"`,
+  `le="120"` and `le="300"` on the tick histogram, whose help text now says it
+  times all four sweeps together. Every bucket that existed still does.
+- **`db_transaction_duration_seconds` covers every transaction.** It timed the
+  ones that went through one helper, from before the connection was acquired. It
+  now times every transaction on the application's pool — MCP writes, the
+  scheduler's sweeps, billing, and the auth library's own — from `begin` to
+  `commit` or `rollback`, and the wait for a connection is
+  `db_pool_acquire_duration_seconds` instead. Expect its count to rise, and its
+  values to fall when the pool is contended.
+
+**The unit on a `single` machine starts in two steps.** Its first `up` starts
+everything outside the `metrics` profile and waits for it, and a second adds the
+collector wherever `.env` turns it on, with a failure there logged and not
+fatal, so an image registry that does not answer costs the metrics and not the
+site. Without the profile the second `up` adds nothing. A machine keeps the unit
+it was built with until it is copied, below.
+
+**`.env` is installed `0600` in every hand-install recipe**, rather than copied
+at the `0644` a checkout has. It holds the passwords, and on the database
+machine the new node-exporter reads the host's root as an unprivileged user.
+An existing hand install is worth `sudo chmod 0600 /opt/simple-balance/.env` on
+both machines; a machine a program built already has it.
+
+**On `aws-single` and `oci-single`, new machines keep the metrics exporters off
+the instance metadata address.** The collector and node-exporter share the
+host's network, and what answers at that address is the machine's own identity,
+which on the application node reads every stack secret. On AWS the hop limit
+that keeps containers away from the role does not reach a container on the
+host's network. On Oracle Cloud there is no hop limit at all, and the instance
+principal's certificate and key would hand them the settings secret, Stripe's
+key and the auth secret among it. Both machines on both clouds now refuse the
+address to every user from 10000 to 65534: AWS's at every boot, Oracle's saved
+with the host firewall their image already keeps. A machine built before this
+release does not have the rule, which matters only once metrics are on, and the
+steps below add it.
 
 **`oci-single` waits for every one of its vault's nameservers.** 0.2.1's wait
 for a new settings vault's hostname stopped at the first nameserver that had
@@ -23,6 +365,303 @@ are unchanged.
 longer say it can.** OCI fixes a public IP's type when it creates it. If you
 need an address that outlives the instance, a reserved one swapped in from the
 console is a new address, and the A record has to follow it.
+
+### What you do by hand, to export metrics
+
+Only to turn the collector on, and each profile's own page has the long version:
+`docs/deployment.md` §Metrics for all of them. Doing none of this changes
+nothing.
+
+**A `single` stack built by `aws-single` or `oci-single` before this release.**
+`pulumi up` never rewrites a running machine, so the files arrive by hand, in
+this order: nothing then refuses for a file that is not there yet, and the
+firewall opens only once something listens behind it. Run `pulumi` from a
+checkout of this release.
+
+1. **The application node.** Copy these from the checkout, keeping the
+   `image:` line the machine's own `compose.yml` already has:
+
+   | From | To | Mode |
+   | --- | --- | --- |
+   | `deploy/compose/single/compose.yml`, `compose.db-tls.yml`, `Caddyfile`, `collector.yaml` | `/opt/simple-balance/` | 0644 |
+   | `deploy/systemd/simple-balance-env` | `/usr/local/sbin/simple-balance-env` | 0700 |
+   | `deploy/systemd/simple-balance.service` | `/etc/systemd/system/simple-balance.service` | 0644 |
+
+   then `sudo systemctl daemon-reload`. Nothing changes at runtime yet but the
+   Caddyfile, at the next restart.
+
+2. **Both machines, on either cloud**, the metadata rule new machines get,
+   before anything on them runs on the host's network. The database node is
+   reached over the shell step 3 uses.
+
+   On AWS it lasts until the machine reboots, so keep it the way that machine
+   keeps its firewall, or reapply it after a reboot:
+
+   ```sh
+   sudo iptables -I OUTPUT -d 169.254.169.254 -m owner --uid-owner 10000-65534 -j REJECT
+   ```
+
+   On Oracle Cloud, save it with the firewall the image already keeps, as a new
+   machine does, and netfilter-persistent restores it at every boot before
+   Docker starts. Once per machine, because a second run saves a second copy:
+
+   ```sh
+   sudo sh -c 'iptables -I OUTPUT -d 169.254.169.254 -m owner --uid-owner 10000-65534 -j REJECT && netfilter-persistent save'
+   ```
+
+   Then check it on each Oracle machine. The first line asks for the instance's
+   id as the collector's user and should fail at once rather than print an
+   OCID. The second asks for New Relic's address as that same user and must
+   print one: on Oracle Cloud the metadata address is also the DNS server, and
+   the rule refuses every port on it, so the collector's lookups only work
+   because they go to `systemd-resolved` on the loopback, which asks upstream as
+   a system account below the range. A machine where it prints nothing would
+   scrape and never send. The third, on the application node only, is the
+   settings refresh the timer runs every five minutes, run now: it reads the
+   settings secret through that same address, as the OCI CLI image's own user,
+   below the range, and it should return without a word.
+
+   ```sh
+   sudo setpriv --reuid 10001 --regid 10001 --clear-groups curl -sS -m 5 -H 'Authorization: Bearer Oracle' http://169.254.169.254/opc/v2/instance/id
+   sudo setpriv --reuid 10001 --regid 10001 --clear-groups getent hosts otlp.nr-data.net
+   sudo systemctl start simple-balance-settings
+   ```
+
+3. **The database node**, over the shell `deploy/pulumi/README.md` describes:
+
+   | From | To | Mode |
+   | --- | --- | --- |
+   | `deploy/compose/single/compose.postgres.yml`, `node-exporter-web.yml` | `/opt/simple-balance/` | 0644 |
+   | `deploy/systemd/simple-balance-db-firstboot` | `/usr/local/sbin/simple-balance-db-firstboot` | 0700 |
+   | `deploy/systemd/simple-balance.service` | `/etc/systemd/system/simple-balance.service` | 0644 |
+
+   then `sudo systemctl daemon-reload`, and turn its node-exporter on without
+   restarting PostgreSQL. The `iptables` line is Oracle Cloud's, whose image
+   ships a host firewall the security list does not reach; on AWS the security
+   group is the whole firewall.
+
+   ```sh
+   echo COMPOSE_PROFILES=metrics | sudo tee -a /opt/simple-balance/env.base
+   sudo sh -c 'iptables -I INPUT 1 -p tcp --dport 9100 -j ACCEPT && netfilter-persistent save'
+   sudo install -d -o 61000 -g 61000 -m 0700 /opt/simple-balance/node-exporter-tls
+   sudo install -o root -g root -m 0644 /opt/simple-balance/db-tls/server.crt /opt/simple-balance/node-exporter-tls/server.crt
+   sudo install -o 61000 -g 61000 -m 0600 /opt/simple-balance/db-tls/server.key /opt/simple-balance/node-exporter-tls/server.key
+   sudo /usr/local/sbin/simple-balance-env
+   cd /opt/simple-balance && sudo docker compose -f compose.postgres.yml up -d --wait
+   ```
+
+   PostgreSQL's configuration renders the same, so that `up` creates
+   node-exporter and leaves the database running. The key is copied rather than
+   shared because PostgreSQL refuses a key file of its own that anybody else can
+   read, and uid 61000 sits between Ubuntu's last ordinary uid and systemd's
+   dynamic range, so no account on the machine is ever given it. `sudo
+   /usr/local/sbin/simple-balance-db-firstboot` makes the same copy and restarts
+   the deployment, PostgreSQL with it, for a few seconds.
+
+4. **The stack.**
+
+   ```sh
+   pulumi config set --path 'simple-balance:env.SB_METRICS_EXPORT_ENDPOINT' https://otlp.nr-data.net
+   pulumi config set --secret --path 'simple-balance:secrets.SB_METRICS_EXPORT_HEADERS'
+   # {"api-key":"<your New Relic ingest license key>"}, typed at the prompt
+   pulumi preview
+   pulumi up
+   ```
+
+   The preview shows one new rule — 9100 into the database node, from the
+   application subnet on Oracle Cloud and from the application node's security
+   group on AWS — a new version of the settings secret, and no instance
+   replaced. Within about five minutes the settings timer restarts the
+   application node onto the collector, node-exporter and
+   `SB_METRICS_DATABASE_TARGET`; `sudo systemctl restart simple-balance` does it
+   at once. A stack that also sets `METRICS_ENABLED=false` keeps it, and the
+   machine says at every start that the collector is sending none of the
+   application's figures.
+
+**A `single` deployment installed by hand.** Copy `collector.yaml`,
+`compose.yml`, `compose.db-tls.yml`, the `Caddyfile` and the unit to the
+application machine, and `compose.postgres.yml`, `node-exporter-web.yml` and the
+unit to the database machine, with `sudo systemctl daemon-reload` on each. Then
+the four lines in `.env` that `deploy/compose/single/README.md` §Metrics gives,
+and the database machine's half from the same section. On AWS or Oracle
+Cloud, the metadata rule from step 2 above goes on both machines first, kept
+the way that step says for each.
+
+**The split recipe.** Take the new `compose.distributed.yml` and
+`collector.distributed.yaml`, and set the same four lines in
+`deploy/compose/.env`.
+
+**The chart.** Create a Secret holding the headers, then upgrade with
+`--reset-then-reuse-values` (Helm 3.14 or later) or with the values file you
+installed with. Not `--reuse-values`: that carries 0.2.1's defaults, which have
+no `collector.image`, and the schema refuses the upgrade before anything
+changes. A release whose `METRICS_TOKEN` is in `secret.metricsToken` beside an
+`existingSecret` moves the token into that Secret first, because the render
+refuses a token that could come from two places. Nothing has to be named in a
+NetworkPolicy. The API and the scheduler roll once, because `METRICS_ENABLED`
+changes under them — the chart turns it on with the collector, over an explicit
+`false` too.
+
+**The cluster programs, `aws`, `gcp` and `oci`.** The two `pulumi config` lines
+from the stack step above and a `pulumi up`, which builds a Secret named
+`simple-balance-metrics-export`, adds the collector, and rolls the API and the
+scheduler once. A stack that sets `SB_METRICS_DATABASE_TARGET` is refused; take
+it out. The chart rolls the collector when `secret.metricsToken` changes and not
+when a Secret it did not build does, so rotating the headers — the program's
+Secret is one of those — is `kubectl -n <namespace> rollout restart
+deploy/simple-balance-collector` after the `up`.
+
+### What you do by hand, to show the house ad
+
+Only to turn it on, and only where the plan is already on sale —
+`SB_BILLING_ENABLED=true` with Stripe configured. Without that nobody is shown
+it, and the process says so at every start. `docs/monetization.md` §The house
+ad, the first-party alternative has what it shows, to whom, and what it does
+not do. Doing none of this changes nothing.
+
+**Moving from AdSense is setting the one and unsetting the other.** Setting
+`SB_HOUSE_AD` alone already takes the place of every AdSense unit a free account
+sees, but the AdSense settings go on widening the content security policy and
+serving `/ads.txt` for as long as they are set, and the process warns at every
+start while both are. Unset all four `ADSENSE_*` together: an
+`ADSENSE_FOOTER_SLOT_ID` left on its own refuses to start, as it always has.
+`PRIVACY_POLICY_URL` can stay. Nothing requires it any more, and it is still
+linked from sign-in and every page.
+
+**First, on every `single` machine built before this release: its
+`compose.yml`.** That file names every setting the container is given, and a
+setting it does not name is dropped without a word; a machine keeps the one it
+was built with, and 0.2.1's does not name `SB_HOUSE_AD`. Without this step the
+setting below reaches `.env` and never the process, so nothing changes and
+nothing says why — and with AdSense unset as well, free accounts see no
+advertising at all. Copy `deploy/compose/single/compose.yml` from a checkout of
+this release to `/opt/simple-balance/` (0644), keeping the `image:` line the
+machine's own `compose.yml` already has. A machine that took step 1 of the
+metrics section above already has it. On its own it is safe beside 0.2.1's
+overlays and unit: the collector and the host exporter it adds sit behind the
+`metrics` profile, so nothing new starts.
+
+**A stack built by `aws-single`, `oci-single`, `aws`, `gcp` or `oci`.** From the
+stack's directory, with `pulumi` run from a checkout of this release, whose
+programs know the setting:
+
+```sh
+pulumi config set --path 'simple-balance:env.SB_HOUSE_AD' true
+# Moving from AdSense: remove whichever of the four the stack sets.
+pulumi config rm --path 'simple-balance:env.ADSENSE_CLIENT_ID'
+pulumi config rm --path 'simple-balance:env.ADSENSE_BANNER_SLOT_ID'
+pulumi config rm --path 'simple-balance:env.ADSENSE_FOOTER_SLOT_ID'
+pulumi config rm --path 'simple-balance:env.ADSENSE_CONSENT_MANAGED'
+pulumi up
+```
+
+On a `single` machine the settings timer picks the change up within five
+minutes and restarts the deployment once; `sudo systemctl restart
+simple-balance` does it at once. On a cluster the `up` changes the chart's
+values and the API and scheduler roll, and the frontend's `SB_ADS_CONFIGURED`
+goes back to false with `ADSENSE_CLIENT_ID`, because the chart derives one from
+the other.
+
+**The chart, by hand.** `SB_HOUSE_AD: "true"` under `config.extraEnv`, and the
+`ADSENSE_*` entries taken out of it, then upgrade with the values file you
+installed with. If the AdSense ids were in an `existingSecret` and you set
+`frontend.adsConfigured`, set it back to `false` and take them out of that
+Secret.
+
+**A `single` deployment installed by hand, the split recipe, or one container.**
+A `single` machine takes this release's `compose.yml` first, as above; the split
+recipe runs the checkout's own `compose.distributed.yml`, which already names
+the setting. Then `SB_HOUSE_AD=true` in `/opt/simple-balance/.env`,
+`deploy/compose/.env`, or the container's environment, the `ADSENSE_*` lines
+deleted from the same place, then `sudo systemctl restart simple-balance` on a
+`single` machine or `docker compose up -d` for the split recipe. The split
+recipe derives the frontend's `SB_ADS_CONFIGURED` from `ADSENSE_CLIENT_ID`, so
+it follows.
+
+### What to check afterwards
+
+`/health/ready`, as with any upgrade; it opens once `0026` has run. Signed in,
+**Import and export** shows the CSV import, then **Import a Simple Balance
+file**, then **Export a Simple Balance file**; **Export file** saves
+`simple-balance-` and today's date as a `.json` file, and choosing that file
+under **Import a Simple Balance file** in the same ledger says everything in it
+is already here, with **Move it into this ledger** disabled and saying why,
+since a ledger in use holds transactions typed into it. With **Include archived
+accounts** ticked, the Overview's address carries `archived=1` and its account
+list marks archived accounts. An
+agent connected with any ledger scope lists `list_learn_articles`, and
+`get_learn_article` with the slug `net-worth` returns that guide.
+
+On a `single` machine with the new Caddyfile in place, the site's own address
+answers `/metrics` with a 404:
+
+```sh
+curl -s -o /dev/null -w '%{http_code}\n' https://your-host/metrics
+```
+
+Behind the frontend nginx the same request gets the app's own page, as it always
+did, because nginx never had the path to proxy; the backslash route there is
+closed by the image and has no check of its own to run.
+
+A page says `noindex`, and the robots file turns nobody away:
+
+```sh
+curl -sI https://your-host/ | grep -i '^x-robots-tag:'
+curl -s https://your-host/robots.txt | grep -c '^Disallow: /'
+```
+
+The first prints `x-robots-tag: noindex` and the second prints 0.
+
+With the collector on, on the application machine: `curl -fsS 127.0.0.1:13133`
+reports the collector's health, `journalctl -u simple-balance | grep
+collector.yaml` is empty — a line there means the machine is missing the file or
+a `compose.yml` that runs the collector, and no collector started — and the
+database machine's exporter answers over TLS with the CA the application already
+trusts:
+
+```sh
+curl -fsS --cacert /var/lib/simple-balance/tls/db-ca.pem \
+  https://<the host in SB_METRICS_DATABASE_TARGET>:9100/metrics | head
+```
+
+On the chart, `kubectl -n <namespace> get deploy <fullname>-collector` —
+`simple-balance-collector` for a release named `simple-balance` — reads 1/1. In
+New Relic, after one scrape interval, every target reads 1:
+
+```sql
+FROM Metric SELECT latest(up) FACET service.name, service.instance.id SINCE 10 minutes ago
+```
+
+The collector's own series arrive as `service.name` `collector` at
+`127.0.0.1:8888`, not as `otelcol` under a new instance at every restart, which
+is what its default self-description would have made them; its `target_info`
+is dropped to keep that name.
+
+With the house ad on, first make sure the process was given it, because a log
+that says nothing about `SB_HOUSE_AD` is also what a process that never got the
+setting prints. On a `single` machine:
+
+```sh
+sudo docker compose -f /opt/simple-balance/compose.yml config | grep SB_HOUSE_AD
+```
+
+prints `SB_HOUSE_AD: "true"`; nothing printed means the machine's `compose.yml`
+is older than this release. Then the log at start says nothing about
+`SB_HOUSE_AD`. A line saying `SB_BILLING_ENABLED` is not true means nobody is
+shown it; a line saying
+AdSense is configured means the `ADSENSE_*` settings are still in force. Once
+they are gone, every page is back on the strict policy and the stricter
+referrer, and `/ads.txt` names nobody:
+
+```sh
+curl -sI https://your-host/ | grep -i -E '^(content-security-policy|referrer-policy):'
+curl -s https://your-host/ads.txt | grep -c DIRECT
+```
+
+The first shows `script-src 'self';` with nothing after it, no `frame-src` or
+`font-src` at all, and `same-origin`; the second prints 0. Signed in as a free
+account, every page but **Settings > Plan and billing** has the bar at the foot
+of the window, and that tab says the free plan comes with ads on the page.
 
 ## Before you upgrade to 0.2.1
 
@@ -1603,14 +2242,19 @@ repository closes.
    hashes are what notice when a body changes anyway.
 6. `npm run verify`, then commit and push on the default branch. The publish
    runs the same suite first, so a failure here is one the release would have
-   met anyway.
+   met anyway. Then `node scripts/sync-learn.mjs --published`, which must exit
+   0: the money guides the MCP server carries have to have been written from
+   smpl.money rather than from a local build of the site, because the publish
+   refuses to build an image otherwise, and a release found wanting only then
+   is a published release with no images. `product-kit` §6 says how to rewrite
+   them.
 7. Cut a release on GitHub against tag `v0.2.0`, from the UI or with
    `gh release create v0.2.0`.
 
 Publishing keys off the release itself, not off the tag push, so it runs once
 whether the tag existed beforehand or GitHub creates it. The workflow runs the
 full verification suite first, refuses to publish if the tag and the manifest
-disagree, and then pushes a multi-architecture image to GHCR tagged with the
+disagree or if the money guides came from a local site build, and then pushes a multi-architecture image to GHCR tagged with the
 version. `latest` moves to it unless the release is marked as a prerelease or
 the version carries a suffix, in which case only the version tag is published.
 

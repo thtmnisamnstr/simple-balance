@@ -166,6 +166,20 @@ export type AppConfig = {
    */
   ads?: AdSettings;
   /**
+   * Whether a free account is shown this product's own advertisement for the
+   * paid plan, `SB_HOUSE_AD`.
+   *
+   * False is the default, so a deployment that sets nothing new shows what it
+   * showed before. It is a setting apart from `ads` rather than a kind of it,
+   * because everything `ads` switches on is there for a third party: the wider
+   * content security policy, `/ads.txt`, the referrer sent off the origin and
+   * the privacy policy Google's terms demand. The house ad loads nothing from
+   * anywhere, so it needs none of them and turns none of them on. Where both are
+   * set the house ad wins for the person it is shown to; `getAdvertising` says
+   * how.
+   */
+  houseAd: boolean;
+  /**
    * Where this deployment's own privacy policy and terms of use live.
    *
    * Either, both or neither, and each is published the moment it is set: on
@@ -305,6 +319,15 @@ export function getConfig(): AppConfig {
     })
     .transform((value) => value === "true")
     .parse((process.env.SB_CSP_REPORT_ONLY ?? "false").toLowerCase());
+  // Parsed strictly like every boolean here, because a misspelled `SB_HOUSE_AD`
+  // read as off has no symptom: the deployment starts and quietly shows nobody
+  // the ad its operator asked for. Read beside the other switches rather than
+  // inside `parseAdSettings`, which is AdSense's and refuses without a privacy
+  // policy that a first-party ad has no reason to demand.
+  const houseAd = z
+    .enum(booleanSettings, { error: () => "SB_HOUSE_AD must be true or false" })
+    .transform((value) => value === "true")
+    .parse((process.env.SB_HOUSE_AD ?? "false").toLowerCase());
   // The secrets are read through `readSecret` and the settings beside
   // them straight from the environment. That split is not an oversight: having a
   // `_FILE` form is what makes a name a secret here, so giving one to
@@ -378,6 +401,7 @@ export function getConfig(): AppConfig {
     mail,
     billing,
     ads,
+    houseAd,
     legal,
     port,
     logLevel,
@@ -458,6 +482,33 @@ export function getConfig(): AppConfig {
         "limited plan and nobody is shown an ad. The content security policy is " +
         "still widened for ads on every page and /ads.txt is still served. Set " +
         "SB_BILLING_ENABLED=true, with Stripe configured, to show ads to free accounts.",
+    );
+  }
+  // The same slip for the house ad, which needs a plan for sale twice over: it
+  // is shown only where a limited plan is in force, and what it offers is the
+  // plan. Quieter than the line above because it costs nothing while unseen —
+  // no policy is widened and no file is served — but it is still a setting that
+  // looks accepted and does nothing.
+  if (houseAd && !billing?.enforcing && isProduction) {
+    console.warn(
+      "SB_HOUSE_AD is true and SB_BILLING_ENABLED is not true, so nobody is on a " +
+        "limited plan and nobody is shown the house ad. Set SB_BILLING_ENABLED=true, " +
+        "with Stripe configured, to show it to free accounts.",
+    );
+  }
+  // Both kinds at once is accepted rather than refused, because both settings
+  // were accepted alone and an operator moving from one to the other passes
+  // through having both. The house ad wins for whoever it is shown to, so the
+  // two never stack on a page. What the line exists to say is the part that
+  // does not follow: the AdSense settings go on widening the policy and serving
+  // ads.txt for as long as they are set, because those key on the settings and
+  // not on whether an AdSense unit is ever rendered.
+  if (houseAd && ads && isProduction) {
+    console.warn(
+      "SB_HOUSE_AD is true and AdSense is configured, so a free account shown the " +
+        "house ad is shown no AdSense unit beside it. The ADSENSE_* settings still " +
+        "widen the content security policy on every page and /ads.txt is still " +
+        "served; unset them to stop both.",
     );
   }
   // The third of the same shape, and the one whose setting says nothing about
@@ -976,7 +1027,14 @@ export function billingEnabled(): boolean {
   return getConfig().billing?.enforcing === true;
 }
 
-/** Whether this deployment shows ads. */
+/**
+ * Whether this deployment shows AdSense.
+ *
+ * Not whether it advertises at all: the house ad is `getConfig().houseAd` and
+ * deliberately left out, because everything that asks this — the content
+ * security policy, `/ads.txt`, the referrer policy, `adsAvailable` — is asking
+ * about a third party, and a first-party ad brings none.
+ */
 export function adsEnabled(): boolean {
   return Boolean(getConfig().ads);
 }

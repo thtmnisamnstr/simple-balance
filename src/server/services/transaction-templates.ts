@@ -28,6 +28,7 @@ import {
 import { conflict, duplicate, notFound, staleVersion, validationError } from "./errors.js";
 import {
   firstNotificationDate,
+  notificationDateAfter,
   notificationRuleOf,
   type NotificationRule,
 } from "./notifications.js";
@@ -208,6 +209,7 @@ async function writeNotification(
   actor: Actor,
   templateId: string,
   notification: TemplateNotification | null | undefined,
+  sent: string | null = null,
 ) {
   // Locked, not merely read. The reminder sweep advances this row's watermark
   // under its own row lock, and a template save racing it could read the
@@ -241,6 +243,15 @@ async function writeNotification(
   // that really did change starts afresh, which is what somebody moving the date
   // is asking for.
   const unchanged = notificationChangesNothing(existing ?? null, notification);
+  // What another copy of this ledger already sent, when the template arrived
+  // in a Simple Balance file: the watermark it brings, and the next date
+  // worked out after it rather than from the first occurrence, so a one-time
+  // reminder that already went stays sent. Only a create passes one, and only
+  // the import's create, as an argument no form or tool can reach.
+  const seeded =
+    sent === null
+      ? null
+      : { lastNotifiedDate: sent, nextNotificationDate: notificationDateAfter(rule, sent) };
   const [created] = await tx
     .insert(templateNotifications)
     .values({
@@ -258,9 +269,13 @@ async function writeNotification(
       // in the past is somebody asking to be told about something they have
       // already missed, and the sweep collapses a backlog to one message, so it
       // costs one mail and answers the question they were asking.
-      lastNotifiedDate: unchanged && existing ? existing.lastNotifiedDate : null,
-      nextNotificationDate:
-        unchanged && existing ? existing.nextNotificationDate : firstNotificationDate(rule),
+      lastNotifiedDate:
+        seeded?.lastNotifiedDate ?? (unchanged && existing ? existing.lastNotifiedDate : null),
+      nextNotificationDate: seeded
+        ? seeded.nextNotificationDate
+        : unchanged && existing
+          ? existing.nextNotificationDate
+          : firstNotificationDate(rule),
     })
     .returning();
   return created;
@@ -433,6 +448,9 @@ async function lockSelectedTemplates(
       {
         templateIds: missing,
       },
+      // An agent has no list on screen to reload; it is told which call reads
+      // the ids again, and that the ones that missed are in the details.
+      "Some of these templates are not in this ledger, and details.templateIds lists them: they may have been deleted. Call list_transaction_templates and send the call again without them.",
     );
   }
   const stale = selection.items.filter(
@@ -468,6 +486,23 @@ export async function bulkEditTransactionTemplates(
         idempotencyPayload,
       );
       if (existing) return transactionTemplateBulkResultSchema.parse(existing);
+    }
+    // Same order as the create and the single edit, for the same race:
+    // `deleteAccount` and `deleteCategory` count the templates naming what they
+    // delete under these locks, and a mass edit sitting between its ownership
+    // check and its write was invisible to both counts, so thirty templates
+    // could be left naming a category that had just gone (`services.md` 2.4).
+    // Only what the patch introduces, which is all `assertReferencesAreOwned`
+    // checks below.
+    await lockAccountReferences(
+      tx,
+      actor,
+      [parsed.patch.fromAccountId, parsed.patch.toAccountId].filter((id): id is string =>
+        Boolean(id),
+      ),
+    );
+    if (parsed.patch.categoryId || parsed.patch.legs?.some((leg) => leg.categoryId)) {
+      await lockCategoryNamespace(tx, actor);
     }
     await lockTransactionTemplateNamespace(tx, actor);
     const rows = await lockSelectedTemplates(tx, actor, parsed.selection);
@@ -731,16 +766,29 @@ export async function getTransactionTemplate(actor: Actor, id: string) {
   return templateView(row, notification ?? null);
 }
 
+/**
+ * What only a Simple Balance file's import may ask of a create, as an argument
+ * rather than a field: no form or tool can reach it, because the schema a form
+ * and a tool send is the one above, and neither has a watermark of its own to
+ * bring. `lastNotifiedDate` is the reminder the copy the file came from already
+ * sent; `auditOperation` says in the history where the template came from.
+ */
+export type TemplateCreateOptions = {
+  readonly lastNotifiedDate?: string | null;
+  readonly auditOperation?: string;
+};
+
 export async function createTransactionTemplate(
   actor: Actor,
   input: unknown,
+  options: TemplateCreateOptions = {},
   transaction?: DbTransaction,
 ) {
   const parsed = transactionTemplateCreateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
-    // The category namespace before the template's own lock, which the
-    // template lock's own comment already requires ("taken last of all the
-    // namespace locks"). Without it a category delete racing this create
+    // The category namespace before the template's own lock, which the order
+    // in helpers.ts already requires: the template lock comes after the
+    // category and payee namespaces. Without it a category delete racing this create
     // counts zero template references while this transaction sits between its
     // ownership check and its insert, and the template lands naming a dead
     // category — the exact state deleteCategory's guard exists to prevent.
@@ -775,11 +823,12 @@ export async function createTransactionTemplate(
       actor,
       created.id,
       parsed.notification ?? null,
+      options?.lastNotifiedDate ?? null,
     );
     await writeAudit(tx, actor, {
       entityType: "transaction_template",
       entityId: created.id,
-      operation: "create",
+      operation: options?.auditOperation ?? "create",
       after: templateView(created, notification),
     });
     return templateView(created, notification);

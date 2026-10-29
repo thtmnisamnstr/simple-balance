@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Combine,
   ListChecks,
   LoaderCircle,
   MoreHorizontal,
@@ -994,7 +995,14 @@ export function RowMenu({ label, children }: { label: string; children: ReactNod
         style={anchor ?? undefined}
         // Choosing something closes the menu. Without this it stays open behind
         // whatever the choice opened, and is still there afterward.
-        onClick={() => close()}
+        //
+        // And focus goes back to the trigger when it was on the item chosen,
+        // because closing hides that item. A dialog the choice opens records
+        // whatever had focus as it opens and hands focus back to it on close,
+        // so Edit from a row's menu, then Escape, left focus on `<body>`: the
+        // next Tab started from the top of the page. An item that sent focus
+        // somewhere itself has already moved it out of here, and keeps it.
+        onClick={() => close(popover.current?.contains(document.activeElement) ?? false)}
       >
         {children}
       </div>
@@ -1378,6 +1386,66 @@ export function MergePanel({ children }: PropsWithChildren) {
 }
 
 /**
+ * Names that may be one thing, each with the button that sets up its merge.
+ *
+ * Payees and Categories each drew these as an `Alert kind="info"` per group,
+ * which went wrong two ways. `Alert` wraps its children in one `<div>`, so the
+ * row's `justify-content: space-between` spread the icon and that div rather
+ * than the names and the button: the icon sat at the left edge and the names
+ * ran into "Review merge" at the right with no gap at all, about 900px away.
+ * And every `Alert` that is not an error is a `role="status"` region, so a page
+ * with five groups carried five live regions for a condition that stands on
+ * every visit — 12.4 keeps a page to one, for news. So a plain list instead,
+ * drawn in the info alert's colors so it looks as it did.
+ *
+ * Every button is "Review merge", which is what the tests and the merge panel
+ * it opens call it; the names are each button's description, so a screen
+ * reader moving between them hears which group each one is for.
+ */
+export function DuplicateGroups({
+  label,
+  groups,
+}: {
+  /** The section's accessible name — "Duplicate payees". */
+  label: string;
+  groups: readonly { key: string; names: readonly string[]; onReview: () => void }[];
+}) {
+  const id = useId();
+  if (!groups.length) return null;
+  return (
+    <section className="duplicate-groups" aria-label={label}>
+      <div className="section-title">
+        <span>
+          <Combine size={19} />
+        </span>
+        <div>
+          <h2>Possible duplicates</h2>
+          <p>Names are compared without case or extra spacing.</p>
+        </div>
+      </div>
+      <ul className="duplicate-group-list">
+        {groups.map((group, index) => (
+          <li className="duplicate-group" key={group.key}>
+            <AlertCircle size={17} aria-hidden="true" />
+            <span className="duplicate-group-names" id={`${id}-${index}`}>
+              {group.names.join(", ")}
+            </span>
+            <Button
+              type="button"
+              variant="secondary"
+              aria-describedby={`${id}-${index}`}
+              onClick={group.onReview}
+            >
+              Review merge
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/**
  * The bar that appears when rows are selected: how many, and what may be done
  * to them.
  *
@@ -1425,6 +1493,25 @@ export function SelectionBar({
  * "of 12345". Every count in a sentence goes through it now.
  */
 export const formatCount = (count: number) => count.toLocaleString();
+
+/**
+ * A count in words, for one that sits in a sentence rather than beside other
+ * figures (`common.md` §Prose).
+ *
+ * A count that arrives as a value cannot be spelled out by writing the sentence
+ * differently, so it is spelled out here. It was the plan tab's own list, and
+ * only the grace period asked it, so the past-due alert said "fifteen days"
+ * while the same tab and the accounts page said "up to 3 accounts" and "keeps 3
+ * accounts usable" — two halves of the plan copy disagreeing. A number past the
+ * end of the list falls back to digits, which reads worse and is still true.
+ */
+const NUMBER_WORDS = (
+  "zero one two three four five six seven eight nine ten eleven twelve thirteen " +
+  "fourteen fifteen sixteen seventeen eighteen nineteen twenty twenty-one " +
+  "twenty-two twenty-three twenty-four twenty-five twenty-six twenty-seven " +
+  "twenty-eight twenty-nine thirty thirty-one"
+).split(" ");
+export const countInWords = (count: number) => NUMBER_WORDS[count] ?? formatCount(count);
 
 /**
  * Stands in for content while it loads. Without it the empty state shows first,
@@ -1554,11 +1641,13 @@ export function EmptyState({
    * document wherever it is used. `<h3>` is right under a page `<h1>` and a
    * section `<h2>`, and wrong where the empty state *is* the page's content —
    * the duplicate review's "nothing left to review" is the answer to the whole
-   * screen, not a subsection of it. Same reasoning as `ErrorSummary`'s.
+   * screen, not a subsection of it, and `<h4>` where it fills a panel whose
+   * own heading is an `<h3>`, as the CSV import's File preview does inside its
+   * section. Same reasoning as `ErrorSummary`'s.
    */
-  level?: 2 | 3;
+  level?: 2 | 3 | 4;
 }) {
-  const Heading = level === 2 ? "h2" : "h3";
+  const Heading = level === 2 ? "h2" : level === 4 ? "h4" : "h3";
   return (
     <div className={`empty-state ${compact ? "empty-state-compact" : ""}`}>
       <div className="empty-icon">
@@ -1646,6 +1735,38 @@ export function Alert({
 }
 
 /**
+ * Every read a section depends on that failed, said once and opening with what
+ * failed.
+ *
+ * Each page gave every failed read an `Alert` of its own carrying the server's
+ * message, and in an outage every read gets the same one — "This could not be
+ * finished because of a problem on the server…" — so the staged queue stacked
+ * four identical red boxes, the register three and the Overview two, each its
+ * own `role="alert"` region reading the same sentence again, and none saying
+ * what had failed to load. 12.1 asks each read to say that it failed; the
+ * subject is the half of that the server's sentence cannot carry, and it is
+ * what explains "Unknown account" and "Uncategorized" in the rows below.
+ *
+ * Callers still read `.error` themselves, in the component that holds each
+ * query, so the check that every read says its failure keeps finding them.
+ */
+export function ReadFailures({
+  reads,
+}: {
+  /** Each read as `[what it holds, its error]`: "accounts", "import batches". */
+  reads: readonly (readonly [subject: string, error: Error | null | undefined])[];
+}) {
+  const failed = reads.flatMap(([subject, error]) => (error ? [{ subject, error }] : []));
+  if (!failed.length) return null;
+  const subjects = new Intl.ListFormat("en", { type: "conjunction" }).format(
+    failed.map((read) => read.subject),
+  );
+  // An outage answers every read with one sentence, so it is said once.
+  const messages = [...new Set(failed.map((read) => read.error.message))];
+  return <Alert>{`Your ${subjects} did not load. ${messages.join(" ")}`}</Alert>;
+}
+
+/**
  * A transfer's category cell: a dash, and words for whoever cannot see one.
  *
  * One component so the transactions list and the staged queue cannot drift
@@ -1721,6 +1842,12 @@ export function ProgressBar({ label, value, max }: { label: string; value: numbe
  * phase vocabulary, sentence case, no full stop. These are the true figures for
  * the phase in flight — the bar itself is weighted across phases, and a weight
  * is an estimate, so the numbers a person reads are never the estimated ones.
+ *
+ * `verb` replaces the phase's own word where one phase names two kinds of
+ * work. Posting is a commit's last loop and the whole of a Simple Balance
+ * file's move, and a move commits nothing — nothing it writes was ever staged
+ * — so it reads "written" there, through the same count form rather than a
+ * second sentence built beside it.
  */
-export const progressLabel = (event: ProgressEvent) =>
-  `${event.done.toLocaleString()} of ${event.total.toLocaleString()} ${PROGRESS_VERB[event.phase]}`;
+export const progressLabel = (event: ProgressEvent, verb = PROGRESS_VERB[event.phase]) =>
+  `${formatCount(event.done)} of ${formatCount(event.total)} ${verb}`;

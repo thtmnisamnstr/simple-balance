@@ -29,6 +29,41 @@ export const MAX_CSV_CONFIGURATION_ROWS = MAX_BULK_SELECTION_ENTRIES;
  * rather than either number moving.
  */
 export const CSV_EXPORT_MAX_ROWS = 100_000;
+
+/**
+ * The most content one Simple Balance file carries beyond each row's fixed
+ * fields, counted in bytes beside the row cap rather than instead of it: the
+ * free text of its entries — payee, description, notes and bank reference —
+ * every leg of a split, staged rows' drafts and the source rows they were read
+ * from, and the activity history's before and after snapshots.
+ *
+ * The row cap bounds what is the same size on every row and nothing else. It
+ * was written as though every row were about the same size, and none of these
+ * is: an entry's notes run to four thousand characters, a split to fifty legs,
+ * a staged row's source data to whatever its CSV held, and an event about an
+ * edited split is two kilobytes. A hundred thousand entries with the longest
+ * notes is a 450 MB file, and fifty noted legs on a third of that many is past
+ * the longest string V8 will build, so the export ended in a 500 or took the
+ * server's heap with it, every tenant's requests too, where it should have said
+ * which date range to export instead. Counted before anything is read, so a
+ * file over it is refused after a handful of sums. The history alone was
+ * bounded this way first, at the same size: the worst file it allowed, a
+ * hundred thousand events filling sixteen mebibytes of snapshots, came to
+ * 33 MiB and peaked under 400 MiB resident in the heap Node gives a
+ * one-gibibyte container. A hundred thousand entries carrying sixteen
+ * mebibytes of notes, built and read back the way the export does it under a
+ * 560 MiB old space, came to 32 MiB and peaked at 384 MiB on 2026-10-26.
+ */
+export const LEDGER_FILE_CONTENT_MAX_BYTES = 16 * 1024 * 1024;
+
+/**
+ * The same bound for an agent, a quarter of the download's, for the reason its
+ * row cap is a tenth: a tool's reply is serialized twice with no streaming. At
+ * this size the content adds about as much to a reply as its row cap's worth
+ * of entries already does.
+ */
+export const MCP_LEDGER_FILE_CONTENT_MAX_BYTES = 4 * 1024 * 1024;
+
 export const DEFAULT_DATABASE_POOL_SIZE = 10;
 const MAX_DATABASE_POOL_SIZE = 100;
 const DEFAULT_RECURRENCE_TICK_SECONDS = 300;

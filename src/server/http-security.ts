@@ -2,8 +2,14 @@ import type { Context, MiddlewareHandler } from "hono";
 import type { TransportErrorCode } from "../shared/domain.js";
 import { secureHeaders } from "hono/secure-headers";
 import { MAX_BULK_SELECTION_ENTRIES } from "../shared/domain.js";
+import { LEDGER_FILE_PART_MAX_BYTES } from "../shared/ledger-file.js";
+import {
+  MAX_LEDGER_FILE_ARRIVE_ARCHIVED,
+  MAX_LEDGER_FILE_DECISIONS,
+} from "../shared/ledger-file-import.js";
 import { configuredCsvMaxBytes } from "./config-limits.js";
 import { log } from "./log.js";
+import { rateLimitStoreFailures } from "./metrics.js";
 
 /**
  * What every response from this process carries, and the one place it is
@@ -189,8 +195,8 @@ const STRIPE_CONNECT_HOSTS = [
 ];
 
 /**
- * What every response from this process carries, and the one place it is
- * written down.
+ * The security headers every response from this process carries, and the one
+ * place they are written down; `responseHeaders` adds the robots header.
  *
  * A function rather than a constant, because HSTS depends on configuration and
  * a constant would read it at import time, before the process has parsed any.
@@ -416,6 +422,46 @@ function isBulkRequestPath(path: string) {
   const segments = path.split("/");
   return segments.length === 5 && BULK_REQUEST_ACTIONS.has(segments[4]!);
 }
+/**
+ * What a request carrying one part of a Simple Balance file may weigh: the
+ * part twice over, the decisions and the accounts to arrive archived at their
+ * schemas' limits, and an envelope for the rest.
+ *
+ * **The part twice, not the CSV's six times.** A part travels as a JSON
+ * string, and a part is itself JSON text, whose only raw characters below a
+ * space are the whitespace between tokens. Escaping one of those, a quote or a
+ * backslash costs two bytes for one, and every other character is written as
+ * it is — a character JSON text had to escape is already six bytes of it, and
+ * becomes seven — so no byte of a part more than doubles. A CSV can hold any
+ * control character, each escaped as six, which is where its own allowance
+ * comes from. A string that is not JSON text is no part, and is refused either
+ * way.
+ *
+ * **The decisions at six bytes a character**, because they travel with every
+ * part and nothing about them is JSON text: a key or a name may hold quotes,
+ * characters three bytes long in UTF-8, or a lone surrogate, which
+ * `JSON.stringify` writes as a six-byte escape. `MAX_LEDGER_FILE_DECISIONS` of
+ * them, each a 400-character key and a 160-character name with room for the
+ * field names and an id, and `MAX_LEDGER_FILE_ARRIVE_ARCHIVED` keys, come to
+ * about twenty mebibytes; the whole is fifty-two, under what both terminators
+ * in front of the API carry (`tests/upload-limit-agreement.test.ts`). An
+ * allowance worked out at a kibibyte a decision fell short of what the schema
+ * accepts as soon as the names were not in plain ASCII.
+ */
+const LEDGER_FILE_DECISION_BYTES = (400 + 160) * JSON_STRING_WORST_CASE_EXPANSION + 256;
+const LEDGER_FILE_KEY_BYTES = 400 * JSON_STRING_WORST_CASE_EXPANSION + 4;
+const LEDGER_FILE_REQUEST_ENVELOPE_BYTES = 64 * 1024;
+export const LEDGER_FILE_REQUEST_BODY_LIMIT_BYTES =
+  LEDGER_FILE_PART_MAX_BYTES * 2 +
+  MAX_LEDGER_FILE_DECISIONS * LEDGER_FILE_DECISION_BYTES +
+  MAX_LEDGER_FILE_ARRIVE_ARCHIVED * LEDGER_FILE_KEY_BYTES +
+  LEDGER_FILE_REQUEST_ENVELOPE_BYTES;
+const LEDGER_FILE_PATHS = new Set([
+  "/api/v1/ledger-file:preview",
+  "/api/v1/ledger-file:add",
+  "/api/v1/ledger-file:move",
+]);
+
 const REJECTED_BODY_DRAIN_LIMIT_BYTES = 128 * 1024;
 const REJECTED_BODY_DRAIN_TIMEOUT_MS = 250;
 
@@ -698,6 +744,12 @@ export function createAttemptLimiter(options: {
         // better than the alternative here, which is refusing every sign-in on
         // a deployment whose database is having a bad minute.
         log.failure("The shared attempt limiter could not be reached", error);
+        // Counted as well as logged, because the weaker bound is silent in
+        // every other way: nothing is refused that would not have been, so a
+        // deployment can run on it for a day with the log the only witness.
+        // Not in `clear` below, whose failure leaves a stale count that expires
+        // with its window rather than a bound that has quietly changed.
+        rateLimitStoreFailures.inc();
         return true;
       }
     },
@@ -1053,9 +1105,14 @@ export function apiRequestBodyLimit(path: string) {
   // limit that fits it is the limit a read tool gets too. The tool's own
   // schema is what refuses an oversized argument to anything else.
   const mcp = path === "/mcp" || path === "/mcp/";
-  if (path === "/api/v1/csv/preview" || path === "/api/v1/csv/stage" || mcp) {
-    return configuredCsvMaxBytes() * JSON_STRING_WORST_CASE_EXPANSION + CSV_REQUEST_ENVELOPE_BYTES;
-  }
+  const csv =
+    configuredCsvMaxBytes() * JSON_STRING_WORST_CASE_EXPANSION + CSV_REQUEST_ENVELOPE_BYTES;
+  // The larger of the two for the endpoint that carries both tools, so a
+  // deployment lowering `CSV_MAX_BYTES` to keep CSV uploads small cannot
+  // shrink an agent's import below one part of a Simple Balance file.
+  if (mcp) return Math.max(csv, LEDGER_FILE_REQUEST_BODY_LIMIT_BYTES);
+  if (path === "/api/v1/csv/preview" || path === "/api/v1/csv/stage") return csv;
+  if (LEDGER_FILE_PATHS.has(path)) return LEDGER_FILE_REQUEST_BODY_LIMIT_BYTES;
   if (isBulkRequestPath(path)) return BULK_REQUEST_BODY_LIMIT_BYTES;
   return API_REQUEST_BODY_LIMIT_BYTES;
 }
@@ -1083,3 +1140,43 @@ export function requestBodyLimit(path: string) {
   if (path === CSP_REPORT_PATH) return CSP_REPORT_BODY_LIMIT_BYTES;
   return apiRequestBodyLimit(path);
 }
+
+/**
+ * What every response says to a search engine: leave this out of the index.
+ *
+ * Said on the response because `public/robots.txt` cannot say it. That file
+ * used to ask every crawler but AdSense's to stay out, which defeated itself: a
+ * crawler that may not fetch a page never reads anything on it, a `noindex`
+ * included, so an address somebody linked to could still be listed as a bare
+ * link, and the sign-in screen could stand in for the product on a search for
+ * its name. The file now lets every crawler in, and this is what they read.
+ *
+ * A header rather than a `<meta name="robots">` in the shell, because the shell
+ * is one response among many. An icon, `/robots.txt`, `/ads.txt` and every API
+ * answer are not HTML and have nowhere to put a meta tag, and a search engine
+ * indexes files that are not pages too.
+ */
+const ROBOTS_DIRECTIVE = "noindex";
+
+/**
+ * Every header every response from this process carries: what
+ * `securityHeaderOptions` describes, and `X-Robots-Tag` beside it, which Hono's
+ * `secureHeaders` has no option for.
+ *
+ * One middleware rather than a second `app.use` beside the first, so that
+ * `tests/security-header-parity.test.ts` holds nginx to the whole set by
+ * building exactly what `api.ts` builds, and the split deployment's copy cannot
+ * lose the robots header while the comparison stays green. Set after the
+ * response exists, the way `secureHeaders` sets its own, so a refusal, the
+ * single-page shell and a file out of the bundle carry it as well as a route's
+ * own answer.
+ */
+export const responseHeaders = (
+  options: NonNullable<Parameters<typeof secureHeaders>[0]>,
+): MiddlewareHandler => {
+  const secure = secureHeaders(options);
+  return async (c, next) => {
+    await secure(c, next);
+    c.res.headers.set("X-Robots-Tag", ROBOTS_DIRECTIVE);
+  };
+};

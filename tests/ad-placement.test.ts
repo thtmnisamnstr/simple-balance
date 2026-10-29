@@ -179,3 +179,68 @@ describe("the ad rule as the server runs it", () => {
     expect(await getAdPlacement({ userId: "wound-down-subscriber", source: "web" })).toBeNull();
   });
 });
+
+/**
+ * The house ad through the same function, in the same wound-down state.
+ *
+ * It shares the predicate with the AdSense placement and one entitlement read
+ * with it, so the arm worth having in the fast tier is the same one: Stripe
+ * still configured, nothing for sale, and nobody on a limited plan. A house ad
+ * gated on "not on Plus" would put an advertisement for the plan in front of
+ * every subscriber a paused deployment is still charging for it.
+ *
+ * AdSense is left unset on purpose. With it set, a null `ads` below could be
+ * the house ad winning the slot rather than the rule refusing both, and the
+ * assertion would pass for the wrong reason.
+ */
+describe("the house ad rule as the server runs it", () => {
+  const environment: Record<string, string> = {
+    NODE_ENV: "test",
+    SB_HOUSE_AD: "true",
+    STRIPE_SECRET_KEY: "sk_test_house_ad",
+    STRIPE_PUBLISHABLE_KEY: "pk_test_house_ad",
+    STRIPE_WEBHOOK_SECRET: "whsec_a_secret_only_stripe_and_this_deployment_share",
+    STRIPE_PRICE_MONTHLY_ID: "price_monthly",
+    STRIPE_PRICE_YEARLY_ID: "price_yearly",
+  };
+  const unset = ["SB_BILLING_ENABLED", "ADSENSE_CLIENT_ID", "ADSENSE_BANNER_SLOT_ID"];
+  const original: Record<string, string | undefined> = {};
+
+  beforeAll(() => {
+    for (const [key, value] of Object.entries(environment)) {
+      original[key] = process.env[key];
+      process.env[key] = value;
+    }
+    for (const key of unset) {
+      original[key] = process.env[key];
+      delete process.env[key];
+    }
+    vi.resetModules();
+  });
+
+  afterAll(() => {
+    for (const [key, value] of Object.entries(original)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    vi.resetModules();
+  });
+
+  it("shows no house ad to anybody on a deployment that has stopped selling", async () => {
+    const { adsEnabled, billingEnabled, getConfig } = await import("../src/server/config.js");
+    const { getAdvertising } = await import("../src/server/services/billing.js");
+
+    // The fixture asserted first, as above: the house ad is on, AdSense is not,
+    // and nothing is for sale. A false below is then the rule and not an
+    // unconfigured switch.
+    expect(getConfig().houseAd, "the house ad is configured").toBe(true);
+    expect(adsEnabled(), "and AdSense is not, so nothing can take its slot").toBe(false);
+    expect(billingEnabled(), "and this deployment has stopped selling").toBe(false);
+
+    // No database is reached, for the reason the block above gives.
+    expect(await getAdvertising({ userId: "wound-down-subscriber", source: "web" })).toEqual({
+      ads: null,
+      houseAd: false,
+    });
+  });
+});

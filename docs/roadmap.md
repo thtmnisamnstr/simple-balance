@@ -467,6 +467,316 @@ was never scoped to an account, so money spent on a card since closed is money
 the budget covered, and filtering it makes a budget spent to the penny read as
 underspent.
 
+## SB-031 — Sign-in on better-auth 1.7
+
+**Priority 195. Next, alongside SB-032. Depends on nothing; lifts two holds in
+`.github/dependabot.yml`.**
+
+Every security fix better-auth publishes now lands on 1.7 only, and this product
+is pinned to 1.6.33, the last of the 1.6 line. Four advisories against it were
+published on 2026-10-27, each fixed in 1.7 and in no 1.6 release:
+
+| Advisory | Severity | Needs | Reaches this product |
+| --- | --- | --- | --- |
+| [GHSA-965c-763c-88jm](https://github.com/advisories/GHSA-965c-763c-88jm), an OAuth state accepted as a Magic Link token | Critical | The Magic Link plugin | No: `src/server/auth.ts` enables only `mcp()` |
+| [GHSA-r4xp-prcw-77qf](https://github.com/advisories/GHSA-r4xp-prcw-77qf), the OAuth Proxy trusting any profile it can decrypt | High | The OAuth Proxy plugin | No |
+| [GHSA-q84f-53jg-9ppm](https://github.com/advisories/GHSA-q84f-53jg-9ppm), device login approval not naming the client | High | `deviceAuthorization()` | No |
+| [GHSA-44jh-23m7-hpcf](https://github.com/advisories/GHSA-44jh-23m7-hpcf), database rate limits exceeded by concurrent requests | Low | Rate limits stored in PostgreSQL through the Drizzle adapter | **Yes**: sign-in limits are counted in PostgreSQL so every replica shares them, and a burst of simultaneous attempts can pass the limit by about the number of concurrent connections |
+
+None of the four is a reason to rush and all of them together are a reason not
+to wait, because the next one may need nothing this product lacks.
+
+It is a story rather than a version bump because 1.7 is a minor by its number
+and a rewrite by its contents, which is why `.github/dependabot.yml` holds it.
+The MCP plugin moves out into `@better-auth/mcp`, so `mcp`, `withMcpAuth`,
+`oAuthDiscoveryMetadata` and `oAuthProtectedResourceMetadata` no longer exist
+on `better-auth/plugins` and the server does not compile against it. The
+`oauthApplication` model is renamed `oauthClient`, two tables are new, and
+`Account.issuer` wants a backfill, which here is a migration of this product's
+own, `0027`, because every shipped one is frozen.
+
+The design question to settle first is the rename under a rolling update. The
+split deployment and the chart run two releases side by side while a rollout
+moves, and a replica still on 0.2.2 reads `oauth_application` by that name. A
+rename in one step breaks every agent's sign-in on the old replicas for the
+length of the rollout; copying into the new table and keeping the old one until
+the release after is the shape `AGENTS.md`'s upgrade rule asks for, at the cost
+of two tables saying the same thing for one release.
+
+**Acceptance criteria**
+
+- better-auth at the then-current 1.7 in both manifests, and `npm audit` reports
+  none of the four advisories above
+- Every agent authorized before the upgrade keeps working after it: its
+  dynamically registered client, its access token and its refresh token all
+  survive, checked against a database written by 0.2.2 rather than a fresh one
+- The discovery documents answer at every path they answered at, with the same
+  narrowed scopes, and `tests/mcp-parity.test.ts` and the OAuth integration
+  tests pass unchanged
+- A rolling update from 0.2.2 leaves no replica, old or new, unable to sign an
+  agent in at any point during it
+- Concurrent sign-in attempts against the database-stored limit stop at the
+  limit, held by an integration test that fires them at once
+- Local and Google sign-in, the first-account claim, `ALLOWED_EMAILS` and the
+  setup code behave exactly as before; `tests/auth-policy-paths.test.ts` passes
+  unchanged
+- Both holds in `.github/dependabot.yml` are lifted in the same change:
+  better-auth's own, and vitest 5's, which exists only because 1.6's peer range
+  makes the npm that ships with Node 22 crash `npm ci`
+
+## SB-032 — Budgets, the next round
+
+**Priority 196. Next, alongside SB-031. Depends on SB-019 and SB-025 through
+SB-029.**
+
+Scope not decided. The owner named budgets as the next area to grow once the
+budgeting arc had shipped, and this entry holds its place in the order until
+there is something to write in it. It gets its evidence and its acceptance
+criteria before anything is built, like every item above it; the table under
+SB-019 of what each method needed is where the design starts, since it records
+what the model already covers without a mode of its own.
+
+## SB-033 — CSV export and import across accounts
+
+**Priority 197. Next, alongside SB-031 and SB-032. Depends on nothing; reverses
+a rule in `docs/standards/csv.md` §6, on the record.**
+
+A CSV export can already cover every account: the Transactions page exports
+whatever its filters show, and with no account filter that is the whole ledger.
+What the file does not do is say plainly which account a row belongs to. It
+names accounts in four columns split by direction — `source_account_name` and
+`source_account_id` for money leaving, `destination_account_name` and
+`destination_account_id` for money arriving — so a deposit's account is in one
+pair, a withdrawal's in the other, and a transfer's in both. Correct, and not
+something a person filtering a spreadsheet by account can use without knowing
+the convention.
+
+The import is the harder half. Every CSV import lands in one account, chosen on
+the page or passed as `defaultAccountId`, and the four account columns are
+written and deliberately never read: they name accounts in the ledger the file
+came from, which a different account, person or install resolves none of
+(`docs/standards/csv.md` §6). `tests/integration/import-export.integration.test.ts`
+holds it ("posts an export against the account chosen for the import"). So a
+whole-ledger CSV can only come back one account at a time, by hand, and a bank
+or another product's export that lists several accounts in one file has to be
+split before it can be imported at all.
+
+The Simple Balance file already moves whole ledgers with their accounts. This is
+for the CSV: the file people open in a spreadsheet, and the file other products
+write.
+
+**What the design has to settle**
+
+- **An account column a person can read**, one per row, written beside the four
+  that exist. It goes outside the recognition set, because adding to that set
+  would stop every file written so far from being recognized
+  (`docs/standards/csv.md` §6, "The recognition set is frozen").
+- **How a name in the file finds an account here.** The rule already exists for
+  categories and payees (`docs/standards/csv.md` §9): `normalizeHumanName`. What
+  is new is what the preview offers for a name that matches nothing: use an
+  account here, create one, or leave its rows for review — the choices a Simple
+  Balance file's add already offers for a record it only names, which is the
+  precedent to reuse rather than invent beside. An account in another currency
+  is never a match.
+- **A transfer between two accounts the file names** should arrive as one
+  transfer with both sides filled in, where today staging asks for the other
+  side at commit. The same transfer appears twice when a person exports two
+  accounts separately and imports both files, so the duplicate rule has to know
+  it is one movement.
+- **Mapping an account column in a bank file**, so a file the app did not write
+  can name its account per row, with the account chosen on the page kept as the
+  fallback for a row that names none.
+
+Not established for this entry: which other products' exports carry an account
+column, and what they call it. That decides the mapping's defaults and was not
+researched.
+
+**Acceptance criteria**
+
+- An export carries one column naming each row's account, in every file, and
+  every file written before it still imports exactly as it does today
+- One CSV import can stage rows into several accounts, each named in the file
+  and matched to an account here, with the preview showing every name and what
+  it will land in before anything is staged
+- A name that matches nothing is the person's to decide in the preview, and no
+  account is created or picked without them
+- A transfer between two accounts in the file stages once, complete on both
+  sides, and importing two single-account exports that both carry it stages it
+  once
+- A file with no account column, or a row naming none, lands in the account
+  chosen on the page, as today
+- The CSV standard, the MCP tools `preview_csv` and `stage_csv`, and the page
+  change together, and the parity test passes
+- The ten-thousand-row cap and every existing CSV refusal are unchanged
+
+## SB-034 — Bulk writes in batches of 500
+
+**Priority 198. Next, alongside SB-031 through SB-033. Depends on nothing;
+rewrites three invariants in `AGENTS.md`, on the record.**
+
+Committing more than about seven thousand staged rows at once fails on
+app.smpl.money, which runs 0.2.1, and the way through today is to select and
+commit smaller batches by hand. Staging a large CSV may do the same; that has
+not been tried.
+
+The likeliest cause is fixed in 0.2.2 and is not the argument for this story.
+Through 0.2.1 a commit, a mass edit and a move part took one advisory lock per
+row, and PostgreSQL's shared lock table is sized by `max_connections`: on a
+database allowing 50, as the `single` profile's does, 9,000 locks fitted and
+10,000 failed with SQLSTATE 53200, and a busy server has fewer to spare. 0.2.2
+takes one lock per person instead (`docs/standards/code/database.md` §4.3).
+
+The argument is the shape of the write. Every one of these actions is one
+database transaction over everything it touches — up to ten thousand rows —
+and for its whole length it holds its locks and its row versions on a database
+every tenant shares. One person's import should not be able to take that much
+of it, however rarely it happens. **Five hundred rows is the unit of one
+transaction**, chosen by the owner as a size that is safe on a multi-tenant
+deployment. Ten thousand stays the limit on one action, so nothing anybody can
+ask for today is refused.
+
+It covers every write that takes a batch:
+
+- committing staged rows;
+- staging a CSV;
+- the transaction mass edit and mass delete, and the staged mass edit;
+- adding and moving a Simple Balance file, whose parts ship in 0.2.2 at up to
+  ten thousand rows each.
+
+**What it reverses.** `AGENTS.md` says bulk commits are "explicit-ID,
+validate-first, and atomic", that transaction and staged mass edits are atomic,
+and that each ledger-file part is atomic. Batching makes each batch atomic and
+the action as a whole resumable instead, which is the contract the ledger file's
+parts already keep with the browser, and the rewrite of those three sentences
+belongs in the same change as the code.
+
+**What the design has to settle**
+
+- **Where the batching happens.** In the server, inside one request, keeps every
+  client that sends ten thousand rows today working, which the upgrade rule
+  requires, and keeps the browser and an agent on one behavior. The browser
+  sending batches itself would be simpler to show progress for and would need
+  every client changed.
+- **Validate first, still.** Everything that can be known before writing — a
+  frozen account, a stale fingerprint, a row that cannot commit — should still
+  refuse the whole action before the first batch, so the only partial result is
+  one nobody could have predicted.
+- **A failure partway.** What committed stays committed, because postings are
+  append-only. The answer says how far it got, and sending the same action
+  again finishes it without writing anything twice: idempotent by key, and by
+  row id and version for what is already done.
+- **A selection that moves between batches.** A mass edit checks its `id:version`
+  fingerprint once, before the first batch. Each batch checks its own rows'
+  versions again, and a row somebody changed in between is refused and
+  reported rather than overwritten.
+- **A move part's balance check.** Today the part carrying the file's balances
+  is refused when an account comes out different, which is checked after the
+  writes inside the part's one transaction. Across batches that check has to
+  be worked out before anything is written, or a failed check leaves a move
+  half done with nothing to undo it.
+
+Not measured for this entry: how long a ten-thousand-row commit, CSV stage or
+move part holds its transaction today, and what that costs the other tenants'
+requests while it does. The first step is to measure both, so the change can be
+shown to have helped.
+
+**Acceptance criteria**
+
+- No transaction opened by a bulk write touches more than 500 rows, held by a
+  test rather than by reading the code
+- A ten-thousand-row commit, CSV stage, mass edit, mass delete, Simple Balance
+  file add and move part each complete on a database allowing 50 connections,
+  with another tenant's requests answering throughout
+- Anything that can refuse the whole action still refuses it before anything is
+  written
+- A failure partway says exactly what was written and what was not, and sending
+  the action again finishes it without duplicating a row, a posting or an audit
+  entry
+- A client that sends up to ten thousand rows in one request today gets the
+  same answer it gets now, and the MCP tools behave as the browser does
+- `AGENTS.md`'s three atomicity sentences are rewritten in the same change
+
+## SB-035 — QIF, OFX, QFX and camt import and export, beside CSV
+
+**Priority 199. Next, alongside SB-031 through SB-034. Depends on SB-033;
+reverses `docs/standards/csv.md` §1 and §14, on the record.**
+
+CSV is the only file a bank statement can arrive in today, and every bank's CSV
+needs its columns mapped by hand the first time. Most banks also offer their
+statements as OFX, QFX (Quicken's branded OFX) or QIF, and European banks as
+camt.053, the ISO 20022 end-of-day statement; all four carry the same fields in
+fixed places and need no mapping at all. And somebody leaving Quicken, Money,
+GnuCash or most desktop ledgers holds their history in QIF or OFX rather than
+in a CSV. CSV stays exactly as it is; the goal is that a statement in any of the
+five imports, and a ledger exports to any of them.
+
+`docs/standards/csv.md` §1 decided against this: "CSV is the interchange format
+… There is no second one and no plan for one", on the grounds that OFX needs a
+bank relationship, QFX is proprietary and camt.053 "arrives from a bank or not
+at all". That reasoning was about which format
+a self-hosted ledger can count on *receiving*, and it holds: nobody is promised
+an OFX file. It does not argue against reading one when a bank hands it over,
+and the section's own evidence points the other way — OFX carries an id per
+transaction (`FITID`), and Actual Budget recommends it over CSV for exactly
+that reason, which §10 quotes. This entry reverses §1 and the "No second
+interchange format" line of §14, and the rewrite belongs in the same change.
+
+What the formats have in common with a CSV import is everything after the read:
+rows stage for review, duplicates are flagged, nothing reaches the books
+without a commit. What is new is the reader, and whether a file can describe
+more than one account, which is SB-033's question and the reason this depends
+on it.
+
+**What the design has to settle**
+
+- **Export.** Import is the case people have most; export is for leaving, and
+  the owner asked for both. QIF is what most desktop ledgers still import, OFX
+  keeps an id per transaction, and camt.053 is what a European tool expects.
+  Writing camt.053 means producing a bank's statement document from a ledger
+  that is not a bank, so its required account and servicer fields need a
+  decided answer rather than a filler.
+- **The id.** OFX and QFX carry `FITID` per transaction and camt.053 an
+  `AcctSvcrRef` (and often an `EndToEndId`), each of which maps to the existing
+  `externalId` and makes re-importing an overlapping statement skip what is
+  already here. QIF carries none, so it falls back to the duplicate heuristic a
+  CSV gets.
+- **Accounts.** An OFX statement names its account, a camt.053 document
+  carries one `Stmt` per account identified by IBAN, and a QIF file can hold
+  several (`!Account` blocks), so all of them need SB-033's matching and preview rather
+  than the single account a CSV import takes today.
+- **Dates and amounts.** QIF writes dates in the exporting program's locale
+  with no marker for which, and uses `'` for two-digit years in some producers;
+  the reader has to ask, as the CSV import already asks for a date format,
+  rather than guess. camt.053 states direction in `CdtDbtInd` beside an
+  unsigned amount, the shape `csv.md` §14 lists as the CSV reader's cheapest
+  missing feature. Amounts are decimal in all four, and go
+  through the same decimal-string path as a CSV's, never a float.
+- **Investment records.** OFX's investment statements and QIF's `!Type:Invst`
+  describe holdings, prices and lots, which this ledger does not model
+  ("Market prices and investment valuation" is deliberately not planned). They
+  are refused by name rather than half read.
+
+Not established for this entry: which banks in practice still serve OFX or
+QFX downloads without a paid aggregator, which QIF dialects (Quicken,
+Microsoft Money, GnuCash, banks) differ in what ways, and which camt.053
+versions (`.001.02` through `.001.13`) banks actually send. Both decide how much of
+the reader is quirks rather than format, and neither was researched.
+
+**Acceptance criteria**
+
+- A QIF, OFX, QFX or camt.053 bank or card statement stages for review the way
+  a CSV does, with no column mapping, through the page and through the MCP tools
+- A transaction's `FITID` or `AcctSvcrRef` becomes its external id, and importing an
+  overlapping statement twice stages nothing twice
+- A file naming an account, or several, goes through SB-033's account matching
+  and preview
+- A QIF date the reader cannot place unambiguously is asked about, not guessed
+- An investment statement is refused with a sentence saying why
+- A ledger, or chosen accounts, exports to each of the four, and a file this
+  product writes reads back to the same rows
+- The ten-thousand-row cap, the duplicate rules and every CSV behavior are
+  unchanged, and `csv.md` §1 and §14 are rewritten in the same change
+
 ## SB-020 — Widen what an agent may propose
 
 **Priority 200. Depends on SB-016.**
@@ -915,6 +1225,17 @@ categorization among the things a manual-entry user genuinely misses. If the
 staging queue plus a stage-scoped agent turns out not to cover it in practice,
 this is the entry to revisit first.
 
+**OpenTelemetry inside the application.** Metrics reach New Relic, or any
+other backend, through a collector that scrapes the Prometheus text format the
+process already serves, so moving the process itself onto the OpenTelemetry SDK
+would buy the same series again at the cost of an export pipeline in the
+request path and the backend's credential in every process. Decided in October
+2026, for the release after 0.2.1; `docs/architecture.md` §Metrics, and why the
+process does not speak OTLP has the argument. The counter-argument is real:
+traces are a signal the text format cannot carry, and if this product ever
+needs one request followed across the API, the database and Stripe, the SDK is
+the way to get it and this is the entry to revisit.
+
 **Lead generation, and anything that monetizes the data.** Not a product
 decision.
 
@@ -932,7 +1253,10 @@ and nothing about anybody's ledger leaves the deployment. `docs/monetization.md`
 states the cost to the operator in their own words before they turn it on, and
 `docs/standards/operations.md` §One process, one database counts what the browser
 reaches separately from what the server does, precisely because they are
-different promises to different people.
+different promises to different people. A second kind is built and unreleased:
+the house ad, this product's own advertisement for its paid plan, off unless
+`SB_HOUSE_AD` is set, on the same placement rule, and loading nothing from
+anywhere, so there is no third party in it at all.
 
 The part of the original position that stands is the part that was really load
 bearing: this product does not sell what it knows about anybody. An operator

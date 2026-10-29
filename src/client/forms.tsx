@@ -81,7 +81,7 @@ import {
   type TransactionFormLeg,
 } from "./staged-draft.js";
 import { currencyOptionLabel, currencyOptions } from "./select-options.js";
-import { calendarDateInTimezone, useTimezone } from "./timezone.js";
+import { calendarDateInTimezone, useTimezone, useToday } from "./timezone.js";
 import { newIdempotencyKey } from "./idempotency.js";
 import { cleanHumanName, normalizeHumanName } from "../shared/names.js";
 
@@ -109,7 +109,7 @@ export function AccountForm({
   const [type, setType] = useState<UserAccountType>(account?.type ?? "checking");
   const [currency, setCurrency] = useState(account?.currency ?? defaultCurrency);
   const [openingDate, setOpeningDate] = useState(
-    account?.openingDate ?? calendarDateInTimezone(new Date(), timezone),
+    () => account?.openingDate ?? calendarDateInTimezone(new Date(), timezone),
   );
   const [openingBalance, setOpeningBalance] = useState(() => {
     if (!account) return "0";
@@ -871,7 +871,7 @@ function CategoryLegs({
           disabled={atCap}
           aria-describedby={atCap ? capId : undefined}
         >
-          Add a category
+          Add category
         </button>
         {/* `web.md` 12.3: a control that is dead says why, and this one went
             dead at the cap with nothing saying so. */}
@@ -1005,7 +1005,7 @@ export function TemplateForm({
   );
   const [reminderInterval, setReminderInterval] = useState(String(reminder?.interval ?? 1));
   const [reminderDate, setReminderDate] = useState(
-    reminder?.anchorDate ?? calendarDateInTimezone(new Date(), timezone),
+    () => reminder?.anchorDate ?? calendarDateInTimezone(new Date(), timezone),
   );
   const [reminderTime, setReminderTime] = useState(reminder?.time ?? "09:00");
   const [reminderMonthPolicy, setReminderMonthPolicy] = useState(
@@ -1374,7 +1374,11 @@ export function TemplateForm({
                 <Field
                   name="notification.interval"
                   label={`Every N ${FREQUENCY_UNITS[reminderFrequency]}s`}
-                  hint="1 means every one."
+                  // Says that blank is taken, because the form's own note says
+                  // every field is required unless it says otherwise and this
+                  // one is neither required nor marked (`web.md` 8.4): blank is
+                  // read as every one, deliberately, rather than refused.
+                  hint="1 means every one, and so does leaving it blank."
                 >
                   <Input
                     type="number"
@@ -1687,7 +1691,9 @@ export function TransactionForm({
   const initialFormType = initial?.type ?? createType;
   const initialAccountIds = defaultAccountIds(initialFormType);
   const [type, setType] = useState<TransactionType>(initialFormType);
-  const [date, setDate] = useState(initial?.date ?? calendarDateInTimezone(new Date(), timezone));
+  const [date, setDate] = useState(
+    () => initial?.date ?? calendarDateInTimezone(new Date(), timezone),
+  );
   const [description, setDescription] = useState(initial?.description ?? "");
   const [payee, setPayee] = useState(initial?.payee ?? initialPayee ?? "");
   const [categoryId, setCategoryId] = useState(initial?.categoryId ?? initialCategoryId ?? "");
@@ -1760,7 +1766,8 @@ export function TransactionForm({
   const templateApplied = useRef<Set<string>>(new Set());
   const templateBaseline = useRef({
     type: initialFormType,
-    date: initial?.date ?? calendarDateInTimezone(new Date(), timezone),
+    // The state's first value, which is all a ref's argument is ever used for.
+    date,
     payee: initial?.payee ?? initialPayee ?? "",
     description: initial?.description ?? "",
     notes: initial?.notes ?? "",
@@ -2421,15 +2428,17 @@ export function TransactionForm({
           </Field>
         ) : null}
       </div>
-      <div className="two-columns">
-        <Field label="Description" optional name="draft.description">
-          <Input
-            value={description ?? ""}
-            onChange={(event) => setDescription(event.target.value)}
-            placeholder="Additional details"
-          />
-        </Field>
-      </div>
+      {/* Full width, as the template and recurrence forms draw it. It sat
+          alone in a `.two-columns` row — left there when Category, its old
+          partner, moved out to hold a split's legs — so it was the one
+          half-width control in a column of full-width ones. */}
+      <Field label="Description" optional name="draft.description">
+        <Input
+          value={description ?? ""}
+          onChange={(event) => setDescription(event.target.value)}
+          placeholder="Additional details"
+        />
+      </Field>
       {type === "transfer" ? null : (
         <Field
           label="Category"
@@ -2719,7 +2728,7 @@ export function RecurrenceForm({
   // groups — a constant would merge them and choosing in one would clear the
   // other.
   const monthDayGroup = useId();
-  const today = calendarDateInTimezone(new Date(), timezone);
+  const today = useToday(timezone);
   const shape = recurrence?.shape ?? initialShape;
   const [name, setName] = useState(recurrence?.name ?? "");
   const [type, setType] = useState<TransactionType>(shape?.type ?? "withdrawal");
@@ -3234,7 +3243,8 @@ export function RecurrenceForm({
           </Field>
           <Field
             label={`Every N ${FREQUENCY_UNITS[frequency]}s`}
-            hint="1 means every one."
+            // Blank is read as every one; see the reminder's interval above.
+            hint="1 means every one, and so does leaving it blank."
             name="schedule.interval"
           >
             <Input

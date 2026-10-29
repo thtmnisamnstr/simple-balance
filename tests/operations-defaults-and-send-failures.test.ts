@@ -30,6 +30,7 @@ const KEYS = [
   "METRICS_ENABLED",
   "METRICS_TOKEN",
   "SB_CSP_REPORT_ONLY",
+  "SB_HOUSE_AD",
   "RECURRENCE_SCHEDULER",
   "CSV_MAX_BYTES",
   "CSV_MAX_ROWS",
@@ -123,6 +124,10 @@ const ROWS: Readonly<Record<string, Row>> = {
   TRUST_PROXY: { read: async () => (await config()).trustProxy },
   METRICS_ENABLED: { read: async () => (await config()).metrics.enabled },
   SB_CSP_REPORT_ONLY: { read: async () => (await config()).cspReportOnly },
+  // Parsed whether or not anything is for sale, so it needs nothing set beside
+  // it: the house ad standing down without billing is a decision made per
+  // request, not a setting that goes unread.
+  SB_HOUSE_AD: { read: async () => (await config()).houseAd },
   RECURRENCE_SCHEDULER: { read: async () => (await config()).recurrenceSchedulerEnabled },
   CSV_MAX_BYTES: { read: async () => (await limits()).configuredCsvMaxBytes() },
   CSV_MAX_ROWS: { read: async () => (await limits()).configuredCsvMaxRows() },

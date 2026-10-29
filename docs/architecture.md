@@ -30,7 +30,7 @@ contract breaks, which is not the same as when the app does.
 
 | Path | What is in it |
 | --- | --- |
-| `src/shared` | Zod contracts, money and date primitives, CSV normalization. Imported by both sides. |
+| `src/shared` | Zod contracts, money and date primitives, CSV normalization, and the Simple Balance file's format. Imported by both sides. |
 | `src/server/services` | The ledger itself: tenancy, concurrency, idempotency, postings, summaries, staging, import/export, audit. |
 | `src/server/api.ts` | HTTP transport. Resolves the user from Better Auth and calls services. |
 | `src/server/mcp.ts` | MCP transport. Exposes tools and filters them by OAuth scope. |
@@ -38,11 +38,13 @@ contract breaks, which is not the same as when the app does.
 | `src/server/recurrence-scheduler.ts` | The loop, and the only thing that acts unasked. One tick sweeps twice: for recurrences that have come due, and for reminders and proposal notices that are owed. Replicas divide both sweeps by claiming rows, so there is no leader. |
 | `src/server/scheduler.ts` | That loop as an entrypoint of its own, for a deployment that has split the single container up. It serves nothing but its own health checks. |
 | `src/server/mail.ts` | The one place mail is sent from, and the one place that decides whether this deployment can send any. |
+| `src/server/metrics.ts` | Every number the process publishes about itself, in one `prom-client` registry, and the rules that keep a label from naming anybody. `/metrics` serves it, and nothing else in the process knows a backend exists. |
 | `src/server/db` | Drizzle schema, migration runner, connection pool. |
+| `src/server/learn` | The money guides smpl.money publishes, as `learn-pack.json`, the site's words copied in by `scripts/sync-learn.mjs` and never edited here, and the map from each guide's Simple Balance steps to the tools that do them, which is this repository's. Imported as JSON, so it reaches the image inside `dist` and is read from memory; nothing in it touches the database. |
 | `src/client` | The browser app. Renders what the server computed. |
 | `drizzle` | Generated SQL migrations and their snapshots. |
 | `tests` | Unit tests; `tests/integration` needs a real PostgreSQL; `tests/browser` drives Chromium against the real API and needs its own database. |
-| `scripts` | Release helper, development database bootstrap, the Ralph loop. |
+| `scripts` | Release helper, development database bootstrap, the money-guide sync, the Ralph loop. |
 
 Both transports are adapters, and the scheduler is a third caller of the same
 services. Anything that decides something belongs in a service, so the browser,
@@ -188,8 +190,8 @@ together when both match.
 
 Lists order by any column they show, in either direction. Order is presentation
 rather than scope, so it stays out of the fingerprinted bulk selection. A cursor
-records the ordering it was issued for and is refused under another; orderings a
-keyset cannot resume page by number instead.
+records the ordering and the filters it was issued for and is refused if either
+changes; orderings a keyset cannot resume page by number instead.
 
 Budgeting sits over the ledger and never inside it. A budget is a comparison
 against the postings, not an entry among them: nothing in a budget writes a
@@ -317,6 +319,32 @@ setting and sends none, and the sweep leaves early rather than claiming rows it
 cannot deliver — claiming them would advance watermarks past dates nobody was
 ever told about. A backlog collapses to one message per rule rather than one per
 missed occurrence, so a week of downtime brings one reminder instead of seven.
+
+## Metrics, and why the process does not speak OTLP
+
+The process counts with `prom-client` and serves what it counted as Prometheus'
+text format at `/metrics`, and that is the whole of its part. Getting the
+numbers to a backend is the job of an OpenTelemetry Collector that runs beside
+it, off unless a deployment asks: the collector scrapes the text, turns it into
+OTLP or remote write, and holds the backend's credential. So the boundary is
+the text format, and a deployment can change backends, or have none, without
+the application noticing.
+
+The obvious next step is to put the OpenTelemetry SDK in the process and push
+OTLP from there, since that is what the backend wants. **Decided against in
+October 2026, for the release after 0.2.1: the owner judged it too heavy for
+what it adds**, and the shape above is why it adds so little. The collector
+already delivers OTLP, so the SDK would buy the same series at a higher price:
+a metrics pipeline — readers, an export queue, its own network calls and
+retries — running inside the process that serves the ledger, where a labeled
+increment today is a hash and an add of about 130 nanoseconds
+(`src/server/metrics.ts`, its opening docblock, measured). It would also put
+the backend's credential in every API and scheduler process, which the chart
+goes out of its way not to do — the collector reads its headers from a Secret
+the application's pods never see. And it would trade a format any scraper can
+read with no backend at all for one that needs a receiver. The case for
+revisiting is a signal the text format cannot carry, which is to say traces,
+and nothing in this product asks for them yet.
 
 ## MCP tokens
 

@@ -10,6 +10,8 @@ import {
   type DraftAccountField,
 } from "../../shared/domain.js";
 import {
+  addDays,
+  laterOf,
   nextOccurrenceAfter,
   occurrencesBetween,
   proposalFloorSwallows,
@@ -523,7 +525,30 @@ function recurrenceRowView(row: RecurrenceRow) {
   return { ...serializeRow(row), shape: row.shape as RecurrenceShape };
 }
 
-export async function createRecurrence(actor: Actor, input: unknown, transaction?: DbTransaction) {
+/**
+ * What only a Simple Balance file's import may ask of a create, as an argument
+ * rather than a field, so no form or tool can reach it.
+ *
+ * `lastOccurrenceDate` is the last occurrence the copy the file came from
+ * decided. The recurrence starts proposing after it, and never before today,
+ * which is the floor every create already has: arriving on a day that is
+ * itself an occurrence the source already proposed would otherwise propose it
+ * a second time, and nothing is ever backfilled. It is recorded as this
+ * recurrence's watermark too, because it is one — `AGENTS.md`: a recurrence's
+ * watermark "records a proposal that really happened", and it happened, in the
+ * ledger this one was moved from.
+ */
+export type RecurrenceCreateOptions = {
+  readonly lastOccurrenceDate?: string | null;
+  readonly auditOperation?: string;
+};
+
+export async function createRecurrence(
+  actor: Actor,
+  input: unknown,
+  options: RecurrenceCreateOptions = {},
+  transaction?: DbTransaction,
+) {
   const parsed = recurrenceCreateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
     // Read through the transaction, never off the pool. An MCP write hands its
@@ -532,7 +557,11 @@ export async function createRecurrence(actor: Actor, input: unknown, transaction
     // waits on the one the caller is holding, and on DATABASE_POOL_SIZE=1 that
     // wait never ends and never errors either.
     const { timezone } = await getPreferences(actor, tx);
-    const proposesFrom = todayIn(timezone);
+    const lastOccurrenceDate = options?.lastOccurrenceDate ?? null;
+    const proposesFrom =
+      lastOccurrenceDate === null
+        ? todayIn(timezone)
+        : laterOf(todayIn(timezone), addDays(lastOccurrenceDate, 1));
     // The category namespace first, and before the recurrence's own lock —
     // the account -> category -> payee order helpers.ts mandates, extended the
     // way every names-a-category write extends it. Without this, a category
@@ -560,7 +589,7 @@ export async function createRecurrence(actor: Actor, input: unknown, transaction
       );
     }
     const columns = scheduleColumns(parsed.schedule);
-    const seed = { ...columns, proposesFrom, lastOccurrenceDate: null } as RecurrenceRow;
+    const seed = { ...columns, proposesFrom, lastOccurrenceDate } as RecurrenceRow;
     const [created] = await tx
       .insert(recurrences)
       .values({
@@ -570,14 +599,14 @@ export async function createRecurrence(actor: Actor, input: unknown, transaction
         notifyOnCreate: parsed.notifyOnCreate,
         ...columns,
         proposesFrom,
-        lastOccurrenceDate: null,
+        lastOccurrenceDate,
         nextOccurrenceDate: nextOccurrenceDateFor(seed),
       })
       .returning();
     await writeAudit(tx, actor, {
       entityType: "recurrence",
       entityId: created.id,
-      operation: "create",
+      operation: options?.auditOperation ?? "create",
       after: recurrenceRowView(created),
     });
     return recurrenceRowView(created);

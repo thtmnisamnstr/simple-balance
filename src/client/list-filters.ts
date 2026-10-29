@@ -35,17 +35,23 @@ export type ListFilter = {
    */
   readonly clear: string;
   /**
-   * True for a control that is in force before anybody touches it. Hiding
-   * archived rows is the only one in the product: Accounts and Categories both
-   * ship with the toggle off.
+   * True for a control that is in force before anybody touches it. There are
+   * two kinds in the product, both shipping off: the archived toggles on
+   * Accounts, Categories, the Overview and Reports, and the register's Show
+   * deleted.
    *
    * It names a way out without making the list *narrowed*, and the distinction
-   * is not pedantry. If a default counted, "nothing yet" would be unreachable
-   * on the two pages that have one, and a brand-new ledger would be told its
-   * empty category list is the fault of a filter. Neither page can ask whether
-   * archived rows exist — the hiding is the server's, and the response holds
-   * only what it let through — so the honest screen is "nothing yet, and here
-   * is the thing that is also hidden".
+   * is not pedantry. No page can ask whether anything is hidden — the hiding
+   * is the server's, and the response holds only what it let through — so a
+   * brand-new ledger and one whose every row is archived or deleted arrive as
+   * the same empty response. Counted as narrowing, both would be told nothing
+   * matches and offered the toggle alone, so a new person would be sent to a
+   * filter before being told what to add. Not counted, both get "nothing in
+   * this view", what to add, and the toggle: true of each, which is why a new
+   * ledger sees "in this view" on purpose and why `clear` says "any archived
+   * ones" rather than claiming a history. "Yet" would be false for somebody
+   * who archived or deleted everything, so it waits until the reader turns the
+   * default off — which asks the question the page cannot.
    */
   readonly fromTheStart?: boolean;
 };

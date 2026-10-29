@@ -1,4 +1,4 @@
-import { cloudInit, databaseCloudInit, ociMetadata } from "../single-common/cloud-init";
+import { IMDS_BLOCK, cloudInit, databaseCloudInit, ociMetadata } from "../single-common/cloud-init";
 import type {
   ApplicationDatabase,
   DatabaseCloudInitArgs,
@@ -31,8 +31,39 @@ export const DATA_DEVICE = "/dev/oracleoci/oraclevdb";
  * REJECT that ends it and change nothing — and persisted, because the rules
  * are reloaded from that file on boot. 22 is already accepted, which is what
  * lets a Bastion session in.
+ *
+ * Ahead of them, on this machine and the database node alike, the metadata
+ * rule: `IMDS_BLOCK` in `../single-common/cloud-init.ts`, which argues the
+ * range and the rule. Oracle Cloud needs it more than AWS does, not less. Its
+ * metadata service has no hop limit to set, so nothing else stands between a
+ * host-network service and /opc/v2/identity, whose certificate and key are the
+ * instance principal — and on this machine the principal reads the settings
+ * secret, which is every stack secret, Stripe's and the auth secret's among
+ * them. What reads the address here is below the range: root — cloud-init and
+ * the Oracle Cloud Agent — the system accounts systemd-resolved and the clock
+ * run as, because the address is also the VCN's resolver and NTP server, and
+ * the settings fetch's CLI, whose image runs as an `oracle` user its own
+ * `useradd` made, an ordinary uid from 1000 up.
+ *
+ * Saved with the rest of the firewall, where AWS runs it at every boot,
+ * because this image already keeps one: netfilter-persistent restores
+ * rules.v4 before the network is up, earlier than the cloud-init stage that
+ * runs boot commands and long before Docker. A boot command on top would be restored from the file
+ * and then inserted again, one copy more after every `netfilter-persistent
+ * save` anybody runs. A line of its own rather than one more `&&` in the line
+ * after it, whose `save` is what writes it down: runcmd is one script run
+ * without `-e`, so a rule that failed costs the rule and never 80 and 443's
+ * save, and needs no `|| true`. On every machine rather than one made
+ * exporting, unlike 9100 below: a REJECT for users nothing runs as yet
+ * invites nothing, and a machine whose stack turns metrics on later is then
+ * already covered, with no line by hand.
+ *
+ * It keeps the host's own users off and nothing more. A container behind
+ * Docker's bridge reaches the address through FORWARD, where no owner is
+ * known, and on this cloud no hop limit stops it either.
  */
 export const PLATFORM_COMMANDS = [
+  IMDS_BLOCK,
   '["/bin/sh", "-c", "iptables -I INPUT 1 -p tcp --dport 80 -j ACCEPT && iptables -I INPUT 2 -p tcp --dport 443 -j ACCEPT && iptables -I INPUT 3 -p udp --dport 443 -j ACCEPT && netfilter-persistent save"]',
 ];
 
@@ -49,9 +80,35 @@ export const PLATFORM_COMMANDS = [
  * Only 5432, and nothing for 80 or 443: this machine serves neither, has no
  * public address, and a rule for a port nothing listens on is an invitation to
  * put something there later.
+ *
+ * The metadata rule first, for the reasons `PLATFORM_COMMANDS` gives. This
+ * program grants this node's principal nothing, so what the rule guards here
+ * is the user data, which holds the server key and the application role's
+ * password.
  */
 const DATABASE_PLATFORM_COMMANDS = [
+  IMDS_BLOCK,
   '["/bin/sh", "-c", "iptables -I INPUT 1 -p tcp --dport 5432 -j ACCEPT && netfilter-persistent save"]',
+];
+
+/**
+ * The database node's node-exporter, for a stack that exports metrics, and for
+ * no other.
+ *
+ * The same failure as 5432's without it, and a quieter one: node-exporter
+ * listens on the host's own network, so this ruleset is in front of it exactly
+ * as it is in front of any other listener, and the scrape times out while
+ * everything on both machines reports itself healthy. Only the `node-database`
+ * job's `up` says so, at the backend.
+ *
+ * Only when export is on, so a stack that sets nothing has the ruleset it
+ * always had — the rule above's argument against a rule for a port nothing
+ * listens on. Like every platform command it runs once, at first boot: a
+ * machine made before its stack exported metrics gets this rule by hand, and
+ * deploy/pulumi/README.md has the line.
+ */
+const DATABASE_METRICS_PLATFORM_COMMANDS = [
+  '["/bin/sh", "-c", "iptables -I INPUT 1 -p tcp --dport 9100 -j ACCEPT && netfilter-persistent save"]',
 ];
 
 /**
@@ -263,7 +320,9 @@ export function databaseInstanceMetadata(
     databaseCloudInit({
       ...args,
       dataDevice: DATA_DEVICE,
-      platformCommands: DATABASE_PLATFORM_COMMANDS,
+      platformCommands: args.metrics
+        ? [...DATABASE_PLATFORM_COMMANDS, ...DATABASE_METRICS_PLATFORM_COMMANDS]
+        : DATABASE_PLATFORM_COMMANDS,
     }),
     sshPublicKey,
   );

@@ -204,6 +204,35 @@ describe("contrast, from the tokens", () => {
   });
 
   /**
+   * The one ring drawn in another color, held to the reason 13.1 gives for it.
+   *
+   * The house ad's button sits on the bar's green, where the light theme's
+   * ring falls under 3:1, so the bar draws it in `--art-bar` instead. Both
+   * figures are read out of 13.1's sentence, and the ordinary ring is held to
+   * failing there: an exception whose reason has gone is one somebody should
+   * delete, and nothing else would say so.
+   */
+  it("measures the house ad's ring at the figures 13.1 gives for the exception", () => {
+    const guide = readFileSync("docs/standards/web.md", "utf8").replaceAll(/\s+/g, " ");
+    const claim =
+      /`--art-bar` measures ([\d.]+):1 against `--art-base`, where the light `--focus-ring` measures ([\d.]+):1/.exec(
+        guide,
+      );
+    expect(claim, "web.md 13.1 no longer states the exception's two ratios").not.toBeNull();
+    for (const palette of [light, dark]) {
+      expect(ratio(palette["--art-bar"]!, palette["--art-base"]!).toFixed(2)).toBe(claim![1]);
+    }
+    expect(ratio(light["--focus-ring"]!, light["--art-base"]!).toFixed(2)).toBe(claim![2]);
+    expect(Number(claim![2]), "the ordinary ring fails on the bar").toBeLessThan(3);
+    const ring = blocks(css).find(
+      (block) => block.selector === ".house-ad .button-primary.house-ad-cta:focus-visible",
+    );
+    expect(ring?.body, "the bar's button draws its ring in --art-bar").toMatch(
+      /outline-color:\s*var\(--art-bar\)/,
+    );
+  });
+
+  /**
    * A fade is a contrast change nothing above can see.
    *
    * The checks above measure a rule that names both a color and a fill, and
@@ -221,8 +250,14 @@ describe("contrast, from the tokens", () => {
   const FADES_NO_TEXT: Record<string, string> = {
     '.button[aria-disabled="true"]':
       "A button that is working: disabled in all but focus (13.3), so the exemption a disabled control has is the one it needs.",
-    "50%":
+    "@keyframes busy-pulse 50%":
       "A step of the `busy-pulse` keyframes, which only `.animate-spin` uses: the spinner glyph inside a busy button, under reduced motion.",
+    "@keyframes house-ad-drop from":
+      "Where an account card in the house ad's drawing starts as it drops in. The drawing is `aria-hidden` and has no text in it; the ad's words beside it never fade.",
+    "@keyframes house-ad-fade from":
+      "Where the dimmer over the struck-out ad in that drawing starts: a shape fading in over a shape, with no text under either.",
+    "@keyframes house-ad-pop from":
+      "Where the logo badge in that drawing starts as it pops in. A glyph on a tile, and no text.",
     ".sort-header svg":
       "The sort arrow beside a column heading: a glyph, whose words are the heading itself and are not faded.",
     ".sort-header:hover svg, .sort-header:focus-visible svg": "The same arrow, while pointed at.",
@@ -238,7 +273,13 @@ describe("contrast, from the tokens", () => {
     // A parser that stopped reading would pass on nothing; the disabled
     // families alone are five.
     expect(fading.length).toBeGreaterThan(8);
-    const selector = (block: Block) => block.selector.replaceAll(/\s+/g, " ");
+    // A keyframe step is named with its keyframes, because `from` and `50%`
+    // alone name a step of every animation in the file: a register entry for
+    // one would excuse the next fade written in any of them.
+    const selector = (block: Block) =>
+      [...block.context.filter((at) => at.startsWith("@keyframes")), block.selector]
+        .join(" ")
+        .replaceAll(/\s+/g, " ");
     const unexplained = fading
       .filter((block) => !block.selector.split(",").every((part) => part.includes(":disabled")))
       .filter((block) => !(selector(block) in FADES_NO_TEXT))
@@ -327,5 +368,16 @@ describe("a link inside an alert", () => {
     expect(rule, ".alert a").toBeDefined();
     expect(rule!.body).toMatch(/text-decoration:\s*underline/);
     expect(rule!.body).toMatch(/color:\s*inherit/);
+  });
+});
+
+describe("a link in the import's Still to decide box", () => {
+  // The same mix of link lines and plain lines as an error summary, in a box
+  // that is not an alert, so `.alert a` never reached it and green on --ink
+  // was the only cue: 2.50:1 in light, 1.77:1 in dark.
+  it("is underlined", () => {
+    const rule = blocks(css).find((block) => block.selector.trim() === ".ledger-import-todo a");
+    expect(rule, ".ledger-import-todo a").toBeDefined();
+    expect(rule!.body).toMatch(/text-decoration:\s*underline/);
   });
 });

@@ -51,7 +51,7 @@ import ImportPage from "./pages/ImportPage.js";
 import TemplateDetailPage from "./pages/TemplateDetailPage.js";
 import RecurrencesPage from "./pages/RecurrencesPage.js";
 import TemplatesPage from "./pages/TemplatesPage.js";
-import { AdSlot } from "./ads.js";
+import { AdSlot, HouseAd } from "./ads.js";
 import { PlanPage } from "./pages/PlanPage.js";
 import SettingsPage from "./pages/SettingsPage.js";
 import StagingPage from "./pages/StagingPage.js";
@@ -59,6 +59,7 @@ import TransactionsPage from "./pages/TransactionsPage.js";
 import { detectedCurrency, detectedTimezone } from "./locale.js";
 import { clearCachedTheme, useThemeSetting } from "./theme.js";
 import { TimezoneProvider } from "./timezone.js";
+import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from "../shared/domain.js";
 import { APP_NAME } from "../shared/version.js";
 
 /**
@@ -80,7 +81,7 @@ const nav = [
   { to: "/recurrences", label: "Recurring", icon: Repeat },
   { to: "/budgets", label: "Budgets", icon: Target },
   { to: "/reports", label: "Reports", icon: ChartColumn },
-  { to: "/import", label: "Import CSV", icon: FileUp },
+  { to: "/import", label: "Import and export", icon: FileUp },
   { to: "/activity", label: "Activity", icon: History },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
@@ -214,6 +215,9 @@ function SignIn({ error }: { error?: Error }) {
   const setup = canRegister && (registering ?? options.data?.awaitingFirstAccount ?? false);
   const localAuth = useMutation({
     mutationFn: async () => {
+      // A type narrowing, and never a sentence anybody reads: the form whose
+      // submit runs this renders only once the options have answered, and a
+      // query that answered keeps its data through a failed refetch.
       if (!options.data) throw new Error("Authentication options are unavailable");
       if (setup) {
         if (password !== confirmation) throw new Error("Passwords do not match");
@@ -224,8 +228,21 @@ function SignIn({ error }: { error?: Error }) {
           body: JSON.stringify({ name, email, password, setupToken }),
         });
         if (!response.ok) {
-          const payload = await response.json().catch(() => null);
-          throw new Error(payload?.message ?? "Account setup failed");
+          // The envelope first. Every route sends it, and the flat `message`
+          // beside it is only for clients from 0.1.5; `app.onError`, the origin
+          // guard and the body cap answer with the envelope alone. Reading the
+          // flat half only, a database that was down or a body too large read
+          // "Account setup failed" in place of a server sentence that already
+          // said what to do (`code/errors.md` 3.1).
+          const payload = (await response.json().catch(() => null)) as {
+            message?: string;
+            error?: { message?: string };
+          } | null;
+          throw new Error(
+            payload?.error?.message ??
+              payload?.message ??
+              "Your account could not be created. Try again in a moment, and if it keeps happening, tell whoever runs this server.",
+          );
         }
         // With verification on there is no session yet, and sending somebody to
         // a ledger they cannot open would only bounce them back here.
@@ -250,7 +267,14 @@ function SignIn({ error }: { error?: Error }) {
             setAwaitingVerification(true);
             return;
           }
-          throw new Error(result.error.message ?? "Sign in failed");
+          // Better Auth's client spreads the body it was answered with into
+          // `error`, so a refusal that came as the envelope carries its
+          // sentence one level down, and an empty body carries none.
+          throw new Error(
+            (result.error as { error?: { message?: string } }).error?.message ??
+              result.error.message ??
+              "Signing in did not finish. Try again in a moment.",
+          );
         }
       }
       window.location.assign(returnTo);
@@ -341,7 +365,7 @@ function SignIn({ error }: { error?: Error }) {
             <h2>Reset your password</h2>
             {resetRequested ? (
               <>
-                {/* The same shape again: "Send the link" disabled itself while
+                {/* The same shape again: "Send reset link" disabled itself while
                     it worked and this replaced it, so there was nothing left to
                     hold focus and nothing with a role to announce. */}
                 <Alert kind="success" takeFocus>
@@ -377,7 +401,7 @@ function SignIn({ error }: { error?: Error }) {
                 </Field>
                 {requestReset.error ? <Alert>{requestReset.error.message}</Alert> : null}
                 <Button type="submit" loading={requestReset.isPending}>
-                  Send the link
+                  Send reset link
                 </Button>
                 <p className="auth-switch">
                   <button
@@ -436,7 +460,7 @@ function SignIn({ error }: { error?: Error }) {
                 name="password"
                 type="password"
                 minLength={options.data.minimumPasswordLength}
-                maxLength={128}
+                maxLength={PASSWORD_MAX_LENGTH}
                 autoComplete={setup ? "new-password" : "current-password"}
                 value={password}
                 onChange={(event) => {
@@ -459,7 +483,7 @@ function SignIn({ error }: { error?: Error }) {
                   ref={confirmationInput}
                   type="password"
                   minLength={options.data.minimumPasswordLength}
-                  maxLength={128}
+                  maxLength={PASSWORD_MAX_LENGTH}
                   autoComplete="new-password"
                   value={confirmation}
                   onChange={(event) => {
@@ -533,7 +557,7 @@ function SignIn({ error }: { error?: Error }) {
                     localAuth.reset();
                   }}
                 >
-                  {setup ? "Sign in" : "Create an account"}
+                  {setup ? "Sign in" : "Sign up"}
                 </button>
               </p>
             ) : null}
@@ -1087,6 +1111,18 @@ function Shell({ session }: { session: Session }) {
             `footerSlotId` being absent means. An addition to the first rather
             than a replacement. */}
         <AdSlot placement={ads} slotId={ads?.footerSlotId} label="Advertisement" />
+        {/* This product's own ad for its paid plan, in the banner's place: the
+            server never sends it alongside `ads`, so both units above render
+            nothing whenever it renders. Last in the column, which is what lets
+            the stylesheet pin it to the window's foot. Not on the plan tab.
+
+            Not behind the payee-name rule `ads` carries. That rule exists
+            because an AdSense request sends Google the page's address, and
+            this sends nothing anywhere. */}
+        <HouseAd
+          shown={!isPlanSurfacePath(location.pathname) && session.houseAd}
+          label="Advertisement"
+        />
       </div>
     </div>
   );
@@ -1161,12 +1197,12 @@ function ResetPassword() {
                 submit.mutate();
               }}
             >
-              <Field label="New password" hint="At least 12 characters">
+              <Field label="New password" hint={`At least ${PASSWORD_MIN_LENGTH} characters`}>
                 <Input
                   required
                   type="password"
-                  minLength={12}
-                  maxLength={128}
+                  minLength={PASSWORD_MIN_LENGTH}
+                  maxLength={PASSWORD_MAX_LENGTH}
                   autoComplete="new-password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
@@ -1176,8 +1212,8 @@ function ResetPassword() {
                 <Input
                   required
                   type="password"
-                  minLength={12}
-                  maxLength={128}
+                  minLength={PASSWORD_MIN_LENGTH}
+                  maxLength={PASSWORD_MAX_LENGTH}
                   autoComplete="new-password"
                   value={confirmation}
                   onChange={(event) => setConfirmation(event.target.value)}

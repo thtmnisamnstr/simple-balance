@@ -11,7 +11,12 @@ import {
   type CategoryGroupRow,
 } from "../db/schema.js";
 import { conflict, duplicate, notFound, staleVersion, validationError } from "./errors.js";
-import { lockCategoryNamespace, patchChangesNothing, writeAudit } from "./helpers.js";
+import {
+  lockCategoryNamespace,
+  patchChangesNothing,
+  writeAudit,
+  type CreateAuditOptions,
+} from "./helpers.js";
 
 /**
  * One level of grouping over categories, and the budget that reads it.
@@ -93,6 +98,7 @@ export async function getCategoryGroup(actor: Actor, id: string): Promise<Catego
 export async function createCategoryGroup(
   actor: Actor,
   input: unknown,
+  options: CreateAuditOptions = {},
   transaction?: DbTransaction,
 ): Promise<CategoryGroupView> {
   const parsed = categoryGroupCreateSchema.parse(input);
@@ -131,7 +137,7 @@ export async function createCategoryGroup(
     // Impossible, not invalid: insert().returning() either throws or returns.
     if (!created) throw new Error("Category group insert returned no row");
     await writeAudit(tx, actor, {
-      operation: "categoryGroup.create",
+      operation: options?.auditOperation ?? "categoryGroup.create",
       entityType: "category_group",
       entityId: created.id,
       after: created,

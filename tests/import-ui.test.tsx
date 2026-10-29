@@ -279,6 +279,71 @@ describe("importing a Simple Balance export", () => {
 });
 
 /**
+ * The page takes both answers off the preview the server sent, which is what
+ * `preview_csv` hands an agent, rather than working out its own.
+ *
+ * Each case below gives the page a reply the headings alone would not have
+ * produced, so a page that went on guessing for itself fails it. The cases
+ * above send no such fields, which is a server from before they existed, and
+ * pass on the fallback — the rolling-update path, checked by the same file.
+ */
+describe("what the preview says about the file", () => {
+  it("starts the mapping from the server's guess", async () => {
+    stubApi({
+      delimiter: ",",
+      headers: ["When", "Who", "How much"],
+      rows: [],
+      errors: [],
+      simpleBalanceExport: false,
+      suggestedMapping: { date: "When", payee: "Who", amount: "How much" },
+    });
+    await chooseFile("When,Who,How much\n", "bank.csv");
+
+    expect(await screen.findByLabelText("Date")).toHaveValue("When");
+    expect(screen.getByLabelText("Payee")).toHaveValue("Who");
+    expect(screen.getByLabelText("Signed amount")).toHaveValue("How much");
+  });
+
+  /**
+   * The delimiter as a word. It printed the character, so a comma-separated
+   * file read "Detected , delimiter" — a bold comma that looks like stray
+   * punctuation and that a screen reader skips — and two of the six Papa can
+   * guess are control characters that print as nothing.
+   */
+  it.each([
+    [",", "comma"],
+    ["\t", "tab"],
+    ["\u001f", "unit separator"],
+  ])("names the %j delimiter it found", async (delimiter, word) => {
+    stubApi({ delimiter, headers: ["When", "Who", "How much"], rows: [], errors: [] });
+    await chooseFile("When,Who,How much\n", "bank.csv");
+
+    expect(
+      await screen.findByText((_, element) =>
+        element?.tagName === "P"
+          ? element.textContent === `Detected a ${word} delimiter and 3 columns.`
+          : false,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("asks only for the account when the server says the file is an export", async () => {
+    stubApi({
+      delimiter: ",",
+      headers: ["date", "payee", "amount"],
+      rows: [],
+      errors: [],
+      simpleBalanceExport: true,
+      suggestedMapping: {},
+    });
+    await chooseFile("date,payee,amount\n", "export.csv");
+
+    await screen.findByRole("heading", { name: "Choose the account" });
+    expect(screen.queryByLabelText("Payee")).toBeNull();
+  });
+});
+
+/**
  * A right preview and a wrong import is a bug rather than a surprise, so the
  * panel stops showing the file's own cells once the server has read them and
  * shows what it read instead.
@@ -483,4 +548,229 @@ describe("the bank reference column", () => {
     await waitFor(() => expect(bodies).toHaveLength(1));
     expect((bodies[0]!.mapping as Record<string, unknown>).externalId ?? "").toBe("");
   });
+});
+
+/**
+ * `web.md` 12.3: the reason names the first unmet condition, and is true in
+ * the state the page is in. The two step-3 buttons exist only once a file has
+ * been previewed, so "choose a file" was never the condition while they were on
+ * screen, and our own export has nothing to map.
+ */
+describe("why the stage buttons are gray", () => {
+  const reasonOf = (name: string) => {
+    const button = screen.getByRole("button", { name });
+    const id = button.getAttribute("aria-describedby") ?? "";
+    return id
+      .split(" ")
+      .map((one) => document.getElementById(one)?.textContent ?? "")
+      .join(" ")
+      .trim();
+  };
+
+  it("asks for the account, and only the account, on our own export", async () => {
+    const headers = [...APP_CSV_COLUMNS];
+    stubApi(
+      {
+        delimiter: ",",
+        headers,
+        rows: [Object.fromEntries(headers.map((header) => [header, ""]))],
+        errors: [],
+      },
+      [checking, card],
+    );
+    await chooseFile(`${headers.join(",")}\n`, "simple-balance-export.csv");
+    await screen.findByRole("heading", { name: "Choose the account" });
+    expect(reasonOf("Dry run")).toBe("Choose the account to post the rows to.");
+    expect(reasonOf("Stage all rows")).toBe("Choose the account to post the rows to.");
+  });
+
+  it("names the one column still to map on a bank file", async () => {
+    stubApi({
+      delimiter: ",",
+      headers: ["When", "Who", "How much"],
+      rows: [],
+      errors: [],
+      simpleBalanceExport: false,
+      suggestedMapping: { date: "When", amount: "How much" },
+    });
+    await chooseFile("When,Who,How much\n", "bank.csv");
+    await screen.findByRole("heading", { name: "Map the columns" });
+    expect(reasonOf("Dry run")).toBe("Map the payee column.");
+  });
+});
+
+/**
+ * A held request, so a test can look at the page while it waits: `release`
+ * answers it with whatever `answer` builds.
+ */
+function held() {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { gate, release: () => release() };
+}
+
+describe("the CSV import while it works", () => {
+  const csv = ["date,payee,amount", "2026-07-31,ACME Market,-12.34"].join("\n");
+  const preview: CsvPreview = {
+    delimiter: ",",
+    headers: ["date", "payee", "amount"],
+    rows: [{ date: "2026-07-31", payee: "ACME Market", amount: "-12.34" }],
+    errors: [],
+  };
+
+  function stubHeld(hold: { preview?: Promise<void>; stage?: Promise<void> }) {
+    const requests: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input), window.location.origin);
+        if (url.pathname === "/api/v1/accounts") return Response.json([checking]);
+        if (url.pathname === "/api/v1/categories") return Response.json([dining]);
+        requests.push(url.pathname);
+        if (url.pathname === "/api/v1/csv/preview") {
+          await hold.preview;
+          return Response.json(preview);
+        }
+        if (url.pathname === "/api/v1/csv/stage") {
+          await hold.stage;
+          return Response.json({
+            fileName: "bank.csv",
+            rowCount: 1,
+            validCount: 1,
+            invalidCount: 0,
+            sample: [],
+            referenceResolution: { categories: [], payees: [] },
+          });
+        }
+        return new Response("Not found", { status: 404 });
+      }),
+    );
+    return requests;
+  }
+
+  /**
+   * `web.md` 12.3: where one mutation serves several buttons, each asks which
+   * action is running. Both used to take `loading={stageMutation.isPending}`,
+   * so a dry run drew a spinner on, and said "Working…" through, the button
+   * that writes rows.
+   */
+  it.each([
+    ["Dry run", "Stage all rows"],
+    ["Stage all rows", "Dry run"],
+  ])("spins %s alone and holds %s without a reason", async (pressed, other) => {
+    const stage = held();
+    const requests = stubHeld({ stage: stage.gate });
+    await chooseFile(csv, "bank.csv");
+    await screen.findByRole("heading", { name: "Map the columns" });
+
+    fireEvent.click(screen.getByRole("button", { name: pressed }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: new RegExp(`${pressed}$`) })).toHaveAttribute(
+        "aria-busy",
+        "true",
+      ),
+    );
+    const held_ = screen.getByRole("button", { name: other });
+    expect(held_).not.toHaveAttribute("aria-busy");
+    expect(held_).toHaveTextContent(other);
+    expect(held_.textContent).not.toContain("Working");
+    expect(held_).toBeDisabled();
+    expect(held_).not.toHaveAttribute("aria-describedby");
+    // Held for real: a press on it starts nothing.
+    fireEvent.click(held_);
+    expect(requests.filter((path) => path === "/api/v1/csv/stage")).toHaveLength(1);
+
+    stage.release();
+    await waitFor(() => expect(screen.getByRole("button", { name: other })).toBeEnabled());
+  });
+
+  /**
+   * `web.md` 12.2 and 13.3: a chosen file is named and its reading shown from
+   * the moment it is picked, and a second pick waits for the first. The page
+   * showed nothing while a large file went up, and a second pick that answered
+   * first was overwritten when the first one landed late.
+   */
+  it("names the file being read and refuses a second pick until it answers", async () => {
+    const reading = held();
+    const requests = stubHeld({ preview: reading.gate });
+    await chooseFile(csv, "statement.csv");
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Reading statement.csv");
+    expect(screen.getByText("statement.csv", { selector: "strong" })).toBeInTheDocument();
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    expect(input).toHaveAttribute("aria-disabled", "true");
+    expect(input).not.toBeDisabled();
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true });
+    input.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(true);
+
+    const second = new File(["date,payee,amount\n"], "other.csv", { type: "text/csv" });
+    Object.defineProperty(second, "text", { value: async () => "date,payee,amount\n" });
+    fireEvent.change(input, { target: { files: [second] } });
+    expect(requests.filter((path) => path === "/api/v1/csv/preview")).toHaveLength(1);
+
+    reading.release();
+    await screen.findByRole("heading", { name: "Map the columns" });
+    expect(screen.queryByText(/^Reading /)).toBeNull();
+    expect(input).not.toHaveAttribute("aria-disabled");
+  });
+
+  /**
+   * `web.md` 12.1: the categories are read only to name each row's category,
+   * and a failed read named every one Uncategorized with nothing to say so.
+   */
+  it("says the categories could not be read", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input), window.location.origin);
+        if (url.pathname === "/api/v1/accounts") return Response.json([checking]);
+        if (url.pathname === "/api/v1/categories") {
+          return Response.json(
+            { error: { code: "INTERNAL_ERROR", message: "The categories could not be read." } },
+            { status: 500 },
+          );
+        }
+        if (url.pathname === "/api/v1/csv/preview") return Response.json(preview);
+        return new Response("Not found", { status: 404 });
+      }),
+    );
+    await chooseFile(csv, "bank.csv");
+    expect(await screen.findByText("The categories could not be read.")).toBeInTheDocument();
+  });
+});
+
+/**
+ * `common.md` §Prose: the resolution counts are one per distinct name, so a
+ * large statement's payees run to four digits and group like every other count
+ * on the page.
+ */
+it("groups the thousands in the payee and category counts", async () => {
+  const many = (count: number, resolution: string) =>
+    Array.from({ length: count }, (_, index) => ({
+      inputPayee: `${resolution} ${index}`,
+      resolvedPayee: `${resolution} ${index}`,
+      resolution,
+    }));
+  stubApi(
+    {
+      delimiter: ",",
+      headers: ["date", "payee", "amount"],
+      rows: [],
+      errors: [],
+    },
+    [checking],
+    {
+      referenceResolution: {
+        categories: [],
+        payees: [...many(1234, "existing"), ...many(2, "new")],
+      },
+    },
+  );
+  await chooseFile("date,payee,amount\n", "bank.csv");
+  await screen.findByRole("heading", { name: "Map the columns" });
+  fireEvent.click(screen.getByRole("button", { name: "Dry run" }));
+  expect(await screen.findByText(/Payees: 1,234 matched and 2 new/)).toBeInTheDocument();
 });

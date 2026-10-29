@@ -9,6 +9,7 @@ import {
   scheduleCursor,
   occurrenceAt,
   occurrencesBetween,
+  startOfDayIn,
   todayIn,
   weekdayOf,
   type RecurrenceRule,
@@ -351,6 +352,40 @@ describe("what day and what time it is where somebody lives", () => {
     expect(calendarDayIn(at("2026-06-15T00:00:00Z"), "Not/AZone")).toBe("2026-06-15");
     expect(clockTimeIn(at("2026-06-15T07:00:00Z"), "Not/AZone")).toBe("07:00");
     expect(() => todayIn("also not a zone")).not.toThrow();
+  });
+
+  /**
+   * The other direction: the instant a day begins, which is what a query over
+   * stored instants needs to select one person's days. Held to `calendarDayIn`
+   * at the boundary itself — the first millisecond is the day and the one
+   * before is not — in a named zone, at both ends of a bare offset, at the
+   * widest offset there is, and on the days the clocks change.
+   */
+  it("finds the instant a day begins, the moment calendarDayIn first says it", () => {
+    const cases = [
+      ["2026-06-15", "UTC", "2026-06-15T00:00:00.000Z"],
+      ["2026-06-15", "Europe/Berlin", "2026-06-14T22:00:00.000Z"],
+      ["2026-06-15", "-08:00", "2026-06-15T08:00:00.000Z"],
+      ["2026-06-15", "+05:30", "2026-06-14T18:30:00.000Z"],
+      ["2026-06-15", "Pacific/Kiritimati", "2026-06-14T10:00:00.000Z"],
+      // Both United States changes happen at two in the morning, so the day
+      // itself starts at midnight in the offset it opened with.
+      ["2026-03-08", "America/New_York", "2026-03-08T05:00:00.000Z"],
+      ["2026-11-01", "America/New_York", "2026-11-01T04:00:00.000Z"],
+      // Santiago springs forward at midnight: that day has no midnight, and
+      // starts at one in the morning, which offset arithmetic gets an hour wrong.
+      ["2026-09-06", "America/Santiago", "2026-09-06T04:00:00.000Z"],
+      ["2026-06-15", "Not/AZone", "2026-06-15T00:00:00.000Z"],
+    ] as const;
+    for (const [date, zone, instant] of cases) {
+      const start = startOfDayIn(date, zone);
+      expect(start.toISOString(), `${date} in ${zone}`).toBe(instant);
+      expect(calendarDayIn(start, zone)).toBe(date);
+      expect(calendarDayIn(new Date(start.getTime() - 1), zone)).toBe(addDays(date, -1));
+    }
+    expect(clockTimeIn(startOfDayIn("2026-09-06", "America/Santiago"), "America/Santiago")).toBe(
+      "01:00",
+    );
   });
 });
 

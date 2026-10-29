@@ -9,6 +9,8 @@
 | `server` | The API and the MCP endpoint, with no browser bundle in it | none |
 | `frontend` | nginx, serving the bundle and proxying everything the API owns | `127.0.0.1:8080` |
 | `scheduler` | Proposes recurring transactions, two replicas | none |
+| `collector` | Scrapes the server, both schedulers, node-exporter and itself, and sends it all to one backend. Only under the `metrics` profile | none |
+| `node-exporter` | This machine's CPU, memory, load, pressure and disks. Only under the `metrics` profile | none |
 
 Only the frontend publishes a port, because cookies are set by the API and read
 by the browser and both have to be reached on one origin. That origin is nginx,
@@ -39,7 +41,7 @@ the two to pick.
 ## Bring it up
 
 ```sh
-cp deploy/compose/.env.example deploy/compose/.env
+install -m 0600 deploy/compose/.env.example deploy/compose/.env
 ```
 
 Fill in the two values that have no sensible default. Compose reads `.env` from
@@ -102,6 +104,46 @@ There is one thing readiness will not tell you. A process with the scheduler
 switched off is not an unhealthy one, so nothing here goes red if the schedulers
 stop. What tells you is the Recurring page: a recurrence past its due date with
 nothing proposed means whatever runs the schedule is not running.
+
+## Metrics
+
+Off unless asked for. The `metrics` profile adds two services: an
+OpenTelemetry Collector, which reads `/metrics` from the server and from each
+scheduler replica as a target of its own, and node-exporter for this machine,
+and sends all of it to one backend. Neither publishes a port; the collector is
+on this file's network because nothing here publishes the server or the
+schedulers, and `collector.distributed.yaml` says what it scrapes. It is the
+`single` profile's collector pointed at this shape, and the Helm chart carries
+the same export pipeline.
+
+Three lines in `.env` turn it on, and they go together, with a fourth for the
+backend's credential — `.env.example` has the block:
+
+```sh
+COMPOSE_PROFILES=metrics
+METRICS_ENABLED=true
+SB_METRICS_EXPORT_ENDPOINT=https://otlp.nr-data.net
+SB_METRICS_EXPORT_HEADERS='{"api-key":"<your New Relic ingest license key>"}'
+```
+
+`COMPOSE_PROFILES` is Compose's own variable, read by the CLI from `.env`, and
+with it unset `docker compose config --services` names the same four services
+it always did. `METRICS_ENABLED` has to be said rather than derived, because
+Compose cannot derive it without rendering it empty when neither is set, and
+both processes refuse an empty one. The rest — the protocol, the scrape
+interval, the environment name and the token — have defaults, and
+[`single/README.md`](single/README.md#metrics) has the table.
+[`docs/deployment.md`](../../docs/deployment.md#metrics) has what each backend
+wants, what is scraped and the alerts worth setting.
+
+Node-exporter reports no network traffic here. It shares this file's network
+rather than the host's, so the collector can reach it, and inside a namespace
+of its own it would report that namespace's one interface as the machine's.
+The `single` profile runs both on the host's network for exactly that reason.
+
+To turn it off, `docker compose --profile metrics down` before taking the
+profile out of `.env`: a `down` that does not name a profile leaves that
+profile's containers running.
 
 ## Tear it down
 

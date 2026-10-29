@@ -107,7 +107,7 @@ describe("a single resource carries no envelope", () => {
 /**
  * The two bulk patch schemas answer the same way as each other.
  *
- * http.md:678 records that three patch schemas answer the absent/null/empty
+ * http.md:756 records that three patch schemas answer the absent/null/empty
  * question and that the transaction and staged ones carry an identical
  * `transform` on `description` and `notes` while the template one refuses the
  * empty string. It closes: *Not checked mechanically: that a new nullable field
@@ -183,7 +183,7 @@ describe("the transaction and staged bulk patches", () => {
     }
     expect(
       disagreements,
-      "http.md:678 — a staged row and a committed row are the same record either side of a commit.",
+      "http.md:756 — a staged row and a committed row are the same record either side of a commit.",
     ).toEqual([]);
   });
 

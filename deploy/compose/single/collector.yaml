@@ -1,0 +1,229 @@
+# The metrics collector on the `single` profile's application node, which
+# compose.yml runs as `collector` when the `metrics` profile is on.
+#
+# It scrapes four things and sends them to one backend: the application, which
+# in this profile is the API and the recurrence scheduler in one process; this
+# machine, through node-exporter; the database machine, through the
+# node-exporter that compose.postgres.yml runs there; and itself. Nothing is
+# kept: no volume, no write-ahead log, a queue in memory and nothing else, so a
+# restart loses at most the one batch it was holding and the machine stays
+# something that can be thrown away.
+#
+# Every value that differs between deployments arrives from the environment,
+# and compose.yml's `collector` service is where each one is named and
+# defaulted. Two rules of the collector's own expansion are worth knowing
+# before editing a line here, because both fail at startup rather than
+# quietly: a default inside `${env:NAME:-...}` cannot contain `}`, and a
+# literal `$` is written `$$`. A value is read as YAML, which is what lets
+# SB_METRICS_EXPORT_HEADERS be a whole map.
+#
+# deploy/compose/collector.distributed.yaml is the same collector for the
+# split recipe, and the Helm chart carries a third. Their receivers differ,
+# because what each one scrapes differs. Everything from `processors:` down
+# is the same text in all three; see the note there.
+receivers:
+  # Part of the exporter selection at the bottom of this file, and nothing
+  # else: a receiver that never produces anything, so a pipeline can name both
+  # exporters without either of them being sent a point.
+  nop: {}
+
+  prometheus:
+    config:
+      global:
+        # Thirty seconds, and never as much as five minutes. New Relic turns a
+        # cumulative counter into a rate by remembering its last value, and it
+        # forgets a series that has been silent for five minutes, so a slower
+        # interval loses every rate rather than some resolution.
+        # Pulumi refuses five minutes or more at plan time.
+        #
+        # No scrape_timeout: Prometheus then takes ten seconds or the interval,
+        # whichever is shorter, where a fixed one would refuse to start beside
+        # an interval under ten seconds.
+        scrape_interval: ${env:SB_METRICS_SCRAPE_INTERVAL:-30s}
+      scrape_configs:
+        # The application, at the address compose.yml publishes it on. This
+        # collector shares the machine's network rather than sitting on the
+        # Compose network (compose.yml says why), so it reaches the application
+        # the way `curl 127.0.0.1:3000/health/ready` does and not as `app:3000`.
+        # One process, so `component="api"` on every series is the scheduler's
+        # too; docs/deployment.md has the table.
+        #
+        # The bearer token is METRICS_TOKEN, the same value the application
+        # checks. Empty when the deployment has none, and the application then
+        # checks nothing, so an empty header costs nothing.
+        - job_name: simple-balance
+          authorization:
+            credentials: "${env:METRICS_TOKEN:-}"
+          static_configs:
+            - targets: ["${env:APP_BIND_ADDRESS:-127.0.0.1}:${env:APP_PORT:-3000}"]
+
+        # This machine. node-exporter shares the host's network too and listens
+        # on loopback alone, so it is reachable from here and from nowhere else.
+        - job_name: node
+          static_configs:
+            - targets: ["127.0.0.1:9100"]
+
+        # The database machine, over the provider's private network and over
+        # TLS, because that connection crosses a machine. Its node-exporter
+        # serves the database's own certificate, so it is checked against the
+        # CA the application already trusts for PostgreSQL, which
+        # compose.db-tls.yml mounts into this container as well.
+        #
+        # SB_METRICS_DATABASE_TARGET is `host:port`, and the host has to be a
+        # name that certificate carries — the same DNS name DATABASE_URL uses,
+        # or the database node's private address, which the certificate also
+        # names. The Pulumi programs set it themselves when they built that
+        # machine and export is on.
+        #
+        # Empty means there is no such machine to watch — a managed database,
+        # or a stack told to build no database node — and then this job has no
+        # target at all. The drop below is what makes empty mean that: without
+        # it the empty address is a target Prometheus refuses on every refresh.
+        # And SB_METRICS_DATABASE_CA_FILE is empty then too, because
+        # compose.db-tls.yml derives it from the target: a CA named while no
+        # file is mounted is an error at every reload even with nothing to
+        # scrape, which is what a hand install without that overlay would
+        # otherwise log forever. With no CA named, a target is checked against
+        # the system's roots, which refuses a private CA's certificate loudly
+        # rather than trusting it.
+        - job_name: node-database
+          scheme: https
+          tls_config:
+            ca_file: "${env:SB_METRICS_DATABASE_CA_FILE:-}"
+          static_configs:
+            - targets: ["${env:SB_METRICS_DATABASE_TARGET:-}"]
+          relabel_configs:
+            - source_labels: [__address__]
+              regex: ""
+              action: drop
+
+        # Itself: what it dropped, what it failed to send and how far behind it
+        # is. If the collector stops, this stops arriving with everything else,
+        # so a loss-of-signal alert on any series is the alert for that.
+        #
+        # Without its target_info. The collector's own telemetry describes
+        # itself there as service.name "otelcol" with a service.instance.id
+        # that is a fresh random UUID on every start, and the receiver lets
+        # those labels win over the job and the address. Kept, this job
+        # arrives as job="otelcol" under a new instance at every restart, so
+        # each restart begins a new set of series and nothing ever arrives as
+        # `collector`. Measured on 0.162.0 against a real backend; dropping
+        # the labels alone with labeldrop does not do it, dropping the series
+        # does, and the job and 127.0.0.1:8888 are then what name it.
+        - job_name: collector
+          static_configs:
+            - targets: ["127.0.0.1:8888"]
+          metric_relabel_configs:
+            - source_labels: [__name__]
+              regex: target_info
+              action: drop
+
+# On loopback, and a shape's own like the receivers: the chart's probes need
+# it on the pod's address instead. The image has no shell, so there is no
+# Compose health check to point at it; it is here for
+# `curl 127.0.0.1:13133` from the machine.
+extensions:
+  health_check:
+    endpoint: 127.0.0.1:13133
+
+# ---- the export pipeline, shared -------------------------------------------
+# Everything from this line to its closing one is the same text, comments and
+# all, in deploy/compose/single/collector.yaml,
+# deploy/compose/collector.distributed.yaml and the Helm chart's ConfigMap.
+# tests/collector-config.test.ts compares every file under deploy/ that
+# carries these two lines, so change them all together or none. What comes
+# before this line is a shape's own: what it scrapes, and where its health
+# check listens.
+# ----------------------------------------------------------------------------
+
+processors:
+  # First in the pipeline, so a backlog is refused at the door rather than
+  # held until the container's memory limit kills the process. The numbers
+  # follow the collector's own guidance against the 128 MiB the container is
+  # given: refuse new data above 80 MiB of heap, collect hard at 100, and
+  # GOMEMLIMIT at 80MiB in the environment so the runtime starts collecting
+  # before either.
+  # Measured: 51.7 MiB resident at the median over ten minutes, scraping
+  # about 3,700 series every fifteen seconds.
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 100
+    spike_limit_mib: 20
+
+  # Which deployment a series came from, when one account holds several. The
+  # job and the address already say which process; this says which copy of the
+  # product, and `production` is what an unset SB_METRICS_ENVIRONMENT means.
+  resource:
+    attributes:
+      - key: deployment.environment.name
+        value: "${env:SB_METRICS_ENVIRONMENT:-production}"
+        action: upsert
+
+  # Two thousand points at most per request, which keeps one far under New
+  # Relic's 1 MB ceiling, and ten seconds at most of waiting.
+  batch:
+    send_batch_size: 1000
+    send_batch_max_size: 2000
+    timeout: 10s
+
+exporters:
+  # Both exporters always exist and only one is ever sent anything; the
+  # pipelines below decide which. The endpoint and the headers are the same
+  # settings for either, because an operator chooses one backend and the
+  # protocol is how it is spoken to.
+  #
+  # OTLP over HTTP with protobuf, gzipped by default, which is New Relic's
+  # recommendation for traffic on the public internet. The endpoint is a base
+  # URL, such as https://otlp.nr-data.net, and the exporter adds /v1/metrics
+  # itself. An empty SB_METRICS_EXPORT_HEADERS arrives as no headers at all.
+  otlp_http:
+    endpoint: "${env:SB_METRICS_EXPORT_ENDPOINT}"
+    headers: ${env:SB_METRICS_EXPORT_HEADERS:-[]}
+  # Remote write, for a backend that speaks only that. The endpoint is the
+  # whole write URL. The environment becomes a label on every series, because
+  # remote write has no resource to carry it and a backend would otherwise see
+  # it only on `target_info`.
+  prometheus_remote_write:
+    endpoint: "${env:SB_METRICS_EXPORT_ENDPOINT}"
+    headers: ${env:SB_METRICS_EXPORT_HEADERS:-[]}
+    resource_constant_labels:
+      included: [deployment.environment.name]
+
+# How SB_METRICS_EXPORT_PROTOCOL picks an exporter, when the collector's
+# configuration has no conditionals and a setting's value cannot be an
+# exporter's name — `otlp` is the deprecated name of the gRPC exporter, not
+# this one. So the value names a connector instead: the main pipeline hands its
+# batches to `forward/<protocol>`, and only that connector's pipeline has an
+# exporter it reaches. The last pipeline gives each connector the upstream the
+# collector insists every connector has, fed by `nop`, so the one not chosen is
+# valid and idle. A value that is neither name is a refusal at startup naming
+# `forward/<value>`, and a Pulumi stack is refused at plan time first.
+connectors:
+  forward/otlp: {}
+  forward/prometheus_remote_write: {}
+
+service:
+  extensions: [health_check]
+  telemetry:
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 127.0.0.1
+                port: 8888
+  pipelines:
+    metrics:
+      receivers: [prometheus]
+      processors: [memory_limiter, resource, batch]
+      exporters: ["forward/${env:SB_METRICS_EXPORT_PROTOCOL:-otlp}"]
+    metrics/otlp:
+      receivers: [forward/otlp]
+      exporters: [otlp_http]
+    metrics/prometheus_remote_write:
+      receivers: [forward/prometheus_remote_write]
+      exporters: [prometheus_remote_write]
+    metrics/unchosen:
+      receivers: [nop]
+      exporters: [forward/otlp, forward/prometheus_remote_write]
+# ---- end of the export pipeline -------------------------------------------

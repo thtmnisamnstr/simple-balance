@@ -6,6 +6,7 @@ import {
   API_REQUEST_BODY_LIMIT_BYTES,
   AUTH_REQUEST_BODY_LIMIT_BYTES,
   BULK_REQUEST_BODY_LIMIT_BYTES,
+  LEDGER_FILE_REQUEST_BODY_LIMIT_BYTES,
   apiRequestBodyLimit,
   boundRequestBody,
   countableClientAddress,
@@ -23,6 +24,13 @@ import {
   bulkTransactionEditSchema,
   commitStageSchema,
 } from "../src/shared/domain.js";
+import { LEDGER_FILE_PART_MAX_BYTES } from "../src/shared/ledger-file.js";
+import {
+  MAX_LEDGER_FILE_ARRIVE_ARCHIVED,
+  MAX_LEDGER_FILE_DECISIONS,
+  ledgerFileAddInputSchema,
+} from "../src/shared/ledger-file-import.js";
+import { ledgerFileMoveInputSchema } from "../src/shared/ledger-file-move.js";
 
 const applicationOrigin = "https://balance.example.com";
 const originalCsvMaxBytes = process.env.CSV_MAX_BYTES;
@@ -340,13 +348,66 @@ describe("bounded request bodies", () => {
     expect(apiRequestBodyLimit("/api/v1/accounts")).toBe(API_REQUEST_BODY_LIMIT_BYTES);
     expect(apiRequestBodyLimit("/api/v1/csv/preview")).toBe(71_680);
     expect(apiRequestBodyLimit("/api/v1/csv/stage")).toBe(71_680);
-    expect(apiRequestBodyLimit("/mcp")).toBe(71_680);
+    // The MCP endpoint carries the Simple Balance file's add as well, so a
+    // deployment lowering CSV_MAX_BYTES lowers the CSV routes and leaves an
+    // agent one whole part of a file.
+    expect(apiRequestBodyLimit("/mcp")).toBe(LEDGER_FILE_REQUEST_BODY_LIMIT_BYTES);
     // `/mcp/` is routed to the same endpoint, so it has to be sized the same.
     // It was not, which left a client configured with the trailing slash - the
     // configuration that spelling exists to support - refused a CSV upload the
     // other spelling was allowed.
-    expect(apiRequestBodyLimit("/mcp/")).toBe(71_680);
-    expect(requestBodyLimit("/mcp/")).toBe(71_680);
+    expect(apiRequestBodyLimit("/mcp/")).toBe(LEDGER_FILE_REQUEST_BODY_LIMIT_BYTES);
+    expect(requestBodyLimit("/mcp/")).toBe(LEDGER_FILE_REQUEST_BODY_LIMIT_BYTES);
+  });
+
+  it("sizes the MCP endpoint for the larger of a CSV and a Simple Balance file part", () => {
+    delete process.env.CSV_MAX_BYTES;
+    const csv = apiRequestBodyLimit("/api/v1/csv/stage");
+    expect(apiRequestBodyLimit("/mcp")).toBe(Math.max(csv, LEDGER_FILE_REQUEST_BODY_LIMIT_BYTES));
+    for (const path of [
+      "/api/v1/ledger-file:preview",
+      "/api/v1/ledger-file:add",
+      "/api/v1/ledger-file:move",
+    ]) {
+      expect(apiRequestBodyLimit(path), path).toBe(LEDGER_FILE_REQUEST_BODY_LIMIT_BYTES);
+    }
+    // Nothing else with that prefix: the export is a GET with no body.
+    expect(apiRequestBodyLimit("/api/v1/ledger-file")).toBe(API_REQUEST_BODY_LIMIT_BYTES);
+  });
+
+  /**
+   * The largest add the schema accepts, built rather than estimated: a part
+   * of the most escaping JSON text there is, every decision and every account
+   * to arrive archived at its longest, written in the character
+   * `JSON.stringify` spends the most bytes on. The transport must never turn it
+   * away before the schema has had its say.
+   */
+  it("carries the largest Simple Balance file add its schema accepts", () => {
+    const worst = "\ud800";
+    const key = worst.repeat(400);
+    const body = {
+      ledgerFile: '"'.repeat(LEDGER_FILE_PART_MAX_BYTES),
+      fileName: worst.repeat(240),
+      idempotencyKey: worst.repeat(200),
+      part: { index: 1000, count: 1000 },
+      decisions: Array.from({ length: MAX_LEDGER_FILE_DECISIONS }, () => ({
+        kind: "budget_entry",
+        key,
+        action: "rename",
+        name: worst.repeat(160),
+      })),
+      arriveArchived: Array.from({ length: MAX_LEDGER_FILE_ARRIVE_ARCHIVED }, () => key),
+      preferences: "file",
+    };
+    expect(ledgerFileAddInputSchema.safeParse(body).success).toBe(true);
+    expect(Buffer.byteLength(JSON.stringify(body))).toBeLessThanOrEqual(
+      apiRequestBodyLimit("/api/v1/ledger-file:add"),
+    );
+    // A move takes the add's request field for field, so the same body.
+    expect(ledgerFileMoveInputSchema.safeParse(body).success).toBe(true);
+    expect(Buffer.byteLength(JSON.stringify(body))).toBeLessThanOrEqual(
+      apiRequestBodyLimit("/api/v1/ledger-file:move"),
+    );
   });
 
   it("lets bulk routes carry an entry for every selectable row", () => {
@@ -435,7 +496,7 @@ describe("bounded request bodies", () => {
   it("selects the strict auth limit from the global path-aware policy", () => {
     process.env.CSV_MAX_BYTES = "1024";
     expect(requestBodyLimit("/api/auth/sign-in/email")).toBe(AUTH_REQUEST_BODY_LIMIT_BYTES);
-    expect(requestBodyLimit("/mcp")).toBe(71_680);
+    expect(requestBodyLimit("/mcp")).toBe(LEDGER_FILE_REQUEST_BODY_LIMIT_BYTES);
     expect(requestBodyLimit("/api/v1/accounts")).toBe(API_REQUEST_BODY_LIMIT_BYTES);
   });
 });
@@ -588,11 +649,14 @@ describe("counting attempts against a caller", () => {
         "\n",
       );
       lines.forEach((line, index) => {
-        // A comment mentioning the number is not a route answering with it.
-        if (/^\s*(\/\/|\*)/.test(line)) return;
+        // A comment mentioning the number is not a route answering with it, and
+        // neither is a comparison: the auth metrics read a status somebody else
+        // already answered with, and answer with nothing themselves.
+        if (/^\s*(\/\/|\/?\*)/.test(line)) return;
         if (!/(?:^|[^\d])429(?:[^\d]|$)/.test(line)) return;
-        // Either side, because the header is set before `c.json` names the
-        // status and the mirror reads the status before setting the header.
+        if (/[!=]==\s*429\b/.test(line)) return;
+        // Either side, because the header can be set before or after the line
+        // that names the status.
         const near = lines.slice(Math.max(0, index - 12), index + 12).join("\n");
         if (!near.includes("Retry-After")) missing.push(`${relative}:${index + 1}`);
       });

@@ -50,8 +50,30 @@ describe("a migration that has shipped", () => {
 
   it("is every file AGENTS.md names as frozen, and only those", () => {
     const agents = readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8");
-    const named = [...agents.matchAll(/`(\d{4}_[a-z0-9_]+\.sql)`/g)].map((match) => match[1]!);
+    // A file written since the last release is named in the same paragraph,
+    // as written and unreleased, because `tests/migrations.test.ts` fails on
+    // a file the prose does not mention at all. It is not frozen until
+    // `cut-release` moves it, so the names that sentence opens with are the
+    // ones this leaves out — by the sentence rather than by a number, which
+    // would have to move at every cut and is the kind of edit that gets made
+    // to the test instead of to the list.
+    const unreleased = new Set(
+      [
+        ...agents.matchAll(
+          /((?:`\d{4}_[a-z0-9_]+\.sql`(?:,\s*|\s+and\s+)?)+)\s+(?:is|are)\s+written\s+and\s+unreleased/g,
+        ),
+      ].flatMap((match) =>
+        [...match[1]!.matchAll(/`(\d{4}_[a-z0-9_]+\.sql)`/g)].map((name) => name[1]!),
+      ),
+    );
+    const named = [...agents.matchAll(/`(\d{4}_[a-z0-9_]+\.sql)`/g)]
+      .map((match) => match[1]!)
+      .filter((name) => !unreleased.has(name));
     expect(new Set(named).size).toBeGreaterThan(20);
     expect(Object.keys(register).sort()).toEqual([...new Set(named)].sort());
+    // And an unreleased file is never one that has shipped: a name moved into
+    // the register by a cut and left in the unreleased sentence would
+    // otherwise drop out of this comparison without anybody noticing.
+    expect([...unreleased].filter((name) => name in register)).toEqual([]);
   });
 });

@@ -160,12 +160,19 @@ async function readEntitlementFacts(actor: Actor, db: Executor): Promise<Entitle
  *
  * No count at all where nothing is sold, which is the default: the session read
  * costs exactly what it cost before this release.
+ *
+ * `activeChoicePending` rides along because `whoami` reports this summary and
+ * an agent had no other way to learn the one-time choice was open short of
+ * listing every account and applying the predicate itself. It costs no read:
+ * `countPlaces` already works it out from the rows it counted.
  */
-export async function getPlanSummary(
-  actor: Actor,
-): Promise<{ entitlement: Entitlement; accountsUsed: number | null }> {
-  const { entitlement, accountsUsed } = await countPlaces(actor, false);
-  return { entitlement, accountsUsed };
+export async function getPlanSummary(actor: Actor): Promise<{
+  entitlement: Entitlement;
+  accountsUsed: number | null;
+  activeChoicePending: boolean;
+}> {
+  const { entitlement, accountsUsed, activeChoicePending } = await countPlaces(actor, false);
+  return { entitlement, accountsUsed, activeChoicePending };
 }
 
 /** The plan, and every count of accounts the plan tab says anything about. */
@@ -1038,19 +1045,27 @@ type PlanPrice = {
 export type BillingStatus = {
   readonly selling: boolean;
   /**
-   * Whether this deployment serves advertising at all.
+   * Whether this deployment serves advertising at all, AdSense or the house ad.
    *
-   * Not the same question as `getAdPlacement`, which answers "show an ad to
-   * this person now" and is therefore null for every subscriber. The plan tab
-   * has to tell somebody what the paid plan buys them, and half of what it
-   * buys is the absence of something they cannot currently see — so the
-   * placement is exactly the wrong signal to read for it. A Premium customer
-   * asking what they pay for would be told only about accounts.
+   * Not the same question as `getAdvertising`, which answers "show an ad to
+   * this person now" and so is empty for every subscriber. The plan tab has to
+   * tell somebody what the paid plan buys, and half of that is the absence of
+   * something they cannot currently see — so the placement is exactly the wrong
+   * signal to read for it. The house ad counts as much as AdSense, because it
+   * tells a free account that upgrading takes it away and the tab must agree.
    *
    * Read from the configuration rather than from the entitlement, because it
    * is a property of the deployment and not of the person: it is the same
    * answer before and after somebody subscribes, which is what makes it usable
    * on both sides of the upgrade.
+   *
+   * The house ad counts only while the plan it offers is for sale, which is
+   * the condition `getAdvertising` shows it on. Where the prices are known not
+   * to fit it stands down for everybody, so on a deployment with no AdSense a
+   * free account is shown no ad at all, and a tab still counting it would say
+   * "ads on the page" over a page with none. `selling` is the deployment's
+   * too — the switch and the in-memory price verdict — so this stays the
+   * same answer on both sides of the upgrade.
    */
   readonly advertises: boolean;
   readonly publishableKey: string;
@@ -1259,7 +1274,7 @@ export async function getBillingStatus(actor: Actor): Promise<BillingStatus> {
 
   return {
     selling,
-    advertises: getConfig().ads !== undefined,
+    advertises: getConfig().ads !== undefined || (getConfig().houseAd && selling),
     publishableKey: billing.publishableKey,
     prices: { monthly: shown(prices.monthly), yearly: shown(prices.yearly) },
     entitlement: summary.entitlement,
@@ -2552,7 +2567,10 @@ export async function applyCustomerDeletion(
 }
 
 /**
- * The ad slots this person should be shown, or null for no ads at all.
+ * The AdSense slots this person should be shown, or null wherever no AdSense
+ * unit is, which includes a free account the house ad is shown to instead. It
+ * is the `ads` half of `getAdvertising`, which is the whole answer about
+ * advertising.
  *
  * The decision is made here and never in the browser, and that is the whole
  * design. A client-side gate has to be written the right way round — show an ad
@@ -2567,7 +2585,7 @@ export async function applyCustomerDeletion(
  * never told how. Absent reads as "no ads", which is the direction a bug here
  * should fail in.
  *
- * Three conditions, and the middle one is the subtle one:
+ * Three conditions for any advertising, and the middle one is the subtle one:
  *
  *  - Ads are configured at all. Nothing to show otherwise.
  *  - A *limited* plan is in force. `{ billing: false }` means unrestricted —
@@ -2578,18 +2596,15 @@ export async function applyCustomerDeletion(
  *    put ads in front of every paying subscriber on a wound-down deployment.
  *  - The plan is the free one. An operator override to Plus counts, because
  *    `resolveEntitlement` has already folded it in.
+ *
+ * AdSense then asks one thing more, that the house ad is not taking the slot
+ * (`getAdvertising`).
  */
 export async function getAdPlacement(actor: Actor): Promise<AdPlacement | null> {
-  const ads = getConfig().ads;
-  if (!ads) return null;
-  const entitlement = await getEntitlement(actor);
-  if (!entitlement.billing || entitlement.plan !== "free") return null;
-  return {
-    clientId: ads.clientId,
-    bannerSlotId: ads.bannerSlotId,
-    ...(ads.footerSlotId ? { footerSlotId: ads.footerSlotId } : {}),
-    consentManaged: ads.consentManaged,
-  };
+  // The three conditions are asked in `getAdvertising`, beside the house ad
+  // they now share an entitlement read with, and which takes the slot for
+  // whoever it is shown to.
+  return (await getAdvertising(actor)).ads;
 }
 
 /**
@@ -2608,6 +2623,62 @@ export type AdPlacement = {
   /** False unless an operator asserted they have a consent platform. */
   readonly consentManaged: boolean;
 };
+
+/**
+ * Everything the session tells the browser about advertising.
+ *
+ * `houseAd` is this product's own advertisement for the paid plan. A boolean
+ * rather than a placement, because there is nothing per-operator to carry: its
+ * words are the plan labels and the account limit, which the bundle already
+ * has. A field of its own rather than a kind of `ads`, because a bundle from
+ * the release before reads `ads` as an AdSense placement and nothing else, and
+ * anything new inside it is a shape that code was never written to tell apart.
+ */
+export type Advertising = {
+  readonly ads: AdPlacement | null;
+  readonly houseAd: boolean;
+};
+
+/**
+ * Which advertising this person is shown: AdSense, the house ad, or neither,
+ * and never both.
+ *
+ * The same server-side decision as `getAdPlacement`, for the same reasons, and
+ * the same predicate — a *limited* plan is in force, never "not on Plus". The
+ * house ad asks one thing more, that the plan it offers is actually for sale.
+ * Its button opens the plan tab, and where the Stripe prices do not fit the
+ * plans that tab tells everybody the deployment is not selling, so an ad
+ * leading there would promise what the next page withdraws.
+ * `pricesUnsellable` is the in-memory verdict the tab itself reads, so asking
+ * costs no request.
+ *
+ * Where both are configured the house ad wins for the person it is shown to,
+ * and their AdSense placement is null so the two never stack. Only for them:
+ * where the house ad stands down because nothing is for sale at a price that
+ * fits, a free account is shown the AdSense unit its operator configured,
+ * which is all those settings have ever meant on their own.
+ *
+ * One `getEntitlement` read covers both, and none at all where neither is
+ * configured, which is every deployment that set nothing.
+ */
+export async function getAdvertising(actor: Actor): Promise<Advertising> {
+  const { ads, houseAd } = getConfig();
+  const none: Advertising = { ads: null, houseAd: false };
+  if (!ads && !houseAd) return none;
+  const entitlement = await getEntitlement(actor);
+  if (!entitlement.billing || entitlement.plan !== "free") return none;
+  if (houseAd && !pricesUnsellable()) return { ads: null, houseAd: true };
+  if (!ads) return none;
+  return {
+    ads: {
+      clientId: ads.clientId,
+      bannerSlotId: ads.bannerSlotId,
+      ...(ads.footerSlotId ? { footerSlotId: ads.footerSlotId } : {}),
+      consentManaged: ads.consentManaged,
+    },
+    houseAd: false,
+  };
+}
 
 /**
  * Whether deleting this account would cancel something somebody is paying for.

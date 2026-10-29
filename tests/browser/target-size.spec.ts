@@ -1,8 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
-import { reportNames } from "../../src/shared/domain.js";
+import { PLAN_LABELS, reportNames } from "../../src/shared/domain.js";
 import { todayIn } from "../../src/shared/recurrence-dates.js";
-import { answerPlanStatus, pagesToVisit, type Fill } from "./support/routes.js";
+import { visitImportStates } from "./support/ledger-file-import.js";
+import { answerHouseAd, answerPlanStatus, pagesToVisit, type Fill } from "./support/routes.js";
 
 /**
  * SC 2.5.8 Target Size (Minimum), level AA, measured by a layout engine.
@@ -30,6 +31,10 @@ import { answerPlanStatus, pagesToVisit, type Fill } from "./support/routes.js";
  * jsdom computes.
  *
  * Both widths, because a phone is where rows wrap and where spacing fails.
+ *
+ * With the house ad on every page but the plan tab, because it is in the shell
+ * under every page and its button is a target like any other. The tier has no
+ * Stripe and would never be shown it, so the session is told to show it.
  */
 
 const person = {
@@ -51,7 +56,7 @@ const today = todayIn(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC")
 /** The same sign-up the other two specs do, and for the reason they give. */
 async function signUp(page: Page) {
   await page.goto("/");
-  const toggle = page.getByRole("button", { name: "Create an account" });
+  const toggle = page.getByRole("button", { name: "Sign up" });
   const heading = page.getByRole("heading", { name: "Create your account" });
   await expect(heading.or(toggle)).toBeVisible();
   if (await toggle.isVisible()) await toggle.click();
@@ -70,7 +75,9 @@ async function signUp(page: Page) {
  */
 async function seedOneRow(page: Page) {
   await page.goto("/accounts");
-  await page.getByRole("button", { name: "New account" }).click();
+  // The header's, which is first: on an empty ledger the empty state offers
+  // a second "New account", and a strict match fails once the list has loaded.
+  await page.getByRole("button", { name: "New account" }).first().click();
   await page.getByLabel(/^Account name/).fill(account);
   await page.getByLabel(/^Account type/).selectOption("checking");
   await page.getByLabel(/^Currency or crypto asset/).selectOption("USD");
@@ -214,6 +221,22 @@ async function targets(page: Page): Promise<Target[]> {
  * Rounded to a tenth of a pixel before comparing, because a browser lays out in
  * fractions and 23.999 is not a defect anybody can see or anybody authored.
  */
+/**
+ * The house ad's one target, found by its words, and held to the size branch
+ * outright: it is a call to action on its own in a panel, with nothing near it
+ * to be spaced from, so a pass on spacing would only mean it had shrunk.
+ */
+function houseAdCta(found: readonly Target[], where: string) {
+  const cta = found.filter((target) => target.label.endsWith(`"Upgrade to ${PLAN_LABELS.plus}"`));
+  expect(cta, `${where} carries the house ad's button`).toHaveLength(1);
+  expect(cta[0]!.width, `${where}: the house ad's button is wide enough`).toBeGreaterThanOrEqual(
+    24,
+  );
+  expect(cta[0]!.height, `${where}: the house ad's button is tall enough`).toBeGreaterThanOrEqual(
+    24,
+  );
+}
+
 function failures(found: readonly Target[]): string[] {
   const small = found.filter((target) => target.width < 23.9 || target.height < 23.9);
   const reported: string[] = [];
@@ -247,6 +270,7 @@ test.describe("every target in a browser", () => {
   test("is 24 by 24, or spaced so its 24px circle meets no other", async ({ page }) => {
     test.setTimeout(300_000);
     await answerPlanStatus(page);
+    await answerHouseAd(page);
     await signUp(page);
     await seedOneRow(page);
     const pages = pagesToVisit(await seedDetails(page));
@@ -282,6 +306,8 @@ test.describe("every target in a browser", () => {
         ).toBeGreaterThan(2);
       }
       expect(failures(wide), `${url} at desktop width`).toEqual([]);
+      const advertised = pattern !== "/settings/plan";
+      if (advertised) houseAdCta(wide, `${url} at desktop width`);
 
       await page.setViewportSize({ width: 390, height: 844 });
       // Retried, because a resize is not laid out when `setViewportSize`
@@ -290,8 +316,63 @@ test.describe("every target in a browser", () => {
         const narrow = await targets(page);
         expect(narrow.length, `${url} has targets to measure at 390px`).toBeGreaterThan(8);
         expect(failures(narrow), `${url} at 390px`).toEqual([]);
+        if (advertised) houseAdCta(narrow, `${url} at 390px`);
       }).toPass();
       await page.setViewportSize({ width: 1280, height: 800 });
+
+      if (pattern === "/import") await measureExportStates(page);
     }
+    await measureImportStates(page);
   });
 });
+
+/**
+ * The export form's other half, which the page does not open on.
+ *
+ * `/import` loads on Everything, so the visit above measured the kinds
+ * checklist and nothing else. Some accounts brings a checklist of accounts in
+ * columns, a three-way radio row, a box under it and two date fields — the
+ * densest arrangement of 15px controls on the page, which is where the spacing
+ * branch is decided.
+ */
+async function measureExportStates(page: Page) {
+  const form = page.getByRole("region", { name: "Export a Simple Balance file" });
+  await form.getByRole("radio", { name: /Some accounts/ }).check();
+  await form.getByRole("radio", { name: "In a date range" }).check();
+  await expect(form.getByRole("checkbox", { name: new RegExp(account) })).toBeVisible();
+  await expect(form.getByRole("checkbox", { name: "Include deleted transactions" })).toBeVisible();
+  await expect(form.getByLabel("End date")).toBeVisible();
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expect(async () => {
+      expect(failures(await targets(page)), `/import, Some accounts, at ${width}px`).toEqual([]);
+    }).toPass();
+  }
+  await page.setViewportSize({ width: 1280, height: 800 });
+}
+
+/**
+ * The Simple Balance file's import, in the states only a chosen file brings.
+ *
+ * The densest arrangements of small controls on the page are here: rows of
+ * radios under each question, the checklist of accounts to arrive archived,
+ * the links under "Still to decide", and the field a copy's name goes in —
+ * and a row of radios is exactly what wraps at a phone's width. At the five
+ * widths the reflow check uses, because the radios rewrap at each of them.
+ */
+async function measureImportStates(page: Page) {
+  await visitImportStates(page, async (state) => {
+    for (const width of [320, 390, 781, 1050, 1440]) {
+      await page.setViewportSize({ width, height: 844 });
+      // From the top, as every page in the walk above is measured. Choosing a
+      // radio scrolls it into view, and below 780px that put a checkbox under
+      // the sticky mobile header, whose button it then "met" — two targets a
+      // person never sees in one place, since one is drawn over the other.
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await expect(async () => {
+        expect(failures(await targets(page)), `/import, ${state}, at ${width}px`).toEqual([]);
+      }).toPass();
+    }
+    await page.setViewportSize({ width: 1280, height: 800 });
+  });
+}

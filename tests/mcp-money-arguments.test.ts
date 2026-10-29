@@ -28,7 +28,7 @@ import { createMcpServer } from "../src/server/mcp.js";
  * what a file proposed and is allowed to be wrong. That is not a hole in this
  * rule. A staged row affects no balance, and the commit path re-parses the
  * draft through `transactionDraftSchema`
- * (`src/server/services/staging.ts:183`), whose amounts are
+ * (`src/server/services/staging.ts:191`), whose amounts are
  * `positiveDecimalStringSchema`. An untyped node is not a node declared as a
  * number, so it is neither a failure here nor an exception to register.
  */

@@ -143,6 +143,8 @@ describe("the order tools come back in", () => {
     "get_report",
     "get_account_register",
     "export_transactions_csv",
+    "export_ledger_file",
+    "preview_ledger_file",
     "list_audit_events",
     "list_connected_agents",
     "list_category_groups",
@@ -151,6 +153,8 @@ describe("the order tools come back in", () => {
     "list_budget_entries",
     "get_forecast",
     "get_budget_report",
+    "list_learn_articles",
+    "get_learn_article",
     "create_staged_transaction",
     "update_staged_transaction",
     "delete_staged_transactions",
@@ -191,6 +195,8 @@ describe("the order tools come back in", () => {
     "bulk_edit_transactions",
     "set_transaction_deleted",
     "commit_staged_transactions",
+    "add_ledger_file",
+    "move_ledger_file",
   ];
 
   it("is the order registration left them in", async () => {

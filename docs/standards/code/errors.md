@@ -12,7 +12,7 @@ The wire format — RFC 9457, status codes, the envelope — is
 HTTP status, optional details, and an optional second message for an agent
 (see 2.2 and 2.4). Both transports render it: HTTP into a problem document, MCP
 into a tool error — and the MCP one puts `agentMessage` where the message would
-go wherever a throw site set one (`src/server/mcp.ts:293`), so the fifth field
+go wherever a throw site set one (`src/server/mcp.ts:284`), so the fifth field
 is wire-visible rather than a note to ourselves.
 
 The distinction is the question **is there something the caller could do
@@ -21,31 +21,45 @@ throw a bare `Error` or `TypeError` and become a 500 — because a 500 is what
 "this should be impossible" means, and dressing it as a 422 would tell the
 caller to fix something they did not do.
 
-Twelve throws in `src/server/services` are that second kind, and all twelve are
-correct. They come in four shapes: three `TypeError`s in the idempotency
+Nineteen throws in `src/server/services` are that second kind, and all
+nineteen are correct. They come in six shapes: three `TypeError`s in the idempotency
 canonicalizer for payload shapes that cannot occur
-(`src/server/services/helpers.ts:230`, `:246` and `:252`); two for a reference
+(`src/server/services/helpers.ts:238`, `:254` and `:260`); two for a reference
 count that came back non-numeric after being cast to one in SQL
-(`src/server/services/payees.ts:58` and `src/server/services/categories.ts:472`);
+(`src/server/services/payees.ts:59` and `src/server/services/categories.ts:474`);
 three for an `insert().returning()` that came back empty, which either throws or
-returns the row (`src/server/services/budgets.ts:568`, `:945` and
-`src/server/services/category-groups.ts:132`); and four in billing, each
+returns the row (`src/server/services/budgets.ts:581`, `:941` and
+`src/server/services/category-groups.ts:138`); and four in billing, each
 doubting something established moments earlier — the route's own registration,
 the actor's user row, a customer row whose insert had just lost a conflict, and
 a subscription Stripe cannot return without a price
-(`src/server/services/billing.ts:679`, `:993`, `:1022` and `:1601`). The reason
-each cannot happen is written beside it in the test rather than copied here.
+(`src/server/services/billing.ts:686`, `:1000`, `:1029` and `:1616`). The
+Simple Balance file brought the other two. The exporter checks its own output
+against its own reader, and the add and the move read this ledger's records
+through that reader too, so a failure there is the exporter disagreeing with
+itself (`src/server/services/ledger-file.ts:282` and `:1606`); and an argument
+only a move passes — an archive instant, a deferred close — is refused when
+it arrives somewhere it cannot mean anything
+(`src/server/services/accounts.ts:1081`, `:1088` and `:1091`,
+`src/server/services/transactions.ts:2603`), as is a move's plan that left a
+transaction unresolved after the planner said it had resolved every one
+(`src/server/services/ledger-file.ts:2534`). Those are arguments, never fields,
+so no request can supply one. The reason each cannot happen is written beside
+it in the test rather than copied here.
 
 So the rule is not "never throw a bare `Error` here". It is "never throw one for
 something the caller could have got right".
 
 *Checked by:* `tests/service-errors.test.ts`, which is that list rather than a
-ban, and which now holds it from three sides: each of the twelve carries the
-reason it cannot happen and a thirteenth fails until somebody writes down which
+ban, and which now holds it from three sides: each of the nineteen carries the
+reason it cannot happen and a twentieth fails until somebody writes down which
 kind it is; an entry whose throw has been deleted fails too, so a licence cannot
 outlive the line it was written for; and the population is counted, so a scan
-that has stopped matching cannot pass for a clean sweep. Whether the reason is
-honest is still review; whether the throw was thought about at all is now a test.
+that has stopped matching cannot pass for a clean sweep. The count this section
+states is held to the list too, in all four places it is written: the guide said
+twelve while the list held nineteen, so a reader auditing the exceptions from
+here missed seven. Whether the reason is honest is still review; whether the
+throw was thought about at all is now a test.
 
 ## 2. Five constructors, and choosing between them
 
@@ -61,17 +75,17 @@ use the constructor that names the situation.
 | `validationError` | 422 | The request is well-formed and asks for something impossible. |
 
 **The transport is the named exception, and it is two lines.**
-`src/server/api.ts` constructs `AppError` directly at `:1636` and `:1654`, and
+`src/server/api.ts` constructs `AppError` directly at `:1808` and `:1822`, and
 both carry a code no service raises at all: `FORBIDDEN` and
 `REAUTHENTICATION_REQUIRED` belong to the two operations that are reachable
 from a session and never from a token, which is exactly the pair `AGENTS.md`
 names as the boundary between the surfaces.
 
 **The type is not what keeps them out, and believing it is would mislead.**
-Both are in `serviceErrorCodes` already (`src/shared/domain.ts:2705-2715`),
+Both are in `serviceErrorCodes` already (`src/shared/domain.ts:2811-2821`),
 which is why `new AppError("FORBIDDEN", …)` type-checks anywhere at all; what
 `ServiceErrorCode` narrows against is the transport list beside it
-(`src/shared/domain.ts:2727-2744`), and neither of these is in that. So the
+(`src/shared/domain.ts:2833-2850`), and neither of these is in that. So the
 reason there is no sixth constructor is an argument rather than a compiler
 error, and it has to be made rather than assumed: a constructor is an
 invitation, and what it would invite is a service raising
@@ -82,10 +96,10 @@ So the rule is scoped rather than absolute: a service uses the constructors, and
 the transport may name a status the service half has no word for. It was four
 lines rather than two, and shrinking it is what the other two paragraphs of this
 section used to be about. The already-configured-password site was byte-for-byte
-what `conflict()` produces and now calls it (`src/server/api.ts:1645`). The malformed-body guard
+what `conflict()` produces and now calls it (`src/server/api.ts:1813`). The malformed-body guard
 was a `VALIDATION_ERROR` **400** where the constructor is 422 by definition,
 which is why it could not use one — it is now a `TransportError`
-(`src/server/api.ts:1519`, the class at `src/server/services/errors.ts:13-23`),
+(`src/server/api.ts:1681`, the class at `src/server/services/errors.ts:13-23`),
 a separate enumeration for the refusals that are about the request rather than
 about the ledger, so `VALIDATION_ERROR` means one status again and the code an
 MCP tool can raise stays the service half alone.
@@ -115,7 +129,7 @@ falls out naturally: the row simply is not in the result.
 
 **One 403 says "not yours", and it is not about a record.** An MCP consent
 started in one account and answered in another is refused with
-`CONSENT_NOT_YOURS` and a 403 (`src/server/api.ts:894-901` and `:935-942`).
+`CONSENT_NOT_YOURS` and a 403 (`src/server/api.ts:1033-1040` and `:1074-1081`).
 The consent code is a single-use secret the authorization link carries, not an
 id anybody can enumerate, so the bit the 403 confirms is one the person holding
 the link already has. And the sentence is the move that works — sign in as the
@@ -149,7 +163,7 @@ and it carries `currentVersion` in its details so the client can say what
 happened rather than "something went wrong".
 
 Its message is fixed at the constructor
-(`src/server/services/errors.ts:102-115`)
+(`src/server/services/errors.ts:110-123`)
 because there is nothing per-site to add. **Four** sentences are fixed there
 now, two per audience, and the constructor picks the pair from the shape of the
 details rather than from the throw site: `message` is what a browser reads,
@@ -204,49 +218,81 @@ that the error is carrying it and not that anything acts on it.
 
 **House**, and now mechanized. The second audience has outgrown 2.2, which still
 frames it as a property of one constructor. `conflict` takes an `agentMessage`
-too (`src/server/services/errors.ts:75`), and the comment above it makes the
+too (`src/server/services/errors.ts:83`), and the comment above it makes the
 argument: this **widens** the constructor rather than adding a sixth, because
 the five-constructor rule in 2 is about how a service raises a refusal, not
-about how many arguments the refusal carries.
+about how many arguments the refusal carries. `notFound` takes one as well
+(`:71`), for the bulk calls: their "Reload the list and try again" was browser
+copy reaching an agent unchanged from seven tools, the defect `staleVersion`
+had already been cured of, so each now carries the ids that missed in its
+details and tells an agent which call reads real ones.
 
 The two callers show the rule running in both directions, which is what makes it
 a rule rather than a workaround for billing. The account allowance
-(`src/server/services/accounts.ts:731`) tells a browser to upgrade under
-Settings, and tells an agent that only the person who owns the ledger can raise
-the limit: billing is session-only by `AGENTS.md`, so an agent told to upgrade
-is told to do something it holds no credential for, which is the same fault as
-telling it to reload. The active-account chooser
-(`src/server/services/accounts.ts:967`) goes the other way. This is a call an
+(`src/server/services/accounts.ts:731`) tells a browser to archive or delete
+an account or upgrade under Settings, and tells an agent the two of those it
+can do — by `archive_account` and `delete_account`, with the person's say-so —
+and that only the person who owns the ledger can raise the limit: billing is
+session-only by `AGENTS.md`, so an agent told to upgrade is told to do something
+it holds no credential for, which is the same fault as telling it to reload. It
+used to leave out the archive and the delete, so an agent reported that only
+paying would do when a free way existed. The active-account chooser
+(`src/server/services/accounts.ts:972`) goes the other way. This is a call an
 agent *can* make, so its sentence names the call, says what a valid one looks
 like, and — where nothing is frozen — says that no list at all is valid, so the
 agent stops trying different ones instead of guessing.
 
-Six throw sites carry one today and the shape recurs: the archive restore meets
+Fifteen throw sites carry one today and the shape recurs: the archive restore meets
 the same ceiling from the other side
-(`src/server/services/accounts.ts:1204`), the frozen-account refusal is the same
-argument under a 422 (`src/server/services/accounts.ts:861`), and the two in
-`closeBillingForDeletion` (`src/server/services/billing.ts:2006` and `:2013`)
+(`src/server/services/accounts.ts:1287`), the frozen-account refusal is the same
+argument under a 422 (`src/server/services/accounts.ts:866`), and the two in
+`closeBillingForDeletion` (`src/server/services/billing.ts:2021` and `:2028`)
 give a person the move each cause leaves them — whoever runs the server, where
 the keys cannot vouch for Stripe's answer, and a retry in a few minutes, where
 Stripe could not be reached — while naming the cause, and whether retrying
 helps, for a program. Those last two are reached only from the
 session-only deletion path, so nothing renders them today — written that way
 because the browser's sentence would be the wrong one if it ever widens, which
-is cheaper than noticing later. Every refusal whose remedy is browser-only has
-this shape, so there will be more.
+is cheaper than noticing later. Adding a Simple Balance file brought three
+more, and moving one brought three more again: `movedEntryRefusal` and
+`moveLedgerFile`'s two. The three bulk not-founds are the last. A file bringing more accounts in use
+than the plan keeps (`planRefusal`, `src/server/services/ledger-file.ts:2037`)
+offers the browser choosing which arrive archived, or upgrading, and tells an
+agent the numbers, the field that takes the choice, and that only the person
+can raise the limit — the allowance's argument again. And the conflicts a part
+meets when the ledger moved after it was read (`:2150` for an add and `:2465`
+for a move), or when another import staged or wrote the same rows first
+(`:2016` and `:2284`), are the case running the other way round from billing:
+the person's way back is a button, so their sentence names it in its own
+words, **Check file again**, and an agent has no button, so its sentence
+names `preview_ledger_file`. Both had told everyone to preview the file again,
+which was neither: no button says it, and no tool is called it. A move's own
+refusals hand an agent its own sentence through `planRefusal`'s `forAgent`
+(`moveRefusal`, `:2240`) for the four causes the page answers with something
+an agent has not got — add the file instead, discard the rows waiting in
+Staged that did not come from a file, commit or discard the file's own waiting
+rows, upgrade — and a balance that does not come out (`:2623`) tells
+a person the causes they can act on from the page — a file for the days before
+this one to move first, an account here to rename, or adding the file instead —
+and never blames an earlier part, because the page sends them in order; an
+agent with a file in several parts is told first to preview each earlier one,
+because it cannot see which are in.
+Every refusal whose remedy is browser-only has this shape, so there will be
+more.
 
 **What the obvious alternatives were.** One sentence for both audiences is what
 2.2 already rejects, and it fails in whichever direction it is written: the
 browser gets tool names it cannot use, or the agent gets a button it cannot
 press. A constructor per audience — `conflictForAgent`, say — is what the source
 rejects, and for a reason worth keeping: the audience is not a kind of refusal.
-`notFound` does not split in two because a person and a program read "not found"
-the same way, and a constructor set indexed on who is listening would double
-every row of 2's table to express nothing about the ledger.
+`notFound` did not split in two when it took an agent half, because a person
+and a program read "not found" the same way — what differs is the advice — and
+a constructor set indexed on who is listening would double every row of 2's
+table to express nothing about the ledger.
 
 The rule carries one constraint the prose around it does not: **the agent half
 may not name a field the refusal is not carrying.** That is why the `carries`
-guard exists (`src/server/services/errors.ts:86`) — thirteen of the fifty-three
+guard exists (`src/server/services/errors.ts:94`) — thirteen of the fifty-three
 `staleVersion` sites send no details at all, and pointing an agent at
 `details.currentVersion` when nothing is there is the same fault as telling it
 to refresh, one field deeper.
@@ -254,8 +300,10 @@ to refresh, one field deeper.
 *Checked by:* `tests/errors-guide.test.ts`, which is a census rather than a ban,
 the shape 1 uses and for the same reason — whether two callers need different
 advice cannot be read off a call's syntax, but who claimed they did can be. It
-finds every `conflict` and `validationError` given a third argument, holds the
-set to the six argued for, fails on an entry whose throw has gone, counts them,
+finds every `conflict`, `validationError` and `notFound` given a third
+argument, holds the set to the fifteen argued for — and holds this section to
+saying fifteen, twice, after it said nine through a branch that brought six
+more — fails on an entry whose throw has gone, counts them,
 and refuses a sentence naming a `details.` field its own declaration neither
 guards nor builds. It also holds `agentMessage` to one reader: `src/server/mcp.ts`
 renders it and `src/server/api.ts` must not, or browser copy would change
@@ -301,9 +349,9 @@ array. Showing the envelope is how "A budget cannot be negative" reached the
 screen as "Request validation failed".
 
 The client digs the messages out of the details
-(`src/client/api.ts:143-149`, discriminating on `path` so a CSV parser's errors
+(`src/client/api.ts:145-151`, discriminating on `path` so a CSV parser's errors
 fall through), deduplicates them on the field-and-sentence pair rather than the
-sentence (`:157-165`), and shows those in preference to the envelope (`:169`).
+sentence (`:159-167`), and shows those in preference to the envelope (`:171`).
 Which means schema messages are user-facing: write them that way.
 
 Nineteen request schemas left their length rules to Zod, so typing a space where
@@ -312,11 +360,25 @@ Every free-text field now passes its sentence beside its number — `enter(…)`
 for an empty one, in the GOV.UK form `common.md`'s table uses, and `atMost(…)`
 for one too long — and a template mass edit's empty string says that `null` is
 the clear, since that refusal is deliberate and only an agent can reach it.
+Two more were outside `src/shared`, where the check could not see them: the
+route that adds a password to a Google-only account wrote its 12 and 128
+inline in `api.ts` with no sentence, and is `localPasswordSchema` in
+`src/shared/domain.ts` now, beside `PASSWORD_MIN_LENGTH` and
+`PASSWORD_MAX_LENGTH`, which the auth configuration, the published auth options
+and the three password forms read too; and deleting an account confirmed its
+email address the same way.
 
-*Checked by:* `tests/schema-messages.test.ts`, which refuses any `.min` or
-`.max` on a `z.string()` in `src/shared/domain.ts` that passes no message, with
-a register of the output schemas no refusal is ever read from, and samples the
-sentences at both ends; `tests/domain.test.ts` pins several specific messages;
+*Checked by:* `tests/schema-messages.test.ts`, which refuses any `.min`,
+`.max` or `.length` that passes no message anywhere in a chain from
+`z.string()` — the whole chain, across lines — in every module under `src` that
+builds a string schema, found rather than listed, apart from the configuration
+and the vendored learn pack, which build no request. It named five files in
+`src/shared` until a sweep found the two above outside them. A register holds
+the chains no refusal is ever read from (output schemas, cursors, keys, ids an
+agent copies from a list, a CSV round-trip read with `safeParse`), each with its
+reason, and it samples the sentences at both ends. It read a line at a time until the add's `fileName`
+and the timezone showed Zod's defaults past it, because a chain written a call
+to a line was never on one; `tests/domain.test.ts` pins several specific messages;
 and `human` on the phrasing, which is the half a source check cannot judge.
 
 ## 4. Refusing early, and previewing the refusal
@@ -357,8 +419,8 @@ has to be told *when* to blame it: a plan already held and a plan set to end
 are disabled on their own account, so the tab offers the grant's sentence only
 where `planChangeTakesEffect` says the press would have spent money, which is
 the same line the route draws with `sellsSomething`.
-`frozenAccountRefusal` (`src/shared/domain.ts:4012`) is thrown by
-`assertAccountsWritable` (`src/server/services/accounts.ts:856`) and is the
+`frozenAccountRefusal` (`src/shared/domain.ts:4118`) is thrown by
+`assertAccountsWritable` (`src/server/services/accounts.ts:861`) and is the
 reason an account card's **Edit**, **Archive** and **Delete** now carry, and a
 transaction row's **Edit**, **Delete** and **Restore** with them.
 
@@ -433,7 +495,7 @@ unusable (missing keys, wrong types), never what makes a row ugly: ugliness is
 the row's own issue list's job.
 
 *Checked by:* `human`. The instance is pinned where it bit
-(`src/shared/domain.ts:1231-1236`, the comment on `payeeSummarySchema.name`).
+(`src/shared/domain.ts:1258-1263`, the comment on `payeeSummarySchema.name`).
 
 ## 5. What is not enforced
 
@@ -450,7 +512,7 @@ enumeration, which is the smallest useful move a `human` rule can make — the
 part a program can refuse is split off and the part it cannot is left saying so.
 Section 1 is not among them, and how it stopped being one is the pattern the rest of
 this guide copies: a blanket ban on `throw new Error` under
-`src/server/services` would flag the twelve correct ones, and which kind a throw
+`src/server/services` would flag the nineteen correct ones, and which kind a throw
 is cannot be read off its syntax. So `tests/service-errors.test.ts` inverts it —
 it holds the list of throws already argued to be impossible, and fails on a new
 one nobody has argued for. A rule that could not be checked became a rule about

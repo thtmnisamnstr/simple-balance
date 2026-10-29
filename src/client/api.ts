@@ -4,6 +4,7 @@ import {
   type ProgressEvent,
   type ProgressFrame,
 } from "../shared/progress.js";
+import type { CsvPreview as SharedCsvPreview } from "../shared/csv.js";
 import type {
   ActorSource,
   BillingInterval,
@@ -30,6 +31,7 @@ import type {
   BudgetGroupPolicy,
   BudgetAmountRule,
   ForecastBasis,
+  ImportBatchKind,
 } from "../shared/domain.js";
 
 export class ApiClientError extends Error {
@@ -97,7 +99,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
  * filename is the server's, from `Content-Disposition`, so the dated name it
  * picks in the person's own timezone survives the detour.
  */
-export async function download(path: string): Promise<void> {
+export async function download(path: string, fallbackName = "export.csv"): Promise<void> {
   const response = await fetch(path, { credentials: "include" });
   if (!response.ok) {
     throw refusalFrom(
@@ -110,7 +112,7 @@ export async function download(path: string): Promise<void> {
   const url = URL.createObjectURL(await response.blob());
   const link = document.createElement("a");
   link.href = url;
-  link.download = named?.[1] ?? "export.csv";
+  link.download = named?.[1] ?? fallbackName;
   link.click();
   URL.revokeObjectURL(url);
 }
@@ -316,6 +318,18 @@ export type Session = {
    * read as "no ads" there too.
    */
   ads?: AdPlacement | null;
+  /**
+   * Whether to show this product's own advertisement for the paid plan.
+   *
+   * The server decides, on the same rule as `ads` and one more: the plan it
+   * offers has to be for sale. Where it is true, `ads` is null, so the two never
+   * share a page and nothing here has to choose between them.
+   *
+   * Optional for the same reason `plan` is, and absent reads as false: a rolling
+   * update briefly serves this bundle against a server from the release before
+   * it, which never sends the field and never meant a house ad.
+   */
+  houseAd?: boolean;
 };
 
 /** The publisher and slot ids, as the deployment configured them. */
@@ -336,6 +350,15 @@ export type AdPlacement = {
 export type PlanSummary = {
   entitlement: Entitlement;
   accountsUsed: number | null;
+  /**
+   * Whether the one-time choice of accounts in use is open, which `whoami`
+   * reports to an agent from this same summary. Read by nothing here: the
+   * Accounts page asks `activeChoicePending` itself over the rows it draws,
+   * because the panel and its checkboxes render from the account list, and a
+   * session refetched apart from that list could answer for a different set
+   * of rows for a render. Optional for the reason `plan` is.
+   */
+  activeChoicePending?: boolean;
 };
 
 /** One of the two prices, as the plan tab shows it. */
@@ -899,6 +922,13 @@ export type ImportBatchSummary = {
   rowCount: number;
   stagedCount: number;
   createdAt: string;
+  /**
+   * What the batch was read from. Optional for the reason `plan` is on a
+   * session: a rolling update briefly serves this bundle against a server from
+   * before the Simple Balance file import, which sends no kind and only ever
+   * staged a CSV, so absent reads as a CSV.
+   */
+  kind?: ImportBatchKind;
 };
 
 export type Summary = {
@@ -906,19 +936,14 @@ export type Summary = {
   /** The day the figures are really as of, which is today when the range runs past it. */
   asOf: string;
   /**
-   * `includesArchived` echoes the request's own toggle, and the dashboard — the
-   * only page that asks for a summary — never sets it, so this is the constant
-   * `false`. Rendering it would be a line saying archived accounts are left out
-   * on a screen with nothing that could put them back in.
-   *
-   * The toggle itself is on the Reports page, over every report, with a note
-   * beneath it saying what the flag means on that kind — which figures it
-   * moves on a movement report, and which rows it only lists on a balance one.
-   * So this is a parameter one screen does not offer rather than a capability
-   * a person cannot reach.
-   * `Report.includesArchived`, below, is the one whose control is on the screen
-   * above it, and printing the answer back there would read as a second,
-   * disagreeing control.
+   * `includesArchived` echoes the request's own toggle, and the Overview — the
+   * only page that asks for a summary — shows that toggle as its Include
+   * archived accounts box, directly above the figures. Printing the answer back
+   * beneath it would read as a second control, which is why
+   * `Report.includesArchived`, below, is not printed either. Unlike Reports,
+   * the Overview's flag means one thing — archived accounts and what moved
+   * through them are counted or they are not — so there is no note to choose
+   * between two meanings.
    */
   includesArchived: boolean;
   currencies: {
@@ -1026,7 +1051,20 @@ export type AuditEvent = {
 // The preview the server returns is exactly what the shared parser produces, and
 // so is each row of a stage's sample, so the browser reads those types rather
 // than keeping a second copy of either that can drift.
-export type { CsvPreview, CsvSampleRow } from "../shared/csv.js";
+export type { CsvSampleRow } from "../shared/csv.js";
+
+/**
+ * The shared parser's preview, with the two answers it reached from the
+ * headings made optional.
+ *
+ * Optional for the reason `plan` is on a session: a rolling update briefly
+ * serves this bundle against a server from before the preview carried them,
+ * and the import page then works them out from `headers` with the same shared
+ * functions the server calls. Derived rather than restated, so a field the
+ * parser adds is a field this type has.
+ */
+export type CsvPreview = Omit<SharedCsvPreview, "simpleBalanceExport" | "suggestedMapping"> &
+  Partial<Pick<SharedCsvPreview, "simpleBalanceExport" | "suggestedMapping">>;
 
 /**
  * `cursorAvailable` is never read in the browser. Both lists that carry it draw
@@ -1177,3 +1215,42 @@ export function queryString(values: Record<string, string | undefined | null>) {
   });
   return params.toString();
 }
+
+/**
+ * The three replies of the Simple Balance file import, read as the shared
+ * modules declare them rather than restated: the page plans with the very
+ * functions the server runs, over the very shapes it answers with, and a copy
+ * of any of them here would be the one that drifted.
+ *
+ * What the preview sends that the page does not render is argued here (`web.md`
+ * 11.9). Each part's own `plan`, and its `movePlan` beside it, is that part
+ * planned with nothing decided, one way and the other; the page plans the
+ * whole file itself, from the facts every part read, each time somebody
+ * decides something or picks a way in, so a part's plan would be a second and
+ * partial answer beside the one on screen. Within a move's plan,
+ * `recurrencesDeferred` is always none for the whole file — the page plans it
+ * as the last part, which is the one that creates them — so the sentence the
+ * page says instead is about the parts, and `waiting` is said by the problem
+ * that refuses the move while it is not none. And `carriedForward` on the
+ * destination's own accounts is the format's field for a file whose entries
+ * start partway through: `here` is assembled with no entries, so it is never
+ * set, and the planner, not the page, is what compares an opening.
+ *
+ * A move's reply is summed over its parts. `archived` is rendered as the
+ * accounts it counts, by name, from the records the parts carried out: each
+ * part counts the archived accounts it wrote into, so one account with
+ * transactions in three parts would be three, and summed the count would say
+ * something false. `skipped` and `written` are each split into live and
+ * deleted, and are added up.
+ */
+export type { LedgerFileAddResult, LedgerFilePreview } from "../shared/ledger-file-import.js";
+export type { LedgerFileMoveResult } from "../shared/ledger-file-move.js";
+
+/*
+ * What the money-guide tools send, argued rather than rendered (`web.md` 11.9):
+ * a guide's `slug`, its `markdown`, the `syncedAt` of this server's copy, and
+ * `inSimpleBalance` with each step's `tools`. No route carries them, so no page
+ * receives them. A person reads the same guides at smpl.money/learn, where the
+ * steps are the browser's own; the copy and the step map exist for an agent,
+ * which has neither the site's page nor this one in front of it.
+ */

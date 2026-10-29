@@ -295,6 +295,7 @@ if (database) {
       applicationPassword: PLACEHOLDER_PASSWORD,
       serverCertificate: PLACEHOLDER_CERTIFICATE,
       serverKey: PLACEHOLDER_KEY,
+      metrics: settings.metrics !== undefined,
     },
     settings.sshPublicKey,
   );
@@ -465,8 +466,9 @@ const databaseRouteTable =
     : undefined;
 
 /**
- * The private subnet's firewall: two inbound rules, and they are the whole of
- * whatever is put in there.
+ * The private subnet's firewall: two inbound rules, and a third for 9100 while
+ * the stack exports metrics from a database node of its own, and they are the
+ * whole of whatever is put in there.
  *
  * 5432 from the application node's subnet, which holds exactly one machine. A
  * security list takes CIDRs rather than the source-group reference the AWS
@@ -512,6 +514,26 @@ const databaseSecurityList = databaseNetwork
           protocol: "6",
           tcpOptions: { min: 22, max: 22 },
         },
+        // The database node's node-exporter, while the stack exports metrics
+        // and only then: the collector on the application node scrapes it
+        // over TLS, and with export off nothing listens there. From the
+        // application node's subnet, for the reason 5432 is. Not for an empty
+        // subnet `databaseSubnet` keeps for a managed database, which has no
+        // node-exporter of this program's in it. Unlike the rest of the
+        // machine this arrives through `pulumi up` on a stack that already
+        // exists; the host's half is `DATABASE_METRICS_PLATFORM_COMMANDS`.
+        ...(database && settings.metrics
+          ? [
+              {
+                description:
+                  "Host metrics (node-exporter, TLS), from the application node's subnet",
+                source: instanceCidr,
+                sourceType: "CIDR_BLOCK",
+                protocol: "6",
+                tcpOptions: { min: 9100, max: 9100 },
+              },
+            ]
+          : []),
       ],
       freeformTags: tags,
     })
@@ -650,7 +672,9 @@ const settingsSecret = new oci.vault.Secret(`${name}-settings`, {
   // came from.
   secretContent: {
     contentType: "BASE64",
-    content: settings.appSettingsFile.apply((text) => Buffer.from(text, "utf8").toString("base64")),
+    content: single
+      .appSettingsFile(settings, database ? databaseDnsName : undefined)
+      .apply((text) => Buffer.from(text, "utf8").toString("base64")),
   },
   freeformTags: tags,
 });
@@ -962,7 +986,9 @@ new oci.core.VolumeAttachment(
  *
  * No public address at all — the subnet refuses one and this asks for none, so
  * there are two independent reasons rather than one — and two inbound rules,
- * for 5432 from the application node's subnet and 22 from a Bastion in its own.
+ * for 5432 from the application node's subnet and 22 from a Bastion in its own,
+ * with 9100 from the application node's subnet beside them while the stack
+ * exports metrics.
  *
  * Its user data carries the server certificate, the server's private key and
  * the application role's password, and none of the three is the dangerous one:
@@ -1037,6 +1063,7 @@ const databaseInstance =
                   applicationPassword,
                   serverCertificate,
                   serverKey,
+                  metrics: settings.metrics !== undefined,
                 },
                 settings.sshPublicKey,
               ),

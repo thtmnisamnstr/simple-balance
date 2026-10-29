@@ -10,7 +10,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useLocation } from "../router.js";
+import { Link, useLocation, useSearchParams } from "../router.js";
 import { newIdempotencyKey } from "../idempotency.js";
 import { type CategoryKind, categoryKinds } from "../../shared/domain.js";
 import {
@@ -28,6 +28,7 @@ import {
   Button,
   compareForSort,
   ConfirmDialog,
+  DuplicateGroups,
   EmptyState,
   Field,
   formatCount,
@@ -181,19 +182,33 @@ export default function CategoriesPage() {
     field: "name",
     direction: "asc",
   });
-  const [includeArchived, setIncludeArchived] = useState(false);
+  // In the URL under the key Overview, Reports and Accounts use (`web.md`
+  // 11.8), so the box survives a trip into a category and back, whose links
+  // carry the search both ways. A category page reads only its date range
+  // from it and ignores the rest.
+  const [params, setParams] = useSearchParams();
+  const includeArchived = params.get("archived") === "1";
+  const setIncludeArchived = (next: boolean) => {
+    const updated = new URLSearchParams(params);
+    if (next) updated.set("archived", "1");
+    else updated.delete("archived");
+    setParams(updated, { replace: true });
+  };
   /** What a row action just did, said where focus can reach it. See the mutation below. */
   const [rowNotice, setRowNotice] = useState("");
   // Two controls empty this list and the condition only ever read one of them,
   // so somebody who had archived every category was told they had none. The
-  // toggle is `fromTheStart` because it ships off: counting it as narrowing
-  // would make "no categories yet" unreachable on a ledger that really has
-  // none.
+  // toggle is `fromTheStart` because it ships off and the page cannot tell a
+  // new ledger from one whose every category is archived: counted as
+  // narrowing, both would be told nothing matches and offered the toggle
+  // alone. Not counted, both read "in this view" with what to add beside it,
+  // and the way out says "any archived ones" so a new ledger is not told it
+  // put some away.
   const { narrowed, ways } = emptyScreen([
     { set: Boolean(search.trim()), clear: "clear the search" },
     {
       set: !includeArchived,
-      clear: "turn on Show archived to look at the ones you have put away",
+      clear: "turn on Show archived to include any archived ones",
       fromTheStart: true,
     },
   ]);
@@ -517,7 +532,18 @@ export default function CategoriesPage() {
               ))}
             </Select>
           </Field>
-          <Button type="submit" loading={categoryMutation.isPending}>
+          {/* One mutation runs this and every row's rename, regroup, archive
+              and delete, so asking only whether it was pending spun Add
+              category through an archive — "Working…" on a button nobody
+              pressed, saying a category was being created while one was being
+              put away (`web.md` 12.3). It spins for its own action and is held
+              for the others, as the rows already are: a second request would
+              take the mutation's state, and the row's refusal with it. */}
+          <Button
+            type="submit"
+            disabled={categoryMutation.isPending}
+            loading={categoryMutation.isPending && categoryMutation.variables.action === "create"}
+          >
             <Plus size={16} /> Add category
           </Button>
         </form>
@@ -566,7 +592,13 @@ export default function CategoriesPage() {
               <option value="sum_of_children">Adds up its categories' budgets</option>
             </Select>
           </Field>
-          <Button type="submit" loading={groupMutation.isPending}>
+          {/* The same pair as Add category: a group's rename, budget and
+              delete run through this mutation too. */}
+          <Button
+            type="submit"
+            disabled={groupMutation.isPending}
+            loading={groupMutation.isPending && groupMutation.variables.action === "create"}
+          >
             <Plus size={16} /> Add group
           </Button>
         </form>
@@ -693,27 +725,14 @@ export default function CategoriesPage() {
         onConfirm={removeGroup.confirm}
       />
 
-      {duplicates.data?.length ? (
-        <section className="duplicate-groups" aria-label="Duplicate categories">
-          <div className="section-title">
-            <span>
-              <Combine size={19} />
-            </span>
-            <div>
-              <h2>Possible duplicates</h2>
-              <p>Names are compared without case or extra spacing.</p>
-            </div>
-          </div>
-          {duplicates.data.map((group) => (
-            <Alert kind="info" key={group.normalizedName}>
-              <span>{group.categories.map((category) => category.name).join(", ")}</span>
-              <Button type="button" variant="secondary" onClick={() => chooseDuplicateGroup(group)}>
-                Review merge
-              </Button>
-            </Alert>
-          ))}
-        </section>
-      ) : null}
+      <DuplicateGroups
+        label="Duplicate categories"
+        groups={(duplicates.data ?? []).map((group) => ({
+          key: group.normalizedName,
+          names: group.categories.map((category) => category.name),
+          onReview: () => chooseDuplicateGroup(group),
+        }))}
+      />
 
       <div className="filter-bar">
         <SearchBox

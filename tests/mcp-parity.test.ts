@@ -30,7 +30,7 @@ const BROWSER_ONLY: Record<string, string> = {
   "POST /api/v1/auth/local-password":
     "Setting a sign-in credential is account management rather than bookkeeping, and an agent cannot undo it from its side.",
   "GET /api/v1/session":
-    "Split rather than missing: whoami reports the identity, the plan's ceiling and how much of it is used, and get_preferences the regional settings. What is left is which sign-in methods the deployment offers, which is no business of an agent's.",
+    "Split rather than missing: whoami reports the identity, the plan's ceiling and how much of it is used, and get_preferences the regional settings. What is left is which sign-in methods the deployment offers and which advertisement the page carries, AdSense or the house ad, and neither is any business of an agent's.",
   "GET /api/v1/billing":
     "Paying for the deployment is account management rather than bookkeeping. Reported to an agent as far as it needs it: whoami carries the plan, its ceiling and how much of it is used, which is what an agent has to know to explain a refusal.",
   "PUT /api/v1/billing/subscription":
@@ -42,7 +42,9 @@ const BROWSER_ONLY: Record<string, string> = {
   "POST /api/v1/billing/payment-setups/confirmations":
     "The other half of that one: it names a SetupIntent only Stripe's browser SDK can have confirmed. An agent has no way to reach the state this reports.",
   "GET /api/v1/csv/export":
-    "Reachable as export_transactions_csv. The route differs only in returning a file download with a dated filename.",
+    "Reachable as export_transactions_csv, which returns the same file as text with the dated name it is saved under. The route differs only in serving it as a download.",
+  "GET /api/v1/ledger-file":
+    "Reachable as export_ledger_file, which returns the same file as text. The route differs in serving it as a download, and the tool caps a call at 10,000 rows where the route allows 100,000. Entries and the history get round that by date range; staged rows and budget amounts have no date, so between 10,001 and 100,000 of either the download is the only way out that writes nothing, which the tool's description tells the agent.",
 };
 
 /** What each REST route needs a tool to be reachable through. */
@@ -113,6 +115,9 @@ const COVERED_BY: Record<string, string> = {
   "POST /api/v1/transaction-templates/bulk-delete": "bulk_delete_transaction_templates",
   "POST /api/v1/csv/preview": "preview_csv",
   "POST /api/v1/csv/stage": "stage_csv",
+  "POST /api/v1/ledger-file:preview": "preview_ledger_file",
+  "POST /api/v1/ledger-file:add": "add_ledger_file",
+  "POST /api/v1/ledger-file:move": "move_ledger_file",
   "GET /api/v1/import-batches": "list_import_batches",
   "GET /api/v1/reports/:report": "get_report",
   "GET /api/v1/staged-transactions/:id/duplicate": "get_staged_duplicate",
@@ -122,6 +127,36 @@ const COVERED_BY: Record<string, string> = {
   "DELETE /api/v1/connected-apps/:clientId": "revoke_connected_agent",
   "PUT /api/v1/preferences": "set_preferences",
   "GET /api/v1/me/data": "summarize_own_data",
+};
+
+/**
+ * Tools that no route in `COVERED_BY` reaches, each with the reason it has none.
+ *
+ * Every check above and below iterates routes, so a tool registered with no
+ * route of its own passed all of them silently — the furthest an agent can get
+ * ahead of the browser, and the one nothing saw. Four had been reached that way
+ * for releases, named only in passing inside a `BROWSER_ONLY` reason; a fifth
+ * would have needed nobody to write anything at all. Now a tool is either the
+ * target of a route or a key here, and a key needs an argument.
+ */
+const NO_ROUTE: Record<string, string> = {
+  whoami:
+    "Who the books belong to and what the plan allows, which the browser reads as part of GET /api/v1/session — browser-only for its sign-in methods and advertising. What the tool adds is the client id this call is authorized under and the token's scopes, facts about an agent's credential that a signed-in page has no token to ask about.",
+  get_preferences:
+    "The regional settings and the theme, which the browser reads as one part of GET /api/v1/session rather than from a route of their own. Both call getPreferences, so the split session read is the whole of the difference.",
+  export_transactions_csv:
+    "The file the browser downloads from GET /api/v1/csv/export, which stays browser-only because it is a download. Both call exportTransactionsCsv and return the same text for the same filters, the tool with the name the download is saved under; the one filter only the tool is sent is argued in READ_UNOFFERED.",
+  export_ledger_file:
+    "The file the browser downloads from GET /api/v1/ledger-file, browser-only because it is a download. Both call exportLedgerFile, and the tool returns the same text and name, capped at 10,000 rows and one import part's bytes a call where the download allows 100,000 rows; staged rows and budget amounts over that leave only by the download, having no date to narrow them by.",
+  // The one pair here that is not bookkeeping, and the one that runs the
+  // other way: no page calls a route for it because a person reads the same
+  // words on the site. The reason the backward rule exists — a capability no
+  // person witnesses — has nothing to witness in text that is the same for
+  // everybody, reads no ledger and writes nothing.
+  list_learn_articles:
+    "The money guides smpl.money publishes at /learn, which people read there. The tool carries the same text to an agent, from a copy in the image so a deployment with no internet has it too. It gets the agent surface no further ahead of the browser app than the site already is, because it carries no capability: it reads nothing of anybody's and writes nothing, so there is nothing for a person to have been unable to do or to see done.",
+  get_learn_article:
+    "One guide from list_learn_articles in full, with the tools on this server that do each of its Simple Balance steps; those steps are the browser app's own, and a person follows them there. The reason is list_learn_articles'.",
 };
 
 async function registeredRoutes() {
@@ -272,6 +307,26 @@ describe("what an agent can reach compared with the browser", () => {
     const routes = await registeredRoutes();
     const claimed = [...Object.keys(COVERED_BY), ...Object.keys(BROWSER_ONLY)];
     expect(claimed.filter((route) => !routes.has(route))).toEqual([]);
+  });
+
+  /**
+   * The other half of the route map: every tool is the target of a route, or
+   * is named in `NO_ROUTE` with its reason. Without this a tool could join the
+   * list with no route and no argument and every check here would pass it,
+   * because each of them starts from a route.
+   */
+  it("reaches every tool through a route, or names why it has none", async () => {
+    const tools = await toolNames(everyScope);
+    const routed = new Set(Object.values(COVERED_BY));
+    expect(
+      [...tools].filter((tool) => !routed.has(tool) && !(tool in NO_ROUTE)).sort(),
+      "map it in COVERED_BY, or name it in NO_ROUTE with the reason",
+    ).toEqual([]);
+    for (const [tool, reason] of Object.entries(NO_ROUTE)) {
+      expect(tools.has(tool), `${tool} is not a registered tool`).toBe(true);
+      expect(routed.has(tool), `${tool} has a route, so it needs no exception`).toBe(false);
+      expect(reason.length, tool).toBeGreaterThan(40);
+    }
   });
 
   /**
@@ -491,7 +546,7 @@ describe("what an agent can reach compared with the browser", () => {
   /**
    * Scope gates by non-registration, so "needs ledger:write" in a description
    * is read only by an agent that already holds ledger:write and never by the
-   * one that does not. Written on all 36 gated tools it would be about 3,600
+   * one that does not. Written on all 42 gated tools it would be about 4,200
    * characters of one convention repeated per tool, for a reader who cannot
    * benefit. What a description owes is the behavior that differs by scope,
    * which is these four and nothing else — so this is set equality rather than
@@ -959,6 +1014,202 @@ describe("what the browser can reach compared with an agent", () => {
   });
 
   /**
+   * The same comparison for every other read, found by the route rather than
+   * named.
+   *
+   * `FILTERED_LISTS` holds the two lists whose requests are built as one named
+   * object out of several spreads. Every other read was compared against
+   * nothing, and that is where the last field only an agent could set lived:
+   * `get_financial_summary` took `includeArchived`, `GET /api/v1/summary`
+   * parsed it, and the Overview sent `start` and `end` and never it. So the
+   * population here is the tool list — every read tool with a field beyond the
+   * record it names, its route's own parameters and the paging and ordering
+   * that describe a view rather than scope it — and the page side is every call
+   * `src/client` makes to that route. A GET route is read off the URL itself: a
+   * literal `?key=`, and whatever object `queryString` is handed. A POST route,
+   * which is where the CSV and file previews and the selection preview read, is
+   * read off the body the page sends. A route `AGENT_ONLY` names is excused by
+   * that entry's reason, which is the staged selection preview's.
+   * A field a tool gains tomorrow fails here until a page sends it or this
+   * names why none does.
+   */
+  const READ_UNOFFERED: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+    export_transactions_csv: {
+      currency:
+        "The export is the Transactions view as a file: the download sends that view's own params and nothing else, so the file a person saves is the rows they were looking at. The view offers no currency select, for the reason FILTERED_LISTS gives on list_transactions' currency — an account holds one currency, a conversion matches under both, and a select would have to join bulkFilter in the same change — so the export cannot offer one the view does not.",
+    },
+    list_payees: {
+      search:
+        "The Payees page holds every spelling the ledger has — the list is not paged — and narrows it as somebody types with this field's own predicate, nameSearch over each spelling's normalizedName, which is the function listPayees applies. A person reaches exactly the spellings an agent's search returns; sending it would refetch, on every keystroke, an answer the page already holds.",
+    },
+  };
+
+  /**
+   * The browser-only download each export tool stands in for.
+   *
+   * A routeless tool has no `COVERED_BY` route, and the query-field comparison
+   * starts from one, so an export's filters were compared with nothing: the CSV
+   * export took a currency no page sends, and nothing said so. Both downloads
+   * are GET routes a page calls with the view's own filters, so they are what an
+   * export's fields are compared against.
+   */
+  const DOWNLOAD_OF: Readonly<Record<string, string>> = {
+    export_transactions_csv: "GET /api/v1/csv/export",
+    export_ledger_file: "GET /api/v1/ledger-file",
+  };
+
+  /**
+   * The keys `ledgerFileQueryString` writes, read off its own body.
+   *
+   * The export page builds its query with that shared function rather than
+   * `queryString`, because the route splits two of the keys back into lists.
+   * Read rather than listed, so a key it gains or drops is a key this sees.
+   */
+  function ledgerFileQueryKeys(): Set<string> {
+    const shared = sourceFiles("src/shared").find((file) => file.path.endsWith("/ledger-file.ts"));
+    const body = /export function ledgerFileQueryString\([\s\S]*?\n\}\n/.exec(shared?.code ?? "");
+    const keys = new Set<string>();
+    const written = [
+      ...(body?.[0].matchAll(/URLSearchParams\(\{\s*(\w+):/g) ?? []),
+      ...(body?.[0].matchAll(/params\.set\("(\w+)"/g) ?? []),
+    ];
+    for (const match of written) keys.add(match[1]!);
+    expect([...keys], "ledgerFileQueryString's body has changed shape").toContain("kinds");
+    return keys;
+  }
+
+  /** The query keys one call to a route sends, read off the call's own text. */
+  function queryFields(file: SourceFile, open: number, call: string): Set<string> {
+    const fields = new Set<string>();
+    for (const literal of call.matchAll(/[?&]([A-Za-z_$][\w$]*)=/g)) fields.add(literal[1]!);
+    for (const helper of call.matchAll(/\bqueryString\(/g)) {
+      for (const field of argumentFields(file, open + helper.index + helper[0].length) ?? []) {
+        fields.add(field);
+      }
+    }
+    if (/\bledgerFileQueryString\(/.test(call)) {
+      for (const key of ledgerFileQueryKeys()) fields.add(key);
+    }
+    return fields;
+  }
+
+  /** Every GET `src/client` makes to a route, and the union of what they send. */
+  function queriedBy(files: readonly SourceFile[], route: string) {
+    const pattern = new RegExp(routePathPattern(route.slice(route.indexOf(" ") + 1)).source, "g");
+    const fields = new Set<string>();
+    let calls = 0;
+    for (const file of files) {
+      for (const match of file.code.matchAll(pattern)) {
+        const { open, end } = enclosingCall(file.code, match.index);
+        const call = file.code.slice(open, end + 1);
+        const method =
+          /method:\s*"([A-Z]+)"/.exec(call)?.[1] ?? (/\bjson\(/.test(call) ? "POST" : "GET");
+        if (method !== "GET") continue;
+        calls += 1;
+        for (const field of queryFields(file, open, call)) fields.add(field);
+      }
+    }
+    return { calls, fields };
+  }
+
+  it("sends every query field a read tool takes", async () => {
+    const tools = await toolsWithAnnotations(everyScope);
+    const client = sourceFiles("src/client");
+    const listed = new Set(FILTERED_LISTS.map((list) => list.route));
+    const population: string[] = [];
+    const unreachable: string[] = [];
+    let compared = 0;
+    for (const tool of tools) {
+      if (tool.annotations?.readOnlyHint !== true) continue;
+      const routes = [
+        ...Object.keys(COVERED_BY).filter(
+          (route) => COVERED_BY[route] === tool.name && !(route in AGENT_ONLY),
+        ),
+        ...(DOWNLOAD_OF[tool.name] ? [DOWNLOAD_OF[tool.name]!] : []),
+      ];
+      if (routes.length === 0 || routes.some((route) => listed.has(route))) continue;
+      const pathParameters = new Set(
+        routes.flatMap((route) => [...route.matchAll(/:(\w+)/g)].map((parameter) => parameter[1]!)),
+      );
+      const takes = Object.keys(
+        ((tool.inputSchema as { properties?: object }).properties ?? {}) as object,
+      ).filter(
+        (field) => !ADDRESSING.has(field) && !PRESENTATION.has(field) && !pathParameters.has(field),
+      );
+      if (takes.length === 0) continue;
+      population.push(tool.name);
+      // A read on a GET route is compared with the query a page puts on the
+      // URL, and one on a POST route — the CSV and file previews and the
+      // selection preview — with the body a page sends. Reading `GET ` routes
+      // only left those four outside both comparisons, since the write one
+      // keeps to tools that are not read-only.
+      const sent = routes.map((route) =>
+        route.startsWith("GET ") ? queriedBy(client, route) : sentTo(client, route),
+      );
+      if (sent.every((one) => one.calls === 0)) {
+        unreachable.push(
+          `${tool.name} reads ${routes.join(" and ")}, and nothing in src/client calls it`,
+        );
+        continue;
+      }
+      const offered = new Set(sent.flatMap((one) => [...one.fields]));
+      const unoffered = READ_UNOFFERED[tool.name] ?? {};
+      for (const field of takes) {
+        compared += 1;
+        if (offered.has(field) || field in unoffered) continue;
+        unreachable.push(
+          `${tool.name} takes ${field}, and no page sends it to ${routes.join(" or ")}: give it a control, or name it in READ_UNOFFERED with the reason`,
+        );
+      }
+    }
+
+    expect(unreachable).toEqual([]);
+    // The population before anything is claimed about it: a reader that
+    // stopped finding fields would compare nothing and pass, which is the way
+    // this whole family of checks fails. The first six are the reads the field
+    // gap was found among, the two exports are the routeless reads
+    // `DOWNLOAD_OF` brings in, and the last three read through a POST route;
+    // today's comparison is forty-two fields.
+    expect(population).toEqual(
+      expect.arrayContaining([
+        "get_financial_summary",
+        "get_report",
+        "get_forecast",
+        "get_budget_report",
+        "list_accounts",
+        "list_payees",
+        "export_transactions_csv",
+        "export_ledger_file",
+        "preview_csv",
+        "preview_ledger_file",
+        "preview_bulk_transaction_selection",
+      ]),
+    );
+    expect(compared).toBeGreaterThanOrEqual(30);
+  });
+
+  it("compares each export with a download a routeless tool stands in for", () => {
+    for (const [tool, route] of Object.entries(DOWNLOAD_OF)) {
+      expect(tool in NO_ROUTE, `${tool} is not in NO_ROUTE`).toBe(true);
+      expect(route in BROWSER_ONLY, `${route} is not a browser-only route`).toBe(true);
+    }
+  });
+
+  it("names only reads it compares, and gives every field it excuses a reason", async () => {
+    const reads = new Set(
+      (await toolsWithAnnotations(everyScope))
+        .filter((tool) => tool.annotations?.readOnlyHint === true)
+        .map((tool) => tool.name),
+    );
+    for (const [tool, fields] of Object.entries(READ_UNOFFERED)) {
+      expect(reads.has(tool), `${tool} is not a registered read tool`).toBe(true);
+      for (const [field, reason] of Object.entries(fields)) {
+        expect(reason.length, `${tool} ${field}`).toBeGreaterThan(40);
+      }
+    }
+  });
+
+  /**
    * The same comparison on the write side, which is the half nothing checked.
    *
    * `mcp.md` §The agent surface never runs ahead of the browser says it in as
@@ -1285,7 +1536,7 @@ describe("what the browser can reach compared with an agent", () => {
     }
 
     expect(unreachable).toEqual([]);
-    // Under today's 166, so a field retired on purpose fails nowhere but in
+    // Under today's 172, so a field retired on purpose fails nowhere but in
     // the form that stopped sending it.
     expect(compared).toBeGreaterThanOrEqual(150);
   });

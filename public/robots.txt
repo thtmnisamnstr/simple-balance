@@ -1,13 +1,18 @@
-# Everything on this host is somebody's ledger behind a sign-in, so there is
-# nothing here for a search index: a crawler sees the sign-in screen and
-# nothing else. Without this file the request reached the app's own page,
-# which a crawler reads as a robots file with no rules in it.
+# Every crawler may fetch every page, and every page and file here says
+# `X-Robots-Tag: noindex`. The two go together. This file used to ask every
+# crawler but AdSense's to stay out, and that defeated itself: a crawler that
+# may not fetch a page never reads the noindex, so an address somebody linked
+# to could still be listed as a bare link, and the sign-in screen could stand
+# in for the product on a search for its name. Let in, a crawler reads the
+# header and leaves the page out of its index.
 #
-# AdSense's crawler is let in because the advertising this deployment may
-# serve is matched to the page by that crawler, and blocking it shows less
+# AdSense's crawler reads only a group that names it, because Google ignores
+# `*` for it, so this group is the one place its access is decided and the
+# group below never reaches it. It says the allowance outright. AdSense matches
+# ads to a page by reading it with that crawler, and blocking it shows less
 # relevant ads rather than none.
 User-agent: Mediapartners-Google
 Allow: /
 
 User-agent: *
-Disallow: /
+Allow: /

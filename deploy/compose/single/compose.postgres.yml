@@ -6,7 +6,9 @@
 # anything anybody would miss. It publishes PostgreSQL on this machine's private
 # address and nowhere else; the application machine reaches it across the
 # provider's private network, over TLS, and nothing on the internet can reach it
-# at all.
+# at all. The second service at the bottom, node-exporter, runs only when the
+# `metrics` profile is on, listens on that same address and nowhere else, and
+# serves TLS too.
 #
 # This file came from the deleted `vps` profile, where it was the fourth of four
 # machines. It is the same shape for the same reasons, with the three things a
@@ -255,6 +257,138 @@ services:
     # Patroni with all capabilities dropped, because it never runs that script.
     security_opt: ["no-new-privileges:true"]
     stop_grace_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # ---------------------------------------------------------------- metrics ---
+  #
+  # node-exporter, which is this machine's half of metrics export, and only
+  # while the `metrics` profile is on. With it off this file runs what it ran
+  # before the service existed: `docker compose config --services` names
+  # `postgres` alone. The collector on the application machine scrapes it
+  # across the private network, so it needs no egress of its own — it is asked,
+  # and it never sends — and PostgreSQL is not touched by any of it.
+  #
+  # On a machine a cloud program built, COMPOSE_PROFILES=metrics is in env.base
+  # when the stack was exporting metrics the day the machine was made. This
+  # machine fetches no settings, so turning export on later is that one line
+  # added to env.base and simple-balance-db-firstboot run again, the way a
+  # PostgreSQL setting is applied — and, on Oracle Cloud, the host firewall's
+  # rule for 9100, which the program writes only into a machine made while the
+  # stack was exporting; deploy/pulumi/README.md has the line. A hand install
+  # sets it in .env. Turning it off is `docker compose rm --stop --force
+  # node-exporter` and then the line removed. Not a `down`, which on this
+  # machine is the database going down too, and which leaves a profile's
+  # containers running unless it names the profile.
+  node-exporter:
+    # The application machine's image and pin, which
+    # tests/collector-config.test.ts holds to one tag and one digest everywhere.
+    image: prom/node-exporter:v1.12.1@sha256:1b4e4438faca4dd7e001dd445d161a4a2091b0fededa84093b3a8dfeae1f1be0
+    profiles: ["metrics"]
+    restart: unless-stopped
+    # The host's network, for the reason compose.yml gives its own copy: in a
+    # namespace of its own the network collector would report the container's
+    # one interface as the machine's. It is also the only way to listen on the
+    # private address below, which belongs to the host and to no container —
+    # and listening on the host is not publishing a port, so the "Docker writes
+    # its rules ahead of the host firewall" problem `ports:` above has does not
+    # arise: the host's own firewall applies to this listener as to any other.
+    # Like the application machine's, that also puts it beside the instance
+    # metadata address, and both programs block its user from it for the
+    # reason compose.yml gives.
+    network_mode: host
+    command:
+      - --path.rootfs=/host
+      - --path.udev.data=/host/run/udev/data
+      # This machine's private address, the one PostgreSQL is published on,
+      # and with the same `:?`, so an unset address refuses to start rather
+      # than listening on every interface. Not loopback, as the application
+      # machine's is: what reads this one is on the other machine.
+      - --web.listen-address=${SB_BIND_ADDRESS:?set SB_BIND_ADDRESS to this machine's private IP}:9100
+      # TLS, because the scrape crosses a machine. node-exporter-web.yml beside
+      # this file says why it is the database's own certificate.
+      - --web.config.file=/etc/node-exporter/web.yml
+      - --web.disable-exporter-metrics
+      # The application machine's set, flag for flag; compose.yml argues each
+      # one. On this machine the data volume is the line that matters most: a
+      # full PGDATA is a PANIC and a cluster that will not restart, and the
+      # free space on /var/lib/simple-balance is the warning before it.
+      - --collector.disable-defaults
+      - --collector.cpu
+      - --collector.meminfo
+      - --collector.loadavg
+      - --collector.pressure
+      - --collector.vmstat
+      - --collector.stat
+      - --collector.uname
+      - --collector.time
+      - --collector.filesystem
+      - --collector.filesystem.fs-types-include=^(ext[234]|xfs|btrfs)$$
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run|etc)($$|/)
+      - --collector.diskstats
+      - --collector.netdev
+      - --collector.netdev.device-include=^(eth|en).+$$
+    environment:
+      # Below the 48m limit, so the Go runtime collects before the kernel kills.
+      GOMEMLIMIT: 38MiB
+    volumes:
+      # The host's root, read-only, for the filesystem collector. Written out
+      # with create_host_path off like every other bind in this file, although
+      # the root always exists, so that the rule here has no exception to argue.
+      #
+      # It shows this container the whole machine, and the user below is what
+      # makes that safe: it reads what any unprivileged account here could, and
+      # the cluster, the superuser password and PostgreSQL's key are all closed
+      # to that account — the cluster and the key by their owners, and the
+      # password by .env's 0600, which the fold and every recipe here give it.
+      - type: bind
+        source: /
+        target: /host
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./node-exporter-web.yml
+        target: /etc/node-exporter/web.yml
+        read_only: true
+        bind:
+          create_host_path: false
+      # Its own copy of the server's certificate and key, which
+      # simple-balance-db-firstboot makes from db-tls and owns by the user
+      # below. A machine that has the profile on and not the copy refuses at
+      # `up` and names this path, which is the right thing for a hand install
+      # that skipped the step to see.
+      - type: bind
+        source: ./node-exporter-tls
+        target: /etc/node-exporter/tls
+        read_only: true
+        bind:
+          create_host_path: false
+    # A uid nothing else on this machine has, and both of the obvious ones are
+    # wrong here.
+    #
+    # Not 999, PostgreSQL's, although that would read db-tls/server.key as it
+    # stands. This container mounts the host's root to measure its filesystems,
+    # and as 999 it could read the cluster through that mount — so a flaw in a
+    # listener the application subnet can reach would be a way to the ledger.
+    #
+    # Not 65534, nobody, the image's own and the application machine's choice.
+    # Here it owns a private key, and nobody is the identity every unprivileged
+    # daemon falls back to, so a key it owns is a key all of them can read.
+    #
+    # 61000 sits in the gap Ubuntu and systemd both leave: useradd hands out at
+    # most 60000, and systemd's dynamic users start at 61184, so no account this
+    # machine ever creates can be given it. simple-balance-db-firstboot owns the
+    # key's copy by the same number, and tests/systemd-scripts.test.ts holds the
+    # two equal.
+    user: "61000:61000"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 48m
     logging:
       driver: json-file
       options:

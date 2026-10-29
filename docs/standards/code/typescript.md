@@ -36,7 +36,7 @@ rather than leaving to whoever next runs a sweep.
 *Checked by:* `npm run typecheck`, which is `tsconfig.json` and
 `tsconfig.server.json` (`package.json:25`) and reaches no further. The
 infrastructure half is a separate compiler run in a separate CI job
-(`.github/workflows/verify.yml:441-445`); `npm run verify` does not include it.
+(`.github/workflows/verify.yml:584-588`); `npm run verify` does not include it.
 
 ### 1.2 `erasableSyntaxOnly`, and the two classes it changed
 
@@ -48,7 +48,7 @@ The last of those cost five lines. `AppError` and `ApiClientError` both declared
 their fields in the constructor signature, which is TypeScript-only syntax that
 emits assignments. They now declare fields and assign them
 (`src/server/services/errors.ts:31-61`,
-`src/client/api.ts:35-67`).
+`src/client/api.ts:37-69`).
 
 The gain is not stylistic. It means `node --experimental-strip-types` and every
 other type-stripping runtime can run this source directly, and it means reading
@@ -75,7 +75,7 @@ erases just as well.
 
 **Contested.** The flag is good advice in general and wrong here. All three
 sites it flags are Hono middleware
-(`src/server/api.ts:1481`, `src/server/http-security.ts:484` and `:950`),
+(`src/server/api.ts:1643`, `src/server/http-security.ts:530` and `:1002`),
 where a `MiddlewareHandler` returns a `Response` to answer the request or
 nothing at all to let the next handler run. "Returns on some paths and not
 others" is the contract, not a mistake.
@@ -105,7 +105,7 @@ judge the decision, only keep the evidence for it true.
 
 ### 1.4 `noUncheckedIndexedAccess` is declined, for now
 
-**Contested.** 575 errors, **59 of them in `src`** and the rest in `tests`. It
+**Contested.** 575 errors, **62 of them in `src`** and the rest in `tests`. It
 is the setting on this list most worth having, because indexing into an array or
 a record is exactly where an `undefined` arrives unannounced.
 
@@ -120,16 +120,22 @@ It is declined because 575 sites cannot be reviewed carefully in one change, and
 mechanically silencing them with `!` would convert a real check into a
 formality — the same defect the flag exists to catch, now written down. If it is
 ever adopted it should be one directory at a time, and the split above says
-which one first: `src` is 59 of the 575 and all of the benefit, since a test
+which one first: `src` is 62 of the 575 and all of the benefit, since a test
 that indexes a fixture it wrote three lines earlier learns nothing from being
 told the row might be missing.
 
 The two halves move for different reasons, which is why only one of them is
-checked. `src` has sat at 59 across a release that added billing, two cloud
-profiles and a plan page; the total went from 441 to 575 because the branch
-added tests, and a number that every new test file moves is one a check would
-teach people to bump without reading. So **59 is held by a test and 575 is a
-reading**, which is the same division `testing.md` makes about its own two
+checked. `src` sat at 59 across a release that added billing, two cloud
+profiles and a plan page, and moved to 61 when adding a Simple Balance file
+arrived: an account created archived closes on the row its insert returned, and
+the add files a category it created under the id the create returned, each one
+more read of a `.returning()` row the flag cannot see is there. It moved to 62
+when moving a ledger arrived, for the same reason once more: a move reads the
+transaction `createTransactionWithinTx` returned, to know which archived
+accounts it wrote into. The total went
+from 441 to 575 because the branch added tests, and a number that every new
+test file moves is one a check would teach people to bump without reading. So
+**62 is held by a test and 575 is a reading**, which is the same division `testing.md` makes about its own two
 tables and for the same reason.
 
 `exactOptionalPropertyTypes` (110) and `noPropertyAccessFromIndexSignature`
@@ -140,8 +146,8 @@ against the whole of `tsconfig.json`. What that is had been stated wrongly here:
 not `src`, `tests` and the five root config files, but those **plus whatever
 they import**. The compiler follows an import past the include list, and the
 suite imports five files out of `deploy/pulumi` — four modules and the
-`.d.mts` beside the settings script — and five `.d.mts` declaration files out of
-`scripts/`, so all ten are inside every
+`.d.mts` beside the settings script — and six `.d.mts` declaration files out of
+`scripts/`, so all eleven are inside every
 number in this section and inside every flag in 1.1 — and nothing said so. It is
 not academic: two of the 110 above are in `deploy/pulumi/aws-single/platform.ts`
 and `deploy/pulumi/oci-single/platform.ts`, files §3.5 describes as belonging to
@@ -149,8 +155,8 @@ the other program and which this one typechecks as well.
 
 *Checked by:* `tests/typescript-guide.test.ts` for the `src` half of the first
 flag, which runs the compiler and compares what it reports with the number this
-section states, and which also holds the ten-file list in the paragraph above
-so an eleventh cannot arrive unnoticed. `human` for the three whole-program totals:
+section states, and which also holds the eleven-file list in the paragraph above
+so a twelfth cannot arrive unnoticed. `human` for the three whole-program totals:
 a reading goes stale quietly, so read one as the last reading rather than as
 today's and take it again before arguing from it.
 
@@ -179,8 +185,8 @@ that never had anything to find.
 
 ### 2.2 Assertions are rare and each has a reason
 
-**House.** Four `as unknown as` in the whole of `src`, and **167 non-null
-assertions across 37 files**, counted with
+**House.** Four `as unknown as` in the whole of `src`, and **238 non-null
+assertions across 45 files** on 2026-10-26, counted with
 `npx oxlint -D typescript/no-non-null-assertion src` for the reason 2.1 gives:
 a `!` is punctuation, and a grep meets it in `!==` and in every negation this
 codebase writes. Neither number is zero and neither should be: a `!` after a
@@ -233,8 +239,8 @@ export type CategoryKind = (typeof categoryKinds)[number];
 (`src/shared/domain.ts:120-121`.)
 
 The array is the single source: Zod validates from it, the database enum is
-generated from it (`src/server/db/schema.ts:199`),
-and the UI iterates it (`src/client/pages/CategoriesPage.tsx:137`).
+generated from it (`src/server/db/schema.ts:200`),
+and the UI iterates it (`src/client/pages/CategoriesPage.tsx:138`).
 Adding a member is one edit, and every one of those follows.
 
 *Checked by:* `npm run typecheck`, for the half of it that is a refusal:
@@ -242,7 +248,23 @@ Adding a member is one edit, and every one of those follows.
 from the array rather than written beside it, a member added in one place cannot
 disagree with a reader that already exists. And `tests/closed-sets.test.ts` for
 the half nothing asked: a closed set hand-written as a bare union of string
-literals used to pass every check here.
+literals used to pass every check here. It also reads plain arrays of string
+literals that are not `as const`, and refuses one whose members equal a union
+alias: `LedgerTier` was a bare union while the MCP instructions filtered the
+same three scopes out of a plain array, which widens to `string[]`, so a tier
+renamed in the type compiled and the instructions went on naming the old one.
+It is a tuple now (`src/server/mcp.ts`), and the array is that tuple.
+
+**Not caught: a `z.enum` of literals that restates a tuple.** The case that reads
+literal enums looks only for sets *nobody* wrote a tuple for, and the case that
+compares against tuples reads unions alone, so the one spelling between them
+passes both. There is one: the direction in a move's report of transactions
+whose other half lands on another side here, `driftSchema`
+(`src/shared/ledger-file-import.ts:710-711`), spells `"deposit"` and
+`"withdrawal"` where `entryTypes` in `src/shared/domain.ts:126` already holds
+them, unexported. Found by the release audit of October 2026 and left open,
+because closing it is an export and a third comparison in that test rather
+than a sentence here.
 
 `tests/client-closed-sets.test.ts` covers the one position that check cannot
 reach. Its `inlineUnions()` anchors on what may precede a *type* — a property, an
@@ -308,7 +330,7 @@ export const budgetPeriodUnits = [
 ] as const satisfies readonly ReportBucket[];
 ```
 
-(`src/shared/domain.ts:1484`.)
+(`src/shared/domain.ts:1511`.)
 
 `as const` keeps the four literals; `satisfies` checks that every one of them is
 a bucket the report engine can group by. Annotating the constant
@@ -320,17 +342,17 @@ either of the other two that the rule working was a deviation from it. Both pass
 the test the `securityHeaderOptions` paragraph below sets, and one of them is
 load-bearing by `AGENTS.md`:
 
-- `PLAN_LABELS` (`src/shared/domain.ts:3491-3494`) is, in `AGENTS.md`'s words,
+- `PLAN_LABELS` (`src/shared/domain.ts:3597-3600`) is, in `AGENTS.md`'s words,
   "the one place a plan's name is written". `satisfies Record<Plan, string>` is
   what makes a plan added without a label fail to compile; `as const` is what
   keeps `PLAN_LABELS.plus` the literal `"Premium"` rather than `string`, which
   is what `tests/product-facts.test.ts:61` asserts and what the marketing site
   reads through `docs/product/facts.json`. Annotating `Record<Plan, string>`
   would do the first and lose the second.
-- `authReporting` (`src/server/auth.ts:75-98`) returns the logger and error
+- `authReporting` (`src/server/auth.ts:76-99`) returns the logger and error
   handler Better Auth is configured with, checked against
   `Pick<BetterAuthOptions, "logger" | "onAPIError">` without being flattened
-  into it. `src/server/auth.ts:121` spreads the result and
+  into it. `src/server/auth.ts:122` spreads the result and
   `tests/auth-log.test.ts:379` destructures `.onAPIError` off it — which the
   library's own type makes optional, so an annotation would stop that
   compiling.
@@ -340,7 +362,7 @@ The second use is worth recording as it went. `securityHeaderOptions` used
 a different key from an enforcing one — and a `satisfies` on a value that is one
 of two shapes narrows to whichever branch was written, so reading the other one
 stopped compiling for callers. It carries an explicit return type now
-(`src/server/http-security.ts:210`). That is the line where `satisfies` stops
+(`src/server/http-security.ts:216`). That is the line where `satisfies` stops
 being the better tool: it is for checking a literal without widening it, not for
 describing a value that has more than one shape.
 
@@ -351,7 +373,7 @@ totalled: a fourth arriving does not falsify a sentence here.
 ### 2.5 Discriminated unions carry the discriminant in the name
 
 **House.** A transaction draft is a union on `type`, and each member declares it
-as a literal (`src/shared/domain.ts:615`). Every
+as a literal (`src/shared/domain.ts:642`). Every
 function that takes one either handles all three or narrows first. This is why
 `noFallthroughCasesInSwitch` was free: there was nothing to find.
 
@@ -371,7 +393,7 @@ fact the published types are missing:
 
 | Where | The one property | The fact the types are missing |
 | --- | --- | --- |
-| `src/server/stripe.ts:352` | `current_period_end` | Stripe moved the period boundary onto the subscription's items; an account on an older API version still sends it on the subscription. |
+| `src/server/stripe.ts:403` | `current_period_end` | Stripe moved the period boundary onto the subscription's items; an account on an older API version still sends it on the subscription. |
 | `src/client/ads.tsx:115` | `requestNonPersonalizedAds` | Google's tag takes the flag on the queue array itself, which is typed as an array. |
 | `src/shared/domain.ts:24` | `pattern` | Zod's registry types the value as a string, and `undefined` is what *removes* the key from the emitted JSON Schema. |
 
@@ -429,16 +451,16 @@ in a `.ts` file is correct, and dropping the extension breaks the server build
 and nothing else, which is the worst kind of break: the client bundler forgives
 it, so it passes locally.
 
-**The infrastructure programs invert it, and are correct.** All eighteen relative
+**The infrastructure programs invert it, and are correct.** All twenty relative
 imports under `deploy/pulumi` drop the extension —
 `import * as sb from "../common"` at `deploy/pulumi/aws/index.ts:6` is the
 shape — because that project sets `"moduleResolution": "node"`
 (`deploy/pulumi/tsconfig.json:5`) and emits CommonJS, where an extension-less
 specifier is what resolves. The rationale above reaches NodeNext and Bundler and
-stops there, so a mechanical sweep that "fixed" those eighteen would break five
+stops there, so a mechanical sweep that "fixed" those twenty would break five
 programs that compile today. §3.5 is why there are two answers at all.
 
-Four of the eighteen are inside files the application's own compiler reads
+Four of the twenty are inside files the application's own compiler reads
 (1.4), so one program typechecks both conventions at once. That is not a
 problem — Bundler resolution accepts an extension-less relative specifier — but
 it is why this rule was stated repository-wide for a release without failing
@@ -534,7 +556,7 @@ own carve-out.
 
 ### 3.5 The Pulumi programs are a second TypeScript program
 
-**House**, and mechanized. `deploy/pulumi` is 8,266 lines of first-party
+**House**, and mechanized. `deploy/pulumi` is 8,939 lines of first-party
 TypeScript that this guide did not know existed. It is not a corner: 0.2.0 took
 it from two stacks to five — `aws`, `gcp`, `oci`, `aws-single`, `oci-single` —
 and
@@ -552,7 +574,7 @@ for keeping them:
 | Declined here, on there | — | `noImplicitReturns` (§1.3) |
 | On here, absent there | `erasableSyntaxOnly`, `verbatimModuleSyntax`, `noImplicitOverride`, `noFallthroughCasesInSwitch`, `allowUnreachableCode: false`, `allowUnusedLabels: false` | — |
 | Typecheck | `npm run typecheck`, two projects | `npm run typecheck` inside `deploy/pulumi`, five projects |
-| In `npm run verify` | yes | no — a separate CI job (`.github/workflows/verify.yml:441-445`) |
+| In `npm run verify` | yes | no — a separate CI job (`.github/workflows/verify.yml:584-588`) |
 | `oxlint` | yes | yes, same config |
 | `oxfmt` | yes | not by the command — `npm run format` is `oxfmt src tests *.ts` (`package.json:28`) — but by `tests/code-index-guide.test.ts`, which holds every file the command misses to `oxfmt --check` |
 
@@ -597,7 +619,7 @@ infrastructure projects pin their own compiler and keep `moduleResolution: node`
 `deploy/pulumi`'s typecheck script names every directory holding a
 `Pulumi.yaml`, so a fifth stack that nothing typechecks fails here; and the
 register of first-party files the root program reads from outside `src` and
-`tests` is held at the ten 1.4 names. The flag rows, the project count, the
+`tests` is held at the eleven 1.4 names. The flag rows, the project count, the
 SDK count and the size are read out of the configuration files and the tree, so
 a divergence that closes stops being described as open.
 
@@ -611,10 +633,18 @@ needs, then optionals with defaults, and `transaction?: DbTransaction` last:
 ```ts
 createTransaction(actor, draft, idempotencyKey, allowDuplicate?, transaction?)
 updateTransaction(actor, id, input, transaction?)
-setTransactionDeleted(actor, id, expectedVersion, deleted, allowDuplicate?, transaction?)
+setTransactionDeleted(actor, id, expectedVersion, deleted, allowDuplicate?, options?, transaction?)
 ```
 
-(`src/server/services/transactions.ts:1146`, `:2418` and `:2524`.)
+(`src/server/services/transactions.ts:1191`, `:2477` and `:2593`.)
+
+An options object is an optional with a default, so it comes before the
+transaction too. Eight services had it after — the creates the Simple Balance
+file's add and move pass an archive instant or an audit operation to, and the
+void — beside `addLedgerFile` and `moveLedgerFile` written the other way in the
+same branch, which is the guessing this section exists to stop. The compiler
+refuses the wrong order (an options object is not a transaction), so the cost
+was a reader's, never a running one.
 
 Note that `updateTransaction` takes `input: unknown` and parses it, rather than
 a typed object: the version and the draft arrive together inside it. An update
@@ -625,8 +655,16 @@ This is written down because guessing it wrong is the most common mistake made
 against this codebase — including in an earlier draft of this very section,
 which stated two of these three signatures incorrectly. Read the function.
 
-*Checked by:* `human`. The compiler reads a call against the signature and has
-nothing to say about the signature, which is the side this rule is about.
+*Checked by:* `tests/typescript-guide.test.ts` ("4.1 an optional transaction is
+the last parameter") for the half the compiler cannot read: every optional
+`DbTransaction` parameter in `src`, found by its type rather than by a list of
+services, is the last in its signature, options objects included. The compiler
+reads a call against the signature and has nothing to say about the signature,
+which is the side the eight were wrong on. Mutation-proved by putting
+`createAccount`'s options back after its transaction. The rest — actor first,
+the thing acted on second — stays `human`: which parameter is "the thing acted
+on" is a reading of what the function does, and services.md 1.1's table already
+counts the actor-first half.
 
 ### 4.2 A function that can fail says how in its type
 
@@ -655,7 +693,7 @@ reads.
 | 2.2 Assertions carry a reason | Not mechanizable. The count of them is not checked either, for the reason in the row above. |
 | 2.4 `satisfies` earns the keyword | `tsc` checks what each one asserts; whether a value has one shape or two, which is where the keyword stops being the right tool, is a judgement. The three are named rather than counted, so there is no total to go stale. |
 | 2.6 The comment beside a boundary cast | The test sees that a cast is confined to one property. Whether the sentence above it says what the vendor does is a reviewer's. |
-| 4.1 Argument order | A signature is read, not called, and nothing reads one. |
+| 4.1 Argument order, past the transaction | Where an optional transaction sits is checked. Which parameter is "the thing acted on", and so second, is a reading of what the function does. |
 | 4.2 Throw or return a result | Which of the two a caller needs is a judgement about the caller. |
 
 Six rows, where there were five, and the direction is the opposite of the
@@ -671,4 +709,5 @@ What the two previous rounds added is still here:
 `tests/module-boundaries.test.ts` walks the import graph for 3.3.
 `tests/typescript-guide.test.ts` is this round's, and holds 1.2's infrastructure
 half, 1.3, the `src` half of 1.4, 2.2's register, 2.6, 3.1's two populations and
-3.5.
+3.5, and since a sweep after 0.2.1 the transaction half of 4.1, which eight
+services had broken in one branch.

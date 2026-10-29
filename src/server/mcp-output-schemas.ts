@@ -24,8 +24,12 @@ import {
   duplicateSideKinds,
   budgetGroupLimitSources,
   budgetLimitSources,
+  importBatchKinds,
+  PLAN_LABELS,
+  plans,
 } from "../shared/domain.js";
-import { categoryResolutions, payeeResolutions } from "../shared/csv.js";
+import { categoryResolutions, payeeResolutions, type CsvMapping } from "../shared/csv.js";
+import { ledgerFileHereSchema, ledgerFilePreviewSchema } from "../shared/ledger-file-import.js";
 
 const uuidSchema = uuid();
 
@@ -160,7 +164,7 @@ export const accountResultSchema = z
     frozen: z
       .boolean()
       .describe(
-        "Whether this account is closed to changes. A plan that limits how many accounts may be active leaves the rest frozen: still readable, and refusing every write — no new entry, no edit, no delete, not even a rename. Everything about it still counts toward balances and reports. Which accounts are active is chosen with set_active_accounts or on the Accounts page, and the choice is made once: afterward a frozen account can only take a place that opens up when an account in use is archived or deleted, unless time on the paid plan left more accounts marked active than the plan keeps, which opens the choice again (see set_active_accounts).",
+        "Whether this account is closed to changes. A plan that limits how many accounts may be active leaves the rest frozen: still readable, and refusing every change to what it holds — no new entry, no edit, no deleted entry, not even a rename — though it can still be archived, or deleted while nothing is on it. Everything about it still counts toward balances and reports. Which accounts are active is chosen with `set_active_accounts` or on the Accounts page, and the choice is made once: afterward a frozen account can only take a place that opens up when an account in use is archived or deleted, unless time on the paid plan left more accounts marked active than the plan keeps, which opens the choice again (see `set_active_accounts`).",
       ),
   })
   .passthrough();
@@ -348,7 +352,7 @@ export const stagedTransactionResultSchema = z
     importBatchId: uuidSchema
       .nullable()
       .describe(
-        "Which CSV import staged this row, and null for a row nobody imported. Non-null means the draft's payee, description and notes are text from that file.",
+        "Which import staged this row — a CSV, or a Simple Balance file, as `list_import_batches`' kind says — and null for a row nobody imported. Non-null means the draft's payee, description and notes are text from that file.",
       ),
     // Where a proposed row came from, and which instance of the schedule it is.
     // Declared rather than left to passthrough, because a caller reading the
@@ -538,6 +542,73 @@ export const accountRegisterResultSchema = z.object({
 export const csvExportResultSchema = z.object({
   csv: z.string(),
   rowCount: z.number().int().nonnegative(),
+  fileName: z
+    .string()
+    .describe("The name the browser saves this file under, dated by today where the person lives."),
+});
+
+/**
+ * A Simple Balance file as a tool returns it: the text, not the document.
+ *
+ * Publishing the file's own schema here would put tens of kilobytes into every
+ * tier's `tools/list` for one tool, and tie the measurements pinned in
+ * `docs/standards/mcp.md` to the format. Text is also what an import checks:
+ * the bytes it reads are the bytes this returned, with nothing re-encoded on
+ * the way through an agent.
+ */
+export const ledgerFileExportResultSchema = z.object({
+  ledgerFile: z
+    .string()
+    .describe(
+      "The file itself, exactly the text the browser downloads: a simple-balance-ledger-1 JSON document. Text rather than structured content, so the bytes an import checks are the bytes that were exported; pass it on unchanged.",
+    ),
+  rowCount: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe(
+      "Entries, staged rows and budget amounts in the file — what one import part is capped at. Activity events count toward this call's cap but not here, because no import reads them back.",
+    ),
+  fileName: z
+    .string()
+    .describe("The name the browser saves this file under, dated by today where the person lives."),
+});
+
+/**
+ * The preview of adding a Simple Balance file, as a tool publishes it.
+ *
+ * The reply is `ledgerFilePreviewSchema`'s, byte for byte; what differs is how
+ * this ledger's own records are described. The shared schema holds them to the
+ * file format's own record schemas, which the page needs and an agent does not
+ * — and which cannot be published at all, because the format refuses a JSON
+ * number in an amount with a pipe, and a pipe has no JSON Schema. Described as
+ * records instead, for the reason the export publishes its file as text: the
+ * format's schema would be tens of kilobytes on every tier's `tools/list`, tied
+ * to the measurements `docs/standards/mcp.md` pins, for a section an agent
+ * reads only to see what is already here. Every record says what it is in
+ * `key` and `name`, and `plan.records` is the part that needs decisions.
+ */
+const hereRecordsSchema = (what: string) =>
+  z
+    .array(z.record(z.string(), z.unknown()))
+    .describe(
+      `This ledger's ${what}, each written as a Simple Balance file writes one: a key, a name, and every field the file carries.`,
+    );
+
+export const ledgerFilePreviewResultSchema = ledgerFilePreviewSchema.extend({
+  here: ledgerFileHereSchema.extend({
+    groups: hereRecordsSchema("category groups"),
+    categories: hereRecordsSchema("categories"),
+    accounts: hereRecordsSchema("accounts"),
+    templates: hereRecordsSchema("templates"),
+    recurrences: hereRecordsSchema("recurring transactions"),
+    budgets: z
+      .object({
+        plans: hereRecordsSchema("budget plans"),
+        entries: hereRecordsSchema("per-period budget amounts"),
+      })
+      .strict(),
+  }),
 });
 
 export const auditEventResultSchema = z
@@ -650,6 +721,9 @@ export const preferencesResultSchema = z
 export const importBatchResultSchema = z.object({
   id: uuidSchema,
   fileName: z.string(),
+  kind: z
+    .enum(importBatchKinds)
+    .describe("What the rows were read from: a CSV, or a Simple Balance file (ledger_file)."),
   rowCount: z.number().int().nonnegative(),
   stagedCount: z.number().int().nonnegative(),
   createdAt: timestampSchema,
@@ -663,6 +737,38 @@ export const csvFilePreviewResultSchema = z.object({
   // this tool's output on exactly the malformed file it is called to diagnose.
   rows: z.array(z.record(z.string(), z.union([z.string(), z.array(z.string())]))),
   errors: z.array(z.string()),
+  simpleBalanceExport: z
+    .boolean()
+    .describe(
+      "True when the file is a Simple Balance CSV export, whose columns are already known: `stage_csv` needs no mapping for it.",
+    ),
+  // Every field optional, and only the reference described: the rest are
+  // `stage_csv`'s mapping, one call away, and repeating eight sentences here
+  // would put them on every tier's tool list a second time for a read. The
+  // reference is the one name that misleads (`tests/mcp-output.test.ts`), since
+  // a guess that lands on a repeating column marks every row after the first a
+  // duplicate. The keys are held to `CsvMapping` by the compiler, so a field
+  // added to the mapping cannot be missing from what the guess may return.
+  suggestedMapping: z
+    .object({
+      date: z.string().optional(),
+      payee: z.string().optional(),
+      description: z.string().optional(),
+      amount: z.string().optional(),
+      debit: z.string().optional(),
+      credit: z.string().optional(),
+      category: z.string().optional(),
+      notes: z.string().optional(),
+      externalId: z
+        .string()
+        .optional()
+        .describe(
+          "The heading guessed to hold the bank's own reference, which a second import of the same statement is recognized by: check it does not repeat across rows.",
+        ),
+    } satisfies Record<keyof CsvMapping, z.ZodOptional<z.ZodString>>)
+    .describe(
+      "The import page's own guess at `stage_csv`'s mapping, from the headings alone: a guess, so confirm it against rows before staging. A field it could not place is absent. Empty for a Simple Balance export.",
+    ),
 });
 
 export const identityResultSchema = z.object({
@@ -677,15 +783,25 @@ export const identityResultSchema = z.object({
     .describe(
       "What this token may do, sorted. ledger:stage and ledger:write both include ledger:read. A tool you cannot reach is not in your tool list at all, so this is how you tell a capability you were not granted from one that does not exist.",
     ),
-  plan: nullableStringSchema.describe(
-    "Which plan these books are on, or null when this deployment sells none and nothing is limited.",
-  ),
+  // The wire value, and the word a person reads for it built from the one map
+  // that writes it, so an agent says what the plan tab says. A bare string told
+  // an agent nothing of the kind, and "Plus" is what it then told a subscriber
+  // who pays for Premium (`common.md` §A wire value and the word a person
+  // reads). Interpolated rather than written, because `PLAN_LABELS` is the one
+  // place a plan's name is written. The enum is the whole closed set the
+  // server sends, so narrowing to it refuses nothing it ever said.
+  plan: z
+    .enum(plans)
+    .nullable()
+    .describe(
+      `Which plan these books are on, or null when this deployment sells none and nothing is limited. The value is an identifier, not the plan's name: a person reads ${plans.map((plan) => `${plan} as ${PLAN_LABELS[plan]}`).join(" and ")}, so use that word with them.`,
+    ),
   accountLimit: z
     .number()
     .int()
     .nullable()
     .describe(
-      "How many financial accounts this plan keeps usable at a time. Null means no limit. create_account refuses once accountsUsed reaches it, and only the person who owns these books can raise it, so check this before proposing a new account rather than after. Accounts beyond it are frozen rather than lost: fully readable, and refusing every write.",
+      "How many financial accounts this plan keeps usable at a time. Null means no limit. `create_account` refuses once accountsUsed reaches it, and only the person who owns these books can raise it, so check this before proposing a new account rather than after. Accounts beyond it are frozen rather than lost: fully readable, and refusing every change to what they hold, though one can still be archived, or deleted while nothing is on it.",
     ),
   accountsUsed: z
     .number()
@@ -693,6 +809,11 @@ export const identityResultSchema = z.object({
     .nullable()
     .describe(
       "How many of accountLimit are in use: accounts that are neither archived nor frozen, the ledger's own counter-accounts excluded. Null wherever there is no limit. Archiving or deleting an account frees its place, and a frozen account may then take it — but only then, because the choice of which accounts are in use is made once.",
+    ),
+  activeChoicePending: z
+    .boolean()
+    .describe(
+      "True while that one-time choice is open: more accounts are marked active than the plan keeps, as a downgrade leaves behind, so `set_active_accounts` may name any set within accountLimit. False wherever no limit is in force.",
     ),
 });
 
@@ -895,7 +1016,7 @@ export const budgetPlanResultSchema = z
     rollover: z
       .boolean()
       .describe(
-        "True when what a period does not spend belongs to the next one, and an overspend is owed by it. Nothing is stored per period either way: the carry is worked out at read time by get_budget_report.",
+        "True when what a period does not spend belongs to the next one, and an overspend is owed by it. Nothing is stored per period either way: the carry is worked out at read time by `get_budget_report`.",
       ),
     rolloverCap: nullableStringSchema.describe(
       "The most that may be carried in either direction, as a decimal string, or null for no limit.",
@@ -930,7 +1051,7 @@ export const budgetPlanResultSchema = z
     amountRule: z
       .enum(budgetAmountRules)
       .describe(
-        "How the per-period amount is arrived at. Derived from the row rather than chosen: a lookback makes it a trailing average, a percentage of the last period makes it incremental, a percentage of income makes it a share of what came in, a target and a date make it a sinking fund, and everything else is fixed. The amount column is the first period's figure under incremental, the seed a trailing average uses until it has finished periods to average, and ignored under the other derived rules; get_budget_report is where the worked-out figure appears.",
+        "How the per-period amount is arrived at. Derived from the row rather than chosen: a lookback makes it a trailing average, a percentage of the last period makes it incremental, a percentage of income makes it a share of what came in, a target and a date make it a sinking fund, and everything else is fixed. The amount column is the first period's figure under incremental, the seed a trailing average uses until it has finished periods to average, and ignored under the other derived rules; `get_budget_report` is where the worked-out figure appears.",
       ),
     version: versionSchema,
   })
@@ -1124,7 +1245,7 @@ export const forecastResultSchema = z.object({
   otherPeriodUnits: z
     .array(z.enum(budgetPeriodUnits))
     .describe(
-      "Period units this person budgets in that this projection did not read. A monthly forecast counts monthly plans alone, so weekly budgets exist outside its figures; ask again per unit named here, exactly as with the budget report's field of the same name.",
+      "Period units this person budgets in that this projection did not read. A monthly forecast counts monthly budgets alone, so weekly budgets exist outside its figures; ask again per unit named here, exactly as with the budget report's field of the same name.",
     ),
   currencies: z.array(
     z.object({
@@ -1143,7 +1264,7 @@ export const forecastResultSchema = z.object({
           budgetedSpending: z
             .string()
             .describe(
-              "What the budgets intend for this period, reported whether or not the basis uses it: a period whose budgets dwarf its recurrences is one where the projected balance is optimistic, and only this says so. It counts the plans whose amount is the number on them — a trailing average, a share of income and a sinking fund work theirs out from periods that have not happened, and are listed in unprojectable instead — and it counts categories rather than groups, so it will not always equal the budget report's own total for the same month.",
+              "What the budgets intend for this period, reported whether or not the basis uses it: a period whose budgets dwarf its recurrences is one where the projected balance is optimistic, and only this says so. It counts the budgets whose amount is the number on them — a trailing average, a share of income and a sinking fund work theirs out from periods that have not happened, and are listed in unprojectable instead — and it counts categories rather than groups, so it will not always equal the budget report's own total for the same month.",
             ),
           uncoveredBudget: z
             .string()
@@ -1167,3 +1288,50 @@ export const forecastResultSchema = z.object({
 });
 
 export const deletedBudgetResultSchema = z.object({ id: uuid() });
+
+/**
+ * One money guide as `list_learn_articles` names it.
+ *
+ * `updated` is described because it is easy to read as the day this server's
+ * copy was taken, and it is the site's own date for the guide. The two can be
+ * a release apart, which is exactly the case an agent quoting a guide should
+ * be able to see.
+ */
+export const learnArticleSummaryResultSchema = z.object({
+  slug: z.string(),
+  title: z.string(),
+  description: z.string().describe("The guide's one-sentence summary, as the site lists it."),
+  url: z.string().describe("Where a person reads the guide at smpl.money."),
+  updated: isoDateSchema.describe("The day the site last changed the guide."),
+});
+
+export const learnArticleResultSchema = learnArticleSummaryResultSchema.extend({
+  syncedAt: isoDateSchema.describe(
+    "The day this server's copy was taken. A guide the site has changed since reads as it did then.",
+  ),
+  markdown: z
+    .string()
+    .describe(
+      "The guide exactly as the site publishes its plain copy. Pictures are links with their descriptions, and the line under each says its money is made up.",
+    ),
+  inSimpleBalance: z
+    .array(
+      z.object({
+        step: z.string().describe("A heading under the guide's How to do it in Simple Balance."),
+        how: z.string(),
+        tools: z.array(
+          z.object({
+            name: z.string(),
+            held: z
+              .boolean()
+              .describe(
+                "Whether this connection's grant reaches the tool. False means it is absent from this connection's tool list, and the step can still be done in the browser.",
+              ),
+          }),
+        ),
+      }),
+    )
+    .describe(
+      "Written against this server, so where the guide's browser steps and these disagree, these are current.",
+    ),
+});

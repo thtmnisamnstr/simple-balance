@@ -60,18 +60,26 @@ const WORDS: Record<number, string> = {
   8: "eight",
   9: "nine",
   10: "ten",
+  11: "eleven",
   13: "thirteen",
   14: "fourteen",
   16: "sixteen",
   20: "twenty",
   23: "twenty-three",
   24: "twenty-four",
+  25: "twenty-five",
+  26: "twenty-six",
   27: "twenty-seven",
   28: "twenty-eight",
   30: "thirty",
   31: "thirty-one",
+  32: "thirty-two",
+  33: "thirty-three",
   35: "thirty-five",
   36: "thirty-six",
+  37: "thirty-seven",
+  38: "thirty-eight",
+  40: "forty",
 };
 
 const word = (count: number): string => {
@@ -204,9 +212,18 @@ describe("web.md's component inventory", () => {
       .map((one) => one.name)
       .filter((name) => !listed.has(name));
     expect(missing, "every export of the library has a row in 6.1").toEqual([]);
-    // And the one row for a component that lives elsewhere, which is why the
-    // table is a row longer than the file and 6.1 says so.
-    expect(listed.has("AdSlot"), "AdSlot has a row although it lives in ads.tsx").toBe(true);
+    // And the rows for the components that live elsewhere, which is why the
+    // table is longer than the file and 6.1 says so: every component ads.tsx
+    // exports, read from the file, so a third kind of unit needs a row too.
+    const ads = client().find((file) => file.path === "src/client/ads.tsx");
+    const units = [...ads!.code.matchAll(/^export function ([A-Z][A-Za-z0-9_]*)/gm)].map(
+      (match) => match[1]!,
+    );
+    expect(units, "ads.tsx exports its units").toContain("AdSlot");
+    expect(
+      units.filter((name) => !listed.has(name)),
+      "every unit ads.tsx exports has a row although it lives outside components.tsx",
+    ).toEqual([]);
   });
 });
 
@@ -366,6 +383,74 @@ describe("web.md's client censuses", () => {
   });
 
   /**
+   * 8.4's "Still to do", done: under `RequiredNote`, a field that is neither
+   * required nor marked optional is a bug in the form.
+   *
+   * The note promises "every field is required unless it says otherwise", so
+   * each `Field` in a form carrying it is one of four things: its control is
+   * `required`; it is marked `optional`; its hint says what leaving it blank
+   * means, which is the "says otherwise"; or it is a select with no empty
+   * option, which always holds a value and so is required in fact, or with an
+   * empty option that names the empty choice, which says otherwise in the
+   * control itself. The walk
+   * after 0.2.1 found two that were none of them — the "Every N" interval on a
+   * reminder and on a recurring transaction, which took blank as every one and
+   * said nothing — and this is that walk, run on every form that carries the
+   * note. A form without the note is outside it, as the guide says.
+   */
+  it("leaves no field under the required note neither required nor marked", () => {
+    /** An opening tag, brace-balanced so an arrow function's `>` does not end it. */
+    const openTag = (code: string, at: number) => {
+      let depth = 0;
+      for (let index = at; index < code.length; index += 1) {
+        if (code[index] === "{") depth += 1;
+        else if (code[index] === "}") depth -= 1;
+        else if (code[index] === ">" && depth === 0) return code.slice(at, index + 1);
+      }
+      return "";
+    };
+    const unmarked: string[] = [];
+    let walked = 0;
+    for (const file of client()) {
+      for (const form of file.code.matchAll(/<(form|Form)\b[\s\S]*?<\/\1>/g)) {
+        if (!/<RequiredNote\b/.test(form[0])) continue;
+        for (const field of form[0].matchAll(/<Field\b/g)) {
+          const tag = openTag(form[0], field.index);
+          if (tag.endsWith("/>")) continue;
+          const children = form[0].slice(
+            field.index + tag.length,
+            form[0].indexOf("</Field>", field.index),
+          );
+          const control = /<([A-Za-z]\w*)\b/.exec(children);
+          if (!control) continue;
+          walked += 1;
+          const controlTag = openTag(children, control.index);
+          if (/\soptional(?=[\s>=/])/.test(tag)) continue;
+          if (/\bblank\b/i.test(tag)) continue;
+          if (/\srequired(?=[\s>/])|\srequired=\{(?!false)/.test(controlTag)) continue;
+          // A select either holds a value always, or offers the empty choice as
+          // an option that names it — "Leave blank", "No group" — which says
+          // otherwise in the control itself. A prompt ("Choose…") names nothing.
+          const empty = /<option value="">\s*([^<{]*)/.exec(children)?.[1]?.trim();
+          if (
+            /^select$/i.test(control[1]!) &&
+            (empty === undefined || (empty && !/^(?:Choose|Select|Pick)\b/.test(empty)))
+          )
+            continue;
+          if (/type="(?:checkbox|radio)"/.test(controlTag)) continue;
+          const line = file.code.slice(0, form.index + field.index).split("\n").length;
+          unmarked.push(`${file.path}:${line} ${tag.slice(0, 60).replaceAll(/\s+/g, " ")}`);
+        }
+      }
+    }
+    expect(walked, "the walk reads the fields under the note").toBeGreaterThan(50);
+    expect(
+      unmarked,
+      "require it, mark it optional, or say in the hint what leaving it blank does",
+    ).toEqual([]);
+  });
+
+  /**
    * 12.3's census, derived the way `tests/field-contract.test.tsx` derives it.
    *
    * That test holds the *rule* — every one of these says why it is gray. This
@@ -438,14 +523,23 @@ describe("web.md's rules about markup", () => {
     expect(closes, "that landmark closes").toBeGreaterThan(-1);
     const slots = tagsNamed(shell!.code, "AdSlot");
     expect(slots.length, "the shell renders ad slots").toBeGreaterThan(0);
+    // The house ad is the third unit 7.7 anticipated, and lands under the same
+    // rule: it takes the banner's place, so it is written beside the slots.
+    const house = tagsNamed(shell!.code, "HouseAd");
+    expect(house.length, "the shell renders the house ad").toBe(1);
     expect(
-      slots.filter((slot) => slot.at < closes).map((slot) => slot.tag),
-      "every AdSlot is written after </main>",
+      [...slots, ...house].filter((slot) => slot.at < closes).map((slot) => slot.tag),
+      "every ad unit is written after </main>",
     ).toEqual([]);
 
     const ads = client().find((file) => file.path === "src/client/ads.tsx");
-    const aside = tagsNamed(ads!.code, "aside")[0];
-    expect(aside?.tag, "the slot is a labeled complementary landmark").toMatch(/aria-label=/);
+    // Every aside the file renders, one per kind of unit, so a second kind
+    // cannot arrive unlabeled behind a first that is.
+    const asides = tagsNamed(ads!.code, "aside");
+    expect(asides.length, "ads.tsx renders both kinds of unit").toBe(2);
+    for (const aside of asides) {
+      expect(aside.tag, "each unit is a labeled complementary landmark").toMatch(/aria-label=/);
+    }
     // Absence, deliberately: hiding an ad from a screen reader while showing it
     // to everybody else reads as a kindness and is concealment, and it is the
     // change most likely to be proposed as an improvement.

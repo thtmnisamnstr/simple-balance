@@ -125,7 +125,11 @@ mode when you go live, because nothing made in one mode exists in the other.
 3. **The webhook endpoint**, at `https://your-host/api/billing/webhook`, for
    events on your own account, with snapshot payloads rather than thin ones —
    the handler reads the object the event carries — and set to API version
-   `2026-08-26.dahlia`, the one `stripe@22.6.2` pins. Subscribe it to exactly
+   `2026-09-30.endive`, the one `stripe@23.0.1` pins. An endpoint made for
+   0.2.1 or earlier is on `2026-08-26.dahlia` and can stay there: nothing the
+   handler reads from an event is shaped differently in the two, and an
+   endpoint's version cannot be changed in place — moving it means a new
+   endpoint and a new signing secret. Subscribe it to exactly
    these: `customer.subscription.created`, `customer.subscription.updated`,
    `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed`,
    `setup_intent.succeeded`, `customer.deleted`, `charge.refunded`,
@@ -212,6 +216,12 @@ Then set the five settings and restart. Once both prices fit, the log says
 the check at startup or, if Stripe could not be reached then, the first one
 after it that could. Putting the plan on sale is the separate step
 `SB_BILLING_ENABLED=true` takes — read §Turning selling on before you take it.
+
+With metrics on, both checks are numbers as well as log lines:
+`simple_balance_dependency_up` reads 1 or 0 for `stripe_prices`, after every
+price check, and for `stripe_access`, from the probe at startup — 0 there also
+when Stripe could not be asked, and 1 for a standard key, which is never
+asked.
 
 ### Going live, or changing Stripe account
 
@@ -429,7 +439,13 @@ startup while Stripe is configured and its own copy is off.
 
 To see it working, watch `simple_balance_billing_sweeps_total` — `written`
 climbs when the sweep is repairing something and stays flat when there is
-nothing to repair. `off` means the deployment sells nothing.
+nothing to repair. `off` means the deployment sells nothing. The webhook's own
+half is `simple_balance_billing_webhook_deliveries_total`, by what the handler
+did with each delivery, where `signature_refused` is a webhook secret that does
+not match the endpoint's, or somebody probing the route; and
+`simple_balance_stripe_request_failures_total` says why a call to Stripe failed
+— `api` and `connection` are Stripe, `authentication` and `permission` are the
+key. `docs/deployment.md` §What to alert on has the rules.
 
 A subscription Stripe cannot answer about is tried again after the same twelve
 hours as everything else, rather than first on every tick: the sweep stamps it

@@ -12,7 +12,7 @@
 # reproduce, and the digest is what the `base.digest` label below claims of the
 # runtime stage. `.github/dependabot.yml` watches Docker so neither pin freezes,
 # and the `apk upgrade` below still takes whatever Alpine has published since.
-FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS build
+FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -21,7 +21,7 @@ COPY public ./public
 COPY src ./src
 RUN npm run build:client
 
-FROM nginxinc/nginx-unprivileged:1.30-alpine@sha256:ed04ec1ff34502c339ee5c3ae3f855442398edc1d05591e2b98981dcbbd20b1e AS runtime
+FROM nginxinc/nginx-unprivileged:1.30-alpine@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03 AS runtime
 ARG APP_VERSION=0.2.1
 # `created` and `revision` are deliberately absent. A Dockerfile cannot emit a
 # label conditionally, so a defaulted ARG would give every hand-built image
@@ -36,7 +36,7 @@ LABEL org.opencontainers.image.title="Simple Balance frontend" \
   org.opencontainers.image.url="https://github.com/thtmnisamnstr/simple-balance" \
   org.opencontainers.image.documentation="https://github.com/thtmnisamnstr/simple-balance#readme" \
   org.opencontainers.image.base.name="nginxinc/nginx-unprivileged:1.30-alpine" \
-  org.opencontainers.image.base.digest="sha256:ed04ec1ff34502c339ee5c3ae3f855442398edc1d05591e2b98981dcbbd20b1e"
+  org.opencontainers.image.base.digest="sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03"
 # The three Node images apply this too. Left out here, the one image that
 # actually terminates traffic was the one shipping whatever its base last built
 # with. Root only for the upgrade: the base image runs as uid 101 and everything

@@ -7,6 +7,7 @@ import {
   transactionDraftSchema,
   type Actor,
   type CategoryKind,
+  type ImportBatchKind,
   type Page,
   type PayeeSummary,
 } from "../../shared/domain.js";
@@ -41,7 +42,8 @@ import {
   configuredCsvMaxRows,
   CSV_EXPORT_MAX_ROWS,
 } from "../config-limits.js";
-import { validationError } from "./errors.js";
+import { AppError, validationError } from "./errors.js";
+import { accountFreeze, assertAccountsWritable } from "./accounts.js";
 import {
   countAfterCommit,
   getIdempotent,
@@ -55,11 +57,13 @@ import {
 } from "./helpers.js";
 import { cursorInstant, decodeCursor, encodeCursor, instantMarker } from "./cursor.js";
 import { cleanHumanName, normalizeHumanName } from "../../shared/names.js";
+import { todayIn } from "../../shared/recurrence-dates.js";
+import { getPreferences } from "./preferences.js";
 import type { ProgressEvent } from "../../shared/progress.js";
 import { payeeSummaries, preferredPayee, seedCanonicalPayeeCache } from "./payees.js";
 import { preferredCategory } from "./categories.js";
 import { insertImportedStages } from "./staging.js";
-import { listAllTransactions } from "./transactions.js";
+import { ACCOUNT_UNAVAILABLE, listAllTransactions } from "./transactions.js";
 import { csvRowsStaged } from "../metrics.js";
 
 /**
@@ -75,10 +79,13 @@ import { csvRowsStaged } from "../metrics.js";
 export function assertCsvWithinSizeLimit(csv: string) {
   const maxBytes = configuredCsvMaxBytes();
   if (Buffer.byteLength(csv, "utf8") > maxBytes) {
-    throw validationError(`CSV exceeds the ${maxBytes}-byte limit`, {
-      field: "csv",
-      limit: maxBytes,
-    });
+    // The move that works, as the row cap's refusal gives it: the preview
+    // shows this before any column is mapped, so a sentence that only named
+    // the limit left somebody with a 12 MB statement and nothing to try.
+    throw validationError(
+      `CSV exceeds the ${maxBytes.toLocaleString("en-US")}-byte limit. A larger export can be filtered by date and imported one range at a time.`,
+      { field: "csv", limit: maxBytes },
+    );
   }
 }
 
@@ -90,6 +97,12 @@ export function getCsvPreview(csv: string) {
 export type ImportBatchSummary = {
   id: string;
   fileName: string;
+  /**
+   * What the batch was read from, so the Staged page can say "a Simple Balance
+   * file" rather than show a file of JSON as though it were a CSV somebody
+   * mapped.
+   */
+  kind: ImportBatchKind;
   rowCount: number;
   stagedCount: number;
   createdAt: string;
@@ -120,6 +133,7 @@ export async function listActiveImportBatches(
     .select({
       id: importBatches.id,
       fileName: importBatches.fileName,
+      kind: importBatches.kind,
       rowCount: importBatches.rowCount,
       createdAt: importBatches.createdAt,
       cursorSort: instantMarker(importBatches.createdAt),
@@ -809,7 +823,7 @@ export async function stageCsv(
       }
     }
     const accountRows = await tx
-      .select({ id: ledgerAccounts.id })
+      .select({ id: ledgerAccounts.id, archivedAt: ledgerAccounts.archivedAt })
       .from(ledgerAccounts)
       // A CSV can never post directly into a counter-account.
       .where(and(eq(ledgerAccounts.userId, actor.userId), isNull(ledgerAccounts.systemKind)));
@@ -848,6 +862,30 @@ export async function stageCsv(
       await lockPayeeNamespace(tx, actor);
     }
 
+    // The one account a file is staged onto, asked the question every row's
+    // draft will be asked when it is stored. An archived or frozen account is
+    // not refused here: staging onto one and reassigning the rows in the queue
+    // is a path somebody can take, and refusing would narrow it. But the
+    // insert files the same issue on every row with a draft, so the counts and
+    // the sample have to say so, or a dry run reports a file ready to commit
+    // whose every row will be blocked. The wording is the insert's own — the
+    // archived sentence `getOwnedAccounts` throws and the freeze refusal
+    // `assertAccountsWritable` throws — so the preview shows each row's issues
+    // exactly as they will be stored.
+    let accountIssue: { field: string; message: string } | null = null;
+    if (accountRows.some((row) => row.id === parsed.defaultAccountId && row.archivedAt)) {
+      accountIssue = { field: "draft", message: ACCOUNT_UNAVAILABLE };
+    } else {
+      try {
+        assertAccountsWritable(await accountFreeze(tx, actor), [parsed.defaultAccountId]);
+      } catch (error) {
+        if (!(error instanceof AppError) || error.code !== "VALIDATION_ERROR") throw error;
+        accountIssue = { field: "draft", message: error.message };
+      }
+    }
+    const issuesOf = (row: CsvStageRow) =>
+      row.draft && accountIssue ? [...row.issues, accountIssue] : row.issues;
+
     const categoryRows = await tx
       .select()
       .from(categories)
@@ -883,12 +921,16 @@ export async function stageCsv(
       categories: categoryResolution,
       payees: payeeResolution,
     };
+    const validCount = rows.filter((row) => row.draft && issuesOf(row).length === 0).length;
     const preview = {
       fileName: parsed.fileName,
       rowCount: rows.length,
-      validCount: rows.filter((row) => row.draft && row.issues.length === 0).length,
-      invalidCount: rows.filter((row) => !row.draft || row.issues.length > 0).length,
-      sample: rows.slice(0, 25),
+      validCount,
+      invalidCount: rows.length - validCount,
+      // The stored rows are written from `rows` below, not from this, and the
+      // insert adds the account's issue itself; adding it there too would store
+      // it twice.
+      sample: rows.slice(0, 25).map((row) => ({ ...row, issues: issuesOf(row) })),
       referenceResolution,
     };
     if (parsed.dryRun) return preview;
@@ -1067,5 +1109,13 @@ export async function exportTransactionsCsv(actor: Actor, query: unknown) {
       APP_CSV_EXPORT_COLUMNS,
     ),
     rowCount: rows.length,
+    // Dated in the person's own timezone, not the server's. `common.md` puts
+    // every "today" in this product through `todayIn`; the route once dated
+    // the download by the server clock, so somebody at UTC+13 downloading at
+    // 09:00 got yesterday's date on the file. Named here rather than by the
+    // route, as `exportLedgerFile` names its file, so `export_transactions_csv`
+    // hands an agent the name the browser saves under instead of each surface
+    // composing its own.
+    fileName: `transactions-${todayIn((await getPreferences(actor)).timezone)}.csv`,
   };
 }

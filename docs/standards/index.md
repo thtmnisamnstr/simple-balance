@@ -3,8 +3,9 @@
 What this product does the same way everywhere, and why.
 
 These are the design and interface standards. They govern the web app, the MCP
-surface, the HTTP API, the CSV round trip, mail, configuration, the machines and
-charts an operator deploys, and the documentation. They do not govern the
+surface, the HTTP API, the CSV round trip, the Simple Balance file, mail,
+configuration, the machines and charts an operator deploys, and the
+documentation. They do not govern the
 ledger: what the books guarantee is in [`AGENTS.md`](../../AGENTS.md), and
 nothing here restates it.
 
@@ -32,15 +33,16 @@ rule in two places drifts, and the copy that drifts is always the paraphrase.
 One deliberate exception, stated so nobody tidies it away: **the money rule is
 repeated wherever the temptation to break it lives.** `AGENTS.md` says "Never
 represent money with JavaScript/JSON floating-point numbers." That sentence is
-quoted in five of the seven interface guides, `common.md`, `web.md`, `mcp.md`,
-`csv.md` and `operations.md`, and in one of the eight code guides,
-`code/typescript.md`. Every temptation to break it lives in a presentation
-layer, a bar width, a chart scale, a sort comparison, a CSV cell, a mail
-subject, and those six are the guides that govern them. Repeating an invariant
+quoted in six of the eight interface guides, `common.md`, `web.md`, `mcp.md`,
+`csv.md`, `ledger-file.md` and `operations.md`, and in one of the eight code
+guides, `code/typescript.md`. Every temptation to break it lives in a
+presentation layer, a bar width, a chart scale, a sort comparison, a CSV cell, a
+JSON number in a file, a mail subject, and those seven are the guides that
+govern them. Repeating an invariant
 where the temptation lives is placement, not duplication. Repeating it where
 there is no temptation would be the drift the paragraph above forbids, which is
 why the other two do not carry it: `http.md` settles money on the wire in its
-own terms (`docs/standards/http.md:793-795`), and nothing `writing.md` governs
+own terms (`docs/standards/http.md:861-863`), and nothing `writing.md` governs
 holds an amount. `tests/standards-index.test.ts` holds the list to the guides,
 both ways, so "every guide" cannot creep back in.
 
@@ -67,7 +69,7 @@ the one under the conformance table is.
 before citing it as cover.** The labeled-rule check in
 `tests/standards-citations.test.ts` globs `docs/standards/code/*.md`, and its
 one named exclusion is that directory's own `index.md`. This file is outside the
-glob entirely and was never a candidate to be filtered, and so are the seven
+glob entirely and was never a candidate to be filtered, and so are the eight
 interface guides. Two consequences follow. A labeled section with no stated
 mechanism goes unreported everywhere above `code/`: forty-one of them when this
 paragraph was written, twenty in `web.md` alone. That number moves as the guides
@@ -118,8 +120,9 @@ plausible wrong line.
 | [`web.md`](web.md) | The browser app: tokens, layout, forms, tables, charts, accessibility, copy. |
 | [`mcp.md`](mcp.md) | The agent surface: tools, schemas, descriptions, errors, scope, context cost. |
 | [`http.md`](http.md) | `/api/v1` as a public contract: resources, bodies, errors, pagination, versioning. |
-| [`csv.md`](csv.md) | The import and export format, and what makes a round trip lossless. |
-| [`operations.md`](operations.md) | Mail, configuration, and everything an operator runs: the images this project publishes, the two machines of the `single` profile, and the Helm chart at its two shapes. |
+| [`csv.md`](csv.md) | The interchange format: entries to and from a spreadsheet, a bank or another tool, and what makes a round trip lossless. |
+| [`ledger-file.md`](ledger-file.md) | The Simple Balance file: a whole ledger, or some of its accounts, moving between copies of this product. |
+| [`operations.md`](operations.md) | Mail, configuration, and everything an operator runs: the images this project publishes, the two machines of the `single` profile, the Helm chart at its two shapes, and the metrics collector any of them can run. |
 | [`writing.md`](writing.md) | Documentation, the changelog, decisions, the README. |
 | [`code/`](code/index.md) | The source itself: eight guides, plus the toolchain the whole repository is checked with. |
 | `docs/product/` | **Governed, not governing.** This repository's published description of itself, which the marketing site at smpl.money reads. `writing.md` for its shape and cadence; `AGENTS.md` for its contract. |
@@ -166,7 +169,7 @@ branch: the exception used to cover a one-command trial alone, and now covers a
 production machine as well. The `single` profile's database runs the official
 `postgres` entrypoint, which starts as root to chown PGDATA before dropping
 privilege, so that service declares no `user`, no `read_only` and no `cap_drop`
-(`deploy/compose/single/compose.postgres.yml:248-253`). Two misses, two guides,
+(`deploy/compose/single/compose.postgres.yml:250-255`). Two misses, two guides,
 two shapes, and the table making both claims linked to neither.
 
 **The obvious alternative is to let each guide record its own miss**, which is

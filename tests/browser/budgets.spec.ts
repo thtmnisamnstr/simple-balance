@@ -100,7 +100,7 @@ async function signUp(page: Page) {
   // the sign-in form renders before the options query answers, so the question
   // was asked while neither the toggle nor the heading existed, answered no,
   // and left the run waiting for a heading nothing was going to show.
-  const toggle = page.getByRole("button", { name: "Create an account" });
+  const toggle = page.getByRole("button", { name: "Sign up" });
   const heading = page.getByRole("heading", { name: "Create your account" });
   await expect(heading.or(toggle)).toBeVisible();
   if (await toggle.isVisible()) await toggle.click();
@@ -121,7 +121,9 @@ async function signUp(page: Page) {
  */
 async function seedLedger(page: Page) {
   await page.goto("/accounts");
-  await page.getByRole("button", { name: "New account" }).click();
+  // The header's, which is first: on an empty ledger the empty state offers
+  // a second "New account", and a strict match fails once the list has loaded.
+  await page.getByRole("button", { name: "New account" }).first().click();
   await page.getByLabel(/^Account name/).fill(account);
   await page.getByLabel(/^Account type/).selectOption("checking");
   await page.getByLabel(/^Currency or crypto asset/).selectOption("USD");
@@ -434,7 +436,7 @@ test.describe("the budgets page in a browser", () => {
       .click();
     await page
       .getByRole("dialog", { name: new RegExp(`${groceries}, ${currentMonthName}`) })
-      .getByRole("button", { name: /use the standing budget/i })
+      .getByRole("button", { name: /use standing budget/i })
       .click();
     await expect(row).toContainText("$200.00");
   });

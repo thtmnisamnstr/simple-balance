@@ -56,8 +56,8 @@ dog is one transaction with three category legs. Press **Split across categories
 field, give each row its own amount, and the form tells you what is left to
 assign until it comes to nothing.
 
-Each leg is attributed to its own category everywhere the money is reported: the
-dashboard, the category pages, the reports, and over MCP. Nothing is counted
+Each leg is attributed to its own category everywhere the money is reported:
+Overview, the category pages, the reports, and over MCP. Nothing is counted
 twice — the categories add up to exactly what left the account, because a split
 cuts the entry's existing counter-side into pieces rather than recording the money
 again.
@@ -69,8 +69,9 @@ both sides, so there is no counter-side to divide and a transfer is never split.
 
 ## Importing and exporting
 
-Imports go through **Staged transactions**, which is the review queue in front
-of the books: nothing on it has been posted and nothing on it counts. Simple
+Imported transactions go through **Staged transactions**, which is the review
+queue in front of the books: nothing on it has been posted and nothing on it
+counts. Simple
 Balance reads the CSV, works out the format, maps the columns, parses whatever
 date and number conventions your bank uses, and creates categories and payees as
 it goes. You look at the result before any of it counts, and committing a batch
@@ -103,6 +104,96 @@ stage it. The account is that choice and nothing else, so a file exported from o
 ledger imports into another, or into somebody else's, or into a fresh install. A
 transfer names a second account, which is a choice the import screen cannot make,
 so those rows arrive in the queue asking for it.
+
+A CSV carries transactions and nothing else — no accounts, budgets, templates or
+recurring transactions — so it was never a way to move a ledger, only its
+entries. **Import and export** also makes a **Simple Balance file**: one file
+holding everything you wrote, accounts and their opening balances, categories
+and groups, every transaction with its splits and both sides of every
+transfer, templates with their reminders, recurring transactions, budgets, rows
+still waiting in Staged transactions, and your regional defaults and theme once
+you have chosen them. Records name each other by name rather than by an id that
+means something in only one copy, so the file means the same thing in our cloud
+app and in a copy you run yourself.
+
+Take everything, with a box for each kind of record, or some accounts — their
+details alone, or with their transactions, all of them or a date range. Anything
+left out still travels by name wherever something in the file refers to it, so
+the file is never broken by what you unticked. A transfer between two accounts
+you chose is in it once, and one to an account you did not choose names that
+account and nothing more. A date range keeps a long ledger's file small, and
+each account in it carries what it held the day before the range, so its
+figures still add up. The activity history can come along too, unticked to
+begin with: it is kept in the file, and nothing ever reads it back.
+
+What stays behind is what another copy works out for itself or should never
+have: postings and balances, which are worked out from the entries rather than
+copied, and your sign-in, your connected agents and your plan.
+
+**Bringing a file in adds it to the ledger you are in**, which may already
+hold things of its own. Its accounts, categories and groups, templates,
+recurring transactions and budgets come straight in when nothing here is like
+them, without a trip through the review queue: a new account has nothing to
+review except whether you already have it, and that is asked before anything
+is written. Where you do already have something by the same name, the preview
+asks what you want — use the one you have, leave the file's out, or bring it
+in under another name — and nothing is decided for you or overwritten. A record
+here that is the same in every way is simply used. The file's transactions go
+to Staged transactions like any import, complete with both sides of every
+transfer, for you to look over and commit.
+
+Every transaction carries the id it was first written under, so the same one
+arriving twice is recognized and left out rather than flagged: a transfer in two
+accounts' files lands once, a file added a second time adds nothing, and a
+ledger moved away and back brings nothing twice. Two transactions that merely
+look alike, two coffees on the same morning, are never taken for each other.
+Deleted transactions are not added, and an account that was archived arrives
+archived, put away today rather than on the day it was; moving a file, below,
+brings both as they were. A file of more than
+10,000 transactions goes in parts, each all or nothing, and choosing the file
+again after one stopped picks up where it left off. On the free plan, which
+keeps three accounts in use, you choose which of the file's new accounts arrive
+archived; their transactions wait in Staged until there is room to restore them.
+Your regional defaults and theme come from the file only where this copy has
+none of its own yet, or if you say so; your account takes your browser's
+timezone and currency the first time you open it, so you are usually asked.
+
+**Moving a file brings everything, into a ledger that holds nothing else.** A
+new sign-up on our cloud app, or a copy you have just set up yourself, has
+nothing of its own for a file's transactions to be checked against, so the file
+can be moved in rather than added: every transaction goes straight into the
+books, without the review queue, because each was reviewed and committed once
+already in the ledger it came from. Deleted transactions come too, deleted as
+they were, and an account that was archived arrives archived on the day it
+was, holding its transactions, so restoring it posts its balance back. The page
+offers moving beside adding, with neither chosen for you, and only while
+everything in the ledger came from a Simple Balance file — which a ledger
+partway through a move still has. Once you type a transaction in or commit one
+from a CSV, a file can only be added. Rows still waiting in Staged stop a move
+only until you discard them, and the page says so: commit them and they are
+transactions like any other.
+
+A move asks the same questions an add does, with fewer answers. An account or
+a category the file's transactions are filed under has to come in, since a
+transaction cannot be written without one, and an account here that could
+never end at the file's balance — it opens differently, or already holds
+transactions from somewhere else — cannot stand in for the file's. On the free
+plan, the accounts you choose to arrive archived take their transactions with
+them instead of leaving them in Staged. Once the last part is in, every
+account's balance is checked against the figure the file carries, and a part
+that does not come out is not written at all. A transaction's other side is
+decided by your categories as they are here, which only matters for a refund
+filed under a category you later let take both income and spending: the move
+says how many such refunds count as income here rather than as money back, and
+every balance is the same either way. Recurring transactions start with the
+last part, so nothing they propose lands in Staged while a large file is still
+moving.
+
+A move is a one-time trip, not a sync. Once you are using the copy it went to,
+the two are separate ledgers, and the new one takes no second move. Both copies
+have to run a release that has this: our cloud app does, and a copy you run
+yourself needs 0.2.2 or later before it can make a file, add one or take one
+in.
 
 ## Templates
 
@@ -200,7 +291,7 @@ time and is standing empty on purpose.
 
 ## Reading it back
 
-**The dashboard** covers balances, cash flow, spending by category and where
+**Overview** covers balances, cash flow, spending by category and where
 your budget stands, over any date range, and the range is in the URL, so you can
 link to it. It stops at today whatever range you pick, because money dated next
 month is not money you have. Each category in the spending panel links to its own
@@ -385,8 +476,10 @@ billing** tab either. The rest of this section is for a deployment that does
 sell them.
 
 There are two plans, and only accounts and advertising set them apart. **Free**
-keeps three accounts usable at a time and may show an advertisement below the
-page. **Premium** keeps every account usable and shows none. Everything else in
+keeps three accounts usable at a time and may show an advertisement: below the
+page, or a bar across the foot of the window offering Premium, depending on what
+the deployment's operator chose. **Premium** keeps every account usable and
+shows none. Everything else in
 this guide — budgets, imports, reports, recurring transactions, the MCP server —
 is the same on both, because what you pay for is the use of every account, not
 a feature held back.
@@ -462,4 +555,5 @@ an agent can and cannot do is in [MCP](mcp.md).
 
 Leaving is yours to do. Settings deletes the account and everything in it, after
 counting what that is and asking you to type your address. Nothing is kept, and
-no agent can do it for you.
+no agent can do it for you. A Simple Balance file from **Import and export**
+taken first is the copy of it you keep.

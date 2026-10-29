@@ -3,12 +3,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Account, PaginatedPage, StagedTransaction, Transaction } from "../src/client/api.js";
 import { noAccountReason } from "../src/client/list-filters.js";
 import { TransactionBrowser } from "../src/client/TransactionBrowser.js";
 import { BrowserRouter } from "../src/client/router.js";
 import { TimezoneProvider } from "../src/client/timezone.js";
+import { MAX_FREE_ACCOUNTS, frozenAccountRefusal } from "../src/shared/domain.js";
 
 /**
  * The register's empty screen names every control that is keeping rows off it.
@@ -53,7 +55,7 @@ function queryClient() {
   });
 }
 
-function stub({ accountsFail = false } = {}) {
+function stub({ accountsFail = false, accounts = [account] } = {}) {
   const transactionQueries: URL[] = [];
   vi.stubGlobal(
     "fetch",
@@ -86,7 +88,7 @@ function stub({ accountsFail = false } = {}) {
               status: 500,
               headers: { "Content-Type": "application/json" },
             })
-          : json([account]);
+          : json(accounts);
       }
       if (url.pathname === "/api/v1/categories") return json([]);
       if (url.pathname === "/api/v1/payees/suggestions") return json([]);
@@ -96,7 +98,10 @@ function stub({ accountsFail = false } = {}) {
   return transactionQueries;
 }
 
-function renderRegister(search = "?preset=all-time") {
+function renderRegister(
+  search = "?preset=all-time",
+  props: Partial<ComponentProps<typeof TransactionBrowser>> = {},
+) {
   window.history.replaceState(null, "", `/transactions${search}`);
   return render(
     <QueryClientProvider client={queryClient()}>
@@ -104,6 +109,7 @@ function renderRegister(search = "?preset=all-time") {
         <BrowserRouter>
           <TransactionBrowser
             heading={{ kind: "section", title: "Transactions", description: "For this test." }}
+            {...props}
           />
         </BrowserRouter>
       </TimezoneProvider>
@@ -122,10 +128,17 @@ describe("the register's empty screen", () => {
     renderRegister();
 
     // Not "No transactions match this view": a default in force is not a filter
-    // the reader set, and reading it as one would put "nothing yet" out of
-    // reach on a ledger that really is empty.
+    // the reader set, and reading it as one would offer the toggle alone where
+    // this screen also says what to add. Nor "yet": the page cannot tell an
+    // empty ledger from one whose every entry is deleted, so a new ledger reads
+    // this title on purpose (`web.md` 12.1) — and so the way out must not claim
+    // a history it cannot see. It said "the entries you have removed" to
+    // somebody who had never deleted anything.
     expect(await screen.findByText("No transactions in this view")).toBeInTheDocument();
-    expect(screen.getByText(/turn on Show deleted/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Turn on Show deleted to include any deleted entries\./),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/you have removed/)).toBeNull();
   });
 
   it("says nothing yet once the reader has turned it on", async () => {
@@ -170,6 +183,71 @@ describe("the register's empty screen", () => {
     expect(await screen.findByText("No transactions match this view")).toBeInTheDocument();
     expect(screen.getByText(/clear the type filter/i)).toBeInTheDocument();
     expect(screen.getByText(/turn on Show deleted/i)).toBeInTheDocument();
+  });
+});
+
+/**
+ * The empty register offers adding only where the page does.
+ *
+ * An archived account's register withheld the Add button, in the header and in
+ * the empty state, and its body still said "add a deposit, a withdrawal or a
+ * transfer, or import a CSV" — both writes the account refuses, named as the
+ * way out by the page that had just refused them. A frozen account, and the
+ * Transactions page with every account frozen, said the same. The button and
+ * the sentence are one read now, and where there is no offer the screen says
+ * why instead.
+ */
+describe("the empty register on a subject that refuses a new entry", () => {
+  const offersAdding = /add a deposit|import a CSV/i;
+  /** The empty state's sentence, which is the `<p>` under its heading. */
+  const emptyBody = async () =>
+    (await screen.findByRole("heading", { name: "No transactions in this view" }))
+      .nextElementSibling;
+
+  it("says the page's own reason, and still names Show deleted", async () => {
+    stub();
+    renderRegister("?preset=all-time", {
+      fixedAccountId: account.id,
+      allowCreate: false,
+      createRefusal: "This account is archived. Restore it from Accounts to add to it.",
+    });
+
+    expect(await emptyBody()).toHaveTextContent(
+      /^This account is archived\. Restore it from Accounts to add to it\. Turn on Show deleted to include any deleted entries\.$/,
+    );
+    expect(screen.queryByText(offersAdding)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Add transaction/ })).toBeNull();
+  });
+
+  it("says a frozen subject's sentence without being handed one", async () => {
+    stub({ accounts: [{ ...account, frozen: true }] });
+    renderRegister("?preset=all-time", { fixedAccountId: account.id, allowCreate: false });
+
+    const body = await emptyBody();
+    await waitFor(() =>
+      expect(body).toHaveTextContent(frozenAccountRefusal(MAX_FREE_ACCOUNTS, account.name)),
+    );
+    expect(screen.queryByText(offersAdding)).toBeNull();
+  });
+
+  it("does not offer adding when every account is frozen", async () => {
+    stub({ accounts: [{ ...account, frozen: true }] });
+    renderRegister();
+
+    // The header's button is disabled with this sentence, and the body under
+    // it now says the same rather than the opposite.
+    const body = await emptyBody();
+    await waitFor(() => expect(body).toHaveTextContent(frozenAccountRefusal(MAX_FREE_ACCOUNTS)));
+    expect(screen.queryByText(offersAdding)).toBeNull();
+  });
+
+  it("still offers adding where the page does", async () => {
+    stub();
+    renderRegister();
+
+    const body = await emptyBody();
+    await waitFor(() => expect(body).toHaveTextContent(offersAdding));
+    expect(await screen.findAllByRole("button", { name: /Add transaction/ })).toHaveLength(2);
   });
 });
 

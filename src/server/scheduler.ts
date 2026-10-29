@@ -1,12 +1,12 @@
 import { serve } from "@hono/node-server";
-import { sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { getConfig } from "./config.js";
-import { closeDb, getDb } from "./db/client.js";
+import { closeDb } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { checkMailTransport, closeMail, mailEnabled } from "./mail.js";
 import { setMetricsComponent, startDefaultMetrics } from "./metrics.js";
 import { serveMetrics } from "./metrics-route.js";
+import { answerReadiness, checkReadiness, recordDependencyChecks } from "./readiness.js";
 import { createRecurrenceScheduler } from "./recurrence-scheduler.js";
 import { createGracefulShutdown } from "./server-lifecycle.js";
 import { log } from "./log.js";
@@ -28,14 +28,11 @@ const health = new Hono();
 // build is answering", and the scheduler is deployed separately from the API,
 // so reading it off the API's answer would answer about the wrong process.
 health.get("/health/live", (c) => c.json({ status: "ok", version: APP_VERSION }));
-health.get("/health/ready", async (c) => {
-  try {
-    await getDb().execute(sql`select 1`);
-    return c.json({ status: "ready", version: APP_VERSION });
-  } catch {
-    return c.json({ status: "not_ready", version: APP_VERSION }, 503);
-  }
-});
+// The API's function, so a scheduler failing readiness is counted where a
+// scrape reads it. This app has no timing middleware and is pinned to these
+// three routes, which made the probe's answer the one thing about this process
+// that no metric ever saw.
+health.get("/health/ready", answerReadiness);
 
 setMetricsComponent("scheduler");
 startDefaultMetrics();
@@ -71,6 +68,7 @@ async function main() {
   // yet. One advisory lock means whichever process arrives first does the work
   // and the other waits for it.
   await runMigrations();
+  let relay: boolean | undefined;
   if (mailEnabled()) {
     // The API checks the transport so a wrong address is found by the operator
     // rather than by somebody locked out. This process has the stronger claim
@@ -78,7 +76,7 @@ async function main() {
     // nobody is waiting on a reminder, so a relay refusing it fails silently
     // and indefinitely. It still only logs, because mail is optional and the
     // schedule is not: proposing rows works whether or not the relay answers.
-    await checkMailTransport();
+    relay = await checkMailTransport();
   } else {
     // Said out loud for the same reason the API says RECURRENCE_SCHEDULER is
     // off. A scheduler with no mail server proposes rows and sends nothing,
@@ -97,7 +95,8 @@ async function main() {
   // would check the prices anyway, but not until the first tick fires, and on
   // a split deployment this is the container whose log the sweep writes to —
   // and whose sweep a key that cannot read subscriptions fails on every row.
-  await Promise.all([checkStripePrices(), checkStripeAccess()]);
+  const [pricesFit, unreadable] = await Promise.all([checkStripePrices(), checkStripeAccess()]);
+  recordDependencyChecks({ relay, pricesFit, unreadable });
   const server = serve({
     fetch: health.fetch,
     port: config.port,
@@ -130,7 +129,21 @@ async function main() {
   });
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
+  // Once as the port opens, and last, as the API does: `ready` says what is
+  // true from the first scrape, and nothing above waits on a slow database.
+  await checkReadiness();
 }
+
+// The API entrypoint's monitor, for the same reasons: a monitor so the process
+// still exits, and through the gate so the last line it writes is narrowed and
+// counted like every other failure. A scheduler that dies is the likelier of
+// the two to be restarted in silence, since no request is waiting on it.
+process.on("uncaughtExceptionMonitor", (error, origin) => {
+  log.failure(
+    `The scheduler is stopping on ${origin === "unhandledRejection" ? "a rejection" : "an exception"} nothing caught`,
+    error,
+  );
+});
 
 main().catch(async (error) => {
   // Same rule as the API entrypoint: a Drizzle error whole prints its bound

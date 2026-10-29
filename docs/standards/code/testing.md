@@ -5,10 +5,10 @@ keeping.
 
 | Tier | Files | Runs with | Needs |
 | --- | --- | --- | --- |
-| Unit (node) | 208 | `npm test` | nothing |
-| Unit (jsdom) | 63 | `npm test` | nothing |
-| Integration | 80 | `npm test` **or** `npm run test:integration` | PostgreSQL |
-| Browser | 7 | `npm run test:browser` | PostgreSQL, Chromium |
+| Unit (node) | 231 | `npm test` | nothing |
+| Unit (jsdom) | 66 | `npm test` | nothing |
+| Integration | 96 | `npm test` **or** `npm run test:integration` | PostgreSQL |
+| Browser | 11 | `npm run test:browser` | PostgreSQL, Chromium |
 
 **`npm test` collects the integration tier too**, which surprises people and is
 worth stating plainly. `vitest.config.ts:21` excludes four things and only two
@@ -23,15 +23,15 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 273 pass, 78 skip | **2,966 pass, 907 skip** |
-| `npm test`, database set | 351 pass | **3,873 pass** |
-| `npm run test:integration` | 80 pass | 910 pass |
+| `npm test`, no database | 299 pass, 94 skip | **3,688 pass, 1,040 skip** |
+| `npm test`, database set | 393 pass | **4,728 pass** |
+| `npm run test:integration` | 96 pass | 1,043 pass |
 
-The integration tier reports 910 tests on its own and 907 skips inside a
+The integration tier reports 1,043 tests on its own and 1,040 skips inside a
 database-less `npm test`, and the three-test difference is not an error: three
 cases in that tier need no database and so run either way. They are counted
-among the 2,966 rather than among the skips, which is why the two rows add up
-to 3,873 both times.
+among the 3,688 rather than among the skips, which is why the two rows add up
+to 4,728 both times.
 
 The third row is three tests larger than the first row's skip count, and the
 odd ones out are worth knowing. `bulk-transactions-mcp.integration.test.ts` has
@@ -42,7 +42,7 @@ question about the router rather than about a ledger. All three run on every
 `npm test`, database or not, and that file therefore counts as passing rather
 than skipped in the first row.
 
-The first row is what CI and `npm run verify` see, and 2,966 is the number that
+The first row is what CI and `npm run verify` see, and 3,688 is the number that
 actually gates a change by default. The second is what a developer with a local
 PostgreSQL sees, and it is strictly better. Reporting the second as though it
 were the first overstates what the gate covers, which is a mistake worth naming
@@ -99,43 +99,90 @@ two assumptions with nothing watching.
 
 ### 1.2 The browser tier is small on purpose
 
-**House.** Seven files, one worker, against a real API and a real PostgreSQL.
-`budgets.spec.ts` is the one that drives flows — twenty-three tests of a
-person getting through the budgets page — and the other six are each here
-rather than in jsdom for the reason 1.1 gives: what they assert is something
-only a layout, paint or focus engine computes. `plan-buttons.spec.ts` measures an
-offset between two buttons, `progress-paint.spec.ts` reads a progress bar's
-pixels, `reflow.spec.ts` and `target-size.spec.ts` measure the document and
-every target, `selection-bar.spec.ts` measures one bar in each state its
-controls can take, and `smoke-test-fixes.spec.ts` holds what a smoke test of a
-0.2.0 deployment found — where focus lands after a dialog closes, whether a
+**House.** Ten files, one worker, against a real API and a real PostgreSQL.
+`budgets.spec.ts` is the one that drives flows — twenty-three tests of a person
+getting through the budgets page — and the other nine are each here rather than
+in jsdom for the reason 1.1 gives: what they assert is something only a layout,
+paint or focus engine computes. `plan-buttons.spec.ts` measures an offset
+between two buttons, `progress-paint.spec.ts` reads a progress bar's pixels,
+`reflow.spec.ts` and `target-size.spec.ts` measure the document and every
+target, `selection-bar.spec.ts` measures one bar in each state its controls can
+take, and `smoke-test-fixes.spec.ts` holds what a smoke test of a 0.2.0
+deployment found — where focus lands after a dialog closes, whether a
 transitioned drawer can take focus, whether a long figure pushes the page
-sideways. The tier is slow and it is the only one that proves the
-whole stack works, so it covers a path per capability rather than a case per
-branch. `tests/testing-guide-counts.test.ts` holds the first of those numbers
-to the file it counts, because it sat at eleven while the file grew to eighteen
-and nothing noticed; the others are held by nothing finer than the tier table
-above.
+sideways. `house-ad.spec.ts` holds the one thing in the product that sticks to
+the window's foot and moves: where the bar sits mid-scroll, at a page's end and
+under a short page, whether Tab ever leaves a control under it, whether its
+entrance plays once and stays finished, and the pixels of its drawing at every
+width it narrows through, decoded from screenshots — none of which a page
+without layout, scrolling or animations can see. `ledger-file-export.spec.ts`
+holds what the export form is only once a browser runs its markup: the arrow
+keys choosing inside a radio group and Tab leaving it, Enter in a date field
+submitting the one form, and a real download saved under the name the response
+gave — and the exact query string each of those sends, because the route that
+reads it is a half of the stack the page cannot see. `ledger-file-import.spec.ts`
+holds the import beside it the same way: a real file chosen through the drop
+zone's input from the keyboard, the arrows moving inside each question's radio
+group, Enter in a copy's name submitting the add, a streamed reply read as
+frames with focus landing on the sentence saying what was done, and a file over
+ten thousand rows cut by the splitter's real limits into two parts, each with
+its own key from one attempt. `ledger-file-move.spec.ts` holds the move the
+same way: the way in chosen from the keyboard with neither picked, the arrows
+passing over a refused radio, and a bar drawn from a frame read as it arrives
+— the first part is sent on to a server of the spec's own that writes one
+frame at a time, because a reply the route fulfils arrives whole and its bar is
+gone before anything can see it — before two real parts end on the summary;
+and Enter in a copy's name sending a part that stops, which leaves focus on
+the button it submitted through rather than on a control the stop disabled.
+The tier is slow and it is
+the only one that proves the whole stack works, so it covers a path per
+capability rather than a case per branch. `tests/testing-guide-counts.test.ts` holds the
+first of those numbers to the file it counts, because it sat at eleven while the
+file grew to eighteen and nothing noticed; the others are held by nothing finer
+than the tier table above.
 
 Everything it asserts that a cheaper tier could assert is a test in the wrong
 place.
 
-**One spec does not drive the whole stack, and that is the boundary.** `plan-buttons.spec.ts:110` intercepts the one response the plan tab
-reads and answers it from the spec. The reason is not convenience: a priced
-button exists only at a price Stripe gave, so reaching that state for real needs
-a Stripe account, its keys in the server's environment, and a subscription
-already running against them — and the last of those charges a card. Everything
+**Four specs do not drive the whole stack, and that is the boundary.**
+`plan-buttons.spec.ts:110` intercepts the one response the plan tab reads and
+answers it from the spec, `ledger-file-export.spec.ts` answers the export
+route, and `ledger-file-import.spec.ts` and `ledger-file-move.spec.ts` answer
+the import's preview, add and move (through
+`tests/browser/support/ledger-file-import.ts`, which `reflow.spec.ts` and
+`target-size.spec.ts` share to reach the import's states). The reason for all
+but the first is the simpler one: what they ask is what the page sends and
+does with the answer, and what the server does with a file is the integration
+tier's to check, through the same routes
+(`tests/integration/ledger-file-export-route.integration.test.ts`,
+`tests/integration/ledger-file-add-route.integration.test.ts` and
+`tests/integration/ledger-file-move-route.integration.test.ts`). The answers
+are not invented, either: the
+import's are worked out by the shared planners the server runs, and every body
+is parsed with the route's own schema before it is answered. The
+first's takes longer, and it is not convenience: a priced button exists only at
+a price Stripe gave, so reaching that state for real needs a Stripe account, its
+keys in the server's environment, and a subscription already running against
+them — and the last of those charges a card. Everything
 below the response is the real server, the real stylesheet and the real
 components, which is the half the measurement is about.
 
-The rule above is hardest to apply to exactly this spec, so it is worth saying
-where the line falls. `tests/plan-page-ui.test.tsx` already reads the fix out of
+The rule above is hardest to apply to `plan-buttons.spec.ts`, so it is worth
+saying where the line falls. `tests/plan-page-ui.test.tsx` already reads the fix out of
 the stylesheet and already fakes the same response; what it cannot do is ask the
 browser where the two buttons ended up, because jsdom has no layout engine
 (1.1). So the browser spec earns its place by the measurement and by nothing
 else, and a faked response is the cheapest way to reach the state it measures —
 not a second, worse copy of the jsdom test. A spec that faked a response and
 then asserted what the page said about it would be in the wrong place.
+
+The export spec's last test stands on that line from the other side. It answers
+the route with a refusal and asserts the sentence the page shows, which
+`tests/import-export-page.test.tsx` already holds ("shows the row cap's
+sentence, which names the way out"). What it adds is that a real browser saves
+nothing when the fetch is refused — jsdom has no downloads to fail to start —
+and that is its whole claim to the tier: without that assertion it would be the
+jsdom test again, slower.
 
 **Holding a request is not faking one.** `selection-bar.spec.ts` intercepts the
 staged commit too, and answers nothing: it holds the request open while it
@@ -272,7 +319,7 @@ read a figure that is true of what it created and is also a property of
 something larger:
 
 - `rollover.from` is the earliest `activeFrom` across *every* plan the actor
-  holds (`src/server/services/budgets.ts:1111`). The forecast tests anchor one
+  holds (`src/server/services/budgets.ts:1109`). The forecast tests anchor one
   in 2020 to give a stepped chain a base, so shuffled ahead of it the carry
   origin answered 2020.
 - `period.unfunded` is null when nobody anywhere set a funding order, which the
@@ -397,7 +444,7 @@ There is no general check of the population half either, and the reason is worth
 stating rather than leaving as an absence. Every sweep that discovers one does
 assert it today, in one of two shapes: a floor with a named member where the
 tree is expected to grow, and an exact list where it is not —
-`tests/transport-database-access.test.ts:132` names the two transports outright,
+`tests/transport-database-access.test.ts:127` names the two transports outright,
 and `tests/forecast-boundary.test.ts:48` names everything allowed to import the
 forecast. A grep that knew only the first shape would call both of those silent,
 and a rule that fires on a correct test is a rule people turn off. Which shape a
@@ -466,32 +513,33 @@ reason long enough to be one.
 
 ## 4. The vitest plugin is off
 
-**Contested, decided.** `oxlint --vitest-plugin` reports 625 findings on this
-suite. 397 of them are false against Vitest's own API:
+**Contested, decided.** `oxlint --vitest-plugin` reports 845 findings on this
+suite. 569 of them are false against Vitest's own API:
 
-- **`valid-expect`, 263.** It refuses `expect(value, message)`. That is a Jest
+- **`valid-expect`, 395.** It refuses `expect(value, message)`. That is a Jest
   rule; in Vitest the second argument is the assertion message and is correct.
-- **`valid-describe-callback` and `valid-title`, 134.** Both fire on
+- **`valid-describe-callback` and `valid-title`, 174.** Both fire on
   `const integration = describe.skipIf(!connection)` — the alias every
   integration file uses to skip cleanly without a database — one of each in the
-  sixty-seven files that declare it, and in no file that does not. The plugin
+  eighty-seven files that declare it, and in no file that does not. The plugin
   cannot see through the alias.
 
-A plugin that is 64% wrong on this codebase would train everybody to ignore
+A plugin that is 67% wrong on this codebase would train everybody to ignore
 lint output. Off, and this section is the reason so nobody turns it back on.
 
-**The remainder is not 228 real findings either.** The second-largest rule in
-the whole output is `require-mock-type-parameters`, 146 of them, and every one
+**The remainder is not 276 real findings either.** The second-largest rule in
+the whole output is `require-mock-type-parameters`, 176 of them, and every one
 says the same thing: `vi.fn()` should have been `vi.fn<() => void>()`. That is a
 style preference about a call Vitest types perfectly well without it, and this
 repository has not adopted it. Counting it among the findings a reviewer would
 act on is what the first two paragraphs warn about, one level down — so the
-remainder that is actually about this suite's behavior is 82, not 228. The four
+remainder that is actually about this suite's behavior is 100, not 276. The four
 smaller rules that make it up are the ones worth a look if the plugin is ever
 reconsidered.
 
-Those numbers read 272, 189, 89 and 100 one release ago, and before that 231,
-163, 65 and 98. Nothing holds them to the suite. They climb with it, because the
+Those numbers read 812, 541, 377 and 164 when they were last measured, 625,
+397, 263 and 134 earlier in the same release, 272, 189, 89 and 100 a release
+before that, and before that 231, 163, 65 and 98. Nothing holds them to the suite. They climb with it, because the
 shapes the plugin misreads are the shapes a new integration file and a new
 message-carrying assertion both use, so the finding count grows fastest exactly
 where it is wrongest. Re-measure with
@@ -525,15 +573,15 @@ it, drop it in `afterAll`. Files then do not race, which matters because
 
 The sequence has a helper, and a new file should take it rather than re-roll
 it: `scratchDatabase()` in `tests/integration/support/scratch-database.ts`
-creates, migrates and registers the drop in one call, and 43 of the 70 files
+creates, migrates and registers the drop in one call, and 64 of the 96 files
 use it. The files that predate it manage their own admin client, and their
 teardowns had drifted to an unguarded four-step sequence where the first step
 throwing strands the database and the connection both — the exact failure the
 helper exists to end, and its docstring says so. `dropScratchDatabase` covers
 the 13 hand-rolled files that only need the guarded teardown.
 
-Forty-three, thirteen and fourteen, which is the whole seventy. The last
-fourteen take neither helper and hand-roll all of it — their own admin client,
+Sixty-four, thirteen and nineteen, which is the whole ninety-six. The last
+nineteen take neither helper and hand-roll all of it — their own admin client,
 their own `create database`, their own `runMigrations`, their own drop. They are
 not doing anything else; they are the group the helper was written for and the
 group nothing has converted yet. Counting them is the point of writing the three
@@ -563,16 +611,16 @@ is still set for whatever runs next.
 
 That became load-bearing with billing. Turning the vendor on means setting
 `STRIPE_SECRET_KEY` and four more, and a file that forgets to put them back
-hands the next file a product that sells subscriptions. Thirty-four files flip a
-switch today, in three spellings — a key at a time in thirteen of them,
-`vi.stubEnv` in three, and a whole object merged into `process.env` in eighteen.
-Thirty-three of them restore, by discipline rather than by machinery. The
-thirty-fourth did not: `ledger.integration.test.ts` left Google credentials,
+hands the next file a product that sells subscriptions. Forty-five files flip a
+switch today, in three spellings — a key at a time in fourteen of them,
+`vi.stubEnv` in six, and a whole object merged into `process.env` in
+twenty-five. When there were thirty-four, thirty-three of them restored, by
+discipline rather than by machinery. The thirty-fourth did not: `ledger.integration.test.ts` left Google credentials,
 `AUTH_MODE=both` and an `ALLOWED_EMAILS` behind, which is a sign-in path and a
 registration rule the next file never asked for, and nothing anywhere would have
 said so.
 
-**The variables are only half of it.** `src/server/config.ts:227` caches the
+**The variables are only half of it.** `src/server/config.ts:241` caches the
 parsed configuration in a module-level variable, so a file that turns something
 on also has to call `vi.resetModules()` before the next read. The environment
 can be perfectly restored and the configuration still answer out of the previous
@@ -580,15 +628,15 @@ file's keys, which is the failure that reads as "this test passes alone and not
 in the suite".
 
 Turning on `unstubEnvs` in the runner is the obvious alternative and it closes
-neither half. It undoes `vi.stubEnv` and nothing else, so the thirty-one files
+neither half. It undoes `vi.stubEnv` and nothing else, so the thirty-nine files
 that assign or merge directly are untouched — and it says nothing about the
 cache, which is what actually carries the leak.
 
 *Checked by:* `tests/testing-guide-environment.test.ts`, which discovers the
 files that set a switch in any of the three spellings, counts them so a spelling
 that stopped matching cannot pass for a clean suite, and fails any that never
-puts the switch back. It holds the variables and not the cache: eleven of the
-thirty-four never call `vi.resetModules`, and most of those are right not to,
+puts the switch back. It holds the variables and not the cache: seventeen of
+the forty-five never call `vi.resetModules`, and most of those are right not to,
 because they set their keys before anything imports the configuration and never
 read it twice. Which of them needs the reset is a judgement about what each file
 imports and when, and that is not a property of its text.
@@ -617,16 +665,16 @@ considered for it and left out. `tests/log-level.test.ts` and
 `tests/metrics.test.ts` hold what the product does — a level gate that drops
 what sits below it, a label set that carries nobody's identity — and both
 `operations.md` and `observability.md` name each as its check, as these guides
-between them name 175 test files. A row here is the narrower case: the rule is
+between them name 264 test files. A row here is the narrower case: the rule is
 written down in the prose and nowhere else, so a repository that quietly stopped
 following it would leave a true-sounding document and nothing that noticed.
 Widen the table to every `*Checked by:*` line and it stops being a list and
-becomes an index of the suite — 175 rows, which is most of a suite of 282 and is
+becomes an index of the suite — 264 rows, which is most of a suite of 376 and is
 not a table anybody reads.
 
-That number was ninety-four a release ago and nothing holds it, so re-measure
-rather than trusting it: it is the count of distinct test filenames named
-anywhere under `docs/standards/`. It carries the argument above and the argument
+That number was 175 when it was last counted and ninety-four a release before
+that, and nothing holds it, so re-measure rather than trusting it: it is the
+count of distinct test filenames named anywhere under `docs/standards/`. It carries the argument above and the argument
 gets stronger as it climbs, which is the unusual case where a stale number
 weakens a rule by being too small.
 

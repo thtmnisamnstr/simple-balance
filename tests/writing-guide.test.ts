@@ -159,7 +159,12 @@ describe("what writing.md says there are", () => {
     );
     const indexes = files.filter((file) => file.endsWith("/index.md"));
     const guides = files.length - indexes.length;
-    const ordinals: Record<number, string> = { 10: "tenth", 15: "fifteenth", 16: "sixteenth" };
+    const ordinals: Record<number, string> = {
+      10: "tenth",
+      15: "fifteenth",
+      16: "sixteenth",
+      17: "seventeenth",
+    };
     const words: Record<number, string> = { 2: "two", 15: "fifteen", 16: "sixteen" };
     // The argument for the skills not being a guide rests on how many guides
     // there are, so it has to move when one is added. It said "a tenth guide"
@@ -228,6 +233,10 @@ describe("what writing.md says there are", () => {
       14: "fourteen",
       15: "fifteen",
       16: "sixteen",
+      17: "seventeen",
+      18: "eighteen",
+      19: "nineteen",
+      20: "twenty",
     };
     // The roadmap's own convention is that the heading answers "is there
     // anything left to write". This guide quotes the tally, and a tally in

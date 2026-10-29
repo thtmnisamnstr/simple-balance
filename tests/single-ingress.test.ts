@@ -9,6 +9,11 @@ import {
   resourceCallsCode,
 } from "./support/pulumi-source.js";
 
+import {
+  NODE_EXPORTER_PORT,
+  databaseMetricsTarget,
+} from "../deploy/pulumi/single-common/cloud-init.js";
+
 /**
  * Every inbound rule the `single` profile opens, on both machines and both
  * clouds, asserted exhaustively rather than by sampling.
@@ -30,13 +35,25 @@ import {
 const aws = readProgram(AWS_SINGLE);
 const oci = readProgram(OCI_SINGLE);
 
-/** Every `{...}` entry of one array property of a resource call. */
+/**
+ * Every `{...}` entry of one array property of a resource call, those inside a
+ * conditional spread included.
+ *
+ * Brackets are counted as well as braces, and that is the difference between
+ * auditing every rule and auditing the rules before the first spread: the
+ * `]` that closes `...(x ? [{...}] : [])` sits outside every brace, and a
+ * reader that stopped at the first such `]` read it as the end of the list.
+ * With one spread at the end that was invisible; with two, every rule after
+ * the first went uncounted, and a test that counts rules to catch an extra one
+ * would have been blind to exactly that.
+ */
 function rules(call: string, property: string): string[] {
   const at = call.indexOf(`${property}: [`);
   if (at === -1) return [];
   const body = call.slice(at + property.length + 3);
   const entries: string[] = [];
   let depth = 0;
+  let brackets = 0;
   let start = 0;
   for (let index = 0; index < body.length; index += 1) {
     const character = body[index]!;
@@ -46,8 +63,11 @@ function rules(call: string, property: string): string[] {
     } else if (character === "}") {
       depth -= 1;
       if (depth === 0) entries.push(body.slice(start, index + 1));
+    } else if (character === "[" && depth === 0) {
+      brackets += 1;
     } else if (character === "]" && depth === 0) {
-      break;
+      if (brackets === 0) break;
+      brackets -= 1;
     }
   }
   return entries;
@@ -92,12 +112,13 @@ describe("what may reach the AWS application node", () => {
     expect(aws).toContain("this machine is the edge");
   });
 
-  it("opens neither 3000 nor 5432 on it", () => {
+  it("opens neither 3000 nor 5432 on it, nor 9100", () => {
     // 3000 is the application, which Caddy reaches over the Docker network
     // inside the machine; a rule for it would be a second way in that the
     // application's own origin checks do not cover. 5432 is on the other
-    // machine, and this one connects out to it.
-    for (const port of ["3000", "5432"]) {
+    // machine, and this one connects out to it. 9100 is this machine's own
+    // node-exporter, which listens on loopback for the collector beside it.
+    for (const port of ["3000", "5432", "9100"]) {
       expect(group(), port).not.toContain(`fromPort: ${port}`);
     }
   });
@@ -108,11 +129,12 @@ describe("what may reach the AWS database node", () => {
 
   it("has one unconditional inbound rule, for 5432 from the application node's security group", () => {
     const ingress = rules(group(), "ingress");
-    // Two literals in the source: 5432 always, and 22 inside the spread that
-    // only `simple-balance:databaseEgress: ipv6` unfolds. The count is asserted
-    // rather than left open, so a third rule is a failing test rather than a
-    // line nobody reviews.
-    expect(ingress, "5432, and the conditional shell").toHaveLength(2);
+    // Three literals in the source: 5432 always, 22 inside the spread that
+    // only `simple-balance:databaseEgress: ipv6` unfolds, and 9100 inside the
+    // one only a stack exporting metrics unfolds. The count is asserted rather
+    // than left open, so a fourth rule is a failing test rather than a line
+    // nobody reviews.
+    expect(ingress, "5432, the conditional shell and the conditional metrics").toHaveLength(3);
     expect(ingress[0]).toContain("fromPort: 5432");
     expect(ingress[0]).toContain("toPort: 5432");
     // A source security group rather than a CIDR, so the rule stays correct
@@ -146,6 +168,23 @@ describe("what may reach the AWS database node", () => {
     expect(group()).toMatch(/\.\.\.\(databaseEgress === "ipv6"[\s\S]*?fromPort: 22/);
     // From the application node's own security group, never a CIDR, for the
     // reason 5432 is: it names that machine however it is re-addressed.
+    expect(rule).toContain("securityGroups: [securityGroup.id]");
+    expect(rule).not.toContain("cidrBlocks");
+  });
+
+  it("opens 9100 to the application node only while the stack exports metrics", () => {
+    // node-exporter on the database node, which the collector on the
+    // application node scrapes over TLS. A stack that sets no export endpoint
+    // has the two rules it always had: the third is inside a spread that
+    // `settings.metrics` alone unfolds, so nothing changes for a deployment
+    // that asked for nothing, and the rule that does arrive comes through
+    // `pulumi up` on a stack whose machines already exist.
+    const rule = rules(group(), "ingress")[2]!;
+    expect(rule).toContain(`fromPort: ${NODE_EXPORTER_PORT}`);
+    expect(rule).toContain(`toPort: ${NODE_EXPORTER_PORT}`);
+    expect(rule).toContain('protocol: "tcp"');
+    expect(group()).toMatch(/\.\.\.\(settings\.metrics\s*\?\s*\[[\s\S]*?fromPort: 9100/);
+    // From the application node's own security group, for the reason 5432 is.
     expect(rule).toContain("securityGroups: [securityGroup.id]");
     expect(rule).not.toContain("cidrBlocks");
   });
@@ -235,8 +274,8 @@ describe("what may reach the Oracle Cloud application node", () => {
     expect(ingress[3]).toContain("tcpOptions: { min: 22, max: 22 }");
   });
 
-  it("opens neither 3000 nor 5432 on it", () => {
-    for (const port of ["3000", "5432"]) {
+  it("opens neither 3000 nor 5432 on it, nor 9100", () => {
+    for (const port of ["3000", "5432", "9100"]) {
       expect(list(), port).not.toContain(`min: ${port}`);
     }
   });
@@ -247,7 +286,7 @@ describe("what may reach the Oracle Cloud database node", () => {
 
   it("admits 5432 from the application node's subnet and 22 from a Bastion in its own", () => {
     const ingress = rules(list(), "ingressSecurityRules");
-    expect(ingress, "two rules and no more").toHaveLength(2);
+    expect(ingress, "two rules, and a third only while exporting metrics").toHaveLength(3);
     // A security list takes CIDRs, so the application node's subnet — which
     // holds exactly one machine — is the tightest source available here.
     expect(ingress[0]).toContain("source: instanceCidr");
@@ -259,6 +298,21 @@ describe("what may reach the Oracle Cloud database node", () => {
     // No sshCidr rule: there is no public address for such a rule to admit
     // anybody to, so it would read as an exposure that is not one.
     expect(list()).not.toContain("settings.sshCidr");
+  });
+
+  it("admits 9100 from the application node's subnet only to a database node of its own, exporting", () => {
+    // node-exporter, scraped over TLS by the collector on the application
+    // node. Inside a spread that needs both a database node — the subnet
+    // `databaseSubnet` keeps empty for a managed database has no exporter of
+    // this program's in it — and an export endpoint, so a stack that sets
+    // nothing keeps the two rules it had.
+    const rule = rules(list(), "ingressSecurityRules")[2]!;
+    expect(rule).toContain("source: instanceCidr");
+    expect(rule).toContain(
+      `tcpOptions: { min: ${NODE_EXPORTER_PORT}, max: ${NODE_EXPORTER_PORT} }`,
+    );
+    expect(rule).toContain('protocol: "6"');
+    expect(list()).toMatch(/\.\.\.\(database && settings\.metrics\s*\?\s*\[[\s\S]*?min: 9100/);
   });
 
   it("admits nothing from the internet, on any port", () => {
@@ -309,10 +363,55 @@ describe("the host firewall, which is the half the cloud's does not cover", () =
     expect(commands![0]).not.toContain("--dport 443");
   });
 
+  it("opens 9100 on the database node only for a stack that exports metrics", () => {
+    // node-exporter listens on the host's own network, so this ruleset is in
+    // front of it as it is in front of PostgreSQL, and without the rule every
+    // scrape times out while both machines report themselves healthy. Kept
+    // apart from the list above, which every database node runs, so a stack
+    // that sets nothing has the ruleset it always had.
+    const platform = readProgram("deploy/pulumi/oci-single/platform.ts");
+    const commands = /const DATABASE_METRICS_PLATFORM_COMMANDS = \[[\s\S]*?\n\];/.exec(platform);
+    expect(commands, "the database node's metrics platform commands").not.toBeNull();
+    expect(commands![0]).toContain(`--dport ${NODE_EXPORTER_PORT} -j ACCEPT`);
+    expect(commands![0]).toContain("netfilter-persistent save");
+    expect(commands![0].match(/--dport/g)).toHaveLength(1);
+  });
+
   it("is applied to the database node and not only to the application node", () => {
-    expect(readProgram("deploy/pulumi/oci-single/platform.ts")).toContain(
-      "platformCommands: DATABASE_PLATFORM_COMMANDS,",
+    expect(programCode(readProgram("deploy/pulumi/oci-single/platform.ts"))).toMatch(
+      /platformCommands: args\.metrics\s*\?\s*\[\.\.\.DATABASE_PLATFORM_COMMANDS, \.\.\.DATABASE_METRICS_PLATFORM_COMMANDS\]\s*:\s*DATABASE_PLATFORM_COMMANDS,/,
     );
+  });
+});
+
+/**
+ * One port, written in five places: the database node's compose file, both
+ * programs' firewall rules, Oracle's host rule, and the target the programs
+ * hand the collector. Each place is checked against the others above; this is
+ * the check that they are all the same number.
+ */
+describe("the database node's node-exporter port", () => {
+  it("is the port it listens on, the port every rule opens, and the port the collector dials", () => {
+    const compose = readProgram("deploy/compose/single/compose.postgres.yml");
+    expect(compose).toContain(
+      `--web.listen-address=\${SB_BIND_ADDRESS:?set SB_BIND_ADDRESS to this machine's private IP}:${NODE_EXPORTER_PORT}`,
+    );
+    expect(programCode(aws)).toContain(`fromPort: ${NODE_EXPORTER_PORT},`);
+    expect(programCode(oci)).toContain(`min: ${NODE_EXPORTER_PORT}, max: ${NODE_EXPORTER_PORT}`);
+    expect(databaseMetricsTarget("db.db.simplebalance.oraclevcn.com")).toMatch(
+      new RegExp(`:${NODE_EXPORTER_PORT}$`),
+    );
+  });
+
+  it("is named to the collector by both programs, from the database node's own name", () => {
+    // The target rides the settings file, so it reaches a machine that already
+    // exists through the same fetch every setting does; and it is the name the
+    // database's certificate carries, or the collector's verification fails.
+    for (const program of [aws, oci]) {
+      expect(programCode(program)).toMatch(
+        /single\s*\.appSettingsFile\(settings, database \? databaseDnsName : undefined\)/,
+      );
+    }
   });
 });
 

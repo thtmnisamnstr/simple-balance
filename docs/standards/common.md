@@ -221,7 +221,7 @@ is checked.
 | A path id that is not an id this API issues | Use an id returned by a list or a create |
 
 **Those five rows are one helper's output, not five sites.** `staleVersion`
-(`src/server/services/errors.ts:102-115`) picks by what the details carry:
+(`src/server/services/errors.ts:110-123`) picks by what the details carry:
 a `currentFingerprint` means the refusal is about a *set* rather than a row, so
 "read it again and retry with the version" is advice the caller cannot take;
 a `currentVersion` means the number is in the payload and the sentence may name
@@ -301,12 +301,14 @@ table's sense, and whether the "Not" column is honest, stays review.
 | **Payee** | Who the money went to or came from, derived from transaction text. | A stored record with an id. |
 | **Staged transaction** | A proposal in the review queue. Affects no balance. | A draft of a saved thing. Nothing about it is in the books. |
 | **Budget plan** | A standing amount for one category or one group, never both, per period, over a window of periods. | A posting. Nothing in budgeting writes one. |
-| **Budget entry** | An amount for one period, overriding the plan for that period alone. | A plan for one period. |
+| **Budget entry** | An amount for one period, overriding the budget plan for that period alone. | A budget plan for one period. |
 | **Forecast** | A projection of what the books would hold if the future arrived as scheduled. | A balance. Money dated in the future has not moved. |
 | **Recurring transaction** | A saved shape and a schedule that proposes a staged row on its due date. `recurrence` on the wire and in tool names, and the same two words on every screen, in every tool title and in the reminder mail. Like a staged transaction, it is named for what it makes rather than for being one. | Something that posts. A *recurrence* in a heading or a button: the Recurring page said that while every page pointing at it said this. |
 | **Template** | A saved shape with no schedule. | A recurring transaction. |
+| **Simple Balance file** | One JSON document holding a whole ledger, or some of its accounts, for moving it to another copy of this product. `simple-balance-ledger-1` on the wire and the *ledger file* in code; [`ledger-file.md`](ledger-file.md) is its format. Read back by *adding* it to a ledger: its records come in, matched or created, and its transactions go to Staged. Or, into a ledger holding nothing that did not come from one, by *moving* it: every transaction is written straight into the books, deleted ones deleted again and archived accounts archived as they were. | An archive, a backup or a CSV. Archiving retires an account, a backup is the operator's dump of the whole database, and a CSV is for a spreadsheet or another tool. What reads one back is never a *restore*, which already brings back an archived account or a deleted entry, and moving one is never a *sync*: a transaction already here is passed over, never brought up to date. |
+| **Origin** | The id an entry was first written under, which it keeps in every Simple Balance file and every copy it moves to, so the same entry arriving twice is recognized and skipped. `import_origin` once it has arrived from a file. | A duplicate check, a primary key, or provenance anybody is shown. Two entries with different origins are never duplicates of each other; an entry without one is compared as it always was. |
 | **Plan** | What a sign-in is entitled to and billed for: free or paid. `plus` on the wire, **Premium** on screen. | A budget plan, which is always written out in full. |
-| **Entitlement** | What a plan permits, worked out from the plan and the moment rather than stored (`resolveEntitlement`, `src/shared/domain.ts:3577`). | A plan. An entitlement follows from one and changes with nobody present, which is why no column holds it. |
+| **Entitlement** | What a plan permits, worked out from the plan and the moment rather than stored (`resolveEntitlement`, `src/shared/domain.ts:3683`). | A plan. An entitlement follows from one and changes with nobody present, which is why no column holds it. |
 | **Frozen** | A live account a plan's limit leaves closed to every change to what it holds: fully readable, counted in every balance, summary and report, and still free to be archived, or deleted while nothing is on it. | Archived. An archived account already refuses writes, is outside the limit, and uses up no place. |
 | **Place** | One of the accounts a plan keeps usable; the product's word for the slot. | An account. A place opens up only when an account in use is archived or deleted. |
 
@@ -320,13 +322,13 @@ spelling guard was already having to reason about one of them from a comment
 **The one collision, recorded rather than resolved.** The Account row above gives
 the word two senses and asks that one sentence never use both. One screen uses
 both, a sentence apart: the deletion panel is titled "Delete this account"
-(`src/client/pages/SettingsPage.tsx:450`), meaning the sign-in, and its next
+(`src/client/pages/SettingsPage.tsx:481`), meaning the sign-in, and its next
 sentence is "Everything in it goes: accounts, transactions, categories…"
-(`src/client/pages/SettingsPage.tsx:451-453`), meaning the financial ones. The
-confirmation repeats it (`:580`, `:587`). `AGENTS.md` wins over this guide and
+(`src/client/pages/SettingsPage.tsx:482-484`), meaning the financial ones. The
+confirmation repeats it (`:611`, `:618`). `AGENTS.md` wins over this guide and
 calls a sign-in an account throughout, as do three places in the product
-(`src/client/App.tsx:408`, `src/client/pages/SettingsPage.tsx:170`,
-`src/client/pages/PlanPage.tsx:1202`), so the old row — "A user. A person has a
+(`src/client/App.tsx:432`, `src/client/pages/SettingsPage.tsx:175`,
+`src/client/pages/PlanPage.tsx:1196`), so the old row — "A user. A person has a
 sign-in, not an account." — was asserting a rule the repository has never
 followed, and the sharp case is the one screen where the ambiguity it was written
 to prevent actually bites. Rewriting the panel is a copy change this guide cannot
@@ -360,26 +362,37 @@ commit subject and a comment: plain, declarative, specific.
   a glyph rather than punctuation.
 - **Numbers a person reads are formatted.** Money through `formatMoney`, dates
   through `formatDate`, and a count shown as a figure through `formatCount`
-  (`src/client/components.tsx:1427`), which groups its thousands. It was the
+  (`src/client/components.tsx:1495`), which groups its thousands. It was the
   selection bars' helper and only they asked it, so the bar read "4,318" while
   the dialog it opened, the notice after it, the pages under the list and an
-  import's result counts all read "4318". A count written as a literal in a sentence is spelled out
-  below ten. A count that arrives as a *value* cannot be spelled out by writing
-  the sentence differently, so it is spelled out by a map where the sentence
-  reads as a sentence — `NUMBER_WORDS` and `GRACE_IN_WORDS`
-  (`src/client/pages/PlanPage.tsx:684-698`) turn `BILLING_GRACE_DAYS` into words
-  and fall back to digits past the end of the list, which "reads worse and is
-  still true" — and left as a digit where it reads as a figure beside others.
-  The plan and freezing copy is all of the second kind and none of the first,
-  and the two halves of it currently disagree: the grace period is spelled out
-  and the account limit is not. `MAX_FREE_ACCOUNTS` is three, and it renders as
-  "up to 3 accounts" (`src/client/pages/PlanPage.tsx:1706`), "Your plan keeps 3
-  accounts usable" (`src/client/pages/AccountsPage.tsx:659`) and "All 3 places
-  are in use" (`src/client/pages/AccountsPage.tsx:700`), the last of which is a
-  figure beside a figure and right as a digit. The first two are sentences and
-  would read better in words. Say so in a review; do not grep for it, because
-  there is nothing to find. Every one of these literals says `${limit}`, and the
-  violation exists only once a number has been substituted into it.
+  import's result counts all read "4318". A count written as a literal in a
+  sentence is spelled out below ten. A count that arrives as a *value* cannot be
+  spelled out by writing the sentence differently, so it is spelled out by
+  `countInWords` (`src/client/components.tsx:1514`) where the sentence reads as
+  a sentence — it falls back to digits past the end of its list, which "reads
+  worse and is still true" — and left as a digit where it reads as a figure
+  beside others. The plan and freezing copy is all of the second kind and none
+  of the first. Its two halves disagreed until this release: the grace period
+  was spelled out through the plan tab's own list and the account limit was
+  not, so the same tab said "fifteen days" and "up to 3 accounts". The list
+  moved beside `formatCount` as `countInWords`, and "up to three accounts"
+  (`src/client/pages/PlanPage.tsx:1700`) and "Your plan keeps three accounts
+  usable" (`src/client/pages/AccountsPage.tsx:678`) read it now, while "All 3
+  places are in use" (`src/client/pages/AccountsPage.tsx:719`) is a figure
+  beside a figure and right as a digit. So is the Simple Balance file's "Your
+  plan keeps 3 accounts in use, and 2 are in use here", which sets the limit
+  beside three other counts. A sentence that shares its line with a digit
+  figure — "until you choose which 3 stay usable" beside "2 of your 5" — is
+  the judgement call and stays a digit. Say so in a review; do not grep for it,
+  because there is nothing to find. Every one of these literals says
+  `${limit}`, and the violation exists only once a number has been substituted
+  into it. The literal half is the opposite, and is grepped: a digit typed into
+  a sentence is in the source, and the move preview's "The balance of 1 account
+  is checked" was one. The house ad is the one surface that states the limit and writes no
+  number: it draws it, as the free plan's tiles at rest beside two arriving,
+  and `tests/house-ad-ui.test.tsx`, "draws the free plan's limit, and the
+  accounts the paid plan adds", holds the tiles at rest to `MAX_FREE_ACCOUNTS`,
+  so the drawing cannot go on saying three after the limit moves.
 
 **Why the em-dash rule is scoped rather than absolute.** It used to read "No em
 dashes. They are a house preference and the codebase is consistent about it",
@@ -404,9 +417,23 @@ periodically loses.
 words, and `tests/common-guide.test.ts` for the em dash in a heading, a table
 header or a label, and for a count shown in JSX or a template literal without
 `formatCount` — named by its shape, a path ending in `Count`, `length` or one of
-four bare names, with a register for the one that never reaches four digits. What that last one cannot see is a `<Button>` whose words sit
-on the next line, which is most of them, so it catches the regression in the
-shape it has taken and not in every shape it could. The rest of this section is
+four bare names, or a brace holding nothing but a `.filter(…)` or `.map(…)`
+ending in `.length`, which is how the import's five resolution counts read
+"2431" beside a grouped "10,000" — with a register for the one that never
+reaches four digits. The same file holds that nothing in `src/client` calls
+`.toLocaleString()` but `formatCount` itself: five sites grouped a count by
+hand, identically today and differently the day the function takes the
+person's locale. What the em-dash scan cannot see is a `<Button>` whose words
+sit on the next line, which is most of them, so it catches the regression in
+the shape it has taken and not in every shape it could. `countInWords` is held
+where it is used, by `tests/active-accounts-ui.test.tsx` and
+`tests/plan-page-ui.test.tsx`. The literal half of "spelled out below ten" is
+`tests/common-guide.test.ts` too ("is spelled out below ten where the sentence
+writes the number itself"): a lone digit from one to nine followed by a word, in
+any string, template literal or run of JSX text in the client, fails unless it
+is one of three named by their exact words — the interval hint quoting the "1"
+somebody types, and a part's number beside the figure it is out of.
+Mutation-proved by putting "1 account" back. The rest of this section is
 review, and it is the one place that is honestly fine as review, because the
 thing being judged is whether a sentence is true.
 
@@ -434,9 +461,9 @@ The membership test is the whole of it, and all four clauses have to hold:
   everything else.
 
 One value passes today. Stripe reports a subscription price as an integer count
-of the currency's smallest unit (`src/server/stripe.ts:1262`), the server hands
-it on untouched (`src/server/services/billing.ts:1225`), and `formatPrice`
-(`src/client/pages/PlanPage.tsx:627-662`) divides it by the scale Stripe charged
+of the currency's smallest unit (`src/server/stripe.ts:1317`), the server hands
+it on untouched (`src/server/services/billing.ts:1240`), and `formatPrice`
+(`src/client/pages/PlanPage.tsx:628-663`) divides it by the scale Stripe charged
 it in and formats it in the same breath. That scale is the one `Intl` already
 knows for every currency but four — ISK, UGX, HUF and TWD, which Stripe's own
 documentation says it charges in two decimals whatever the currency's own
@@ -454,7 +481,7 @@ deployment sells in a currency nobody tested. `STRIPE_CHARGE_DIGITS` is not
 that table: it is four entries long, it records where the vendor's documented
 scale departs from the currency's, and `Intl` still answers for every other
 currency. And it creates a second place the
-price lives, which is what `src/server/config.ts:337-338` already refuses for
+price lives, which is what `src/server/config.ts:360-361` already refuses for
 the ids by keeping only the id in configuration. An amount copied out of Stripe
 is the one that does not get charged, because Stripe charges what the price
 object says; the copy can only ever be the number the customer was shown.
@@ -481,11 +508,11 @@ exception to.
 **House.** §Naming says a name is the same word on every surface, and names no
 exception. Six closed sets already read against that sentence:
 `accountTypeLabels` (`src/shared/domain.ts:53`), `PLAN_LABELS`
-(`src/shared/domain.ts:3491`), `categoryKindLabels`
+(`src/shared/domain.ts:3597`), `categoryKindLabels`
 (`src/client/select-options.ts:113`, which both category pages read),
 `transactionTypeLabels`
 (`src/client/pages/TemplatesPage.tsx:77`), and `ORDINAL_LABELS` and
-`FREQUENCY_LABELS` (`src/client/forms.tsx:2599`, `:2627`) for the two schedule
+`FREQUENCY_LABELS` (`src/client/forms.tsx:2608`, `:2636`) for the two schedule
 pickers. In four of the six the label is a different *word* rather than the same
 word capitalized: `credit_card` reads "Credit card", `plus` reads Premium, `both`
 reads "Income or expense", and the ordinal `-1` reads Last.
@@ -511,19 +538,24 @@ asymmetry is the whole argument, and it is why the map goes in one direction
 only. There is no reverse lookup from a label to a wire value, because a label
 is not an identifier.
 
-**One gap is open and named here rather than implied.** `whoami` returns the
-plan as a bare wire value (`src/server/mcp-output-schemas.ts:680-681`) and its
-description never says the screen reads a different word, so an agent explaining
-why a write was refused says "plus" about a product that sells Premium. That is
-the defect `AGENTS.md` records one level down from a route-by-route parity
-check: a field only an agent ever reads is invisible to a comparison of route
-lists, and `categoryKind` was exactly that for a release.
+**The gap this section named is closed.** `whoami` returned the plan as a bare
+string whose description never said the screen reads a different word, so an
+agent explaining why a write was refused said "plus" about a product that sells
+Premium. That was the defect `AGENTS.md` records one level down from a
+route-by-route parity check: a field only an agent ever reads is invisible to a
+comparison of route lists, and `categoryKind` was exactly that for a release.
+The field now publishes the closed set as an enum and a description built from
+`PLAN_LABELS` — "a person reads free as Free and plus as Premium, so use that
+word with them" (`src/server/mcp-output-schemas.ts:793-799`) — with the reply
+itself unchanged.
 
 *Checked by:* `tests/plan-labels.test.ts`, which refuses the old capitalized
 wire value anywhere and a renamed label anywhere but its own entry in the map —
 it refused only the first, so "Premium" written into a sentence passed — and
 derives the renamed set from `PLAN_LABELS` rather than listing it, and `tests/common-guide.test.ts`, which holds the map in `src/shared` and
-refuses a second copy of it. Not checked: that a tool returning a wire value
-tells its reader what a person sees. The gap above is that rule unenforced, and
-a mechanism for it would have to know which output fields are closed sets, which
-is the registry §Naming already says cannot be written.
+refuses a second copy of it; and `tests/mcp-output.test.ts` ("whoami's plan"),
+which reads the published schema an agent receives and holds every plan's
+label to its description. Not checked: that any other tool returning a wire
+value tells its reader what a person sees. A mechanism for that would have to
+know which output fields are closed sets, which is the registry §Naming already
+says cannot be written.

@@ -1,0 +1,234 @@
+{{- if include "simple-balance.collectorEnabled" . }}
+{{- /*
+The collector's guards run here, where the collector is rendered, rather than
+in simple-balance.validate with the application's: a release without one never
+reaches them, and they read values that only mean something when it runs.
+*/}}
+{{- include "simple-balance.validateCollector" . }}
+{{- $selector := printf "app.kubernetes.io/name=%s,app.kubernetes.io/instance=%s" (include "simple-balance.name" .) .Release.Name }}
+{{/*
+The collector's configuration: what it scrapes, which is this file's own, and
+the export pipeline, which is not — see the marker below.
+
+Discovered rather than listed, and per pod rather than per Service, because both
+tiers autoscale. A Service address is one replica chosen at random on each
+scrape, so a scaled tier would report one process's counters under another's
+name every time and every rate built on them would be nonsense. Pod discovery
+makes each replica a target of its own, and a pod the autoscaler adds is scraped
+from its first interval. This is the same reason the distributed compose recipe
+looks its targets up in DNS instead of naming one.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "simple-balance.collectorName" . }}
+  labels:
+    {{- include "simple-balance.componentLabels" (dict "root" . "component" "collector") | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+data:
+  config.yaml: |
+    # The metrics collector for the Helm chart's release, rendered from
+    # deploy/helm/simple-balance/templates/collector-config.yaml.
+    #
+    # It scrapes every API and scheduler pod of this release and itself, and
+    # sends what it read to one backend. The rules of the collector's own
+    # `${env:...}` expansion are in the header of deploy/compose/single/
+    # collector.yaml and hold here too: no `}` inside a default, and `$$` for a
+    # literal `$`. Every value that differs between deployments arrives from the
+    # pod's environment, which templates/collector-deployment.yaml sets from
+    # the chart's `collector` values.
+    receivers:
+      # Part of the exporter selection in the shared block below.
+      nop: {}
+
+      prometheus:
+        config:
+          global:
+            # Under five minutes, always; the `single` file says why, and the
+            # render refuses anything else.
+            scrape_interval: ${env:SB_METRICS_SCRAPE_INTERVAL:-30s}
+          scrape_configs:
+            # Every API pod of this release. The label selector is handed to
+            # the API server, so the watch carries only these pods rather than
+            # every pod in the namespace; the port is chosen by name, so a
+            # sidecar's port is never scraped as the API's. Not-ready pods are
+            # kept: one running its migrations is still a process worth
+            # watching, and its readiness gauge is how anybody finds out why it
+            # is not ready.
+            #
+            # The bearer token is METRICS_TOKEN, read from the Secret the pods
+            # read it from. Empty when the release has none, and the pods then
+            # check nothing, so an empty header costs nothing.
+            - job_name: simple-balance-api
+              authorization:
+                credentials: "${env:METRICS_TOKEN:-}"
+              kubernetes_sd_configs:
+                - role: pod
+                  namespaces:
+                    names:
+                      - {{ .Release.Namespace }}
+                  selectors:
+                    - role: pod
+                      label: "{{ $selector }},app.kubernetes.io/component=server"
+              relabel_configs:
+                - source_labels: [__meta_kubernetes_pod_container_port_name]
+                  regex: http
+                  action: keep
+                - source_labels: [__meta_kubernetes_pod_phase]
+                  regex: Pending|Succeeded|Failed|Unknown
+                  action: drop
+                # The pod's name beside its address, which is whatever the CNI
+                # handed out and means nothing to `kubectl`.
+                - source_labels: [__meta_kubernetes_pod_name]
+                  target_label: pod
+
+            # Every scheduler pod, on the port that serves health checks and
+            # /metrics and nothing else. The ticks, proposals, reminders and
+            # mail are counted only here: scraping the API alone watches the
+            # process that does none of the scheduled work.
+            - job_name: simple-balance-scheduler
+              authorization:
+                credentials: "${env:METRICS_TOKEN:-}"
+              kubernetes_sd_configs:
+                - role: pod
+                  namespaces:
+                    names:
+                      - {{ .Release.Namespace }}
+                  selectors:
+                    - role: pod
+                      label: "{{ $selector }},app.kubernetes.io/component=scheduler"
+              relabel_configs:
+                - source_labels: [__meta_kubernetes_pod_container_port_name]
+                  regex: health
+                  action: keep
+                - source_labels: [__meta_kubernetes_pod_phase]
+                  regex: Pending|Succeeded|Failed|Unknown
+                  action: drop
+                - source_labels: [__meta_kubernetes_pod_name]
+                  target_label: pod
+
+            # Itself, without its target_info, which would otherwise rename
+            # this job "otelcol" under a new random instance at every restart;
+            # deploy/compose/single/collector.yaml has the measurement.
+            - job_name: collector
+              static_configs:
+                - targets: ["127.0.0.1:8888"]
+              metric_relabel_configs:
+                - source_labels: [__name__]
+                  regex: target_info
+                  action: drop
+
+    # On every address in the pod rather than on loopback, which is where the
+    # compose recipes put theirs: the kubelet's probes arrive at the pod's own
+    # address. No host, so it listens on IPv4 and IPv6 alike, which a pod
+    # address may be either of. The NetworkPolicy is what decides who reaches
+    # it, and on this port it admits nothing but the probes.
+    extensions:
+      health_check:
+        endpoint: ":13133"
+
+    # ---- the export pipeline, shared -------------------------------------------
+    # Everything from this line to its closing one is the same text, comments and
+    # all, in deploy/compose/single/collector.yaml,
+    # deploy/compose/collector.distributed.yaml and the Helm chart's ConfigMap.
+    # tests/collector-config.test.ts compares every file under deploy/ that
+    # carries these two lines, so change them all together or none. What comes
+    # before this line is a shape's own: what it scrapes, and where its health
+    # check listens.
+    # ----------------------------------------------------------------------------
+
+    processors:
+      # First in the pipeline, so a backlog is refused at the door rather than
+      # held until the container's memory limit kills the process. The numbers
+      # follow the collector's own guidance against the 128 MiB the container is
+      # given: refuse new data above 80 MiB of heap, collect hard at 100, and
+      # GOMEMLIMIT at 80MiB in the environment so the runtime starts collecting
+      # before either.
+      # Measured: 51.7 MiB resident at the median over ten minutes, scraping
+      # about 3,700 series every fifteen seconds.
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 100
+        spike_limit_mib: 20
+
+      # Which deployment a series came from, when one account holds several. The
+      # job and the address already say which process; this says which copy of the
+      # product, and `production` is what an unset SB_METRICS_ENVIRONMENT means.
+      resource:
+        attributes:
+          - key: deployment.environment.name
+            value: "${env:SB_METRICS_ENVIRONMENT:-production}"
+            action: upsert
+
+      # Two thousand points at most per request, which keeps one far under New
+      # Relic's 1 MB ceiling, and ten seconds at most of waiting.
+      batch:
+        send_batch_size: 1000
+        send_batch_max_size: 2000
+        timeout: 10s
+
+    exporters:
+      # Both exporters always exist and only one is ever sent anything; the
+      # pipelines below decide which. The endpoint and the headers are the same
+      # settings for either, because an operator chooses one backend and the
+      # protocol is how it is spoken to.
+      #
+      # OTLP over HTTP with protobuf, gzipped by default, which is New Relic's
+      # recommendation for traffic on the public internet. The endpoint is a base
+      # URL, such as https://otlp.nr-data.net, and the exporter adds /v1/metrics
+      # itself. An empty SB_METRICS_EXPORT_HEADERS arrives as no headers at all.
+      otlp_http:
+        endpoint: "${env:SB_METRICS_EXPORT_ENDPOINT}"
+        headers: ${env:SB_METRICS_EXPORT_HEADERS:-[]}
+      # Remote write, for a backend that speaks only that. The endpoint is the
+      # whole write URL. The environment becomes a label on every series, because
+      # remote write has no resource to carry it and a backend would otherwise see
+      # it only on `target_info`.
+      prometheus_remote_write:
+        endpoint: "${env:SB_METRICS_EXPORT_ENDPOINT}"
+        headers: ${env:SB_METRICS_EXPORT_HEADERS:-[]}
+        resource_constant_labels:
+          included: [deployment.environment.name]
+
+    # How SB_METRICS_EXPORT_PROTOCOL picks an exporter, when the collector's
+    # configuration has no conditionals and a setting's value cannot be an
+    # exporter's name — `otlp` is the deprecated name of the gRPC exporter, not
+    # this one. So the value names a connector instead: the main pipeline hands its
+    # batches to `forward/<protocol>`, and only that connector's pipeline has an
+    # exporter it reaches. The last pipeline gives each connector the upstream the
+    # collector insists every connector has, fed by `nop`, so the one not chosen is
+    # valid and idle. A value that is neither name is a refusal at startup naming
+    # `forward/<value>`, and a Pulumi stack is refused at plan time first.
+    connectors:
+      forward/otlp: {}
+      forward/prometheus_remote_write: {}
+
+    service:
+      extensions: [health_check]
+      telemetry:
+        metrics:
+          readers:
+            - pull:
+                exporter:
+                  prometheus:
+                    host: 127.0.0.1
+                    port: 8888
+      pipelines:
+        metrics:
+          receivers: [prometheus]
+          processors: [memory_limiter, resource, batch]
+          exporters: ["forward/${env:SB_METRICS_EXPORT_PROTOCOL:-otlp}"]
+        metrics/otlp:
+          receivers: [forward/otlp]
+          exporters: [otlp_http]
+        metrics/prometheus_remote_write:
+          receivers: [forward/prometheus_remote_write]
+          exporters: [prometheus_remote_write]
+        metrics/unchosen:
+          receivers: [nop]
+          exporters: [forward/otlp, forward/prometheus_remote_write]
+    # ---- end of the export pipeline -------------------------------------------
+{{- end }}

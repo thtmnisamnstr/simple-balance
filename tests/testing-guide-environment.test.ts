@@ -19,7 +19,7 @@ import { sourceFiles } from "./support/source.js";
  * the next one does the same, so it is never read stale.
  */
 const SWITCHES =
-  /^(?:STRIPE_|SB_BILLING_ENABLED|SMTP_|MAIL_|GOOGLE_CLIENT_|METRICS_|ADS_|AUTH_MODE|ALLOWED_EMAILS|SETUP_TOKEN|LOG_LEVEL|SB_CSP_REPORT_ONLY|TRUST_PROXY|PRIVACY_POLICY_URL|TERMS_OF_USE_URL)/;
+  /^(?:STRIPE_|SB_BILLING_ENABLED|SMTP_|MAIL_|GOOGLE_CLIENT_|METRICS_|ADS_|AUTH_MODE|ALLOWED_EMAILS|SETUP_TOKEN|LOG_LEVEL|SB_CSP_REPORT_ONLY|SB_HOUSE_AD|TRUST_PROXY|PRIVACY_POLICY_URL|TERMS_OF_USE_URL)/;
 
 /**
  * The three spellings a file sets one with, read out of the code rather than

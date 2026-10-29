@@ -121,6 +121,33 @@ function literalEnums() {
 }
 
 /**
+ * Every plain array of two or more string literals that is not `as const`.
+ *
+ * The run-time spelling the checks above cannot see, because it is neither a
+ * tuple, a union nor a `z.enum`. `LedgerTier` was a bare union and the MCP
+ * instructions filtered the same three scopes out of a plain array, which
+ * widens to `string[]`: renaming a tier in the type compiled, and the array
+ * went on naming the old one. Compared against union aliases only, because an
+ * array that equals a tuple is either annotated with the tuple's own derived
+ * type — which the compiler then checks — or is a `z.enum`, which the third
+ * case above already reads.
+ */
+function plainArrays() {
+  const found: { where: string; members: string[] }[] = [];
+  for (const relative of SOURCES) {
+    const source = readFileSync(relative, "utf8");
+    for (const match of source.matchAll(
+      /\[(\s*"[^"\n]*"(?:\s*,\s*"[^"\n]*")+\s*,?\s*)\](?!\s*as const)/g,
+    )) {
+      const members = [...match[1]!.matchAll(/"([^"]+)"/g)].map((one) => one[1]!);
+      const at = source.slice(0, match.index).split("\n").length;
+      found.push({ where: `${relative}:${at}`, members });
+    }
+  }
+  return found;
+}
+
+/**
  * Two sets that share their words without being one set. A key here is the
  * members sorted and joined by a space, and it has to be argued.
  */
@@ -184,6 +211,16 @@ describe("a closed set", () => {
       .filter(([members]) => !(members in SHARED_WORDS))
       .map(([members, where]) => `{${members}} at ${where.join(", ")}`);
     expect(twice, "give the set one tuple, or one named type, and use it").toEqual([]);
+  });
+
+  it("is not filtered out of a plain array at run time while a union names it", () => {
+    const aliased = new Map(unions().map((union) => [key(union.members), union]));
+    const arrays = plainArrays();
+    expect(arrays.length, "no arrays found, so this examined nothing").toBeGreaterThan(20);
+    const restated = arrays
+      .filter((array) => aliased.has(key(array.members)))
+      .map((array) => `${array.where} restates ${aliased.get(key(array.members))!.name}`);
+    expect(restated, "write the set as a tuple and derive the union from it").toEqual([]);
   });
 
   it("names a shared-words exception only while the words are still shared", () => {

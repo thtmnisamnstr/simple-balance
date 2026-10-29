@@ -9,6 +9,10 @@ description: Review the browser app page by page and section by section against 
 tokens to the keyboard pass (`grep -n '^## ' docs/standards/web.md`). This skill is how to apply it to the whole app without missing
 the findings that matter.
 
+Run alone, it covers the whole app. Run by `release-prep`, it photographs only
+the pages the branch changed or reached and takes the other cells of the matrix
+from the committed product kit; that skill's phase 3b says how.
+
 ## The method: compare down the columns, not across the rows
 
 The instinct is to open a page, read it against the rules, then open the next.
