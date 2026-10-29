@@ -530,7 +530,7 @@ with `docs/guide.md` keeping the explanations.
   "**Statements that file themselves.**", not "CSV importer". The commit that
   set this was "Sell what somebody gets, not how it is built".
 - **One screenshot, with alt text that says what the picture shows** rather than
-  naming the page. `README.md:38` carries 185 characters of it, naming every
+  naming the page. `README.md:41` carries 185 characters of it, naming every
   figure on the page and the fact that currencies are reported separately.
 - **A section per question somebody actually asks**, in this order: what it is,
   everything else it does, run it locally, run the tests, host it, connect an
@@ -539,7 +539,7 @@ with `docs/guide.md` keeping the explanations.
   it said where the section sits, which is the shape of error an ordered list
   invites: it reads as complete and nobody counts it against the file.
 - **The license is stated in the README, not only in `LICENSE`.** For an AGPL
-  project the license is a term of use. `README.md:288-298` names it, links it,
+  project the license is a term of use. `README.md:291-301` names it, links it,
   and explains what section 13 adds, including for versions published under the
   older license.
 - **No badge wall.** There are none today.
@@ -1132,7 +1132,7 @@ edit.
   browser-only surface if anything here is.
 - **No `CONTRIBUTING.md`**, on a published AGPL project that accepts dependabot
   pull requests. The README carries a `## Contributing` section
-  (`README.md:228`) and `tests/docs-conventions.test.ts` holds it to not
+  (`README.md:231`) and `tests/docs-conventions.test.ts` holds it to not
   answering the question by pointing at the invariants file, so the half that
   was missing is the separate document a forge links to from a pull request
   form. Whether pull requests are taken at all is the owner's answer to give,
