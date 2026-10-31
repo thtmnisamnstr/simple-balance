@@ -15,7 +15,7 @@
     "drizzle-orm": "^0.45.3",
     "hono": "^4.13.13",
     "jose": "^6.2.12",
-    "nodemailer": "^10.0.14",
+    "nodemailer": "^10.1.4",
     "papaparse": "^5.7.0",
     "pg": "^8.23.0",
     "prom-client": "^15.1.3",
