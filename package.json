@@ -52,7 +52,7 @@
     "hono": "^4.13.13",
     "jose": "^6.2.12",
     "lucide-react": "^1.52.0",
-    "nodemailer": "^10.0.14",
+    "nodemailer": "^10.1.4",
     "papaparse": "^5.7.0",
     "pg": "^8.23.0",
     "prom-client": "^15.1.3",
