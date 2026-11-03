@@ -102,5 +102,13 @@
   "0025_subscription_cancel_at.sql": {
     "sha256": "5ce394b24581d8ab1bfa80811c2a7922034ad687767eec387cb2d73f226698a7",
     "when": 1790715215109
+  },
+  "0026_ledger_file_origins.sql": {
+    "sha256": "788508835378fb85c0bc15f32abd5366c42872c5f7ff0ebdf7bec0868e135011",
+    "when": 1792980320229
+  },
+  "0027_oauth_client_first_authorized.sql": {
+    "sha256": "f2a4cf1e362eb25994ec0bc50d68f8759eb3213436d7910373003035187a1488",
+    "when": 1793735938761
   }
 }

@@ -427,11 +427,10 @@
   `0018_incremental_taper.sql`, `0019_budget_target_pair.sql`,
   `0020_reference_indexes.sql` and `0021_idempotency_retention.sql` in 0.1.6.
   `0022_plans_and_billing.sql`, `0023_citus_distribution.sql`,
-  `0024_active_accounts.sql` and `0025_subscription_cancel_at.sql` in 0.2.0.
-  `0026_ledger_file_origins.sql` and `0027_oauth_client_first_authorized.sql`
-  are written and unreleased, so they are the ones here that may still be
-  regenerated, under the condition below; they freeze when they ship, and the
-  next schema change after them starts at `0028`.
+  `0024_active_accounts.sql` and `0025_subscription_cancel_at.sql` in 0.2.0,
+  and `0026_ledger_file_origins.sql` and
+  `0027_oauth_client_first_authorized.sql` in 0.2.2. None is written and
+  unreleased; the next schema change starts at `0028`.
   A migration written between releases may be regenerated only while no
   database anywhere has run it, and permitted is not the same as free:
   drizzle's migrator runs a file only where the recorded timestamp is older

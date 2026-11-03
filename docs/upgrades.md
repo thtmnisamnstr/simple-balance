@@ -3,9 +3,13 @@
 Everything persistent is in PostgreSQL. The container holds nothing you need to
 keep, so upgrading is swapping it for a newer one.
 
-## Before you upgrade to 0.2.2
+## Before you upgrade to 0.2.3
 
-This note is written as work lands rather than when the release is cut.
+Nothing has landed for 0.2.3 yet. This note is written as work lands rather
+than when the release is cut, and it is here, empty, because a missing heading
+and an unwritten note look the same from the outside.
+
+## Before you upgrade to 0.2.2
 
 **Nothing to do by hand unless you want metrics exported or the house ad
 shown, or you had `METRICS_ENABLED=true` on 0.2.1 with no `METRICS_TOKEN`, or
