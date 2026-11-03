@@ -732,14 +732,17 @@ async function assertAccountAllowance(tx: DbTransaction, actor: Actor) {
     allowance.message,
     { limit: allowance.limit, current: allowance.current, plan: entitlement.plan },
     // An agent cannot buy anything, so telling it to upgrade would be telling it
-    // to do something it has no way to do. It gets the number, the move it can
-    // make — the one the browser's sentence offers beside the upgrade, and the
-    // restore refusal and the ledger file name too — and who to ask for more.
+    // to do something it has no way to do. It gets the number and the move it
+    // can make — the one the browser's sentence offers beside the upgrade, and
+    // the restore refusal and the ledger file name too — and no way to a bigger
+    // plan: OpenAI's guidelines let an app say a feature is outside the plan in
+    // force and not promote an upgrade, and this sentence is what an assistant
+    // relays to the person. The plan tab is theirs to find; `whoami` carries
+    // the plan and its ceiling for an agent asked why.
     // "In use", because that is what is counted: a frozen or archived account
     // takes no place, and "has 3" beside a list of five read as a wrong count.
     `This ledger is on a plan that keeps ${allowance.limit} accounts in use and has ${allowance.current} in use. ` +
-      "Archiving one of them with archive_account, or deleting one with no history with delete_account, frees a place; confirm either with the person first. " +
-      "Only the person who owns the ledger can raise the limit, from Settings in the browser.",
+      "Archiving one of them with archive_account, or deleting one with no history with delete_account, frees a place; confirm either with the person first.",
   );
 }
 
@@ -866,7 +869,7 @@ export function assertAccountsWritable(freeze: AccountFreeze, ids: Iterable<stri
       throw validationError(
         frozenAccountRefusal(freeze.limit, name),
         { accountId: id, limit: freeze.limit },
-        `"${name}" is frozen: the plan in force keeps ${freeze.limit} accounts active and closes the rest to every change to what they hold. No argument you can change gets past this. whoami reports the plan and its ceiling, list_accounts reports \`frozen\` on each account, and a frozen one comes back into use only when somebody archives or deletes an account that is in use, or the person upgrades from a browser. Archiving the frozen account itself, or deleting it while nothing is on it, is allowed and frees no place.`,
+        `"${name}" is frozen: the plan in force keeps ${freeze.limit} accounts active and closes the rest to every change to what they hold. No argument you can change gets past this. whoami reports the plan and its ceiling, list_accounts reports \`frozen\` on each account, and a frozen one comes back into use only when somebody archives or deletes an account that is in use. Archiving the frozen account itself, or deleting it while nothing is on it, is allowed and frees no place.`,
       );
     }
   }

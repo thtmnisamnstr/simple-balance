@@ -31,6 +31,32 @@ export const MAX_CSV_CONFIGURATION_ROWS = MAX_BULK_SELECTION_ENTRIES;
 export const CSV_EXPORT_MAX_ROWS = 100_000;
 
 /**
+ * The most one tool reply lists of a register, and of a CSV export.
+ *
+ * A route streams a download to a browser that saves it; a tool reply lands in
+ * a model's context, whole, and is sent twice — `structuredContent` and its
+ * JSON text copy. Claude Code stops a tool result at 25,000 tokens and claude.ai
+ * at about 150,000 characters, and the directories ask for frugal output. A
+ * register row is about 220 characters and a CSV row about 370 once it is
+ * escaped into JSON, so these keep one copy of either near 45,000 and 37,000
+ * characters. Over them the tool refuses and says to ask for a shorter range,
+ * as the route already does at its own larger limits, rather than truncating:
+ * a CSV missing its tail reads back as a ledger missing money.
+ *
+ * The transport passes them, as `exportLedgerFile`'s limits are passed, so the
+ * browser's download and register keep the limits they had.
+ */
+export const MCP_REGISTER_MAX_ENTRIES = 200;
+export const MCP_CSV_EXPORT_MAX_ROWS = 100;
+/**
+ * And a size beside the row count, because a row is not a size: a note runs to
+ * 4,000 characters and a CSV row carries it twice, so a hundred long-noted rows
+ * came to about 800,000 characters a copy. Sixty thousand is the hundred rows
+ * above at their ordinary width with room to spare.
+ */
+export const MCP_CSV_EXPORT_MAX_CHARACTERS = 60_000;
+
+/**
  * The most content one Simple Balance file carries beyond each row's fixed
  * fields, counted in bytes beside the row cap rather than instead of it: the
  * free text of its entries — payee, description, notes and bank reference —

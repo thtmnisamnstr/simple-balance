@@ -493,7 +493,8 @@ The MCP plugin moves out into `@better-auth/mcp`, so `mcp`, `withMcpAuth`,
 on `better-auth/plugins` and the server does not compile against it. The
 `oauthApplication` model is renamed `oauthClient`, two tables are new, and
 `Account.issuer` wants a backfill, which here is a migration of this product's
-own, `0027`, because every shipped one is frozen.
+own, `0028` (`0027` is the OAuth client's `first_authorized_at`), because
+every shipped one is frozen.
 
 The design question to settle first is the rename under a rolling update. The
 split deployment and the chart run two releases side by side while a rollout

@@ -75,7 +75,7 @@ erases just as well.
 
 **Contested.** The flag is good advice in general and wrong here. All three
 sites it flags are Hono middleware
-(`src/server/api.ts:1643`, `src/server/http-security.ts:530` and `:1002`),
+(`src/server/api.ts:1827`, `src/server/http-security.ts:530` and `:1002`),
 where a `MiddlewareHandler` returns a `Response` to answer the request or
 nothing at all to let the next handler run. "Returns on some paths and not
 others" is the contract, not a mistake.
@@ -239,7 +239,7 @@ export type CategoryKind = (typeof categoryKinds)[number];
 (`src/shared/domain.ts:120-121`.)
 
 The array is the single source: Zod validates from it, the database enum is
-generated from it (`src/server/db/schema.ts:200`),
+generated from it (`src/server/db/schema.ts:208`),
 and the UI iterates it (`src/client/pages/CategoriesPage.tsx:138`).
 Adding a member is one edit, and every one of those follows.
 
@@ -260,7 +260,7 @@ literal enums looks only for sets *nobody* wrote a tuple for, and the case that
 compares against tuples reads unions alone, so the one spelling between them
 passes both. There is one: the direction in a move's report of transactions
 whose other half lands on another side here, `driftSchema`
-(`src/shared/ledger-file-import.ts:710-711`), spells `"deposit"` and
+(`src/shared/ledger-file-import.ts:742-743`), spells `"deposit"` and
 `"withdrawal"` where `entryTypes` in `src/shared/domain.ts:126` already holds
 them, unexported. Found by the release audit of October 2026 and left open,
 because closing it is an export and a third comparison in that test rather
@@ -556,7 +556,7 @@ own carve-out.
 
 ### 3.5 The Pulumi programs are a second TypeScript program
 
-**House**, and mechanized. `deploy/pulumi` is 8,939 lines of first-party
+**House**, and mechanized. `deploy/pulumi` is 8,940 lines of first-party
 TypeScript that this guide did not know existed. It is not a corner: 0.2.0 took
 it from two stacks to five — `aws`, `gcp`, `oci`, `aws-single`, `oci-single` —
 and

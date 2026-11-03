@@ -51,7 +51,20 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
       })
     ).id;
     categoryId = (await createCategory(actor, { name: "Groceries", kind: "expense" })).id;
-    server = createMcpServer(actor, new Set(["ledger:read", "ledger:stage", "ledger:write"]));
+    // The grant a client asking for what discovery publishes holds, the identity
+    // scopes included: `whoami` names the person only where they were granted.
+    server = createMcpServer(
+      actor,
+      new Set([
+        "openid",
+        "profile",
+        "email",
+        "offline_access",
+        "ledger:read",
+        "ledger:stage",
+        "ledger:write",
+      ]),
+    );
     client = new Client({ name: "live", version: "1.0.0" });
     const [c, s] = InMemoryTransport.createLinkedPair();
     await server.connect(s);

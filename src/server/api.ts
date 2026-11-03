@@ -164,6 +164,9 @@ import { deleteOwnAccount, summarizeOwnData } from "./services/account-deletion.
 import {
   listConnectedApps,
   pruneAbandonedClients,
+  markClientAuthorized,
+  clientIdForAccessToken,
+  retireRefreshToken,
   revokeAllConnectedApps,
   revokeConnectedApp,
 } from "./services/connected-apps.js";
@@ -898,15 +901,73 @@ app.post("/api/auth/mcp/register", async (c) => {
   );
 });
 
+/**
+ * The two fields of a token request this wrapper acts on, read the way Better
+ * Auth reads them: a form body or a JSON one. Anything unreadable is the
+ * library's to refuse, so it reads as neither.
+ */
+async function tokenRequestGrant(request: Request) {
+  const type = request.headers.get("content-type") ?? "";
+  const fields: Record<string, unknown> = await (
+    type.includes("application/json")
+      ? request.clone().json()
+      : request
+          .clone()
+          .text()
+          .then((text) => Object.fromEntries(new URLSearchParams(text)))
+  )
+    // Not a body this route accepts: the handler answers it.
+    .catch(() => ({}));
+  return {
+    grantType: typeof fields.grant_type === "string" ? fields.grant_type : null,
+    refreshToken: typeof fields.refresh_token === "string" ? fields.refresh_token : null,
+  };
+}
+
 app.post("/api/auth/mcp/token", async (c) => {
+  const grant = await tokenRequestGrant(c.req.raw);
   const response = await getAuth().handler(authRequest(c));
   if (!response.ok) return response;
   const payload = (await response.json()) as Record<string, unknown>;
   if (typeof payload.access_token === "string") {
-    payload.access_token = await issueMcpAccessToken(payload.access_token);
+    // A client that has been issued a token has been authorized, and stays out
+    // of the abandoned-registration sweep from now on, revoked or not. Best
+    // effort: the stamp only spares a client from a later sweep, and failing
+    // the request over it would spend an authorization code or a refresh
+    // token the client then could not use again.
+    const opaque = payload.access_token;
+    await clientIdForAccessToken(opaque)
+      .then((clientId) => (clientId ? markClientAuthorized(clientId) : undefined))
+      .catch((error: unknown) =>
+        log.failure("Could not record an OAuth client as authorized", error),
+      );
+    payload.access_token = await issueMcpAccessToken(opaque);
   }
   if (typeof payload.id_token === "string") {
     payload.id_token = await resignMcpIdToken(payload.id_token);
+  }
+  // Rotation, last, so nothing after it can fail: the refresh token this
+  // request presented stops working in the response that replaces it, rather
+  // than living out its seven days beside the new one. Anything that throws
+  // before here is a 500 the client retries with the old token, still valid.
+  // Better Auth takes no lock on the refresh grant, so two refreshes presenting
+  // one token both mint a replacement; the delete is the serialization point,
+  // and the request that finds the old token already gone lost the race, so
+  // its own replacement is deleted and it is refused the way a replayed token
+  // is. One chain survives, never two.
+  if (
+    grant.grantType === "refresh_token" &&
+    grant.refreshToken &&
+    typeof payload.refresh_token === "string" &&
+    !(await retireRefreshToken(grant.refreshToken, payload.refresh_token))
+  ) {
+    return c.json(
+      {
+        error: "invalid_grant",
+        error_description: "That refresh token has already been used. Sign in again.",
+      },
+      401,
+    );
   }
   const headers = new Headers(response.headers);
   headers.delete("content-length");
@@ -988,6 +1049,7 @@ async function pendingConsent(consentCode: string) {
     clientId?: unknown;
     scope?: unknown;
     requireConsent?: unknown;
+    redirectURI?: unknown;
   };
   try {
     parsed = JSON.parse(pending.value);
@@ -1001,7 +1063,39 @@ async function pendingConsent(consentCode: string) {
       ? parsed.scope.filter((scope): scope is string => typeof scope === "string")
       : [],
     requireConsent: parsed.requireConsent === true,
+    redirectURI: typeof parsed.redirectURI === "string" ? parsed.redirectURI : null,
     expiresAt: pending.expiresAt,
+  };
+}
+
+/**
+ * Where an approval sends the code, as a person can recognize it.
+ *
+ * The host of the redirect URI the authorize request was checked against,
+ * because registration is open and a client may call itself anything: the
+ * name on the screen is the client's own claim, and the host is where the
+ * code actually goes. Only for `http` and `https` is that a site, though:
+ * `myapp://chatgpt.com/cb` goes to whichever program on the machine owns
+ * `myapp:`, so any other scheme is shown with its scheme in front, and one
+ * with no host at all by its scheme alone. Loopback is said separately, and
+ * only over http, because it is the one host that names no site: a program on
+ * the person's own machine.
+ */
+export function redirectDestination(redirectURI: string | null) {
+  if (!redirectURI) return { redirectHost: null, redirectIsLoopback: false };
+  let parsed: URL;
+  try {
+    parsed = new URL(redirectURI);
+  } catch {
+    return { redirectHost: null, redirectIsLoopback: false };
+  }
+  const host = parsed.hostname;
+  const scheme = parsed.protocol.replace(/:$/, "");
+  const web = scheme === "http" || scheme === "https";
+  return {
+    redirectHost: web ? host : host ? `${scheme}://${host}` : scheme,
+    redirectIsLoopback:
+      web && (host === "localhost" || host === "[::1]" || /^127(?:\.\d{1,3}){3}$/.test(host)),
   };
 }
 
@@ -1050,6 +1144,11 @@ app.get("/api/auth/oauth2/consent-request", async (c) => {
     clientId: pending.clientId,
     clientName: application?.name ?? "An unnamed MCP client",
     scopes: pending.scopes,
+    ...redirectDestination(pending.redirectURI),
+    // Which ledger is being granted. A browser still signed in to one account
+    // approves for that account, which is easy to miss when the client was
+    // started for another — a reviewer's, say.
+    accountEmail: identity.user.email,
   });
 });
 
@@ -1069,19 +1168,34 @@ app.post("/api/auth/oauth2/consent", async (c) => {
     return c.json(transportError("UNAUTHORIZED", "Sign in is required"), 401);
   }
   const consentCode = await pendingConsentCode(c);
-  if (consentCode) {
-    const owner = (await pendingConsent(consentCode))?.userId;
-    if (owner && owner !== identity.user.id) {
-      return c.json(
-        transportError(
-          "CONSENT_NOT_YOURS",
-          "That authorization request was started by a different account.",
-        ),
-        403,
-      );
-    }
+  // Read before the handler runs, because answering consumes the record.
+  const pending = consentCode ? await pendingConsent(consentCode) : null;
+  if (pending?.userId && pending.userId !== identity.user.id) {
+    return c.json(
+      transportError(
+        "CONSENT_NOT_YOURS",
+        "That authorization request was started by a different account.",
+      ),
+      403,
+    );
   }
-  return getAuth().handler(authRequest(c));
+  const accepted = await c.req.raw
+    .clone()
+    .json()
+    .then((body: unknown) => (body as { accept?: unknown } | null)?.accept === true)
+    // Not JSON: the handler refuses it, and nothing was approved.
+    .catch(() => false);
+  const response = await getAuth().handler(authRequest(c));
+  // Approved, so this client has been authorized by somebody and is never an
+  // abandoned registration again, whatever is revoked later. A denial is not
+  // consent and marks nothing. Best effort, as at the token endpoint: failing
+  // here would turn a consent already given into an error page.
+  if (response.ok && accepted && pending?.clientId) {
+    await markClientAuthorized(pending.clientId).catch((error: unknown) =>
+      log.failure("Could not record an OAuth client as authorized", error),
+    );
+  }
+  return response;
 });
 
 // Better Auth publishes a protected-resource document of its own under the auth
@@ -1095,6 +1209,12 @@ app.post("/api/auth/oauth2/consent", async (c) => {
 // arrow, because `protectedResourceMetadata` is declared further down and a
 // bare reference here would be read before its initializer has run.
 app.get("/api/auth/.well-known/oauth-protected-resource", (c) => protectedResourceMetadata(c));
+// The authorization-server document's own copy, for the same reason: Better
+// Auth answers it under the auth base path with its defaults — three token
+// endpoint methods where registration makes every client public, no ledger
+// scopes, and a userinfo endpoint nothing registers. Discovery should say one
+// thing wherever a client asks, and the root document is the one that is true.
+app.get("/api/auth/.well-known/oauth-authorization-server", (c) => authorizationServerMetadata(c));
 app.on(["GET", "POST"], "/api/auth/*", (c) => getAuth().handler(authRequest(c)));
 /**
  * What each discovery document says this deployment supports.
@@ -1151,7 +1271,17 @@ const authorizationServerMetadata = async (c: Context) => {
   // discovery. The field is optional in OpenID discovery; a document that
   // omits it is honest, and one that names a dead endpoint is not.
   delete metadata.userinfo_endpoint;
-  return c.json({ ...metadata, scopes_supported: authorizationServerScopes });
+  return c.json({
+    ...metadata,
+    scopes_supported: authorizationServerScopes,
+    // What registration actually does. `boundedRegistration` makes every
+    // client public, whatever method it asked for, so advertising the two
+    // secret-based methods invited a client to register as confidential and
+    // then be told it was not. ChatGPT is the client where whether that
+    // override is accepted is unconfirmed; saying "none" alone removes the
+    // question, and a client that looks for "none" still finds it.
+    token_endpoint_auth_methods_supported: ["none"],
+  });
 };
 
 const protectedResourceMetadata = async (c: Context) => {
@@ -1181,6 +1311,23 @@ app.get("/.well-known/oauth-authorization-server/mcp/", authorizationServerMetad
 app.get("/.well-known/openid-configuration", authorizationServerMetadata);
 app.get("/.well-known/openid-configuration/mcp", authorizationServerMetadata);
 app.get("/.well-known/openid-configuration/mcp/", authorizationServerMetadata);
+
+// OpenAI's app portal proves control of the MCP host by fetching this and
+// comparing the body with the token it issued, byte for byte: the token and
+// nothing else, not JSON, so `c.text` rather than `c.json` and no trailing
+// newline. Unset, it is one more path nobody here publishes and answers the
+// same 404 as the catch-all below, read per request so setting it needs a
+// restart and nothing else.
+app.get("/.well-known/openai-apps-challenge", (c) => {
+  const token = getConfig().openaiAppsChallenge;
+  if (!token) {
+    return c.json({ error: "not_found", error_description: "No metadata is published here" }, 404);
+  }
+  return c.text(token, 200, {
+    "Content-Type": "text/plain; charset=utf-8",
+    "Cache-Control": "no-store",
+  });
+});
 
 // Anything else under /.well-known belongs to a protocol nobody here speaks.
 // Say so, rather than letting the catch-all hand back an HTML page that a
@@ -1266,11 +1413,48 @@ async function mcpTransport(c: Context<{ Variables: Variables }>) {
   await rejectRequestBody(c);
   const headers = new Headers(response.headers);
   headers.set("Connection", "close");
-  return new Response(response.body, {
+  // The library's challenge names only `resource_metadata`. A client that
+  // takes its scopes from the challenge, or sends none, then gets Better
+  // Auth's default grant, `openid profile email ledger:read`: the read tools
+  // and no refresh token, because refresh tokens need `offline_access`.
+  // Docker's gateway reads nothing else, and the MCP authorization spec says
+  // a server SHOULD name `scope` here. The value is the same seven both
+  // discovery documents advertise, for the reason given above them: a
+  // narrower first ask would leave anybody whose client follows the challenge
+  // reconnecting read-only after an upgrade.
+  const challenge = mcpChallenge(headers.get("www-authenticate"));
+  headers.set("WWW-Authenticate", challenge);
+  headers.delete("content-length");
+  const body = await response
+    .json()
+    .then((parsed: unknown) => {
+      // The body repeats the challenge for clients that cannot read headers.
+      const error = (parsed as { error?: Record<string, unknown> } | null)?.error;
+      if (error && typeof error === "object") error["www-authenticate"] = challenge;
+      return JSON.stringify(parsed);
+    })
+    // Not JSON from the library, which it always sends: the challenge header
+    // above is the answer that matters, so the reply goes out without a body.
+    .catch(() => null);
+  return new Response(body, {
     status: response.status,
     statusText: response.statusText,
     headers,
   });
+}
+
+/**
+ * The 401 challenge `/mcp` answers with, `resource_metadata` and `scope`.
+ *
+ * Better Auth's `resource_metadata` is kept where it set one, since it is the
+ * document the tests and every client already follow there; it is rebuilt
+ * from the base URL only where the library sent a bare `Bearer`.
+ */
+function mcpChallenge(libraryChallenge: string | null) {
+  const metadata =
+    /resource_metadata="([^"]*)"/.exec(libraryChallenge ?? "")?.[1] ??
+    `${getConfig().baseUrl}/api/auth/.well-known/oauth-protected-resource`;
+  return `Bearer resource_metadata="${metadata}", scope="${resourceScopes.join(" ")}"`;
 }
 
 /**

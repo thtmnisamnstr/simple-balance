@@ -428,9 +428,10 @@
   `0020_reference_indexes.sql` and `0021_idempotency_retention.sql` in 0.1.6.
   `0022_plans_and_billing.sql`, `0023_citus_distribution.sql`,
   `0024_active_accounts.sql` and `0025_subscription_cancel_at.sql` in 0.2.0.
-  `0026_ledger_file_origins.sql` is written and unreleased, so it is the one
-  here that may still be regenerated, under the condition below; it freezes
-  when it ships, and the next schema change after it starts at `0027`.
+  `0026_ledger_file_origins.sql` and `0027_oauth_client_first_authorized.sql`
+  are written and unreleased, so they are the ones here that may still be
+  regenerated, under the condition below; they freeze when they ship, and the
+  next schema change after them starts at `0028`.
   A migration written between releases may be regenerated only while no
   database anywhere has run it, and permitted is not the same as free:
   drizzle's migrator runs a file only where the recorded timestamp is older
@@ -449,7 +450,11 @@
   takes a lock that blocks reads as well as writes, the migrator's one
   transaction holds it through both index scans, and on a rolling update it
   first waits for any transaction already open on the three tables — all
-  said in the file's header, which measures the scans. `0023` is
+  said in the file's header, which measures the scans. `0027` adds a nullable
+  column with no default to `auth_oauth_application` and backfills it from the
+  consent and token rows, which touches one row per OAuth client and nothing of
+  anybody's ledger; all three OAuth tables are reference tables on a cluster.
+  `0023` is
   the one migration that does nothing on most
   deployments and says so at the top: it distributes the ledger and is gated on
   the Citus extension being installed, so the `single` profile — whose database
@@ -544,7 +549,7 @@ disagreement rather than quietly losing it.
 Two habits from those guides are worth knowing before the first edit, because
 both look like mistakes:
 
-- **Comments are dense on purpose** — 27.7% of non-blank lines in `src`. They
+- **Comments are dense on purpose** — 27.8% of non-blank lines in `src`. They
   carry why the obvious alternative is wrong. Do not tidy them away.
   (`docs/standards/code/comments.md`.)
 - **Some loops must not be parallelized.** Legs resolve one at a time so two

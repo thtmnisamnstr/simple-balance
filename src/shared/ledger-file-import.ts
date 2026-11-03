@@ -469,6 +469,38 @@ export function ledgerFileMoveStagedBlocked(n: number): string {
 }
 
 /**
+ * The two ways a person is pointed at a bigger plan from a file's preview, as
+ * the browser ends a sentence with them. An agent relays what it reads to the
+ * person, and OpenAI's guidelines let an app say a thing is outside the plan
+ * in force and not promote an upgrade, so `withoutUpgradeAdvice` takes either
+ * off everything the ledger-file tools return. Constants, so the browser's
+ * sentence and the strip cannot drift apart.
+ */
+export const LEDGER_FILE_UPGRADE_AFTER_DASH = " — or upgrade under Settings.";
+export const LEDGER_FILE_UPGRADE_AFTER_COMMA = ", or upgrade under Settings.";
+
+/**
+ * A reply with the upgrade advice taken off every string in it, each sentence
+ * ending where the advice began. Walks the whole value, because the advice
+ * travels in a problem's `message`, a record's `message` and the refusal's
+ * `details.issues` alike.
+ */
+export function withoutUpgradeAdvice<T>(value: T): T {
+  if (typeof value === "string") {
+    return value
+      .replaceAll(LEDGER_FILE_UPGRADE_AFTER_DASH, ".")
+      .replaceAll(LEDGER_FILE_UPGRADE_AFTER_COMMA, ".") as T;
+  }
+  if (Array.isArray(value)) return value.map(withoutUpgradeAdvice) as T;
+  if (value && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, withoutUpgradeAdvice(entry)]),
+    ) as T;
+  }
+  return value;
+}
+
+/**
  * How a move problem that no answer cures ends for a person, which the server
  * swaps for the tool an agent adds a file with.
  */
@@ -2685,7 +2717,7 @@ export function planLedgerFileAdd(input: LedgerFilePlanInput): LedgerFilePlanned
   if (chosen < needed) {
     problem(
       "arriveArchived",
-      `A free plan keeps ${limit} accounts in use, and this ledger has ${inUse}. This file brings ${arriving} more, so choose at least ${needed} of them to arrive archived${chosen ? ` — ${chosen} so far` : ""} — or upgrade under Settings.`,
+      `A free plan keeps ${limit} accounts in use, and this ledger has ${inUse}. This file brings ${arriving} more, so choose at least ${needed} of them to arrive archived${chosen ? ` — ${chosen} so far` : ""}${LEDGER_FILE_UPGRADE_AFTER_DASH}`,
       undefined,
       undefined,
       { limit: limit!, current: inUse, arriving, needed, chosen },
@@ -2778,7 +2810,7 @@ export function planLedgerFileAdd(input: LedgerFilePlanInput): LedgerFilePlanned
       const theirs = record.hereEntry.record as { archivedAt?: string | null; inUse?: boolean };
       const n = entriesNaming.get(recordId("account", record.key)) ?? 0;
       if (theirs.archivedAt != null || theirs.inUse !== false || n === 0) continue;
-      record.message = `"${record.importName}" is frozen here, and ${n === 1 ? "one of this file's transactions is" : `${n} of this file's transactions are`} on it. A move writes every transaction straight into the books, and a frozen account takes no new ones, so free a place for it first by archiving or deleting an account in use, or upgrade under Settings.`;
+      record.message = `"${record.importName}" is frozen here, and ${n === 1 ? "one of this file's transactions is" : `${n} of this file's transactions are`} on it. A move writes every transaction straight into the books, and a frozen account takes no new ones, so free a place for it first by archiving or deleting an account in use${LEDGER_FILE_UPGRADE_AFTER_COMMA}`;
       problem("move", record.message, "account", record.key, { count: n });
     }
 

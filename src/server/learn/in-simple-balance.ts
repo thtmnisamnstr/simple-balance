@@ -64,7 +64,7 @@ export const IN_SIMPLE_BALANCE: Readonly<Record<string, readonly LearnStep[]>> =
     {
       step: "Card payments and refunds",
       tools: ["create_transaction"],
-      how: "A card payment is `type` transfer from checking to the card, with the payment in `sourceAmount` and no category. A refund is a deposit in the purchase's category; for a category that does not exist yet, send `categoryKind` expense, which the browser asks as A refund of money you spent.",
+      how: "Paying the card off is recorded as `type` transfer from checking to the card, with the amount paid in `sourceAmount` and no category. A refund is a deposit in the purchase's category; for a category that does not exist yet, send `categoryKind` expense, which the browser asks as A refund of money you spent.",
     },
     {
       step: "See where it went",
@@ -212,7 +212,7 @@ export const IN_SIMPLE_BALANCE: Readonly<Record<string, readonly LearnStep[]>> =
     {
       step: "Record income as it comes in",
       tools: ["create_transaction", "create_recurrence"],
-      how: "Each payment is a deposit with an income category. A `create_recurrence` with no `amount` proposes a staged row on each payday to complete with the real figure; it never posts.",
+      how: "Each paycheck is a deposit with an income category. A `create_recurrence` with no `amount` proposes a staged row on each payday to complete with the real figure; it never posts.",
     },
     {
       step: "Budget from last month's income",
@@ -283,7 +283,7 @@ export const IN_SIMPLE_BALANCE: Readonly<Record<string, readonly LearnStep[]>> =
     {
       step: "Record the payment as a transfer",
       tools: ["create_transaction", "create_recurrence"],
-      how: "`type` transfer, `fromAccountId` checking and `toAccountId` the card, with the payment in `sourceAmount`. A `create_recurrence` between the same two accounts proposes it each month; it takes the figure as `amount`, or none for a payment that varies.",
+      how: "`type` transfer, `fromAccountId` checking and `toAccountId` the card, with the amount paid in `sourceAmount`. A `create_recurrence` between the same two accounts proposes it each month; it takes the figure as `amount`, or none for a bill that varies.",
     },
     {
       step: "Make interest easy to see",
@@ -310,7 +310,7 @@ export const IN_SIMPLE_BALANCE: Readonly<Record<string, readonly LearnStep[]>> =
     {
       step: "Start with your payees",
       tools: ["list_payees", "list_transactions"],
-      how: "`list_payees` gives each payee's transaction count, and `list_transactions` with `payee` lists every payment to one.",
+      how: "`list_payees` gives each payee's transaction count, and `list_transactions` with `payee` lists every transaction with one.",
     },
     {
       step: "Search for the rest",
@@ -365,7 +365,7 @@ export const IN_SIMPLE_BALANCE: Readonly<Record<string, readonly LearnStep[]>> =
     {
       step: "Accounts you've closed",
       tools: ["archive_account"],
-      how: "`archive_account` posts the balance out to equity, so the account stops counting toward totals and keeps its history. It moves money in the books, so confirm it first.",
+      how: "`archive_account` posts the balance out to equity, so the account stops counting toward totals and keeps its history. It is a bookkeeping entry and moves no real money, but it changes the totals the person reads, so confirm it first.",
     },
   ],
   "emergency-fund": [

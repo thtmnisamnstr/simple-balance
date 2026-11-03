@@ -43,13 +43,33 @@ flow uses Google; `both` presents both methods.
 
 Registration is open, as RFC 7591 intends, but bounded: the text fields are
 clamped to lengths a real client has no trouble with, and a registration that
-after a day nobody has approved and that has never been issued a token is swept
-away.
+after a day nobody has ever approved and that has never been issued a token is
+swept away. "Ever" is the point: a client somebody approved is kept after its
+approval is revoked, because a client such as ChatGPT registers once per
+connection and signs in with the same registration when it reconnects. Every
+client is public — registration ignores a request for a client secret — and
+discovery lists `none` as the only token endpoint authentication method.
+
+An unauthenticated request to `/mcp` is answered with a 401 whose
+`WWW-Authenticate` challenge names the resource metadata and the scopes to ask
+for, `openid profile email offline_access ledger:read ledger:stage
+ledger:write`, the same list the discovery documents publish. A client that
+wants less asks for less, and the consent screen shows the person whatever was
+asked for.
+
+A deployment listing itself in OpenAI's app directory can answer the portal's
+domain check: set `SB_OPENAI_APPS_CHALLENGE` to the token the portal shows, and
+`/.well-known/openai-apps-challenge` serves it as plain text
+([deployment](deployment.md)).
 
 Every authorization request is routed through the consent screen, including
 requests from already signed-in users and clients that omit `prompt=consent`.
 The server decides that approval is required. A dynamically registered client
-cannot waive it.
+cannot waive it. The screen names the client as the client named itself, and
+beside it the host the approval sends the code back to, which the client cannot
+choose so freely — a loopback address is called out as a program on the
+person's own machine — and the email of the account whose ledger is being
+granted, since a browser still signed in to one account approves for that one.
 
 OAuth access tokens returned to clients are RS256 JWTs with issuer, subject,
 client, scope, expiry, and an audience fixed to this deployment's `/mcp` resource.
@@ -58,6 +78,11 @@ persist in PostgreSQL, so tokens remain valid across container restarts. After J
 verification, the server also checks Better Auth's revocable access-token record
 and whether the user still has an authentication method enabled by the current
 `AUTH_MODE` before a tool can run.
+
+A client that asked for `offline_access` is also given a refresh token, good
+for seven days. Every refresh returns a new one and retires the one presented,
+with the access token issued beside it, in the same response: store the new
+refresh token each time, because the old one answers `invalid_grant`.
 
 ## Scopes
 
@@ -304,7 +329,10 @@ afterward rather than assuming it is still there.
 ## Knowing where you are
 
 `whoami` reports whose books these are and the client id this call is authorized
-under, which is how a client picks itself out of `list_connected_agents`. It
+under, which is how a client picks itself out of `list_connected_agents`. The
+name comes back only to a token holding `profile` and the email only to one
+holding `email`, the scopes the consent screen asked for them under; each is
+null otherwise. It
 says nothing about how the person signs in. It does say whether this deployment
 can send mail at all, as `notificationsAvailable`: reminders and proposal notices
 are stored whether or not it can, so this is how to tell somebody that the
@@ -436,9 +464,10 @@ means an account typed `checking`, `savings` or `cash`.
 
 `get_account_register` lists one account's postings in date order with the
 balance before and after each, plus the balance the window opens and closes on.
-At most ten thousand postings; a wider window is refused rather than truncated,
-because a register cut short would close on a balance its own last row does not
-reach.
+At most 200 postings in one call, so the reply fits the context it lands in; a
+wider window is refused, with the count, rather than truncated, because a
+register cut short would close on a balance its own last row does not reach.
+The person's register in the browser lists up to ten thousand.
 It is built for finding mistakes rather than for analysis: where a balance goes
 wrong, this is the row it went wrong on. An archived account ends at zero and
 the postings that closed it out to equity are in the list, marked `closing` in
@@ -768,7 +797,11 @@ somebody types, so "acme co" finds "ACME  Co" on both.
 `export_transactions_csv` writes the round-trip format: a file it produces reads
 back into another ledger, or a fresh install, as the same transactions,
 including their splits, which travel by category name. It takes the same filters
-`list_transactions` does and exports the whole matching set rather than a page.
+`list_transactions` does and exports the whole matching set rather than a page,
+up to 100 transactions and 60,000 characters in one call — long notes reach the
+second first: more is refused with the limit rather than cut short, so export a
+date range at a time. The person's download from **Import
+and export** carries up to 100,000.
 A deleted entry is never exported whatever is asked for, because the format has
 no column to say an entry is void and reading it back would raise the amount
 from the dead. The reply carries the text as `csv`, with `rowCount` and the
@@ -919,8 +952,9 @@ On a plan that keeps a limited number of accounts in use, `plan.places` says
 how many new accounts the file brings and how many of them have to arrive
 archived; name them in `arriveArchived`, which nobody fills in for you.
 Accounts archived where the file came from arrive archived anyway. Their entries
-still stage, and wait until the account is restored into a free place. Only the
-person can raise the limit, from the browser.
+still stage, and wait until the account is restored into a free place. Archiving
+or deleting an account in use is what frees one; nothing a tool sends changes
+the limit.
 
 A part carries at most 10,000 entries, staged rows and budget amounts, and at
 most 10,000 accounts, categories, groups, templates, recurring transactions
@@ -1058,8 +1092,8 @@ both copies have to run 0.2.2 or later.
    `movePlan`: the questions in its `records`, what stops it in its
    `problems`, and on a plan that keeps a limited number of accounts in use,
    `movePlan.places` — our cloud app's free plan keeps three. Ask the person
-   each question, and which accounts arrive archived, or whether they would
-   rather upgrade, which only they can do, from Settings in the browser.
+   each question, and which accounts arrive archived, or which accounts in use
+   they would rather archive or delete to free a place.
 4. **Confirm with the person**, then call `move_ledger_file` with the same
    text, a `fileName`, a fresh `idempotencyKey`, and the decisions,
    `arriveArchived` and `preferences` they gave. Read `balances` in the reply:

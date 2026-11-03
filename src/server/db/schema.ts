@@ -121,6 +121,14 @@ export const oauthApplication = pgTable(
     type: text("type").notNull(),
     disabled: boolean("disabled").default(false),
     userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
+    // When somebody first approved this client or it was first issued a token,
+    // and never cleared. Revoking deletes the consent and token rows, so their
+    // absence cannot tell a client nobody finished registering from one that
+    // was used and then disconnected; this can, and `pruneAbandonedClients`
+    // keeps every client it is set on. Not a Better Auth field: the library
+    // neither reads nor writes it, and the column is nullable so its inserts
+    // need not know it is here.
+    firstAuthorizedAt: timestamp("first_authorized_at", { withTimezone: true }),
     ...timestamps,
   },
   (table) => [index("oauth_application_user_idx").on(table.userId)],

@@ -263,6 +263,10 @@ function ownerNamed(where: string | null, bindings: Map<string, string>): boolea
  */
 const UNSCOPED_BY_DESIGN = new Map([
   [
+    "markClientAuthorized",
+    "An OAuth client registration is not anybody's: dynamic registration is anonymous, and one client may be approved by several accounts. The stamp names the client by its unique id and only ever fills an empty column, so there is no owner to add to the where and nothing of anybody's to reach.",
+  ],
+  [
     "closeStripeCustomer",
     "Stripe's delivery names a customer and nobody else; this delete of `billing_customer` by the unique `stripe_customer_id` is the lookup that produces the owner, and the subscription update two lines below it is scoped by what this returned. `database.md` 2.3 argues the same exception for the read on the same path: the key is issued by Stripe rather than typed by anybody, so the row it reaches is the only row it could reach.",
   ],

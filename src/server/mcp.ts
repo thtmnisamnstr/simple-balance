@@ -49,7 +49,12 @@ import {
   uuid,
 } from "../shared/domain.js";
 import { getConfig } from "./config.js";
-import { MCP_LEDGER_FILE_CONTENT_MAX_BYTES } from "./config-limits.js";
+import {
+  MCP_CSV_EXPORT_MAX_CHARACTERS,
+  MCP_CSV_EXPORT_MAX_ROWS,
+  MCP_LEDGER_FILE_CONTENT_MAX_BYTES,
+  MCP_REGISTER_MAX_ENTRIES,
+} from "./config-limits.js";
 import { apiRequestBodyLimit } from "./http-security.js";
 import { getDb, type DbTransaction } from "./db/client.js";
 import {
@@ -123,6 +128,7 @@ import {
   ledgerFileAddInputSchema,
   ledgerFileAddResultSchema,
   ledgerFilePreviewInputSchema,
+  withoutUpgradeAdvice,
 } from "../shared/ledger-file-import.js";
 import {
   ledgerFileMoveInputSchema,
@@ -256,6 +262,31 @@ const toolResult = (result: unknown) => {
     ],
   };
 };
+
+/**
+ * A ledger-file tool's reply, and its refusal's details, without the browser's
+ * advice to upgrade. A file's preview carries the browser's own sentences in
+ * every problem and record, and a refusal hands them on in `details.issues`;
+ * the agent sentence `planRefusal` writes covers the message and not those.
+ * An agent cannot buy a plan and relays what it reads, so the advice is taken
+ * off here, where only the agent's copy passes (`withoutUpgradeAdvice`).
+ */
+async function withoutUpgradeAdviceIn(fn: () => Promise<unknown>) {
+  try {
+    return withoutUpgradeAdvice(await fn());
+  } catch (error) {
+    if (error instanceof AppError && error.details !== undefined) {
+      throw new AppError(
+        error.code,
+        error.message,
+        error.status,
+        withoutUpgradeAdvice(error.details),
+        error.agentMessage,
+      );
+    }
+    throw error;
+  }
+}
 
 async function runTool(fn: () => Promise<unknown>) {
   try {
@@ -661,7 +692,19 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         log.debug(`MCP tool ${name} ${outcome} in ${Date.now() - startedAt}ms`);
       }
     } as typeof callback;
-    return register(name, config, measured);
+    // The title is copied into the annotations here, on a fresh object, rather
+    // than written onto each preset: the presets are shared, so assigning
+    // `annotations.title` would give every tool on one the last title
+    // registered. `Tool.title` is the specification's field and
+    // `annotations.title` is the older one, and a client or a directory's
+    // scan may read either — Claude's portal flags a tool missing it — so
+    // both carry the same words. Keeping every registration's
+    // `annotations: <preset>` form is also what lets the connectors
+    // repository's `sync-tools` read the presets out of this file.
+    const titled = config.title
+      ? { ...config, annotations: { ...config.annotations, title: config.title } }
+      : config;
+    return register(name, titled, measured);
   } as typeof server.registerTool;
 
   if (hasScope(scopes, "ledger:read")) {
@@ -822,7 +865,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Who this ledger belongs to",
         description:
-          "The name and email of the person whose books these are, and the client id this call is authorized under, which is how you tell yourself apart in `list_connected_agents`. It reports nothing about how they sign in. plan, accountLimit and accountsUsed say what these books are allowed and how much of it is gone, and activeChoicePending whether the one-time choice of accounts in use is open; plan is null where nothing is sold, and the two counts wherever no limit is in force, the paid plan included. notificationsAvailable says whether this deployment can send mail at all, which decides whether a recurrence set to email on proposal, or a template reminder, will ever arrive. scopes is what this token may do; a call needing more comes back as a 403 naming the scope, so you can say which one you are short of rather than guess.",
+          "The name and email of the person whose books these are, each only where the person granted it (the profile and email scopes; null otherwise), and the client id this call is authorized under, which is how you tell yourself apart in `list_connected_agents`. It reports nothing about how they sign in. plan, accountLimit and accountsUsed say what these books are allowed and how much of it is gone, and activeChoicePending whether the one-time choice of accounts in use is open; plan is null where nothing is sold, and the two counts wherever no limit is in force, the paid plan included. notificationsAvailable says whether this deployment can send mail at all, which decides whether a recurrence set to email on proposal, or a template reminder, will ever arrive. scopes is what this token may do; a call needing more comes back as a 403 naming the scope, so you can say which one you are short of rather than guess.",
         inputSchema: toolInput({}),
         outputSchema: mcpOutputSchema(identityResultSchema),
         annotations: readAnnotations,
@@ -834,8 +877,16 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       () =>
         runTool(async () => {
           const { entitlement, accountsUsed, activeChoicePending } = await getPlanSummary(actor);
+          const { name, email, ...identity } = await getIdentity(actor);
           return {
-            ...(await getIdentity(actor)),
+            // Only what the person agreed to share when they approved this
+            // client: the consent screen lists `profile` as "See your name" and
+            // `email` as "See your email address", and the grant is what they
+            // saw. The privacy policy says an assistant "sees what you grant it
+            // when you approve the connection", and this is where that holds.
+            name: scopes.has("profile") ? name : null,
+            email: scopes.has("email") ? email : null,
+            ...identity,
             scopes: [...scopes].sort(),
             // All three null on a deployment that sells nothing, which is the
             // default: an agent should be able to tell "no limit here" from
@@ -1073,19 +1124,20 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "List one account's postings with a running balance",
         description:
-          "List every posting on one account in date order with the balance before and after each of them, plus the balance the window opens and closes on. Built for finding mistakes rather than for analysis: where a balance goes wrong, this is the row it went wrong on. An archived account ends at zero, and the postings that closed it out to equity are in the list. A range holding more than 10,000 postings is refused; ask for a shorter one.",
+          "List every posting on one account in date order with the balance before and after each of them, plus the balance the window opens and closes on. Built for finding mistakes rather than for analysis: where a balance goes wrong, this is the row it went wrong on. An archived account ends at zero, and the postings that closed it out to equity are in the list. A range holding more than 200 postings is refused, with the count, so this stays small enough to read in one reply; ask for a shorter one. The person's register in the browser lists up to 10,000.",
         inputSchema: dateRangeSchema.extend({ id: recordIdSchema }).strict(),
         outputSchema: mcpOutputSchema(accountRegisterResultSchema),
         annotations: readAnnotations,
       },
-      ({ id, start, end }) => runTool(() => getAccountRegister(actor, id, { start, end })),
+      ({ id, start, end }) =>
+        runTool(() => getAccountRegister(actor, id, { start, end }, MCP_REGISTER_MAX_ENTRIES)),
     );
     server.registerTool(
       "export_transactions_csv",
       {
         title: "Export transactions as CSV",
         description:
-          "Export filtered committed transactions in the round-trip CSV format. A ledger larger than one import can take exports as one file its own importer will refuse; filter with start and end and export a range at a time. A deleted entry is never exported, whatever filter is sent: it is void, its postings net to zero, and the file has no column to say so, so reading it back would raise the voided amount from the dead.",
+          "Export filtered committed transactions in the round-trip CSV format. One call exports at most 100 transactions and 60,000 characters, so the file stays small enough to read in one reply; more is refused with the limit rather than cut short, so filter with start and end and export a range at a time. The person's download from Import and export in the browser carries up to 100,000. A deleted entry is never exported, whatever filter is sent: it is void, its postings net to zero, and the file has no column to say so, so reading it back would raise the voided amount from the dead.",
         // An export is the whole filtered set, so it advertises no window, and
         // no includeDeleted either: the service fixes that to false and an
         // advertised filter that changes nothing is worse than an absent one.
@@ -1102,7 +1154,13 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         outputSchema: mcpOutputSchema(csvExportResultSchema),
         annotations: readAnnotations,
       },
-      (input) => runTool(() => exportTransactionsCsv(actor, input)),
+      (input) =>
+        runTool(() =>
+          exportTransactionsCsv(actor, input, {
+            maxRows: MCP_CSV_EXPORT_MAX_ROWS,
+            maxCharacters: MCP_CSV_EXPORT_MAX_CHARACTERS,
+          }),
+        ),
     );
     server.registerTool(
       "export_ledger_file",
@@ -1143,7 +1201,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         outputSchema: mcpOutputSchema(ledgerFilePreviewResultSchema),
         annotations: readAnnotations,
       },
-      (input) => runTool(() => previewLedgerFile(actor, input)),
+      (input) => runTool(() => withoutUpgradeAdviceIn(() => previewLedgerFile(actor, input))),
     );
     server.registerTool(
       "list_audit_events",
@@ -1745,7 +1803,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Archive or restore account",
         description:
-          "Retire an account, or bring one back. Archiving posts whatever the account still holds out to the Opening Balances equity account, so it closes at zero and drops out of balances and summaries while its history stays readable. Restoring posts the balance back, and on a plan that limits how many accounts are active it needs a free place: with none it is refused with CONFLICT, and the details carry the limit and how many are in use. This moves money in the books, so confirm it with the person first.",
+          "Retire an account, or bring one back. Archiving posts whatever the account still holds out to the Opening Balances equity account, so it closes at zero and drops out of balances and summaries while its history stays readable. Restoring posts the balance back, and on a plan that limits how many accounts are active it needs a free place: with none it is refused with CONFLICT, and the details carry the limit and how many are in use. These are bookkeeping entries in the person's ledger and move no real money, but they change the balances the person reads, so confirm it with them first.",
         inputSchema: toolInput({
           id: recordIdSchema,
           expectedVersion: expectedVersionSchema,
@@ -1921,7 +1979,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Create transaction template",
         description:
-          "Save a starting point for the transaction form. Every field is optional, including the type: leave one out to make it one the person fills in each time, and an amount is the usual one to omit. A stored date is used when the template is applied and an absent one means the day it is applied. A categoryName is stored as typed; it is matched, ignoring case, and created if nothing matches, only when an entry is made from the template. One key is refused rather than ignored: externalId, the reference a bank statement row was imported under, because copied onto every transaction made from this it would make the next real import of that row look like one already seen.",
+          "Save a starting point for the transaction form. Every field is optional, including the type: leave one out to make it one the person fills in each time, and an amount is the usual one to omit. A stored date is used when the template is applied and an absent one means the day it is applied. A categoryName is stored as text, as typed, and saving the template creates no category: only when an entry is made from the template is the name matched, ignoring case, and the category created if nothing matches. One key is refused rather than ignored: externalId, the reference a bank statement row was imported under, because copied onto every transaction made from this it would make the next real import of that row look like one already seen.",
         inputSchema: transactionTemplateCreateSchema
           .extend({
             idempotencyKey: idempotencyKeySchema,
@@ -2083,7 +2141,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         // reviewed rather than writing one they had never seen.
         title: "Write a new transaction straight into the books",
         description:
-          "Directly commit a deposit, withdrawal, or transfer. An entry that looks like one already in the books is refused with a DUPLICATE error rather than written; that is the refusal you are most likely to meet. Read what it names, and send `allowDuplicate: true` only once you are satisfied the two really are separate payments.",
+          "Record a deposit, withdrawal, or transfer in the person's ledger, straight into the books rather than through the review queue. It is a bookkeeping entry and moves no real money. An entry that looks like one already in the books is refused with a DUPLICATE error rather than written; that is the refusal you are most likely to meet. Read what it names, and send `allowDuplicate: true` only once you are satisfied the two really are separate transactions.",
         inputSchema: directTransactionCreateSchema.strict(),
         outputSchema: mcpOutputSchema(transactionResultSchema),
         annotations: additiveAnnotations,
@@ -2174,7 +2232,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Commit staged transactions",
         description:
-          "Validate and atomically commit explicit staged transaction IDs; supports dry-run. Committing puts money in the books, so confirm it with the person first unless they asked for exactly this. Use dryRun to show them what would happen. A row that repeats something already in the ledger, or another row in the same call, refuses the whole call with DUPLICATE; send allowDuplicates only once the person has said the repeat is intended.",
+          "Validate and atomically commit explicit staged transaction IDs; supports dry-run. Committing records them as transactions in the person's ledger — bookkeeping entries that move no real money — and they leave the review queue for good, so confirm it with the person first unless they asked for exactly this. Use dryRun to show them what would happen. A row that repeats something already in the ledger, or another row in the same call, refuses the whole call with DUPLICATE; send allowDuplicates only once the person has said the repeat is intended.",
         inputSchema: commitStageSchema.strict(),
         outputSchema: mcpOutputSchema(committedStagesResultSchema),
         annotations: destructiveAnnotations,
@@ -2196,7 +2254,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       },
       // The service honors the key itself, as `stageCsv` does, so there is no
       // second idempotency record around it.
-      (input) => runTool(() => addLedgerFile(actor, input)),
+      (input) => runTool(() => withoutUpgradeAdviceIn(() => addLedgerFile(actor, input))),
     );
     server.registerTool(
       "move_ledger_file",
@@ -2212,7 +2270,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         annotations: destructiveAnnotations,
       },
       // The service honors the key itself, as the add's does.
-      (input) => runTool(() => moveLedgerFile(actor, input)),
+      (input) => runTool(() => withoutUpgradeAdviceIn(() => moveLedgerFile(actor, input))),
     );
   }
 

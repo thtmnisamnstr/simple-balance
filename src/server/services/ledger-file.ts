@@ -68,6 +68,7 @@ import {
 } from "../../shared/ledger-file.js";
 import {
   LEDGER_FILE_MOVE_ADD_INSTEAD,
+  LEDGER_FILE_UPGRADE_AFTER_COMMA,
   LEDGER_FILE_MOVE_BLOCKED,
   ledgerAccountInput,
   ledgerBudgetEntryInput,
@@ -2050,12 +2051,12 @@ function planRefusal(plan: LedgerFilePlan, forAgent?: string) {
       ...(placesFirst ? { limit, current, arriving, needed } : {}),
     },
     // An agent cannot buy anything, so the browser's "or upgrade" is advice it
-    // cannot take: it gets the numbers, what it can send, and who to ask —
-    // the `accountAllowance` precedent. Only moves that work: a new account
+    // cannot take: it gets the numbers and what it can send, and no way to a
+    // bigger plan — the `accountAllowance` precedent, which says why. Only moves that work: a new account
     // takes no decision, so a skip would change nothing.
     forAgent ??
       (placesFirst
-        ? `This ledger is on a plan that keeps ${limit} accounts in use and has ${current}, and this file brings ${arriving} more. Name at least ${needed} of the file's new accounts in arriveArchived, or archive or delete accounts here first to free places. Only the person who owns the ledger can raise the limit, from Settings in the browser.`
+        ? `This ledger is on a plan that keeps ${limit} accounts in use and has ${current}, and this file brings ${arriving} more. Name at least ${needed} of the file's new accounts in arriveArchived, or archive or delete accounts here first to free places.`
         : undefined),
   );
 }
@@ -2255,9 +2256,9 @@ function moveRefusal(plan: LedgerFilePlan, facts: LedgerFileFacts) {
     const them = n === 1 ? "it" : "them";
     forAgent = `${n === 1 ? "One of this file's transactions is" : `${n} of this file's transactions are`} waiting in Staged from an earlier import of it. Commit ${them} with commit_staged_transactions or discard ${them} with delete_staged_transactions, then call preview_ledger_file again: a move writes each transaction straight into the books, once.`;
   } else if (first.kind === "account") {
-    const upgrade = ", or upgrade under Settings.";
+    const upgrade = LEDGER_FILE_UPGRADE_AFTER_COMMA;
     forAgent = first.message.endsWith(upgrade)
-      ? `${first.message.slice(0, -upgrade.length)}. Only the person who owns the ledger can raise the limit, from Settings in the browser.`
+      ? `${first.message.slice(0, -upgrade.length)}.`
       : first.message.endsWith(LEDGER_FILE_MOVE_ADD_INSTEAD)
         ? `${first.message.slice(0, -LEDGER_FILE_MOVE_ADD_INSTEAD.length)}Call add_ledger_file with this file instead; its transactions go to Staged for review.`
         : first.message;

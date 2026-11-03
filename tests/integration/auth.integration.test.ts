@@ -481,6 +481,182 @@ integration("embedded local authentication", () => {
     });
   });
 
+  /**
+   * One client through its whole life: approved, refreshed, revoked, swept.
+   *
+   * Three promises meet here. The consent screen is told where the code goes
+   * and whose ledger it grants, because the client's name is only its own
+   * claim. A refresh retires the refresh token it was made with in the same
+   * response that hands out the new one, so a leaked token stops working the
+   * moment its owner uses theirs. And a client somebody once approved is never
+   * swept as an abandoned registration, even after its consent and tokens are
+   * revoked, because ChatGPT keeps one client per connection and reconnects
+   * with it.
+   */
+  it("keeps an approved client through revocation, and rotates its refresh token", async () => {
+    const redirect = "http://127.0.0.1:7788/callback";
+    const registration = await oauthClientRequest(
+      "/api/auth/mcp/register",
+      JSON.stringify({
+        client_name: "Lifecycle client",
+        redirect_uris: [redirect],
+        token_endpoint_auth_method: "none",
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+      }),
+      "application/json",
+    );
+    const client = (await registration.json()) as { client_id: string };
+    const verifier = "integration-lifecycle-verifier-01234567890123456789012345678901";
+    const authorizeUrl = new URL("http://localhost:3000/api/auth/mcp/authorize");
+    authorizeUrl.search = new URLSearchParams({
+      client_id: client.client_id,
+      redirect_uri: redirect,
+      response_type: "code",
+      scope: "openid profile email offline_access ledger:read",
+      state: "lifecycle",
+      code_challenge: createHash("sha256").update(verifier).digest("base64url"),
+      code_challenge_method: "S256",
+    }).toString();
+    const authorize = await app.request(authorizeUrl.toString());
+    const login = await formRequest(
+      "/api/auth/sign-in/email",
+      { email: ownerEmail, password: ownerPassword },
+      cookieHeader(authorize),
+    );
+    const consentCode = new URL(
+      login.headers.get("location")!,
+      "http://localhost:3000",
+    ).searchParams.get("consent_code")!;
+    const session = cookieHeader(login);
+
+    const described = await authRequest(
+      `/api/auth/oauth2/consent-request?consent_code=${encodeURIComponent(consentCode)}`,
+      undefined,
+      session,
+    );
+    expect(described.status).toBe(200);
+    expect(await described.json()).toMatchObject({
+      clientName: "Lifecycle client",
+      redirectHost: "127.0.0.1",
+      redirectIsLoopback: true,
+      accountEmail: ownerEmail,
+    });
+
+    const { oauthAccessToken, oauthApplication, oauthConsent } =
+      await import("../../src/server/db/schema.js");
+    const { eq } = await import("drizzle-orm");
+    const clientRow = async () =>
+      (
+        await getDb()
+          .select()
+          .from(oauthApplication)
+          .where(eq(oauthApplication.clientId, client.client_id))
+      )[0];
+    expect((await clientRow())?.firstAuthorizedAt).toBeNull();
+
+    const consent = await authRequest(
+      "/api/auth/oauth2/consent",
+      { accept: true, consent_code: consentCode },
+      session,
+    );
+    expect(consent.status).toBe(200);
+    expect((await clientRow())?.firstAuthorizedAt).toBeInstanceOf(Date);
+    const code = new URL(
+      ((await consent.json()) as { redirectURI: string }).redirectURI,
+    ).searchParams.get("code")!;
+
+    const tokenRequest = (fields: Record<string, string>) =>
+      oauthClientRequest(
+        "/api/auth/mcp/token",
+        new URLSearchParams({ client_id: client.client_id, ...fields }).toString(),
+        "application/x-www-form-urlencoded",
+      );
+    const first = (await (
+      await tokenRequest({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: redirect,
+        code_verifier: verifier,
+      })
+    ).json()) as { access_token: string; refresh_token: string };
+    expect(first.refresh_token).toBeTruthy();
+
+    const refreshed = await tokenRequest({
+      grant_type: "refresh_token",
+      refresh_token: first.refresh_token,
+    });
+    expect(refreshed.status).toBe(200);
+    const second = (await refreshed.json()) as { access_token: string; refresh_token: string };
+    expect(second.refresh_token).not.toBe(first.refresh_token);
+
+    // The presented refresh token is gone, and the access token on its row
+    // with it; the replacement works.
+    const replayed = await tokenRequest({
+      grant_type: "refresh_token",
+      refresh_token: first.refresh_token,
+    });
+    expect(replayed.status).toBe(401);
+    expect(await replayed.json()).toMatchObject({ error: "invalid_grant" });
+    const call = (accessToken: string) =>
+      app.request("http://localhost:3000/mcp", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: "2025-11-25",
+            capabilities: {},
+            clientInfo: { name: "lifecycle", version: "1.0.0" },
+          },
+        }),
+      });
+    expect((await call(first.access_token)).status).toBe(401);
+    expect((await call(second.access_token)).status).toBe(200);
+    expect(
+      await getDb()
+        .select({ id: oauthAccessToken.id })
+        .from(oauthAccessToken)
+        .where(eq(oauthAccessToken.clientId, client.client_id)),
+    ).toHaveLength(1);
+
+    // Two refreshes presenting one token at once: the library mints a
+    // replacement for each, and only one of them may stand. The other is
+    // refused as a replayed token is, and its replacement goes with it.
+    const raced = await Promise.all(
+      [1, 2].map(() =>
+        tokenRequest({ grant_type: "refresh_token", refresh_token: second.refresh_token }),
+      ),
+    );
+    expect(raced.map((each) => each.status).sort()).toEqual([200, 401]);
+    const loser = raced.find((each) => each.status === 401)!;
+    expect(await loser.json()).toMatchObject({ error: "invalid_grant" });
+    expect(
+      await getDb()
+        .select({ id: oauthAccessToken.id })
+        .from(oauthAccessToken)
+        .where(eq(oauthAccessToken.clientId, client.client_id)),
+    ).toHaveLength(1);
+
+    // Revoked, and old enough to be swept: still kept, because it was used.
+    await getDb().delete(oauthAccessToken).where(eq(oauthAccessToken.clientId, client.client_id));
+    await getDb().delete(oauthConsent).where(eq(oauthConsent.clientId, client.client_id));
+    const old = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    await getDb()
+      .update(oauthApplication)
+      .set({ createdAt: old })
+      .where(eq(oauthApplication.clientId, client.client_id));
+    const { pruneAbandonedClients } = await import("../../src/server/services/connected-apps.js");
+    await pruneAbandonedClients();
+    expect(await clientRow()).toBeDefined();
+  });
+
   it.each([
     ["no body at all", undefined],
     ["a truncated object", "{"],

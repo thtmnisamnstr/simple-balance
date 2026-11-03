@@ -3311,6 +3311,14 @@ input[type="radio"] {
   line-height: 1.65;
 }
 
+/* A client's name, an email address and a host are each one unbroken word as
+   far as a browser is concerned — it breaks at neither `.` nor `@` — and any
+   of them can be longer than the card at phone width, which pushed the whole
+   page sideways. */
+.consent-request strong {
+  overflow-wrap: anywhere;
+}
+
 .auth-card > small {
   margin-top: 13px;
   color: var(--muted);

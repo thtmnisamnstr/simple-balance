@@ -1,7 +1,7 @@
 # Web
 
 The browser app. A React 19 single-page app with a hand-rolled router, TanStack
-Query for server state, and 5,473 lines of hand-written CSS in
+Query for server state, and 5,481 lines of hand-written CSS in
 `src/client/styles.css`. No component library, no CSS framework, no token build
 step, and none is coming, so every rule here has to be reachable with plain CSS
 custom properties and components written by hand.
@@ -83,7 +83,7 @@ width, a chart's offset — and are correct as they are.
 like one of the nine. `ads.tsx:143` writes `display: block` on the AdSense
 `<ins>`, which is how Google documents its own tag, and the stylesheet then
 outranks it deliberately: an unfilled unit is collapsed by
-`styles.css:3847-3849` with `!important`, because an important declaration is
+`styles.css:3855-3857` with `!important`, because an important declaration is
 the one thing that beats an inline style. So this prop is a vendor requirement
 held in check by a rule written against it, which is a decision rather than a
 coordinate, and nothing about the token rule covers it.
@@ -162,11 +162,11 @@ did not when freezing first gave a reason to disable the row icons in the
 transaction list and the items inside an account's row menu. Each sets its own
 `color`, `background` and `cursor` — `.row-actions button`
 (`styles.css:2334-2344`), `.menu-popover button` (`styles.css:1926-1939`) and
-`.link-button` (`styles.css:3410-3418`) — so the browser's disabled rendering
+`.link-button` (`styles.css:3418-3426`) — so the browser's disabled rendering
 was overridden exactly as `.input`'s was, and a dead control was
 pixel-identical to a live one down to the hover fill. The house answer applies
 unchanged and is now written three times, at `styles.css:2400-2403`,
-`:1958-1961` and `:3432-3435`: `cursor: not-allowed` and `.button`'s own
+`:1958-1961` and `:3440-3443`: `cursor: not-allowed` and `.button`'s own
 `opacity: 0.5` (`:669-672`), read from there rather than chosen again —
 the pagination controls' `0.45` (`:1867-1870`) is the one divergence and is not
 the number to copy.
@@ -181,7 +181,7 @@ stylesheet keeps. What names it is the source — every element rendered with a
 has to come from.
 
 The hover half is done by narrowing rather than by answering: the three hover
-rules became `:hover:not(:disabled)` (`:2390-2393`, `:1944-1946`, `:3422-3424`)
+rules became `:hover:not(:disabled)` (`:2390-2393`, `:1944-1946`, `:3430-3432`)
 instead of gaining a second rule that repaints what the first painted. Two
 rules fighting leaves both spellings live and makes the next hover state added
 to that family remember the second one. This is the shape for any family that
@@ -318,7 +318,7 @@ The rule for this stylesheet: **`--line-strong` for a control edge,
 | `--green-fill` on `--track` | 5.42 | 3.73 |
 
 **Settled.** The reasoning is written out twice in the file, at
-`styles.css:995-1003` for `.input` and at `styles.css:4367-4373` for
+`styles.css:995-1003` for `.input` and at `styles.css:4375-4381` for
 `.chart-zero`, and it had been applied to two of the eighteen
 `border: 1px solid var(--line…)` rules. Six control edges have now joined them —
 `.pagination-step`, `.sort-direction`, `.bulk-edit-field`, `.transaction-type`,
@@ -513,15 +513,15 @@ alone is chosen against:
 
 | Value | What sits there |
 | --- | --- |
-| 1 | A decoration inside a card — the search icon (`styles.css:2006`), the sign-in art (`:3568`) |
+| 1 | A decoration inside a card — the search icon (`styles.css:2006`), the sign-in art (`:3576`) |
 | 2 | A header sticking inside its own scroller — the modal header (`:2662`), the sign-in card (`:3288`) |
-| 5 | A bar pinned to the window's foot — the house ad's slot (`styles.css:3872`), over a card's decorations and under every popover, so the row menu opens over it from the last row in view |
+| 5 | A bar pinned to the window's foot — the house ad's slot (`styles.css:3880`), over a card's decorations and under every popover, so the row menu opens over it from the last row in view |
 | 10 | A popover over the page — the row menu (`:1903`) |
-| 15 | The mobile header, below 780px (`:5180`) |
+| 15 | The mobile header, below 780px (`:5188`) |
 | 20 | A bar sticking over a list — the merge panel (`:3169`) |
-| 25 | The mobile nav scrim, which covers everything above except the drawer (`:5170`) |
+| 25 | The mobile nav scrim, which covers everything above except the drawer (`:5178`) |
 | 30 | The sidebar itself (`:362`) |
-| 40 | The skip link (`:3654`), above everything because it is the first thing a keyboard user meets |
+| 40 | The skip link (`:3662`), above everything because it is the first thing a keyboard user meets |
 
 **Two of the eight were on neither the ladder nor the comment that reproduces
 it**, which is the failure this section was written about, one release on. The
@@ -565,8 +565,8 @@ this section came apart.
 ### 3.6 Breakpoints
 
 Four hardcoded max-widths, all four now contiguous at the foot of the
-stylesheet in descending order: 1050px (`styles.css:5053`), 980px
-(`styles.css:5132`), 780px (`styles.css:5139`) and 560px (`styles.css:5267`).
+stylesheet in descending order: 1050px (`styles.css:5061`), 980px
+(`styles.css:5140`), 780px (`styles.css:5147`) and 560px (`styles.css:5275`).
 Putting them in one place was section 7.3's doing; how many of them there should
 be is still this section's question. One height condition is nested inside the
 780px block, for the house ad (15), and qualifies that step rather than adding
@@ -592,11 +592,11 @@ prevent.
 
 Today there are no motion tokens. Transitions are written inline at 120ms (six
 declarations), 140ms (one) and 180ms (the mobile drawer's `transform`, with
-`visibility` held until it ends on the way out, `styles.css:5145-5147`), and
+`visibility` held until it ends on the way out, `styles.css:5153-5155`), and
 there are two reduced-motion
 blocks: `styles.css:858-861`, which turns off the skeleton shimmer specifically
 and stays beside `.skeleton` on purpose rather than joining the responsive body
-(section 7.3), and `styles.css:5439-5457`, a blanket rule setting
+(section 7.3), and `styles.css:5447-5465`, a blanket rule setting
 `animation-duration`, `transition-duration` and `scroll-behavior` on
 everything, followed since the house ad by a second rule that removes its
 entrance outright (4.1).
@@ -604,7 +604,7 @@ entrance outright (4.1).
 The house ad's entrance is the first population the tokens would have had, and
 it is written in literals anyway: six beats of 800, 500 and 700ms, their delays
 on a 120ms step from 360ms to 2280ms, and one easing,
-`cubic-bezier(0.2, 0.7, 0.2, 1)`, for all six (`styles.css:4191-4221`).
+`cubic-bezier(0.2, 0.7, 0.2, 1)`, for all six (`styles.css:4199-4229`).
 `tests/theme-tokens.test.ts` requires every `var()` to be a token declared in
 all three color blocks, and a step in one component's story is not a color, so
 the custom properties the prototype carried could not be committed. That is
@@ -641,7 +641,7 @@ motion. The house ad is the one entrance in the product, and every clause of
 that sentence is a defect it would otherwise have had.
 
 - **The finished picture is the unanimated one.** Every keyframe says only
-  where a thing starts (`styles.css:4230-4271`), so jsdom, a browser with no
+  where a thing starts (`styles.css:4238-4279`), so jsdom, a browser with no
   `IntersectionObserver` and anybody who asked for reduced motion see the
   finished ad because nothing armed it. The obvious alternative — the first
   frame as the drawing's own geometry, and keyframes that carry it to the
@@ -660,7 +660,7 @@ that sentence is a defect it would otherwise have had.
   drawing and then take two accounts away.
 - **Never armed under reduced motion, and removed rather than shortened if the
   preference arrives afterwards.** The second rule in the foot block
-  (`styles.css:5449-5456`) sets `animation: none` on the moving parts, so a
+  (`styles.css:5457-5464`) sets `animation: none` on the moving parts, so a
   preference turned on mid-story ends it in the finished picture.
 - **Retired when the last beat ends or is cancelled** (`ads.tsx:265-270`).
   Hiding an element discards its animations and showing it again starts them
@@ -1000,7 +1000,7 @@ Two exist, and they are the two halves of the rule.
   fills it is an advertiser's creative inside a cross-origin iframe; there is no
   theming interface to pass and no prospect of one. Naming it is the whole
   obligation, and what follows from the naming is that the slot is collapsed
-  when it is empty (`styles.css:3847-3853`) rather than left as a light band.
+  when it is empty (`styles.css:3855-3861`) rather than left as a light band.
 
 **The obvious alternative is what 6.1 used to say**: the markup is somebody
 else's, so the surface is out of scope. That is right about the markup and wrong
@@ -1069,7 +1069,7 @@ there silently outranked the responsive overrides above it —
 would have lost to `.chart-grid` written later, with nothing on screen to say
 why. `.report-tabs` and the chart grid appear in no breakpoint block, and
 neither is a gap. `.report-tabs` carries `flex-wrap: wrap`
-(`styles.css:3758-3762`), which reflows at every width rather than at three
+(`styles.css:3766-3770`), which reflows at every width rather than at three
 chosen ones and is the better answer; and `.chart-grid` is an SVG stroke with no
 layout to change. This sentence used to call both a gap "somebody can fill",
 which is how a list of work comes to include work nobody should do — the
@@ -1085,7 +1085,7 @@ prevent is a *component rule after the responsive body*.
 
 The four breakpoints run in descending order at the foot of the file, each under
 the comment naming its constant, then the blanket reduced-motion block
-(`styles.css:5439-5457`), then the print block (`:5469-5473`) and nothing after
+(`styles.css:5447-5465`), then the print block (`:5477-5481`) and nothing after
 it. **Print is last and that is the rule, not an accident of when it arrived**:
 it is the one query that describes a different medium rather than a different
 width or preference, so anything it needs to undo has already been written.
@@ -1108,7 +1108,7 @@ both onto the 1050, 780 and 560 blocks, at the cost of a wrap that depends on
 the font rather than on a measured column. The one condition it needed that no
 width could express — a window both narrow and short, where the bar stops
 being pinned (15) — is a `max-height` query nested inside the 780 block
-(`styles.css:5259-5263`), so it adds no step and qualifies the one it sits in.
+(`styles.css:5267-5271`), so it adds no step and qualifies the one it sits in.
 
 *Checked by:* `tests/styles-order.test.ts` asserts that every top-level
 construct from the first `@media (max-width` block onward is an at-rule, that
@@ -1266,7 +1266,7 @@ waiting has the longest set in the product, and it was 59px wider than an 820px
 window with its title squeezed onto two lines — which `reflow.spec.ts` never
 saw, because it visits Staged with nothing waiting. Below 780px each action
 takes an equal share of a full-width row with a floor at its own label
-(`styles.css:5216`): a zero basis always fits, so without the floor the row could not
+(`styles.css:5224`): a zero basis always fits, so without the floor the row could not
 wrap and "Review 2 possible duplicates" broke inside its own button.
 
 *Checked by:* `tests/browser/smoke-test-fixes.spec.ts` ("a page's header
@@ -1387,7 +1387,7 @@ behind it.
 
 **All three units sit outside `<main>` and below it, each as its own labeled
 `<aside>`, and none is hidden from assistive technology**
-(`App.tsx:1097-1125`, the markup at `ads.tsx:132-149` and `:314-346`). Two are
+(`App.tsx:1123-1151`, the markup at `ads.tsx:132-149` and `:314-346`). Two are
 AdSense's, the banner and the footer, and the third is the house ad, which the
 server never sends beside them, so a page carries AdSense or the house ad and
 never both.
@@ -1396,7 +1396,7 @@ Three decisions, and each has an obvious alternative that is wrong for a
 different reason.
 
 - **Outside the main landmark, not inside it.** `<main>` is what the skip link
-  targets (`App.tsx:935`) and what focus moves to on every route change (13.3),
+  targets (`App.tsx:961`) and what focus moves to on every route change (13.3),
   and a screen reader entering a landmark reads from its top. A slot inside it
   therefore puts an advertisement in front of the page on **every** navigation,
   for exactly the people who reached it by skipping the navigation — the ones
@@ -1426,10 +1426,10 @@ tokens the sign-in panel uses, declared in all three color blocks, so 1.2
 applies to it in full rather than through a collapse rule.
 
 **Only the first-party unit is pinned.** The house ad is the column's last
-child, and its slot sticks to the window's foot (`styles.css:3870-3876`):
+child, and its slot sticks to the window's foot (`styles.css:3878-3884`):
 on screen while the page scrolls, resting below the content at the end of a
 long page, and on the window's foot under a short one, because the column
-becomes a flex column only while the bar is in it (`styles.css:3884-3887`) and
+becomes a flex column only while the bar is in it (`styles.css:3892-3895`) and
 `margin-top: auto` takes up the slack. Every other page keeps the block layout
 it had, and a page with the bar lays its content out exactly as a page without
 it. An AdSense unit is never pinned. A frame of somebody else's content that
@@ -2447,10 +2447,10 @@ never on it:
 | `.modal-header` | `styles.css:2660` | sticky |
 | `.import-preview` | `styles.css:2811` | sticky |
 | `.merge-panel` | `styles.css:3161` | sticky |
-| `.skip-link` | `styles.css:3652` | fixed |
-| `.ad-slot:has(> .house-ad)` | `styles.css:3870` | sticky, to the foot |
-| `.nav-scrim` | `styles.css:5168` | fixed |
-| `.mobile-header` | `styles.css:5178` | sticky |
+| `.skip-link` | `styles.css:3660` | fixed |
+| `.ad-slot:has(> .house-ad)` | `styles.css:3878` | sticky, to the foot |
+| `.nav-scrim` | `styles.css:5176` | fixed |
+| `.mobile-header` | `styles.css:5186` | sticky |
 
 `.merge-panel` was the live case. It exists because the list is long enough to
 scroll, which is the same condition that puts a focused row underneath it. Every
@@ -2670,7 +2670,7 @@ Series 3 at 3.64 light is the tightest and is the one to watch.
 Gridlines do not have to contrast with the data. The Understanding document for
 1.4.11 says data lines "should have 3:1 contrast against their background, but
 as there is little overlap with other lines they do not need to contrast with
-each other or the graduated lines". `.chart-grid` at `styles.css:4357-4365` is
+each other or the graduated lines". `.chart-grid` at `styles.css:4365-4373` is
 correctly faint and says why; `.chart-zero` is correctly held to 3:1 because it
 is where money in becomes money out, and says why.
 
@@ -2691,7 +2691,7 @@ where all adjacent colors clear 3:1 against each other, caps categories at four
 as best practice, and treats five and six as "only when essential". Read
 literally, that says this product should cut ten series to six.
 
-This product keeps ten, on measured grounds recorded at `styles.css:4430-4442`.
+This product keeps ten, on measured grounds recorded at `styles.css:4438-4450`.
 The previous six-color set had a worst dichromatic pair of 1.78 in CIEDE2000
 under simulated deuteranopia and protanopia, where the green and the pink were
 the same color; the current ten reach 5.6 in light and 4.7 in dark. Going from
@@ -2708,7 +2708,7 @@ it was not.** `BarChart` lays each series' bar at `index * barWidth` with no gap
 set `stroke: none`. Two touching bars at 1.05:1 had no visible boundary.
 
 The fix was geometry rather than a repainted palette: `.chart-bar` now carries a
-one-pixel `--surface` stroke (`styles.css:4386-4389`), which separates every
+one-pixel `--surface` stroke (`styles.css:4394-4397`), which separates every
 adjacent pair against the page they are drawn on and disturbs none of the
 measured dichromatic separation the ten-color set was chosen for.
 
@@ -2728,7 +2728,7 @@ light, which is three times better than the six it replaced and still not enough
 on its own.
 
 **The remedy the CSS comment named has landed.** Nine of the ten line series
-carry a `stroke-dasharray` (`styles.css:4491-4499`) and series 0 stays solid,
+carry a `stroke-dasharray` (`styles.css:4499-4507`) and series 0 stays solid,
 because that is what a single-series chart gets and what a plain line should look
 like. A dash pattern is orthogonal to hue, which is the whole point: two series
 that look alike to one reader are still two different lines. The patterns differ
@@ -3544,7 +3544,7 @@ The rules, in the order they matter:
 
 - **A bar is determinate or it is not shown.** `<progress>` with no `value` is
   indeterminate and animates in every engine, and the blanket reduced-motion
-  block at `styles.css:5439-5447` freezes it into a bar that reads as stuck.
+  block at `styles.css:5447-5455` freezes it into a bar that reads as stuck.
   That is section 4's spinner defect a second time, and a determinate bar is the
   fix for that class of failure rather than a new instance of it.
 - **A bar never appears before its total is a real count.** A commit does fixed
@@ -3603,7 +3603,7 @@ The rules, in the order they matter:
 - **Three bars now, and a fourth has to say which of them it is not.**
   `.progress-track` (`styles.css:1602`, `DashboardPage.tsx:350`) is a decorative
   share-of-total meter under a row that already states its figure.
-  `.budget-bar` (`styles.css:4723`, `BudgetsPage.tsx:1455`) is money, with an
+  `.budget-bar` (`styles.css:4731`, `BudgetsPage.tsx:1455`) is money, with an
   over state. `.progress-meter` is work in flight. Neither of the first two
   appeared in this guide before this section, which by 17.3's closing test was a
   defect in the guide.
@@ -3653,7 +3653,7 @@ button.** A ring is measured against what surrounds the control, and the bar is
 painted `--art-base`, the sign-in panel's green, in both themes. `--art-bar`
 measures 6.54:1 against `--art-base`, where the light `--focus-ring` measures
 2.36:1 — under the 3:1 SC 1.4.11 asks — so the bar's button sets its ring to
-`--art-bar` (`styles.css:3973-3975`). The dark theme's ring would have cleared
+`--art-bar` (`styles.css:3981-3983`). The dark theme's ring would have cleared
 the bar; one color in both themes is the simpler thing to keep true, and the
 mint is the bar's own accent, so the ring reads as part of it. A control on any
 later art panel takes the same exception for the same reason, and says so here.
@@ -4121,7 +4121,7 @@ The rules that follow from them:
   selection bar (12.3); every other bar is review.
 - **A window's height is a step only where its width already is one.** The
   house ad stops being pinned on a window 480px tall or less, and only at 780px
-  wide or less (`styles.css:5259-5263`), which is a phone on its side or a
+  wide or less (`styles.css:5267-5271`), which is a phone on its side or a
   screen zoomed to 400%. There it stacked with the sticky mobile header above
   and left the ledger a strip between the two — 45px of a 1280 by 720 screen at
   400%. A short window wider than that has no sticky header to stack with, and
@@ -4140,7 +4140,7 @@ The rules that follow from them:
   that each keep together, so above 560px the title stays two lines at any text
   spacing. The obvious alternative, letting the drawing shrink to fit, took
   every tile below the 30px that is as small as one is drawn
-  (`styles.css:5077-5085`); and a fade at the strip's edge narrower than a tile
+  (`styles.css:5085-5093`); and a fade at the strip's edge narrower than a tile
   left a cut tile's rounded edge standing beside the ad, while one wide enough
   to hide it dimmed the next tile too.
 - **`dvh`, not `vh`, for anything full-height.** There were seven `100vh` uses
@@ -4152,7 +4152,7 @@ The rules that follow from them:
   the same arithmetic stay, because nothing retracts horizontally.
 
 **There is a print stylesheet, and it holds one rule.**
-`@media print` at `styles.css:5469-5473` hides `.ad-slot`, because a statement
+`@media print` at `styles.css:5477-5481` hides `.ad-slot`, because a statement
 of accounts somebody prints or saves as a PDF is a record they may keep and hand
 on, and an advertisement in one is not a thing this product does. The block is
 last in the file for 7.3's reason, and that is where a second print rule goes —
@@ -4257,7 +4257,7 @@ sentence, word for word.
 Import CSV became Import and export when the page gained an export, and its path
 stayed `/import`. A path is what a bookmark, a link in somebody's notes and the
 product kit's screenshot list hold, and the router sends a path it does not know
-to the overview without a word (`src/client/App.tsx:1093`), so a renamed path
+to the overview without a word (`src/client/App.tsx:1119`), so a renamed path
 turns every old link into the wrong page silently. A redirect would answer that
 and is one more route to carry for a word nobody reads in the address bar. The
 label itself is words, "Import and export" rather than "Import/Export", for the

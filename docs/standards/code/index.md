@@ -218,7 +218,7 @@ One `eslint` rule is off. **`no-control-regex`** flags a regular expression that
 matches control characters, and all four sites here exist *to reject* them: two
 sanitize user input (`src/shared/domain.ts:350-351`), one is the CSV-injection
 defense (`src/shared/csv.ts:570`), and one scrubs a CSP report before it reaches
-the log (`src/server/api.ts:1408`), where the body is attacker-controlled and a
+the log (`src/server/api.ts:1592`), where the body is attacker-controlled and a
 newline would let one report write several log lines with a forged error among
 them. The rule exists to catch a control character written by accident; every
 one of these was written on purpose, and the code that strips control characters
@@ -304,7 +304,7 @@ in the same breath, which reads as one toolchain over one tree.
 those files failed a format check — `scripts/capacity/load.mjs`,
 `scripts/capacity/schedule.mjs`, `scripts/ralph/git-guard.mjs`,
 `scripts/ralph/runner.mjs`, and `scripts/set-version.mjs`, the tool the release
-procedure runs first (`docs/upgrades.md:2182`) — while all thirteen Pulumi
+procedure runs first (`docs/upgrades.md:2287`) — while all thirteen Pulumi
 modules happened to be clean, so the gap stayed invisible while
 `npm run verify` went on passing. The five are formatted now, and the test
 below holds every file the command does not reach to the formatter anyway. `typescript.md` §3.5 records

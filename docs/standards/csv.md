@@ -15,7 +15,7 @@ importer all have opinions about.
 
 Everything is grounded in three places: `src/shared/csv.ts`, which both the
 browser preview and the server use, `src/server/services/import-export.ts`,
-which reads and writes files, and `src/server/api.ts:2159-2191`, which is the
+which reads and writes files, and `src/server/api.ts:2343-2375`, which is the
 transport: preview, stage, the batch list and export. That range named the
 progress-frame helpers and the commit route for a release, two screens above
 the routes this file is about. It is the failure
@@ -211,7 +211,7 @@ was responsible for — and the defect is in this guide, not in the code.
 
 **Settled.** The download filename is dated in the person's own timezone,
 through `todayIn(timezone)` like every other "today" in this product
-(`src/server/services/import-export.ts:1112-1119`). It used to read the server
+(`src/server/services/import-export.ts:1133-1140`). It used to read the server
 clock, so somebody at UTC+13 downloading at 09:00 got yesterday's date on the
 file — the one thing a dated filename exists to get right.
 
@@ -588,7 +588,7 @@ different person import an export of someone else's ledger").
 | Leg ids | Same reason as category ids |
 | The currency | It comes from the chosen account |
 | `effective_rate` | Recomputed from the two amounts |
-| Deleted transactions | Never exported. The format has no column saying an entry is void, so a row indistinguishable from live money would go in front of the importer and reading it back would raise the amount from the dead (`src/server/services/import-export.ts:1035-1040`) |
+| Deleted transactions | Never exported. The format has no column saying an entry is void, so a row indistinguishable from live money would go in front of the importer and reading it back would raise the amount from the dead (`src/server/services/import-export.ts:1049-1054`) |
 | Version, timestamps, audit history, template and recurrence provenance | Not in the format. An import is new provenance |
 | Committed status | See below |
 | Byte-exact payee capitalization and spacing | `cleanHumanName` and the canonical rewrite above |
@@ -837,7 +837,7 @@ Blank lines are skipped before anything is counted, so an interior blank leaves
 the number one low; a trailing blank, which is the common case, comes after
 everything it could shift. Nothing else numbers a row at all: the queue shows no
 position (`src/client/pages/StagingPage.tsx:1101-1156`) and a staged row stores no
-source row number (`src/server/db/schema.ts:814-940`), so a queue entry is
+source row number (`src/server/db/schema.ts:822-948`), so a queue entry is
 traceable to a line only through its `raw_data`.
 
 *Checked by:* `tests/domain.test.ts` ("reports the file's own line for a row with
@@ -1008,7 +1008,7 @@ and never neutralize the channel.**
   close at this function, bracketing a neighbour, while the next bullet spelled
   its own as doc-comment-plus-function — one guide, one list, two rules.
 - It is applied to exactly seven columns, named at the call site
-  (`src/server/services/import-export.ts:1094-1104`): `payee`, `description`,
+  (`src/server/services/import-export.ts:1108-1118`): `payee`, `description`,
   `category_name`, `external_id`, `notes`, `source_account_name`,
   `destination_account_name`. Free text a person reads, and nothing else.
 - It is **not** applied to an amount, a rate, a date or an id. A negative amount

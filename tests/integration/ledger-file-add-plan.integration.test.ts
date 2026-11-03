@@ -244,7 +244,9 @@ integration("adding a Simple Balance file on a plan that keeps three accounts in
     expect(two.details).toMatchObject({ needed: 3 });
     expect(await counted(free)).toEqual(before);
 
-    // An agent is told what it can send, and that only the person can upgrade.
+    // An agent is told what it can send, and nothing about a bigger plan —
+    // not in the message, and not in the browser's sentences that travel in
+    // `details.issues` and in every problem a preview returns.
     const server = createMcpServer(
       { userId: free.userId, source: "mcp", clientId: "plan-agent" },
       new Set(["ledger:write"]),
@@ -262,12 +264,23 @@ integration("adding a Simple Balance file on a plan that keeps three accounts in
       expect(reply.isError).toBe(true);
       const text = JSON.stringify(reply.structuredContent);
       expect(text).toContain("arriveArchived");
-      expect(text).toContain("from Settings in the browser");
+      // The limit and what frees a place, and no way to a bigger plan: an agent
+      // cannot buy one, and this is what it relays to the person.
+      expect(text).not.toMatch(/upgrade|Settings in the browser|raise the limit/);
       // Only moves that work: a new account takes no decision, so a skip
       // would change nothing, and freeing a place here does.
       expect(text).toContain("archive or delete accounts here first to free places");
       expect(text).not.toContain("skip decision");
       expect(text).not.toContain("Output validation error");
+
+      const preview = await client.callTool({
+        name: "preview_ledger_file",
+        arguments: { ledgerFile: file },
+      });
+      expect(preview.isError).not.toBe(true);
+      const previewed = JSON.stringify(preview.structuredContent);
+      expect(previewed).toContain("arrive archived");
+      expect(previewed).not.toMatch(/upgrade/i);
     } finally {
       await client.close();
       await server.close();

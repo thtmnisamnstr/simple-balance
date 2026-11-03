@@ -18,8 +18,8 @@ import { writeAudit } from "./helpers.js";
  * authorized the same client, and revoking is about this person's grant, not
  * about the client itself, so revoking never disables or deletes a
  * registration another account may still be relying on. The sweep at the end
- * of this file does delete registrations, but only ones nobody has approved
- * and that have never held a token, which is a different thing.
+ * of this file does delete registrations, but only ones nobody has ever
+ * approved and that have never held a token, which is a different thing.
  */
 
 export type ConnectedApp = {
@@ -245,6 +245,102 @@ export async function revokeAllConnectedApps(userId: string, transaction?: DbTra
 }
 
 /**
+ * Record that a client has been authorized, once, and keep it from the sweep.
+ *
+ * Called when a consent is approved and when a token is issued. Revoking
+ * deletes the consent and token rows, so without this a client that was used
+ * and disconnected looked to `pruneAbandonedClients` exactly like one nobody
+ * finished registering, and was deleted. ChatGPT registers once per connection
+ * and keeps the client, so its next sign-in failed with `invalid_client`.
+ * Writes only where the column is still empty, so the first time stays the
+ * first time.
+ */
+export async function markClientAuthorized(clientId: string) {
+  // Read first, because this runs on every token issued and the column is
+  // set once: on a Citus cluster the OAuth tables are reference tables, so an
+  // UPDATE — even one matching nothing — is a write to every node.
+  const [client] = await getDb()
+    .select({ firstAuthorizedAt: oauthApplication.firstAuthorizedAt })
+    .from(oauthApplication)
+    .where(eq(oauthApplication.clientId, clientId))
+    .limit(1);
+  if (!client || client.firstAuthorizedAt) return;
+  await getDb()
+    .update(oauthApplication)
+    .set({ firstAuthorizedAt: new Date() })
+    .where(
+      and(eq(oauthApplication.clientId, clientId), isNull(oauthApplication.firstAuthorizedAt)),
+    );
+}
+
+/**
+ * The client an access token was issued to, for the token endpoint, which is
+ * handed the token rather than a client id it could trust.
+ */
+export async function clientIdForAccessToken(accessToken: string) {
+  const [row] = await getDb()
+    .select({ clientId: oauthAccessToken.clientId })
+    .from(oauthAccessToken)
+    .where(eq(oauthAccessToken.accessToken, accessToken))
+    .limit(1);
+  return row?.clientId ?? null;
+}
+
+/**
+ * Revoke the refresh token a successful refresh was made with.
+ *
+ * Better Auth 1.6's refresh grant writes a new row and leaves the presented
+ * one valid until its own expiry, so every refresh left one more live refresh
+ * token behind, each good for seven days from when it was issued. Rotation is
+ * only worth anything if the old token stops working in the same response that
+ * hands out the new one, which is what Claude's connector guidance asks of a
+ * server rotating a public client's tokens. The old row carries the old access
+ * token too, and that goes with it: the client has just been given a
+ * replacement.
+ *
+ * Scoped to the person and the client the replacement was issued to, so a
+ * presented value can only ever retire a row of the same grant, and never the
+ * replacement itself, should a library ever hand the same token back.
+ *
+ * Returns whether this rotation stands. The library takes no lock on the
+ * refresh grant, so two refreshes presenting one token each mint a
+ * replacement; the delete is where they meet, and the one that finds the old
+ * row already gone lost. Its replacement is deleted here and false returned,
+ * so the caller refuses it as it would a replayed token and one chain
+ * survives rather than two.
+ */
+export async function retireRefreshToken(presented: string, replacement: string) {
+  if (presented === replacement) return true;
+  const [issued] = await getDb()
+    .select({ clientId: oauthAccessToken.clientId, userId: oauthAccessToken.userId })
+    .from(oauthAccessToken)
+    .where(eq(oauthAccessToken.refreshToken, replacement))
+    .limit(1);
+  if (!issued?.userId) return false;
+  const retired = await getDb()
+    .delete(oauthAccessToken)
+    .where(
+      and(
+        eq(oauthAccessToken.refreshToken, presented),
+        eq(oauthAccessToken.clientId, issued.clientId),
+        eq(oauthAccessToken.userId, issued.userId),
+      ),
+    )
+    .returning({ id: oauthAccessToken.id });
+  if (retired.length) return true;
+  await getDb()
+    .delete(oauthAccessToken)
+    .where(
+      and(
+        eq(oauthAccessToken.refreshToken, replacement),
+        eq(oauthAccessToken.clientId, issued.clientId),
+        eq(oauthAccessToken.userId, issued.userId),
+      ),
+    );
+  return false;
+}
+
+/**
  * How long an unclaimed dynamic registration is kept.
  *
  * Registration is open and unauthenticated, which RFC 7591 intends, but the
@@ -253,8 +349,9 @@ export async function revokeAllConnectedApps(userId: string, transaction?: DbTra
  * one could carry as much free text as the request body allowed.
  *
  * An authorization takes a person seconds to approve. A registration that after
- * a day has no consent from anybody and has never been issued a token is one
- * nobody completed, so it is swept.
+ * a day has never been approved by anybody and has never been issued a token is
+ * one nobody completed, so it is swept. "Never" is `firstAuthorizedAt`, not the
+ * consent and token rows alone, because revoking deletes those.
  */
 const ABANDONED_CLIENT_AGE_MS = 24 * 60 * 60 * 1000;
 
@@ -268,6 +365,10 @@ export async function pruneAbandonedClients(now = new Date()) {
         // deliberately and is not this sweep's business.
         isNull(oauthApplication.userId),
         lt(oauthApplication.createdAt, cutoff),
+        // Never one that was ever authorized: revoking deletes the consent and
+        // token rows the two checks below look for, so only this can tell a
+        // disconnected client from an abandoned registration.
+        isNull(oauthApplication.firstAuthorizedAt),
         sql`not exists (
           select 1 from ${oauthConsent}
           where ${oauthConsent.clientId} = ${oauthApplication.clientId}

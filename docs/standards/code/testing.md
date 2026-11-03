@@ -5,10 +5,10 @@ keeping.
 
 | Tier | Files | Runs with | Needs |
 | --- | --- | --- | --- |
-| Unit (node) | 231 | `npm test` | nothing |
+| Unit (node) | 234 | `npm test` | nothing |
 | Unit (jsdom) | 66 | `npm test` | nothing |
-| Integration | 96 | `npm test` **or** `npm run test:integration` | PostgreSQL |
-| Browser | 11 | `npm run test:browser` | PostgreSQL, Chromium |
+| Integration | 97 | `npm test` **or** `npm run test:integration` | PostgreSQL |
+| Browser | 12 | `npm run test:browser` | PostgreSQL, Chromium |
 
 **`npm test` collects the integration tier too**, which surprises people and is
 worth stating plainly. `vitest.config.ts:21` excludes four things and only two
@@ -23,15 +23,15 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 299 pass, 94 skip | **3,688 pass, 1,040 skip** |
-| `npm test`, database set | 393 pass | **4,728 pass** |
-| `npm run test:integration` | 96 pass | 1,043 pass |
+| `npm test`, no database | 302 pass, 95 skip | **3,809 pass, 1,053 skip** |
+| `npm test`, database set | 397 pass | **4,862 pass** |
+| `npm run test:integration` | 97 pass | 1,056 pass |
 
-The integration tier reports 1,043 tests on its own and 1,040 skips inside a
+The integration tier reports 1,056 tests on its own and 1,053 skips inside a
 database-less `npm test`, and the three-test difference is not an error: three
 cases in that tier need no database and so run either way. They are counted
-among the 3,688 rather than among the skips, which is why the two rows add up
-to 4,728 both times.
+among the 3,809 rather than among the skips, which is why the two rows add up
+to 4,862 both times.
 
 The third row is three tests larger than the first row's skip count, and the
 odd ones out are worth knowing. `bulk-transactions-mcp.integration.test.ts` has
@@ -115,7 +115,11 @@ the window's foot and moves: where the bar sits mid-scroll, at a page's end and
 under a short page, whether Tab ever leaves a control under it, whether its
 entrance plays once and stays finished, and the pixels of its drawing at every
 width it narrows through, decoded from screenshots — none of which a page
-without layout, scrolling or animations can see. `ledger-file-export.spec.ts`
+without layout, scrolling or animations can see. `consent-screen.spec.ts`
+measures the MCP consent screen naming the longest things it names — a client,
+an email address and a host, each one unbroken word to a browser — and fails if
+the page or the card widens at phone width or above the sidebar breakpoint,
+which a long reviewer address once did. `ledger-file-export.spec.ts`
 holds what the export form is only once a browser runs its markup: the arrow
 keys choosing inside a radio group and Tab leaving it, Enter in a date field
 submitting the one form, and a real download saved under the name the response
@@ -573,7 +577,7 @@ it, drop it in `afterAll`. Files then do not race, which matters because
 
 The sequence has a helper, and a new file should take it rather than re-roll
 it: `scratchDatabase()` in `tests/integration/support/scratch-database.ts`
-creates, migrates and registers the drop in one call, and 64 of the 96 files
+creates, migrates and registers the drop in one call, and 65 of the 97 files
 use it. The files that predate it manage their own admin client, and their
 teardowns had drifted to an unguarded four-step sequence where the first step
 throwing strands the database and the connection both — the exact failure the
@@ -620,7 +624,7 @@ discipline rather than by machinery. The thirty-fourth did not: `ledger.integrat
 registration rule the next file never asked for, and nothing anywhere would have
 said so.
 
-**The variables are only half of it.** `src/server/config.ts:241` caches the
+**The variables are only half of it.** `src/server/config.ts:252` caches the
 parsed configuration in a module-level variable, so a file that turns something
 on also has to call `vi.resetModules()` before the next read. The environment
 can be perfectly restored and the configuration still answer out of the previous

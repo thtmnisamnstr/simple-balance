@@ -107,7 +107,7 @@ A table added without its cascade makes deletion fail rather than silently
 orphan rows, which is the right failure and still a bug.
 
 One table must **not** cascade, and naming it is part of the rule rather than an
-aside. `billing_webhook_event` (`src/server/db/schema.ts:1688`) carries no
+aside. `billing_webhook_event` (`src/server/db/schema.ts:1696`) carries no
 `user_id` and hangs from nobody: it records which deliveries Stripe has already
 been answered for, which is the deployment's fact rather than any person's.
 Letting it cascade would drop that record with the account and let a retry
@@ -214,7 +214,7 @@ review is what makes it. §5 carries it.
 ### 2.1 Money is `numeric(44, 18)`
 
 **Binding.** `AGENTS.md`. Every amount column, without exception
-(`src/server/db/schema.ts:294`).
+(`src/server/db/schema.ts:302`).
 Drizzle returns `numeric` as a string, which is exactly what the rest of the
 codebase wants, so nothing casts.
 
@@ -230,7 +230,7 @@ else at some other scale would pass.
 ### 2.2 An enum column is generated from the shared tuple
 
 **Binding.** `pgEnum` takes the same `as const` array the domain and the UI use
-(`src/server/db/schema.ts:200`), so there is no second list of the members —
+(`src/server/db/schema.ts:208`), so there is no second list of the members —
 with one exception the next paragraph owns up to.
 
 *Checked by:* `npm run typecheck`, in both directions. A member the schema drops
@@ -278,7 +278,7 @@ customer; `src/server/services/billing.ts:494` reads `billing_customer` by
 `stripe_customer_id` alone to find out whose it is. There is nothing to scope it
 by, because this read is *how* the user is derived. It is safe for one reason,
 and the reason is what a second unscoped read would have to supply too:
-`src/server/db/schema.ts:1499` makes `stripe_customer_id` unique across the
+`src/server/db/schema.ts:1507` makes `stripe_customer_id` unique across the
 table, and the value is issued by Stripe rather than typed by anybody, so the
 row it returns is the only row it could return. A read keyed on something a
 person can choose has no such argument, and everything downstream of this one is

@@ -11,9 +11,11 @@ This note is written as work lands rather than when the release is cut.
 shown, or you had `METRICS_ENABLED=true` on 0.2.1 with no `METRICS_TOKEN`, or
 you lowered a proxy's body limit below 52 MiB and want Simple Balance files
 added or moved, or a health check on the single container aims at a `/health`
-path other than `/health/live`, `/health/ready` or `/health` itself.** One
-migration, which runs itself at startup and rewrites no rows, no new setting
-anybody has to set, and nothing turns itself on: a deployment that sets nothing
+path other than `/health/live`, `/health/ready` or `/health` itself, or you
+want OpenAI's app portal to verify the host.** Two migrations, which run
+themselves at startup — one rewrites no rows and the other fills one column on
+one row per OAuth client — no new setting anybody has to set, and nothing turns
+itself on: a deployment that sets nothing
 new renders, starts and serves what it did, a stack that sets nothing new plans
 no change beyond the text of its `nextSteps` output, and a chart upgraded with
 the values it had renders the same objects. Two things change unasked: what a
@@ -29,7 +31,11 @@ ledger, or moved into a new one — with four routes and four MCP tools between
 them, two more that carry the money guides, a few new fields on replies an
 older client ignores, a box on the Overview that counts archived accounts, an
 agent's request to `/mcp` no longer cut off at 4 MiB, and twenty-one dependency
-advisories closed.
+advisories closed. Three changes narrow what an MCP client could do on 0.2.1,
+each approved as this release's exception and each under What changed under
+you: a refresh retires the refresh token it was made with, one call lists at
+most 200 register postings and exports at most 100 CSV rows, and `whoami`
+returns a name and an email only where the grant shares them.
 
 ### What runs automatically
 
@@ -68,6 +74,21 @@ whatever that commit has left, up to about fifty seconds. If that matters,
 upgrade at a quiet moment, or stop the 0.2.1 servers before the new one starts.
 A Citus cluster takes it as it is, with no gate: the type, the columns and the
 indexes reach every shard, and `0023`'s own gate is untouched.
+
+**A second migration, `0027_oauth_client_first_authorized.sql`, and it touches
+only the OAuth client table.** It adds `first_authorized_at`, a nullable
+timestamp with no default, to `auth_oauth_application`, which PostgreSQL records
+without writing a row, and then sets it on every client that holds a consent or
+a token today, to the earliest of their creation times. That is one row per
+registered client and nothing of anybody's ledger, so it is over in well under a
+second on any deployment this product knows of. The sweep of abandoned
+registrations keeps every client the column is set on. A client revoked before
+the upgrade has no rows left to show it was ever used, so it stays as eligible
+for the sweep as it was. On a Citus cluster the three OAuth tables are reference
+tables (`0023`), and the update runs there as it does on one node. During a
+rolling update a 0.2.1 server goes on sweeping without the new check, so a
+client revoked in that window can still be swept once; it stops when the last
+0.2.1 server does.
 
 **Twenty-one dependency advisories are closed** by the packages this release
 installs. Five ship in the image and move with it: `zod`, which validates every
@@ -122,6 +143,68 @@ platform's probes, plus one check as each process starts listening, which is
 also what keeps `ready` from reading 0 before the first probe.
 
 ### What changed under you
+
+**A refresh retires the refresh token it was made with — an approved
+narrowing.** On 0.2.1 the refresh token a client presented went on working for
+the rest of its seven days beside the new one it was handed. It now stops, with
+the access token issued beside it, in the same response that carries the
+replacement. A client that stores the refresh token each response returns, as
+RFC 6749 asks and every MCP SDK does, notices nothing. One that kept refreshing
+with the first token it was given gets `invalid_grant` on its second refresh
+and has to sign in again; so does a client that refreshes twice at once with
+one token, which only one of the two can win. Nothing an operator sets changes
+this.
+
+**One MCP call lists at most 200 register postings and exports at most 100 CSV
+rows and 60,000 characters — an approved narrowing.** `get_account_register` listed up to 10,000 and
+`export_transactions_csv` up to 100,000 rows of any size in one reply, and a reply that size
+does not fit the context it lands in: Claude Code stops a tool result at 25,000
+tokens and every reply is sent twice, structured and as text. Over the limit
+the tool refuses with `VALIDATION_ERROR`, the limit and the count, and writes
+nothing short; an agent asks for a shorter date range, as each tool's
+description now says. The browser's register and CSV download keep 10,000 and
+100,000, and `GET /api/v1/accounts/{id}/register` and `GET /api/v1/csv/export`
+are unchanged.
+
+**`whoami` returns a name and an email only where the grant shares them — an
+approved narrowing.** The consent screen describes `profile` as "See your name"
+and `email` as "See your email address", and 0.2.1's `whoami` returned both
+whatever the token held. Each is now null for a token granted without its
+scope. A client that asks for the scopes discovery publishes, or follows the
+new challenge below, holds both and sees no change.
+
+**The first refusal at `/mcp` names the scopes.** An unauthenticated request
+gets `WWW-Authenticate: Bearer resource_metadata="…",
+scope="openid profile email offline_access ledger:read ledger:stage
+ledger:write"`, where 0.2.1 named the resource metadata alone. A client that
+builds its request from the challenge rather than from discovery now asks for
+what discovery has always advertised, so the person is shown write access and
+offline access on the consent screen where they used to see the library's
+default, read access alone, and the client now gets a refresh token.
+
+**Discovery lists `none` as the only token endpoint method.** Registration has
+made every client public since 0.1.x, whatever it asked for, and both
+documents now say so. Better Auth's own copy at
+`/api/auth/.well-known/oauth-authorization-server` answers with the same
+document as the root one, so it also names the ledger scopes and drops the
+userinfo endpoint nothing serves. A client already registered is unaffected,
+including one registered as confidential before 0.1.4 made registration public:
+its secret is still accepted. One that re-reads discovery and decides to drop
+its secret on that account would be refused with `invalid_client`, and
+registering again is the way back.
+
+**The consent screen names the redirect host and the signed-in account.**
+`GET /api/auth/oauth2/consent-request` carries `redirectHost`,
+`redirectIsLoopback` and `accountEmail` beside the fields it had.
+
+**Tool text and three agent refusals read differently.** Five tool
+descriptions and the `fromAccountId` description four tools share say that
+entries are bookkeeping and move no real money, and every tool's annotations
+carry its title; no tool, argument, scope or hint changed. The refusals an agent
+meets for a frozen account, for `create_account` at the limit, and for a file
+bringing more accounts than the plan keeps no longer point at upgrading in the
+browser. A client matching on the old wording of a message, which no contract
+promises, would need to look again.
 
 **Stripe is called at API version `2026-09-30.endive`.** The release takes
 `stripe` 23, which pins it, so if you sell plans every request your deployment
@@ -185,16 +268,17 @@ scope lists them, and no route reaches them. They cost 5,523 characters of
 another 3,527 at `ledger:read`, 3,830 at `ledger:stage` and 5,008 at
 `ledger:write` for the new fields and fuller descriptions below — the
 staged-row and import-batch tools saying which kind of import staged a row
-among them — a token's tool list against 0.2.1's, measured on 2026-10-26:
+among them — and, since, each tool's title repeated in its annotations, a token's
+tool list against 0.2.1's, measured on 2026-11-03:
 
 | Token holds | 0.2.1 | 0.2.2 | Longer by |
 | --- | --- | --- | --- |
-| `ledger:read` | 173,131 | 218,450 | 45,319, 26% |
-| `ledger:stage` | 213,653 | 259,275 | 45,622, 21% |
-| `ledger:write` | 497,153 | 591,363 | 94,210, 19% |
+| `ledger:read` | 173,131 | 220,496 | 47,365, 27% |
+| `ledger:stage` | 213,653 | 261,511 | 47,858, 22% |
+| `ledger:write` | 497,153 | 595,032 | 97,879, 20% |
 
 At about four characters to a token that is some 55,000 tokens for a
-read-only connection and 148,000 for a writing one. A client that loads every
+read-only connection and 149,000 for a writing one. A client that loads every
 tool up front and runs close to its context budget is the one to check; one
 that searches its tools loads what it uses. Nothing an agent already calls has
 been renamed, removed or given a new required argument.
@@ -578,9 +662,30 @@ deleted from the same place, then `sudo systemctl restart simple-balance` on a
 recipe derives the frontend's `SB_ADS_CONFIGURED` from `ADSENSE_CLIENT_ID`, so
 it follows.
 
+### What you do by hand, to have OpenAI verify the host
+
+Only when you are connecting this deployment's MCP server to an app in OpenAI's
+portal. The portal shows a token at its **MCPs** > **Connect** step and fetches
+`/.well-known/openai-apps-challenge` from the MCP host, expecting that token as
+plain text.
+
+**A `single` machine built before this release** takes this release's
+`compose.yml` first, the same step the house ad needs, because 0.2.1's file
+does not pass `SB_OPENAI_APPS_CHALLENGE` to the container. Then
+`SB_OPENAI_APPS_CHALLENGE=<token>` in `/opt/simple-balance/.env` and
+`sudo systemctl restart simple-balance`. **The split recipe** takes the new
+`compose.distributed.yml`, then the same line in `deploy/compose/.env` and
+`docker compose up -d`. **A stack built by the cloud programs** sets it with
+`pulumi config set --path 'simple-balance:env.SB_OPENAI_APPS_CHALLENGE' <token>`
+and `pulumi up`; **the chart** takes it under `config.extraEnv`. It is a
+published value, not a secret, so it has no `_FILE` form.
+
 ### What to check afterwards
 
-`/health/ready`, as with any upgrade; it opens once `0026` has run. Signed in,
+`/health/ready`, as with any upgrade; it opens once `0026` and `0027` have run.
+Where the challenge is set,
+`curl -sS https://your-host/.well-known/openai-apps-challenge` prints the token
+and nothing else; unset, it answers 404. Signed in,
 **Import and export** shows the CSV import, then **Import a Simple Balance
 file**, then **Export a Simple Balance file**; **Export file** saves
 `simple-balance-` and today's date as a `.json` file, and choosing that file

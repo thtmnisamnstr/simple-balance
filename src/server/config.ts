@@ -180,6 +180,17 @@ export type AppConfig = {
    */
   houseAd: boolean;
   /**
+   * The token OpenAI's app portal checks this host for before it scans an MCP
+   * server, `SB_OPENAI_APPS_CHALLENGE`, served as it is at
+   * `/.well-known/openai-apps-challenge`.
+   *
+   * Undefined is the default and answers 404 there, which is what every
+   * deployment answered before the setting existed. It is a published value,
+   * not a secret: proving control of a host means putting it where anybody can
+   * read it, so it takes no `_FILE` form.
+   */
+  openaiAppsChallenge?: string;
+  /**
    * Where this deployment's own privacy policy and terms of use live.
    *
    * Either, both or neither, and each is published the moment it is set: on
@@ -354,6 +365,7 @@ export function getConfig(): AppConfig {
     // publishable key, the price ids and the AdSense ids are published to every
     // browser that loads the page, so calling them secrets would mean nothing.
     SB_BILLING_ENABLED: process.env.SB_BILLING_ENABLED,
+    SB_OPENAI_APPS_CHALLENGE: process.env.SB_OPENAI_APPS_CHALLENGE,
     STRIPE_SECRET_KEY: readSecret("STRIPE_SECRET_KEY"),
     STRIPE_PUBLISHABLE_KEY: process.env.STRIPE_PUBLISHABLE_KEY,
     STRIPE_WEBHOOK_SECRET: readSecret("STRIPE_WEBHOOK_SECRET"),
@@ -402,6 +414,11 @@ export function getConfig(): AppConfig {
     billing,
     ads,
     houseAd,
+    // Trimmed because an env file or a pasted secret often ends in a newline,
+    // and the portal compares the body byte for byte; blank reads as unset.
+    ...(values.SB_OPENAI_APPS_CHALLENGE?.trim()
+      ? { openaiAppsChallenge: values.SB_OPENAI_APPS_CHALLENGE.trim() }
+      : {}),
     legal,
     port,
     logLevel,

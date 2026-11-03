@@ -1020,7 +1020,21 @@ const APP_CSV_EXPORT_COLUMNS = [
   "effective_rate",
 ] as const;
 
-export async function exportTransactionsCsv(actor: Actor, query: unknown) {
+/**
+ * The limits are the transport's: the route's download takes
+ * `CSV_EXPORT_MAX_ROWS` and nothing else, and the MCP tool, whose reply lands in
+ * a model's context, far smaller ones (`MCP_CSV_EXPORT_MAX_ROWS` and
+ * `MCP_CSV_EXPORT_MAX_CHARACTERS`). Over either the export is refused, never
+ * cut. The size is a limit of its own because a row is not a size: notes run
+ * to four thousand characters and travel twice, in `notes` and again in
+ * `roundtrip_text_json`, so a hundred rows can be a hundred times a hundred
+ * rows.
+ */
+export async function exportTransactionsCsv(
+  actor: Actor,
+  query: unknown,
+  limits: { maxRows: number; maxCharacters?: number } = { maxRows: CSV_EXPORT_MAX_ROWS },
+) {
   // An export is the whole filtered set, so the caller's window into it is
   // dropped. Left in, a `page` would start the walk partway down and quietly
   // leave the earlier rows out of the file. The walk also runs in the one order
@@ -1039,7 +1053,7 @@ export async function exportTransactionsCsv(actor: Actor, query: unknown) {
     // reading the file back would raise the voided amount from the dead.
     includeDeleted: false,
   };
-  const all = await listAllTransactions(actor, window, CSV_EXPORT_MAX_ROWS);
+  const all = await listAllTransactions(actor, window, limits.maxRows);
 
   const rows = all.map((transaction) => ({
     simple_balance_format: APP_CSV_FORMAT,
@@ -1091,23 +1105,30 @@ export async function exportTransactionsCsv(actor: Actor, query: unknown) {
     destination_currency: transaction.destinationCurrency,
     effective_rate: transaction.effectiveRate,
   }));
+  const csv = rowsToCsv(
+    rows,
+    [
+      "payee",
+      "description",
+      "category_name",
+      APP_CSV_EXTERNAL_ID_COLUMN,
+      "notes",
+      "source_account_name",
+      "destination_account_name",
+    ],
+    // The columns an export matching nothing still has to write. Taken from
+    // the same list the rows are built from, so a column added above appears
+    // in an empty file too rather than only in a populated one.
+    APP_CSV_EXPORT_COLUMNS,
+  );
+  if (limits.maxCharacters !== undefined && csv.length > limits.maxCharacters) {
+    throw validationError(
+      `That export is ${csv.length.toLocaleString("en-US")} characters across ${rows.length} transactions, and ${limits.maxCharacters.toLocaleString("en-US")} is the most one call carries. Narrow it with a start and end date and export one range at a time.`,
+      { limit: limits.maxCharacters, characters: csv.length, rowCount: rows.length },
+    );
+  }
   return {
-    csv: rowsToCsv(
-      rows,
-      [
-        "payee",
-        "description",
-        "category_name",
-        APP_CSV_EXTERNAL_ID_COLUMN,
-        "notes",
-        "source_account_name",
-        "destination_account_name",
-      ],
-      // The columns an export matching nothing still has to write. Taken from
-      // the same list the rows are built from, so a column added above appears
-      // in an empty file too rather than only in a populated one.
-      APP_CSV_EXPORT_COLUMNS,
-    ),
+    csv,
     rowCount: rows.length,
     // Dated in the person's own timezone, not the server's. `common.md` puts
     // every "today" in this product through `todayIn`; the route once dated

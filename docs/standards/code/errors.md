@@ -12,7 +12,7 @@ The wire format — RFC 9457, status codes, the envelope — is
 HTTP status, optional details, and an optional second message for an agent
 (see 2.2 and 2.4). Both transports render it: HTTP into a problem document, MCP
 into a tool error — and the MCP one puts `agentMessage` where the message would
-go wherever a throw site set one (`src/server/mcp.ts:284`), so the fifth field
+go wherever a throw site set one (`src/server/mcp.ts:315`), so the fifth field
 is wire-visible rather than a note to ourselves.
 
 The distinction is the question **is there something the caller could do
@@ -37,13 +37,13 @@ a subscription Stripe cannot return without a price
 Simple Balance file brought the other two. The exporter checks its own output
 against its own reader, and the add and the move read this ledger's records
 through that reader too, so a failure there is the exporter disagreeing with
-itself (`src/server/services/ledger-file.ts:282` and `:1606`); and an argument
+itself (`src/server/services/ledger-file.ts:283` and `:1607`); and an argument
 only a move passes — an archive instant, a deferred close — is refused when
 it arrives somewhere it cannot mean anything
-(`src/server/services/accounts.ts:1081`, `:1088` and `:1091`,
+(`src/server/services/accounts.ts:1084`, `:1091` and `:1094`,
 `src/server/services/transactions.ts:2603`), as is a move's plan that left a
 transaction unresolved after the planner said it had resolved every one
-(`src/server/services/ledger-file.ts:2534`). Those are arguments, never fields,
+(`src/server/services/ledger-file.ts:2535`). Those are arguments, never fields,
 so no request can supply one. The reason each cannot happen is written beside
 it in the test rather than copied here.
 
@@ -75,7 +75,7 @@ use the constructor that names the situation.
 | `validationError` | 422 | The request is well-formed and asks for something impossible. |
 
 **The transport is the named exception, and it is two lines.**
-`src/server/api.ts` constructs `AppError` directly at `:1808` and `:1822`, and
+`src/server/api.ts` constructs `AppError` directly at `:1992` and `:2006`, and
 both carry a code no service raises at all: `FORBIDDEN` and
 `REAUTHENTICATION_REQUIRED` belong to the two operations that are reachable
 from a session and never from a token, which is exactly the pair `AGENTS.md`
@@ -96,10 +96,10 @@ So the rule is scoped rather than absolute: a service uses the constructors, and
 the transport may name a status the service half has no word for. It was four
 lines rather than two, and shrinking it is what the other two paragraphs of this
 section used to be about. The already-configured-password site was byte-for-byte
-what `conflict()` produces and now calls it (`src/server/api.ts:1813`). The malformed-body guard
+what `conflict()` produces and now calls it (`src/server/api.ts:1997`). The malformed-body guard
 was a `VALIDATION_ERROR` **400** where the constructor is 422 by definition,
 which is why it could not use one — it is now a `TransportError`
-(`src/server/api.ts:1681`, the class at `src/server/services/errors.ts:13-23`),
+(`src/server/api.ts:1865`, the class at `src/server/services/errors.ts:13-23`),
 a separate enumeration for the refusals that are about the request rather than
 about the ledger, so `VALIDATION_ERROR` means one status again and the code an
 MCP tool can raise stays the service half alone.
@@ -129,7 +129,7 @@ falls out naturally: the row simply is not in the result.
 
 **One 403 says "not yours", and it is not about a record.** An MCP consent
 started in one account and answered in another is refused with
-`CONSENT_NOT_YOURS` and a 403 (`src/server/api.ts:1033-1040` and `:1074-1081`).
+`CONSENT_NOT_YOURS` and a 403 (`src/server/api.ts:1127-1134` and `:1173-1180`).
 The consent code is a single-use secret the authorization link carries, not an
 id anybody can enumerate, so the bit the 403 confirms is one the person holding
 the link already has. And the sentence is the move that works — sign in as the
@@ -232,20 +232,23 @@ a rule rather than a workaround for billing. The account allowance
 (`src/server/services/accounts.ts:731`) tells a browser to archive or delete
 an account or upgrade under Settings, and tells an agent the two of those it
 can do — by `archive_account` and `delete_account`, with the person's say-so —
-and that only the person who owns the ledger can raise the limit: billing is
-session-only by `AGENTS.md`, so an agent told to upgrade is told to do something
-it holds no credential for, which is the same fault as telling it to reload. It
+and nothing about a bigger plan: billing is session-only by `AGENTS.md`, so an
+agent told to upgrade is told to do something it holds no credential for, which
+is the same fault as telling it to reload, and OpenAI's app guidelines refuse an
+app that promotes an upgrade while allowing one that says a feature is outside
+the plan in force. The limit and what frees a place are what it relays; `whoami`
+carries the plan and its ceiling for an agent asked why. It
 used to leave out the archive and the delete, so an agent reported that only
 paying would do when a free way existed. The active-account chooser
-(`src/server/services/accounts.ts:972`) goes the other way. This is a call an
+(`src/server/services/accounts.ts:975`) goes the other way. This is a call an
 agent *can* make, so its sentence names the call, says what a valid one looks
 like, and — where nothing is frozen — says that no list at all is valid, so the
 agent stops trying different ones instead of guessing.
 
 Fifteen throw sites carry one today and the shape recurs: the archive restore meets
 the same ceiling from the other side
-(`src/server/services/accounts.ts:1287`), the frozen-account refusal is the same
-argument under a 422 (`src/server/services/accounts.ts:866`), and the two in
+(`src/server/services/accounts.ts:1290`), the frozen-account refusal is the same
+argument under a 422 (`src/server/services/accounts.ts:869`), and the two in
 `closeBillingForDeletion` (`src/server/services/billing.ts:2021` and `:2028`)
 give a person the move each cause leaves them — whoever runs the server, where
 the keys cannot vouch for Stripe's answer, and a retry in a few minutes, where
@@ -256,22 +259,22 @@ because the browser's sentence would be the wrong one if it ever widens, which
 is cheaper than noticing later. Adding a Simple Balance file brought three
 more, and moving one brought three more again: `movedEntryRefusal` and
 `moveLedgerFile`'s two. The three bulk not-founds are the last. A file bringing more accounts in use
-than the plan keeps (`planRefusal`, `src/server/services/ledger-file.ts:2037`)
+than the plan keeps (`planRefusal`, `src/server/services/ledger-file.ts:2038`)
 offers the browser choosing which arrive archived, or upgrading, and tells an
-agent the numbers, the field that takes the choice, and that only the person
-can raise the limit — the allowance's argument again. And the conflicts a part
-meets when the ledger moved after it was read (`:2150` for an add and `:2465`
+agent the numbers and the field that takes the choice, and nothing about a
+bigger plan — the allowance's argument again. And the conflicts a part
+meets when the ledger moved after it was read (`:2151` for an add and `:2466`
 for a move), or when another import staged or wrote the same rows first
-(`:2016` and `:2284`), are the case running the other way round from billing:
+(`:2017` and `:2285`), are the case running the other way round from billing:
 the person's way back is a button, so their sentence names it in its own
 words, **Check file again**, and an agent has no button, so its sentence
 names `preview_ledger_file`. Both had told everyone to preview the file again,
 which was neither: no button says it, and no tool is called it. A move's own
 refusals hand an agent its own sentence through `planRefusal`'s `forAgent`
-(`moveRefusal`, `:2240`) for the four causes the page answers with something
+(`moveRefusal`, `:2241`) for the four causes the page answers with something
 an agent has not got — add the file instead, discard the rows waiting in
 Staged that did not come from a file, commit or discard the file's own waiting
-rows, upgrade — and a balance that does not come out (`:2623`) tells
+rows, upgrade — and a balance that does not come out (`:2624`) tells
 a person the causes they can act on from the page — a file for the days before
 this one to move first, an account here to rename, or adding the file instead —
 and never blames an earlier part, because the page sends them in order; an
@@ -420,7 +423,7 @@ are disabled on their own account, so the tab offers the grant's sentence only
 where `planChangeTakesEffect` says the press would have spent money, which is
 the same line the route draws with `sellsSomething`.
 `frozenAccountRefusal` (`src/shared/domain.ts:4118`) is thrown by
-`assertAccountsWritable` (`src/server/services/accounts.ts:861`) and is the
+`assertAccountsWritable` (`src/server/services/accounts.ts:864`) and is the
 reason an account card's **Edit**, **Archive** and **Delete** now carry, and a
 transaction row's **Edit**, **Delete** and **Restore** with them.
 

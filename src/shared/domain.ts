@@ -661,7 +661,7 @@ const withdrawalDraftSchema = z
       ),
     ...transactionCommon,
     fromAccountId: uuid().describe(
-      "Where the money came from: a withdrawal's account, or a transfer's source, whose currency sourceAmount is in. A transfer's two sides must differ, so moving money within one account is refused.",
+      "Where the money came from: a withdrawal's account, or a transfer's source, whose currency sourceAmount is in. A transfer's two accounts must differ.",
     ),
     amount: positiveDecimalStringSchema,
   })
@@ -676,7 +676,7 @@ const transferDraftSchema = z
       ),
     ...transactionCommon,
     fromAccountId: uuid().describe(
-      "Where the money came from: a withdrawal's account, or a transfer's source, whose currency sourceAmount is in. A transfer's two sides must differ, so moving money within one account is refused.",
+      "Where the money came from: a withdrawal's account, or a transfer's source, whose currency sourceAmount is in. A transfer's two accounts must differ.",
     ),
     toAccountId: uuid().describe(
       "Where the money landed: a deposit's account, or a transfer's destination. Its currency is the currency the money arrived in, so a transfer whose two accounts differ in currency is refused without destinationAmount.",
@@ -3103,7 +3103,7 @@ export const recurrenceShapeSchema = z.discriminatedUnion("type", [
         ),
       ...recurrenceShapeFields,
       fromAccountId: uuid().describe(
-        "Where the money came from: a withdrawal's account, or a transfer's source, whose currency amount is in. A transfer's two sides must differ, so moving money within one account is refused.",
+        "Where the money came from: a withdrawal's account, or a transfer's source, whose currency amount is in. A transfer's two accounts must differ.",
       ),
       amount: positiveDecimalStringSchema.optional(),
     })
@@ -3118,7 +3118,7 @@ export const recurrenceShapeSchema = z.discriminatedUnion("type", [
         ),
       ...recurrenceShapeFields,
       fromAccountId: uuid().describe(
-        "Where the money came from: a withdrawal's account, or a transfer's source, whose currency amount is in. A transfer's two sides must differ, so moving money within one account is refused.",
+        "Where the money came from: a withdrawal's account, or a transfer's source, whose currency amount is in. A transfer's two accounts must differ.",
       ),
       toAccountId: uuid().describe(
         "Where the money landed: a deposit's account, or a transfer's destination. Its currency is the currency the money arrived in, so a transfer whose two accounts differ in currency is refused without destinationAmount.",

@@ -62,8 +62,8 @@ const SECOND_AUDIENCE = [
     because:
       "Adding a Simple Balance file on a plan that keeps fewer accounts in use than the file " +
       "brings. The browser is offered choosing which arrive archived, or upgrading; an agent " +
-      "can do the first and not the second, so it is told the numbers, the field that takes " +
-      "the choice, and that only the person can raise the limit — the allowance's precedent.",
+      "can do the first and not the second, so it is told the numbers and the field that " +
+      "takes the choice, and nothing about a bigger plan — the allowance's precedent.",
   },
   {
     where: "src/server/services/ledger-file.ts",

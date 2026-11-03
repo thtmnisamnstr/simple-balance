@@ -6,6 +6,21 @@ Notable changes, newest first.
 
 ### Added
 
+**OpenAI's app portal can verify this deployment's MCP host.** Set
+`SB_OPENAI_APPS_CHALLENGE` to the token the portal shows when you connect the
+MCP server, and `GET /.well-known/openai-apps-challenge` answers with exactly
+that token as plain text; the portal will not scan the tools until it does.
+Unset, the path answers 404 as it always did. Both compose files and the cloud
+programs pass the setting through.
+
+**The consent screen says where approving sends you, and whose ledger it
+grants.** Registration is open, so the client's name on that screen is only
+the client's own claim; the screen now names the host its code goes back to,
+and says so plainly when that host is this computer, which means a program on
+your own machine. It names the signed-in account's email too, because a
+browser still signed in to one account approves for that account's ledger,
+whoever started the connection.
+
 **A whole ledger, or some of its accounts, can be exported as one Simple Balance
 file.** A CSV carries transactions and nothing else, so moving between our cloud
 app and a copy you run yourself meant rebuilding every account, budget, template
@@ -247,6 +262,63 @@ way, as the Budgets page always has.
 
 ### Changed
 
+**Tool text says plainly that Simple Balance records bookkeeping entries and
+moves no money.** `create_transaction`, `archive_account` and
+`commit_staged_transactions` read as though they moved money — "Directly commit
+a deposit", "this moves money in the books" — and the input text four tools
+share said a transfer was "moving money within one account". The directories
+that list MCP servers refuse connectors that transfer money and scan tool text
+for it. Each now says it records an entry in the person's ledger and moves no
+real money, and calls entries transactions rather than payments.
+`create_transaction_template` now says outright that saving a template creates
+no category; one named only by text is matched, or created, when an entry is
+made from it.
+
+**Every tool's title is in its annotations as well.** `Tool.title` was set and
+`annotations.title` was not, and Claude's directory portal flags a tool without
+a title or annotations. The hints themselves are unchanged.
+
+**An agent refused at the account limit is told the limit and what frees a
+place, and nothing about upgrading.** The refusals for a frozen account, for
+`create_account` at the limit, and for a Simple Balance file bringing more
+accounts than the plan keeps each ended by pointing the person at a bigger plan
+in the browser. An agent relays that sentence, and OpenAI's guidelines refuse an
+app that promotes an upgrade while allowing one that says something is outside
+the plan in force. The browser's own sentences are unchanged.
+
+**The first refusal an MCP client meets names the scopes to ask for.** An
+unauthenticated call to `/mcp` answered with a challenge naming only the
+resource metadata, so a client that takes its scopes from the challenge —
+Docker's gateway reads nothing else — fell back to the library's default grant:
+read tools only, and no refresh token. The challenge now carries
+`scope="openid profile email offline_access ledger:read ledger:stage
+ledger:write"`, the same list discovery publishes, and the consent screen still
+shows the person every one of them.
+
+**Discovery says every client is public.** Registration has always made every
+client public, whatever authentication method it asked for, while both
+authorization-server documents advertised two secret-based methods beside
+`none`. They now list `none` alone, including Better Auth's own copy under
+`/api/auth`, which also now names the ledger scopes and no longer points at a
+userinfo endpoint nothing serves.
+
+**One MCP call lists at most 200 register postings and exports at most 100
+CSV rows and 60,000 characters.** A tool reply lands whole in a model's
+context, twice over, and Claude Code stops a tool result at 25,000 tokens;
+`get_account_register` allowed ten thousand postings and
+`export_transactions_csv` a hundred thousand
+rows. A wider range is refused with the count and the limit, never cut short,
+so an agent asks for a shorter one. The browser's register and download keep
+their limits. This narrows what a 0.2.1 client could do in one call, and is one
+of three narrowings approved as this release's exception
+(`docs/upgrades.md` says what a client does about each).
+
+**`whoami` returns the person's name and email only where the grant shares
+them.** The consent screen describes `profile` as "See your name" and `email` as
+"See your email address", and `whoami` returned both to a token granted
+neither. Each is now null without its scope. Approved as part of this release's
+exception, with the change below.
+
 **Stripe's API version is now `2026-09-30.endive`.** The server SDK moved to
 `stripe` 23, which pins it, with Stripe.js 10 and React Stripe.js 7 beside it in
 the browser, because Stripe keeps the two on one release. Every request this
@@ -332,6 +404,25 @@ machine read the passwords in it — and on the database machine the new
 node-exporter reads the host's root as an unprivileged user.
 
 ### Security
+
+**A refresh retires the refresh token it was made with.** Better Auth 1.6
+issued a new refresh token on every refresh and left the old one valid for the
+rest of its seven days, so every refresh left one more live credential behind,
+and a leaked one kept working however often its owner refreshed. The old token
+and the access token beside it now stop working in the same response that
+issues their replacement. A client that kept using a refresh token after being
+handed a new one has to sign in again; that is the third narrowing approved as
+this release's exception.
+
+**A client somebody approved is never swept as an abandoned registration.**
+Dynamic registrations nobody completed are deleted after a day, judged by
+whether the client holds a consent or a token. Revoking an agent deletes
+exactly those, so a client that had been used and then disconnected was
+deleted too, and ChatGPT, which keeps one client per connection, then failed
+its next sign-in with `invalid_client`. A client is now marked the first time
+it is approved or issued a token, and a marked client is kept. Migration
+`0027` adds the mark and sets it on every client holding a consent or a token
+when it runs.
 
 **A password-reset link no longer reaches the log at `LOG_LEVEL=debug`.** The
 debug line written for every request named its path, and the emailed reset

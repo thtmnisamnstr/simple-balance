@@ -154,6 +154,9 @@ x-app-config: &app-config
   # nothing from anywhere, so unlike the AdSense ids above it changes no
   # policy and the frontend is told nothing about it.
   SB_HOUSE_AD: ${SB_HOUSE_AD:-false}
+  # The token OpenAI's app portal asks this host to serve, as plain text, at
+  # /.well-known/openai-apps-challenge. Unset answers 404 there.
+  SB_OPENAI_APPS_CHALLENGE: ${SB_OPENAI_APPS_CHALLENGE:-}
   # Optional, and linked from sign-in and every page whenever it is set;
   # required, as an absolute https:// address, the moment the AdSense ids are
   # set, and both processes refuse to start without it. This block once left it

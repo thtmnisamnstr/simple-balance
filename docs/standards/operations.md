@@ -206,7 +206,7 @@ relay's own sentence and may quote the address inside it; that is the relay
 talking, and an operator who cannot read it has to reproduce the failure by
 hand. A Drizzle error is narrowed for a harder reason, and it is narrowed in one
 place rather than at each transport: see §Logging below, which owns
-`log.failure` (`src/server/log.ts:76-102`). `src/server/api.ts:552-556` is the
+`log.failure` (`src/server/log.ts:76-102`). `src/server/api.ts:555-559` is the
 HTTP transport handing it over, with the comment saying why it stopped doing the
 narrowing itself.
 
@@ -370,7 +370,10 @@ services start, and `GOMEMLIMIT`, the Go runtime's own, and every name it reads
 that this product invented is `SB_METRICS_*`. So is `SB_HOUSE_AD`, which sits
 beside the `ADSENSE_*` names in every table and example and is prefixed anyway:
 whether to show this product's own advertisement is a question only this
-product asks, which is the test below.
+product asks, which is the test below. So is `SB_OPENAI_APPS_CHALLENGE`, though
+the token it carries is OpenAI's: OpenAI names no variable for it, so there is
+no vendor spelling to keep, and whether to serve its domain check is a question
+only this product asks.
 
 The codebase is split. The server reads unprefixed product names (`AUTH_MODE`,
 `TRUST_PROXY`, `AUTH_SECRET`, `RECURRENCE_*`, `CSV_*`, `ALLOWED_EMAILS`) while
@@ -379,7 +382,7 @@ image declares a default for: `SB_FRONTEND_PORT`, `SB_API_ORIGIN`,
 `SB_MAX_UPLOAD_SIZE`, `SB_BILLING_CONFIGURED`, `SB_CSP_REPORT_ONLY`,
 `SB_ADS_CONFIGURED`, `SB_TRUSTED_PROXY_CIDR` and `SB_REAL_IP_RECURSIVE`
 (`deploy/docker/frontend.Dockerfile:49-90`, documented at
-`docs/deployment.md:885-892`). It was three for two releases and the rule held
+`docs/deployment.md:886-893`). It was three for two releases and the rule held
 through five more arriving, which is the evidence the rule is worth something.
 `AUTH_MODE` and `TRUST_PROXY` are generic enough to collide with a sidecar or a
 base image.
@@ -482,14 +485,14 @@ else refuses to start.
 
 This is the rule most worth stating because the alternative is truthiness, and
 truthiness has no symptom. `RECURRENCE_SCHEDULER` already does it, and
-`config.ts:289-291` gives the reason: "A misspelling here has no symptom: the
+`config.ts:300-302` gives the reason: "A misspelling here has no symptom: the
 process starts, serves, and quietly proposes nothing until somebody notices a
 year of missing rent." `RECURRENCE_SCHEDULER=yes` read as falsy is a deployment
-that looks healthy and proposes nothing. `TRUST_PROXY` (`config.ts:285-288`) and
-`SMTP_SSL` (`config.ts:609-612`) follow the same pattern.
+that looks healthy and proposes nothing. `TRUST_PROXY` (`config.ts:296-299`) and
+`SMTP_SSL` (`config.ts:626-629`) follow the same pattern.
 
 The same argument applies to any closed set, not only booleans. `NODE_ENV` is
-parsed against three values and refuses a fourth (`config.ts:260-264`), because
+parsed against three values and refuses a fourth (`config.ts:271-275`), because
 `NODE_ENV=Production` compared against the string `production` had no symptom
 either: no setup code, no rate limiting, no secure cookies.
 
@@ -515,7 +518,7 @@ the database or the process.
 
 **House.** A list is comma-separated, each entry trimmed, and empty entries are
 skipped rather than refused. `parseRegistrationRule`
-(`src/server/config.ts:1067-1103`) is the model: split, trim, lowercase, drop the
+(`src/server/config.ts:1084-1120`) is the model: split, trim, lowercase, drop the
 blanks, then validate what is left with a message naming the bad entry.
 
 *Checked by:* `tests/config.test.ts`, which asserts that
@@ -622,7 +625,7 @@ contradictory secret file then refuses at startup rather than at the first
 query, which is what the next section asks of everything else.
 
 The same argument decided the one line that looks like it should have been left
-alone. `config.ts:535-543` hands `getPool()` the *development default* for
+alone. `config.ts:552-560` hands `getPool()` the *development default* for
 `DATABASE_URL` and is now guarded so it does that and nothing else, because
 unguarded it would have written a value read from `DATABASE_URL_FILE` straight
 back into the environment the form exists to keep it out of.
@@ -718,7 +721,7 @@ Two consequences worth knowing before adding a setting or a program:
   because `deploy/` is vendored without `src/`, and a test holds the copy to the
   source. The metrics collector is the second program the stack configures, and
   its names are a list of their own beside the application's
-  (`COLLECTOR_SETTINGS`, `deploy/pulumi/common/app-settings.ts:123`), derived
+  (`COLLECTOR_SETTINGS`, `deploy/pulumi/common/app-settings.ts:124`), derived
   from the compose files that pass them the way the first is derived from the
   server, with one secret among them: `SB_METRICS_EXPORT_HEADERS`, which
   carries the backend's credential. A secret in `env` is refused at plan time
@@ -817,7 +820,7 @@ default whenever the value was not a safe integer in range, so `CSV_MAX_ROWS`,
 `RECURRENCE_CLAIM_LIMIT` all fell back silently while `DATABASE_POOL_SIZE` threw.
 The five were made to do what the one did, and then all six were made to warn
 instead, which is where they are now
-(`src/server/config-limits.ts:76-120`).
+(`src/server/config-limits.ts:102-146`).
 
 **The reversal is the interesting half, and it is not a retreat from the rule.**
 A release upgrades cleanly from the one before it, which `AGENTS.md` states as a
@@ -836,13 +839,13 @@ startup rather than at the call site. `configuredCsvMaxRows()` used to run insid
 an import (`src/server/services/import-export.ts:769`) and the recurrence limits
 inside a tick, so a message about either arrived hours later in a log nobody was
 reading, or on a deployment that never imported a CSV, not at all.
-`assertConfiguredLimits()` (`src/server/config-limits.ts:260-272`) reads all seven
-and `getConfig()` calls it (`src/server/config.ts:243-255`), which every
+`assertConfiguredLimits()` (`src/server/config-limits.ts:286-298`) reads all seven
+and `getConfig()` calls it (`src/server/config.ts:254-266`), which every
 entrypoint runs before it serves anything.
 
 **The seventh bounded integer was read at its call site until 0.2.1**, which
 made it the live instance of the defect the two paragraphs above are about. `IDEMPOTENCY_RETENTION_HOURS` is parsed by
-`configuredIdempotencyRetentionHours` (`src/server/config-limits.ts:169-189`), a
+`configuredIdempotencyRetentionHours` (`src/server/config-limits.ts:195-215`), a
 deliberate sibling of the shared reader rather than a flag on it, because zero
 is a real answer here — the honest spelling of "do not prune" — where on a cap
 it would be a broken deployment. The sibling is right. What is missing is the
@@ -879,19 +882,19 @@ cap matches the bulk-action cap so an import always fits one review-queue
 action). The seventh appears for `TRUST_PROXY` (`:67`, "getting it wrong costs
 per-visitor rate limiting"), `RECURRENCE_SCHEDULER` (`:72`, "A value other than
 `true` or `false` refuses to start, because the wrong setting is otherwise
-silent") and the seven bounded integers (`:81-102`), and nowhere else.
+silent") and the seven bounded integers (`:82-103`), and nowhere else.
 `SB_MAX_UPLOAD_SIZE` (`deploy/docker/frontend.Dockerfile:51-54`) models the
 sixth best of all, because it gives the arithmetic so an operator can compute
 their own value rather than copy a number.
 
 **The seventh is the one that needed a paragraph of its own and got one**
-(`docs/deployment.md:88-92`). `IDEMPOTENCY_RETENTION_HOURS` takes zero as a real
+(`docs/deployment.md:89-93`). `IDEMPOTENCY_RETENTION_HOURS` takes zero as a real
 answer where the other six take it as a mistake, and the document says so in the
 terms this rule asks for: what a wrong value does, which way the fallback goes,
 and why it goes that way rather than the other — *off* rather than a window,
 since a typo must never start pruning. Worth copying wherever a bound and a
 sentinel share a variable. The same document is honest about the one thing this
-guide recorded as a gap: `:94` said *six* were read at startup and did not
+guide recorded as a gap: `:95` said *six* were read at startup and did not
 claim the seventh, until the seventh was; it says seven now.
 
 *Not checked mechanically.* A test can assert that every variable has a row; it
@@ -963,7 +966,7 @@ name in the message.
 
 The root file is the model for all five. `AUTH_SECRET=` is empty with
 `openssl rand -base64 32` above it (`.env.example:33-38`),
-`RECURRENCE_SCHEDULER` carries its own silence warning (`.env.example:262-272`),
+`RECURRENCE_SCHEDULER` carries its own silence warning (`.env.example:268-278`),
 and the mail block is commented out as a group (`.env.example:83-106`).
 
 It also does one thing beyond the rule, worth generalizing: it warns about
@@ -977,7 +980,7 @@ parsers read `.env` in this repository and they disagree about quoting.
 
 | Path | Parser | Rule |
 | --- | --- | --- |
-| `docker run --env-file .env` (`README.md:139`, `docs/deployment.md:735`) | Docker CLI | `NAME=value`, `#` only at line start, values passed as-is. **No interpolation and no quote processing. Do not quote.** Quoting an `SMTP_PASSWORD` here puts the quote marks in the password. |
+| `docker run --env-file .env` (`README.md:139`, `docs/deployment.md:736`) | Docker CLI | `NAME=value`, `#` only at line start, values passed as-is. **No interpolation and no quote processing. Do not quote.** Quoting an `SMTP_PASSWORD` here puts the quote marks in the password. |
 | Compose `.env` and `env_file` (`deploy/compose/compose.distributed.yml`) | Compose | Interpolation applies to unquoted and double-quoted values, `${VAR:-default}` and friends work. **Single-quote a value containing `$`.** |
 
 The intuitive advice, "quote your secrets in `.env`", is wrong on the path this
@@ -999,17 +1002,17 @@ is believed.
 **Settled, and six variables had drifted.** Three were in the root example and
 in no table, because prose was doing the work a table row does: `NODE_ENV` and
 the two Google settings, which are now rows of their own
-(`docs/deployment.md:40`, `:135-136`). Prose is where the reasoning goes and a
+(`docs/deployment.md:40`, `:136-137`). Prose is where the reasoning goes and a
 table is what somebody scans for a name, so a variable mentioned only in a
 sentence is one an operator searching the tables concludes does not exist.
 
 **The other three were a named exception rather than an omission, and the
 exception is now five.** `SB_API_ORIGIN`, `SB_FRONTEND_PORT`,
 `SB_MAX_UPLOAD_SIZE`, `SB_BILLING_CONFIGURED` and `SB_ADS_CONFIGURED` — rows of
-the nginx table at `docs/deployment.md:883-892` — belong to the nginx container,
+the nginx table at `docs/deployment.md:884-893` — belong to the nginx container,
 and no example file configures it: the root file serves the single container,
 which has no nginx in it, and the compose recipe sets each of them on the
-frontend service itself (`deploy/compose/compose.distributed.yml:316-340`),
+frontend service itself (`deploy/compose/compose.distributed.yml:319-343`),
 where a value can carry the reason it is what it is. Their defaults are in the
 image (`deploy/docker/frontend.Dockerfile:49-90`), so a deployment that changes
 none of them has nothing to write down. This is the same shape as
@@ -1132,7 +1135,7 @@ returns 200 or 503, and both entrypoints answer it with one function
 answer where a scrape reads it — `docs/standards/code/observability.md` §1.13.
 Both are registered above every auth middleware and neither is authenticated.
 
-The rule that generalizes best is already written in `docs/deployment.md:1063`: "A
+The rule that generalizes best is already written in `docs/deployment.md:1064`: "A
 process with the scheduler switched off is not an unhealthy one." A readiness
 check that fails because an optional subsystem is off takes a working server out
 of rotation. Readiness must not consult mail, and it must not consult the
@@ -1154,7 +1157,7 @@ shutdown, is the slow half.** Migrations run at startup under advisory lock
 (`src/server/index.ts:29,80`; `src/server/scheduler.ts:70,100`), so readiness
 cannot open before they finish. The 0.1.5 notes record that the payee index
 "takes a moment to build while the container starts, before it opens readiness"
-(`docs/upgrades.md:1999-2001`). So the generous number is `--start-period`:
+(`docs/upgrades.md:2104-2106`). So the generous number is `--start-period`:
 300s in all three Node images, the same budget the compose recipe's
 `start_period` and the chart's startup probe give the same work, and the three
 are held to each other. It was 20s in the images, which reported a first start
@@ -1164,7 +1167,7 @@ still migrating as unhealthy. Not the shutdown deadline.
 `/health/ready` "says configuration, the database, and the migrations have all
 succeeded, and stays closed until they have", and readiness never knew anything
 about configuration or migrations. Both now say what it does:
-`docs/deployment.md:1049-1054` and `README.md:154-157` describe one statement
+`docs/deployment.md:1050-1055` and `README.md:154-157` describe one statement
 against the database and nothing else, and `src/server/readiness.ts:23-28` says
 the same beside the check. The difference matters to an operator designing
 alerting: a migration that succeeded on an older image leaves readiness green
@@ -1386,7 +1389,7 @@ carry the id and not the payee, the search term or the bound parameter.
 
 **House, and off unless asked for.** `GET /metrics` answers in the Prometheus
 text format, on the port everything else is served on, and only when
-`METRICS_ENABLED=true` (`src/server/api.ts:471-473`). Registered rather
+`METRICS_ENABLED=true` (`src/server/api.ts:474-476`). Registered rather
 than refused: a deployment that never asked has no such route, which is the same
 answer the MCP surface gives for a tool outside a token's scope.
 
@@ -1407,7 +1410,7 @@ neither half can report alone.** `billing_webhook_deliveries_total` is the API's
 and only the API's — every exit of the webhook route but the signature refusal
 replies `200 {"received":true}`, so `http_requests_total` cannot tell a
 delivery that granted or revoked an entitlement from one that was acknowledged
-and ignored (`src/server/api.ts:1318`, `:1333`). `billing_sweeps_total` is the
+and ignored (`src/server/api.ts:1502`, `:1517`). `billing_sweeps_total` is the
 scheduler's, and it is the twelve-hourly catch-up for the same subscriptions
 (`src/server/recurrence-scheduler.ts:236-251`). An operator scraping one half
 can be told that the webhook has been failing for hours, or that the sweep keeps
@@ -1815,12 +1818,12 @@ which is the case most implementations miss and the one that makes Ctrl-C twice
 behave the way a person expects. The compose file sets
 `stop_grace_period: 30s` with a comment saying it is "Longer than the 10s drain
 the process gives itself on SIGTERM (DEFAULT_SHUTDOWN_DEADLINE_MS), so it is not
-killed mid-drain" (`deploy/compose/compose.distributed.yml:275-277`), and the
+killed mid-drain" (`deploy/compose/compose.distributed.yml:278-280`), and the
 chart sets `terminationGracePeriodSeconds: 30`
 (`deploy/helm/simple-balance/values.yaml:268`).
 
 **Settled.** Both documented `docker run` commands now pass
-`--stop-timeout 30` (`README.md:139-144`, `docs/deployment.md:735-742`). Docker's
+`--stop-timeout 30` (`README.md:139-144`, `docs/deployment.md:736-743`). Docker's
 default is 10 seconds, exactly the drain deadline, so the forced exit and
 SIGKILL used to land in the same instant and the drain never got to finish.
 
@@ -1856,7 +1859,7 @@ deploy the chart, so they inherit the Kubernetes spelling at
 **The one exception, stated because an unstated one reads as an oversight — and
 it is about the Docker entrypoint, not about PostgreSQL.** Two services take it,
 both running the `postgres:18` image under its own entrypoint:
-`deploy/compose/compose.distributed.yml`'s bundled `postgres` (`:221-226`) and
+`deploy/compose/compose.distributed.yml`'s bundled `postgres` (`:224-229`) and
 the `single` profile's database machine,
 `deploy/compose/single/compose.postgres.yml`'s `postgres` (`:250-258`). Both get
 `no-new-privileges` and both keep their capabilities, because that entrypoint

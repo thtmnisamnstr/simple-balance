@@ -243,7 +243,7 @@ convention expects.
 answer: that the list items stay at the five that earned their shape, and that
 the lines running past 80 columns do not grow past where they already are.
 *Not checked:* that the top heading matches `package.json`. That is a hand step
-in the release recipe at `docs/upgrades.md:2236`, step 4, "Date the
+in the release recipe at `docs/upgrades.md:2341`, step 4, "Date the
 `## Unreleased` heading in `CHANGELOG.md`", and it has already been the subject
 of a commit ("Date 0.1.4 the day it is cut"). Nor is whether an entry describes
 a change somebody would notice, which is the judgement this section is mostly
@@ -337,6 +337,23 @@ narrowing that is not named here as approved is a break.
 `docs/upgrades.md` §Before you upgrade to 0.2.1 tells a client what to do about
 each.
 
+**0.2.2 is a second approved exception, named for the same reason.** It ships
+three narrowings of the MCP surface, none deprecated first, each made for a
+directory listing the product: a refresh now retires the refresh token it was
+made with, so a client that went on using a rotated token signs in again; one
+call to `get_account_register` lists at most 200 postings and one call to
+`export_transactions_csv` exports at most 100 rows and 60,000 characters, refusing a wider range
+rather than cutting it short, because a reply larger than that does not fit the
+context it lands in; and `whoami` returns a name and an email only where the
+token holds the scope the consent screen asked for them under. The first two
+close what Claude's connector guidance and its result limits ask of a server,
+and the third something the product should never have allowed. The owner
+approved them on 2026-11-03 as an exception, and the rule stands for every
+release after this one. Removing `whoami`'s `source`, which always says `mcp`
+there, was weighed with them and declined: it carries nothing of anybody's, so
+the break would have bought nothing. `docs/upgrades.md` §Before you upgrade to
+0.2.2 tells a client what to do about each.
+
 **What would make it 1.0.0 is not decided.** Recorded as an open question rather
 than answered with something invented here.
 
@@ -364,12 +381,12 @@ publish runs `npm run verify` first, so an unwritten note now stops the release
 rather than reaching an operator mid-upgrade. *Also checked:* the frozen
 migration list, which `tests/migrations.test.ts` holds to what is on disk.
 *Not checked:* the changelog heading, a hand step in the release recipe at
-`docs/upgrades.md:2236`, and which release a migration is attributed to, which
+`docs/upgrades.md:2341`, and which release a migration is attributed to, which
 is prose inside a list a test can only check the membership of.
 
 ## Upgrade notes
 
-**Binding, quoting `AGENTS.md:416-475`, the frozen migration list:** "Every
+**Binding, quoting `AGENTS.md:416-480`, the frozen migration list:** "Every
 migration that has shipped is frozen" and "Never edit or regenerate one:
 someone's database has already run it, and changing it would leave their schema
 and its recorded history disagreeing." What follows is the documentation the
@@ -379,7 +396,7 @@ end of the bullet — it grew, and the number did not.
 
 **House, the shape.** A `## Before you upgrade to X.Y.Z` section, and its first
 sentence tells an operator whether they can stop reading. The 0.1.6 note at
-`docs/upgrades.md:1895-1896` is the model: "Nothing refuses to start that 0.1.5
+`docs/upgrades.md:2000-2001` is the model: "Nothing refuses to start that 0.1.5
 accepted, and nothing about an existing configuration has to change. Five
 things are worth knowing." The 0.1.4 section is the other model, because the
 answer there was different: "0.1.4 refuses to start on three configurations
@@ -508,7 +525,7 @@ The reasoning, which is what the next person should argue with:
 So, taking Nygard's Status field and immutability rule without the ceremony:
 
 - **House. A recorded decision names the release it was made in.** The exemplar
-  is `AGENTS.md:416-475`, the frozen migration list, which names every migration
+  is `AGENTS.md:416-480`, the frozen migration list, which names every migration
   and the release it shipped in, and is the most reliable section in the file
   for exactly that reason.
 - **House. A reversal edits the old text to say it is superseded, and says by
@@ -909,7 +926,7 @@ default argued to belong to the nginx container has to say so by name.
 **House, and specific to this product.** Any convention stated in `docs/mcp.md`
 prose that an agent must obey also appears in a tool or field description,
 because an agent never reads the prose. The document already articulates the
-principle at `:107`: "Fields carry descriptions, so an agent reading the schema
+principle at `:132`: "Fields carry descriptions, so an agent reading the schema
 learns the conventions that matter."
 [`mcp.md`](mcp.md#descriptions) owns the rule; it is repeated here because the
 temptation is to write the convention down in the guide and consider it
@@ -1076,7 +1093,7 @@ edit.
   than the four sites this bullet used to name, each cited by what it is as well
   as by where it is:
 
-  - `App.tsx:734`, the scope description on the authorization page.
+  - `App.tsx:760`, the scope description on the authorization page.
   - `select-options.ts:110`, the timezone label.
   - `components.tsx:1219`, every page title: `` `${title} — ${APP_NAME}` ``.
   - `TemplatesPage.tsx:713`, "never — every date is skipped".

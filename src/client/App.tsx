@@ -659,6 +659,15 @@ type ConsentRequest = {
   clientId: string | null;
   clientName: string;
   scopes: string[];
+  /** Where approving sends the code. The name above is the client's own claim. */
+  redirectHost: string | null;
+  redirectIsLoopback: boolean;
+  /**
+   * The account whose ledger is being granted. Optional because a bundle newer
+   * than the server it talks to — the split deployment mid-rollout — meets a
+   * reply without it.
+   */
+  accountEmail?: string;
 };
 
 /**
@@ -723,9 +732,26 @@ export function OAuthConsent() {
           <p>Checking what this client is asking for…</p>
         ) : (
           <>
-            <p>
-              <strong>{request.data.clientName}</strong> is requesting access to your private
-              ledger.
+            {/* One paragraph: the screen's stack gives consecutive paragraphs no
+                gap, so a second one read as a line break in the first. */}
+            <p className="consent-request">
+              <strong>{request.data.clientName}</strong> is requesting access to{" "}
+              {request.data.accountEmail ? (
+                <>
+                  the private ledger of <strong>{request.data.accountEmail}</strong>.
+                </>
+              ) : (
+                "your private ledger."
+              )}
+              {request.data.redirectHost ? (
+                <>
+                  {" "}
+                  Allowing it sends you back to <strong>{request.data.redirectHost}</strong>.
+                  {request.data.redirectIsLoopback
+                    ? " That address is this computer, so the client is a program running on your own machine."
+                    : " Allow access only if you recognize it."}
+                </>
+              ) : null}
             </p>
             <ul className="scope-list">
               {request.data.scopes.map((scope) => (

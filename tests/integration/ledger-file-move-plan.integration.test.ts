@@ -246,7 +246,7 @@ integration("moving a Simple Balance file onto a plan that keeps three accounts 
     expect(none.agentMessage).toContain(
       "Name at least 3 of the file's new accounts in arriveArchived",
     );
-    expect(none.agentMessage).toContain("from Settings in the browser");
+    expect(none.agentMessage).not.toMatch(/upgrade|Settings in the browser|raise the limit/);
     const two = await refusal(move(free, { arriveArchived: ["Four", "Five"] }));
     expect(two.details).toMatchObject({ needed: 3, chosen: 2 });
     expect(await counted(free)).toEqual(before);
@@ -313,9 +313,9 @@ integration("moving a Simple Balance file onto a plan that keeps three accounts 
     expect(refused.code).toBe("VALIDATION_ERROR");
     expect(refused.message).toBe(`${head}, or upgrade under Settings.`);
     expect(refused.details).toMatchObject({ count: 1 });
-    expect(refused.agentMessage).toBe(
-      `${head}. Only the person who owns the ledger can raise the limit, from Settings in the browser.`,
-    );
+    // The browser's way to a bigger plan, and nothing in its place: an agent
+    // cannot buy one, and what it relays is the limit and what frees a place.
+    expect(refused.agentMessage).toBe(`${head}.`);
     expect(await counted(frozen)).toEqual(before);
   });
 });

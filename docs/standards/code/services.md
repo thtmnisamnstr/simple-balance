@@ -3,7 +3,7 @@
 `src/server/services` is where the rules live. Everything above it — the HTTP
 routes, the MCP tools, the scheduler — is transport.
 
-459 top-level declarations across 27 modules, 199 of them exported functions.
+462 top-level declarations across 27 modules, 202 of them exported functions.
 This guide is what they have in common.
 
 Every count on this page is `topLevelDeclarations` (`tests/support/source.ts`)
@@ -19,7 +19,7 @@ directly to the directory; a file added there fails it until the prose moves.
 ### 1.1 A service function takes an actor first
 
 **Binding.** Three shapes, and which one a function has says what it is. All
-three rows count the same 459 declarations — everything at the top level of the
+three rows count the same 462 declarations — everything at the top level of the
 directory, exported or not — because the second shape is mostly not exported and
 a table that counted only entry points would report the helpers as a handful:
 
@@ -27,7 +27,7 @@ a table that counted only entry points would report the helpers as a handful:
 | --- | --- | --- |
 | `actor: Actor` | A public entry point. Scopes every query by `actor.userId`. | 118 |
 | `tx: DbTransaction` | A helper that runs inside somebody else's transaction. Takes `actor` second when it needs scoping. | 87 |
-| anything else | Mostly a pure function — `canonicalDecimal`, `encodeCursor`, `categoryKindForDraft` — touching no database and needing no actor. | 254 |
+| anything else | Mostly a pure function — `canonicalDecimal`, `encodeCursor`, `categoryKindForDraft` — touching no database and needing no actor. | 257 |
 
 The three add up because they are one population read one way. Splitting them
 by export tells you something the totals hide: 101 of the 118 are exported and
@@ -35,21 +35,21 @@ by export tells you something the totals hide: 101 of the 118 are exported and
 helper mostly is not.
 
 The third row is the one to read carefully, because *mostly* is doing work: most
-of it touches no database at all, and 19 declarations do — counted by hand at
+of it touches no database at all, and 22 declarations do — counted by hand at
 `b42335c`, where the row was read by a classifier nobody wrote down and held
 221, 202 of them with no database. Most of those are the
 second row under another name:
 `selectBulkFilterRows(executor: Database | DbTransaction, …)` and
 `legsByTransaction(db, …)` are helpers whose first parameter is spelled to admit
 the pool as well. The rest are entry points with no actor to take, either
-because no request made them run or because of the exception below. Thirteen of
-the 19 are exported and the table below is exactly those; the other six —
+because no request made them run or because of the exception below. Sixteen of
+the 22 are exported and the table below is exactly those; the other six —
 `storeSubscriptionGone`, `deferSubscriptionRead`, `isWebhookEventClaimed`,
 `recipientOf`, `claimDueNotification` and `earliestPostingDate` — are
 module-private and reached only from an entry point in that table, each with a
 `userId` its caller had already derived from an actor.
 
-Naming the thirteen in a sentence was how this paragraph fell behind twice. It
+Naming the sixteen in a sentence was how this paragraph fell behind twice. It
 once named four, and `pruneIdempotencyRecords` arrived as the fifth after the
 sentence was written while nothing asked it again. The thirteenth fell behind a
 second way and is worth the
@@ -68,6 +68,9 @@ repeat the first mistake.
 | `pruneIdempotencyRecords` | The retention sweep, on the same tick |
 | `runBillingReconciliation` | The subscription re-read sweep, on the same tick: its subject is every stale row in the deployment, so there is no one person it is about |
 | `pruneAbandonedClients` | A scheduled sweep of OAuth clients nobody completed |
+| `markClientAuthorized` | Reached from the OAuth consent and token endpoints, and what it stamps is a client registration, which belongs to nobody |
+| `clientIdForAccessToken` | The token endpoint has a token in hand and no session: the token is what names the client |
+| `retireRefreshToken` | The token endpoint authenticates a client, not a person; the grant's owner is read off the replacement row and named in the delete |
 | `reconcileArchivedAccountClosings` | A repair of somebody's postings, run at startup rather than by a request |
 | `revokeAllConnectedApps` | The exception below: a `userId`, reached from a session or a password reset rather than from a request naming one |
 | `userForStripeCustomer` | A lookup from a Stripe customer id to the person it belongs to, which is how the webhook finds an actor at all |
@@ -77,7 +80,7 @@ repeat the first mistake.
 | `applyCustomerDeletion` | The same delivery, claimed and applied in one transaction |
 | `applySetupIntentSucceeded` | The same again: a card Stripe says was set up, named by customer rather than by person, and claimed after the work because the work is two Stripe calls |
 
-None of the 19 is a fourth shape.
+None of the 22 is a fourth shape.
 
 *Checked by:* `tests/service-entry-points.test.ts`, which walks every exported
 service function, sorts it into "takes an actor", "takes an executor" or
@@ -303,7 +306,7 @@ it, or — like these three — that composing with it is exactly what must not
 happen.
 
 The parameter is not decoration. The MCP transport passes its transaction in
-(`src/server/mcp.ts:301-334`, and every `runIdempotentMcpMutation` call under it)
+(`src/server/mcp.ts:332-365`, and every `runIdempotentMcpMutation` call under it)
 so that
 its idempotency record, the mutation and the audit events land on one connection
 and commit together. Take it away and an agent's write could record its
@@ -333,7 +336,7 @@ numbers above are today's and the test is what keeps the rule.
 **Binding**, for a write that changes something somebody edited. The caller sends
 the version it read; the service compares, throws `staleVersion` if it moved,
 and bumps on success
-(`updateAccount`, `src/server/services/accounts.ts:1147`).
+(`updateAccount`, `src/server/services/accounts.ts:1150`).
 
 This said "everywhere, no exceptions" for a release, and that was false in both
 halves by the time it was written. `setActiveAccounts` takes no expected version
@@ -723,9 +726,9 @@ instances. The class is `human`: no program knows which paths are siblings.
 
 **Binding.** The largest guard added in 0.2.0 is the account freeze, and it is
 built the only way a guard over a plan can be: `accountFreeze(tx, actor)`
-(`src/server/services/accounts.ts:807`) reads the entitlement **on the caller's
+(`src/server/services/accounts.ts:810`) reads the entitlement **on the caller's
 transaction**, and `assertAccountsWritable(freeze, ids)`
-(`src/server/services/accounts.ts:861`) refuses against what that read said.
+(`src/server/services/accounts.ts:864`) refuses against what that read said.
 Fifteen declarations across five modules take the freeze, and ten of them call
 the assertion.
 
@@ -754,7 +757,7 @@ repairable instead of killing the batch it arrived in. It is also what archiving
 already throws, and a frozen account is the same kind of no.
 
 **The pool-side read is a second function, not an optional parameter.**
-`readAccountFreeze(actor)` (`src/server/services/accounts.ts:797`) exists for
+`readAccountFreeze(actor)` (`src/server/services/accounts.ts:800`) exists for
 `getAccount`, which holds no transaction. Giving `accountFreeze` an optional
 `tx` would have been one function instead of two, and it is exactly the shape
 2.1's second half forbids: a helper handed a transaction must never be able to
@@ -809,11 +812,11 @@ Nine update statements in this directory take it, in seven declarations, and
 every one argues it in a comment beside the write. They cross-cite each other,
 which is how you can tell it is one decision made once:
 
-- `setActiveAccounts` (`src/server/services/accounts.ts:934`) — "`active` is not
+- `setActiveAccounts` (`src/server/services/accounts.ts:937`) — "`active` is not
   part of `accountUpdateSchema` and nothing edits it through that path, so a
   bump here would invalidate the expected version in every form somebody had
   open for a reason that has nothing to do with what they were editing."
-- `markFittingAccountsActive` (`src/server/services/accounts.ts:889`) — the same
+- `markFittingAccountsActive` (`src/server/services/accounts.ts:892`) — the same
   column from the other direction, and it says "like `setActiveAccounts`".
 - `proposeDueOccurrences` (`src/server/services/recurrences.ts:318`) — "a tick
   advancing a watermark is not a change to what they configured".
@@ -866,7 +869,7 @@ service counts through `countAfterCommit`
 (`src/server/services/helpers.ts:213`), which counts immediately when the
 service opened its own transaction and otherwise queues; the MCP transport
 flushes with `flushDeferredCounts` after `getDb().transaction` resolves
-(`src/server/mcp.ts:332`). The call sites are in `transactions.ts`,
+(`src/server/mcp.ts:363`). The call sites are in `transactions.ts`,
 `staging.ts`, `import-export.ts`, which counts the rows a CSV import staged,
 and `ledger-file.ts`, which counts the rows a Simple Balance file staged and the
 transactions a move wrote — in `ledger_writes_total` as well as its own

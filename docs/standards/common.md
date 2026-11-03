@@ -481,7 +481,7 @@ deployment sells in a currency nobody tested. `STRIPE_CHARGE_DIGITS` is not
 that table: it is four entries long, it records where the vendor's documented
 scale departs from the currency's, and `Intl` still answers for every other
 currency. And it creates a second place the
-price lives, which is what `src/server/config.ts:360-361` already refuses for
+price lives, which is what `src/server/config.ts:372-373` already refuses for
 the ids by keeping only the id in configuration. An amount copied out of Stripe
 is the one that does not get charged, because Stripe charges what the price
 object says; the copy can only ever be the number the customer was shown.
@@ -546,7 +546,7 @@ route-by-route parity check: a field only an agent ever reads is invisible to a
 comparison of route lists, and `categoryKind` was exactly that for a release.
 The field now publishes the closed set as an enum and a description built from
 `PLAN_LABELS` — "a person reads free as Free and plus as Premium, so use that
-word with them" (`src/server/mcp-output-schemas.ts:793-799`) — with the reply
+word with them" (`src/server/mcp-output-schemas.ts:807-813`) — with the reply
 itself unchanged.
 
 *Checked by:* `tests/plan-labels.test.ts`, which refuses the old capitalized

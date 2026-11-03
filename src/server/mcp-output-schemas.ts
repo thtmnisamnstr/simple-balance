@@ -365,7 +365,7 @@ export const stagedTransactionResultSchema = z
     deletedAt: timestampSchema
       .nullable()
       .describe(
-        "When this row was dropped from the queue, or null. A staged row never moved money, so nothing is reversed.",
+        "When this row was dropped from the queue, or null. A staged row never reached the books, so nothing is reversed.",
       ),
   })
   .passthrough();
@@ -771,9 +771,23 @@ export const csvFilePreviewResultSchema = z.object({
     ),
 });
 
+// Name and email are what the consent screen asked to share — `profile` is
+// "See your name" and `email` "See your email address" — so each is null for a
+// token granted without its scope, rather than handed to an agent the person
+// never agreed to show it to. `source` stays although it always says `mcp`
+// here: it carries nothing of anybody's, and removing an output field is a
+// break under `writing.md` §Versioning that nothing would be bought with.
 export const identityResultSchema = z.object({
-  name: z.string(),
-  email: z.string(),
+  name: z
+    .string()
+    .nullable()
+    .describe("The person's name, or null when this token was not granted the profile scope."),
+  email: z
+    .string()
+    .nullable()
+    .describe(
+      "The person's email address, or null when this token was not granted the email scope.",
+    ),
   clientId: nullableStringSchema,
   source: z.string(),
   /** Whether a reminder or a proposal notice can actually be delivered. */

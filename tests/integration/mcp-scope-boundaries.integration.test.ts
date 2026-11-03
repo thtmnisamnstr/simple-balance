@@ -231,4 +231,30 @@ describe.skipIf(!connection)("what a staging-only agent may change", () => {
       await server.close();
     }
   });
+
+  /**
+   * The person's name and address are what the consent screen asked to share
+   * — `profile` is "See your name" and `email` is "See your email address" —
+   * so a token granted neither gets neither. The user id is stripped on every
+   * reply, as it always was.
+   */
+  it("reports the name and email only where the grant shares them", async () => {
+    const read = async (granted: string[]) => {
+      const { server, client } = await connectWith(granted);
+      try {
+        const out = await client.callTool({ name: "whoami", arguments: {} });
+        return (out.structuredContent as { result: Record<string, unknown> }).result;
+      } finally {
+        await client.close();
+        await server.close();
+      }
+    };
+    const bare = await read(["ledger:read"]);
+    expect(bare).toMatchObject({ name: null, email: null });
+    expect(bare).not.toHaveProperty("userId");
+    const shared = await read(["profile", "email", "ledger:read"]);
+    expect(typeof shared.name).toBe("string");
+    expect(String(shared.email)).toContain("@");
+    expect(await read(["email", "ledger:read"])).toMatchObject({ name: null });
+  });
 });

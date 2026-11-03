@@ -9,7 +9,7 @@ import { sourceFiles } from "./support/source.js";
  * and does nothing at all for the environment, which is the half the billing
  * work made load-bearing. Every file in a tier shares one process, so a
  * `STRIPE_SECRET_KEY` left set is a vendor switched on for whatever runs next —
- * and `src/server/config.ts:224` caches the parsed configuration in a
+ * and `src/server/config.ts:235` caches the parsed configuration in a
  * module-level variable, so the next file can be answered out of this one's
  * keys even after the variables themselves are back.
  *
