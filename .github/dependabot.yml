@@ -106,6 +106,14 @@ updates:
         applies-to: version-updates
         patterns:
           - "*"
+    ignore:
+      # The image runs the current Node LTS and `@types/node` above is held to
+      # the same major, so a new major moves both together, on purpose, rather
+      # than arriving as a base bump. Without this Dependabot offered 25 (#95),
+      # an odd-numbered release that never becomes an LTS, and would keep
+      # offering every major after it.
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"
