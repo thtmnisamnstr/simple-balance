@@ -329,16 +329,19 @@ the stack, in two maps:
 | Map | Holds | Stored |
 | --- | --- | --- |
 | `simple-balance:env` | Plain settings: `SB_BILLING_ENABLED`, `STRIPE_PUBLISHABLE_KEY`, the price ids, `ADSENSE_*`, `PRIVACY_POLICY_URL`, `SMTP_HOST`, `MAIL_FROM` | In `Pulumi.<stack>.yaml`, in the clear |
-| `simple-balance:secrets` | The nine the server treats as secrets — `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SMTP_PASSWORD`, `GOOGLE_CLIENT_SECRET`, `METRICS_TOKEN`, and on a single machine `DATABASE_URL`, `DIRECT_DATABASE_URL`, `AUTH_SECRET` and `SETUP_TOKEN` | In `Pulumi.<stack>.yaml`, encrypted with the stack's passphrase or secrets provider |
+| `simple-balance:secrets` | The nine the server treats as secrets — `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SMTP_PASSWORD`, `GOOGLE_CLIENT_SECRET`, `METRICS_TOKEN`, and on a single machine `DATABASE_URL`, `DIRECT_DATABASE_URL`, `AUTH_SECRET` and `SETUP_TOKEN` — and the metrics collector's one, `SB_METRICS_EXPORT_HEADERS` | In `Pulumi.<stack>.yaml`, encrypted with the stack's passphrase or secrets provider |
 
 The names are the ones in [docs/deployment.md](../../docs/deployment.md) and the
 repository's `.env.example`. `pulumi preview` refuses, before anything is
-built: a name the application does not read (a typo would otherwise reach the
-machine and be ignored there); a secret in `env`, which would sit in plain
-text in a committed file; the same name in both; and a name the program decides
-from a key of its own — `APP_BASE_URL` from `hostname`, `ALLOWED_EMAILS` from
-`allowedEmails`, `TRUST_PROXY` from what sits in front of the application, and
-on a cluster the four credentials above, which have their own keys.
+built: a name neither the application nor its metrics collector reads (a typo
+would otherwise reach the machine and be ignored there); a secret in `env`,
+which would sit in plain text in a committed file; the same name in both; a
+collector setting the collector would refuse at startup; and a name the program
+decides from a key of its own — `APP_BASE_URL` from `hostname`,
+`ALLOWED_EMAILS` from `allowedEmails`, `TRUST_PROXY` from what sits in front of
+the application, `SB_METRICS_DATABASE_TARGET` from the database node a
+single-machine stack built, and on a cluster the four credentials above, which
+have their own keys.
 
 **Where they go from there** is each cloud's own store, read by the workload's
 own identity:
@@ -359,9 +362,12 @@ On a single machine nothing is typed into a file over SSH any more, and nothing
 the stack sets travels in user data, which anyone who can describe the instance
 can read. The machine fetches its settings at every start and checks every five
 minutes, so **`pulumi up` is how a setting changes**: within five minutes of it
-the machine has the new value and has restarted the deployment once. On a
-cluster, `pulumi up` changes the Secret or the values and the chart rolls the
-pods.
+the machine has the new value and has restarted the deployment once. A setting
+new in a release reaches the process only once the machine's
+`/opt/simple-balance/compose.yml` names it, because that file lists every
+setting the container is given and a machine keeps the one it was built with;
+the release's upgrade note says when to copy the new one. On a cluster,
+`pulumi up` changes the Secret or the values and the chart rolls the pods.
 
 ### Setting them without a `.env` file
 
@@ -414,11 +420,118 @@ it.
 It leaves out names the application does not read, such as the `OCI_*` and
 `AWS_*` credentials a `.env` might also hold, and the names that say where a
 deployment is rather than how it behaves: `DATABASE_URL`, `DIRECT_DATABASE_URL`,
-`AUTH_SECRET`, `SETUP_TOKEN`, `APP_BASE_URL`, `PORT`, `TRUST_PROXY`. A
+`AUTH_SECRET`, `SETUP_TOKEN`, `APP_BASE_URL`, `PORT`, `TRUST_PROXY`,
+`SB_METRICS_DATABASE_TARGET`. A
 development `.env` has all of those pointing at a laptop. Set one deliberately,
 by hand, when you mean it. Use a `.env` of production values: the script copies
 what it is given, so a development file's test Stripe keys become the
 deployment's.
+
+### Exporting metrics
+
+One setting turns it on, and one secret is usually the credential that goes
+with it:
+
+```sh
+pulumi config set --path 'simple-balance:env.SB_METRICS_EXPORT_ENDPOINT' https://otlp.nr-data.net
+pulumi config set --secret --path 'simple-balance:secrets.SB_METRICS_EXPORT_HEADERS'
+# {"api-key":"<New Relic ingest license key>"}, typed at the prompt
+pulumi up
+```
+
+`SB_METRICS_EXPORT_PROTOCOL`, `SB_METRICS_SCRAPE_INTERVAL` and
+`SB_METRICS_ENVIRONMENT` are the other three, all in `env`, all with defaults;
+`deploy/compose/single/README.md` has the table. `pulumi preview` refuses a
+protocol the collector has no pipeline for, an interval of five minutes or more
+or one written in anything but minutes and seconds (`30s`, `1m30s`, as the
+chart takes it), an endpoint with no `http(s)://` host, and headers that are not
+a JSON object of strings, without printing them.
+
+On the single-machine stacks the endpoint is the whole of it, on both machines,
+and the program does the rest:
+
+- **The application node** has `collector.yaml` on its disk from its first boot,
+  exporting or not. The endpoint arrives with the next settings fetch, and
+  `simple-balance-env` turns it into `COMPOSE_PROFILES=metrics` and
+  `METRICS_ENABLED=true` unless the stack already says otherwise, so the
+  collector and this machine's node-exporter start at the restart that fetch
+  causes.
+- **The database node** runs a node-exporter of its own, on its private address,
+  port 9100, serving TLS with the database's own certificate. The program names
+  it to the collector by adding `SB_METRICS_DATABASE_TARGET` — the node's
+  internal DNS name and 9100 — to the settings it stores, which is why a stack
+  with a database node may not set that name itself. With `databaseNode: false`
+  there is no such node, the program names nothing, and a database you keep
+  yourself is yours to name, the way `DATABASE_URL` is.
+- **The firewall** opens 9100 on the database node from the application node
+  alone — its security group on AWS, its subnet on Oracle Cloud — and only while
+  the stack exports. That rule arrives through `pulumi up` like any other.
+
+What does not arrive through `pulumi up` is anything on a machine that already
+exists, because neither program rewrites a running machine. A database node made
+while the stack was exporting starts its node-exporter by itself, and on Oracle
+Cloud opens its host firewall to 9100 at first boot; one made before needs both
+by hand. On it, over the shell above:
+
+```sh
+echo COMPOSE_PROFILES=metrics | sudo tee -a /opt/simple-balance/env.base
+# Oracle Cloud only: the host's own firewall, which the security list does not reach.
+sudo sh -c 'iptables -I INPUT 1 -p tcp --dport 9100 -j ACCEPT && netfilter-persistent save'
+sudo /usr/local/sbin/simple-balance-db-firstboot
+```
+
+The last line copies the certificate and key for node-exporter and restarts
+the deployment — PostgreSQL included, for a few seconds;
+[`docs/upgrades.md`](../../docs/upgrades.md#before-you-upgrade-to-022) has the
+same copy without the restart. A machine made before this release has neither
+`compose.postgres.yml`'s node-exporter, `node-exporter-web.yml` nor that
+script's copy step, so those three files go first, from this repository's
+`deploy/compose/single/` and `deploy/systemd/`. The application node's
+equivalent is `collector.yaml`, `compose.yml`, `compose.db-tls.yml`, the
+`Caddyfile` and `simple-balance-env`. Both machines also want this release's
+`simple-balance.service` and a `systemctl daemon-reload`: it starts the
+application or the database in an `up` of its own before the metrics, so a
+registry that cannot be reached when export is turned on costs the metrics and
+not the site.
+
+**An existing machine needs one more line before export is turned on, on
+either cloud.** Both programs refuse the instance metadata address to the users
+the exporters run as, because they share the host's network, and what answers
+there is the machine's own identity — on AWS the role, whose hop limit does not
+reach a container on the host's network, and on Oracle Cloud the instance
+principal, which has no hop limit at all — and on the application node it reads
+this stack's secret. A machine made before this release has no such rule. On
+AWS it lasts only until a reboot when added by hand, so keep it however that
+machine keeps its firewall:
+
+```sh
+sudo iptables -I OUTPUT -d 169.254.169.254 -m owner --uid-owner 10000-65534 -j REJECT
+```
+
+On Oracle Cloud, save it with the image's own firewall, as `oci-single` does on
+a new machine, once on each:
+
+```sh
+sudo sh -c 'iptables -I OUTPUT -d 169.254.169.254 -m owner --uid-owner 10000-65534 -j REJECT && netfilter-persistent save'
+```
+
+**`METRICS_ENABLED` follows the endpoint unless the stack says otherwise.** A
+stack that sets it to `false` beside an endpoint keeps it on a single machine,
+which then says at every start that the collector is sending none of the
+application's figures; the chart turns it on with the collector regardless.
+
+**On the cluster programs, `aws`, `gcp` and `oci`**, the same two settings turn
+on the chart's collector. The program writes the headers into a Secret of their
+own, `simple-balance-metrics-export`, which only the collector reads, and the
+API and the scheduler roll once, because `METRICS_ENABLED` changes under them.
+`SB_METRICS_DATABASE_TARGET` is refused there: a cluster's database is not a
+machine this program watches. The chart rolls the collector when a value it
+renders changes, and not when a Secret it did not build does, so after
+changing the headers run
+`kubectl -n <namespace> rollout restart deploy/simple-balance-collector`.
+
+[`docs/deployment.md`](../../docs/deployment.md#metrics) has the backends, what
+is scraped and what deliberately is not, and the alerts.
 
 ### Oracle Cloud credentials
 
@@ -645,7 +758,7 @@ private subnet nor the NAT gateway, and the application node then waits for a
 | `imageRepository` | | `ghcr.io/thtmnisamnstr/simple-balance` | For a private mirror |
 | `timezone` | | `Etc/UTC` | The machine's clock. Not the application's — that is each person's own setting |
 | `backupKeep` | | `14` | How many daily dumps to retain on the data disk |
-| `databaseEgress` | | `nat` | AWS only. How the database node reaches the internet — Ubuntu's archive, the image registry and Session Manager. **`nat`** is the NAT gateway every stack so far has had, at $36.50 a month in a US region, and it covers all three with no trade. **`ssm`** is $14.60 a month in a US region and regional elsewhere — and so is the gateway it replaces, whose hour moves further, so the saving grows outside the US rather than shrinking: an egress-only internet gateway for Ubuntu and the image, which costs nothing, plus `com.amazonaws.<region>.ssm` and `…ssmmessages` interface endpoints, which keep the Session Manager shell working exactly as documented. It needs no `sshPublicKey` and adds no inbound rule to the database node. `ec2messages` is deliberately not built: SSM Agent 3.3.40.0 and later prefer `ssmmessages`, regions launched from 2024 support only `ssmmessages`, and AWS is retiring the `ec2messages` endpoint on 2026-09-30 — a third endpoint would be $21.90 a month, $7.30 of it for a service being switched off. **`ipv6`** is that gateway alone, free, and is refused without `sshPublicKey`: it takes Session Manager away, because `ssm.<region>.amazonaws.com` publishes no IPv6 address, so the shell becomes SSH from the application node and a rule for 22 from its security group — the one inbound rule on that machine besides 5432, and it exists only under that setting. Both `ssm` and `ipv6` rewrite the node's apt sources to `archive.ubuntu.com`; interface endpoints reach AWS services only, so **neither `apt` nor Docker Hub is reachable through them** and endpoints without the gateway would build a machine that never finishes booting — which is why `ssm` is one setting that builds both halves rather than two that can be set apart. Unset plans no change on a stack that exists. **Setting `ipv6` on a stack whose machines exist may not be a no-op:** if `sshPublicKey` was not already set, adding it gives both instances a `keyName`, which EC2 cannot change on a running machine, so both plan a replacement and the database node is deleted before its replacement is made. The data volumes are separate protected resources and survive it, but it is two rebuilds of downtime — set the key on its own, `up`, and set this afterwards. `ssm` avoids that trap entirely by needing no key. `docs/deployment-costs.md` compares all three, prices `ssm` region by region, and says what the free-looking alternatives do not do |
+| `databaseEgress` | | `nat` | AWS only. How the database node reaches the internet — Ubuntu's archive, the image registry and Session Manager. **`nat`** is the NAT gateway every stack so far has had, at $36.50 a month in a US region, and it covers all three with no trade. **`ssm`** is $14.60 a month in a US region and regional elsewhere — and so is the gateway it replaces, whose hour moves further, so the saving grows outside the US rather than shrinking: an egress-only internet gateway for Ubuntu and the image, which costs nothing, plus `com.amazonaws.<region>.ssm` and `…ssmmessages` interface endpoints, which keep the Session Manager shell working exactly as documented. It needs no `sshPublicKey` and adds no inbound rule to the database node. `ec2messages` is deliberately not built: SSM Agent 3.3.40.0 and later prefer `ssmmessages`, regions launched from 2024 support only `ssmmessages`, and AWS is retiring the `ec2messages` endpoint on 2026-09-30 — a third endpoint would be $21.90 a month, $7.30 of it for a service being switched off. **`ipv6`** is that gateway alone, free, and is refused without `sshPublicKey`: it takes Session Manager away, because `ssm.<region>.amazonaws.com` publishes no IPv6 address, so the shell becomes SSH from the application node and a rule for 22 from its security group — the one inbound rule on that machine besides 5432 and, while the stack exports metrics, 9100, and it exists only under that setting. Both `ssm` and `ipv6` rewrite the node's apt sources to `archive.ubuntu.com`; interface endpoints reach AWS services only, so **neither `apt` nor Docker Hub is reachable through them** and endpoints without the gateway would build a machine that never finishes booting — which is why `ssm` is one setting that builds both halves rather than two that can be set apart. Unset plans no change on a stack that exists. **Setting `ipv6` on a stack whose machines exist may not be a no-op:** if `sshPublicKey` was not already set, adding it gives both instances a `keyName`, which EC2 cannot change on a running machine, so both plan a replacement and the database node is deleted before its replacement is made. The data volumes are separate protected resources and survive it, but it is two rebuilds of downtime — set the key on its own, `up`, and set this afterwards. `ssm` avoids that trap entirely by needing no key. `docs/deployment-costs.md` compares all three, prices `ssm` region by region, and says what the free-looking alternatives do not do |
 | `kmsKeyArn` | | | AWS only. A KMS key of yours for both data volumes and both boot volumes, instead of the AWS-managed one. It must be enabled, customer-managed, symmetric and for encrypt/decrypt, and its policy must let the principal running `pulumi up` call `kms:GenerateDataKeyWithoutPlaintext`, `kms:CreateGrant` (with `kms:GrantIsForAWSResource`), `kms:Decrypt` and `kms:DescribeKey` — the default policy `aws kms create-key` writes with no `--policy` already does, and without them a volume is created and deleted moments later. The program checks the key's state before it declares anything encrypted, so a key in the wrong state fails the preview rather than half-building a stack; it cannot check the policy, which is why it is written out here. **Set it before the first `up`**, and set `kmsKeyArnIsNewStack` with it |
 | `kmsKeyArnIsNewStack` | with `kmsKeyArn` | `false` | AWS only. Your statement that this `up` changes no volume's key: the volumes do not exist yet, or they were already created with this key, so a stack already built with one sets this and plans nothing. A volume's key cannot be changed afterward, so naming one on a stack that already has volumes asks to replace them — an empty volume where the ledger was. Pulumi's `protect` usually refuses that, but it lives in the state snapshot rather than in this config, and both `protectDataVolume: false` and `pulumi state unprotect` clear it there while the config still says `true`; neither is visible to the program, so it asks instead. `docs/deployment-profiles.md` §Encryption has the by-hand migration and what a disabled or deleted key does |
 | `kmsVaultOcid`, `kmsKeyOcid` | | | Oracle Cloud only, and both or neither: the key cannot be looked up without the vault's management endpoint. An AES key — the Block Volume service refuses an RSA-wrapped one — and enabled, checked the same way and at the same point. Adding it to a stack that exists is not destructive here: OCI re-wraps a block volume's data key in place. Create the key with `--protection-mode SOFTWARE` unless you mean to pay for HSM, which cannot be changed afterward |

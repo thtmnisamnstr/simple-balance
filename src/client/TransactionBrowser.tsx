@@ -43,6 +43,7 @@ import {
   Modal,
   PageHeader,
   Pagination,
+  ReadFailures,
   RowMenu,
   SearchBox,
   Select,
@@ -153,6 +154,7 @@ export function TransactionBrowser({
   fixedPayee,
   initialType,
   allowCreate = true,
+  createRefusal,
   showDateRange = true,
   includeStaged = false,
 }: {
@@ -183,6 +185,15 @@ export function TransactionBrowser({
   fixedPayee?: string;
   initialType?: TransactionType;
   allowCreate?: boolean;
+  /**
+   * Why the page's own subject refuses a new entry, when `allowCreate` is
+   * false because of it: an archived account or category, whose way back is
+   * Restore on its own list. The empty register says it where it would
+   * otherwise say "add a deposit … or import a CSV", which is the write the
+   * page has just withheld. A frozen account needs none passed: this browser
+   * holds the entitlement and the account, and says the server's own sentence.
+   */
+  createRefusal?: string;
   showDateRange?: boolean;
   /**
    * Also list the staged rows that reference this category or payee. They are
@@ -254,14 +265,17 @@ export function TransactionBrowser({
     // The fourth control on the bar, and it was the one left out. Deleting
     // voids an entry by posting its reversal rather than removing the row, so
     // "Show deleted" is hiding rows that are still there — and it ships off,
-    // which makes it `fromTheStart` for the same reason the two archived
-    // toggles are: counting it would put "No transactions yet" out of reach on
-    // a ledger that really is empty. Without it, somebody who had deleted
-    // everything matching this view was told they had never had anything,
-    // with the one checkbox that would show their rows unnamed.
+    // which makes it `fromTheStart` for the same reason the archived toggles
+    // are: the page cannot tell an empty ledger from one whose every entry is
+    // deleted, so it says "in this view" with what to add and this toggle both
+    // named, rather than "match this view" with the toggle alone. "Any",
+    // because on a new ledger there is nothing deleted to look at. Without it,
+    // somebody who had deleted everything matching this view was told they had
+    // never had anything, with the one checkbox that would show their rows
+    // unnamed.
     {
       set: !showDeleted,
-      clear: "turn on Show deleted to look at the entries you have removed",
+      clear: "turn on Show deleted to include any deleted entries",
       fromTheStart: true,
     },
   ]);
@@ -469,6 +483,22 @@ export function TransactionBrowser({
   // building a prefix of our own here made the disabled control's sentence a
   // longer one than the 422's rather than the same one.
   const frozenReason = (account: Account) => frozenAccountRefusal(frozenLimit, account.name);
+  // Whether a new entry can be made from here, asked once for the Add button
+  // in the empty state AND for the sentence beside it. They were two reads, and
+  // an archived account's register withheld the button while its body still
+  // said "add a deposit, a withdrawal or a transfer, or import a CSV" — the
+  // one way out it names being the one the page had refused.
+  const canAdd = allowCreate && writableAccounts.length > 0;
+  const fixedAccount = fixedAccountId
+    ? accounts.data?.find((account) => account.id === fixedAccountId)
+    : undefined;
+  // Said instead of the offer when there is none: the page's own reason, the
+  // frozen sentence for a frozen subject, or the header button's reason when
+  // every account is frozen or there is none. Nothing while the accounts are
+  // on their way, rather than a reason that may not be true.
+  const addRefusal =
+    createRefusal ??
+    (fixedAccount?.frozen ? frozenReason(fixedAccount) : allowCreate ? cannotAdd : undefined);
   const frozenRowReasonId = useId();
   const activeCategories = (categories.data ?? []).filter((category) => !category.archivedAt);
   const isSelected = (id: string) =>
@@ -1099,11 +1129,14 @@ export function TransactionBrowser({
           accounts read silently disabled the Add button, and a failed staged
           read silently hid the contextual rows, each with nothing on screen
           to say why. */}
-      {[transactions.error, staged.error, accounts.error, categories.error]
-        .filter((cause): cause is Error => Boolean(cause))
-        .map((cause, index) => (
-          <Alert key={index}>{cause.message}</Alert>
-        ))}
+      <ReadFailures
+        reads={[
+          ["transactions", transactions.error],
+          ["staged rows", staged.error],
+          ["accounts", accounts.error],
+          ["categories", categories.error],
+        ]}
+      />
       {items.length || stagedRows.length ? (
         <>
           {/* The card is the frame and the `.table-wrap` inside it scrolls, so
@@ -1534,14 +1567,16 @@ export function TransactionBrowser({
                 // the filters that decided this screen, which is the split
                 // `list-filters.ts` exists to keep.
                 waysOut([...ways, "widen the date range"])
-              : `${start || end ? "Widen the date range, or add" : "Add"} a deposit, a withdrawal or a transfer, or import a CSV of what has already happened.${
-                  ways.length ? ` ${waysOut(ways)}` : ""
-                }`
+              : canAdd
+                ? `${start || end ? "Widen the date range, or add" : "Add"} a deposit, a withdrawal or a transfer, or import a CSV of what has already happened.${
+                    ways.length ? ` ${waysOut(ways)}` : ""
+                  }`
+                : [start || end ? "Widen the date range." : "", addRefusal ?? "", waysOut(ways)]
+                    .filter(Boolean)
+                    .join(" ")
           }
           action={
-            allowCreate && writableAccounts.length ? (
-              <Button onClick={() => setEditing("new")}>Add transaction</Button>
-            ) : undefined
+            canAdd ? <Button onClick={() => setEditing("new")}>Add transaction</Button> : undefined
           }
         />
       )}

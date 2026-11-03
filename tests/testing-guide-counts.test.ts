@@ -178,4 +178,58 @@ describe("testing.md file counts", () => {
     expect(specs.length).toBeGreaterThan(0);
     expect(specs.filter((file) => !section.includes(`\`${file}\``))).toEqual([]);
   });
+
+  /**
+   * 5.2's three groups of integration files, by which teardown helper each
+   * takes. The page says counting them is the point of writing them down, and
+   * nothing counted them: the Simple Balance file's eleven integration files
+   * left the prose at sixty of ninety-one while the tree held ninety-six.
+   */
+  it("splits the integration files by the helper each takes, as 5.2 says", () => {
+    const flat = guide.replaceAll(/\s+/g, " ");
+    const sources = filesIn("tests/integration").map((name) =>
+      readFileSync(path.join(repoRoot, "tests/integration", name), "utf8"),
+    );
+    const scratch = sources.filter((code) => /\bscratchDatabase\(/.test(code)).length;
+    const dropOnly = sources.filter(
+      (code) => !/\bscratchDatabase\(/.test(code) && /\bdropScratchDatabase\b/.test(code),
+    ).length;
+    const neither = sources.length - scratch - dropOnly;
+    expect(scratch).toBeGreaterThan(20);
+    expect(flat).toContain(`${scratch} of the ${sources.length} files use it`);
+    expect(flat).toContain(`covers the ${dropOnly} hand-rolled files`);
+    expect(flat).toContain(`The last ${spelled(neither)} take neither helper`);
+  });
 });
+
+/** A count as 5.2 writes it in a sentence. */
+function spelled(count: number): string {
+  const words = [
+    "zero",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten",
+    "eleven",
+    "twelve",
+    "thirteen",
+    "fourteen",
+    "fifteen",
+    "sixteen",
+    "seventeen",
+    "eighteen",
+    "nineteen",
+    "twenty",
+    "twenty-one",
+    "twenty-two",
+    "twenty-three",
+    "twenty-four",
+  ];
+  return words[count] ?? String(count);
+}

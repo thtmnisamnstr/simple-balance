@@ -1,5 +1,5 @@
 import { useSearchParams } from "./router.js";
-import { calendarDateInTimezone, useTimezone } from "./timezone.js";
+import { calendarDateInTimezone, useTimezone, useToday } from "./timezone.js";
 
 const dateOnlyUtc = (date: Date) => {
   const year = date.getUTCFullYear();
@@ -36,7 +36,11 @@ export function rangeForPreset(
   now = new Date(),
   timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
 ) {
-  const today = calendarDateInTimezone(now, timezone);
+  return rangeForPresetOn(preset, calendarDateInTimezone(now, timezone));
+}
+
+/** The same, from a calendar day already worked out, as a render has it. */
+function rangeForPresetOn(preset: DatePreset, today: string) {
   const [year, month, day] = today.split("-").map(Number) as [number, number, number];
   const calendarNow = new Date(Date.UTC(year, month - 1, day));
   switch (preset) {
@@ -67,10 +71,11 @@ export function useDateRange() {
   const timezone = useTimezone();
   const [params, setParams] = useSearchParams();
   const preset = presetFromParam(params.get("preset"));
+  const today = useToday(timezone);
   // The active preset owns the fallback range. Deriving it from "this-month"
   // instead silently bounded "all-time" to the current month, because an
   // unbounded range stores no start/end params at all.
-  const defaults = rangeForPreset(preset, new Date(), timezone);
+  const defaults = rangeForPresetOn(preset, today);
   const start = params.get("start") ?? defaults.start;
   const end = params.get("end") ?? defaults.end;
   const setRange = (next: { start: string; end: string; preset?: DatePreset }) => {

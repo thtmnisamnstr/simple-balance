@@ -59,6 +59,7 @@ const WORDS: Record<string, number> = {
   fifteen: 15,
   sixteen: 16,
   eighteen: 18,
+  twenty: 20,
 };
 
 /**
@@ -259,11 +260,11 @@ describe("1.3 and 1.4, the two declined flags with a measurement in them", () =>
    * the compiler follows an import past it. The suite imports three
    * infrastructure modules to render cloud-init, a fourth that holds the
    * stack-settings rules and the `.d.mts` beside the script that fills them,
-   * and five `.d.mts` siblings of the `scripts/` modules it exercises, so all
-   * ten are inside every number 1.4 quotes — two of its
+   * and six `.d.mts` siblings of the `scripts/` modules it exercises, so all
+   * eleven are inside every number 1.4 quotes — two of its
    * `exactOptionalPropertyTypes` errors are in the first three.
    */
-  it("reads exactly the ten first-party files outside src and tests that 1.4 names", () => {
+  it("reads exactly the eleven first-party files outside src and tests that 1.4 names", () => {
     const declared = ((json(ROOT_TSCONFIG).include ?? []) as string[]).filter((one) =>
       /\.tsx?$/.test(one),
     );
@@ -296,6 +297,7 @@ describe("1.3 and 1.4, the two declined flags with a measurement in them", () =>
       "scripts/capacity/measure.d.mts",
       "scripts/capacity/schedule.d.mts",
       "scripts/capacity/verify.d.mts",
+      "scripts/lib/learn-sync.d.mts",
       "scripts/product-kit/entry-key.d.mts",
     ]);
   });
@@ -522,5 +524,102 @@ describe("3.5 the infrastructure programs are a second TypeScript program", () =
     // This one moves only when a program is added or a large block written, so
     // being made to edit the page is the point rather than the friction.
     expect(Number(claimed![1]!.replaceAll(",", ""))).toBe(lines);
+  });
+});
+
+/**
+ * The parameter list that encloses `at`, split at its own depth.
+ *
+ * Walks back from the match to the `(` that opens the list it sits in, then
+ * forward to the `)` that closes it, and cuts at every comma no bracket,
+ * generic or string holds. A signature carries all four: `options: { … } =
+ * {}`, `Pick<Draft, "a" | "b">`, a default string.
+ */
+const enclosingParameters = (code: string, at: number): string[] | null => {
+  let depth = 0;
+  let open = -1;
+  for (let index = at; index >= 0; index--) {
+    const character = code[index];
+    if (character === ")" || character === "}" || character === "]") depth++;
+    else if (character === "(" || character === "{" || character === "[") {
+      if (depth === 0) {
+        if (character === "(") open = index;
+        break;
+      }
+      depth--;
+    }
+  }
+  if (open < 0) return null;
+  const parameters: string[] = [];
+  let current = "";
+  let quote: string | null = null;
+  depth = 0;
+  for (let index = open + 1; index < code.length; index++) {
+    const character = code[index]!;
+    if (quote) {
+      current += character;
+      if (character === quote && code[index - 1] !== "\\") quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'" || character === "`") quote = character;
+    else if ("({[<".includes(character)) depth++;
+    else if (character === ">" && code[index - 1] !== "=") depth--;
+    else if (")}]".includes(character)) {
+      if (depth === 0) {
+        if (current.trim()) parameters.push(current.trim());
+        return parameters;
+      }
+      depth--;
+    } else if (character === "," && depth === 0) {
+      parameters.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += character;
+  }
+  return null;
+};
+
+/**
+ * 4.1, the half of it a compiler cannot read: where an optional transaction
+ * sits in a signature. A call in the wrong order is refused, because an options
+ * object is not a transaction; the signature in the wrong order is accepted, and
+ * then every caller learns it. Eight services ended `(…, transaction?,
+ * options?)` beside two in the same branch that ended `(…, options = {},
+ * transaction?)`, and nothing failed until somebody read them side by side.
+ *
+ * The population is every optional `DbTransaction` parameter in `src` — the
+ * shape "join the caller's transaction, or open one" takes — found by its type
+ * rather than by a list of services, so a module added tomorrow is inside it.
+ * A required `tx: DbTransaction` is outside it on purpose: that is a helper
+ * that only ever runs inside somebody else's transaction, and it takes the
+ * transaction first (`services.md` 1.1's second row).
+ */
+describe("4.1 an optional transaction is the last parameter", () => {
+  const sites = sourceFiles("src").flatMap((file) =>
+    [...file.code.matchAll(/\b(\w+)\?\s*:\s*DbTransaction\b/g)].map((match) => {
+      const parameters = enclosingParameters(file.code, match.index);
+      const line = file.code.slice(0, match.index).split("\n").length;
+      return { where: `${file.path}:${line}`, name: match[1]!, parameters };
+    }),
+  );
+
+  it("finds the services that join a caller's transaction", () => {
+    // A pattern that stopped matching would pass every site it no longer saw.
+    expect(sites.length).toBeGreaterThanOrEqual(40);
+    expect(sites.map((site) => site.where.split(":")[0])).toContain(
+      "src/server/services/transactions.ts",
+    );
+    for (const site of sites) expect(site.parameters, site.where).not.toBeNull();
+  });
+
+  it("puts it after every other parameter, options included", () => {
+    const misplaced = sites
+      .filter((site) => {
+        const last = site.parameters!.at(-1) ?? "";
+        return !new RegExp(`^${site.name}\\?\\s*:\\s*DbTransaction\\b`).test(last);
+      })
+      .map((site) => `${site.where} (${site.parameters!.join(", ")})`);
+    expect(misplaced).toEqual([]);
   });
 });

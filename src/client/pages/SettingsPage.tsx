@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useThemeSetting } from "../theme.js";
 import { Bot, KeyRound, Link, Plug, Settings2, SunMoon, TriangleAlert } from "lucide-react";
-import { useState, useId } from "react";
+import { useRef, useState, useId } from "react";
 import { useSearchParams } from "../router.js";
 import { formatTimestamp } from "../money.js";
 import { useTimezone } from "../timezone.js";
 import { api, json, type AuthPublicOptions, type Session } from "../api.js";
 import { authClient } from "../auth-client.js";
+import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from "../../shared/domain.js";
 import {
   Alert,
   Badge,
@@ -35,7 +36,7 @@ import {
  * system" is a standing instruction, not a color, and calling it "System"
  * leaves somebody guessing whose system and when.
  */
-const THEME_CHOICES = [
+export const THEME_CHOICES = [
   { value: "light", label: "Light" },
   { value: "dark", label: "Dark" },
   { value: "system", label: "Follow my system" },
@@ -61,6 +62,13 @@ export default function SettingsPage({ session }: { session: Session }) {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
+  // The browser's own check, about one field, so it is that field's error
+  // (8.1) — `aria-invalid` and its sentence on Confirm new password — rather
+  // than an alert at the foot of the form that nothing pointed at. Set on a
+  // submit and cleared by the next one, as a refusal is (8.2).
+  const [confirmError, setConfirmError] = useState("");
+  const confirmInput = useRef<HTMLInputElement>(null);
+  const consequence = useId();
 
   const preferencesMutation = useMutation({
     mutationFn: () =>
@@ -72,9 +80,6 @@ export default function SettingsPage({ session }: { session: Session }) {
   });
   const passwordMutation = useMutation({
     mutationFn: async () => {
-      if (newPassword !== passwordConfirmation) {
-        throw new Error("New passwords do not match");
-      }
       if (session.auth.localPasswordConfigured) {
         const result = await authClient.changePassword({
           currentPassword,
@@ -309,6 +314,18 @@ export default function SettingsPage({ session }: { session: Session }) {
                 className="form-grid"
                 onSubmit={(event) => {
                   event.preventDefault();
+                  const mismatch = newPassword !== passwordConfirmation;
+                  setConfirmError(mismatch ? "Passwords do not match" : "");
+                  if (mismatch) {
+                    // An earlier refusal from the server would otherwise sit
+                    // at the foot beside this one. And focus moves to the
+                    // field, because a field's error is not a live region:
+                    // the alert this replaced announced itself, and without
+                    // the move the sentence would never be read out.
+                    passwordMutation.reset();
+                    confirmInput.current?.focus();
+                    return;
+                  }
                   passwordMutation.mutate();
                 }}
               >
@@ -326,35 +343,40 @@ export default function SettingsPage({ session }: { session: Session }) {
                 ) : null}
                 <Field
                   label={session.auth.localPasswordConfigured ? "New password" : "Set a password"}
-                  hint="12–128 characters"
+                  hint={`${PASSWORD_MIN_LENGTH}–${PASSWORD_MAX_LENGTH} characters`}
                 >
                   <Input
                     required
                     name="newPassword"
                     type="password"
-                    minLength={12}
-                    maxLength={128}
+                    minLength={PASSWORD_MIN_LENGTH}
+                    maxLength={PASSWORD_MAX_LENGTH}
                     autoComplete="new-password"
                     value={newPassword}
                     onChange={(event) => setNewPassword(event.target.value)}
                   />
                 </Field>
-                <Field label="Confirm new password">
+                <Field label="Confirm new password" error={confirmError || undefined}>
                   <Input
+                    ref={confirmInput}
                     required
                     name="newPasswordConfirmation"
                     type="password"
-                    minLength={12}
-                    maxLength={128}
+                    minLength={PASSWORD_MIN_LENGTH}
+                    maxLength={PASSWORD_MAX_LENGTH}
                     autoComplete="new-password"
                     value={passwordConfirmation}
                     onChange={(event) => setPasswordConfirmation(event.target.value)}
                   />
                 </Field>
-                <small>
+                {/* Directly above the button it is about, and the button's
+                    description, as the sign-up form's terms notice is: it was
+                    a bare `<small>` in body ink, larger and darker than the
+                    panel's notes, and nothing pointed at it (8.1). */}
+                <p className="note" id={consequence}>
                   Changing your password signs out every other session and disconnects every MCP
                   client, so an agent authorized before the change has to be authorized again.
-                </small>
+                </p>
                 {passwordMutation.error ? <Alert>{passwordMutation.error.message}</Alert> : null}
                 {passwordMutation.isSuccess ? (
                   <Alert kind="success">
@@ -362,14 +384,23 @@ export default function SettingsPage({ session }: { session: Session }) {
                   </Alert>
                 ) : null}
                 <div className="form-actions">
-                  <Button type="submit" loading={passwordMutation.isPending}>
-                    {session.auth.localPasswordConfigured ? "Change password" : "Set a password"}
+                  <Button
+                    type="submit"
+                    loading={passwordMutation.isPending}
+                    aria-describedby={consequence}
+                  >
+                    {session.auth.localPasswordConfigured ? "Change password" : "Set password"}
                   </Button>
                 </div>
               </form>
-              {session.auth.localPasswordConfigured ? (
+              {/* Only once the deployment has said. Read as `data?.…`, a read
+                  still in flight or one that failed told somebody this
+                  deployment has no mail server — a fact about the server stated
+                  from the absence of an answer: an error read as an empty
+                  result, which `web.md` 12.1 is about. */}
+              {session.auth.localPasswordConfigured && authOptions.data ? (
                 <Note>
-                  {authOptions.data?.passwordResetAvailable
+                  {authOptions.data.passwordResetAvailable
                     ? "Forgot this password? The sign-in screen can send a link to reset it."
                     : "This deployment has no mail server, so a forgotten password cannot be reset. Keep it in a password manager."}
                 </Note>
@@ -397,7 +428,7 @@ type OwnDataSummary = {
 };
 
 const plural = (count: number, one: string, many = `${one}s`) =>
-  `${count.toLocaleString()} ${count === 1 ? one : many}`;
+  `${formatCount(count)} ${count === 1 ? one : many}`;
 
 /** "a, b and c", skipping the parts that do not apply to this account. */
 const readableList = (parts: (string | null)[]) => {

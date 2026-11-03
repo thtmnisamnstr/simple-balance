@@ -385,9 +385,9 @@ describe("the plan tab", () => {
     });
     const requests = mount(status({ selling: false, subscription: switching }));
 
-    const stay = await screen.findByRole("button", { name: "Stay on the annual plan" });
+    const stay = await screen.findByRole("button", { name: "Stay on annual plan" });
     expect(screen.getByText(/Switching to the monthly price/)).toHaveTextContent(
-      /pressing Stay on the annual plan cancels the switch/,
+      /pressing Stay on annual plan cancels the switch/,
     );
     expect(screen.queryByRole("button", { name: /Monthly/ })).toBeNull();
     fireEvent.click(stay);
@@ -419,9 +419,9 @@ describe("the plan tab", () => {
         }),
       }),
     );
-    expect(await screen.findByRole("button", { name: "Stay on the annual plan" })).toBeVisible();
+    expect(await screen.findByRole("button", { name: "Stay on annual plan" })).toBeVisible();
     expect(screen.getByText(/Switching to the monthly price/)).toHaveTextContent(
-      /pressing Stay on the annual plan cancels the switch/,
+      /pressing Stay on annual plan cancels the switch/,
     );
   });
 
@@ -510,14 +510,14 @@ describe("the plan tab", () => {
         }),
       }),
     );
-    const stay = await screen.findByRole("button", { name: "Stay on the annual plan" });
+    const stay = await screen.findByRole("button", { name: "Stay on annual plan" });
     expect(stay).toBeEnabled();
     expect(stay).toHaveAccessibleDescription(/renews automatically until you cancel/);
     const annual = screen.getByRole("button", { name: /Annual —/ });
     expect(annual).toBeDisabled();
     expect(annual).toHaveAccessibleDescription(/You are on the annual plan already\./);
     expect(screen.getByText(/Switching to the monthly price/)).toHaveTextContent(
-      /pressing Stay on the annual plan cancels the switch/,
+      /pressing Stay on annual plan cancels the switch/,
     );
 
     fireEvent.click(stay);
@@ -882,7 +882,7 @@ describe("the plan tab", () => {
  * window and the clause the hosted service's terms of use are being changed
  * to, word for word. Four requests on this tab, so four places — the plan
  * buttons, the payment form's confirm button, "Keep my plan", which turns
- * renewal back on, and "Stay on the … plan", which decides which price renews
+ * renewal back on, and "Stay on … plan", which decides which price renews
  * — and each is read against the figures the buttons show rather than a price
  * written into the page. A plan Stripe could not price is not offered at all,
  * because its terms could not say what it charges.
@@ -1115,7 +1115,7 @@ describe("the renewal terms", () => {
   /**
    * Letting a scheduled switch go decides what the next renewal charges —
    * $30.00 a year rather than $3.00 a month — which is a term 17601(b)(3)
-   * names, so "Stay on the … plan" carries the terms the way "Keep my plan"
+   * names, so "Stay on … plan" carries the terms the way "Keep my plan"
    * does. Before it had a button of its own the release was the priced plan
    * button, which did.
    */
@@ -1125,7 +1125,7 @@ describe("the renewal terms", () => {
       scheduledAt: "2027-01-01T00:00:00.000Z",
     });
     mount(status({ subscription: switching }));
-    const stay = await screen.findByRole("button", { name: "Stay on the annual plan" });
+    const stay = await screen.findByRole("button", { name: "Stay on annual plan" });
     expect(screen.getAllByText(/renews automatically until you cancel/)).toHaveLength(1);
     expect(stay).toHaveAccessibleDescription(/Annual charges \$30\.00 a year/);
     cleanup();
@@ -1133,7 +1133,7 @@ describe("the renewal terms", () => {
     // Nothing for sale, so no plan buttons and no terms of theirs: its own,
     // for this plan alone, directly above the row it is in.
     mount(status({ selling: false, subscription: switching }));
-    const alone = await screen.findByRole("button", { name: "Stay on the annual plan" });
+    const alone = await screen.findByRole("button", { name: "Stay on annual plan" });
     const terms = renewalTermsIn(document.body);
     expect(terms).toHaveTextContent("Annual charges $30.00 a year, to your payment method");
     expect(terms).not.toHaveTextContent(/Monthly/);
@@ -1149,7 +1149,7 @@ describe("the renewal terms", () => {
         subscription: switching,
       }),
     );
-    const unpriced = await screen.findByRole("button", { name: "Stay on the annual plan" });
+    const unpriced = await screen.findByRole("button", { name: "Stay on annual plan" });
     expect(screen.queryByText(/renews automatically/)).toBeNull();
     expect(unpriced).not.toHaveAttribute("aria-describedby");
   });
@@ -1171,7 +1171,7 @@ describe("the renewal terms", () => {
       }),
     );
     const keep = await screen.findByRole("button", { name: "Keep my plan" });
-    const stay = screen.getByRole("button", { name: "Stay on the annual plan" });
+    const stay = screen.getByRole("button", { name: "Stay on annual plan" });
     expect(screen.getAllByText(/renews automatically until you cancel/)).toHaveLength(1);
     expect(keep).toHaveAccessibleDescription(/Annual charges \$30\.00 a year/);
     expect(stay).toHaveAccessibleDescription(/Annual charges \$30\.00 a year/);
@@ -2088,7 +2088,7 @@ const focusedOn = async (text: string) => {
  * A press that needs no payment, and says what it did.
  *
  * Each of these buttons disables itself while it works — which makes the
- * browser blur it — or goes with what it changed, as Stay on the … plan goes
+ * browser blur it — or goes with what it changed, as Stay on … plan goes
  * with the switch, and none of them said anything: focus fell to `<body>`,
  * and a charge for the difference happened with nothing but a badge to show
  * for it. The date in each sentence is the one the read after the press gave.
@@ -2168,7 +2168,7 @@ describe("a change that needs no payment", () => {
 
     upgraded({ changeInvoice: "paid" });
     await pressFocused(/Annual —/);
-    fireEvent.click(await screen.findByRole("button", { name: "Switch and pay the difference" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Switch and pay difference" }));
     await focusedOn(
       "You are on the annual plan now, and the difference was charged to your payment method.",
     );
@@ -2176,7 +2176,7 @@ describe("a change that needs no payment", () => {
 
     upgraded({ changeInvoice: "none" });
     await pressFocused(/Annual —/);
-    fireEvent.click(await screen.findByRole("button", { name: "Switch and pay the difference" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Switch and pay difference" }));
     await focusedOn(
       "You are on the annual plan now. Nothing has been charged for the difference, and it goes " +
         "on your next invoice.",
@@ -2185,7 +2185,7 @@ describe("a change that needs no payment", () => {
 
     upgraded({ changeInvoice: "owed" });
     await pressFocused(/Annual —/);
-    fireEvent.click(await screen.findByRole("button", { name: "Switch and pay the difference" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Switch and pay difference" }));
     await focusedOn("You are on the annual plan now, and the difference is still to pay.");
     cleanup();
 
@@ -2193,7 +2193,7 @@ describe("a change that needs no payment", () => {
     // it: the plan alone, and no claim about money either way.
     upgraded({});
     await pressFocused(/Annual —/);
-    fireEvent.click(await screen.findByRole("button", { name: "Switch and pay the difference" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Switch and pay difference" }));
     await focusedOn("You are on the annual plan now.");
   });
 
@@ -2228,9 +2228,9 @@ describe("a change that needs no payment", () => {
       }),
       status({ subscription: subscription() }),
     );
-    await pressFocused("Stay on the annual plan");
+    await pressFocused("Stay on annual plan");
     await focusedOn("You are staying on the annual plan, and the switch is canceled.");
-    expect(screen.queryByRole("button", { name: "Stay on the annual plan" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Stay on annual plan" })).toBeNull();
   });
 
   /**
@@ -2670,7 +2670,7 @@ describe("advertising on the plan tab", () => {
   it("names the ads on the free plan, beside the limit", async () => {
     mount(status({ advertises: true, entitlement: free, accountsUsed: 1 }));
     expect(
-      await screen.findByText(/up to 3 accounts in use at once, and ads on the page\./),
+      await screen.findByText(/up to three accounts in use at once, and ads on the page\./),
     ).toBeVisible();
   });
 
@@ -2689,13 +2689,13 @@ describe("advertising on the plan tab", () => {
    */
   it("claims nothing about ads where the deployment serves none", async () => {
     mount(status({ advertises: false, entitlement: free }));
-    expect(await screen.findByText(/up to 3 accounts in use at once\./)).toBeVisible();
+    expect(await screen.findByText(/up to three accounts in use at once\./)).toBeVisible();
     expect(screen.queryByText(/ads on the page/)).toBeNull();
     expect(screen.queryByText(/the ads gone/)).toBeNull();
     cleanup();
 
     mount(status({ entitlement: free }));
-    expect(await screen.findByText(/up to 3 accounts in use at once\./)).toBeVisible();
+    expect(await screen.findByText(/up to three accounts in use at once\./)).toBeVisible();
     expect(screen.queryByText(/ads on the page/)).toBeNull();
   });
 });

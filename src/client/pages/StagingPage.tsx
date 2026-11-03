@@ -46,6 +46,7 @@ import {
   Pagination,
   ProgressBar,
   progressLabel,
+  ReadFailures,
   RowMenu,
   SearchBox,
   Select,
@@ -371,7 +372,7 @@ export default function StagingPage() {
       // read again below, which is where each row's absence is shown.
       const rows = selectedRows.length;
       setBulkOutcome(
-        `${rows.toLocaleString()} staged ${rows === 1 ? "row" : "rows"} ${
+        `${formatCount(rows)} staged ${rows === 1 ? "row" : "rows"} ${
           action === "commit" ? "committed" : "deleted"
         }.`,
       );
@@ -589,7 +590,7 @@ export default function StagingPage() {
       // rows that were left behind.
       if (collected.size < totalMatching) {
         setBulkEditNotice(
-          `${collected.size.toLocaleString()} of ${totalMatching.toLocaleString()} matching rows selected, which is as many as one action covers. Deal with these, then select the rest.`,
+          `${formatCount(collected.size)} of ${formatCount(totalMatching)} matching rows selected, which is as many as one action covers. Deal with these, then select the rest.`,
         );
       }
     } catch (error) {
@@ -923,7 +924,7 @@ export default function StagingPage() {
             // file name alone is the same every month: two "checking.csv"
             // imports read identically, and the one to filter by was a guess.
             <option key={batch.id} value={batch.id}>
-              {`${batch.fileName} · ${formatTimestamp(batch.createdAt, timezone)} · ${formatCount(
+              {`${batchName(batch)} · ${formatTimestamp(batch.createdAt, timezone)} · ${formatCount(
                 batch.stagedCount,
               )} of ${formatCount(batch.rowCount)} rows staged`}
             </option>
@@ -1071,15 +1072,24 @@ export default function StagingPage() {
         </Alert>
       ) : null}
       {inlineError ? <Alert>{inlineError}</Alert> : null}
-      {stagePages.error || batchPages.error ? (
-        <Alert>{(stagePages.error ?? batchPages.error)!.message}</Alert>
-      ) : null}
+      {/* Every query the rows are read through, as the register does. With the
+          accounts or the categories unread, every row says "Unknown account",
+          "—" for its amount and "Uncategorized", which is the queue stating
+          that something is absent when it only failed to load (`web.md` 12.1). */}
+      <ReadFailures
+        reads={[
+          ["staged rows", stagePages.error],
+          ["import batches", batchPages.error],
+          ["accounts", accounts.error],
+          ["categories", categories.error],
+        ]}
+      />
       {/* The whole matching set, not the page: a page holds at most 100 rows
           and the cap is 10,000, so testing the page meant this could never
           appear however long the queue was. */}
       {totalMatching > MAX_BULK_STAGES ? (
         <Alert kind="info">
-          Bulk actions are limited to {MAX_BULK_STAGES.toLocaleString()} rows at a time. Commit or
+          Bulk actions are limited to {formatCount(MAX_BULK_STAGES)} rows at a time. Commit or
           delete the selected group, then continue with the remaining rows.
         </Alert>
       ) : null}
@@ -1158,6 +1168,16 @@ export default function StagingPage() {
                   // which is the rule being stepped around rather than kept. A
                   // comma is the join a label takes.
                   const payeeTriggerName = `${payee}, edit the payee of ${payee}`;
+                  // The amount cell's text, worked out once for the cell and
+                  // for its trigger's name. The queue has no Type column, so on
+                  // a row with a description the sign is the only thing saying
+                  // which way the money went, and a name built from the bare
+                  // figure read a deposit and a withdrawal out the same (`web.md`
+                  // 10.1, 8.10 rule 6).
+                  const amountText =
+                    summary.amount && summary.currency
+                      ? `${movementSign(draftType(stage)).sign}${formatMoney(summary.amount, summary.currency)}`
+                      : null;
                   const description = stagedString(draft.description).trim();
                   const type = stagedString(draft.type).trim() || "Unknown type";
                   return (
@@ -1394,30 +1414,14 @@ export default function StagingPage() {
                           <button
                             type="button"
                             className="inline-edit inline-edit-money"
-                            aria-label={`${
-                              summary.amount && summary.currency
-                                ? formatMoney(summary.amount, summary.currency)
-                                : "No amount"
-                            }, edit the amount of ${payee}`}
+                            aria-label={`${amountText ?? "No amount"}, edit the amount of ${payee}`}
                             data-inline-trigger={`amount:${stage.id}`}
                             onClick={() => openInline(stage, "amount", stagedString(draft.amount))}
                           >
-                            {summary.amount && summary.currency ? (
-                              <>
-                                {movementSign(draftType(stage)).sign}
-                                {formatMoney(summary.amount, summary.currency)}
-                              </>
-                            ) : (
-                              "—"
-                            )}
+                            {amountText ?? "—"}
                           </button>
-                        ) : summary.amount && summary.currency ? (
-                          <>
-                            {movementSign(draftType(stage)).sign}
-                            {formatMoney(summary.amount, summary.currency)}
-                          </>
                         ) : (
-                          "—"
+                          (amountText ?? "—")
                         )}
                       </td>
                       <td className="row-actions">
@@ -1799,4 +1803,19 @@ export default function StagingPage() {
       />
     </>
   );
+}
+
+/**
+ * A batch as the filter names it: its file, and what kind of file where that
+ * is not the CSV every batch used to be.
+ *
+ * A Simple Balance file's rows stage under one batch per part, named after the
+ * file somebody chose, and a name says nothing certain about what the file
+ * was. Only that batch arrived with both sides of every transfer and its
+ * categories already worked out, which is worth knowing when choosing which
+ * rows to review first. A batch from a server too old to send a kind is a CSV,
+ * because nothing else was ever staged in one there.
+ */
+function batchName(batch: ImportBatchSummary) {
+  return batch.kind === "ledger_file" ? `${batch.fileName} (Simple Balance file)` : batch.fileName;
 }

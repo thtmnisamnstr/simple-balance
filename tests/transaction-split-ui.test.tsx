@@ -178,7 +178,7 @@ describe("splitting a transaction in the form", () => {
     renderForm();
     fireEvent.change(screen.getByLabelText("Amount (USD)"), { target: { value: "100" } });
     fireEvent.click(screen.getByText("Split across categories"));
-    fireEvent.click(screen.getByText("Add a category"));
+    fireEvent.click(screen.getByText("Add category"));
 
     fireEvent.change(legAmount(1), { target: { value: "33.33" } });
     fireEvent.change(legAmount(2), { target: { value: "33.33" } });

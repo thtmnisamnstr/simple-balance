@@ -141,3 +141,60 @@ describe("what the authorization server says it supports", () => {
     }
   });
 });
+
+/**
+ * Registration makes every client public — `boundedRegistration` forces
+ * `token_endpoint_auth_method` to `none` whatever was asked — so discovery says
+ * that and nothing else. It advertised the two secret-based methods as well,
+ * inviting a client to register as confidential and be told it was not, and
+ * whether ChatGPT accepts that override is unconfirmed. Better Auth's own copy
+ * under `/api/auth` is held too, because it answered with the library's three.
+ */
+describe("how a client may authenticate at the token endpoint", () => {
+  it("is public, and only public, in every authorization-server document", async () => {
+    for (const path of [
+      "/.well-known/oauth-authorization-server",
+      "/.well-known/oauth-authorization-server/mcp",
+      "/.well-known/oauth-authorization-server/mcp/",
+      "/.well-known/openid-configuration",
+      "/api/auth/.well-known/oauth-authorization-server",
+    ]) {
+      const metadata = (await document(path)) as Record<string, unknown>;
+      expect(metadata.token_endpoint_auth_methods_supported, path).toEqual(["none"]);
+      expect(metadata.scopes_supported, path).toContain("ledger:write");
+      expect(metadata, path).not.toHaveProperty("userinfo_endpoint");
+    }
+  });
+});
+
+/**
+ * The first answer a client gets, before it has a token.
+ *
+ * A client that takes its scopes from the challenge rather than from discovery
+ * — Docker's gateway reads nothing else — got only `resource_metadata` and so
+ * fell back to Better Auth's default grant: read tools, and no refresh token.
+ */
+describe("the challenge an unauthenticated /mcp request is answered with", () => {
+  it("names the resource metadata and every scope the resource document lists", async () => {
+    const response = await app.request(`${origin}/mcp`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+    });
+    expect(response.status).toBe(401);
+    const challenge = response.headers.get("www-authenticate");
+    expect(challenge).toBe(
+      `Bearer resource_metadata="${getConfig().baseUrl}/api/auth/.well-known/oauth-protected-resource", ` +
+        'scope="openid profile email offline_access ledger:read ledger:stage ledger:write"',
+    );
+    const advertised = (await document("/api/auth/.well-known/oauth-protected-resource"))
+      .scopes_supported as string[];
+    expect(/scope="([^"]*)"/.exec(challenge ?? "")?.[1]?.split(" ")).toEqual(advertised);
+    // The body repeats it for a client that cannot read the header.
+    const body = (await response.json()) as { error: Record<string, unknown> };
+    expect(body.error["www-authenticate"]).toBe(challenge);
+  });
+});

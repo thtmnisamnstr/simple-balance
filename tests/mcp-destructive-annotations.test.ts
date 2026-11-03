@@ -103,4 +103,88 @@ describe("tools that overwrite say so", () => {
     expect(tool!.description).toMatch(/audit log/i);
     expect(tool!.description).toContain("delete_budget_entry");
   });
+
+  /**
+   * The other tell is no version at all: a write that replaces the settings
+   * somebody chose. `add_ledger_file` does exactly what `set_preferences` does
+   * when told `preferences: "file"`, and was annotated additive while the tool
+   * making the same write was destructive, so a client approving additive
+   * calls on its own let an agent move somebody's "today" without a prompt.
+   */
+  it("annotates every tool that can replace chosen settings destructive, and says so", () => {
+    for (const name of ["set_preferences", "add_ledger_file"]) {
+      const tool = tools.find((entry) => entry.name === name);
+      expect(tool, `${name} is registered`).toBeDefined();
+      expect(tool!.annotations?.["destructiveHint"], `${name} can replace chosen settings`).toBe(
+        true,
+      );
+      expect(tool!.description).toMatch(/confirm/i);
+    }
+    expect(tools.find((entry) => entry.name === "add_ledger_file")!.description).toContain(
+      "set_preferences",
+    );
+  });
+
+  /**
+   * A move writes straight into the books, with no queue between the file and
+   * the balances, and what it writes comes out only one transaction and one
+   * record at a time. It replaces chosen settings too, as an add does.
+   */
+  it("annotates moving a Simple Balance file destructive, and says to confirm", () => {
+    const tool = tools.find((entry) => entry.name === "move_ledger_file");
+    expect(tool, "move_ledger_file is registered").toBeDefined();
+    expect(tool!.annotations?.["destructiveHint"]).toBe(true);
+    expect(tool!.description).toMatch(/confirm with the person first/i);
+    expect(tool!.description).toContain("set_preferences");
+  });
+});
+
+/**
+ * Every tool's title, in both places a client may read it.
+ *
+ * `Tool.title` is the specification's field and `annotations.title` the older
+ * one, and Claude's directory portal flags a tool without a title or
+ * annotations. The registration wrapper copies one into the other on a fresh
+ * object, because the presets are shared: written onto a preset, every tool on
+ * it would carry the last title registered, which the distinct-titles check
+ * here would catch. And copying must leave the four hints exactly as the
+ * preset set them.
+ */
+describe("every tool's title", () => {
+  let tools: (Tool & { title?: string })[];
+
+  beforeAll(async () => {
+    const server = createMcpServer(
+      { userId: "titles", source: "mcp", clientId: "titles" },
+      new Set(["ledger:read", "ledger:stage", "ledger:write"]),
+    );
+    const client = new Client({ name: "titles", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    tools = (await client.listTools()).tools as (Tool & { title?: string })[];
+    await client.close();
+    await server.close();
+  });
+
+  it("is in the annotations as well as on the tool, and is the tool's own", () => {
+    expect(tools.length).toBeGreaterThan(80);
+    for (const tool of tools) {
+      expect(tool.title, tool.name).toBeTruthy();
+      expect(tool.annotations?.title, tool.name).toBe(tool.title);
+    }
+    expect(new Set(tools.map((tool) => tool.annotations?.title)).size).toBe(tools.length);
+  });
+
+  it("leaves every hint as the preset set it", () => {
+    for (const tool of tools) {
+      expect(Object.keys(tool.annotations ?? {}).sort(), tool.name).toEqual([
+        "destructiveHint",
+        "idempotentHint",
+        "openWorldHint",
+        "readOnlyHint",
+        "title",
+      ]);
+    }
+  });
 });

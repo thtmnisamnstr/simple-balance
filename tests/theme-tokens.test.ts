@@ -379,7 +379,7 @@ describe("a disabled button", () => {
     const elements = elementsShippedDisabled();
     // A scan that found nothing would pass this silently, and the whole point
     // is that it is looking. Six today: the three pagination controls, the
-    // `Button` component, the split editor's "Add a category", and the account
+    // `Button` component, the split editor's "Add category", and the account
     // card's red menu item.
     expect(elements.length, "the browser disables something it paints itself").toBeGreaterThan(3);
     const missing: string[] = [];

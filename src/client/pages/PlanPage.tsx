@@ -49,6 +49,7 @@ import {
   Badge,
   Button,
   ConfirmDialog,
+  countInWords,
   Note,
   PageHeader,
   SettingsTabs,
@@ -686,16 +687,9 @@ const STATUS_WORDS: Record<string, { label: string; tone: "green" | "amber" }> =
  * Worked out from `BILLING_GRACE_DAYS`, the number the server enforces, rather
  * than written here a second time, because "a few days" is what this said
  * while the grace went from seven to fifteen. In words because the alert is a
- * sentence; a number past the end of the list falls back to digits, which
- * reads worse and is still true.
+ * sentence.
  */
-const NUMBER_WORDS = (
-  "zero one two three four five six seven eight nine ten eleven twelve thirteen " +
-  "fourteen fifteen sixteen seventeen eighteen nineteen twenty twenty-one " +
-  "twenty-two twenty-three twenty-four twenty-five twenty-six twenty-seven " +
-  "twenty-eight twenty-nine thirty thirty-one"
-).split(" ");
-const GRACE_IN_WORDS = `${NUMBER_WORDS[BILLING_GRACE_DAYS] ?? String(BILLING_GRACE_DAYS)} days`;
+const GRACE_IN_WORDS = `${countInWords(BILLING_GRACE_DAYS)} days`;
 
 /**
  * Which kind of secret the form is holding, carried rather than sniffed.
@@ -1450,7 +1444,7 @@ export function PlanPage({
   const keptTermsShared = keptInterval !== null && offered.includes(keptInterval);
   // Letting a scheduled switch go is consent of the same kind: it decides what
   // the next renewal charges — $30.00 a year rather than $3.00 a month — and
-  // 17601(b)(3) makes the recurring charge a term. So Stay on the … plan has
+  // 17601(b)(3) makes the recurring charge a term. So Stay on … plan has
   // the terms as Keep my plan does: the plan buttons' where those name this
   // plan, its own otherwise, and only at a price Stripe gave. Before it had a
   // button of its own the release was the priced plan button, which carried
@@ -1703,7 +1697,7 @@ export function PlanPage({
                       }.`
                     : limit === null
                       ? "Everything is included on this deployment."
-                      : `${PLAN_LABELS.free}: up to ${limit} accounts in use at once${
+                      : `${PLAN_LABELS.free}: up to ${countInWords(limit)} accounts in use at once${
                           billing.advertises === true ? ", and ads on the page" : ""
                         }.`}
                 </p>
@@ -1811,7 +1805,7 @@ export function PlanPage({
                     sells, is a new schedule and so a sale, which the plan
                     buttons offer only while selling. */}
                 {releaseInterval
-                  ? `, and pressing Stay on the ${planWord(releaseInterval)} plan cancels the switch.`
+                  ? `, and pressing Stay on ${planWord(releaseInterval)} plan cancels the switch.`
                   : !subscription.interval && offered.length > 0
                     ? ", and choosing the other plan replaces the switch."
                     : "."}
@@ -2036,9 +2030,7 @@ export function PlanPage({
                         : undefined
                   }
                 >
-                  {releaseInterval === "yearly"
-                    ? "Stay on the annual plan"
-                    : "Stay on the monthly plan"}
+                  {releaseInterval === "yearly" ? "Stay on annual plan" : "Stay on monthly plan"}
                 </Button>
               </div>
             ) : null}
@@ -2126,7 +2118,7 @@ export function PlanPage({
         description={`The annual plan${
           yearly ? ` (${yearly})` : ""
         } starts today. What is left of this month is credited against it, the difference is charged to your payment method now, and the plan then renews every year.`}
-        confirmLabel="Switch and pay the difference"
+        confirmLabel="Switch and pay difference"
         confirmVariant="primary"
         onConfirm={confirmCharge.confirm}
         onCancel={confirmCharge.cancel}

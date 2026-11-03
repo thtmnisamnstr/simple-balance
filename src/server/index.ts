@@ -10,6 +10,7 @@ import { getOwnerSetupToken } from "./setup-token.js";
 import { createRecurrenceScheduler } from "./recurrence-scheduler.js";
 import { createGracefulShutdown } from "./server-lifecycle.js";
 import { log } from "./log.js";
+import { checkReadiness, recordDependencyChecks } from "./readiness.js";
 import { checkStripeAccess, checkStripePrices } from "./stripe.js";
 
 async function main() {
@@ -33,7 +34,7 @@ async function main() {
         "on a date the dashboard had already stopped counting.",
     );
   }
-  await checkMailTransport();
+  const relay = await checkMailTransport();
   // Stripe's two prices, checked at boot so an id from the wrong mode or the
   // wrong account is in the log before anybody opens the plan tab. It never
   // refuses to start: an unreachable Stripe is a warning, and a definite
@@ -41,7 +42,8 @@ async function main() {
   // it returns without touching the network. Beside it, and at the same time
   // so an unreachable Stripe costs startup one wait rather than two, what a
   // restricted key may read — it writes nothing and refuses nothing either.
-  await Promise.all([checkStripePrices(), checkStripeAccess()]);
+  const [pricesFit, unreadable] = await Promise.all([checkStripePrices(), checkStripeAccess()]);
+  recordDependencyChecks({ relay, pricesFit, unreadable });
   if (config.isProduction && !config.trustProxy) {
     // Sign-in attempts are counted per client address, and with no trusted
     // proxy that address is the other end of the TCP connection. Reached
@@ -109,7 +111,30 @@ async function main() {
   });
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
+  // Once as the port opens, so `ready` says something true from the first
+  // scrape rather than reading 0 until the platform's first probe, which the
+  // image's own health check makes half a minute in and a deployment with no
+  // probe never makes at all. Last, though it is the same tick as `serve()`:
+  // everything above is synchronous, and awaiting a database round trip in
+  // front of it left a process taking requests with no scheduler and no
+  // SIGTERM handler for as long as the database took to answer — which, for
+  // an idle connection to a database that has just failed over, is however
+  // long TCP takes to give up.
+  await checkReadiness();
 }
+
+// A monitor, not a handler. Listening for `uncaughtException` itself would
+// stop the process from exiting, and a server that carries on after state it
+// cannot vouch for is worse than one that restarts; this only gets the last
+// line written through the gate on its way down, narrowed the way every other
+// failure is, before Node prints its own trace and exits. A rejection nobody
+// handled arrives here too, because Node raises it as an uncaught exception.
+process.on("uncaughtExceptionMonitor", (error, origin) => {
+  log.failure(
+    `The server is stopping on ${origin === "unhandledRejection" ? "a rejection" : "an exception"} nothing caught`,
+    error,
+  );
+});
 
 main().catch(async (error) => {
   // log.failure, not the error whole: a Drizzle error escaping main() prints

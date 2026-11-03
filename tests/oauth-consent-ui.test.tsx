@@ -50,6 +50,9 @@ describe("the MCP consent screen", () => {
               clientId: "real-client",
               clientName: "Some Unfamiliar Agent",
               scopes: ["ledger:read", "ledger:write"],
+              redirectHost: "agent.example",
+              redirectIsLoopback: false,
+              accountEmail: "owner@example.com",
             }),
             { status: 200, headers: { "Content-Type": "application/json" } },
           );
@@ -64,6 +67,56 @@ describe("the MCP consent screen", () => {
     await waitFor(() => expect(screen.getByText("Some Unfamiliar Agent")).toBeInTheDocument());
     expect(screen.queryByText("Claude Desktop")).not.toBeInTheDocument();
     expect(screen.getByText(/ledger:write/)).toBeInTheDocument();
+  });
+
+  /**
+   * Registration is open, so the name is whatever the client chose to call
+   * itself, and the host is the part it cannot choose freely: it is where the
+   * code goes. The account is there because a browser still signed in to one
+   * person's ledger approves for that ledger, whoever started the connection.
+   */
+  it("names where approving sends the code, and whose ledger it grants", async () => {
+    renderConsent("?consent_code=abc");
+    await waitFor(() => expect(screen.getByText("agent.example")).toBeInTheDocument());
+    expect(screen.getByText("owner@example.com")).toBeInTheDocument();
+    expect(screen.getByText(/only if you recognize it/)).toBeInTheDocument();
+    expect(screen.queryByText(/this computer/)).not.toBeInTheDocument();
+  });
+
+  it("says a loopback address is a program on this machine", async () => {
+    vi.mocked(fetch).mockImplementationOnce(
+      async () =>
+        new Response(
+          JSON.stringify({
+            clientId: "local-client",
+            clientName: "Local Agent",
+            scopes: ["ledger:read"],
+            redirectHost: "127.0.0.1",
+            redirectIsLoopback: true,
+            accountEmail: "owner@example.com",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    renderConsent("?consent_code=abc");
+    await waitFor(() => expect(screen.getByText("127.0.0.1")).toBeInTheDocument());
+    expect(screen.getByText(/running on your own machine/)).toBeInTheDocument();
+  });
+
+  // A bundle newer than its server — the split deployment mid-rollout — gets
+  // no account email, and must not render "the private ledger of ." for it.
+  it("reads as it did before when the server names no account", async () => {
+    vi.mocked(fetch).mockImplementationOnce(
+      async () =>
+        new Response(
+          JSON.stringify({ clientId: "old", clientName: "Older Server", scopes: ["ledger:read"] }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    renderConsent("?consent_code=abc");
+    await waitFor(() => expect(screen.getByText("Older Server")).toBeInTheDocument());
+    expect(screen.getByText(/your private ledger\./)).toBeInTheDocument();
+    expect(screen.queryByText(/sends you back/)).not.toBeInTheDocument();
   });
 
   it("asks the server about the consent code and nothing else in the link", async () => {

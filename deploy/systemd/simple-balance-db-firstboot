@@ -190,6 +190,36 @@ if [ -f "$tls/server.key" ]; then
 fi
 [ -f "$tls/server.crt" ] && chmod 0644 "$tls/server.crt"
 
+# node-exporter's copy of the same certificate and key, which it serves its
+# metrics over when the `metrics` profile is on. compose.postgres.yml runs it
+# as this uid and says why it is this one and not PostgreSQL's or nobody's;
+# tests/systemd-scripts.test.ts holds the two numbers equal.
+#
+# A copy, because the key above cannot take a second reader without loosening
+# it for PostgreSQL. Owned by the database user it has to be 0600, and an ACL
+# does not get round that: PostgreSQL reads the ACL's mask as group access and
+# refuses the key. Owned by root it could be 0640 to a group, but then the
+# postgres container would need that group too — a change to the one service
+# on this machine nobody should restart for a metric, and to a shape the
+# paragraph above chose on purpose.
+#
+# Made on every run, from db-tls, so the rotation this machine's cloud-init
+# header describes — replace the two files, run this script — replaces these
+# as well. Made whether or not the profile is on, so that turning it on later
+# needs nothing of this script's beyond a run: the line in env.base, and this
+# script run again to restart with it. Whatever the host's firewall needs is
+# outside this script, and deploy/pulumi/README.md names it for the clouds that
+# need it. With the profile off, this is a second copy of the key that no
+# process reads, readable by root, as the first already is, and by a uid that
+# runs nothing.
+SB_EXPORTER_UID=61000
+exporter_tls="$SB_COMPOSE_DIR/node-exporter-tls"
+if [ -f "$tls/server.key" ] && [ -f "$tls/server.crt" ]; then
+	install -d -o "$SB_EXPORTER_UID" -g "$SB_EXPORTER_UID" -m 0700 "$exporter_tls"
+	install -o root -g root -m 0644 "$tls/server.crt" "$exporter_tls/server.crt"
+	install -o "$SB_EXPORTER_UID" -g "$SB_EXPORTER_UID" -m 0600 "$tls/server.key" "$exporter_tls/server.key"
+fi
+
 # Executable, so the entrypoint *runs* it. An initdb script that is not
 # executable is `source`d into the entrypoint's own shell instead, where this
 # one's `set -eu` would apply to the rest of the entrypoint — and the failure

@@ -335,6 +335,18 @@ integration("keeping dynamic client registration from growing forever", () => {
           updatedAt: old,
         },
         {
+          // Approved once and since revoked: its consent and tokens are gone,
+          // which is exactly what an abandoned registration looks like too.
+          id: "revoked-app",
+          name: "Revoked",
+          clientId: "revoked-client",
+          redirectUrls: "http://127.0.0.1:7777/cb",
+          type: "web",
+          createdAt: old,
+          updatedAt: old,
+          firstAuthorizedAt: old,
+        },
+        {
           id: "fresh-app",
           name: "Fresh",
           clientId: "fresh-client",
@@ -356,6 +368,9 @@ integration("keeping dynamic client registration from growing forever", () => {
     expect(remaining).not.toContain("abandoned-client");
     // Approved by somebody, so not this sweep's business.
     expect(remaining).toContain("approved-client");
+    // Used and disconnected, not abandoned: ChatGPT reconnects with the same
+    // client, and deleting it made that sign-in fail with `invalid_client`.
+    expect(remaining).toContain("revoked-client");
     // Too new to judge: an authorization may still be in flight.
     expect(remaining).toContain("fresh-client");
   });

@@ -582,8 +582,18 @@ async function cashFlowCells(
  * Closing postings stay in. They are what an archived account's register ends
  * on, and leaving them out would show it still holding money it has already
  * posted out to equity.
+ *
+ * `maxEntries` is the transport's: the route lists up to `MAX_REGISTER_ENTRIES`
+ * and the MCP tool `MCP_REGISTER_MAX_ENTRIES`, because a tool reply lands in a
+ * model's context whole. Over it the range is refused rather than cut, since a
+ * register missing its tail closes on the wrong balance.
  */
-export async function getAccountRegister(actor: Actor, id: string, input: unknown) {
+export async function getAccountRegister(
+  actor: Actor,
+  id: string,
+  input: unknown,
+  maxEntries: number = MAX_REGISTER_ENTRIES,
+) {
   const range = dateRangeSchema.parse(input);
   if (range.start && range.end && range.start > range.end) {
     throw validationError("Start date must be on or before end date");
@@ -630,10 +640,10 @@ export async function getAccountRegister(actor: Actor, id: string, input: unknow
       and (${!hasStart} or p.date >= ${start}::date)
   `);
   const total = Number(counted.rows[0]?.entries ?? 0);
-  if (total > MAX_REGISTER_ENTRIES) {
+  if (total > maxEntries) {
     throw validationError(
-      `That range holds ${total} postings, and ${MAX_REGISTER_ENTRIES} is the most a register will list. Ask for a shorter range.`,
-      { limit: MAX_REGISTER_ENTRIES, postingCount: total },
+      `That range holds ${total} postings, and ${maxEntries} is the most a register will list. Ask for a shorter range.`,
+      { limit: maxEntries, postingCount: total },
     );
   }
 

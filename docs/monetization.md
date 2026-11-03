@@ -5,33 +5,47 @@ of these variables sells nothing, limits nobody, shows no advertising, and opens
 no connection to Stripe or to Google — which is what every installation upgrading
 from an earlier release keeps doing without being asked anything.
 
-Two things can be switched on independently: **billing**, which sells a plan and
-holds a free account to three financial accounts, and **ads**, which shows
-AdSense inventory to accounts that are not paying.
+Three things can be switched on independently: **billing**, which sells a plan
+and holds a free account to three financial accounts; **AdSense**, which shows
+Google's inventory to accounts that are not paying; and the **house ad**, which
+shows the same accounts this product's own advertisement for the paid plan
+instead, and loads nothing from anybody. Either kind of ad is shown only where
+billing is selling a plan.
 
 ## What is on, and when
 
-| `SB_BILLING_ENABLED` | Stripe settings | AdSense settings | Stripe reachable | Plan sold, limit enforced | Ads shown |
-| -------------------- | --------------- | ---------------- | ---------------- | ------------------------- | --------- |
-| unset or `false`     | unset           | unset            | no               | no                        | no        |
-| unset or `false`     | set             | unset            | **yes**          | no                        | no        |
-| `true`               | set             | unset            | **yes**          | **yes**                   | no        |
-| unset or `false`     | unset           | set              | no               | no                        | no        |
-| unset or `false`     | set             | set              | **yes**          | no                        | no        |
-| `true`               | set             | set              | **yes**          | **yes**                   | **yes**   |
-| `true`               | unset           | —                | refuses to start |                           |           |
-| —                    | half set        | —                | refuses to start |                           |           |
-| —                    | —               | half set         | refuses to start |                           |           |
+| `SB_BILLING_ENABLED` | Stripe settings | AdSense settings | `SB_HOUSE_AD`    | Stripe reachable | Plan sold, limit enforced | Ad a free account sees |
+| -------------------- | --------------- | ---------------- | ---------------- | ---------------- | ------------------------- | ---------------------- |
+| unset or `false`     | unset           | unset            | unset or `false` | no               | no                        | none                   |
+| unset or `false`     | set             | unset            | unset or `false` | **yes**          | no                        | none                   |
+| `true`               | set             | unset            | unset or `false` | **yes**          | **yes**                   | none                   |
+| unset or `false`     | unset           | set              | unset or `false` | no               | no                        | none                   |
+| unset or `false`     | set             | set              | unset or `false` | **yes**          | no                        | none                   |
+| `true`               | set             | set              | unset or `false` | **yes**          | **yes**                   | **AdSense**            |
+| unset or `false`     | —               | —                | `true`           | if Stripe is set | no                        | none                   |
+| `true`               | set             | unset            | `true`           | **yes**          | **yes**                   | **the house ad**       |
+| `true`               | set             | set              | `true`           | **yes**          | **yes**                   | **the house ad**       |
+| `true`               | unset           | —                | —                | refuses to start |                           |                        |
+| —                    | half set        | —                | —                | refuses to start |                           |                        |
+| —                    | —               | half set         | —                | refuses to start |                           |                        |
 
-`tests/config.test.ts` holds the first four columns. The last is about a person
-rather than a deployment, so it is held by
-`tests/integration/ad-placement.integration.test.ts` and its wound-down sibling,
-which call `getAdPlacement` itself against a real database — the earlier
+The last two house-ad rows hold while the prices fit. Where the configured
+Stripe prices do not fit the plans, the plan tab sells nothing, the house ad
+stands down for everybody, and those two rows read none and **AdSense**. It
+offers a plan, so it stands down exactly where that plan cannot be bought.
+
+`tests/config.test.ts` holds the first six columns, house ad included, and that
+`SB_HOUSE_AD` alone turns on none of what the AdSense settings do. The last is
+about a person rather than a deployment, so it is held against a real database:
+by `tests/integration/ad-placement.integration.test.ts` and its wound-down
+sibling for AdSense, and by `tests/integration/house-ad.integration.test.ts`,
+its wound-down sibling and `house-ad-precedence.integration.test.ts` for the
+house ad, the prices and the two together. The earlier
 `tests/ad-placement.test.ts` pins only the _shape_ of the rule, and a gate
 inverted in the real function passed it.
 
-**The last column is about a person, not a deployment**, which is why two rows
-that configure AdSense still show nothing. An ad is shown only where a _limited_
+**The last column is about a person, not a deployment**, which is why rows that
+configure an ad can still show nothing. An ad is shown only where a _limited_
 plan is in force — a free account on a deployment that is selling one. Where
 nothing is for sale, nobody is on a limited plan: not on a deployment that never
 sold anything, and not on one that has stopped while its subscribers go on being
@@ -203,7 +217,124 @@ through the schedule phases in `src/server/stripe.ts`, and an address to
 calculate it from. Whether a deployment has to is its operator's decision, and
 it has not been made here.
 
-## What turning ads on costs
+## The house ad, the first-party alternative
+
+`SB_HOUSE_AD=true` shows a free account an advertisement for Premium rather
+than for anybody else. It says one thing — as many accounts as you need, and no
+ads — under the plan's name, beside a small drawing of the free plan's three
+accounts with two more arriving and an ad struck out, and its one button,
+**Upgrade to Premium**, opens the plan tab. It names no price, because the price
+is Stripe's and the plan tab is where Stripe's figures are read; and the plan's
+name comes from the same labels the tab uses, so the two cannot call the plan
+different things.
+
+**Who sees it is decided the way AdSense is, plus one condition.** The server
+decides and the page is told yes or no on the session, so the browser holds no
+rule to get backwards. It is shown only where a _limited_ plan is in force and
+the person is on it: never to a subscriber — trialing, paid up, or in the grace
+after a failed renewal — or to somebody an operator granted Premium by hand, and
+never on a deployment that sells nothing, including one wound down while its
+subscribers are still being charged. The condition it adds is that the plan it
+offers can be bought. Where the configured Stripe prices do not fit the plans,
+the plan tab tells everybody the deployment is not selling, and an ad leading
+there would promise what the next page withdraws, so it stands down for
+everybody until the prices are put right.
+
+**With AdSense configured as well, the house ad wins for the person it is shown
+to.** A free account is shown the house ad and no AdSense unit beside it,
+banner and footer alike, so the two never share a page. Only for them: where the
+house ad stands down over the prices, a free account is shown the AdSense units
+the operator configured, which is all those settings ever meant on their own.
+Both at once is accepted rather than refused, because an operator moving from
+one to the other passes through having both — but the AdSense settings go on
+widening the policy and serving `/ads.txt` for as long as they are set, whether
+or not a unit is ever rendered, and a production process says so at every
+start.
+
+**It is a bar pinned to the foot of the window**, across the main column, and
+it stays on screen while the page scrolls: 72 pixels or less on a desktop, and
+about 60 on a phone, where it is the words and the button alone. At the end of a
+long page it comes to rest below the last of the content, where it covers
+nothing, and under a short page it sits on the window's foot rather than halfway
+up it. It cannot be dismissed — it is the ad, and Premium is how it goes — and
+it is never more than one sentence and a button. Where the window is both
+narrow and short, a phone on its side or a screen zoomed to 400%, it is not
+pinned, because there it would stack with the sticky header and leave a strip
+of ledger between the two; it rests below the content as it does at the end of
+a page.
+
+**Only the first-party bar is pinned. An AdSense unit never is.** Following
+somebody down the page is a thing this product does with an ad whose every
+pixel it drew and which loads nothing, and not with a frame of somebody else's
+content.
+
+**Keyboard focus is kept clear of it.** A control tabbed to near the foot of
+the window is scrolled clear of the bar rather than left under it, at whatever
+height the bar is at that width and with whatever text spacing the reader has
+set.
+
+**It moves once.** When it first appears, the two accounts the paid plan adds
+drop in, the ad is struck out and dimmed, and the logo pops onto the last
+account: three seconds, once per page load, and not again until the next one
+however the window is resized. Never on a phone, where the drawing is not shown,
+and never for anybody whose system asks for reduced motion.
+
+**What it does not do.** It loads nothing from another site — no script, no
+frame, no image, no request — so turning it on changes none of what AdSense
+changes:
+
+- **No content security policy change.** Every page keeps `default-src 'self'`
+  and the `same-origin` referrer, and the split deployment's frontend is told
+  nothing about it.
+- **No `/ads.txt`.** There is no inventory to authorize, so the route is not
+  registered.
+- **No privacy policy requirement.** The server demands `PRIVACY_POLICY_URL`
+  beside the AdSense ids because Google's terms do; the house ad sets nothing
+  on anybody's device and tells nobody who saw it. Linking a policy is still
+  worth doing for the reason step 8 below gives.
+- **No consent platform.** There is nothing to consent to: no cookie, no
+  identifier, and no third party.
+
+It records no impression and no click, and it sends no page's address anywhere,
+which is why it is shown on the payee view, where no AdSense unit ever is.
+
+**Its other promises are AdSense's.** Never to a paying account, never on the
+plan and billing tab, never on sign-in, and never on paper: the print rule that
+hides an AdSense unit hides it too. And the plan tab counts it as advertising,
+in the sentence §Where the plan is managed describes.
+
+### Switching from AdSense to the house ad
+
+1. **Set `SB_HOUSE_AD=true` and restart.** A `single` machine built before
+   0.2.2 takes that release's `compose.yml` first, because its own names every
+   setting the container gets and does not name this one (`docs/upgrades.md`
+   §What you do by hand, to show the house ad). The plan has to be on sale
+   already — `SB_BILLING_ENABLED=true` with Stripe configured — or the process
+   warns at every start that nobody is shown it. From that restart a free
+   account sees the house ad and no AdSense unit, and the process warns at every
+   start that the AdSense settings are still widening the policy and serving
+   `/ads.txt`.
+2. **Unset the four `ADSENSE_*` settings together and restart.** That is what
+   puts every page back on `default-src 'self'` and the `same-origin` referrer
+   and stops `/ads.txt` being served, and the warning goes with them.
+   `ADSENSE_FOOTER_SLOT_ID` left behind on its own refuses to start, as it
+   always has. In the split deployment the frontend's `SB_ADS_CONFIGURED`
+   follows `ADSENSE_CLIENT_ID` in the compose recipe and the chart; set it back
+   to `false` yourself only if you set `frontend.adsConfigured`.
+3. **Keep `PRIVACY_POLICY_URL` if you have one.** Nothing requires it any more,
+   and it is still linked from sign-in and every page; but what it says about
+   AdSense describes something this deployment no longer does, and is yours to
+   update.
+4. **At Google, nothing has to change.** The AdSense account, the site, the
+   consent message and a root-domain `ads.txt` are yours to keep or close; the
+   last one stops mattering to this deployment once its own `/ads.txt` is gone.
+
+On the machines and clusters the Pulumi programs build, steps 1 and 2 are the
+stack's `simple-balance:env` and `pulumi up`; under the Helm chart they are
+`config.extraEnv`; a `single` profile installed by hand, and the compose
+recipes, keep them in `.env`. `docs/upgrades.md` has the commands for each.
+
+## What turning AdSense on costs
 
 AdSense publishes no list of the hosts it loads from, as a matter of policy, so
 there is no allowlist to write. Serving it means widening this app's content
@@ -256,11 +387,17 @@ is zero. If you sell through other partners as well you need more lines than
 this one, and the way to do that is to serve your own `/ads.txt` from whatever
 terminates TLS in front of this deployment; it will take precedence.
 
-`/robots.txt` is served too, and it lets AdSense's crawler (`Mediapartners-Google`)
-in while asking every other crawler to stay out. AdSense matches ads to a page
-by reading it with that crawler, so a robots file that turned it away would get
-less relevant ads rather than none. If whatever terminates TLS serves a robots
-file of its own, keep that allowance in it.
+`/robots.txt` is served too, and it lets every crawler in, while every page and
+file says `X-Robots-Tag: noindex`, so a search engine reads that nothing here
+belongs in its index. AdSense's crawler (`Mediapartners-Google`) has a group of
+its own, the only one it reads: Google ignores `*` for it, so that group is
+where its allowance is said. AdSense matches ads to a page by reading it with
+that crawler, so a robots file that turned it away would get less relevant ads
+rather than none, and `noindex` does not stop it: it is about search results,
+which is not what that crawler reads for. If whatever terminates TLS serves a
+robots file of its own, keep that allowance in it, and turn no other crawler
+away either. One that may not fetch a page never reads its `noindex`, and can
+still list the address as a bare link when somebody links to it.
 
 **If this deployment is on a subdomain** — `balance.example.com` rather than
 `example.com` — crawlers read the **root** domain's `/ads.txt`, not this one.
@@ -389,12 +526,16 @@ something a subscriber cannot see, so a tab describing the plans by account
 count alone tells a paying customer only half of what they are paying for.
 `GET /api/v1/billing` carries `advertises` for this: the deployment's
 configuration rather than the reader's entitlement, so it answers the same
-before and after somebody subscribes. `getAdPlacement` answers the other
-question — show an ad to this person now — and is null for every subscriber,
-which is what makes it the wrong signal to read here. Where `ADSENSE_CLIENT_ID`
-is unset the sentence leaves the ads out rather than promising there are none,
-and a browser bundle served by a container from before the field existed does
-the same.
+before and after somebody subscribes. It is true where AdSense is configured,
+and where the house ad is on and the plan is for sale — the house ad tells a
+free account that upgrading takes it away, so the tab has to say the same, and
+where the prices do not fit it is shown to nobody, so the tab counting it then
+would describe ads on a page with none. `getAdvertising` answers the other
+question — which ad to show this person now — and is empty for every
+subscriber, which is what makes it the wrong signal to read here. Where neither
+kind is on, the sentence leaves the ads out rather than promising there are
+none, and a browser bundle served by a container from before the field existed
+does the same.
 
 **It takes a card or Link, and Link only where the account has it on.**
 **Change payment method** is the one request that names the two: its SetupIntent
@@ -429,7 +570,7 @@ subscribing was.
 **The renewal terms are stated where the consent is asked for.** Beside the
 Annual and Monthly buttons, beside the payment form's confirm button for the
 plan being paid for, beside **Keep my plan**, which turns renewal back on after
-a cancellation, and beside **Stay on the annual plan** (or monthly), which lets
+a cancellation, and beside **Stay on annual plan** (or monthly), which lets
 a scheduled switch go and so decides which price renews, the tab says in a boxed
 paragraph that Premium renews automatically until canceled, what each plan
 charges and how often, in the figures Stripe returns and the buttons show; that
@@ -603,7 +744,8 @@ and cards go on being charged until somebody cancels them, which is a decision
 this software will not make on an operator's behalf.
 
 Removing the AdSense variables stops the ads and restores the original content
-security policy at the next restart.
+security policy at the next restart. Removing `SB_HOUSE_AD` stops the house ad
+at the next restart and changes nothing else, since it changed nothing else.
 
 On the machines and clusters the Pulumi programs build, either change is the
 stack's `simple-balance:env`, then `pulumi up`; a `single` profile installed by

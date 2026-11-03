@@ -189,6 +189,15 @@ describe("a count a person reads", () => {
         ...file.code.matchAll(
           /\$\{\s*([A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*)(?:\s*\?\?\s*0)?\s*\}/g,
         ),
+        // A count worked out where it is shown: a brace holding nothing but a
+        // `.filter(…)` or `.map(…)` ending in `.length`, across lines. The two
+        // shapes above read only member chains, so the import's five
+        // resolution counts — `{ result.….filter((item) => …).length }`, one
+        // per distinct payee and so four digits on a large statement — passed
+        // unread while the alert above them grouped its own.
+        ...file.code.matchAll(
+          /(?<![=\w$])\{\s*([A-Za-z_$][\w$.?]*\.(?:filter|map)\([^{}]*?\)\s*\.(?:length|size))\s*\}/gs,
+        ),
       ];
       // A value pluralizing the noun after it is a count whatever it is called:
       // `${deletion.value} transaction${deletion.value === 1 ? "" : "s"}` was
@@ -221,6 +230,94 @@ describe("a count a person reads", () => {
     expect([...excused].sort(), "the register excuses something the scan no longer finds").toEqual(
       Object.keys(NOT_A_COUNT).sort(),
     );
+  });
+
+  /**
+   * The other way round a count escapes it: formatted, but by hand.
+   *
+   * Five sites called `.toLocaleString()` themselves, so they read the same as
+   * `formatCount` today and would not tomorrow — the day it takes the person's
+   * chosen locale rather than the browser's, those five keep the old grouping
+   * in the same sentences as their neighbors, which is the two-spellings
+   * failure the function was made to end. The scan above reads placeholders,
+   * and `${x.toLocaleString()}` is a call it never looks inside.
+   */
+  it("is grouped in one place", () => {
+    const own: string[] = [];
+    let definitions = 0;
+    for (const file of sourceFiles("src/client")) {
+      file.code.split("\n").forEach((line, index) => {
+        if (/^\s*(?:\/\/|\*)/.test(line) || !/\.toLocaleString\(/.test(line)) return;
+        if (
+          line.startsWith("export const formatCount = ") &&
+          file.path.endsWith("components.tsx")
+        ) {
+          definitions += 1;
+          return;
+        }
+        own.push(`${file.path}:${index + 1}`);
+      });
+    }
+    expect(definitions, "formatCount is still where the scan expects it").toBe(1);
+    expect(own, "a count a person reads goes through formatCount").toEqual([]);
+  });
+
+  /**
+   * "A count written as a literal in a sentence is spelled out below ten."
+   *
+   * The guide says not to grep for the *value* half, because a `${limit}`
+   * holds no number until it is substituted. The literal half is the opposite:
+   * the digit is in the source, so there is something to find. The move
+   * preview's singular said "The balance of 1 account is checked" — a digit
+   * typed into a sentence, beside a plural that rightly formats a value.
+   *
+   * Read across every string, template literal and run of JSX text in the
+   * client, a lone digit from one to nine followed by a word. Two shapes are
+   * not counts in a sentence, and each is named by its exact words.
+   */
+  it("is spelled out below ten where the sentence writes the number itself", () => {
+    const NOT_A_COUNT_IN_A_SENTENCE = new Map([
+      [
+        "1 means every one, and so does leaving it blank.",
+        "The value somebody types into the interval field, quoted as they would type it.",
+      ],
+      ["Part 1 of", "A part's number, a figure beside the figure it is out of."],
+      ["Parts 1 to", "The same, for a run of parts."],
+    ]);
+    const typed: string[] = [];
+    const excused = new Set<string>();
+    for (const file of sourceFiles("src/client")) {
+      const pieces = [
+        ...[...file.code.matchAll(/"([^"\\\n]{3,})"/g)].map((match) => ({
+          match,
+          text: match[1]!,
+        })),
+        ...[...file.code.matchAll(/`([^`]{3,})`/g)].map((match) => ({
+          match,
+          text: match[1]!.replaceAll(/\$\{[^}]*\}/g, " "),
+        })),
+        ...[...file.code.matchAll(/>([^<>{}]*[A-Za-z][^<>{}]*)</g)].map((match) => ({
+          match,
+          text: match[1]!,
+        })),
+      ];
+      for (const { match, text } of pieces) {
+        if (!/(?<![\w.,$:/#-])[1-9] [a-z]+/.test(text)) continue;
+        const known = [...NOT_A_COUNT_IN_A_SENTENCE.keys()].find((words) =>
+          text.trim().startsWith(words),
+        );
+        if (known) {
+          excused.add(known);
+          continue;
+        }
+        const line = file.code.slice(0, match.index).split("\n").length;
+        typed.push(`${file.path}:${line} "${text.trim().slice(0, 70)}"`);
+      }
+    }
+    expect(typed, "spell it out: one account, two rows").toEqual([]);
+    // Each exception still stands for words the client says, so the walk is
+    // reading what it claims to and the register has not outlived its line.
+    expect([...excused].sort()).toEqual([...NOT_A_COUNT_IN_A_SENTENCE.keys()].sort());
   });
 });
 

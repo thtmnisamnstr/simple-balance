@@ -155,7 +155,7 @@ export default function DuplicateReviewPage() {
       body="Nothing in the queue looks like a copy of anything else. Rows still waiting on you are on the queue itself."
       action={
         <Link className="button button-primary" to="/staged">
-          Back to the queue
+          Back to queue
         </Link>
       }
     />
@@ -268,7 +268,7 @@ export default function DuplicateReviewPage() {
               </Button>
             )}
             <Link className="button button-ghost" to="/staged">
-              Back to the queue
+              Back to queue
             </Link>
           </>
         }
@@ -303,7 +303,7 @@ export default function DuplicateReviewPage() {
                 </Link>
               ) : (
                 <Link className="button button-primary" to="/staged">
-                  Back to the queue
+                  Back to queue
                 </Link>
               )
             }

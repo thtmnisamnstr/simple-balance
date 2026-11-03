@@ -1,0 +1,176 @@
+# The metrics collector for compose.distributed.yml, which runs it as
+# `collector` when the `metrics` profile is on.
+#
+# The same collector as the `single` profile's, deploy/compose/single/
+# collector.yaml, pointed at the split shape: the API and the scheduler as the
+# two processes they are here, node-exporter for the machine, and itself. That
+# file's header has the rules of the collector's own `${env:...}` expansion,
+# and they hold here too: no `}` inside a default, and `$$` for a literal `$`.
+#
+# This one sits on the recipe's own Compose network rather than the host's,
+# because nothing in this recipe publishes the API or the scheduler — the
+# frontend does not proxy /metrics either — so the network is the only way to
+# them. That is also why node-exporter here reports no network traffic:
+# compose.distributed.yml says why.
+receivers:
+  # Part of the exporter selection in the shared block below.
+  nop: {}
+
+  prometheus:
+    config:
+      global:
+        # Under five minutes, always; the `single` file says why.
+        scrape_interval: ${env:SB_METRICS_SCRAPE_INTERVAL:-30s}
+      scrape_configs:
+        # Every API container rather than whichever one the name answers with.
+        # A static `server:3000` is one address that Docker's DNS hands to a
+        # different replica on each lookup, so a scaled service would report
+        # one process's counters under another's name every scrape and every
+        # rate built on them would be nonsense. A DNS lookup instead turns each
+        # replica into a target of its own, which is what the scheduler's two
+        # below need today.
+        - job_name: simple-balance-api
+          authorization:
+            credentials: "${env:METRICS_TOKEN:-}"
+          dns_sd_configs:
+            - names: [server]
+              type: A
+              port: 3000
+              refresh_interval: 30s
+
+        # The scheduler, both replicas. Health checks and /metrics are all this
+        # process serves, and the ticks, proposals, reminders and mail are only
+        # counted here: scraping the API alone watches the process that does
+        # none of the scheduled work.
+        - job_name: simple-balance-scheduler
+          authorization:
+            credentials: "${env:METRICS_TOKEN:-}"
+          dns_sd_configs:
+            - names: [scheduler]
+              type: A
+              port: 3000
+              refresh_interval: 30s
+
+        - job_name: node
+          static_configs:
+            - targets: ["node-exporter:9100"]
+
+        # Itself, without its target_info, which would otherwise rename this
+        # job "otelcol" under a new random instance at every restart; the
+        # `single` file has the measurement.
+        - job_name: collector
+          static_configs:
+            - targets: ["127.0.0.1:8888"]
+          metric_relabel_configs:
+            - source_labels: [__name__]
+              regex: target_info
+              action: drop
+
+# Inside this container's own network namespace, so nothing outside it can
+# reach the listener. The image has no shell to run a Compose health check
+# with; the chart's probes are what this is really for.
+extensions:
+  health_check:
+    endpoint: 127.0.0.1:13133
+
+# ---- the export pipeline, shared -------------------------------------------
+# Everything from this line to its closing one is the same text, comments and
+# all, in deploy/compose/single/collector.yaml,
+# deploy/compose/collector.distributed.yaml and the Helm chart's ConfigMap.
+# tests/collector-config.test.ts compares every file under deploy/ that
+# carries these two lines, so change them all together or none. What comes
+# before this line is a shape's own: what it scrapes, and where its health
+# check listens.
+# ----------------------------------------------------------------------------
+
+processors:
+  # First in the pipeline, so a backlog is refused at the door rather than
+  # held until the container's memory limit kills the process. The numbers
+  # follow the collector's own guidance against the 128 MiB the container is
+  # given: refuse new data above 80 MiB of heap, collect hard at 100, and
+  # GOMEMLIMIT at 80MiB in the environment so the runtime starts collecting
+  # before either.
+  # Measured: 51.7 MiB resident at the median over ten minutes, scraping
+  # about 3,700 series every fifteen seconds.
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 100
+    spike_limit_mib: 20
+
+  # Which deployment a series came from, when one account holds several. The
+  # job and the address already say which process; this says which copy of the
+  # product, and `production` is what an unset SB_METRICS_ENVIRONMENT means.
+  resource:
+    attributes:
+      - key: deployment.environment.name
+        value: "${env:SB_METRICS_ENVIRONMENT:-production}"
+        action: upsert
+
+  # Two thousand points at most per request, which keeps one far under New
+  # Relic's 1 MB ceiling, and ten seconds at most of waiting.
+  batch:
+    send_batch_size: 1000
+    send_batch_max_size: 2000
+    timeout: 10s
+
+exporters:
+  # Both exporters always exist and only one is ever sent anything; the
+  # pipelines below decide which. The endpoint and the headers are the same
+  # settings for either, because an operator chooses one backend and the
+  # protocol is how it is spoken to.
+  #
+  # OTLP over HTTP with protobuf, gzipped by default, which is New Relic's
+  # recommendation for traffic on the public internet. The endpoint is a base
+  # URL, such as https://otlp.nr-data.net, and the exporter adds /v1/metrics
+  # itself. An empty SB_METRICS_EXPORT_HEADERS arrives as no headers at all.
+  otlp_http:
+    endpoint: "${env:SB_METRICS_EXPORT_ENDPOINT}"
+    headers: ${env:SB_METRICS_EXPORT_HEADERS:-[]}
+  # Remote write, for a backend that speaks only that. The endpoint is the
+  # whole write URL. The environment becomes a label on every series, because
+  # remote write has no resource to carry it and a backend would otherwise see
+  # it only on `target_info`.
+  prometheus_remote_write:
+    endpoint: "${env:SB_METRICS_EXPORT_ENDPOINT}"
+    headers: ${env:SB_METRICS_EXPORT_HEADERS:-[]}
+    resource_constant_labels:
+      included: [deployment.environment.name]
+
+# How SB_METRICS_EXPORT_PROTOCOL picks an exporter, when the collector's
+# configuration has no conditionals and a setting's value cannot be an
+# exporter's name — `otlp` is the deprecated name of the gRPC exporter, not
+# this one. So the value names a connector instead: the main pipeline hands its
+# batches to `forward/<protocol>`, and only that connector's pipeline has an
+# exporter it reaches. The last pipeline gives each connector the upstream the
+# collector insists every connector has, fed by `nop`, so the one not chosen is
+# valid and idle. A value that is neither name is a refusal at startup naming
+# `forward/<value>`, and a Pulumi stack is refused at plan time first.
+connectors:
+  forward/otlp: {}
+  forward/prometheus_remote_write: {}
+
+service:
+  extensions: [health_check]
+  telemetry:
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 127.0.0.1
+                port: 8888
+  pipelines:
+    metrics:
+      receivers: [prometheus]
+      processors: [memory_limiter, resource, batch]
+      exporters: ["forward/${env:SB_METRICS_EXPORT_PROTOCOL:-otlp}"]
+    metrics/otlp:
+      receivers: [forward/otlp]
+      exporters: [otlp_http]
+    metrics/prometheus_remote_write:
+      receivers: [forward/prometheus_remote_write]
+      exporters: [prometheus_remote_write]
+    metrics/unchosen:
+      receivers: [nop]
+      exporters: [forward/otlp, forward/prometheus_remote_write]
+# ---- end of the export pipeline -------------------------------------------

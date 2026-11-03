@@ -1,0 +1,66 @@
+{{- if include "simple-balance.collectorEnabled" . }}
+{{/*
+What the collector needs from the Kubernetes API to find the pods it scrapes,
+and nothing more: get, list and watch on pods, in this namespace alone.
+
+A Role rather than a ClusterRole, because every target is in the release's own
+namespace and the discovery is told so. Reading a pod reads no credential: every
+secret this chart hands a pod arrives by reference — `envFrom`, `secretKeyRef`,
+a projected volume — so a pod's spec names Secrets and carries none of their
+values, and `secrets` is not a resource this Role names.
+*/}}
+{{- if .Values.collector.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "simple-balance.collectorServiceAccountName" . }}
+  labels:
+    {{- include "simple-balance.componentLabels" (dict "root" . "component" "collector") | nindent 4 }}
+  {{- if or .Values.collector.serviceAccount.annotations .Values.commonAnnotations }}
+  annotations:
+    {{- with .Values.commonAnnotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- with .Values.collector.serviceAccount.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- end }}
+# On, unlike the release's own account: the token is how the collector reads
+# the pod list, and the Role below is all it is good for.
+automountServiceAccountToken: true
+---
+{{- end }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "simple-balance.collectorName" . }}
+  labels:
+    {{- include "simple-balance.componentLabels" (dict "root" . "component" "collector") | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "simple-balance.collectorName" . }}
+  labels:
+    {{- include "simple-balance.componentLabels" (dict "root" . "component" "collector") | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "simple-balance.collectorName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "simple-balance.collectorServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

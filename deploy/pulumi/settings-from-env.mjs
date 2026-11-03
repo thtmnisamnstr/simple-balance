@@ -16,8 +16,8 @@
  * and a perfectly good MAIL_FROM. One pair of matching quotes around a value
  * is removed, which is how Compose reads the same file.
  *
- * What it copies is what the application reads and a stack may set. It leaves
- * out, and says so:
+ * What it copies is what the application and its metrics collector read and a
+ * stack may set. It leaves out, and says so:
  *
  * - names the application does not read at all, such as OCI_TENANCY_OCID — a
  *   deployment's own credentials belong to the shell running Pulumi, not to the
@@ -41,7 +41,8 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 /**
- * The two lists from `./common/app-settings.ts`, read out of its source.
+ * The four lists from `./common/app-settings.ts`, read out of its source: the
+ * application's settings and secrets, and the metrics collector's.
  *
  * Read rather than repeated, so there is one list; and read as text because
  * Node 20 cannot import TypeScript. `tests/app-settings.test.ts` holds what
@@ -56,7 +57,12 @@ export function settingsLists(
       throw new Error(`common/app-settings.ts no longer declares ${name} as this script reads it`);
     return [...match[1].matchAll(/"([A-Z][A-Z0-9_]*)"/g)].map((m) => m[1]);
   };
-  return { server: list("SERVER_SETTINGS"), secret: list("SECRET_SETTINGS") };
+  return {
+    server: list("SERVER_SETTINGS"),
+    secret: list("SECRET_SETTINGS"),
+    collector: list("COLLECTOR_SETTINGS"),
+    collectorSecret: list("COLLECTOR_SECRET_SETTINGS"),
+  };
 }
 
 /** Names left out on purpose, with the reason printed beside each. */
@@ -73,6 +79,8 @@ export const LEFT_OUT = {
     "where the database is, not how the app behaves; set it by hand if you mean it",
   AUTH_SECRET: "generated on the machine, or simple-balance:authSecret on a cluster",
   SETUP_TOKEN: "generated at first start, or simple-balance:setupToken on a cluster",
+  SB_METRICS_DATABASE_TARGET:
+    "decided by the program from the database node it built, and a cluster has none",
 };
 
 /** `NAME=value` lines, literally, with one pair of matching quotes removed. */
@@ -94,13 +102,13 @@ export function parseEnvFile(text) {
 
 /** What to set and what to leave, decided from the file alone. */
 export function plan(entries, lists = settingsLists()) {
-  const server = new Set(lists.server);
-  const secret = new Set(lists.secret);
+  const known = new Set([...lists.server, ...lists.collector]);
+  const secret = new Set([...lists.secret, ...lists.collectorSecret]);
   const set = [];
   const skipped = [];
   for (const [name, value] of entries) {
-    if (!server.has(name)) {
-      skipped.push([name, "not a setting the application reads"]);
+    if (!known.has(name)) {
+      skipped.push([name, "not a setting the application or its metrics collector reads"]);
     } else if (name in LEFT_OUT) {
       skipped.push([name, LEFT_OUT[name]]);
     } else if (value === "") {

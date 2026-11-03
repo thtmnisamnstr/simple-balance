@@ -20,6 +20,7 @@ import {
 import { accountFreeze, assertAccountsWritable } from "./accounts.js";
 import { conflict, duplicate, notFound, staleVersion, validationError } from "./errors.js";
 import {
+  auditedRow,
   getIdempotent,
   lockCategoryNamespace,
   lockIdempotencyKey,
@@ -28,6 +29,7 @@ import {
   setIdempotent,
   writeAudit,
   writeAuditMany,
+  type CreateAuditOptions,
 } from "./helpers.js";
 import { cleanHumanName, normalizeHumanName } from "../../shared/names.js";
 import { resolveCategoryGroup } from "./category-groups.js";
@@ -515,7 +517,22 @@ export async function listDuplicateCategories(actor: Actor) {
     }));
 }
 
-export async function createCategory(actor: Actor, input: unknown, transaction?: DbTransaction) {
+/**
+ * What only a Simple Balance file's move may ask of a create, as an argument
+ * rather than a field: a category archived where the file came from arrives
+ * archived at the instant it was archived there, with the transactions filed
+ * under it written beside it. `categoryCreateSchema` is what a form and a tool
+ * send, and neither can create a category already archived, let alone backdate
+ * when it was.
+ */
+export type CategoryCreateOptions = CreateAuditOptions & { readonly archivedAt?: Date };
+
+export async function createCategory(
+  actor: Actor,
+  input: unknown,
+  options: CategoryCreateOptions = {},
+  transaction?: DbTransaction,
+) {
   const parsed = categoryCreateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
     await lockCategoryNamespace(tx, actor);
@@ -526,12 +543,17 @@ export async function createCategory(actor: Actor, input: unknown, transaction?:
     const groupId = await resolveCategoryGroup(tx, actor, parsed.groupId);
     const [created] = await tx
       .insert(categories)
-      .values({ userId: actor.userId, ...parsed, groupId })
+      .values({
+        userId: actor.userId,
+        ...parsed,
+        groupId,
+        ...(options?.archivedAt === undefined ? {} : { archivedAt: options.archivedAt }),
+      })
       .returning();
     await writeAudit(tx, actor, {
       entityType: "category",
       entityId: created.id,
-      operation: "create",
+      operation: options?.auditOperation ?? "create",
       after: serializeRow(created),
     });
     return serializeRow(created);
@@ -1503,15 +1525,15 @@ export async function mergeCategories(
         entityType: "transaction",
         entityId: updated.id,
         operation: "category_merge",
-        before: serializeRow(transactionBeforeById.get(updated.id)),
-        after: serializeRow(updated),
+        before: auditedRow(transactionBeforeById.get(updated.id)),
+        after: auditedRow(updated),
       })),
       ...updatedStages.map((updated) => ({
         entityType: "staged_transaction",
         entityId: updated.id,
         operation: "category_merge",
-        before: serializeRow(stagedBeforeById.get(updated.id)),
-        after: serializeRow(updated),
+        before: auditedRow(stagedBeforeById.get(updated.id)),
+        after: auditedRow(updated),
       })),
       ...updatedRecurrences.map((updated) => ({
         entityType: "recurrence",

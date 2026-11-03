@@ -1,6 +1,8 @@
 import * as pulumi from "@pulumi/pulumi";
 
-import { readAppSettings, settingsEnvFile } from "../common/app-settings";
+import { metricsExport, readAppSettings, settingsEnvFile } from "../common/app-settings";
+import type { AppSettings, MetricsExport } from "../common/app-settings";
+import { databaseMetricsTarget } from "./cloud-init";
 import type { DatabaseSettings, MachineSettings, Size } from "./cloud-init";
 
 /**
@@ -172,12 +174,19 @@ export interface SingleSettings extends MachineSettings {
   database?: DatabaseSettings;
   /**
    * The stack's own settings — `simple-balance:env` and `simple-balance:secrets`
-   * — as the lines the machine's Compose `.env` takes, and a Pulumi secret,
-   * because it holds the secrets. Each program writes it into its cloud's
-   * secret store and the machine fetches it from there; it never travels in
-   * user data.
+   * — checked, and not yet rendered. `appSettingsFile` below renders them,
+   * because the one line the program adds to them is a name only the program
+   * that built the database node knows.
    */
-  appSettingsFile: pulumi.Output<string>;
+  app: AppSettings;
+  /**
+   * Whether the stack exports metrics, and how; undefined when it does not.
+   * An export endpoint in `simple-balance:env` is the whole of turning it on,
+   * and each program reads this to decide three things: whether the database
+   * node's node-exporter port is opened, whether that node is made with the
+   * `metrics` profile on, and whether `appSettingsFile` names it as a target.
+   */
+  metrics?: MetricsExport;
 }
 
 /**
@@ -198,6 +207,21 @@ const SINGLE_OWNED = {
   PORT: "Caddy proxies to the port the compose file names, and a different one is a site that answers nothing",
   TRUST_PROXY:
     "compose.caddy.yml sets it true, because Caddy is in front and writes X-Forwarded-For itself",
+} as const;
+
+/**
+ * One more, and only while the stack builds a database node: that node's
+ * node-exporter is this program's to name, at the name its certificate carries,
+ * and `appSettingsFile` names it whenever the stack exports metrics.
+ *
+ * Not owned when `simple-balance:databaseNode` is false, because then there is
+ * no machine of the program's to name and the database is the operator's own.
+ * One that runs a node-exporter of its own over TLS, signed by the CA installed
+ * for DATABASE_URL, is theirs to point the collector at, the way DATABASE_URL is.
+ */
+const DATABASE_NODE_OWNED = {
+  SB_METRICS_DATABASE_TARGET:
+    "this program names the database node it built, which is the only one its firewall opens 9100 on",
 } as const;
 
 /**
@@ -345,7 +369,7 @@ export function readSingleSettings(): SingleSettings {
   const app = readAppSettings(
     cfg.getObject<unknown>("env"),
     rawSecrets === undefined ? undefined : JSON.parse(rawSecrets),
-    SINGLE_OWNED,
+    databaseNode ? { ...SINGLE_OWNED, ...DATABASE_NODE_OWNED } : SINGLE_OWNED,
   );
 
   return {
@@ -370,6 +394,36 @@ export function readSingleSettings(): SingleSettings {
           password: databasePassword,
         }
       : undefined,
-    appSettingsFile: pulumi.secret(settingsEnvFile(app)),
+    app,
+    metrics: metricsExport(app),
   };
+}
+
+/**
+ * The stack's own settings as the lines the machine's Compose `.env` takes, and
+ * a Pulumi secret, because it holds the secrets. Each program writes it into
+ * its cloud's secret store and the machine fetches it from there; it never
+ * travels in user data.
+ *
+ * With one line the stack cannot write, when it exports metrics and the
+ * program built a database node: SB_METRICS_DATABASE_TARGET, that node's
+ * node-exporter at the name its certificate carries. It arrives on a running
+ * machine the way every other setting does, which is the point of putting it
+ * here rather than in user data: a stack that turns export on after its
+ * machines exist gets the target with the endpoint, in one restart.
+ *
+ * Only then, and never ahead of time. Written whenever there is a database
+ * node, it would change this file on every such stack's next `pulumi up`, and a
+ * changed file is a restart of a deployment that asked for nothing.
+ */
+export function appSettingsFile(
+  settings: SingleSettings,
+  databaseHost: string | undefined,
+): pulumi.Output<string> {
+  const { app, metrics } = settings;
+  const plain =
+    metrics && databaseHost
+      ? { ...app.plain, SB_METRICS_DATABASE_TARGET: databaseMetricsTarget(databaseHost) }
+      : app.plain;
+  return pulumi.secret(settingsEnvFile({ plain, secret: app.secret }));
 }

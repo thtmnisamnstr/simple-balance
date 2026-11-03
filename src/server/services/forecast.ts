@@ -490,7 +490,7 @@ export async function getForecast(actor: Actor, input: unknown): Promise<Forecas
             id: row.id,
             name: row.name,
             reason:
-              "It moves money between two currencies without saying what arrives, so no projection can say what the other side gains.",
+              "It records a transfer between two currencies without saying what arrives, so no projection can say what the other side gains.",
           });
           continue;
         }

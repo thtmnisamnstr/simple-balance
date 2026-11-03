@@ -432,9 +432,9 @@ describe("the reports page", () => {
       ],
     });
     renderReports("/reports/categories");
-    // A leading match: the categories rowheader carries its exclude menu,
-    // whose label joins the cell's accessible name.
-    await screen.findByRole("rowheader", { name: /^Salary/ });
+    // An exact name: the exclude menu is a cell of its own after Total, so
+    // nothing joins the row header's name any more.
+    await screen.findByRole("rowheader", { name: "Salary" });
     expect(screen.getByRole("rowheader", { name: "Total filed" })).toBeInTheDocument();
     expect(screen.queryByRole("rowheader", { name: "Net" })).toBeNull();
   });
@@ -485,6 +485,42 @@ describe("the reports page", () => {
     renderReports();
     expect(await screen.findByText("Bucket is not valid")).toBeInTheDocument();
     expect(screen.queryByText("Nothing to report yet")).toBeNull();
+  });
+
+  /**
+   * The empty report's button navigates, so it is named for where it lands
+   * (`web.md` 16). It said "Add transaction" and landed on a register whose
+   * Add button was disabled with "Create an account first." for a ledger
+   * with no account — so with none, it goes to Accounts instead.
+   */
+  it("sends an empty report to the page that can fill it", async () => {
+    const empty: Report = { ...report, currencies: [] };
+    const answer = (accounts: unknown[]) =>
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const url = new URL(String(input), window.location.origin);
+          if (url.pathname.startsWith("/api/v1/reports/")) return Response.json(empty);
+          if (url.pathname === "/api/v1/accounts") return Response.json(accounts);
+          return Response.json([]);
+        }),
+      );
+
+    answer([]);
+    renderReports();
+    expect(await screen.findByRole("link", { name: "Go to Accounts" })).toHaveAttribute(
+      "href",
+      "/accounts",
+    );
+    expect(screen.queryByRole("link", { name: /Add transaction/ })).toBeNull();
+    cleanup();
+
+    answer([{ id: "a", name: "Checking" }]);
+    renderReports();
+    expect(await screen.findByRole("link", { name: "Go to Transactions" })).toHaveAttribute(
+      "href",
+      "/transactions",
+    );
   });
 });
 
@@ -539,6 +575,17 @@ describe("excluding categories from the categories report", () => {
     const footer = screen.getByRole("rowheader", { name: "Total filed" }).closest("tr")!;
     expect(footer).toHaveTextContent("$100.00");
     expect(footer).not.toHaveTextContent("$1,000.00");
+    // The bold Total column has its sum in the footer too, of the rows on
+    // screen: it was an empty cell, which left the period's sum looking filed
+    // under the wrong column.
+    const cells = within(footer).getAllByRole("cell");
+    const totalColumn = cells.at(-2)!;
+    expect(totalColumn).toHaveTextContent(/^\$300\.00$/);
+    // And the menu is the row's last cell, as on every other table (9.8).
+    const food = screen.getByRole("rowheader", { name: "Food" }).closest("tr")!;
+    expect(within(food).getAllByRole("cell").at(-1)).toContainElement(
+      within(food).getByRole("button", { name: "Actions for Food" }),
+    );
 
     // Named where it can be undone, and undone.
     fireEvent.click(screen.getByRole("button", { name: "Put Rent back" }));

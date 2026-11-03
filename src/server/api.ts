@@ -5,10 +5,9 @@ import {
   oAuthProtectedResourceMetadata,
   withMcpAuth,
 } from "better-auth/plugins";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { Hono, type Context, type Handler } from "hono";
 import { getCookie } from "hono/cookie";
-import { secureHeaders } from "hono/secure-headers";
 import type { PoolClient } from "pg";
 import { z } from "zod";
 import type { Actor } from "../shared/domain.js";
@@ -21,6 +20,7 @@ import {
   commitStageSchema,
   dateRangeSchema,
   directTransactionCreateSchema,
+  localPasswordSchema,
   payeeMergeSchema,
   queryBooleanSchema,
   reportNameSchema,
@@ -50,19 +50,33 @@ import {
   CSP_REPORT_PATH,
   isStripeSurfacePath,
   rawPathOf,
+  responseHeaders,
   securityHeaderOptions,
   withCountableClientAddress,
   withholdSessionTokens,
 } from "./http-security.js";
 import { handleMcpRequest } from "./mcp.js";
 import {
+  AUTH_ROUTES,
+  authRequests,
   billingWebhookDeliveries,
+  CSP_DIRECTIVES,
+  cspViolations,
   httpDuration,
   httpRequests,
+  httpRequestsAborted,
+  httpRequestsInFlight,
+  internalErrors,
+  rateLimited,
   setMetricsComponent,
   startDefaultMetrics,
+  type AuthOutcome,
+  type AuthRoute,
+  type CspDirective,
+  type InternalErrorSurface,
 } from "./metrics.js";
 import { serveMetrics } from "./metrics-route.js";
+import { answerReadiness } from "./readiness.js";
 import { runAsBootstrapClaim } from "./registration-context.js";
 import { APP_VERSION } from "../shared/version.js";
 import { acceptsFrames, streamProgress } from "./stream.js";
@@ -150,11 +164,26 @@ import { deleteOwnAccount, summarizeOwnData } from "./services/account-deletion.
 import {
   listConnectedApps,
   pruneAbandonedClients,
+  markClientAuthorized,
+  clientIdForAccessToken,
+  retireRefreshToken,
   revokeAllConnectedApps,
   revokeConnectedApp,
 } from "./services/connected-apps.js";
 import { CSV_MEDIA_TYPE } from "../shared/csv.js";
-import { todayIn } from "../shared/recurrence-dates.js";
+import { CSV_EXPORT_MAX_ROWS, LEDGER_FILE_CONTENT_MAX_BYTES } from "./config-limits.js";
+import { LEDGER_FILE_MEDIA_TYPE, parseLedgerFileQuery } from "../shared/ledger-file.js";
+import {
+  ledgerFileAddInputSchema,
+  ledgerFilePreviewInputSchema,
+} from "../shared/ledger-file-import.js";
+import { ledgerFileMoveInputSchema } from "../shared/ledger-file-move.js";
+import {
+  addLedgerFile,
+  exportLedgerFile,
+  moveLedgerFile,
+  previewLedgerFile,
+} from "./services/ledger-file.js";
 import { getPreferences, setPreferences } from "./services/preferences.js";
 import {
   applyCustomerDeletion,
@@ -163,7 +192,7 @@ import {
   confirmPaymentSetup,
   createPaymentSetup,
   isNoteworthyEvent,
-  getAdPlacement,
+  getAdvertising,
   getBillingStatus,
   setSubscription,
   setSubscriptionCancellation,
@@ -217,6 +246,17 @@ type Variables = {
    * sub-millisecond 200.
    */
   streamSettled?: Promise<void>;
+  /**
+   * Set where the browser app is served, once it has answered: the shell, or
+   * a file at the bundle's root beside it.
+   *
+   * Both answer under `/*`, the same as middleware mounted on everything and
+   * the same as a path nothing matched, so the matched pattern alone cannot
+   * say that this request was a page load. Set only after a file went out, so
+   * a request the bundle had nothing for is counted as what it then is: a
+   * path that matched nothing.
+   */
+  servedShell?: true;
 };
 
 type AppEnv = { Variables: Variables };
@@ -237,18 +277,18 @@ const app = new Hono<AppEnv>();
  * deployment shipped a plan tab whose payment form could not load;
  * `tests/security-header-parity.test.ts` now compares both surfaces.
  *
- * `secureHeaders` is built per surface rather than per request: there are two of
- * them and the objects are constants, so building one on every request would be
- * work for nothing.
+ * `responseHeaders` is built per surface rather than per request: there are two
+ * of them and the objects are constants, so building one on every request would
+ * be work for nothing. Both say `X-Robots-Tag: noindex`, whatever the surface.
  */
-const appHeaders = secureHeaders(
+const appHeaders = responseHeaders(
   securityHeaderOptions(getConfig().isProduction, {
     surface: "app",
     reportOnly: getConfig().cspReportOnly,
     ads: adsEnabled(),
   }),
 );
-const stripeHeaders = secureHeaders(
+const stripeHeaders = responseHeaders(
   securityHeaderOptions(getConfig().isProduction, {
     surface: "stripe",
     reportOnly: getConfig().cspReportOnly,
@@ -280,6 +320,7 @@ startDefaultMetrics();
  */
 app.use("*", async (c, next) => {
   const stop = httpDuration.startTimer();
+  httpRequestsInFlight.inc();
   const startedAt = Date.now();
   // Deferred rather than awaited, and that distinction is the whole of it. A
   // streamed route hands its response back before a byte of it is written, and
@@ -287,9 +328,20 @@ app.use("*", async (c, next) => {
   // until the last frame, which is the one thing the stream exists to avoid.
   // So the measurement waits and the response does not.
   const record = () => {
+    // First, and here rather than beside the `inc` in a `finally` of its own:
+    // this is the one place that runs exactly once per request and, for a
+    // stream, only after the last frame. Anything later in this function
+    // throwing would otherwise leave the request in flight forever, and a
+    // gauge that only climbs reads as load nobody is generating.
+    httpRequestsInFlight.dec();
     const labels = { method: c.req.method, route: routeLabel(c) };
     stop(labels);
     httpRequests.inc({ ...labels, status: String(c.res.status) });
+    // Read now, before the adapter writes a byte of an ordinary response, so
+    // what this counts is a caller who left while the handler was still
+    // working — a proxy that gave up, a closed tab — and never one whose
+    // connection dropped after a complete answer was already on its way.
+    if (c.req.raw.signal.aborted) httpRequestsAborted.inc({ route: labels.route });
     // The one line that says a request happened, in the channel that is on by
     // default. `/metrics` answers only where a deployment asked for it, and an
     // aggregate cannot answer "what did that browser just do" anyway.
@@ -300,10 +352,19 @@ app.use("*", async (c, next) => {
     // says a request happened somewhere. Nothing in a query string is written:
     // filters carry payees and search terms, which is somebody's ledger.
     //
+    // Under `/api/auth` the line takes the closed label the metric does. The
+    // path there is the caller's, and the password-reset link carries a live
+    // credential in it — Better Auth sends `/reset-password/<token>`, and the
+    // GET that link makes only checks the token and redirects, so the token
+    // stays good for up to an hour after the line that wrote it. The ids this
+    // argues for live under `/api/v1`, and nothing under `/api/auth` carries
+    // one an operator needs (`code/observability.md` §2.4).
+    //
     // Built whether or not `debug` is on, because `log` takes the finished
     // string: one template literal against a request that has just been through
     // the database, which is not worth a predicate at two call sites.
-    log.debug(`${c.req.method} ${c.req.path} ${c.res.status} in ${Date.now() - startedAt}ms`);
+    const path = c.req.path.startsWith("/api/auth/") ? authRouteLabel(c.req.path) : c.req.path;
+    log.debug(`${c.req.method} ${path} ${c.res.status} in ${Date.now() - startedAt}ms`);
   };
   try {
     await next();
@@ -326,17 +387,89 @@ app.use("*", async (c, next) => {
  * `*` before any route ran — which is where a 413 from the body limit lands.
  * Labeling both "unmatched" put a refused CSV upload in the same series as a
  * typo, so the prefix decides between them, from a fixed list.
+ *
+ * And it is `/*` a third time where the single container serves the browser
+ * app: the shell for every page path, and the icon and theme script beside
+ * it at the bundle's root, `/` among them. Those are the browser app loading
+ * rather than a miss, and on a deployment serving its own pages they were
+ * most of what `unmatched` counted, beside the requests nothing answered at
+ * all. They are `spa_shell` instead, which leaves `unmatched` meaning what it
+ * says: a method no route takes, or a refusal before any route ran. A GET for
+ * a page that does not exist is still `spa_shell`, because the shell answers
+ * it and the browser app, not this process, is what knows its pages. After
+ * the prefixes rather than before them, so a
+ * stale link to a hashed asset that the shell answered is still counted as
+ * the asset request it was, as it always has been. The split deployment never
+ * reaches any of it: nginx serves the browser app there, and this process
+ * never sees a page load at all.
  */
 const KNOWN_PREFIXES = ["api", "mcp", "health", ".well-known", "metrics", "assets"] as const;
 
-function routeLabel(c: Context) {
+function routeLabel(c: Context<AppEnv>) {
   const matched = c.req.routePath;
   if (matched !== "/*") return matched;
   const prefix = c.req.path.split("/")[1] ?? "";
-  return KNOWN_PREFIXES.includes(prefix as (typeof KNOWN_PREFIXES)[number])
-    ? `/${prefix}/*`
-    : "unmatched";
+  if (KNOWN_PREFIXES.includes(prefix as (typeof KNOWN_PREFIXES)[number])) return `/${prefix}/*`;
+  return c.get("servedShell") ? "spa_shell" : "unmatched";
 }
+
+/**
+ * The `AUTH_ROUTES` entry a request path belongs to, or the catch-all's own
+ * pattern when it is none of them.
+ *
+ * Matched segment by segment rather than by prefix, so `/api/auth/callback/:id`
+ * takes any provider name and nothing longer, and a parameter takes exactly
+ * one segment and never an empty one. What arrives is the caller's path and
+ * may be anything at all — the reset link puts a token in it — and what leaves
+ * is always one of a fixed list, so neither a token nor a probe for paths that
+ * do not exist can become a series.
+ */
+const AUTH_ROUTE_SEGMENTS = AUTH_ROUTES.filter((route) => route !== "/api/auth/*").map(
+  (route) => [route, route.split("/")] as const,
+);
+
+function authRouteLabel(path: string): AuthRoute {
+  const segments = path.split("/");
+  const found = AUTH_ROUTE_SEGMENTS.find(
+    ([, pattern]) =>
+      pattern.length === segments.length &&
+      pattern.every((part, index) =>
+        part.startsWith(":") ? segments[index] !== "" : part === segments[index],
+      ),
+  );
+  return found?.[0] ?? "/api/auth/*";
+}
+
+/** The status class an auth answer fell in, with a 429 apart from the other refusals. */
+function authOutcome(status: number): AuthOutcome {
+  if (status >= 500) return "error";
+  if (status === 429) return "rate_limited";
+  if (status >= 400) return "refused";
+  if (status >= 300) return "redirected";
+  return "ok";
+}
+
+/**
+ * Every request under `/api/auth`, by the endpoint it named and how it ended.
+ *
+ * Mounted here, above the body limit and the auth routes' own guards, for the
+ * reason the timing middleware is mounted above everything: a sign-in refused
+ * for its size or its origin is still a sign-in somebody attempted, and a wave
+ * of them is what this exists to show. Counted after `next()`, from the status
+ * that went out, and never in a Better Auth database hook — a hook sees a
+ * sign-up that may still roll back, and runs on the one connection the sign-up
+ * transaction holds.
+ */
+app.use("/api/auth/*", async (c, next) => {
+  await next();
+  const { status } = c.res;
+  authRequests.inc({ route: authRouteLabel(c.req.path), outcome: authOutcome(status) });
+  // Better Auth's limiter is the only thing under this prefix that sets
+  // `X-Retry-After`. The setup code's limiter sets the standard header alone
+  // and is counted where it refuses, so the non-standard header is what tells
+  // the two 429s apart without either having to know about the other.
+  if (status === 429 && c.res.headers.has("X-Retry-After")) rateLimited.inc({ limiter: "auth" });
+});
 
 // Registered only when it was asked for, so a deployment that never set
 // `METRICS_ENABLED` has no such route rather than a route that refuses.
@@ -366,8 +499,16 @@ app.use("*", async (context, next) => {
  * `error` frame instead. Both renderings come from here so the code, the
  * sentence and the details cannot drift apart between them — the same reason
  * the two transports share a service rather than a shape.
+ *
+ * `surface` says which of the two this is, for the one branch that counts. A
+ * failed stream is a 200 in `http_requests_total`, so without the name an
+ * internal error there would land in the same series as a 500 and the two
+ * could not be told apart by anybody asking which kind of request is failing.
  */
-export function errorEnvelope(error: unknown): { envelope: ApiErrorEnvelope; status: number } {
+export function errorEnvelope(
+  error: unknown,
+  surface: Extract<InternalErrorSurface, "http" | "stream">,
+): { envelope: ApiErrorEnvelope; status: number } {
   if (error instanceof TransportError) {
     return {
       envelope: { error: { code: error.code, message: error.message } },
@@ -416,6 +557,10 @@ export function errorEnvelope(error: unknown): { envelope: ApiErrorEnvelope; sta
   // holding the rule while the other one did not is how a bound parameter would
   // still have reached the log.
   log.failure("Request failed", error);
+  // Only this branch. A refusal above is somebody's request being wrong, and
+  // counting those here would make a rise mean a form somebody kept
+  // submitting as easily as a bug or a dependency that went away.
+  internalErrors.inc({ surface });
   return {
     envelope: { error: { code: "INTERNAL_ERROR", message: INTERNAL_ERROR_MESSAGE } },
     status: 500,
@@ -423,7 +568,7 @@ export function errorEnvelope(error: unknown): { envelope: ApiErrorEnvelope; sta
 }
 
 app.onError((error, c) => {
-  const { envelope, status } = errorEnvelope(error);
+  const { envelope, status } = errorEnvelope(error, "http");
   return c.json(envelope, status as 400);
 });
 
@@ -431,21 +576,10 @@ app.onError((error, c) => {
 // endpoint during a rolling deploy is "which build is answering", and the
 // alternative is reading it off an image tag that may not be what is running.
 app.get("/health/live", (c) => c.json({ status: "ok", version: APP_VERSION }));
-// Deliberately one statement against the database, and nothing else.
-//
-// It does not check configuration, the migrations or the scheduler, and adding
-// any of those would take a working server out of rotation for a condition that
-// cannot change while it runs. The migration guarantee is ordering rather than
-// a probe: `runMigrations()` is awaited before the server listens, so a process
-// answering this route at all is a process that got past them.
-app.get("/health/ready", async (c) => {
-  try {
-    await getDb().execute(sql`select 1`);
-    return c.json({ status: "ready", version: APP_VERSION });
-  } catch {
-    return c.json({ status: "not_ready", version: APP_VERSION }, 503);
-  }
-});
+// The scheduler's copy of the same route, from one function, so the two
+// processes count readiness the same way; `readiness.ts` says what the check
+// deliberately leaves out.
+app.get("/health/ready", answerReadiness);
 
 app.use("/api/auth/*", async (c, next) => {
   // These answer with a cookie for authorization and hand back session tokens,
@@ -519,6 +653,8 @@ app.post("/api/auth/sign-up/email", async (c) => {
     : await c.req.raw
         .clone()
         .json()
+        // A body that is not JSON is the client's input rather than a failure:
+        // every field below reads as absent, and that is what is answered.
         .catch(() => ({}));
   const field = (name: string) =>
     payload && typeof payload === "object" ? (payload as Record<string, unknown>)[name] : undefined;
@@ -552,6 +688,10 @@ app.post("/api/auth/sign-up/email", async (c) => {
   // a wrong code is refused above without its handler being called.
   const setupCaller = countableClientAddress(c.req.raw, c, getConfig().trustProxy);
   if (!(await setupCodeAttempts.take(setupCaller))) {
+    // Counted here because this is the only place that knows which limiter
+    // refused. The auth counter above sees a 429 and nothing that says it
+    // was the code being guessed rather than a password.
+    rateLimited.inc({ limiter: "setup_code" });
     // The whole window rather than what is left of it. The remaining time is
     // known only to whichever replica counted the first attempt, so a local
     // reading can be shorter than the truth and would send the caller back for
@@ -741,6 +881,7 @@ app.post("/api/auth/mcp/register", async (c) => {
   const body = await c.req.raw
     .clone()
     .json()
+    // Not JSON is the client's input, not a failure: the library answers it.
     .catch(() => null);
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return getAuth().handler(authRequest(c));
@@ -760,15 +901,73 @@ app.post("/api/auth/mcp/register", async (c) => {
   );
 });
 
+/**
+ * The two fields of a token request this wrapper acts on, read the way Better
+ * Auth reads them: a form body or a JSON one. Anything unreadable is the
+ * library's to refuse, so it reads as neither.
+ */
+async function tokenRequestGrant(request: Request) {
+  const type = request.headers.get("content-type") ?? "";
+  const fields: Record<string, unknown> = await (
+    type.includes("application/json")
+      ? request.clone().json()
+      : request
+          .clone()
+          .text()
+          .then((text) => Object.fromEntries(new URLSearchParams(text)))
+  )
+    // Not a body this route accepts: the handler answers it.
+    .catch(() => ({}));
+  return {
+    grantType: typeof fields.grant_type === "string" ? fields.grant_type : null,
+    refreshToken: typeof fields.refresh_token === "string" ? fields.refresh_token : null,
+  };
+}
+
 app.post("/api/auth/mcp/token", async (c) => {
+  const grant = await tokenRequestGrant(c.req.raw);
   const response = await getAuth().handler(authRequest(c));
   if (!response.ok) return response;
   const payload = (await response.json()) as Record<string, unknown>;
   if (typeof payload.access_token === "string") {
-    payload.access_token = await issueMcpAccessToken(payload.access_token);
+    // A client that has been issued a token has been authorized, and stays out
+    // of the abandoned-registration sweep from now on, revoked or not. Best
+    // effort: the stamp only spares a client from a later sweep, and failing
+    // the request over it would spend an authorization code or a refresh
+    // token the client then could not use again.
+    const opaque = payload.access_token;
+    await clientIdForAccessToken(opaque)
+      .then((clientId) => (clientId ? markClientAuthorized(clientId) : undefined))
+      .catch((error: unknown) =>
+        log.failure("Could not record an OAuth client as authorized", error),
+      );
+    payload.access_token = await issueMcpAccessToken(opaque);
   }
   if (typeof payload.id_token === "string") {
     payload.id_token = await resignMcpIdToken(payload.id_token);
+  }
+  // Rotation, last, so nothing after it can fail: the refresh token this
+  // request presented stops working in the response that replaces it, rather
+  // than living out its seven days beside the new one. Anything that throws
+  // before here is a 500 the client retries with the old token, still valid.
+  // Better Auth takes no lock on the refresh grant, so two refreshes presenting
+  // one token both mint a replacement; the delete is the serialization point,
+  // and the request that finds the old token already gone lost the race, so
+  // its own replacement is deleted and it is refused the way a replayed token
+  // is. One chain survives, never two.
+  if (
+    grant.grantType === "refresh_token" &&
+    grant.refreshToken &&
+    typeof payload.refresh_token === "string" &&
+    !(await retireRefreshToken(grant.refreshToken, payload.refresh_token))
+  ) {
+    return c.json(
+      {
+        error: "invalid_grant",
+        error_description: "That refresh token has already been used. Sign in again.",
+      },
+      401,
+    );
   }
   const headers = new Headers(response.headers);
   headers.delete("content-length");
@@ -827,6 +1026,7 @@ async function pendingConsentCode(c: Context) {
   const body = await c.req.raw
     .clone()
     .json()
+    // Not JSON is the client's input, not a failure: there is no code in it.
     .catch(() => null);
   const fromBody =
     body && typeof body === "object"
@@ -849,6 +1049,7 @@ async function pendingConsent(consentCode: string) {
     clientId?: unknown;
     scope?: unknown;
     requireConsent?: unknown;
+    redirectURI?: unknown;
   };
   try {
     parsed = JSON.parse(pending.value);
@@ -862,7 +1063,39 @@ async function pendingConsent(consentCode: string) {
       ? parsed.scope.filter((scope): scope is string => typeof scope === "string")
       : [],
     requireConsent: parsed.requireConsent === true,
+    redirectURI: typeof parsed.redirectURI === "string" ? parsed.redirectURI : null,
     expiresAt: pending.expiresAt,
+  };
+}
+
+/**
+ * Where an approval sends the code, as a person can recognize it.
+ *
+ * The host of the redirect URI the authorize request was checked against,
+ * because registration is open and a client may call itself anything: the
+ * name on the screen is the client's own claim, and the host is where the
+ * code actually goes. Only for `http` and `https` is that a site, though:
+ * `myapp://chatgpt.com/cb` goes to whichever program on the machine owns
+ * `myapp:`, so any other scheme is shown with its scheme in front, and one
+ * with no host at all by its scheme alone. Loopback is said separately, and
+ * only over http, because it is the one host that names no site: a program on
+ * the person's own machine.
+ */
+export function redirectDestination(redirectURI: string | null) {
+  if (!redirectURI) return { redirectHost: null, redirectIsLoopback: false };
+  let parsed: URL;
+  try {
+    parsed = new URL(redirectURI);
+  } catch {
+    return { redirectHost: null, redirectIsLoopback: false };
+  }
+  const host = parsed.hostname;
+  const scheme = parsed.protocol.replace(/:$/, "");
+  const web = scheme === "http" || scheme === "https";
+  return {
+    redirectHost: web ? host : host ? `${scheme}://${host}` : scheme,
+    redirectIsLoopback:
+      web && (host === "localhost" || host === "[::1]" || /^127(?:\.\d{1,3}){3}$/.test(host)),
   };
 }
 
@@ -911,6 +1144,11 @@ app.get("/api/auth/oauth2/consent-request", async (c) => {
     clientId: pending.clientId,
     clientName: application?.name ?? "An unnamed MCP client",
     scopes: pending.scopes,
+    ...redirectDestination(pending.redirectURI),
+    // Which ledger is being granted. A browser still signed in to one account
+    // approves for that account, which is easy to miss when the client was
+    // started for another — a reviewer's, say.
+    accountEmail: identity.user.email,
   });
 });
 
@@ -930,19 +1168,34 @@ app.post("/api/auth/oauth2/consent", async (c) => {
     return c.json(transportError("UNAUTHORIZED", "Sign in is required"), 401);
   }
   const consentCode = await pendingConsentCode(c);
-  if (consentCode) {
-    const owner = (await pendingConsent(consentCode))?.userId;
-    if (owner && owner !== identity.user.id) {
-      return c.json(
-        transportError(
-          "CONSENT_NOT_YOURS",
-          "That authorization request was started by a different account.",
-        ),
-        403,
-      );
-    }
+  // Read before the handler runs, because answering consumes the record.
+  const pending = consentCode ? await pendingConsent(consentCode) : null;
+  if (pending?.userId && pending.userId !== identity.user.id) {
+    return c.json(
+      transportError(
+        "CONSENT_NOT_YOURS",
+        "That authorization request was started by a different account.",
+      ),
+      403,
+    );
   }
-  return getAuth().handler(authRequest(c));
+  const accepted = await c.req.raw
+    .clone()
+    .json()
+    .then((body: unknown) => (body as { accept?: unknown } | null)?.accept === true)
+    // Not JSON: the handler refuses it, and nothing was approved.
+    .catch(() => false);
+  const response = await getAuth().handler(authRequest(c));
+  // Approved, so this client has been authorized by somebody and is never an
+  // abandoned registration again, whatever is revoked later. A denial is not
+  // consent and marks nothing. Best effort, as at the token endpoint: failing
+  // here would turn a consent already given into an error page.
+  if (response.ok && accepted && pending?.clientId) {
+    await markClientAuthorized(pending.clientId).catch((error: unknown) =>
+      log.failure("Could not record an OAuth client as authorized", error),
+    );
+  }
+  return response;
 });
 
 // Better Auth publishes a protected-resource document of its own under the auth
@@ -956,6 +1209,12 @@ app.post("/api/auth/oauth2/consent", async (c) => {
 // arrow, because `protectedResourceMetadata` is declared further down and a
 // bare reference here would be read before its initializer has run.
 app.get("/api/auth/.well-known/oauth-protected-resource", (c) => protectedResourceMetadata(c));
+// The authorization-server document's own copy, for the same reason: Better
+// Auth answers it under the auth base path with its defaults — three token
+// endpoint methods where registration makes every client public, no ledger
+// scopes, and a userinfo endpoint nothing registers. Discovery should say one
+// thing wherever a client asks, and the root document is the one that is true.
+app.get("/api/auth/.well-known/oauth-authorization-server", (c) => authorizationServerMetadata(c));
 app.on(["GET", "POST"], "/api/auth/*", (c) => getAuth().handler(authRequest(c)));
 /**
  * What each discovery document says this deployment supports.
@@ -1012,7 +1271,17 @@ const authorizationServerMetadata = async (c: Context) => {
   // discovery. The field is optional in OpenID discovery; a document that
   // omits it is honest, and one that names a dead endpoint is not.
   delete metadata.userinfo_endpoint;
-  return c.json({ ...metadata, scopes_supported: authorizationServerScopes });
+  return c.json({
+    ...metadata,
+    scopes_supported: authorizationServerScopes,
+    // What registration actually does. `boundedRegistration` makes every
+    // client public, whatever method it asked for, so advertising the two
+    // secret-based methods invited a client to register as confidential and
+    // then be told it was not. ChatGPT is the client where whether that
+    // override is accepted is unconfirmed; saying "none" alone removes the
+    // question, and a client that looks for "none" still finds it.
+    token_endpoint_auth_methods_supported: ["none"],
+  });
 };
 
 const protectedResourceMetadata = async (c: Context) => {
@@ -1042,6 +1311,23 @@ app.get("/.well-known/oauth-authorization-server/mcp/", authorizationServerMetad
 app.get("/.well-known/openid-configuration", authorizationServerMetadata);
 app.get("/.well-known/openid-configuration/mcp", authorizationServerMetadata);
 app.get("/.well-known/openid-configuration/mcp/", authorizationServerMetadata);
+
+// OpenAI's app portal proves control of the MCP host by fetching this and
+// comparing the body with the token it issued, byte for byte: the token and
+// nothing else, not JSON, so `c.text` rather than `c.json` and no trailing
+// newline. Unset, it is one more path nobody here publishes and answers the
+// same 404 as the catch-all below, read per request so setting it needs a
+// restart and nothing else.
+app.get("/.well-known/openai-apps-challenge", (c) => {
+  const token = getConfig().openaiAppsChallenge;
+  if (!token) {
+    return c.json({ error: "not_found", error_description: "No metadata is published here" }, 404);
+  }
+  return c.text(token, 200, {
+    "Content-Type": "text/plain; charset=utf-8",
+    "Cache-Control": "no-store",
+  });
+});
 
 // Anything else under /.well-known belongs to a protocol nobody here speaks.
 // Say so, rather than letting the catch-all hand back an HTML page that a
@@ -1127,11 +1413,48 @@ async function mcpTransport(c: Context<{ Variables: Variables }>) {
   await rejectRequestBody(c);
   const headers = new Headers(response.headers);
   headers.set("Connection", "close");
-  return new Response(response.body, {
+  // The library's challenge names only `resource_metadata`. A client that
+  // takes its scopes from the challenge, or sends none, then gets Better
+  // Auth's default grant, `openid profile email ledger:read`: the read tools
+  // and no refresh token, because refresh tokens need `offline_access`.
+  // Docker's gateway reads nothing else, and the MCP authorization spec says
+  // a server SHOULD name `scope` here. The value is the same seven both
+  // discovery documents advertise, for the reason given above them: a
+  // narrower first ask would leave anybody whose client follows the challenge
+  // reconnecting read-only after an upgrade.
+  const challenge = mcpChallenge(headers.get("www-authenticate"));
+  headers.set("WWW-Authenticate", challenge);
+  headers.delete("content-length");
+  const body = await response
+    .json()
+    .then((parsed: unknown) => {
+      // The body repeats the challenge for clients that cannot read headers.
+      const error = (parsed as { error?: Record<string, unknown> } | null)?.error;
+      if (error && typeof error === "object") error["www-authenticate"] = challenge;
+      return JSON.stringify(parsed);
+    })
+    // Not JSON from the library, which it always sends: the challenge header
+    // above is the answer that matters, so the reply goes out without a body.
+    .catch(() => null);
+  return new Response(body, {
     status: response.status,
     statusText: response.statusText,
     headers,
   });
+}
+
+/**
+ * The 401 challenge `/mcp` answers with, `resource_metadata` and `scope`.
+ *
+ * Better Auth's `resource_metadata` is kept where it set one, since it is the
+ * document the tests and every client already follow there; it is rebuilt
+ * from the base URL only where the library sent a bare `Bearer`.
+ */
+function mcpChallenge(libraryChallenge: string | null) {
+  const metadata =
+    /resource_metadata="([^"]*)"/.exec(libraryChallenge ?? "")?.[1] ??
+    `${getConfig().baseUrl}/api/auth/.well-known/oauth-protected-resource`;
+  return `Bearer resource_metadata="${metadata}", scope="${resourceScopes.join(" ")}"`;
 }
 
 /**
@@ -1270,6 +1593,27 @@ const field = (value: unknown) => {
 };
 
 /**
+ * The directive a violation report names, as one of `CSP_DIRECTIVES`.
+ *
+ * The effective directive first, in both spellings, because that is the one a
+ * browser names on its own terms — `script-src-elem` — where the older
+ * `violated-directive` may carry the whole directive with its sources after
+ * it. Only the first word is read, and only an exact match from the list
+ * becomes a label: whatever else is posted here, however it is spelled, is
+ * `other`, so the caller chooses which of a fixed set of series moves and
+ * never what a series is called.
+ */
+function cspDirectiveLabel(violation: Record<string, unknown>): CspDirective {
+  const named =
+    violation["effective-directive"] ??
+    violation["effectiveDirective"] ??
+    violation["violated-directive"];
+  if (typeof named !== "string") return "other";
+  const directive = named.trim().split(/\s/, 1)[0]!.toLowerCase();
+  return CSP_DIRECTIVES.find((known) => known === directive) ?? "other";
+}
+
+/**
  * Where a browser posts what the policy would have blocked.
  *
  * Registered only while `SB_CSP_REPORT_ONLY` is on, the way `/metrics` and the
@@ -1288,6 +1632,7 @@ const field = (value: unknown) => {
  */
 if (getConfig().cspReportOnly) {
   app.post(CSP_REPORT_PATH, async (c) => {
+    // A report that is not JSON is a browser's input, not a failure here.
     const report = await c.req.json().catch(() => null);
     // Both shapes. The deprecated `report-uri` sends `{"csp-report": {...}}` and
     // the `report-to` replacement sends an array of `{type, body}`, and this
@@ -1298,6 +1643,7 @@ if (getConfig().cspReportOnly) {
     for (const body of bodies) {
       const violation = body as Record<string, unknown> | null;
       if (!violation) continue;
+      cspViolations.inc({ directive: cspDirectiveLabel(violation) });
       // Three fields and no more. A report also carries the full URL of the
       // document, which on this app is a path that can name an account or a
       // transaction id, and the source file and line of whatever triggered it.
@@ -1455,7 +1801,7 @@ app.use("/api/v1/*", async (c, next) => {
   // Everything below this line is somebody's ledger, and it is reached with a
   // cookie rather than an Authorization header, so nothing stops a shared cache
   // or a browser's back-forward store holding on to it by default. Said once
-  // here rather than remembered on each of thirty routes.
+  // here rather than remembered on every route.
   c.header("Cache-Control", "no-store");
   const successor = renamedPathSuccessor(c.req.method, c.req.path);
   if (successor) {
@@ -1564,8 +1910,11 @@ const created = <T extends { id: string }>(
 const includeArchivedFlag = (c: Context) =>
   queryBooleanSchema.parse(c.req.query("includeArchived") ?? false);
 
-app.get("/api/v1/session", async (c) =>
-  c.json({
+app.get("/api/v1/session", async (c) => {
+  // Both halves of one decision, read once: the house ad takes the AdSense
+  // slot for whoever it is shown to, so the two fields are never set together.
+  const advertising = await getAdvertising(c.get("actor"));
+  return c.json({
     user: c.get("authUser"),
     preferences: await getPreferences(c.get("actor")),
     auth: await getUserAuthState(c.get("authUser").id),
@@ -1583,9 +1932,16 @@ app.get("/api/v1/session", async (c) =>
     // configuration at all — the page cannot show them an ad by mistake because
     // it was never told how. Absent is the safe reading, which is the direction
     // a bug in this should fail.
-    ads: await getAdPlacement(c.get("actor")),
-  }),
-);
+    ads: advertising.ads,
+    // Whether to show this product's own advertisement for the paid plan, and
+    // always sent, false included. A field of its own rather than a kind of
+    // `ads`: a bundle from the release before reads `ads` as an AdSense
+    // placement and nothing else, so it ignores this name rather than being
+    // handed a shape it was never written to tell apart, and a bundle meeting
+    // a server from before reads the field's absence as no.
+    houseAd: advertising.houseAd,
+  });
+});
 /**
  * The plan tab's five routes, registered only where Stripe is configured.
  *
@@ -1635,11 +1991,7 @@ app.post("/api/v1/auth/local-password", async (c) => {
   if (!getConfig().localAuthEnabled) {
     throw new AppError("FORBIDDEN", "Local authentication is disabled", 403);
   }
-  const parsed = z
-    .object({
-      newPassword: z.string().min(12).max(128),
-    })
-    .parse(await body(c));
+  const parsed = localPasswordSchema.parse(await body(c));
   const userId = c.get("authUser").id;
   if (await hasLocalPassword(userId)) {
     throw conflict("A local password is already configured. Use the password change action.");
@@ -1965,10 +2317,10 @@ const wantsFrames = (c: Context<AppEnv>) => acceptsFrames(c.req.header("Accept")
  * The refusal a terminal frame carries: the envelope, without the status.
  *
  * A frame has no status line to put one on — the 200 went out with the first
- * frame — and the browser reads the code, which every refusal on these two
- * paths already has.
+ * frame — and the browser reads the code, which every refusal on a streaming
+ * path already has.
  */
-const framedRefusal = (error: unknown) => errorEnvelope(error).envelope;
+const framedRefusal = (error: unknown) => errorEnvelope(error, "stream").envelope;
 
 app.post("/api/v1/staged-transactions/commit", async (c) => {
   const input = commitStageSchema.parse(await body(c));
@@ -2014,17 +2366,68 @@ app.get("/api/v1/import-batches", async (c) =>
   c.json(await listActiveImportBatches(c.get("actor"), query(c))),
 );
 app.get("/api/v1/csv/export", async (c) => {
-  const actor = c.get("actor");
-  const result = await exportTransactionsCsv(actor, query(c));
+  const result = await exportTransactionsCsv(c.get("actor"), query(c));
   c.header("Content-Type", CSV_MEDIA_TYPE);
-  // Dated in the person's own timezone, not the server's. `common.md` puts
-  // every "today" in this product through `todayIn`, and this was the one that
-  // went through the server clock instead: somebody at UTC+13 downloading at
-  // 09:00 got yesterday's date on the file, which is the one thing a dated
-  // filename exists to get right.
-  const { timezone } = await getPreferences(actor);
-  c.header("Content-Disposition", `attachment; filename="transactions-${todayIn(timezone)}.csv"`);
+  // The service names the file, dated by today where the person lives, so
+  // this download and `export_transactions_csv` carry one name.
+  c.header("Content-Disposition", `attachment; filename="${result.fileName}"`);
   return c.body(result.csv);
+});
+// The Simple Balance file, beside the CSV export because it is the same kind of
+// thing: a read, buffered and handed over as a download. The service dates the
+// file name itself, by today where the person lives, since it has already read
+// their timezone inside the snapshot and a second read here could disagree.
+app.get("/api/v1/ledger-file", async (c) => {
+  const result = await exportLedgerFile(c.get("actor"), parseLedgerFileQuery(query(c)), {
+    maxRows: CSV_EXPORT_MAX_ROWS,
+    maxContentBytes: LEDGER_FILE_CONTENT_MAX_BYTES,
+  });
+  c.header("Content-Type", LEDGER_FILE_MEDIA_TYPE);
+  c.header("Content-Disposition", `attachment; filename="${result.fileName}"`);
+  return c.body(result.ledgerFile);
+});
+// Reading one back. The colon is the house's spelling for a custom method on a
+// collection (`http.md`), and Hono matches it as a literal: neither path has a
+// parameter, so a request for `ledger-file%3Apreview` is a 404 rather than
+// either of these.
+//
+// The preview is a POST that reads, because a file of up to sixteen mebibytes
+// does not fit in a query string, and writes nothing at all.
+app.post("/api/v1/ledger-file:preview", async (c) =>
+  c.json(
+    await previewLedgerFile(c.get("actor"), ledgerFilePreviewInputSchema.parse(await body(c))),
+  ),
+);
+// Streamed the way `csv/stage` is, and parsed first for the same reason: a
+// body that was never an add request is a 422 with a status line to say so,
+// not a 200 and an error frame. What only reading the file and the ledger
+// can find arrives as the terminal frame.
+app.post("/api/v1/ledger-file:add", async (c) => {
+  const input = ledgerFileAddInputSchema.parse(await body(c));
+  if (!wantsFrames(c)) return c.json(await addLedgerFile(c.get("actor"), input));
+  const { response, settled } = streamProgress(
+    c,
+    (report) => addLedgerFile(c.get("actor"), input, { onProgress: report }),
+    framedRefusal,
+  );
+  c.set("streamSettled", settled);
+  return response;
+});
+// The add's shape exactly, for the add's reasons: parsed before a frame is
+// written, so a body that was never a move is a 422 with a status line, and
+// everything only the ledger can answer — whether it may take a move at all,
+// a transaction a service refuses, a balance that does not come out — is the
+// terminal frame.
+app.post("/api/v1/ledger-file:move", async (c) => {
+  const input = ledgerFileMoveInputSchema.parse(await body(c));
+  if (!wantsFrames(c)) return c.json(await moveLedgerFile(c.get("actor"), input));
+  const { response, settled } = streamProgress(
+    c,
+    (report) => moveLedgerFile(c.get("actor"), input, { onProgress: report }),
+    framedRefusal,
+  );
+  c.set("streamSettled", settled);
+  return response;
 });
 
 app.get("/api/v1/summary", async (c) =>
@@ -2074,6 +2477,27 @@ app.all("/api/billing/*", () => {
   throw notFound("No such endpoint");
 });
 
+// Every other path under a prefix this process owns: the set the split
+// deployment's nginx proxies here (`deploy/docker/nginx.conf.template`), where
+// the API image has no shell and they already answered 404. The single
+// container answered them with the shell and a 200, so a client probing
+// `/api/v2/…` parsed HTML, and a probe at a mistyped health path such as
+// `/health/readyz` reported the process ready with the database down. And the
+// two routes a deployment turns on: `/metrics` and `/ads.txt` read as absent
+// where they were not asked for, rather than as a page.
+//
+// Bare `/health` and `/health/` keep answering 200, now as liveness rather than
+// as the shell, because `/health/*` would otherwise catch both: a load
+// balancer pointed at either passed on the release before this one, and an
+// upgrade that takes a backend out of service is not one a release may make.
+app.get("/health", (c) => c.json({ status: "ok", version: APP_VERSION }));
+app.get("/health/", (c) => c.json({ status: "ok", version: APP_VERSION }));
+for (const owned of ["/api/*", "/mcp/*", "/health/*", "/metrics", "/ads.txt"]) {
+  app.all(owned, () => {
+    throw notFound("No such endpoint");
+  });
+}
+
 // Only when there is a bundle to serve. The decomposed deployment builds an
 // API image with no client in it and puts nginx in front, and serveStatic warns
 // on every request about a root it cannot find - which is right when the bundle
@@ -2098,6 +2522,15 @@ if (getConfig().isProduction && existsSync("./dist/client")) {
     if (!c.res.headers.has("Cache-Control")) {
       c.res.headers.set("Cache-Control", "no-cache");
     }
+    // Everything below this answers under `/*`: the bundle's root files —
+    // `/` itself is `index.html` served from there — and the shell fallback.
+    // A request that got past every route to here and came back under that
+    // pattern without a refusal was answered by the browser app, so the
+    // request counter is told so rather than filing it as a path nothing
+    // matched. Read off the outcome rather than set inside each handler,
+    // because both are `serveStatic` and neither says whether it found a file
+    // except by answering.
+    if (c.req.routePath === "/*" && c.res.status < 400) c.set("servedShell", true);
   });
   // Anything the build actually produced at the root of the client bundle:
   // the icon, and whatever is added beside it later. Without this the only

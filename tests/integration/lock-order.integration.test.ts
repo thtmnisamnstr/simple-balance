@@ -41,6 +41,12 @@ vi.mock("../../src/server/services/helpers.js", async (importOriginal) => {
       order.push("payee");
       return original.lockPayeeNamespace(...args);
     },
+    lockTransactionTemplateNamespace: async (
+      ...args: Parameters<typeof original.lockTransactionTemplateNamespace>
+    ) => {
+      order.push("template");
+      return original.lockTransactionTemplateNamespace(...args);
+    },
   };
 });
 
@@ -51,7 +57,7 @@ const { bulkEditStages, createStage, updateStage } =
 const { createTransaction, setTransactionDeleted, updateTransaction } =
   await import("../../src/server/services/transactions.js");
 const { createRecurrence } = await import("../../src/server/services/recurrences.js");
-const { createTransactionTemplate } =
+const { bulkEditTransactionTemplates, createTransactionTemplate } =
   await import("../../src/server/services/transaction-templates.js");
 
 const connection = process.env.TEST_DATABASE_URL;
@@ -180,5 +186,25 @@ integration("moving off a category", () => {
       draft: { type: "withdrawal", payee: "Landlord", fromAccountId: accountId, categoryId },
     });
     expect(order.slice(0, 2), order.join(" → ")).toEqual(["account", "category"]);
+  });
+
+  /**
+   * `deleteAccount` and `deleteCategory` count the templates naming what they
+   * delete under these two locks. The mass edit took only its own namespace,
+   * so a category deleted while it sat between its ownership check and its
+   * write left every template it touched naming a category that was gone.
+   */
+  it("takes the account and category locks before the template lock for a template mass edit", async () => {
+    const template = await createTransactionTemplate(actor, {
+      name: `Mass ${key()}`,
+      draft: { type: "withdrawal", payee: "Shop" },
+    });
+    order.length = 0;
+    await bulkEditTransactionTemplates(actor, {
+      selection: { items: [{ id: template.id, expectedVersion: template.version }] },
+      patch: { fromAccountId: accountId, categoryId },
+      idempotencyKey: key(),
+    });
+    expect(order.slice(0, 3), order.join(" → ")).toEqual(["account", "category", "template"]);
   });
 });

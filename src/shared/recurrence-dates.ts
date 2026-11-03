@@ -180,6 +180,33 @@ export function todayIn(timezone: string) {
 }
 
 /**
+ * The instant a calendar date begins where this person lives: the first moment
+ * `calendarDayIn` answers with that date.
+ *
+ * Found by asking `calendarDayIn` rather than by subtracting an offset, so the
+ * two can never disagree about which day an instant is on. The offset read at
+ * midnight is the wrong one on a day whose clocks change at midnight: Santiago
+ * springs forward at 00:00, so that day starts at one in the morning, and
+ * arithmetic on the offset puts its start an hour into the day before. No
+ * clock anywhere is a whole day away from UTC, so the day begins inside the
+ * two days around its UTC midnight, and halving that to the millisecond is
+ * twenty-eight calls. It leans on a calendar only ever moving forward, which a
+ * change of clocks never undoes: falling back repeats an hour, not a date.
+ */
+export function startOfDayIn(date: string, timezone: string) {
+  const midnight = dayNumber(date) * MS_PER_DAY;
+  // `before` is always a moment before the day, `after` one inside or past it.
+  let before = midnight - MS_PER_DAY;
+  let after = midnight + MS_PER_DAY;
+  while (after - before > 1) {
+    const middle = Math.floor((before + after) / 2);
+    if (calendarDayIn(new Date(middle), timezone) < date) before = middle;
+    else after = middle;
+  }
+  return new Date(after);
+}
+
+/**
  * The wall-clock time some instant fell on where this person lives, as `HH:MM`.
  *
  * A notification asked for at half past eight means half past eight where the

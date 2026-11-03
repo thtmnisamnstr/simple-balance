@@ -1,4 +1,13 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  billingSweeps,
+  idempotencySweeps,
+  SCHEDULER_SWEEPS,
+  schedulerEnabled,
+  schedulerLastSuccess,
+  schedulerTickInterval,
+  type SchedulerSweep,
+} from "../src/server/metrics.js";
 import {
   createRecurrenceScheduler,
   FIRST_TICK_DELAY_MS,
@@ -470,5 +479,184 @@ describe("the recurrence scheduler loop", () => {
     await harness.fireLast();
 
     expect(String(harness.logger.info.mock.calls.at(-1)?.[0])).toContain("capped");
+  });
+});
+
+/** What a scrape reads off a gauge with no labels. */
+const reading = async (gauge: typeof schedulerEnabled) => (await gauge.get()).values[0]?.value;
+
+/** Each sweep's last stamp, keyed by sweep, as a scrape reads them. */
+async function stamps(): Promise<Partial<Record<SchedulerSweep, number>>> {
+  const { values } = await schedulerLastSuccess.get();
+  return Object.fromEntries(values.map((sample) => [sample.labels.sweep, sample.value]));
+}
+
+/** How many times a sweep's own counter said `off`. */
+const offCount = async (counter: typeof billingSweeps) =>
+  (await counter.get()).values.find((sample) => sample.labels.outcome === "off")?.value ?? 0;
+
+const noon = new Date("2026-10-24T12:00:00Z");
+// Worked by hand rather than as `noon.getTime() / 1000`, so a stamp written in
+// milliseconds cannot agree with it by construction: 2026-10-24 is day 20,750
+// after 1970-01-01, and 20,750 × 86,400 + 12 × 3,600 = 1,792,843,200.
+const NOON_SECONDS = 1_792_843_200;
+
+/**
+ * A stamp so many seconds after noon, to within half a second. Not exact,
+ * because `vi.waitFor` moves a faked clock on by its fifty-millisecond interval
+ * each time it polls; half a second still tells seconds from milliseconds by a
+ * factor of a thousand.
+ */
+const atNoon = (seconds = 0) => expect.closeTo(NOON_SECONDS + seconds, 0);
+
+const failing = async (): Promise<never> => {
+  throw new Error("the database is having a bad minute");
+};
+
+/**
+ * Whether anything is proposing, answerable on every profile.
+ *
+ * A single machine runs the scheduler inside the API process, so its ticks
+ * arrive under `component="api"`; a split deployment turns it off there and
+ * runs it alone. An alert written against either component was silent on the
+ * other, and the staleness alert the deployment guide offered was `absent()`
+ * over the tick counter, which fires for up to twenty seconds after every
+ * restart because the first tick waits a delay and a jitter.
+ */
+describe("what the scheduler publishes about itself", () => {
+  beforeEach(() => {
+    for (const metric of [
+      schedulerEnabled,
+      schedulerTickInterval,
+      schedulerLastSuccess,
+      idempotencySweeps,
+      billingSweeps,
+    ]) {
+      metric.reset();
+    }
+    // The clock and nothing else, so `vi.waitFor` and the harness's timers
+    // stay real and a stamp is a number known in advance.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(noon);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+  });
+
+  it("says this process runs it, and how long it waits between ticks", async () => {
+    schedulerHarness({ tickSeconds: 90 });
+
+    expect(await reading(schedulerEnabled)).toBe(1);
+    expect(await reading(schedulerTickInterval)).toBe(90);
+  });
+
+  /**
+   * A gauge with no labels reads 0 before anything sets it, so a 0 read on its
+   * own passes with the branch deleted. An enabled scheduler makes it 1 first,
+   * and the one told not to run has to put it back.
+   */
+  it("says 0 where the process was told not to run it, and stamps nothing", async () => {
+    await schedulerHarness().scheduler.stop();
+    expect(await reading(schedulerEnabled)).toBe(1);
+
+    const off = schedulerHarness({ enabled: false });
+    await off.scheduler.stop();
+
+    expect(await reading(schedulerEnabled)).toBe(0);
+    expect(await reading(schedulerTickInterval)).toBe(0);
+    expect(await stamps()).toEqual({});
+  });
+
+  it("stamps every sweep that ran to the end, in Unix seconds", async () => {
+    vi.stubEnv("IDEMPOTENCY_RETENTION_HOURS", "24");
+    const harness = schedulerHarness({
+      runIdempotencySweep: vi.fn(async () => ({ swept: 3, capped: false })),
+      runBillingSweep: vi.fn(async () => ({
+        examined: 2,
+        written: 1,
+        failed: 0,
+        capped: false,
+        skipped: false,
+      })),
+    });
+
+    await harness.fireLast();
+
+    expect(await stamps()).toEqual({
+      recurrences: atNoon(),
+      reminders: atNoon(),
+      idempotency: atNoon(),
+      billing: atNoon(),
+    });
+  });
+
+  /**
+   * The alert this exists for is the time since a sweep's last success against
+   * a multiple of the interval, and it must never fire for a sweep nobody
+   * turned on. Retention is off unless a deployment asks for it and billing is
+   * off wherever nothing is sold, so on most deployments two of the four return
+   * at once on every tick — and left unstamped, both would read as stopped
+   * since the day the process started.
+   */
+  it("stamps a sweep that found itself switched off, so no staleness alert reads it as stuck", async () => {
+    vi.stubEnv("IDEMPOTENCY_RETENTION_HOURS", "");
+    const harness = schedulerHarness({ tickSeconds: 300 });
+
+    await harness.fireLast();
+
+    // Both really were off on this tick, or the stamps prove nothing about it.
+    expect(await offCount(idempotencySweeps)).toBe(1);
+    expect(await offCount(billingSweeps)).toBe(1);
+    const stamped = await stamps();
+    expect(Object.keys(stamped).sort()).toEqual([...SCHEDULER_SWEEPS].sort());
+    // One interval on, the last moment before the next tick is due, evaluated
+    // the way the alert is: `time() - last_success > 3 * interval`.
+    vi.setSystemTime(new Date(noon.getTime() + 300_000));
+    const interval = (await reading(schedulerTickInterval))!;
+    for (const sweep of SCHEDULER_SWEEPS) {
+      expect(Date.now() / 1000 - stamped[sweep]! > 3 * interval, sweep).toBe(false);
+    }
+  });
+
+  /**
+   * A sweep that threw keeps the stamp it had, which is what lets the gap
+   * since its last success grow until an alert notices. The recurrence tick is
+   * the one the other three run behind, so when it throws none of them runs.
+   */
+  it.each<[SchedulerSweep, Partial<RecurrenceSchedulerOptions>, SchedulerSweep[]]>([
+    ["recurrences", { runTick: failing }, []],
+    ["reminders", { runReminders: failing }, ["billing", "idempotency", "recurrences"]],
+    ["idempotency", { runIdempotencySweep: failing }, ["billing", "recurrences", "reminders"]],
+    ["billing", { runBillingSweep: failing }, ["idempotency", "recurrences", "reminders"]],
+  ])(
+    "leaves %s unstamped when it throws, and stamps what ran beside it",
+    async (_sweep, options, ran) => {
+      const harness = schedulerHarness(options);
+
+      await harness.fireLast();
+
+      expect(Object.keys(await stamps()).sort()).toEqual(ran);
+    },
+  );
+
+  it("keeps a sweep's last success when a later run of it throws", async () => {
+    let unreachable = false;
+    const harness = schedulerHarness({
+      runBillingSweep: vi.fn(async () => {
+        if (unreachable) throw new Error("Stripe is unreachable");
+        return { examined: 1, written: 0, failed: 0, capped: false, skipped: false };
+      }),
+    });
+    await harness.fireLast();
+
+    unreachable = true;
+    vi.setSystemTime(new Date(noon.getTime() + 60_000));
+    harness.armed.at(-1)!.fire();
+    await vi.waitFor(() => expect(harness.armed).toHaveLength(3));
+
+    const stamped = await stamps();
+    expect(stamped.recurrences).toEqual(atNoon(60));
+    expect(stamped.billing).toEqual(atNoon());
   });
 });

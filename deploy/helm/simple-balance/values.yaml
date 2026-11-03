@@ -336,7 +336,9 @@ frontend:
   # string, and the API sizes its own limit for those routes at
   # config.csvMaxBytes x 6 plus 64 KiB for worst-case escaping, which is ~60 MiB
   # at the 10 MiB default. Under that, nginx refuses a CSV the API behind it
-  # would have taken. Raise it with config.csvMaxBytes.
+  # would have taken. Raise it with config.csvMaxBytes. Keep it at 52m or more
+  # whatever csvMaxBytes is: one part of a Simple Balance file is a fixed
+  # LEDGER_FILE_REQUEST_BODY_LIMIT_BYTES, and NOTES.txt warns below it.
   maxUploadSize: 61m
 
   # Whether Stripe is configured for this deployment. nginx needs to know, and
@@ -578,6 +580,122 @@ scheduler:
   affinity: {}
   topologySpreadConstraints: []
 
+# A metrics collector for this release: one pod that finds every API and
+# scheduler pod of this release in its own namespace, scrapes their /metrics,
+# and sends what it read to one backend. The same OpenTelemetry Collector the
+# compose recipes run under their `metrics` profile, with the same export
+# pipeline word for word (templates/collector-config.yaml says where the copies
+# are), so a series means the same thing whichever profile sent it.
+#
+# Off, and turning it on turns config.metrics.enabled on with it: a collector
+# scraping an endpoint the pods do not serve would send nothing but `up 0`.
+# Nothing else about the release changes. It scrapes no node, no ingress
+# controller and no database — the cloud's own monitoring has the nodes, and
+# the rest is outside what this collector is for.
+collector:
+  enabled: false
+
+  # By tag and by digest. The digest is what the runtime pulls, so a tag pushed
+  # again cannot change the binary that was validated against the pipeline;
+  # change both together or the tag is a label on the old image. A registry of
+  # its own, so global.imageRegistry — which is where this project's images
+  # live — is never put in front of somebody else's: set it here to pull
+  # through a mirror.
+  image:
+    registry: docker.io
+    repository: otel/opentelemetry-collector
+    tag: "0.162.0"
+    digest: sha256:310a800ad69ee430e7c541796852a242c9c7db97aaad4daa5ccf843c525fbdb2
+    pullPolicy: IfNotPresent
+
+  # Where the metrics go and how they are spoken to. The same four settings the
+  # compose recipes read as SB_METRICS_*, under the same rules.
+  export:
+    # Setting this is what makes the collector worth running, and the render
+    # refuses collector.enabled without it. OTLP takes a base URL — New Relic's
+    # is https://otlp.nr-data.net, or https://otlp.eu01.nr-data.net in the EU —
+    # and adds /v1/metrics itself. Remote write takes the whole write URL, such
+    # as https://metric-api.newrelic.com/prometheus/v1/write?prometheus_server=simple-balance.
+    # With networkPolicy.enabled the collector may reach this URL's port and no
+    # other on the internet, worked out from the URL: 443 for https:// unless it
+    # names one.
+    endpoint: ""
+    # otlp — OTLP over HTTP, protobuf, gzipped — or prometheus_remote_write.
+    protocol: otlp
+    # The backend's credential, as the header map it is sent in:
+    #   {"api-key": "<license key>"}                (New Relic, OTLP)
+    #   {"Authorization": "Bearer <license key>"}   (New Relic, remote write)
+    #
+    # Either here, which writes it into a Secret this chart builds — and so into
+    # the release's own Secret and Helm's history, like every value under
+    # `secret:` — or in a Secret you built, named below. Never in the Secret the
+    # API and the scheduler read: every key of that one is in their environment,
+    # and a license key there is a credential in pods with no use for it.
+    headers: {}
+    # A Secret in the release namespace holding the header map as JSON under
+    # existingSecretKey. Set this or headers, not both.
+    existingSecret: ""
+    existingSecretKey: SB_METRICS_EXPORT_HEADERS
+
+  # How often every pod is scraped. Under five minutes, always, and the render
+  # refuses anything else: New Relic turns a cumulative counter into a rate by
+  # remembering its last value and forgets a series silent for five minutes, so
+  # a slower interval loses every rate rather than some resolution.
+  scrapeInterval: 30s
+
+  # The deployment.environment.name every series carries, which is what tells
+  # two deployments sending to one account apart.
+  environment: production
+
+  # Requests are what the measurement held: 51.7 MiB resident at the median and
+  # under 1% of a core, scraping about 3,700 series every fifteen seconds. The
+  # memory limit is the number the shared pipeline is written against — its
+  # memory_limiter refuses data above 80 MiB of heap and collects hard at 100,
+  # and the pod carries GOMEMLIMIT=80MiB so the runtime starts collecting before
+  # either — so keep it at 128Mi or above. The process holds more than its heap,
+  # so a limit near 100Mi is one the kernel enforces before the limiter can.
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+  podSecurityContext:
+    runAsNonRoot: true
+    # The user the collector's image declares.
+    runAsUser: 10001
+    runAsGroup: 10001
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    # Nothing written anywhere: the queue is in memory and there is no
+    # write-ahead log, so a restart loses at most the batch in hand and the pod
+    # needs no volume of any kind.
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+
+  # Its own, because it is the one pod in this release that talks to the
+  # Kubernetes API: finding the pods is a watch on the API server, and that
+  # needs the token the release's other service account deliberately does not
+  # mount. What the token may do is a Role in this namespace allowing get, list
+  # and watch on pods, and nothing else.
+  serviceAccount:
+    create: true
+    # Defaults to <fullname>-collector.
+    name: ""
+    annotations: {}
+
+  podAnnotations: {}
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
 # One Ingress, pointed at the frontend Service. Nothing routes to the API
 # directly: it is reached through nginx so the browser and the API share one
 # origin, which is the origin config.appBaseUrl names.
@@ -587,7 +705,8 @@ ingress:
   annotations:
     # ingress-nginx caps a body at 1 MiB, which refuses a CSV import long before
     # it reaches the nginx inside the frontend container, let alone the API.
-    # Keep this in step with frontend.maxUploadSize. Other controllers spell it
+    # Keep this in step with frontend.maxUploadSize, and at 52m or more for a
+    # part of a Simple Balance file. Other controllers spell it
     # differently: HAProxy uses haproxy.org/client-body-size, Traefik imposes no
     # limit of its own, and a cloud load balancer may cap it outside Kubernetes
     # altogether.
@@ -617,14 +736,16 @@ networkPolicy:
   frontendIngressFrom: []
 
   # Anything besides the frontend that may reach the API: a metrics scraper, an
-  # MCP client inside the cluster. Same shape as above.
+  # MCP client inside the cluster. Same shape as above. This chart's own
+  # collector is admitted without being named.
   serverIngressFrom: []
 
   # Who may reach the scheduler, which serves health probes and, with
   # config.metrics.enabled, /metrics. Empty allows any source in the cluster on
   # that port; naming probeSourceCidrs narrows it to those, and a scraper then
   # has to be named here or it cannot reach the process that reports ticks,
-  # proposals and mail. Same shape as above.
+  # proposals and mail. Same shape as above. This chart's own collector is
+  # added whenever the list is narrowed, and needs nothing while it is not.
   schedulerIngressFrom: []
 
   # kubelet runs the probes from the node's own address. Some CNIs hold these
@@ -640,6 +761,17 @@ networkPolicy:
   # DNS and the frontend's hop to the API are added for you; everything else,
   # the database included, has to be listed here.
   egressRules: []
+
+  # Read only by the collector's policy, which is closed in both directions
+  # whatever restrictEgress says: everywhere it has to reach is known to the
+  # render except the Kubernetes API server, which it watches to find the pods.
+  # These are the ports that server answers on once the `kubernetes` Service
+  # has been translated to it, which is what a policy sees — 443 on EKS and
+  # GKE, 6443 on OKE and on a cluster kubeadm built. The address is the
+  # cluster's and cannot be known here, so the rule is the port alone.
+  apiServerPorts:
+    - 443
+    - 6443
 
 # The `ha` profile's database: PostgreSQL 18 with Citus, run by Patroni.
 #

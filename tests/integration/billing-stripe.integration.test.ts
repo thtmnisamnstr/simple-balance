@@ -843,7 +843,7 @@ integration("scheduling a change over one already pending", () => {
   });
 
   /**
-   * The plan tab's **Stay on the annual plan** — the browser's one control for
+   * The plan tab's **Stay on annual plan** — the browser's one control for
    * cancelling a pending interval switch, since both priced buttons are
    * disabled in that state. It has to let the schedule go and schedule nothing
    * in its place. Falling through to the branch that schedules would create a

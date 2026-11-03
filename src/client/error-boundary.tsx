@@ -57,7 +57,7 @@ export class ErrorBoundary extends Component<Props, State> {
             Try again
           </button>
           <a className="button button-primary" href="/">
-            Go to the dashboard
+            Go to Overview
           </a>
         </div>
       </div>

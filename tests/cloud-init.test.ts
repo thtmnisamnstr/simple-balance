@@ -13,6 +13,9 @@ import {
   APP_FILES,
   AWS_USER_DATA_LIMIT,
   DATABASE_FILES,
+  IMDS_BLOCK,
+  IMDS_BLOCKED_USERS,
+  NODE_EXPORTER_PORT,
   OCI_METADATA_LIMIT,
   PLACEHOLDER_CERTIFICATE,
   PLACEHOLDER_KEY,
@@ -23,6 +26,7 @@ import {
   awsUserDataBase64,
   cloudInit,
   databaseCloudInit,
+  databaseMetricsTarget,
   databaseUrl,
   ociMetadata,
   repoFile,
@@ -149,13 +153,13 @@ const LONG_KEY = `ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQ${"A".repeat(680)} someo
 /** One file cloud-init writes, read back out of the rendered document. */
 function writtenFile(document: string, target: string): string {
   const lines = document.split("\n");
-  const start = lines.indexOf(`  - path: ${target}`);
+  const start = lines.indexOf(`- path: ${target}`);
   expect(start, `${target} is written`).toBeGreaterThan(-1);
-  expect(lines[start + 2]).toBe("    content: |");
+  expect(lines[start + 2]).toBe("  content: |");
   const body: string[] = [];
   for (const line of lines.slice(start + 3)) {
-    if (line !== "" && !line.startsWith("      ")) break;
-    body.push(line.slice(6));
+    if (line !== "" && !line.startsWith("    ")) break;
+    body.push(line.slice(4));
   }
   // The block scalar clips to one trailing newline, as cloud-init will.
   while (body.length > 0 && body[body.length - 1] === "") body.pop();
@@ -165,9 +169,9 @@ function writtenFile(document: string, target: string): string {
 /** The mode cloud-init is told to create a file with. */
 function writtenPermissions(document: string, target: string): string {
   const lines = document.split("\n");
-  const start = lines.indexOf(`  - path: ${target}`);
+  const start = lines.indexOf(`- path: ${target}`);
   expect(start, `${target} is written`).toBeGreaterThan(-1);
-  return /^ {4}permissions: "(.*)"$/.exec(lines[start + 1] ?? "")?.[1] ?? "";
+  return /^ {2}permissions: "(.*)"$/.exec(lines[start + 1] ?? "")?.[1] ?? "";
 }
 
 /**
@@ -335,13 +339,16 @@ describe("what the single-machine programs send", () => {
     }
   });
 
-  it("changes nothing in a stripped file but its comment lines", () => {
+  it("changes nothing in a stripped file but its comment lines and its blank ones", () => {
+    // Blank lines go too, because the metrics collector's configuration needed
+    // the bytes; the readers drop one only where they would drop a comment, and
+    // the parse-and-compare test below is what says no script changed meaning.
     const comment = {
-      shell: /^\s*#/,
-      yaml: /^\s*#/,
-      systemd: /^\s*[#;]/,
-      caddyfile: /^\s*#/,
-      hash: /^\s*#/,
+      shell: /^\s*(#|$)/,
+      yaml: /^\s*(#|$)/,
+      systemd: /^\s*([#;]|$)/,
+      caddyfile: /^\s*(#|$)/,
+      hash: /^\s*(#|$)/,
     };
     for (const file of [...APP_FILES, ...DATABASE_FILES]) {
       const original = repoFile(file.source);
@@ -368,6 +375,27 @@ describe("what the single-machine programs send", () => {
       }
       expect(canonical(stripped), file.source).toBe(canonical(original));
     }
+  });
+
+  it("sends the metrics collector's configuration to every machine, exporting or not", () => {
+    // The collector is the one service on this machine a stack setting starts,
+    // and settings reach a running machine where user data never does. So the
+    // file it needs is on the disk before anybody sets an endpoint; sent only
+    // to stacks exporting at creation, an endpoint set later would start a
+    // collector with no configuration and `up` would refuse the whole project.
+    const document = cloudInit({ settings: longSettings("small"), dataDevice: oci.DATA_DEVICE });
+    const collector = APP_FILES.find(
+      (file) => file.target === "/opt/simple-balance/collector.yaml",
+    );
+    expect(collector, "collector.yaml is in APP_FILES").toBeDefined();
+    expect(collector!.source).toBe("deploy/compose/single/collector.yaml");
+    expect(writtenFile(document, "/opt/simple-balance/collector.yaml")).toBe(
+      `${stripComments(repoFile(collector!.source), "yaml").replace(/\n+$/, "")}\n`,
+    );
+    expect(writtenPermissions(document, "/opt/simple-balance/collector.yaml")).toBe("0644");
+    // Beside compose.yml, because that is where the `collector` service's bind
+    // source, ./collector.yaml, resolves.
+    expect(read("deploy/compose/single/compose.yml")).toContain("source: ./collector.yaml");
   });
 
   it("runs every compose file it sends, the certificate's overlay included", () => {
@@ -449,6 +477,152 @@ describe("what the single-machine programs send", () => {
   });
 });
 
+/**
+ * The metrics collector and node-exporter run on the host's network, and from
+ * there they reach the metadata address as the host does. On AWS a hop limit
+ * of 1 holds only for a container a hop away, and on Oracle Cloud there is no
+ * hop limit at all, so on both what answers there would hand them the
+ * identity that reads every stack secret. Every machine either program builds
+ * refuses the address to their users: at every boot on AWS, and saved with the
+ * host firewall on Oracle Cloud. Held from the compose files rather than from
+ * a list of names, so a host-network service that changes user, or a new one,
+ * fails here rather than quietly reaching that identity.
+ */
+describe("what keeps a host-network container off the instance's metadata", () => {
+  /** Every service a compose file runs on the host's network, with the uid it runs as. */
+  function hostNetworkUsers(file: string) {
+    const text = read(file);
+    const start = text.indexOf("\nservices:\n") + "\nservices:\n".length;
+    const rest = text.slice(start);
+    const end = rest.search(/\n[a-z]/);
+    const section = end === -1 ? rest : rest.slice(0, end);
+    return section
+      .split(/\n(?= {2}[a-z][\w-]*:\n)/)
+      .map((block) => ({ name: /^ {2}([a-z][\w-]*):$/m.exec(block)?.[1], block }))
+      .filter(({ name, block }) => name && /\n {4}network_mode: host\n/.test(block))
+      .map(({ name, block }) => ({
+        name: name!,
+        uid: Number(/\n {4}user: "(\d+):\d+"\n/.exec(block)?.[1]),
+      }));
+  }
+
+  const [lowest, highest] = IMDS_BLOCKED_USERS;
+  const decoded = (base64: string) => gunzipSync(Buffer.from(base64, "base64")).toString("utf8");
+  /** The commands one cloud-init stage of a document runs, a line each, as sent. */
+  const stage = (document: string, key: "bootcmd" | "runcmd") =>
+    (new RegExp(`\\n${key}:\\n((?: {2}- .*\\n)+)`).exec(document)?.[1] ?? "")
+      .split("\n")
+      .filter(Boolean);
+
+  const APP = "deploy/compose/single/compose.yml";
+  const DATABASE = "deploy/compose/single/compose.postgres.yml";
+  // Every document either program sends, with a database node and without,
+  // exporting and not: the rule is on every machine, not only one made with
+  // something on the host's network yet.
+  const machines = [
+    ...[longApplicationDatabase(), undefined].flatMap((database) => {
+      const label = database ? APP : `${APP}, no database node`;
+      return [
+        {
+          cloud: "AWS",
+          label,
+          file: APP,
+          document: decoded(
+            aws.userDataBase64(
+              longSettings("small"),
+              aws.PLACEHOLDER_VOLUME_ID,
+              database,
+              LONG_AWS_SETTINGS,
+            ),
+          ),
+        },
+        {
+          cloud: "OCI",
+          label,
+          file: APP,
+          document: decoded(
+            oci.instanceMetadata(longSettings("small"), LONG_KEY, database, LONG_OCI_SETTINGS)
+              .user_data!,
+          ),
+        },
+      ];
+    }),
+    ...[true, false].flatMap((metrics) => {
+      const args = { ...longDatabaseRender("small"), metrics };
+      const label = metrics ? DATABASE : `${DATABASE}, not exporting`;
+      return [
+        {
+          cloud: "AWS",
+          label,
+          file: DATABASE,
+          document: decoded(aws.databaseUserDataBase64(args, aws.PLACEHOLDER_VOLUME_ID)),
+        },
+        {
+          cloud: "OCI",
+          label,
+          file: DATABASE,
+          document: decoded(oci.databaseInstanceMetadata(args, LONG_KEY).user_data!),
+        },
+      ];
+    }),
+  ];
+
+  it("blocks every user a host-network service runs as, on the machine that runs it", () => {
+    expect(new Set(machines.map(({ cloud }) => cloud))).toEqual(new Set(["AWS", "OCI"]));
+    for (const { cloud, label, file, document } of machines) {
+      const services = hostNetworkUsers(file);
+      expect(services.length, `${file} runs something on the host's network`).toBeGreaterThan(0);
+      for (const { name, uid } of services) {
+        expect(uid, `${file} ${name} states its user`).toBeGreaterThan(0);
+        expect(uid, `${file} ${name}`).toBeGreaterThanOrEqual(lowest);
+        expect(uid, `${file} ${name}`).toBeLessThanOrEqual(highest);
+      }
+      const [key, rule] =
+        cloud === "AWS"
+          ? (["bootcmd", aws.IMDS_EXPORTER_BLOCK] as const)
+          : (["runcmd", IMDS_BLOCK] as const);
+      expect(stage(document, key), `${cloud} ${label}`).toContain(`  - ${rule}`);
+    }
+  });
+
+  it("blocks them from the metadata address, and nobody the host itself needs it for", () => {
+    expect(IMDS_BLOCK).toMatch(
+      new RegExp(
+        `^iptables -I OUTPUT -d 169\\.254\\.169\\.254 -m owner --uid-owner ${lowest}-${highest} -j REJECT$`,
+      ),
+    );
+    // One text on both clouds; AWS adds only what a boot command needs.
+    expect(aws.IMDS_EXPORTER_BLOCK).toBe(`${IMDS_BLOCK} || true`);
+    // Root, the system accounts — ec2-instance-connect reads the metadata to
+    // authorize a key, systemd-resolved asks Oracle's resolver at the same
+    // address — and uid 1000, `ubuntu` and the OCI CLI image's `oracle`, all
+    // keep it.
+    expect(lowest).toBeGreaterThan(1000);
+    // Beside the setting it exists because of on AWS, on both machines.
+    expect(
+      read("deploy/pulumi/aws-single/index.ts").match(/httpPutResponseHopLimit: 1,/g),
+    ).toHaveLength(2);
+  });
+
+  it("keeps it on Oracle Cloud the way that image keeps its firewall", () => {
+    for (const { label, document } of machines.filter(({ cloud }) => cloud === "OCI")) {
+      // Not at every boot as well: netfilter-persistent restores the saved
+      // copy, and a boot command would insert a second one on top of it.
+      expect(document, label).not.toContain("\nbootcmd:\n");
+      const runcmd = stage(document, "runcmd");
+      // The whole line, so the rule is never one more `&&` in the save's own
+      // line, where its failure would cost the save; then saved, then anything
+      // started.
+      const rule = runcmd.indexOf(`  - ${IMDS_BLOCK}`);
+      const save = runcmd.findIndex((line) => line.includes("netfilter-persistent save"));
+      const firstboot = runcmd.findIndex((line) => /simple-balance(-db)?-firstboot\]$/.test(line));
+      expect(rule, `${label}: the rule`).toBeGreaterThanOrEqual(0);
+      expect(save, `${label}: saved after it`).toBeGreaterThan(rule);
+      expect(firstboot, `${label}: before first boot starts anything`).toBeGreaterThan(save);
+    }
+  });
+});
+
 describe("what the programs send the database machine", () => {
   const renders = Object.keys(SIZES).map((sizeName) => ({
     sizeName,
@@ -456,7 +630,12 @@ describe("what the programs send the database machine", () => {
   }));
 
   it("fits both providers' ceilings at every size, with a quarter of EC2's to spare", () => {
-    for (const { sizeName, args } of renders) {
+    // With metrics on as well as off, because on is the larger: a line in
+    // env.base, and on Oracle Cloud a second firewall command.
+    for (const { sizeName, args } of renders.flatMap((render) => [
+      render,
+      { sizeName: `${render.sizeName} exporting metrics`, args: { ...render.args, metrics: true } },
+    ])) {
       const metadata = oci.databaseInstanceMetadata(args, LONG_KEY);
       expect(
         Buffer.byteLength(JSON.stringify(metadata)),
@@ -590,6 +769,74 @@ describe("what the programs send the database machine", () => {
     // nothing listens on is an invitation to put something there later.
     expect(runcmd).not.toContain("--dport 80");
     expect(runcmd).not.toContain("--dport 443");
+    // Nor 9100 unless the stack exports metrics, for the same reason; the test
+    // below holds the other case.
+    expect(runcmd).not.toContain("--dport 9100");
+  });
+
+  it("starts node-exporter only on a machine made while the stack exported metrics", () => {
+    const render = (metrics?: boolean) =>
+      databaseCloudInit({ ...longDatabaseRender("small"), dataDevice: "/dev/sdx", metrics });
+    const off = render();
+    const on = render(true);
+    // Off is exactly the document that never heard of metrics.
+    expect(render(false)).toBe(off);
+    // The profile is the switch, in the part of .env cloud-init writes. This
+    // machine fetches no settings, so a later turn-on is this one line added by
+    // hand and the first-boot script run again — the header's own recipe.
+    expect(writtenFile(off, "/opt/simple-balance/env.base")).not.toContain("COMPOSE_PROFILES");
+    expect(writtenFile(on, "/opt/simple-balance/env.base")).toContain(
+      "\nCOMPOSE_PROFILES=metrics\n",
+    );
+    // What the profile starts reads one more file, which goes to every database
+    // node so that the line is all a later turn-on takes.
+    const web = DATABASE_FILES.find((file) => file.target.endsWith("/node-exporter-web.yml"));
+    expect(web?.source).toBe("deploy/compose/single/node-exporter-web.yml");
+    for (const document of [off, on]) {
+      expect(writtenFile(document, web!.target)).toBe(
+        `${stripComments(repoFile(web!.source), "yaml").replace(/\n+$/, "")}\n`,
+      );
+    }
+    // The header says what the machine answers, so it names 9100 exactly when
+    // the machine does, and stays the length `head -16` reads either way.
+    const header = (document: string) => {
+      const lines = document.split("\n");
+      return lines.slice(
+        0,
+        lines.findIndex((line) => !line.startsWith("#")),
+      );
+    };
+    expect(header(on)).toHaveLength(header(off).length);
+    expect(header(on).join("\n")).toContain("5432, and 9100 for metrics");
+    expect(header(off).join("\n")).not.toContain("9100");
+  });
+
+  it("opens Oracle's host firewall to 9100 only on a machine made exporting, before first boot", () => {
+    const runcmd = (metrics: boolean) => {
+      const metadata = oci.databaseInstanceMetadata(
+        { ...longDatabaseRender("small"), metrics },
+        LONG_KEY,
+      );
+      const text = gunzipSync(Buffer.from(metadata.user_data!, "base64")).toString("utf8");
+      return text.slice(text.indexOf("\nruncmd:\n"));
+    };
+    expect(runcmd(false)).not.toContain("--dport 9100");
+    const on = runcmd(true);
+    expect(on).toContain(`--dport ${NODE_EXPORTER_PORT} -j ACCEPT && netfilter-persistent save`);
+    expect(on.indexOf("--dport 9100")).toBeLessThan(on.indexOf("simple-balance-db-firstboot"));
+    expect(on, "and 5432 as before").toContain("--dport 5432 -j ACCEPT");
+  });
+
+  it("names the database node's node-exporter by the name its certificate carries", () => {
+    // The collector checks the certificate against the host it dialled, and
+    // the certificate is issued for this name (`databaseHost` on each cloud).
+    expect(databaseMetricsTarget("db.db.simplebalance.oraclevcn.com")).toBe(
+      "db.db.simplebalance.oraclevcn.com:9100",
+    );
+    expect(databaseMetricsTarget(aws.databaseHost("10.20.1.10", "us-east-1"))).toBe(
+      "ip-10-20-1-10.ec2.internal:9100",
+    );
+    expect(() => databaseMetricsTarget("10.30.1.10")).toThrow(/address rather than a DNS name/);
   });
 });
 
@@ -619,7 +866,7 @@ describe("what the application machine is told about its database", () => {
     // straight to its final path would vanish under the mount and the
     // application would verify against a file that is not there.
     expect(writtenFile(document(), "/opt/simple-balance/db-ca.pem")).toBe(PLACEHOLDER_CERTIFICATE);
-    expect(document()).not.toContain(`  - path: ${APPLICATION_CA_PATH}`);
+    expect(document()).not.toContain(`- path: ${APPLICATION_CA_PATH}`);
     // And the path firstboot installs it to is the one the URL names.
     expect(writtenFile(document(), "/opt/simple-balance/env.db")).toContain(
       `sslrootcert=${APPLICATION_CA_PATH}`,
@@ -639,8 +886,8 @@ describe("what the application machine is told about its database", () => {
     // env.db and DATABASE_URL in code that runs on every machine, and
     // compose.db-tls.yml names the CA's path whether or not there is a CA —
     // both of which are what makes this branch cost the render nothing.
-    expect(bare).not.toContain("  - path: /opt/simple-balance/env.db\n");
-    expect(bare).not.toContain("  - path: /opt/simple-balance/db-ca.pem\n");
+    expect(bare).not.toContain("- path: /opt/simple-balance/env.db\n");
+    expect(bare).not.toContain("- path: /opt/simple-balance/db-ca.pem\n");
     expect(bare).not.toContain("DATABASE_URL=postgresql://");
     expect(bare).not.toContain("BEGIN CERTIFICATE");
   });
@@ -680,6 +927,21 @@ describe("the comment stripper, on the cases the deployment files do not have ye
 
   it("keeps a comment that ends a command continued onto its line", () => {
     shellKeeps("#!/bin/sh\necho a \\\n# ends the echo\necho b\n", "# ends the echo");
+  });
+
+  it("drops blank lines where it drops comments, and keeps the one that ends a continuation", () => {
+    expect(stripComments("#!/bin/sh\n\necho a\n\n\n# gone\necho b\n", "shell")).toBe(
+      "#!/bin/sh\necho a\necho b\n",
+    );
+    // `echo a \` then a blank line is `echo a` and then nothing; without the
+    // blank the next command would be read as echo's arguments.
+    const continued = "#!/bin/sh\necho a \\\n\necho b\n";
+    expect(shellKeeps(continued)).toBe(continued);
+    const heredoc = "#!/bin/sh\ncat <<EOF\none\n\ntwo\nEOF\n";
+    expect(shellKeeps(heredoc)).toBe(heredoc);
+    expect(stripComments("[Unit]\n\nDescription=x\n", "systemd")).toBe("[Unit]\nDescription=x\n");
+    expect(stripComments("local all all trust\n\n# c\n", "hash")).toBe("local all all trust\n");
+    expect(stripComments(":80 {\n\n\trespond 1\n}\n", "caddyfile")).toBe(":80 {\n\trespond 1\n}\n");
   });
 
   it("keeps a comment line inside a command substitution that spans lines", () => {

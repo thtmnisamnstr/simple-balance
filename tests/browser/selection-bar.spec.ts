@@ -72,7 +72,7 @@ const WIDTHS = [1440, 1280, 1050, 980, 900, 820, 700, 560, 390] as const;
 
 async function signUp(page: Page) {
   await page.goto("/");
-  const toggle = page.getByRole("button", { name: "Create an account" });
+  const toggle = page.getByRole("button", { name: "Sign up" });
   const heading = page.getByRole("heading", { name: "Create your account" });
   await expect(heading.or(toggle)).toBeVisible();
   if (await toggle.isVisible()) await toggle.click();
@@ -102,7 +102,9 @@ async function post(page: Page, path: string, data: unknown) {
 
 async function seed(page: Page) {
   await page.goto("/accounts");
-  await page.getByRole("button", { name: "New account" }).click();
+  // The header's, which is first: on an empty ledger the empty state offers
+  // a second "New account", and a strict match fails once the list has loaded.
+  await page.getByRole("button", { name: "New account" }).first().click();
   await page.getByLabel(/^Account name/).fill(account);
   await page.getByLabel(/^Account type/).selectOption("checking");
   await page.getByLabel(/^Currency or crypto asset/).selectOption("USD");

@@ -395,6 +395,17 @@ cache. `large` takes it to 8 GiB for a larger `DATABASE_POOL_SIZE` and more
 concurrent requests, and that one is headroom rather than a measurement — no run
 in this repository has asked the application node for more than 745 MiB.
 
+**Metrics, when they are on, fit inside both machines as they are.** The
+application node adds the collector, held to 128 MiB and measured at 43 MiB
+resident while scraping every job this profile has, 49 at its peak, and a
+node-exporter held to 48 MiB and measured at 11. The database node adds a
+node-exporter of its own, held to 48 MiB and measured at 32 while serving TLS,
+21 of which is page cache the kernel can take back. Even at their limits that
+is 176 MiB of the application node's 4 GiB beside a measured peak of 745 MiB,
+and 48 MiB of the database node's, so turning metrics on changes no row of the
+table and adds no machine. Measured on October 24, 2026, on Docker Desktop for
+arm64; `docs/deployment.md` §What it costs has the rest.
+
 ## Connections
 
 One application process, holding `DATABASE_POOL_SIZE` connections and one more

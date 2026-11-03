@@ -142,8 +142,10 @@ export default function RecurrencesPage() {
   const overdue = visible.filter((recurrence) => recurrence.overdue).length;
   /** Split for the reason `TemplatesPage` gives: a read failure belongs where
    *  the list would have been, a refusal belongs beside the control, and
-   *  folding them made a refused delete blank the list. */
-  const readError = recurrences.error ?? accounts.error;
+   *  folding them made a refused delete blank the list. The categories are a
+   *  read failure too, as on Templates: the form's picker is built from them,
+   *  and a failed read left it empty with nothing on the page to say why. */
+  const readError = recurrences.error ?? accounts.error ?? categories.error;
   const actionError = deletion.error;
 
   return (

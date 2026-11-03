@@ -17,6 +17,17 @@ import { metricsContentType, metricsText } from "./metrics.js";
  * work the schedule exists for.
  */
 export async function serveMetrics(c: Context) {
+  // The request line as it arrived, before anything resolved it. The adapter
+  // hands a target holding a backslash or a dot segment to `new URL()`, which
+  // reads `\` as `/` and resolves `..`, so `/api/..\metrics` is routed here —
+  // and the frontend nginx, which treats a backslash as an ordinary character,
+  // proxied it as an /api path. That made /metrics reachable from the internet
+  // through a frontend that deliberately does not proxy it. Every scraper sends
+  // exactly `/metrics`, so anything else is a 404, as though there were no such
+  // route, whichever proxy is in front. Absent under `app.request()`, which has
+  // no socket and so no raw target to check.
+  const raw = (c.env as { incoming?: { url?: string } } | undefined)?.incoming?.url;
+  if (raw !== undefined && raw.split("?", 1)[0] !== "/metrics") return c.notFound();
   const { token } = getConfig().metrics;
   if (token && !bearerMatches(c.req.header("authorization"), token)) {
     // `WWW-Authenticate`, because a 401 without it tells a client it needs

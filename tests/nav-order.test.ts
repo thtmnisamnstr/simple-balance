@@ -34,7 +34,7 @@ describe("the sidebar", () => {
       // first, because it is the question with an intention behind it.
       "Budgets",
       "Reports",
-      "Import CSV",
+      "Import and export",
       "Activity",
       "Settings",
     ]);

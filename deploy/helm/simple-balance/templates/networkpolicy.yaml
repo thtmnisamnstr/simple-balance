@@ -6,6 +6,23 @@
 {{- end }}
 {{- $frontendPeers := concat $np.frontendIngressFrom $probes }}
 {{- $serverPeers := concat (list (dict "podSelector" (dict "matchLabels" (dict "app.kubernetes.io/name" (include "simple-balance.name" .) "app.kubernetes.io/instance" .Release.Name "app.kubernetes.io/component" "frontend")))) $np.serverIngressFrom $probes }}
+{{- $schedulerPeers := concat $probes $np.schedulerIngressFrom }}
+{{- /*
+This release's own collector, admitted to the two tiers it scrapes without
+anybody having to write its selector down. Always to the API, whose list is
+never empty. To the scheduler only once that list has been narrowed: while it
+is empty the rule admits every source in the cluster, the collector included,
+and adding one peer would turn "anybody" into "the collector" and shut out the
+probes and any other scraper — a policy made stricter by turning on something
+unrelated.
+*/}}
+{{- if include "simple-balance.collectorEnabled" . }}
+{{- $collectorPeer := dict "podSelector" (dict "matchLabels" (dict "app.kubernetes.io/name" (include "simple-balance.name" .) "app.kubernetes.io/instance" .Release.Name "app.kubernetes.io/component" "collector")) }}
+{{- $serverPeers = append $serverPeers $collectorPeer }}
+{{- if $schedulerPeers }}
+{{- $schedulerPeers = append $schedulerPeers $collectorPeer }}
+{{- end }}
+{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -68,6 +85,11 @@ spec:
     # The frontend, plus whatever else was named. kubelet is not in this list
     # unless networkPolicy.probeSourceCidrs put it there, which is what to reach
     # for if the probes start failing the moment this policy exists.
+    {{- /*
+    And this release's collector, when it runs one: added to the list at the
+    top of this file rather than written here, so a release without one renders
+    exactly the policy it always did.
+    */}}
     - from:
         {{- toYaml $serverPeers | nindent 8 }}
       ports:
@@ -129,7 +151,7 @@ spec:
     - ports:
         - protocol: TCP
           port: {{ .Values.config.port }}
-      {{- with concat $probes $np.schedulerIngressFrom }}
+      {{- with $schedulerPeers }}
       from:
         {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -156,6 +178,83 @@ spec:
     {{- else }}
     - {}
     {{- end }}
+{{- if include "simple-balance.collectorEnabled" . }}
+---
+{{- /*
+The collector's own, and the one policy here that is closed in both directions
+whatever restrictEgress says.
+
+The other tiers leave egress open by default because the chart cannot know where
+it goes: a database somebody else runs, Google, an SMTP relay. Everywhere the
+collector goes is known to this render — the API server it watches for pods,
+the pods it scrapes, and the one endpoint it sends to, whose port is read out of
+the URL — and it is the one pod here that holds a credential for somewhere on
+the internet. Leaving it open would mean a compromised collector could carry
+that credential, and whatever it can read, anywhere at all.
+
+Nothing reaches it but the kubelet. Its health check is the only port it opens
+on the pod's address, its own figures are on loopback and scraped by itself,
+and no Service points at it. With probeSourceCidrs empty the probes are left to
+the CNI's own exemption for the node, which is the arrangement every other
+policy here makes too.
+
+The API server is the one destination named by port alone. Its address is the
+cluster's — a managed control plane's endpoint, or the `kubernetes` Service
+translated to one — and a policy sees the translated address, so no selector or
+range written here could be right on every cloud.
+*/}}
+{{- $exportPort := include "simple-balance.collectorExportPort" . | int }}
+{{- $outbound := list $exportPort }}
+{{- range ($np.apiServerPorts | default list) }}
+{{- $outbound = append $outbound (int .) }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "simple-balance.componentName" (dict "root" . "component" "collector") }}
+  labels:
+    {{- include "simple-balance.componentLabels" (dict "root" . "component" "collector") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "simple-balance.componentSelectorLabels" (dict "root" . "component" "collector") | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  {{- with $probes }}
+  ingress:
+    - from:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: 13133
+  {{- else }}
+  ingress: []
+  {{- end }}
+  egress:
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "simple-balance.componentSelectorLabels" (dict "root" . "component" "server") | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              {{- include "simple-balance.componentSelectorLabels" (dict "root" . "component" "scheduler") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.config.port }}
+    # The export endpoint's port and the API server's, to any address: neither
+    # address is one this render can know.
+    - ports:
+        {{- range uniq $outbound }}
+        - protocol: TCP
+          port: {{ . }}
+        {{- end }}
+{{- end }}
 {{- if .Values.database.enabled }}
 ---
 {{- /*

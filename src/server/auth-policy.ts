@@ -7,7 +7,7 @@ import {
   isRegistrationClosed,
   isRegistrationOpenToAnyone,
 } from "./config.js";
-import type { AuthMode } from "../shared/domain.js";
+import { PASSWORD_MIN_LENGTH, type AuthMode } from "../shared/domain.js";
 import { mailEnabled } from "./mail.js";
 import { getDb } from "./db/client.js";
 import { account as authAccount, user } from "./db/schema.js";
@@ -262,6 +262,6 @@ export async function getPublicAuthOptions() {
      */
     ...(config.legal.privacyPolicyUrl ? { privacyPolicyUrl: config.legal.privacyPolicyUrl } : {}),
     ...(config.legal.termsOfUseUrl ? { termsOfUseUrl: config.legal.termsOfUseUrl } : {}),
-    minimumPasswordLength: 12,
+    minimumPasswordLength: PASSWORD_MIN_LENGTH,
   };
 }

@@ -189,7 +189,12 @@ render time and says which.
 3. **`frontend.maxUploadSize` stays above the API's own CSV limit.** A CSV
    arrives as a JSON string, so the API sizes its limit at `CSV_MAX_BYTES` x 6
    plus overhead. Set this lower and nginx refuses a file the API would have
-   taken.
+   taken. Keep it at `52m` or more whatever `csvMaxBytes` is, too, and the
+   ingress's `proxy-body-size` with it: one part of a Simple Balance file is a
+   fixed `LEDGER_FILE_REQUEST_BODY_LIMIT_BYTES` on its own routes and on
+   `/mcp`, and nginx has one limit for every path. The CSV floor is refused at
+   render; this one is a warning `helm install` and `helm upgrade` print, because
+   a values file that lowered both beside `csvMaxBytes` rendered before it.
 
 ## Where a request came from
 
@@ -288,8 +293,9 @@ of time series. What it does publish is how busy this deployment is, so
 NetworkPolicy does not already decide about: set it and the endpoint answers
 only `Authorization: Bearer <token>`.
 
-With `networkPolicy.enabled`, name the scraper in `networkPolicy.serverIngressFrom`
-and `networkPolicy.schedulerIngressFrom`. The scheduler's policy allows any
+With `networkPolicy.enabled`, name a scraper of your own in
+`networkPolicy.serverIngressFrom` and `networkPolicy.schedulerIngressFrom`; the
+chart's own collector, below, needs no naming. The scheduler's policy allows any
 source in the cluster on its one port until `probeSourceCidrs` narrows it, at
 which point a scraper that is not named there cannot reach the process that
 reports ticks, proposals and mail.
@@ -298,6 +304,86 @@ The Service publishes no separate port for it and the frontend does not proxy
 it, so a scrape reaches the pods directly — `kubernetes-pods` discovery with the
 usual `prometheus.io/scrape` annotations through `server.podAnnotations` and
 `scheduler.podAnnotations`, or a ServiceMonitor pointed at the existing port.
+
+### The collector this chart can run
+
+Or the chart scrapes them itself and sends the result on. `collector.enabled`
+runs one OpenTelemetry Collector pod that finds every API and scheduler pod of
+this release in its namespace, scrapes each one, and exports to one backend —
+New Relic, or anything else that takes OTLP or Prometheus remote write. It is
+the collector the compose recipes run under their `metrics` profile, with the
+same export pipeline word for word, so a series means the same thing whichever
+profile sent it.
+
+```sh
+kubectl -n simple-balance create secret generic simple-balance-metrics-export \
+  --from-literal=SB_METRICS_EXPORT_HEADERS='{"api-key":"<license key>"}'
+helm upgrade --install simple-balance deploy/helm/simple-balance \
+  --reset-then-reuse-values \
+  --set collector.enabled=true \
+  --set collector.export.endpoint=https://otlp.nr-data.net \
+  --set collector.export.existingSecret=simple-balance-metrics-export
+```
+
+`--reset-then-reuse-values` (Helm 3.14 or later), or the values file you
+installed with, and not `--reuse-values`: that one carries the previous release's
+defaults instead of this chart's, so a release installed before the collector
+existed has no `collector.image` to run, and the schema refuses the upgrade
+before anything changes.
+
+| Value | Default | What it is |
+| --- | --- | --- |
+| `collector.enabled` | `false` | Runs the collector, and turns `config.metrics.enabled` on with it |
+| `collector.export.endpoint` | none; required | OTLP base URL (`https://otlp.nr-data.net`, EU `https://otlp.eu01.nr-data.net`), or the whole remote-write URL |
+| `collector.export.protocol` | `otlp` | `otlp` (HTTP, protobuf, gzip) or `prometheus_remote_write` |
+| `collector.export.headers` | `{}` | The backend's credential as a header map, written into a Secret of the collector's own |
+| `collector.export.existingSecret` | empty | Or a Secret you built, holding that map as JSON under `collector.export.existingSecretKey` |
+| `collector.scrapeInterval` | `30s` | Minutes and seconds, under `5m` |
+| `collector.environment` | `production` | `deployment.environment.name` on every series |
+
+For New Relic the header map is `{"api-key":"<license key>"}` over OTLP, or
+`{"Authorization":"Bearer <license key>"}` over remote write. It never goes in the
+Secret the API and the scheduler read, because every key of that one is in their
+environment; the collector reads it from its own, and reads `METRICS_TOKEN` from
+the one the pods check it against.
+
+There is one collector and never more: two would send every series twice, and a
+backend that turns a cumulative counter into a rate — New Relic does — computes
+nonsense from two copies of it. So the Deployment has no replica count to set,
+no autoscaler, and recreates rather than rolls. It writes nothing anywhere, runs
+as its image's non-root user with a read-only root filesystem and no
+capabilities, and takes 128Mi, which the pipeline's memory limiter is written
+against. It is the one pod in the release that mounts a service-account token,
+because finding the pods is a watch on the API server; its Role reads pods in
+this namespace and nothing else.
+
+It scrapes no node, no ingress controller and no database: the cloud's own
+monitoring has the nodes, and the rest is outside what it is for.
+
+With `networkPolicy.enabled` it needs naming nowhere. It is admitted to the API
+pods, and to the scheduler pods whenever `probeSourceCidrs` or
+`schedulerIngressFrom` has narrowed that policy — while it has not, every source
+in the cluster is admitted already. Its own policy is closed both ways whatever
+`restrictEgress` says: nothing reaches it but the probes, and it reaches DNS, the
+pods it scrapes, the export endpoint's port, and the Kubernetes API server on
+`networkPolicy.apiServerPorts` (443 and 6443), which is the one destination named
+by port alone because its address is the cluster's.
+
+The `aws`, `gcp` and `oci` Pulumi programs turn it on when the stack sets
+`SB_METRICS_EXPORT_ENDPOINT` in `simple-balance:env`, with the protocol, interval
+and environment beside it and `SB_METRICS_EXPORT_HEADERS` in
+`simple-balance:secrets`, which they put in a Secret of the collector's own.
+
+Turning it on turns `config.metrics.enabled` on with it, over an explicit
+`false` too, so the API and the scheduler roll once as their ConfigMap changes.
+The collector rolls itself when its configuration, the headers Secret the chart
+built or `secret.metricsToken` changes, and not when a Secret the chart did not
+build does: after rotating a token or headers held in one of those — the
+Pulumi programs' `simple-balance-metrics-export` among them — run
+`kubectl -n <namespace> rollout restart deploy/<fullname>-collector`. Its own
+series arrive under the job `collector` at `127.0.0.1:8888`.
+[`docs/deployment.md`](../../../docs/deployment.md#metrics) has what each
+backend wants and the alerts worth setting.
 
 ## Selling a plan and serving ads
 
@@ -308,7 +394,10 @@ and `secret.stripeWebhookSecret`. The `ADSENSE_*` ids go in `config.extraEnv`
 too, with `PRIVACY_POLICY_URL` beside them, because the server refuses to start
 with AdSense configured and no policy to link to. `PRIVACY_POLICY_URL` and
 `TERMS_OF_USE_URL` are optional otherwise and go there as well; either is linked
-from the sign-in screen and every page once it is set.
+from the sign-in screen and every page once it is set. `SB_HOUSE_AD`, this
+product's own advertisement for the paid plan, goes in `config.extraEnv` too,
+and needs nothing below: it loads nothing, so nginx has no policy to widen for
+it.
 
 nginx serves every page here, so it decides the content security policy each
 arrives with, and Stripe's payment form and AdSense each need a wider one than

@@ -159,6 +159,7 @@ integration("running on a single database connection", () => {
             },
             schedule: { frequency: "monthly", anchorDate: "2030-03-01" },
           },
+          {},
           tx,
         ),
       ),

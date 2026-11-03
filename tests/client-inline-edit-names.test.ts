@@ -32,7 +32,7 @@ const SOURCES = globSync("src/client/**/*.tsx");
  * `${…}` all survive the read.
  */
 function triggers(source: string, where: string) {
-  const found: { at: string; props: string }[] = [];
+  const found: { at: string; props: string; children: string }[] = [];
   for (const match of source.matchAll(/className="inline-edit[^"]*"/g)) {
     const open = source.lastIndexOf("<button", match.index);
     if (open < 0) continue;
@@ -44,9 +44,13 @@ function triggers(source: string, where: string) {
       else if (character === "}") depth -= 1;
       else if (character === ">" && depth === 0) break;
     }
+    // What the button draws: up to its own close, since a trigger holds no
+    // button inside it. Empty for a self-closing one.
+    const close = source[end - 1] === "/" ? end : source.indexOf("</button>", end);
     found.push({
       at: `${where}:${source.slice(0, open).split("\n").length}`,
       props: source.slice(open, end),
+      children: close > end ? source.slice(end + 1, close) : "",
     });
   }
   return found;
@@ -86,6 +90,49 @@ function nameExpression(source: string, expression: string) {
 
 /** Leading with the value means a template literal that opens on its hole. */
 const leadsWithTheValue = (expression: string) => expression.trimStart().startsWith("`${");
+
+/** The expression in a template literal's first hole, brace-balanced. */
+function leadingHole(expression: string) {
+  const from = expression.indexOf("${");
+  if (from < 0) return "";
+  let depth = 1;
+  for (let i = from + 2; i < expression.length; i += 1) {
+    if (expression[i] === "{") depth += 1;
+    else if (expression[i] === "}") {
+      depth -= 1;
+      if (depth === 0) return expression.slice(from + 2, i);
+    }
+  }
+  return "";
+}
+
+/**
+ * The names an expression reads, its words and fallbacks left out.
+ *
+ * Strings go first, because a fallback is allowed to differ — the cell draws
+ * "—" for no amount and the name says "No amount", which is the same absence
+ * in words. Tags go next, so `<strong>` and a fragment are not read as values.
+ * What is left between braces is what the cell renders from.
+ */
+function valuesRead(expression: string) {
+  const code = expression
+    .replaceAll(/"[^"]*"|'[^']*'/g, "")
+    .replaceAll(/<\/?[A-Za-z]*[^<>{}]*>/g, " ");
+  const inBraces = code.includes("{")
+    ? [...code.matchAll(/\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g)].map((match) => match[1]!).join(" ")
+    : code;
+  return new Set(
+    [...inBraces.matchAll(/[A-Za-z_$][\w$]*/g)]
+      .map((match) => match[0])
+      .filter((word) => !["true", "false", "null", "undefined"].includes(word)),
+  );
+}
+
+/** What the cell renders from and its name's leading hole does not. */
+const missingFromTheName = (name: string, children: string) => {
+  const named = valuesRead(leadingHole(name));
+  return [...valuesRead(children)].filter((value) => !named.has(value));
+};
 
 describe("a click-to-edit trigger", () => {
   /**
@@ -145,5 +192,62 @@ describe("a click-to-edit trigger", () => {
     }
     expect(checked, "no triggers found, so this examined nothing").toBeGreaterThanOrEqual(4);
     expect(trailing, "SC 2.5.3 wants the visible text first, not last").toEqual([]);
+  });
+
+  /**
+   * Leading with *a* value is not leading with the one on screen.
+   *
+   * The check above reads the shape — a name that opens on its hole — and the
+   * staged amount passed it for a release while its hole was
+   * `formatMoney(amount)` and the cell drew `movementSign(…).sign` in front of
+   * it. The queue has no Type column, so on a row with a description the sign
+   * is the only thing saying which way the money moves, and a screen reader
+   * heard "$45.00, edit the amount" for a deposit and a withdrawal alike. So
+   * the leading hole has to read everything the cell renders from; a fallback
+   * may be worded differently, because "—" and "No amount" are the same
+   * absence.
+   */
+  it("reads in its name everything the cell draws, the sign included", () => {
+    const synthetic = [
+      "const signed = `${sign}${formatMoney(amount)}`;",
+      "<button",
+      '  className="inline-edit inline-edit-money"',
+      "  aria-label={`${formatMoney(amount)}, edit the amount of ${payee}`}",
+      ">",
+      "  {amount ? (",
+      "    <>",
+      "      {movementSign(type).sign}",
+      "      {formatMoney(amount)}",
+      "    </>",
+      '  ) : ("—")}',
+      "</button>",
+      "<button",
+      '  className="inline-edit"',
+      '  aria-label={`${signed ?? "No amount"}, edit the amount of ${payee}`}',
+      ">",
+      '  {signed ?? "—"}',
+      "</button>",
+    ].join("\n");
+    const read = triggers(synthetic, "synthetic.tsx").map((one) =>
+      missingFromTheName(nameExpression(synthetic, ariaLabel(one.props)!), one.children),
+    );
+    expect(read).toEqual([["movementSign", "type", "sign"], []]);
+
+    const unnamed: string[] = [];
+    let checked = 0;
+    for (const relative of SOURCES) {
+      const source = readFileSync(relative, "utf8");
+      for (const trigger of triggers(source, relative)) {
+        if (!trigger.children.trim()) continue;
+        checked += 1;
+        const name = nameExpression(source, ariaLabel(trigger.props) ?? "");
+        const missing = missingFromTheName(name, trigger.children);
+        if (missing.length) unnamed.push(`${trigger.at} draws ${missing.join(", ")} unnamed`);
+      }
+    }
+    expect(checked, "no trigger draws anything, so this examined nothing").toBeGreaterThanOrEqual(
+      4,
+    );
+    expect(unnamed, "SC 2.5.3: the name leads with the visible text, all of it").toEqual([]);
   });
 });

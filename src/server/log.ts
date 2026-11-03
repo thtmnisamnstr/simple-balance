@@ -1,4 +1,5 @@
 import { getConfig, logLevels, type LogLevel } from "./config.js";
+import { logMessages } from "./metrics.js";
 
 /**
  * Everything this product writes to stdout, at the level an operator asked for.
@@ -105,10 +106,20 @@ export const log = {
   info(...parts: unknown[]) {
     if (enabled("info")) console.info(...parts);
   },
+  /**
+   * The two levels that mean somebody should look, counted before the gate
+   * decides whether they print: a deployment that set `LOG_LEVEL=error` to
+   * quiet its warnings has not stopped having them, and the count is how it
+   * finds out it is having more. Here and not in `failure` or `fromLibrary`,
+   * because both arrive here and a count at each would count their lines
+   * twice.
+   */
   warn(...parts: unknown[]) {
+    logMessages.inc({ level: "warn" });
     if (enabled("warn")) console.warn(...parts);
   },
   error(...parts: unknown[]) {
+    logMessages.inc({ level: "error" });
     if (enabled("error")) console.error(...parts);
   },
   /**

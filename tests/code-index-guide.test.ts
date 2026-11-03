@@ -443,7 +443,7 @@ describe("what the formatter is pointed at", () => {
      * Not `NO_COLOR`: oxfmt ignores it, checked here with
      * `NO_COLOR=1 FORCE_COLOR=1 npx oxfmt --check`, which still colours. Not a
      * flag either — oxfmt has none. `tsc` is the comparison worth drawing:
-     * `compilerReport` in `tests/typescript-guide.test.ts:197` passes
+     * `compilerReport` in `tests/typescript-guide.test.ts:198` passes
      * `--pretty false`, which is the same defence taken at the tool's own
      * offer. Where a tool makes no offer, the output has to be cleaned here.
      *

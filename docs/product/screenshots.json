@@ -1,6 +1,6 @@
 {
   "$comment": "Written by scripts/product-kit/build.mjs. Every screen in the application, in both themes, at 1600px.",
-  "capturedAt": "2026-10-06",
+  "capturedAt": "2026-10-27",
   "appVersion": "0.2.1",
   "appUrl": "http://localhost:5173",
   "viewport": "1440x900 at 2x, shipped at 1600px",
@@ -37,13 +37,13 @@
       "file": "activity-dark.webp",
       "route": "/activity",
       "theme": "dark",
-      "kb": 47
+      "kb": 53
     },
     {
       "file": "activity-light.webp",
       "route": "/activity",
       "theme": "light",
-      "kb": 47
+      "kb": 53
     },
     {
       "file": "budgets-dark.webp",
@@ -61,13 +61,13 @@
       "file": "categories-dark.webp",
       "route": "/categories",
       "theme": "dark",
-      "kb": 53
+      "kb": 51
     },
     {
       "file": "categories-light.webp",
       "route": "/categories",
       "theme": "light",
-      "kb": 53
+      "kb": 51
     },
     {
       "file": "dashboard-dark.webp",
@@ -79,19 +79,19 @@
       "file": "dashboard-light.webp",
       "route": "/",
       "theme": "light",
-      "kb": 44
+      "kb": 46
     },
     {
       "file": "import-dark.webp",
       "route": "/import",
       "theme": "dark",
-      "kb": 36
+      "kb": 68
     },
     {
       "file": "import-light.webp",
       "route": "/import",
       "theme": "light",
-      "kb": 36
+      "kb": 67
     },
     {
       "file": "payees-dark.webp",
@@ -103,43 +103,43 @@
       "file": "payees-light.webp",
       "route": "/payees",
       "theme": "light",
-      "kb": 53
+      "kb": 52
     },
     {
       "file": "recurrences-dark.webp",
       "route": "/recurrences",
       "theme": "dark",
-      "kb": 34
+      "kb": 44
     },
     {
       "file": "recurrences-light.webp",
       "route": "/recurrences",
       "theme": "light",
-      "kb": 34
+      "kb": 44
     },
     {
       "file": "reports-dark.webp",
       "route": "/reports",
       "theme": "dark",
-      "kb": 46
+      "kb": 48
     },
     {
       "file": "reports-light.webp",
       "route": "/reports",
       "theme": "light",
-      "kb": 46
+      "kb": 48
     },
     {
       "file": "settings-dark.webp",
       "route": "/settings",
       "theme": "dark",
-      "kb": 67
+      "kb": 66
     },
     {
       "file": "settings-light.webp",
       "route": "/settings",
       "theme": "light",
-      "kb": 68
+      "kb": 66
     },
     {
       "file": "settings-plan-dark.webp",
@@ -151,7 +151,7 @@
       "file": "settings-plan-light.webp",
       "route": "/settings/plan",
       "theme": "light",
-      "kb": 72
+      "kb": 71
     },
     {
       "file": "staged-dark.webp",
@@ -163,25 +163,25 @@
       "file": "staged-light.webp",
       "route": "/staged",
       "theme": "light",
-      "kb": 51
+      "kb": 52
     },
     {
       "file": "templates-dark.webp",
       "route": "/templates",
       "theme": "dark",
-      "kb": 27
+      "kb": 40
     },
     {
       "file": "templates-light.webp",
       "route": "/templates",
       "theme": "light",
-      "kb": 27
+      "kb": 40
     },
     {
       "file": "transactions-dark.webp",
       "route": "/transactions",
       "theme": "dark",
-      "kb": 64
+      "kb": 63
     },
     {
       "file": "transactions-light.webp",

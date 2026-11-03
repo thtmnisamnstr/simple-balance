@@ -9,7 +9,7 @@ import { sourceFiles } from "./support/source.js";
  * and does nothing at all for the environment, which is the half the billing
  * work made load-bearing. Every file in a tier shares one process, so a
  * `STRIPE_SECRET_KEY` left set is a vendor switched on for whatever runs next —
- * and `src/server/config.ts:224` caches the parsed configuration in a
+ * and `src/server/config.ts:235` caches the parsed configuration in a
  * module-level variable, so the next file can be answered out of this one's
  * keys even after the variables themselves are back.
  *
@@ -19,7 +19,7 @@ import { sourceFiles } from "./support/source.js";
  * the next one does the same, so it is never read stale.
  */
 const SWITCHES =
-  /^(?:STRIPE_|SB_BILLING_ENABLED|SMTP_|MAIL_|GOOGLE_CLIENT_|METRICS_|ADS_|AUTH_MODE|ALLOWED_EMAILS|SETUP_TOKEN|LOG_LEVEL|SB_CSP_REPORT_ONLY|TRUST_PROXY|PRIVACY_POLICY_URL|TERMS_OF_USE_URL)/;
+  /^(?:STRIPE_|SB_BILLING_ENABLED|SMTP_|MAIL_|GOOGLE_CLIENT_|METRICS_|ADS_|AUTH_MODE|ALLOWED_EMAILS|SETUP_TOKEN|LOG_LEVEL|SB_CSP_REPORT_ONLY|SB_HOUSE_AD|TRUST_PROXY|PRIVACY_POLICY_URL|TERMS_OF_USE_URL)/;
 
 /**
  * The three spellings a file sets one with, read out of the code rather than

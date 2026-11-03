@@ -123,3 +123,28 @@ export async function answerPlanStatus(page: Page) {
     (route) => route.fulfill({ json: status }),
   );
 }
+
+/**
+ * Tell the signed-in page to show the house ad, the way a selling deployment
+ * tells a free account.
+ *
+ * The browser tier runs with no Stripe keys, so the server's answer is always
+ * false and the ad would never be on any page these specs measure. The rest of
+ * the session is the server's own: only the one field is changed, and only on
+ * a session that has somebody in it, so signing up still goes through the real
+ * thing.
+ */
+export async function answerHouseAd(page: Page) {
+  await page.route(
+    (url) => url.pathname === "/api/v1/session",
+    async (route) => {
+      const response = await route.fetch();
+      const body: unknown = await response.json().catch(() => null);
+      if (body === null || typeof body !== "object" || !("user" in body)) {
+        await route.fulfill({ response });
+        return;
+      }
+      await route.fulfill({ response, json: { ...body, ads: null, houseAd: true } });
+    },
+  );
+}

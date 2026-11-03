@@ -570,3 +570,38 @@ describe("narrowing the list by type", () => {
     expect(await screen.findByText(/clear the type filter/i)).toBeInTheDocument();
   });
 });
+
+/**
+ * `web.md` 12.1: a failure is shown rather than read as there being nothing.
+ * The form's category picker is built from this read, and a failed one left it
+ * empty with nothing on the page to say why.
+ */
+describe("a category read that failed", () => {
+  it("is said, rather than leaving the form's picker quietly empty", async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), window.location.origin);
+      if (url.pathname === "/api/v1/recurrences") return Response.json({ today, items: [rent] });
+      if (url.pathname === "/api/v1/accounts") return Response.json([checking]);
+      if (url.pathname === "/api/v1/categories") {
+        return Response.json(
+          { error: { code: "INTERNAL_ERROR", message: "The categories could not be read." } },
+          { status: 500 },
+        );
+      }
+      return Response.json([]);
+    });
+    vi.stubGlobal("fetch", fetch);
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <BrowserRouter>
+          <RecurrencesPage />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("The categories could not be read.")).toBeInTheDocument();
+  });
+});

@@ -8,6 +8,7 @@ import type {
 import {
   budgetEntrySetSchema,
   budgetPlanCreateSchema,
+  budgetPlanRefusal,
   budgetPlanUpdateSchema,
   budgetReportQuerySchema,
   MAX_REPORT_BUCKETS,
@@ -31,6 +32,7 @@ import {
   lockCategoryNamespace,
   patchChangesNothing,
   writeAudit,
+  type CreateAuditOptions,
 } from "./helpers.js";
 import { conflict, notFound, staleVersion, validationError } from "./errors.js";
 import { getPreferences } from "./preferences.js";
@@ -280,7 +282,13 @@ export type BudgetReportView = {
 
 const ZERO = "0";
 
-function planView(row: BudgetPlanRow, target: BudgetTargetName): BudgetPlanView {
+/**
+ * Exported for the Simple Balance file, which writes a plan's parameters under
+ * these same names. One stored percentage answers to two of them depending on
+ * the rule, and a second copy of that choice is one that could make a file say
+ * a plan grows by a share of income when the page says it steps up.
+ */
+export function planView(row: BudgetPlanRow, target: BudgetTargetName): BudgetPlanView {
   return {
     id: row.id,
     categoryId: row.categoryId,
@@ -520,7 +528,12 @@ export async function getBudgetPlan(actor: Actor, id: string) {
   return planView(row.plan, targetNameOf(row.categoryName, row.groupName));
 }
 
-export async function createBudgetPlan(actor: Actor, input: unknown, transaction?: DbTransaction) {
+export async function createBudgetPlan(
+  actor: Actor,
+  input: unknown,
+  options: CreateAuditOptions = {},
+  transaction?: DbTransaction,
+) {
   const parsed = budgetPlanCreateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
     await lockCategoryNamespace(tx, actor);
@@ -567,7 +580,7 @@ export async function createBudgetPlan(actor: Actor, input: unknown, transaction
     // or hands back the row, so an empty result means the driver broke.
     if (!created) throw new Error("Budget insert returned no row");
     await writeAudit(tx, actor, {
-      operation: "budgetPlan.create",
+      operation: options?.auditOperation ?? "budgetPlan.create",
       entityType: "budget_plan",
       entityId: created.id,
       after: created,
@@ -820,35 +833,13 @@ async function resolveCarry(
       `A sinking fund cannot be needed before it starts saving. This one starts in the period beginning ${activeFrom} and the target period begins ${targetDate}.`,
     );
   }
-  // Refused rather than ignored. A fund works out each period's figure from
-  // what is left to save, so an amount beside it is a number nothing reads —
-  // and a number nothing reads on a budget page is a number somebody will
-  // believe.
-  if (isFund && decimal(input.amount).cmp(0) !== 0) {
+  // The rest are shared, because an import previews the budgets it is about
+  // to create and has to refuse the same ones this does.
+  const refusal = budgetPlanRefusal(input);
+  if (refusal !== null) {
     throw validationError(
-      "A sinking fund works out its own amount each period, from what is still needed and how many periods are left. Set the amount to zero, or remove the target to budget a fixed amount.",
-    );
-  }
-  if (input.priority !== 0 && input.isGroup) {
-    throw validationError(
-      "A funding order is about categories. Ranking a group and the categories under it would spend the same income twice, so a group's budget carries no priority.",
-    );
-  }
-  if (!input.rollover && input.rolloverCap !== null) {
-    throw validationError(
-      "A carry cap only means something when rollover is on, and this budget does not carry anything forward.",
-    );
-  }
-  // A fund saves by carrying, so a cap under the target caps the saving: each
-  // period's contribution is pinned back to the cap, the fund re-budgets what
-  // the cap just discarded, and the target date arrives with the whole
-  // shortfall due at once. The two numbers contradict each other, so the pair
-  // is refused rather than obeyed in the wrong order — and the browser offers
-  // the combination, which is exactly why the server has to say no.
-  if (isFund && input.rolloverCap !== null && decimal(input.rolloverCap).lt(input.targetAmount!)) {
-    throw validationError(
-      "This cap is below what the fund is saving for, so it would throw away each period's contribution and leave the whole amount due at the end. Raise the cap to at least the target, or remove it.",
-      { fields: ["rolloverCap"] },
+      refusal.message,
+      refusal.field === undefined ? undefined : { fields: [refusal.field] },
     );
   }
   const amountRule: BudgetAmountRule = isFund
@@ -901,7 +892,12 @@ async function truncatePeriod(
   return String(result.rows[0]!.start);
 }
 
-export async function setBudgetEntry(actor: Actor, input: unknown, transaction?: DbTransaction) {
+export async function setBudgetEntry(
+  actor: Actor,
+  input: unknown,
+  options: CreateAuditOptions = {},
+  transaction?: DbTransaction,
+) {
   const parsed = budgetEntrySetSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
     await lockCategoryNamespace(tx, actor);
@@ -943,8 +939,10 @@ export async function setBudgetEntry(actor: Actor, input: unknown, transaction?:
         .returning();
       // Same impossibility as the plan insert above.
       if (!created) throw new Error("Budget entry insert returned no row");
+      // Only a new period's amount takes another name: an import never
+      // changes one already here, so an update is always somebody's own.
       await writeAudit(tx, actor, {
-        operation: "budgetEntry.create",
+        operation: options?.auditOperation ?? "budgetEntry.create",
         entityType: "budget_entry",
         entityId: created.id,
         after: created,

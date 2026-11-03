@@ -41,9 +41,31 @@
 		max_size {$MAX_BODY_SIZE}
 	}
 
-	# Everything. The application serves its own browser bundle, its own API and
-	# its own MCP endpoint on one origin, which is what lets the session cookie
-	# work for all three.
+	# Never the application's /metrics, whatever METRICS_ENABLED says. The
+	# proxy below forwards every path, and the application checks nothing but
+	# the optional METRICS_TOKEN — so for a release, turning metrics on without
+	# a token published request rates, pool depth and every route's error count
+	# to anybody who typed the address, and the compose file's comment said no
+	# terminator here proxied it. The scraper this profile runs reaches the
+	# application on the loopback port compose.yml publishes, never through
+	# here, so nothing that should read /metrics comes this way.
+	#
+	# A 404 rather than a 403, because "forbidden" says there is something to
+	# find; the frontend image's nginx gives the same answer by not having the
+	# location at all. /metrics/* as well, which the application does not serve
+	# today and which a later route would otherwise publish by default. Caddy
+	# matches paths case-insensitively and after decoding them, so /METRICS
+	# and /%6detrics land here too — measured against Caddy 2.11, not read off
+	# its documentation, and tests/caddy-metrics.test.ts holds the shape.
+	#
+	# `respond` sorts ahead of `reverse_proxy` in Caddy's directive order, and
+	# the matcher is what keeps it to these paths, so nothing else changes.
+	@metrics path /metrics /metrics/*
+	respond @metrics 404
+
+	# Everything else. The application serves its own browser bundle, its own
+	# API and its own MCP endpoint on one origin, which is what lets the session
+	# cookie work for all three.
 	#
 	# No header_up and no timeouts, and both are deliberate. Caddy's default
 	# X-Forwarded-For is already the one this application needs, and Caddy

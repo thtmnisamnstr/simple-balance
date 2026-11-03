@@ -1,6 +1,6 @@
 ---
 name: product-kit
-description: Rebuild docs/product — the tiered feature list and a screenshot of every screen — which the marketing site at smpl.money reads. Use when the app's look or capabilities change, as part of release-prep, or when asked to refresh the marketing screenshots or feature list.
+description: Rebuild docs/product — the tiered feature list and a screenshot of every screen — which the marketing site at smpl.money reads, and sync the money guides the MCP server carries back from smpl.money/learn. Use when the app's look or capabilities change, as part of release-prep, or when asked to refresh the marketing screenshots, the feature list or the learn guides.
 ---
 
 # Rebuild what the marketing site reads
@@ -38,6 +38,13 @@ The marketing site is a separate repository at
 application**, so if the kit is not built here it is not built anywhere, and
 that site falls back to describing screens nobody has looked at.
 
+**One file comes back the other way, and §6 runs every time this skill does.**
+`src/server/learn/learn-pack.json` is the site's money guides as smpl.money
+publishes them, which the MCP server hands an agent. It is the one thing this
+skill owns that the site writes and this repository reads, so it has no screen
+or capability to wait for: a guide the site edited last week is stale here
+whether or not anything in this branch changed.
+
 ## 1. The feature list
 
 Edit `docs/product/features.json` when a capability lands, changes or goes.
@@ -65,9 +72,8 @@ is a claim about who uses this and what goes wrong for them. One sentence.
 
 ## 2. The screenshots
 
-They need this application running against a seeded database.
-`docs/standards/operations.md` owns the runbook this repeats in short; read it
-there if anything below does not work.
+They need this application running against a seeded database, and the block
+below is the whole runbook; no guide holds a longer one.
 `scripts/product-kit/seed.json` is the fixture, committed rather than
 generated: a screenshot of random data cannot be reproduced, so two captures
 a month apart cannot be compared and a layout regression hides in the noise.
@@ -213,4 +219,95 @@ the site works out which of the two itself. So **a kit pushed anywhere else
 does not reach that site** until it lands on one of them — say where it went
 when handing over, because the obvious assumption is that pushing is enough.
 
-Then `npm run verify`, and `release-prep` if this is part of one.
+Then §6, which runs every time, then `npm run verify`, and `release-prep` if
+this is part of one.
+
+## 6. The other direction: the money guides
+
+`src/server/learn/learn-pack.json` is the guides smpl.money publishes at
+`/learn`, each as the plain-Markdown copy the site serves beside its page, in
+the order `/llms.txt` lists them. `list_learn_articles` and `get_learn_article`
+serve it, from memory, so a deployment with no internet has it too. **The site
+owns the words; this repository owns `src/server/learn/in-simple-balance.ts`**,
+which maps each guide's "How to do it in Simple Balance" steps to the tools that
+do them. `AGENTS.md`'s `docs/product/` bullet is the contract between the two
+repositories, and this is the half of it that runs this way.
+
+Run it every time, including on a branch where no screen and no capability
+changed. It takes seconds and needs neither the database nor a browser:
+
+```sh
+node scripts/sync-learn.mjs --check     # 0 in sync, 1 drifted, 2 could not tell
+```
+
+- **0** — nothing to do. Say so in the readiness report.
+- **1** — the report lists what moved. Rewrite the pack from the published site,
+  then run the three suites that hold it:
+
+  ```sh
+  node scripts/sync-learn.mjs --write
+  npx vitest run tests/learn-pack.test.ts tests/learn-sync.test.ts tests/mcp-learn.test.ts
+  ```
+
+  What the report says decides what else to edit, **in the same commit as the
+  pack**:
+
+  | The report says | Edit |
+  | --- | --- |
+  | `Changed: … wording only` | Nothing. The pack is the whole change. |
+  | `Changed: … its steps changed` | `in-simple-balance.ts`: the guide's steps, in the site's order and words, each with its tools and a `how`. `tests/learn-pack.test.ts` names the guide until they agree. |
+  | `Added:` | The same, for every step the new guide has, and a decision about whether `list_learn_articles`' description should name its topic. That description is what a client's tool search matches "how do I…?" against. Changing it moves `docs/standards/mcp.md`'s pinned figures, so re-pin them from `tests/mcp-measurements.test.ts` in the same commit. |
+  | `Removed:` | Its entry in `in-simple-balance.ts`. |
+  | `Reordered:` | Nothing. The order is the site's. |
+  | `Restamp:` | Nothing but the `--write`. The bytes already match; the pack came from a local build and `source.from` says so until it is written from the site. |
+
+- **2** — conclude nothing, and never `--write` over the pack on a 2. The note
+  names what failed: the site unreachable, `/llms.txt` listing no guides (which
+  is also what a site that has not deployed them yet looks like), or a copy
+  whose header is not the shape the sync reads. The first two are the site's
+  state, and the third is a change to `src/lib/markdown.ts` there that
+  `scripts/lib/learn-sync.mjs` has to learn, with a case in
+  `tests/learn-sync.test.ts`.
+
+**When the site and the pack disagree, the site is right about its words and
+this repository is right about its product.** The pack is never edited by
+hand: each copy carries the hash of its bytes, and `tests/learn-pack.test.ts`
+fails an edit. So a guide that is wrong about this application — a page it
+names by an old label, a step that no longer works that way — is fixed on the
+site, by its `sync-from-app` skill, and reaches this repository at the next
+`--write` after the site deploys. Until then, name it in the readiness report.
+What this repository can fix itself is `in-simple-balance.ts`: where a guide's
+browser wording would mislead an agent, the `how` beside that step says what
+the tool takes instead.
+
+**A release's pack comes from the published site.** One written from a local
+build is a preview, and it says so in `source.from`:
+
+```sh
+node scripts/sync-learn.mjs --write --from ../simple-balance-web/out
+```
+
+That is for a branch that has to ship tools before the site deploys its guides,
+and the guides' links lead nowhere until it does. `--check` against the site
+then reports `Restamp:` until the pack is written again from smpl.money.
+`node scripts/sync-learn.mjs --published` asks the release question offline —
+exit 0 for a pack written from the site, 1 for a preview — and the release
+workflow runs it before it publishes an image, so a preview can merge but
+cannot be cut. Run it before tagging rather than finding out after.
+
+**A sync never moves `docs/standards/mcp.md`'s payload figures.** Neither tool
+publishes anything a guide decides — the slug is a string, not an enum of the
+guides there are — so if `tests/mcp-measurements.test.ts` fails after a sync,
+something other than the guides changed. The one exception is the table row
+above: an edited `list_learn_articles` description.
+
+One line for the readiness report, whichever is true:
+
+- `learn pack: in sync with smpl.money (llms.txt <first 8 of llmsSha256>, synced <syncedAt>)`
+- `learn pack: from a local site build <source.from> — guides not yet published`
+- `learn pack: could not check — <the note>`
+
+The second whenever `--published` exits 1, **even when `--check` exits 2**: a
+site that has not deployed its guides answers `/llms.txt` with a 404, and
+"could not check" would hide that the pack is a preview whose every guide
+address leads nowhere.

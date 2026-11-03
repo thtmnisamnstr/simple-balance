@@ -1,7 +1,19 @@
 import { readFileSync } from "node:fs";
 import { Counter } from "prom-client";
 import { afterEach, describe, expect, it } from "vitest";
-import { registry, setMetricsComponent } from "../src/server/metrics.js";
+import {
+  AUTH_ROUTES,
+  CHECKED_DEPENDENCIES,
+  COUNTED_LOG_LEVELS,
+  CSP_DIRECTIVES,
+  INTERNAL_ERROR_SURFACES,
+  MCP_RPC_METHODS,
+  RATE_LIMITERS,
+  registry,
+  SCHEDULER_SWEEPS,
+  setMetricsComponent,
+  STRIPE_FAILURE_REASONS,
+} from "../src/server/metrics.js";
 import { sourceFiles } from "./support/source.js";
 
 /**
@@ -37,18 +49,32 @@ const lineOf = (text: string, offset: number) => text.slice(0, offset).split("\n
  * `memo` would each have passed it, and the rule is about the values rather
  * than the spelling. A label is now identifying until somebody writes down
  * why its values cannot be: anything not here fails by name.
+ *
+ * Where `metrics.ts` exports a label's vocabulary, the entry is built from it
+ * rather than copied, so the reason given here is the list a caller maps onto
+ * and cannot come to describe a different one.
  */
+const oneOf = (values: readonly string[]) => `one of ${values.join(", ")}`;
+
 const BOUNDED_LABELS: Record<string, string> = {
   component: "api or scheduler, set by the entrypoint",
   method: "the HTTP method, a closed set",
-  route: "the route pattern that matched, never the path with an id in it",
+  route: `the route pattern that matched, never the path with an id in it; on auth_requests_total, ${oneOf(AUTH_ROUTES)}`,
   status: "the HTTP status code",
   tool: "an MCP tool name, the registry's closed list",
   outcome: "a short closed set each counter declares",
   operation: "a service operation name written in the source",
   version: "this build's APP_VERSION",
-  state: "a closed set of pool or scheduler states",
+  state: "a closed set of pool states: total, idle, waiting and max",
   le: "a histogram bucket boundary, from the buckets the metric declares",
+  surface: `where an unexpected failure was answered, ${oneOf(INTERNAL_ERROR_SURFACES)}`,
+  level: `a log level, ${oneOf(COUNTED_LOG_LEVELS)}`,
+  rpc_method: `a JSON-RPC method mapped onto a fixed list and never copied, ${oneOf(MCP_RPC_METHODS)}`,
+  reason: `a Stripe error's class and code, never its message, ${oneOf(STRIPE_FAILURE_REASONS)}`,
+  sweep: `a job the scheduler's tick runs, ${oneOf(SCHEDULER_SWEEPS)}`,
+  limiter: `a rate limiter that answers 429, ${oneOf(RATE_LIMITERS)}`,
+  dependency: `a dependency a startup check reaches, ${oneOf(CHECKED_DEPENDENCIES)}`,
+  directive: `a CSP directive matched against a fixed list and never copied from the report, ${oneOf(CSP_DIRECTIVES)}`,
 };
 
 const looksIdentifying = (label: string) => !(label in BOUNDED_LABELS);
@@ -128,6 +154,20 @@ describe("a metric's labels", () => {
     // label is reachable on one side of the metric only.
     expect([...published].filter(([, labels]) => !labels.has("component"))).toEqual([]);
     expect(declarations().filter((m) => (m.labelNames ?? []).includes("component"))).toEqual([]);
+  });
+
+  it("excuse no label that nothing publishes", async () => {
+    setMetricsComponent("api");
+    driveEveryMetric();
+
+    const published = new Set(
+      [...(await publishedLabels()).values()].flatMap((names) => [...names]),
+    );
+
+    // An entry above is an argument for a label, and one that outlives every
+    // metric carrying it is an argument nothing checks any more: the next
+    // metric to take the name inherits a reason written about something else.
+    expect(Object.keys(BOUNDED_LABELS).filter((label) => !published.has(label))).toEqual([]);
   });
 
   it("show on the values the declaration side cannot be asked for at all", async () => {

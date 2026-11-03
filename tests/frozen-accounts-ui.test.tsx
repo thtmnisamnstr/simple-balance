@@ -681,6 +681,53 @@ describe("a frozen account's own page", () => {
   });
 });
 
+/**
+ * `web.md` 11.8: the archived flag lives in the URL, under the key Overview and
+ * Reports use. It was component state here, so the Simple Balance file's
+ * result — "arrived archived. Restore it from Accounts" — linked to a list that
+ * hid the account it named, and no link could say otherwise.
+ */
+describe("the Accounts page's archived flag", () => {
+  const ARCHIVED = account("11111111-1111-4111-8111-000000000009", "Old savings", {
+    archivedAt: "2026-02-01T00:00:00.000Z",
+  });
+
+  function mountAt(path: string) {
+    stubFetch([LIVE, ARCHIVED]);
+    window.history.replaceState(null, "", path);
+    render(
+      <QueryClientProvider client={queryClient()}>
+        <BrowserRouter>
+          <AccountsPage session={session(1)} />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+  }
+
+  it("is read from the URL, so a link can show archived accounts", async () => {
+    mountAt("/accounts?archived=1");
+    expect(await screen.findByText(ARCHIVED.name)).toBeInTheDocument();
+    expect(screen.getByLabelText("Show archived accounts")).toBeChecked();
+    const asked = vi
+      .mocked(fetch)
+      .mock.calls.map(([input]) => new URL(String(input), window.location.origin))
+      .filter((url) => url.pathname === "/api/v1/accounts");
+    expect(asked.every((url) => url.searchParams.get("includeArchived") === "true")).toBe(true);
+  });
+
+  it("is written to the URL when the box is ticked, and taken off when it is cleared", async () => {
+    mountAt("/accounts");
+    await screen.findByText(LIVE.name);
+    expect(screen.queryByText(ARCHIVED.name)).toBeNull();
+    fireEvent.click(screen.getByLabelText("Show archived accounts"));
+    expect(await screen.findByText(ARCHIVED.name)).toBeInTheDocument();
+    expect(window.location.search).toBe("?archived=1");
+    fireEvent.click(screen.getByLabelText("Show archived accounts"));
+    await waitFor(() => expect(screen.queryByText(ARCHIVED.name)).toBeNull());
+    expect(window.location.search).toBe("");
+  });
+});
+
 describe("restoring an archived account", () => {
   const ARCHIVED = account("11111111-1111-4111-8111-000000000009", "Old savings", {
     archivedAt: "2026-02-01T00:00:00.000Z",

@@ -34,6 +34,7 @@ async function optionsWith(settings: Record<string, string>) {
     "TERMS_OF_USE_URL",
     "ADSENSE_CLIENT_ID",
     "ADSENSE_BANNER_SLOT_ID",
+    "SB_HOUSE_AD",
     "SMTP_HOST",
     "STRIPE_SECRET_KEY",
   ]) {
@@ -87,6 +88,17 @@ describe("the documents the sign-in screen is told about", () => {
     expect(options).toMatchObject({
       privacyPolicyUrl: "https://smpl.money/privacy/",
     });
+  });
+
+  /**
+   * The house ad is first-party, so Google's demand for a policy does not reach
+   * it and `adsAvailable` — which names AdSense — stays false beside it.
+   */
+  it("demands no policy and reports no AdSense for the house ad alone", async () => {
+    const options = await optionsWith({ SB_HOUSE_AD: "true" });
+
+    expect(options.adsAvailable).toBe(false);
+    expect(options).not.toHaveProperty("privacyPolicyUrl");
   });
 
   it("leaves both out where the operator set neither", async () => {

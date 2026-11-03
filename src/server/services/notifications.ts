@@ -394,3 +394,17 @@ async function deliver(userId: string, owed: OwedReminder) {
 export function firstNotificationDate(rule: NotificationRule) {
   return nextNotificationAfter(rule, null)?.sendDate ?? null;
 }
+
+/**
+ * For a caller writing a row whose watermark it already knows: the day the
+ * next reminder after `lastNotifiedDate` goes, by the sweep's own rule, or
+ * null when the rule owes nothing more.
+ *
+ * The one caller is a template arriving in a Simple Balance file, which brings
+ * the watermark of the copy that sent it. Seeding the next date from the first
+ * occurrence instead would put a one-time reminder that already went back on
+ * the schedule, and the sweep would send it a second time.
+ */
+export function notificationDateAfter(rule: NotificationRule, lastNotifiedDate: string) {
+  return nextNotificationAfter(rule, lastNotifiedDate)?.sendDate ?? null;
+}

@@ -159,6 +159,38 @@ refuses an `APP_BASE_URL` that is neither HTTPS nor loopback. What
 `compose.caddy.yml` adds is a default answer to a question that was already
 being asked.
 
+**The metrics collector is the case worth arguing, because it is a second
+container that runs beside the application.** It answers to both clauses and
+breaks neither. It is not a requirement: nothing in either profile starts it
+unless a deployment asks, and the application runs, serves and reports exactly
+the same with it absent, since all it does is read `/metrics` from outside. And
+it holds nothing — no volume, no write-ahead log, a read-only root filesystem
+and a queue in memory — so losing it loses at most the batch it was holding and
+never anything of anybody's. node-exporter, its companion on the Compose
+shapes, mounts the host's root read-only and writes nowhere. Neither is a
+sidecar in the sense the rule means: neither shares the application's
+container, its network namespace or its lifecycle, and the chart runs the
+collector as a Deployment of its own rather than inside the API's pods. The
+choice of the OpenTelemetry Collector over Prometheus in agent mode was made on
+measured weight alone — `docs/deployment.md` §What it costs has the figures.
+
+## When metrics are on
+
+Off on every profile until asked for, and then one collector per deployment,
+sending to one backend that settings name. What each profile then runs:
+
+| Profile | Adds | Where |
+| --- | --- | --- |
+| `single` | The collector, and node-exporter for the application node | On the application node, on the host's network, listening on loopback alone. No machine is added: both fit in the memory that node already has, `docs/deployment-sizing.md` says how much |
+| `single` | node-exporter for the database node | On the database node, on its private address, port 9100, serving TLS with the database's own certificate, reachable from the application node and nothing else |
+| `compose.distributed.yml` | The collector and node-exporter | On the recipe's own network, with no port published |
+| `ha` | The collector, as a one-replica Deployment | In the release's namespace, finding the API and scheduler pods through the Kubernetes API with a Role that can read pods and nothing else. No node-exporter: a cluster's nodes are the cloud's to watch |
+
+What none of them scrapes, on purpose: Caddy, the frontend nginx and the load
+balancer; PostgreSQL, Patroni and Citus; and a cluster's nodes and objects.
+`docs/deployment.md` §What is scraped, and what is not gives the reasons, and
+the firewall below has the one port metrics open.
+
 ## What terminates TLS
 
 The application refuses an `APP_BASE_URL` that is neither HTTPS nor loopback
@@ -501,6 +533,7 @@ and counts them, so a rule added here fails a test rather than a review.
 | The application subnet, `10.30.0.0/24` | The application node | 22/tcp | `oci-single` only, and always: an OCI Bastion's private endpoint sits in the subnet it serves, and with no `sshCidr` it is the only way onto the machine |
 | The host | Anywhere | 443/tcp | Container images, Let's Encrypt, and any Stripe endpoint configured |
 | The host | The database | 5432 | The ledger, and the nightly dump. Outbound only |
+| The host | The database node | 9100/tcp | Only while the stack exports metrics: the collector reading the database node's node-exporter, over TLS. Outbound only |
 | The host | The SMTP relay | 587 or 465 | Only where mail is configured |
 
 **Nothing opens 3000**, on either machine. Caddy reaches the application over
@@ -523,6 +556,8 @@ to a third system in Pulumi state, and a different integration per registrar.
 | --- | --- | --- | --- |
 | The application node's security group | The database node | 5432/tcp | AWS. The only inbound rule by default. A source-security-group rule rather than a CIDR, so it stays correct when the application node is replaced or re-addressed |
 | The application subnet, `10.30.0.0/24` | The database node | 5432/tcp | Oracle Cloud. A security list takes CIDRs, so the application subnet is the tightest source available, and it holds exactly one machine |
+| The application node's security group | The database node | 9100/tcp | AWS, and **only while the stack sets `SB_METRICS_EXPORT_ENDPOINT`**: the collector scraping this machine's node-exporter, which serves TLS with the database's certificate. A source-security-group rule, for the reason the 5432 one is |
+| The application subnet, `10.30.0.0/24` | The database node | 9100/tcp | Oracle Cloud, and only while the stack exports metrics, for the same scrape |
 | The database subnet, `10.30.1.0/24` | The database node | 22/tcp | Oracle Cloud. An OCI Bastion's private endpoint must sit in the subnet it serves, and this is the only way to get a shell on a machine with no public address |
 | The application node's security group | The database node | 22/tcp | AWS, and **only under `simple-balance:databaseEgress: ipv6`**. That setting takes Session Manager away from this machine — its agent resolves an IPv4-only endpoint and the subnet then has no IPv4 route — and ssh from the application node is the replacement shell. A source-security-group rule again, so it names that one machine and nothing from the internet can reach it |
 | The database node | Anywhere | 443/tcp, 80/tcp | Egress, through a NAT gateway by default: Ubuntu's archive at first boot and every day after for unattended-upgrades, the image registry once, and — on AWS — Session Manager, which is the only shell onto a machine with no public address. `simple-balance:databaseEgress: ipv6` routes the same traffic through an egress-only internet gateway instead, at no charge and without Session Manager; `ssm` is that gateway plus two SSM interface endpoints, which keeps Session Manager for $14.60 a month in a US region and adds no inbound rule here. `docs/deployment-costs.md` compares all three |
@@ -536,7 +571,9 @@ egress, and the node's role carries `AmazonSSMManagedInstanceCore`. Under
 node's security group, because that setting is what takes Session Manager away.
 Under `databaseEgress: ssm` there is one again, and it is 5432: the endpoints
 keep the agent reaching Systems Manager without a route out, so nothing has to
-open a port to replace the shell. The 443 rule that setting adds is on the
+open a port to replace the shell. A stack that exports metrics adds 9100 from
+the same security group under any of the three, and takes it away again when
+the endpoint leaves the stack. The 443 rule that setting adds is on the
 endpoints' security group rather than on either machine, and its sources are
 security groups rather than CIDRs, like every other rule here.
 On Oracle Cloud there is no `sshCidr` rule, because the machine has no public
@@ -551,7 +588,28 @@ Cloud — and the instance asks for none.
 a netfilter ruleset that accepts 22 and rejects the rest, so a security list
 that opens 5432 meets a host that still refuses it. The database node's platform
 commands insert an `ACCEPT` for 5432 and run `netfilter-persistent save`, before
-the database starts. Only 5432: this machine serves neither 80 nor 443.
+the database starts. Only 5432, and 9100 on a node built while the stack
+exported metrics: this machine serves neither 80 nor 443. A node built before
+the stack exported needs the 9100 line by hand, which `docs/upgrades.md` has,
+because the security list arrives with `pulumi up` and the host's own rules
+never do.
+
+**On either cloud, neither machine's containers on the host's network may
+reach the instance metadata address.** What answers there is the machine's own
+identity, which on the application node can read every stack secret. On AWS a
+hop limit of 1 keeps a container from the role, and it only holds for a
+container behind Docker's bridge: the collector and both node-exporters share
+the host's network, so for them the metadata service is no hop away. On Oracle
+Cloud there is no hop limit at all, and the instance principal's certificate
+and key are there for anything that asks. Both programs therefore have both
+machines refuse the address to every user from 10000 to 65534, which covers all
+three exporters' users and leaves root, the system accounts below 1000 and uid
+1000 reaching it as before: `aws-single` at every boot, and `oci-single` once,
+saved with the host firewall netfilter-persistent restores. That rule keeps the
+host's own users off and nothing more, and on Oracle Cloud a container behind
+the bridge still reaches the address. A machine built before this release has
+no such rule, and `docs/upgrades.md` gives the line to add before metrics are
+turned on.
 
 **The scheduler has no node of its own in this profile.** It runs inside the
 all-in-one image on the application node and is reachable from nothing outside
@@ -567,6 +625,9 @@ it. That was already true and this work did not change it.
 | database | database | 5432 | A standby streaming from its primary, and a coordinator running a distributed query |
 | database | database | `database.restApiPort` | Patroni's REST API, between database pods only, plus whatever `probeSourceCidrs` names |
 | server, scheduler | Anywhere | 443, 587/465 | Stripe and mail, where configured |
+| collector | server, scheduler | 3000 | Only with `collector.enabled`: the scrape. Admitted to the API always, and to the scheduler whenever its policy has been narrowed |
+| collector | The Kubernetes API, the export endpoint | `networkPolicy.apiServerPorts` (443, 6443); the endpoint's own port | Finding the pods to scrape, and sending what it read. Its policy is closed both ways whatever `restrictEgress` says |
+| `probeSourceCidrs` | collector | 13133 | Its health check, and nothing else reaches it |
 
 The server is not publicly reachable in either shape, and a second ingress rule
 sending `/api` straight to it would bypass the `X-Forwarded-For` handling
@@ -818,7 +879,7 @@ each gets the minimum:
 | --- | --- | --- |
 | The CA certificate | Yes, it is public | No |
 | The CA private key | No | No — it exists only in Pulumi state |
-| The server certificate and key | No | Yes, the key at `0600`, owned by the server's own user |
+| The server certificate and key | No | Yes, the key at `0600`, owned by the server's own user — and, for node-exporter's TLS once metrics are on, a copy in `node-exporter-tls/` at `0600`, owned by uid 61000, because PostgreSQL refuses a key anybody else can read |
 | The application role's password | Yes, inside `DATABASE_URL` | Yes |
 | The superuser password | No | Generated there, and nowhere else |
 | `AUTH_SECRET` | Generated there | No |
@@ -827,16 +888,17 @@ The generated `DATABASE_URL` is written by cloud-init into
 `/opt/simple-balance/env.db` at `0600`, holding that one line and nothing else.
 
 Everything an operator genuinely supplies is the stack's: an SMTP password, a
-Stripe key, the AdSense ids — and a `DATABASE_URL` of your own, if you would
-rather point this machine at a database you keep — in `simple-balance:env` and
-`simple-balance:secrets`. The program writes them into one secret in the
-cloud's store, OCI Vault or AWS Secrets Manager, and grants the application
-machine's own identity read on that secret and nothing else. The machine fetches
-it every time the deployment starts, through a drop-in that runs
-`/usr/local/sbin/simple-balance-settings` and then `simple-balance-env`, and a
-timer checks it every five minutes, so a setting is a `pulumi up` and reaches
-the machine with nobody logged in. `deploy/pulumi/README.md`, "The
-application's settings", has both ways to set them.
+Stripe key, the AdSense ids, a metrics backend's credential — and a
+`DATABASE_URL` of your own, if you would rather point this machine at a database
+you keep — in `simple-balance:env` and `simple-balance:secrets`. The program
+writes them into one secret in the cloud's store, OCI Vault or AWS Secrets
+Manager, and grants the application machine's own identity read on that secret
+and nothing else. The machine fetches it every time the deployment starts,
+through a drop-in that runs `/usr/local/sbin/simple-balance-settings` and then
+`simple-balance-env`, and a timer checks it every five minutes, so a setting is
+a `pulumi up` and reaches the machine with nobody logged in.
+`deploy/pulumi/README.md`, "The application's settings", has both ways to set
+them.
 
 That replaces a file on the data volume that settings used to be typed into
 over SSH, and the reason it could not have been the stack before is the reason

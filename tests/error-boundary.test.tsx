@@ -68,7 +68,7 @@ describe("the error boundary", () => {
       </ErrorBoundary>,
     );
     expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Go to the dashboard" })).toHaveAttribute("href", "/");
+    expect(screen.getByRole("link", { name: "Go to Overview" })).toHaveAttribute("href", "/");
   });
 
   it("retries, and shows the children again when the throw has stopped", () => {

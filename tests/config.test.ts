@@ -63,6 +63,7 @@ const keys = [
   // sets is put back before the next.
   "METRICS_ENABLED",
   "SB_CSP_REPORT_ONLY",
+  "SB_HOUSE_AD",
 ] as const;
 const original = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
 
@@ -171,6 +172,7 @@ describe("authentication configuration", () => {
     // covered by citing this table while the table held two of the four.
     ["METRICS_ENABLED", "on", /METRICS_ENABLED must be true or false/],
     ["SB_CSP_REPORT_ONLY", "yes", /SB_CSP_REPORT_ONLY must be true or false/],
+    ["SB_HOUSE_AD", "yes", /SB_HOUSE_AD must be true or false/],
     ["LOG_LEVEL", "loud", /LOG_LEVEL must be debug, info, warn or error/],
     ["AUTH_MODE", "sso", /AUTH_MODE must be one of/],
     ["NODE_ENV", "Prod", /NODE_ENV must be production, development or test/],
@@ -693,38 +695,64 @@ describe("what a deployment sells and shows", () => {
     PRIVACY_POLICY_URL: "https://smpl.money/privacy/",
   } as const;
 
+  const houseAd = { SB_HOUSE_AD: "true" } as const;
+
   const cases = [
-    ["nothing configured", {}, { stripe: false, billing: false, ads: false }],
-    ["Stripe present, not selling", stripe, { stripe: true, billing: false, ads: false }],
+    ["nothing configured", {}, { stripe: false, billing: false, ads: false, houseAd: false }],
+    [
+      "Stripe present, not selling",
+      stripe,
+      { stripe: true, billing: false, ads: false, houseAd: false },
+    ],
     [
       "Stripe present and selling",
       { ...stripe, SB_BILLING_ENABLED: "true" },
-      { stripe: true, billing: true, ads: false },
+      { stripe: true, billing: true, ads: false, houseAd: false },
     ],
-    ["ads alone", adsense, { stripe: false, billing: false, ads: true }],
+    ["ads alone", adsense, { stripe: false, billing: false, ads: true, houseAd: false }],
     // The wind-down state, and the row the table was missing. Stripe is still
     // configured and subscribers are still being charged, but nothing is for
     // sale — so nobody is held to a limit, and the ad gate has to read this as
     // "not a free plan" rather than as "not on Plus". Written the second way,
     // every paying subscriber on a paused deployment would be shown ads.
-    ["both, wound down", { ...stripe, ...adsense }, { stripe: true, billing: false, ads: true }],
+    [
+      "both, wound down",
+      { ...stripe, ...adsense },
+      { stripe: true, billing: false, ads: true, houseAd: false },
+    ],
     [
       "both, selling",
       { ...stripe, ...adsense, SB_BILLING_ENABLED: "true" },
-      { stripe: true, billing: true, ads: true },
+      { stripe: true, billing: true, ads: true, houseAd: false },
+    ],
+    // The house ad is a column of its own and never turns `ads` on: `adsEnabled`
+    // is what widens the policy and serves ads.txt, and a first-party ad needs
+    // neither. So the house ad alone leaves `ads` false in every row, which is
+    // also what keeps it from demanding a privacy policy.
+    ["house ad alone", houseAd, { stripe: false, billing: false, ads: false, houseAd: true }],
+    [
+      "house ad, selling",
+      { ...stripe, ...houseAd, SB_BILLING_ENABLED: "true" },
+      { stripe: true, billing: true, ads: false, houseAd: true },
+    ],
+    [
+      "house ad and AdSense, selling",
+      { ...stripe, ...adsense, ...houseAd, SB_BILLING_ENABLED: "true" },
+      { stripe: true, billing: true, ads: true, houseAd: true },
     ],
   ] as const;
 
   it.each(cases)("%s", async (_name, environment, expected) => {
     setEnvironment({ ...production, ...environment });
     vi.resetModules();
-    const { stripeConfigured, billingEnabled, adsEnabled } =
+    const { getConfig, stripeConfigured, billingEnabled, adsEnabled } =
       await import("../src/server/config.js");
 
     expect({
       stripe: stripeConfigured(),
       billing: billingEnabled(),
       ads: adsEnabled(),
+      houseAd: getConfig().houseAd,
     }).toEqual(expected);
   });
 
@@ -789,6 +817,72 @@ describe("what a deployment sells and shows", () => {
       getConfig();
 
       expect(warn).not.toHaveBeenCalledWith(expect.stringContaining("nobody is shown an ad"));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  /**
+   * The house ad's version of the same slip. It is shown where a limited plan
+   * is in force and it offers the plan, so with nothing for sale it is a
+   * setting that looks accepted and shows nobody anything.
+   */
+  it("says so when the house ad is on and nothing is for sale", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      for (const environment of [houseAd, { ...stripe, ...houseAd }]) {
+        warn.mockClear();
+        setEnvironment({ ...production, ...environment });
+        vi.resetModules();
+        const { getConfig } = await import("../src/server/config.js");
+        expect(() => getConfig()).not.toThrow();
+
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("nobody is shown the house ad"));
+      }
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("says nothing about the house ad where a plan is for sale and AdSense is not set", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      setEnvironment({ ...production, ...stripe, ...houseAd, SB_BILLING_ENABLED: "true" });
+      vi.resetModules();
+      const { getConfig } = await import("../src/server/config.js");
+      getConfig();
+
+      expect(warn.mock.calls.flat().join("\n")).not.toMatch(/SB_HOUSE_AD/);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  /**
+   * Both kinds at once is accepted, and the house ad wins for whoever it is
+   * shown to. What the line has to say is the half that does not follow: the
+   * AdSense settings keep widening the policy and serving ads.txt while they
+   * are set, whether or not an AdSense unit is ever rendered.
+   */
+  it("says the AdSense settings still widen the policy when the house ad replaces them", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      setEnvironment({
+        ...production,
+        ...stripe,
+        ...adsense,
+        ...houseAd,
+        SB_BILLING_ENABLED: "true",
+      });
+      vi.resetModules();
+      const { getConfig } = await import("../src/server/config.js");
+      expect(() => getConfig()).not.toThrow();
+
+      const said = warn.mock.calls.flat().join("\n");
+      expect(said).toMatch(/SB_HOUSE_AD is true and AdSense is configured/);
+      expect(said).toMatch(/content security policy/);
+      expect(said).toMatch(/ads\.txt/);
+      expect(said, "selling, so neither is told nobody sees it").not.toMatch(/nobody is shown/);
     } finally {
       warn.mockRestore();
     }
@@ -918,6 +1012,7 @@ describe("what a deployment sells and shows", () => {
 
     expect(config.billing).toBeUndefined();
     expect(config.ads).toBeUndefined();
+    expect(config.houseAd).toBe(false);
     expect(config.legal).toEqual({});
   });
 

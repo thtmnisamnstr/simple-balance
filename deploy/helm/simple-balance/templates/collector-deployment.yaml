@@ -1,0 +1,164 @@
+{{- if include "simple-balance.collectorEnabled" . }}
+{{- $component := "collector" -}}
+{{- $collector := .Values.collector -}}
+{{- $headersSecret := include "simple-balance.collectorHeadersSecret" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "simple-balance.collectorName" . }}
+  labels:
+    {{- include "simple-balance.componentLabels" (dict "root" . "component" $component) | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- /*
+  One, always, and not a value: there is no replica count to set and no
+  autoscaler to give it one. Two collectors scraping the same pods send every
+  series twice, and a backend that turns a cumulative counter into a rate by
+  remembering its last value — New Relic does — computes nonsense from two
+  interleaved copies of it. The same reason a rollout recreates rather than
+  rolls: a surge pod would be that second copy for as long as both were up,
+  where a gap costs one scrape.
+  */}}
+  replicas: 1
+  strategy:
+    type: Recreate
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      {{- include "simple-balance.componentSelectorLabels" (dict "root" . "component" $component) | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/collector-config.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/collector-secret.yaml") . | sha256sum }}
+        {{- /*
+        The token it sends is read from the environment as it starts, out of
+        the Secret the API and the scheduler check theirs against, and those two
+        roll when it changes. So this rolls with them, on the same hash, or a
+        rotated secret.metricsToken leaves it sending the old one to pods that
+        now answer it 401. The whole file rather than the one value, so the
+        annotation never carries an unsalted hash of the token itself. A token in
+        an existing Secret rolls nothing here, as it rolls none of the pods.
+        */}}
+        checksum/token: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.commonAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- with $collector.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "simple-balance.componentLabels" (dict "root" . "component" $component) | nindent 8 }}
+        {{- with $collector.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- range . }}
+        - name: {{ . }}
+        {{- end }}
+      {{- end }}
+      serviceAccountName: {{ include "simple-balance.collectorServiceAccountName" . }}
+      # The only pod in this release that mounts a token. Finding the pods it
+      # scrapes is a watch on the API server; collector-rbac.yaml says what the
+      # token may do, which is read pods in this namespace.
+      automountServiceAccountToken: true
+      # On SIGTERM the collector stops scraping and flushes what it holds, and
+      # a batch waits at most ten seconds, so this outlasts both.
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        {{- toYaml $collector.podSecurityContext | nindent 8 }}
+      containers:
+        - name: collector
+          image: {{ include "simple-balance.collectorImage" . | quote }}
+          imagePullPolicy: {{ $collector.image.pullPolicy }}
+          args:
+            - --config=/etc/otelcol/config.yaml
+          securityContext:
+            {{- toYaml $collector.containerSecurityContext | nindent 12 }}
+          env:
+            # Each always set, and never blank: the collector takes a default
+            # only for a variable that is unset, and reads an empty one as no
+            # value at all, which for the protocol is a pipeline that does not
+            # exist. The schema refuses an empty one before it gets here.
+            - name: SB_METRICS_EXPORT_ENDPOINT
+              value: {{ $collector.export.endpoint | quote }}
+            - name: SB_METRICS_EXPORT_PROTOCOL
+              value: {{ $collector.export.protocol | quote }}
+            - name: SB_METRICS_SCRAPE_INTERVAL
+              value: {{ $collector.scrapeInterval | quote }}
+            - name: SB_METRICS_ENVIRONMENT
+              value: {{ $collector.environment | quote }}
+            {{- if $headersSecret }}
+            # Not optional. A Secret named without the key is a mistake, and a
+            # pod that will not start says so where an exporter sending without
+            # its credential would only collect refusals.
+            - name: SB_METRICS_EXPORT_HEADERS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $headersSecret }}
+                  key: {{ $collector.export.existingSecretKey }}
+            {{- end }}
+            # Optional, because the token is: a release with none has pods that
+            # check none, and the collector then sends an empty one.
+            - name: METRICS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "simple-balance.collectorTokenSecret" . }}
+                  key: METRICS_TOKEN
+                  optional: true
+            # Below the 128Mi limit, so the Go runtime starts collecting before
+            # the kernel kills the process; the shared pipeline's memory_limiter
+            # is written against the same two numbers.
+            - name: GOMEMLIMIT
+              value: 80MiB
+          ports:
+            - name: health
+              containerPort: 13133
+              protocol: TCP
+          # The health_check extension, which answers once the pipeline has
+          # started. It does not follow the backend: a rejected credential or
+          # an unreachable endpoint shows as the collector's own
+          # otelcol_exporter_send_failed_metric_points rather than as a restart,
+          # because restarting would not fix either and would lose the batch.
+          readinessProbe:
+            httpGet:
+              path: /
+              port: health
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: health
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            {{- toYaml $collector.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otelcol
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "simple-balance.collectorName" . }}
+      {{- with $collector.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $collector.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $collector.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

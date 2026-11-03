@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { BarChart3, SlidersHorizontal } from "lucide-react";
 import { useRef, useState } from "react";
 import { BarChart, ChartLegend, LineChart } from "../charts.js";
-import { api, queryString, type Report } from "../api.js";
+import { api, queryString, type Account, type Report } from "../api.js";
 import {
   Alert,
   DateRangeBar,
@@ -116,7 +116,7 @@ export default function ReportsPage() {
   const { ways } = emptyScreen([
     {
       set: !includeArchived,
-      clear: "turn on Include archived accounts to count the ones you have put away",
+      clear: "turn on Include archived accounts to count any archived ones",
       fromTheStart: true,
     },
   ]);
@@ -177,6 +177,17 @@ export default function ReportsPage() {
   };
 
   const data = query.data;
+  // Asked only once the report has come back empty, and only to choose where
+  // the empty state's button goes: with no account to post against, the
+  // Transactions page it used to send everybody to has its Add button disabled
+  // with "Create an account first.", so the button goes there instead. Under
+  // the key every other page's account list uses, so it is usually cached.
+  const accounts = useQuery({
+    queryKey: ["accounts"],
+    queryFn: () => api<Account[]>("/api/v1/accounts"),
+    enabled: Boolean(data && !data.currencies.length),
+  });
+  const noAccounts = accounts.data?.length === 0;
   const plotted = data ? data.buckets.length > 1 : false;
 
   // A balance is as of a day; a period's movement is between two. Heading a
@@ -327,9 +338,18 @@ export default function ReportsPage() {
             ways.length ? ` ${waysOut(ways)}` : ""
           }`}
           action={
-            <Link className="button button-primary" to="/transactions">
-              Add a transaction
-            </Link>
+            // Named as the page it lands on (16): it was "Add transaction",
+            // which this link does not do — it navigates, and the page it
+            // reached refused to add anything to a ledger with no account.
+            noAccounts ? (
+              <Link className="button button-primary" to="/accounts">
+                Go to Accounts
+              </Link>
+            ) : (
+              <Link className="button button-primary" to="/transactions">
+                Go to Transactions
+              </Link>
+            )
           }
         />
       ) : (
@@ -347,6 +367,15 @@ export default function ReportsPage() {
                     sumMoney(rows.map((entry) => entry.values[position] ?? "0")),
                   )
                 : currency.totals;
+            // The footer's last cell, which was left empty under the bold
+            // Total column — so with one period the footer's figure sat under
+            // the period and looked filed in the wrong column. A row's total
+            // is its sum for a movement and its closing for a balance (the
+            // server's `assemble`), so adding the totals on screen gives the
+            // grand total for a flow and what is held at the close for a
+            // balance with no branch, and it leaves out excluded rows as the
+            // period cells beside it do.
+            const columnTotal = sumMoney(rows.map((entry) => entry.total));
             const series = rows.map((entry) => ({
               key: entry.key,
               label: entry.label,
@@ -407,15 +436,17 @@ export default function ReportsPage() {
                         <th scope="col" className="align-right">
                           {data.accumulation === "historical" ? "Closing" : "Total"}
                         </th>
+                        {excludable ? (
+                          <th scope="col">
+                            <span className="sr-only">Actions</span>
+                          </th>
+                        ) : null}
                       </tr>
                     </thead>
                     <tbody>
                       {rows.map((entry) => {
                         const subject = rowSubject(data, entry.key);
-                        /* The name, linked where it has somewhere to go. Kept
-                           as one expression because both branches of the
-                           `excludable` split below render it and a second copy
-                           is how the two stop agreeing. */
+                        /* The name, linked where it has somewhere to go. */
                         const name = (
                           <>
                             {subject ? (
@@ -433,37 +464,10 @@ export default function ReportsPage() {
                         );
                         return (
                           <tr key={entry.key}>
-                            {/* Named as the label alone: content naming would
-                              read every rowheader as "Rent Actions for Rent",
-                              the menu's own label included. The menu button
-                              keeps its name for when it is reached. */}
-                            <th scope="row" aria-label={excludable ? entry.label : undefined}>
-                              {excludable ? (
-                                <span className="report-row-heading">
-                                  <span>{name}</span>
-                                  <RowMenu label={`Actions for ${entry.label}`}>
-                                    <button
-                                      onClick={() => {
-                                        setExcluded(new Map(excluded).set(entry.key, entry.label));
-                                        // The row this control lived on is
-                                        // leaving; the pills that undo it are
-                                        // where a keyboard user lands.
-                                        requestAnimationFrame(() =>
-                                          exclusionsNote.current?.focus(),
-                                        );
-                                      }}
-                                    >
-                                      Exclude from this view
-                                    </button>
-                                  </RowMenu>
-                                </span>
-                              ) : (
-                                /* A balance report keeps a closed account's
-                                 history, so without saying so its past reads as
-                                 money still held. `name` carries that. */
-                                name
-                              )}
-                            </th>
+                            {/* A balance report keeps a closed account's
+                                history, so without saying so its past reads as
+                                money still held. `name` carries that. */}
+                            <th scope="row">{name}</th>
                             {entry.values.map((value, position) => (
                               <td
                                 className={`align-right${isNegativeMoney(value) ? " money-negative" : ""}`}
@@ -477,6 +481,29 @@ export default function ReportsPage() {
                             >
                               <strong>{formatMoney(entry.total, currency.currency)}</strong>
                             </td>
+                            {/* Last, in a column of its own, where every other
+                                table puts its row menu (9.8). It sat inside the
+                                row header, pushed by `space-between` to the
+                                first column's right edge — the middle of a wide
+                                table, and a different place in each currency's
+                                table because each sizes its own columns. */}
+                            {excludable ? (
+                              <td className="row-actions">
+                                <RowMenu label={`Actions for ${entry.label}`}>
+                                  <button
+                                    onClick={() => {
+                                      setExcluded(new Map(excluded).set(entry.key, entry.label));
+                                      // The row this control lived on is
+                                      // leaving; the pills that undo it are
+                                      // where a keyboard user lands.
+                                      requestAnimationFrame(() => exclusionsNote.current?.focus());
+                                    }}
+                                  >
+                                    Exclude from this view
+                                  </button>
+                                </RowMenu>
+                              </td>
+                            ) : null}
                           </tr>
                         );
                       })}
@@ -498,7 +525,12 @@ export default function ReportsPage() {
                             <strong>{formatMoney(value, currency.currency)}</strong>
                           </td>
                         ))}
-                        <td className="align-right" />
+                        <td
+                          className={`align-right${isNegativeMoney(columnTotal) ? " money-negative" : ""}`}
+                        >
+                          <strong>{formatMoney(columnTotal, currency.currency)}</strong>
+                        </td>
+                        {excludable ? <td /> : null}
                       </tr>
                     </tfoot>
                   </table>

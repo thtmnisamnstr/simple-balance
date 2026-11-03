@@ -21,6 +21,10 @@ const lifecycle = vi.hoisted(() => ({
   closeResources: undefined as (() => Promise<void>) | undefined,
   ticking: false,
 }));
+/** The one statement a readiness check makes, answered however a test needs. */
+const database = vi.hoisted(() => ({
+  execute: async (): Promise<unknown> => ({ rows: [] }),
+}));
 
 vi.mock("nodemailer", () => ({ createTransport: () => transport }));
 /**
@@ -40,7 +44,10 @@ vi.mock("@hono/node-server", () => ({
   },
 }));
 vi.mock("../src/server/db/migrate.js", () => ({ runMigrations: async () => {} }));
-vi.mock("../src/server/db/client.js", () => ({ closeDb: async () => {}, getDb: () => ({}) }));
+vi.mock("../src/server/db/client.js", () => ({
+  closeDb: async () => {},
+  getDb: () => ({ execute: () => database.execute() }),
+}));
 vi.mock("../src/server/recurrence-scheduler.js", () => ({
   createRecurrenceScheduler: () => {
     lifecycle.ticking = true;
@@ -64,6 +71,7 @@ afterEach(() => {
   lifecycle.closeResources = undefined;
   lifecycle.ticking = false;
   listener.fetch = undefined;
+  database.execute = async () => ({ rows: [] });
   // The entrypoint reports a failed start by setting this, and vitest reads the
   // same field when the run ends, so one left behind would fail a green run.
   process.exitCode = 0;
@@ -184,5 +192,37 @@ describe("the scheduler's metrics endpoint", () => {
     const live = await listener.fetch!(new Request("http://localhost/health/live"));
 
     expect(live.status).toBe(200);
+  });
+
+  /**
+   * The probe this port answers, counted where the scrape beside it reads it.
+   *
+   * This app has no timing middleware, and the guide pins it to three routes,
+   * so a scheduler failing readiness was a 503 that the platform acted on and
+   * no metric recorded. The check records its own answer, and this reads it
+   * back through `/metrics` on the same port, which is where a scraper pointed
+   * at the scheduler finds it.
+   */
+  it("records each readiness answer it gives, and the last one as a gauge", async () => {
+    vi.stubEnv("METRICS_ENABLED", "true");
+
+    await startScheduler();
+    const ready = await listener.fetch!(new Request("http://localhost/health/ready"));
+    database.execute = async () => {
+      throw new Error("connect ECONNREFUSED");
+    };
+    const notReady = await listener.fetch!(new Request("http://localhost/health/ready"));
+    const scrape = await (await listener.fetch!(new Request("http://localhost/metrics"))).text();
+
+    expect(ready.status).toBe(200);
+    expect(notReady.status).toBe(503);
+    // Two `ready`: the check made once as the port opened, and the probe.
+    expect(scrape).toMatch(
+      /simple_balance_readiness_checks_total\{[^}]*outcome="ready"[^}]*component="scheduler"[^}]*\} 2/,
+    );
+    expect(scrape).toMatch(
+      /simple_balance_readiness_checks_total\{[^}]*outcome="not_ready"[^}]*\} 1/,
+    );
+    expect(scrape).toMatch(/simple_balance_ready\{component="scheduler"\} 0/);
   });
 });

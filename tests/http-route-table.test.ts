@@ -151,7 +151,7 @@ describe("the conventions the paths follow", () => {
    * session probe's, read before the route because signed out is decided in
    * the middleware (`docs/standards/http.md`, Session and account). That is the defense in
    * the right place, so these are not defects; naming them is what makes a
-   * ninth a decision somebody made rather than one that arrived.
+   * sixth parameter a decision somebody made rather than one that arrived.
    */
   it("names the query parameters a handler still reads one at a time", async () => {
     const source = await readFile(apiPath, "utf8");
@@ -160,6 +160,12 @@ describe("the conventions the paths follow", () => {
       ...new Set([...routes.matchAll(/c\.req\.query\(\s*"([^"]+)"/g)].map((match) => match[1]!)),
     ].sort();
     expect(named).toEqual(["end", "includeArchived", "optional", "search", "start"]);
+    // And `http.md`'s checked table states how many. It said four for a release
+    // after the session probe's `optional` made it five, and somebody checking
+    // the table against this list started from a wrong count.
+    const words = ["none", "one", "two", "three", "four", "five", "six", "seven", "eight"];
+    const guide = (await readFile(guidePath, "utf8")).replaceAll(/\s+/g, " ");
+    expect(guide).toContain(`the ${words[named.length]} it still reads one at a time are named`);
   });
 });
 

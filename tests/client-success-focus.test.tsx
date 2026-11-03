@@ -6,6 +6,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Account, AuthPublicOptions } from "../src/client/api.js";
 import App from "../src/client/App.js";
+import { authClient } from "../src/client/auth-client.js";
 import { Alert } from "../src/client/components.js";
 import { ActiveAccountChooser } from "../src/client/pages/AccountsPage.js";
 import DuplicateReviewPage from "../src/client/pages/DuplicateReviewPage.js";
@@ -55,6 +56,7 @@ const focusedStatus = (text: HTMLElement) => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   window.history.replaceState(null, "", "/");
 });
 
@@ -288,11 +290,16 @@ describe("the sign-in screen, whose only button is replaced by its own answer", 
     ...over,
   });
 
-  function renderSignIn(options: AuthPublicOptions) {
+  function renderSignIn(
+    options: AuthPublicOptions,
+    answer: (url: URL) => Response | undefined = () => undefined,
+  ) {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = new URL(String(input), window.location.origin);
+        const answered = answer(url);
+        if (answered) return answered;
         if (url.pathname === "/api/auth/methods") return Response.json(options);
         if (url.pathname === "/api/v1/session") {
           return Response.json(
@@ -337,12 +344,78 @@ describe("the sign-in screen, whose only button is replaced by its own answer", 
     await waitFor(() => expect(document.activeElement).toBe(focusedStatus(sentence)));
   });
 
+  /**
+   * `code/errors.md` 3.1: a refusal says what went wrong and what would work.
+   * The sign-up read only the flat `message` that 0.1.5's clients needed, and
+   * the paths that answer with the envelope alone — a server error, the origin
+   * guard, the body cap — fell to "Account setup failed", which says neither,
+   * in place of a server sentence that said both.
+   */
+  it("shows the server's sentence when sign-up is refused with the envelope", async () => {
+    const sentence =
+      "Something went wrong on our side. Try again, and if it keeps happening, tell whoever runs this server.";
+    renderSignIn(methods({ awaitingFirstAccount: true }), (url) =>
+      url.pathname === "/api/auth/sign-up/email"
+        ? Response.json({ error: { code: "INTERNAL_ERROR", message: sentence } }, { status: 500 })
+        : undefined,
+    );
+    const create = await screen.findByRole("button", { name: "Create account" });
+    fill("Your name", "Tester");
+    fill("Email address", "tester@example.com");
+    fill("Password", "a-long-enough-password");
+    fill("Confirm password", "a-long-enough-password");
+    fireEvent.submit(create.closest("form")!);
+    expect(await screen.findByText(sentence)).toBeInTheDocument();
+  });
+
+  it("says what to do when sign-up is refused with no sentence at all", async () => {
+    renderSignIn(methods({ awaitingFirstAccount: true }), (url) =>
+      url.pathname === "/api/auth/sign-up/email"
+        ? new Response("<html>Bad Gateway</html>", { status: 502 })
+        : undefined,
+    );
+    const create = await screen.findByRole("button", { name: "Create account" });
+    fill("Your name", "Tester");
+    fill("Email address", "tester@example.com");
+    fill("Password", "a-long-enough-password");
+    fill("Confirm password", "a-long-enough-password");
+    fireEvent.submit(create.closest("form")!);
+    expect(
+      await screen.findByText(/Your account could not be created\. Try again in a moment/),
+    ).toBeInTheDocument();
+  });
+
+  /**
+   * The same on sign-in, through Better Auth's client, which spreads the body
+   * it was answered with into `error`: an envelope-only refusal carries its
+   * sentence one level down, and the page read the top level only. Stubbed at
+   * the client rather than at `fetch`, because the client holds its own.
+   */
+  it("shows the server's sentence when sign-in is refused with the envelope", async () => {
+    const sentence = "Too many attempts from here. Wait a minute, then try again.";
+    const signInEmail = vi.spyOn(authClient.signIn, "email").mockResolvedValue({
+      data: null,
+      error: {
+        status: 429,
+        statusText: "Too Many Requests",
+        error: { code: "RATE_LIMITED", message: sentence },
+      },
+    } as never);
+    renderSignIn(methods());
+    const signIn = await screen.findByRole("button", { name: "Sign in" });
+    fill("Email address", "tester@example.com");
+    fill("Password", "a-long-enough-password");
+    fireEvent.submit(signIn.closest("form")!);
+    expect(await screen.findByText(sentence)).toBeInTheDocument();
+    expect(signInEmail).toHaveBeenCalledOnce();
+  });
+
   it("announces the reset link, and lands focus on it", async () => {
     renderSignIn(methods({ passwordResetAvailable: true }));
     fireEvent.click(await screen.findByRole("button", { name: "Forgot your password?" }));
 
     fill("Email address", "tester@example.com");
-    fireEvent.submit(screen.getByRole("button", { name: "Send the link" }).closest("form")!);
+    fireEvent.submit(screen.getByRole("button", { name: "Send reset link" }).closest("form")!);
 
     const sentence = await screen.findByText(/a link to choose a new password is on its way/);
     await waitFor(() => expect(document.activeElement).toBe(focusedStatus(sentence)));

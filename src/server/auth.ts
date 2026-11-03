@@ -3,7 +3,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { isAPIError } from "better-auth/api";
 import { mcp } from "better-auth/plugins";
 import { eq } from "drizzle-orm";
-import type { Actor } from "../shared/domain.js";
+import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, type Actor } from "../shared/domain.js";
 import { APP_NAME } from "../shared/version.js";
 import {
   isLedgerUserAuthorized,
@@ -19,6 +19,7 @@ import { getDb } from "./db/client.js";
 import * as schema from "./db/schema.js";
 import { user } from "./db/schema.js";
 import { log } from "./log.js";
+import { internalErrors } from "./metrics.js";
 
 /**
  * What this deployment asks Google for, said once.
@@ -141,6 +142,12 @@ function createAuthInstance() {
         handler: (promise: Promise<unknown>) => {
           void promise.catch((error) => {
             log.failure("A background auth task failed", error);
+            // The response went out before this ran, so nothing else will
+            // ever report it: no status carries it, and the person who asked
+            // for the link sees the same "check your inbox" either way. A
+            // relay that refuses is counted by `sendMail` itself, which does
+            // not throw, so what arrives here is something nobody meant.
+            internalErrors.inc({ surface: "auth_background" });
           });
         },
       },
@@ -151,8 +158,8 @@ function createAuthInstance() {
     },
     emailAndPassword: {
       enabled: config.localAuthEnabled,
-      minPasswordLength: 12,
-      maxPasswordLength: 128,
+      minPasswordLength: PASSWORD_MIN_LENGTH,
+      maxPasswordLength: PASSWORD_MAX_LENGTH,
       // Both of these need somewhere to send a link. A deployment with no mail
       // server keeps the behavior it has always had: no reset, and an address
       // nobody is asked to prove. Configure SMTP_HOST and MAIL_FROM and the two

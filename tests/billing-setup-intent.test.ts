@@ -709,6 +709,25 @@ describe("moving to annual now", () => {
     );
   });
 
+  // The switch is the one call `2026-09-30.endive` changed: the anchor became
+  // an object, and the bare `"now"` it replaced is refused. A mock answers
+  // whatever it is sent, so only the request itself can hold the shape, and
+  // the rest of what makes the switch bill today is held beside it.
+  it("asks Stripe to bill the new term from now, in the shape endive takes", async () => {
+    await switchTo();
+
+    expect(sdk.updateSubscription).toHaveBeenCalledWith(
+      "sub_1",
+      expect.objectContaining({
+        items: [{ id: "si_1", price: "price_yearly" }],
+        proration_behavior: "create_prorations",
+        payment_behavior: "allow_incomplete",
+        billing_cycle_anchor: { type: "now" },
+      }),
+      { idempotencyKey: "req" },
+    );
+  });
+
   it("reports an invoice the update raised and collected as paid", async () => {
     await expect(switchTo()).resolves.toMatchObject({ invoice: "paid" });
   });

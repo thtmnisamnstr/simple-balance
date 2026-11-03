@@ -27,13 +27,15 @@ import {
   Modal,
   Note,
   PageHeader,
+  ReadFailures,
   RequiredNote,
+  RowMenu,
   Select,
   Skeleton,
   useConfirm,
 } from "../components.js";
 import { useDateRange } from "../date-range.js";
-import { Link, useLocation } from "../router.js";
+import { Link, useLocation, useSearchParams } from "../router.js";
 import {
   fillPercent,
   periodName,
@@ -51,6 +53,9 @@ import {
   isNegativeMoney,
   moneyLabel,
 } from "../money.js";
+
+/** The address's word for leaving archived spending out, the one choice it writes. */
+const ARCHIVED_LEFT_OUT = "0";
 
 const periodUnits: { value: BudgetPeriodUnitName; label: string }[] = [
   { value: "week", label: "Weekly" },
@@ -86,8 +91,18 @@ export default function BudgetsPage({ session }: { session: Session }) {
   const [rowRefusal, setRowRefusal] = useState("");
   // Defaults to counting it, matching the server: a budget's limit was never
   // scoped to an account, so money spent on a card since closed is money the
-  // budget covered.
-  const [includeArchived, setIncludeArchived] = useState(true);
+  // budget covered. In the address like the four other pages' boxes, under
+  // their key (`web.md` 11.8): absent is each page's own default, so here
+  // only the choice to leave archived spending out is written, as `0`, and a
+  // `1` carried from the Overview or Reports means what it means there.
+  const [params, setParams] = useSearchParams();
+  const includeArchived = params.get("archived") !== ARCHIVED_LEFT_OUT;
+  const setIncludeArchived = (next: boolean) => {
+    const updated = new URLSearchParams(params);
+    if (next) updated.delete("archived");
+    else updated.set("archived", ARCHIVED_LEFT_OUT);
+    setParams(updated, { replace: true });
+  };
   // On, like the server's default: the question a budget raises is where the
   // rest went, and a page that answered it only when asked would be hiding the
   // gap.
@@ -546,6 +561,17 @@ export default function BudgetsPage({ session }: { session: Session }) {
         {error && editing === null && override === null ? (
           <Alert kind="error">{error}</Alert>
         ) : null}
+        {/* The three reads behind this form's pickers. Failed, each left its
+            picker empty with nothing to say why, so a ledger with a dozen
+            categories offered none to budget — a failure read as there being
+            nothing, which `web.md` 12.1 is about. */}
+        <ReadFailures
+          reads={[
+            ["categories", categories.error],
+            ["category groups", groups.error],
+            ["accounts", accounts.error],
+          ]}
+        />
         {notice ? <Alert kind="success">{notice}</Alert> : null}
         <form
           className="budget-form"
@@ -833,38 +859,43 @@ export default function BudgetsPage({ session }: { session: Session }) {
                           : ` to ${periodName(plan.periodUnit, plan.activeTo)}`
                         : " onward"}
                     </td>
-                    {/* Icon buttons naming their row, which is what every
-                        other list here does. These were text buttons reading
-                        "Change Groceries" and "Delete Groceries" in a row whose
-                        first cell already said Groceries, so the actions column
-                        was the widest on the table and said the same word
-                        three times. The name a screen reader needs is still
-                        there; it is in the label rather than on screen. */}
+                    {/* These were text buttons reading "Change Groceries" and
+                        "Delete Groceries" in a row whose first cell already
+                        said Groceries, so the actions column was the widest on
+                        the table and said the same word three times. They
+                        became two bare icons, which 9.8 then ruled out: a row
+                        with exactly two actions puts both in the menu and shows
+                        no icon, as Templates and Recurring do, and this was
+                        the one list drawing a third shape. The name a screen
+                        reader needs is on the menu's trigger. */}
                     <td className="row-actions">
-                      <button
-                        type="button"
-                        aria-label={`Change the budget for ${plan.targetName}`}
-                        onClick={() => {
-                          setError("");
-                          setEditing(plan);
-                          setEditAmount(amountForInput(plan.amount, plan.currency));
-                          setEditActiveTo(plan.activeTo ?? "");
-                          setEditRollover(plan.rollover);
-                          setEditRolloverCap(
-                            plan.rolloverCap ? amountForInput(plan.rolloverCap, plan.currency) : "",
-                          );
-                          setEditPriority(plan.priority === 0 ? "" : String(plan.priority));
-                        }}
-                      >
-                        <Pencil size={16} />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={`Delete the budget for ${plan.targetName}`}
-                        onClick={() => remove.ask(plan, () => deletePlan.mutate(plan))}
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                      <RowMenu label={`Actions for ${plan.targetName}`}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setError("");
+                            setEditing(plan);
+                            setEditAmount(amountForInput(plan.amount, plan.currency));
+                            setEditActiveTo(plan.activeTo ?? "");
+                            setEditRollover(plan.rollover);
+                            setEditRolloverCap(
+                              plan.rolloverCap
+                                ? amountForInput(plan.rolloverCap, plan.currency)
+                                : "",
+                            );
+                            setEditPriority(plan.priority === 0 ? "" : String(plan.priority));
+                          }}
+                        >
+                          <Pencil size={15} /> Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="danger"
+                          onClick={() => remove.ask(plan, () => deletePlan.mutate(plan))}
+                        >
+                          <Trash2 size={15} /> Delete
+                        </button>
+                      </RowMenu>
                     </td>
                   </tr>
                 ))}
@@ -1038,10 +1069,9 @@ export default function BudgetsPage({ session }: { session: Session }) {
                       {formatMoney(entry.amount, entry.currency)}
                     </td>
                     <td>{periodName(entry.periodUnit, entry.periodStart)}</td>
-                    {/* The same icon the standing-budget table above uses,
-                        for the reason its comment gives: a text button naming
-                        the row made the actions column the widest on the table
-                        and said the name twice. */}
+                    {/* One action, so one icon (9.8): a text button naming the
+                        row made the actions column the widest on the table and
+                        said the name twice. */}
                     <td className="row-actions">
                       <button
                         type="button"
@@ -1091,7 +1121,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
                 loading={clearEntry.isPending}
                 onClick={() => override.existing && clearEntry.mutate(override.existing)}
               >
-                Use the standing budget
+                Use standing budget
               </Button>
             ) : null}
             <Button type="submit" form="budget-override" loading={setEntry.isPending}>

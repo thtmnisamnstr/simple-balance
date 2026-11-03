@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import { Hono } from "hono";
-import { secureHeaders } from "hono/secure-headers";
 import { describe, expect, it } from "vitest";
 import {
   isStripeSurfacePath,
+  responseHeaders,
   type SecuritySurface,
   securityHeaderOptions,
 } from "../src/server/http-security.js";
@@ -138,12 +138,19 @@ const appPolicies = () => ({
   without: armFor("sb_app_csp", "false"),
 });
 
-/** What a real response out of the middleware carries, not a list of guesses. */
+/**
+ * What a real response out of the middleware carries, not a list of guesses.
+ *
+ * `responseHeaders`, which is what `api.ts` mounts, rather than Hono's
+ * `secureHeaders` alone: the robots header is added beside the security
+ * headers, and a comparison built from `secureHeaders` never sees it, so it
+ * could not fail on an nginx snippet that dropped it.
+ */
 const apiHeaders = async (surface: SecuritySurface = "app", reportOnly = false, ads = false) => {
   const app = new Hono();
   // Production, because that is what the split deployment runs and the only
   // mode that sets HSTS.
-  app.use("*", secureHeaders(securityHeaderOptions(true, { surface, reportOnly, ads })));
+  app.use("*", responseHeaders(securityHeaderOptions(true, { surface, reportOnly, ads })));
   app.get("/", (c) => c.text("ok"));
   const response = await app.request("/");
   const headers = new Map<string, string>();

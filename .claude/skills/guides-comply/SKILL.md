@@ -22,6 +22,10 @@ record. If a fix would break a release, see `release-prep` phase 1 — the answe
 is almost always warn-and-carry-on, and if there is no safe fix, declare the
 problem in writing rather than shipping the break.
 
+Run alone, this sweeps the whole product. Run by `release-prep`, it covers the
+branch and what the branch reaches, and only §1–5, plus §6–7 for a rule the
+branch broke that no check caught; that skill's phase 3 says how and why.
+
 ## 1. Build the rule inventory
 
 ```sh

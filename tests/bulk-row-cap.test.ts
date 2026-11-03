@@ -101,6 +101,8 @@ describe("the CSV preview", () => {
     const csv = `date,payee,amount\n${"2026-01-01,Someone,1.00\n".repeat(50)}`;
     expect(() => getCsvPreview(csv)).toThrow(AppError);
     expect(() => getCsvPreview(csv)).toThrow(/64-byte limit/);
+    // And says what to do about it, as the row cap's refusal does.
+    expect(() => getCsvPreview(csv)).toThrow(/imported one range at a time/);
     // And as a field, so a client never parses the sentence for the number.
     expect(() => getCsvPreview(csv)).toThrow(
       expect.objectContaining({ details: { field: "csv", limit: 64 } }),
@@ -145,5 +147,118 @@ describe("the export cap against the import cap", () => {
     );
     expect(exportSide).toContain("export one range at a time");
     expect(importSide).toContain("imported one range at a time");
+  });
+
+  /**
+   * The Simple Balance file has the same two sides with one more reader. The
+   * download goes out at the export cap, like the CSV; an agent gets one
+   * import part's worth a call, because a tool's reply is serialized twice and
+   * cannot stream, and a file of one part is one it can hand straight to an
+   * import. The refusal names the same remedy, so a person or an agent meeting
+   * it knows to narrow by date rather than to give up.
+   */
+  it("lets a Simple Balance file out at the export cap, and an agent one part at a time", async () => {
+    const read = (path: string) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
+    const [route, tool, service] = await Promise.all([
+      read("src/server/api.ts"),
+      read("src/server/mcp.ts"),
+      read("src/server/services/ledger-file.ts"),
+    ]);
+    expect(route).toMatch(/exportLedgerFile\([^;]*?maxRows: CSV_EXPORT_MAX_ROWS/s);
+    expect(tool).toMatch(
+      /exportLedgerFile\(actor, input, \{\s*maxRows: MAX_BULK_SELECTION_ENTRIES,/,
+    );
+    expect(service).toContain("export one range at a time");
+  });
+
+  /**
+   * And the way back in is one part at a time, at the cap every bulk path
+   * shares: a part that staged more rows than one commit can clear would be a
+   * cap doing damage. The splitter never cuts one over it, so the refusal is
+   * for a file somebody put together by hand, or for the browser's download —
+   * which allows ten times the cap — handed whole to an agent. It names the
+   * ways round it: the page cuts a larger file, a larger ledger exports a range
+   * at a time, and an agent holding only the file cuts it by the splitter's
+   * rules, which `tests/ledger-file-split.test.ts` holds the refusal to.
+   */
+  it("reads a Simple Balance file back a part at a time, at the shared cap", async () => {
+    const read = (path: string) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
+    const service = await read("src/server/services/ledger-file.ts");
+    expect(service).toMatch(/if \(count > MAX_BULK_SELECTION_ENTRIES\) \{/);
+    expect(service).toContain("The import page cuts a larger file into parts");
+    expect(service).toContain("export a larger ledger one date range at a time");
+    // Every way a file is read back goes through that one reader: the
+    // preview, the add, and the move, which writes a part's transactions
+    // straight into the books and so must never meet more than a commit could.
+    for (const reader of ["previewLedgerFile", "addLedgerFile", "moveLedgerFile"]) {
+      expect(service, reader).toMatch(
+        new RegExp(
+          `export async function ${reader}\\((?:(?!export async function)[\\s\\S])*?= readPart\\(`,
+        ),
+      );
+    }
+  });
+
+  /**
+   * A part's records — accounts, categories, groups, templates, recurring
+   * transactions, budgets — are bounded at the same number, apart from the
+   * rows. Every one is created or matched in the part's one transaction under
+   * every namespace lock, so a part of nothing but records was the one way to
+   * hold a connection for as long as the list was long. Apart, because every
+   * part carries every record: counted into the rows, an export of ten
+   * thousand entries would stop being one part.
+   */
+  it("holds a Simple Balance file's records to the same cap, apart from its rows", async () => {
+    const service = await readFile(
+      new URL("../src/server/services/ledger-file.ts", import.meta.url),
+      "utf8",
+    );
+    expect(service).toMatch(/if \(records > MAX_BULK_SELECTION_ENTRIES\) \{/);
+    const shared = await import("../src/shared/ledger-file.js");
+    const domain = await import("../src/shared/domain.js");
+    const file = shared.parseLedgerFile((await import("./support/ledger-file.js")).wholeLedger());
+    if (!file.ok) throw new Error("the fixture does not read");
+    const many = {
+      ...file.file,
+      categories: Array.from({ length: domain.MAX_BULK_SELECTION_ENTRIES }, (_, n) => ({
+        key: `Category ${n}`,
+        name: `Category ${n}`,
+        detail: "full" as const,
+        kind: "expense" as const,
+        group: null,
+        archivedAt: null,
+      })),
+    };
+    expect(shared.ledgerFileRecordCount(many)).toBeGreaterThan(domain.MAX_BULK_SELECTION_ENTRIES);
+    expect(shared.ledgerFileRowCount(many)).toBeLessThan(domain.MAX_BULK_SELECTION_ENTRIES);
+    expect(shared.splitLedgerFile(many)).toMatchObject({ ok: false });
+  });
+
+  /**
+   * Rows do not bound what is not the same size on every row — notes, split
+   * legs, staged rows' source data, the activity history's snapshots — so a
+   * file has a second limit on those bytes, chosen per transport like the row
+   * cap and smaller for an agent for the same reason. Its refusal names the
+   * moves that work for what was asked for. The tool also holds its file to
+   * one import part's size, so what it returns is what its imports take.
+   */
+  it("bounds a Simple Balance file's content by its bytes too, and names the way out", async () => {
+    const read = (path: string) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
+    const [route, tool, service] = await Promise.all([
+      read("src/server/api.ts"),
+      read("src/server/mcp.ts"),
+      read("src/server/services/ledger-file.ts"),
+    ]);
+    const limits = await import("../src/server/config-limits.js");
+    expect(route).toMatch(
+      /exportLedgerFile\([^;]*?maxContentBytes: LEDGER_FILE_CONTENT_MAX_BYTES,\s*\}/s,
+    );
+    expect(tool).toMatch(
+      /exportLedgerFile\([^;]*?maxContentBytes: MCP_LEDGER_FILE_CONTENT_MAX_BYTES,\s*maxBytes: LEDGER_FILE_PART_MAX_BYTES/s,
+    );
+    expect(limits.MCP_LEDGER_FILE_CONTENT_MAX_BYTES).toBeLessThan(
+      limits.LEDGER_FILE_CONTENT_MAX_BYTES,
+    );
+    expect(service).toMatch(/counted\.contentBytes > maxContentBytes[^;]*capWayOut\(kinds\)/s);
   });
 });

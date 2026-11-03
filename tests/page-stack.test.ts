@@ -370,7 +370,9 @@ describe("a scrolling table", () => {
     // Twelve became fourteen when the two import-preview wrappers joined the
     // alternation, which is the other thing a pinned count buys: widening the
     // pattern has to be a decision rather than something that slips in.
-    expect(checked).toBe(14);
+    // Sixteen with the Simple Balance file's preview, which draws two tables:
+    // what happens to each kind of record, and every record on request.
+    expect(checked).toBe(16);
   });
 });
 
@@ -402,6 +404,72 @@ describe("focus and the sticky layers", () => {
       .flatMap((rule) => selectorsOf(rule.selector));
     expect(padded).toContain("html");
     expect(padded).toContain(".modal-card");
+  });
+
+  /**
+   * Each region that sticks or is fixed, paired with what keeps a focused
+   * control out from under it. web.md 9.7 said the check above did this, and
+   * it did not: it asks that two scrollers carry padding, so the skip link was
+   * never in 9.7's table and the house ad's bar arrived as a tenth region with
+   * nothing failing. A register is the pairing, so the next region has to say
+   * which scroller clears it, or why nothing has to.
+   */
+  const CLEARED_BY: Record<
+    string,
+    { by: "html" | ".modal-card" | "ads.tsx" | "nothing"; why: string }
+  > = {
+    ".sidebar": {
+      by: "nothing",
+      why: "Beside the content above 780px, and below it a drawer that makes the page inert while it is open.",
+    },
+    ".row-menu-popover": {
+      by: "nothing",
+      why: "Open only while somebody is using it, and closed by any scroll, so nothing is scrolled into view under it.",
+    },
+    ".modal": { by: "nothing", why: "In the top layer, with the page behind it inert." },
+    ".modal-header": { by: ".modal-card", why: "Sticks to the top of the modal's own scroller." },
+    ".import-preview": { by: "html", why: "Sticks 20px from the top of the document." },
+    ".merge-panel": { by: "html", why: "Sticks 12px from the top of the document." },
+    ".skip-link": { by: "nothing", why: "Shown only while it is the focused control itself." },
+    ".nav-scrim": { by: "nothing", why: "Over the page only while the drawer makes it inert." },
+    ".mobile-header": { by: "html", why: "Sticks to the top of the document below 780px." },
+    ".ad-slot:has(> .house-ad)": {
+      by: "ads.tsx",
+      why: "Sticks to the foot, at a height that changes with width and text spacing, so the bottom padding is measured rather than written.",
+    },
+  };
+
+  it("names what keeps focus clear of every region that sticks or is fixed", () => {
+    const regions = [
+      ...new Set(
+        parsed
+          .filter((rule) => /position:\s*(sticky|fixed)/.test(rule.body))
+          .flatMap((rule) => selectorsOf(rule.selector)),
+      ),
+    ];
+    expect(
+      regions.filter((region) => !(region in CLEARED_BY)),
+      "a sticky or fixed region with nothing named to keep focus clear of it",
+    ).toEqual([]);
+    expect(
+      Object.keys(CLEARED_BY).filter((region) => !regions.includes(region)),
+      "a register entry for a region the stylesheet no longer has",
+    ).toEqual([]);
+
+    const padded = parsed
+      .filter((rule) => /scroll-padding/.test(rule.body))
+      .flatMap((rule) => selectorsOf(rule.selector));
+    const ads = readFileSync(path.join(repoRoot, "src/client/ads.tsx"), "utf8");
+    for (const [region, { by }] of Object.entries(CLEARED_BY)) {
+      if (by === "html" || by === ".modal-card") {
+        expect(padded, `${region} is cleared by ${by}'s scroll-padding`).toContain(by);
+      }
+      if (by === "ads.tsx") {
+        expect(ads, `${region} is cleared by the padding ads.tsx measures`).toMatch(
+          /scrollPaddingBottom\s*=/,
+        );
+      }
+    }
   });
 });
 

@@ -85,7 +85,7 @@ const status: BillingStatus = {
  */
 async function signUp(page: Page) {
   await page.goto("/");
-  const toggle = page.getByRole("button", { name: "Create an account" });
+  const toggle = page.getByRole("button", { name: "Sign up" });
   const heading = page.getByRole("heading", { name: "Create your account" });
   await expect(heading.or(toggle)).toBeVisible();
   if (await toggle.isVisible()) await toggle.click();

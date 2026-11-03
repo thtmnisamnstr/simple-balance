@@ -66,6 +66,10 @@ describe("every exported service write", () => {
       "A sweep with no Actor. What it writes is a watermark recording what was sent, which is the mail system's own bookkeeping rather than a change to anybody's books — and it writes nothing at all when there is no mail server.",
     pruneAbandonedClients:
       "Deletes dynamic registrations that nobody consented to and that were never issued a token. The rows are anonymous by construction, so there is no person whose history this belongs in; a registration tied to an account is left alone.",
+    markClientAuthorized:
+      "Stamps an OAuth client the first time it is approved or issued a token, so the sweep above never deletes one somebody used. The approval and the token are the person's history, and neither is recorded by this; the stamp is a fact about a registration, which may be shared by several accounts and belongs to none of them.",
+    retireRefreshToken:
+      "Deletes the refresh token a successful refresh was made with, in the same response that issues its replacement. It is the token endpoint's own rotation, run on every refresh with nobody present, and the grant it belongs to is unchanged: an audit row per refresh would fill somebody's history with a thing they never did.",
     setIdempotent:
       "The idempotency record, which is how a retry gets the first answer back rather than a second write. It is infrastructure for the mutation beside it, and that mutation audits what it did.",
     pruneIdempotencyRecords:

@@ -842,3 +842,31 @@ describe("the refusal a stale bulk selection sends", () => {
     expect(refusal.agentMessage).toContain("details.currentVersion");
   });
 });
+
+/**
+ * `code/errors.md` 3.3: a length rule a person can meet carries the sentence
+ * somebody wrote. The local-password route's schema sat inline in the
+ * transport, where the message scan could not see it, and refused an
+ * eleven-character password with Zod's "Too small: expected string to have
+ * >=12 characters".
+ */
+describe("a sign-in password's length", () => {
+  it("is refused in words at either end", async () => {
+    const { localPasswordSchema, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } =
+      await import("../src/shared/domain.js");
+    const short = localPasswordSchema.safeParse({
+      newPassword: "x".repeat(PASSWORD_MIN_LENGTH - 1),
+    });
+    expect(short.success).toBe(false);
+    expect(short.error?.issues[0]?.message).toBe("A password must be at least 12 characters");
+    const long = localPasswordSchema.safeParse({
+      newPassword: "x".repeat(PASSWORD_MAX_LENGTH + 1),
+    });
+    expect(long.error?.issues[0]?.message).toBe("A password must be 128 characters or fewer");
+    // A password is the one field where refusing a character somebody chose
+    // locks them out, so nothing but the length is held.
+    expect(localPasswordSchema.safeParse({ newPassword: `a\tb${"c".repeat(12)}` }).success).toBe(
+      true,
+    );
+  });
+});

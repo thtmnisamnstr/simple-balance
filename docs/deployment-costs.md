@@ -506,6 +506,44 @@ thing that would be wrong is CSV exports of a very large ledger, downloaded
 repeatedly, which is worth a moment's thought only if you are running this for
 other people.
 
+## Metrics
+
+**Nothing on the cloud's bill, on or off.** The collector and node-exporter run
+on the application node this profile already has, and the database node's
+node-exporter beside PostgreSQL, so there is no third machine and no line above
+changes; `docs/deployment-sizing.md` has the memory. What they add is egress
+and the backend's own bill.
+
+**Egress is a few gigabytes a month.** Measured on October 24, 2026, the
+collector sent 1.1 MB of OTLP in twelve minutes while scraping about 3,700
+series every fifteen seconds, which is about 4 GB a month at that pace and half
+that at the default thirty seconds. Against AWS's free 100 GB and Oracle's
+10 TB it is not a line either.
+
+**The backend bills what it stores, and New Relic's free tier is 100 GB of
+ingest a month.** What this profile sends is countable and was counted, in a
+run against the real compose files on October 24, 2026, in OTLP data points per
+scrape: about 100 from an idle application — a busy one adds a few per route it
+answers — about 570 from each node-exporter on an eleven-core test machine with
+eighteen block devices, and about 30 from the collector. node-exporter's CPU
+and disk figures grow with cores and disks, and a two-core machine with a boot
+disk and a data volume works out nearer 200; that is arithmetic on the measured
+breakdown rather than a measurement. So the `single` profile at the default
+thirty seconds is somewhere around 500 to 900 points a scrape, 1.5 to 2.6
+million a day, 45 to 80 million a month. How many bytes New Relic counts for a
+point after it has stored one is not something it publishes, so the honest
+answer to "is that inside the free tier" is a query after the first day:
+
+```sql
+FROM Metric SELECT bytecountestimate() / 1000000000 AS 'GB'
+WHERE deployment.environment.name = 'production' SINCE 1 day ago
+```
+
+Thirty times that is the month. If it is more than you want, a sixty-second
+interval halves it and stays well inside New Relic's five-minute limit; New
+Relic's free tier also caps how many distinct series an account may report in a
+day, at a figure far above what one deployment produces.
+
 ## Reducing it
 
 - **Stay on `small`.** The sizing document's numbers are not a typo: a million
@@ -574,7 +612,8 @@ and a ledger that is already distributed in both. That is worth paying for when 
 ## What this document cannot tell you
 
 A domain name, which is $10–15 a year and not optional — Let's Encrypt will not
-issue for an address. Whatever your SMTP relay charges, if you turn mail on. And
+issue for an address. Whatever your SMTP relay charges, if you turn mail on, and
+whatever a metrics backend charges past its free tier, if you send it any. And
 your own time, which is the real difference between this and a hosted service
 and is not a line on anybody's bill — running your own PostgreSQL is part of
 that time now, which is what the backup timer and the verified restore are for.

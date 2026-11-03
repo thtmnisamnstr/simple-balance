@@ -21,8 +21,15 @@ import type { Actor } from "../../src/shared/domain.js";
 import { withTransaction } from "../../src/server/db/client.js";
 import { getDb } from "../../src/server/db/client.js";
 import { user } from "../../src/server/db/schema.js";
+import { defaultLedgerFileKinds } from "../../src/shared/ledger-file.js";
+import { LEDGER_FILE_CONTENT_MAX_BYTES } from "../../src/server/config-limits.js";
 import { createAccount } from "../../src/server/services/accounts.js";
 import { getEntitlement } from "../../src/server/services/billing.js";
+import { exportLedgerFile, moveLedgerFile } from "../../src/server/services/ledger-file.js";
+import {
+  createTransaction,
+  setTransactionDeleted,
+} from "../../src/server/services/transactions.js";
 import {
   commitStages,
   insertImportedStages,
@@ -159,5 +166,74 @@ integration("the freeze a batch is checked against", () => {
     const large = await propose(12);
     expect(large).toBe(small);
     expect(large).toBe(1);
+  });
+
+  /**
+   * A move voids every entry that was deleted where its file came from, and
+   * each void read the freeze for itself — two billing queries and the account
+   * table per entry — while the part had already read it once on the same
+   * transaction. Two files with the same number of entries, two deleted in one
+   * and twelve in the other, so the only thing that differs is the voids.
+   */
+  it("is read the same for a move, however many of its entries were deleted", async () => {
+    const fileWith = async (deleted: number) => {
+      batchSeed += 1;
+      const from: Actor = { userId: `freeze-move-from-${batchSeed}`, source: "web" };
+      await getDb()
+        .insert(user)
+        .values({
+          id: from.userId,
+          name: "From",
+          email: `${from.userId}@example.com`,
+          emailVerified: true,
+        });
+      const account = await createAccount(from, {
+        name: "Checking",
+        type: "checking",
+        currency: "USD",
+        openingDate: "2026-01-01",
+        openingBalance: "0",
+      });
+      for (let index = 0; index < 14; index += 1) {
+        const entry = await createTransaction(
+          from,
+          { ...draft(index, batchSeed), type: "withdrawal" as const, fromAccountId: account.id },
+          randomUUID(),
+        );
+        if (index < deleted) {
+          await setTransactionDeleted(from, entry.id, entry.version, true);
+        }
+      }
+      const kinds = defaultLedgerFileKinds.filter((kind) => kind !== "history");
+      return (
+        await exportLedgerFile(
+          from,
+          { kinds },
+          { maxRows: 100_000, maxContentBytes: LEDGER_FILE_CONTENT_MAX_BYTES },
+        )
+      ).ledgerFile;
+    };
+    const moveInto = async (ledgerFile: string) => {
+      batchSeed += 1;
+      const into: Actor = { userId: `freeze-move-into-${batchSeed}`, source: "web" };
+      await getDb()
+        .insert(user)
+        .values({
+          id: into.userId,
+          name: "Into",
+          email: `${into.userId}@example.com`,
+          emailVerified: true,
+        });
+      return entitlementReads(() =>
+        moveLedgerFile(into, {
+          ledgerFile,
+          fileName: "simple-balance.json",
+          idempotencyKey: randomUUID(),
+        }),
+      );
+    };
+    const few = await moveInto(await fileWith(2));
+    const many = await moveInto(await fileWith(12));
+    expect(many).toBe(few);
   });
 });

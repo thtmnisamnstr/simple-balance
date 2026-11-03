@@ -271,3 +271,65 @@ describe("filing a category under a group", () => {
     expect(screen.queryByText("No groups yet.")).toBeNull();
   });
 });
+
+/**
+ * `web.md` 12.3: only the work that is running spins. Add category shares its
+ * mutation with every row's change, and asked only whether it was pending, so
+ * filing a row under a group drew "Working…" on the create button.
+ */
+describe("the create buttons while a row's change is in flight", () => {
+  /** Every request answered at once, except the one write held until released. */
+  function holdWrites() {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input), window.location.origin);
+        if (url.pathname === "/api/v1/categories/duplicates") return Response.json([]);
+        if (url.pathname === "/api/v1/category-groups") return Response.json([household]);
+        if (url.pathname === "/api/v1/categories/summaries") return Response.json([groceries]);
+        await held;
+        return Response.json({ ...groceries, id: "written", method: init?.method });
+      }),
+    );
+    return () => release();
+  }
+
+  it("holds Add category without drawing it as working", async () => {
+    const release = holdWrites();
+    renderCategories();
+    await screen.findByText("Groceries");
+
+    fireEvent.change(screen.getByLabelText("Group of Groceries"), {
+      target: { value: household.id },
+    });
+
+    const add = screen.getByRole("button", { name: /Add category/ });
+    await waitFor(() => expect(add).toBeDisabled());
+    expect(add).not.toHaveAttribute("aria-busy");
+    expect(add).not.toHaveTextContent("Working");
+    release();
+    await waitFor(() => expect(add).toBeEnabled());
+  });
+
+  it("draws it as working for its own press, and keeps focus on it", async () => {
+    const release = holdWrites();
+    renderCategories();
+    await screen.findByText("Groceries");
+
+    fireEvent.change(screen.getByLabelText("Category name"), { target: { value: "Water" } });
+    const add = screen.getByRole("button", { name: /Add category/ });
+    add.focus();
+    fireEvent.click(add);
+
+    await waitFor(() => expect(add).toHaveAttribute("aria-busy", "true"));
+    // Working is `aria-disabled`, never `disabled`, so focus stays where it was.
+    expect(add).toBeEnabled();
+    expect(add).toHaveFocus();
+    release();
+    await waitFor(() => expect(add).not.toHaveAttribute("aria-busy"));
+  });
+});

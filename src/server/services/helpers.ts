@@ -83,6 +83,14 @@ export function canonicalDecimal(value: string | Decimal): string {
   return result === "-0" ? "0" : result;
 }
 
+/**
+ * What says, in somebody's history, where a record came from. A form and a
+ * tool create with `create`; adding a Simple Balance file passes its own, the
+ * way a CSV import's categories say `create_from_csv`, so the Activity page can
+ * tell a record somebody made from one a file brought.
+ */
+export type CreateAuditOptions = { readonly auditOperation?: string };
+
 export async function writeAudit(
   tx: DbTransaction,
   actor: Actor,
@@ -255,6 +263,27 @@ export function idempotencyRequestHash(requestPayload: unknown): string {
 }
 
 /**
+ * Whether PostgreSQL refused a write for breaking the unique index or
+ * constraint whose name starts with `name`.
+ *
+ * By prefix rather than by equality, because a Citus cluster gives each shard's
+ * copy of an index the name with the shard's number after it —
+ * `transaction_user_import_origin_unique_102220` — and the refusal names the
+ * copy that refused. Read off `cause` as well as the error itself, because
+ * Drizzle wraps the driver's error and the code and the name are on the
+ * original, one level down (`isMissingUserViolation` in `billing.ts` found that
+ * against a real PostgreSQL).
+ */
+export function isUniqueViolation(error: unknown, name: string): boolean {
+  const candidates = [error, (error as { cause?: unknown } | null)?.cause];
+  return candidates.some((candidate) => {
+    const code = (candidate as { code?: unknown } | null)?.code;
+    const constraint = (candidate as { constraint?: unknown } | null)?.constraint;
+    return code === "23505" && typeof constraint === "string" && constraint.startsWith(name);
+  });
+}
+
+/**
  * Serialize an idempotent operation before reading its stored response.
  *
  * The operation name deliberately matches the domain operation used by MCP's
@@ -346,7 +375,8 @@ export function selectionFingerprint(rows: readonly { id: string; version: numbe
  * Serialize mutations involving account references that cannot all be
  * represented by foreign keys (notably staged JSON drafts). Always acquire all
  * account locks in sorted order, then the account namespace lock, then the
- * category namespace lock, then the payee namespace lock.
+ * category namespace lock, then the payee namespace lock, then the template,
+ * the recurrence and the duplicate locks.
  */
 export async function lockAccountReferences(
   tx: DbTransaction,
@@ -383,14 +413,24 @@ export async function lockCategoryNamespace(tx: DbTransaction, actor: Actor) {
 /**
  * Serialize changes to the tenant's template names, which are compared the way
  * category names are and so need the same protection against two requests each
- * finding the name free. Taken last of all the namespace locks, because nothing
- * else ever takes it.
+ * finding the name free.
+ *
+ * Taken after the payee namespace and before the recurrence namespace, with the
+ * duplicate lock after both. The template and recurrence services each take
+ * only their own of the two, so either alone joins no ordering; adding or
+ * moving a Simple Balance file is the path that takes both, and the duplicate
+ * lock after them, so a second path taking them the other way round would
+ * deadlock against it. This said "taken last, because nothing else ever takes
+ * it" until the file's add and move made both halves of that untrue.
  */
 export async function lockTransactionTemplateNamespace(tx: DbTransaction, actor: Actor) {
   await takeTransactionLock(tx, `transaction-templates:${actor.userId}`);
 }
 
-/** Serialize changes to the tenant's recurrence names, which are unique. */
+/**
+ * Serialize changes to the tenant's recurrence names, which are unique. Taken
+ * after the template namespace and before the duplicate lock.
+ */
 export async function lockRecurrenceNamespace(tx: DbTransaction, actor: Actor) {
   await takeTransactionLock(tx, `recurrences:${actor.userId}`);
 }
@@ -422,6 +462,28 @@ export async function lockPayeeNamespace(tx: DbTransaction, actor: Actor) {
   await takeTransactionLock(tx, `payees:${actor.userId}`);
 }
 
+/**
+ * Serialize the duplicate check: the read that asks whether an entry like this
+ * one is already in the books, and the write that makes it so.
+ *
+ * One lock for the tenant, not one per fingerprint. It was one per fingerprint,
+ * held to commit, and advisory locks live in PostgreSQL's shared lock table
+ * rather than the fast path, which holds about `max_locks_per_transaction`
+ * times the connections allowed: a move part or a commit of ten thousand rows
+ * took ten to twenty thousand of them, and on the `single` profile's fifty
+ * connections that ran the server out of shared memory forty seconds in,
+ * refusing every other tenant's writes with it. The per-key locks bought
+ * nothing besides, because every path that takes this already holds the payee
+ * namespace lock, and every fingerprint is the tenant's, so no two transactions
+ * ever waited on one key that the payee lock had not already made one wait for
+ * the other. It stays a lock of its own, after the payee lock, so the
+ * duplicate check says what it relies on rather than leaning on a lock taken
+ * for another reason.
+ */
+export async function lockTransactionDuplicates(tx: DbTransaction, actor: Actor) {
+  await takeTransactionLock(tx, `transaction-duplicates:${actor.userId}`);
+}
+
 export async function setIdempotent(
   tx: DbTransaction,
   actor: Actor,
@@ -443,6 +505,25 @@ export function serializeRow<T>(row: T): T {
   return JSON.parse(
     JSON.stringify(row, (_key, value) => (value instanceof Date ? value.toISOString() : value)),
   ) as T;
+}
+
+/**
+ * `serializeRow` for an entry's or a staged row's audit snapshot, without its
+ * import origin, for the reason `transactionView` and `stageView` leave it out:
+ * the history is served over both transports and written into every Simple
+ * Balance file that carries it, and a field published by accident is one a
+ * later release could only take away behind a deprecation. The merges and the
+ * mass delete snapshot raw rows rather than views, so the views' omission never
+ * reached them, and a row with no origin carried `"importOrigin": null` from
+ * any ledger that never saw a file. Undefined stays undefined, as an audit
+ * entry with no before has none.
+ */
+export function auditedRow<T extends { importOrigin?: unknown }>(
+  row: T | undefined,
+): Omit<T, "importOrigin"> | undefined {
+  if (row === undefined) return undefined;
+  const { importOrigin: _importOrigin, ...recorded } = row;
+  return serializeRow(recorded);
 }
 
 /**
@@ -498,3 +579,61 @@ export async function pruneIdempotencyRecords(
     );
   return { swept: doomed.length, capped: doomed.length === IDEMPOTENCY_SWEEP_BATCH };
 }
+
+/**
+ * Keys whose contents are somebody else's, not this server's.
+ *
+ * `preview_csv` returns rows keyed by the uploaded file's own headers, so a
+ * file with a `userId` column is a person's data rather than this server's
+ * constant. Dropping those cells would leave the tool that exists to diagnose a
+ * malformed file lying about the file it was called to diagnose, while
+ * `headers` still listed the column.
+ *
+ * A staged row's `rawData` is the same thing one step later: the record the
+ * draft was read from, keyed by that file's headers, and on
+ * `create_staged_transaction` it is whatever the caller sent. Walking into it
+ * would let an agent stage a row and read back a different one.
+ *
+ * `preview_ledger_file`'s `here.ids` is the third: it maps each record's key,
+ * which is the record's own name, to its id. An account somebody called
+ * `userId` is a key there like any other, and dropping it left the agent's
+ * preview listing the record in `here.accounts` with no id, while the page's
+ * preview of the same file had one. Nothing else replies with an `ids` key.
+ */
+const OWNER_ID_OPAQUE_KEYS = new Set(["rows", "rawData", "ids"]);
+
+/**
+ * The owner id, gone from every reply.
+ *
+ * One walk rather than a mapping per tool: every row a tool returns
+ * belongs to the actor that authorized the connection, so `userId` is one
+ * constant repeated on every row of every page, and `AGENTS.md`'s "Never accept
+ * a public `userId`" means no next call can ever send it back. The output
+ * schemas no longer declare it either, and the two halves have to move
+ * together, because it is the client that holds them to each other: the SDK
+ * client compiles the published JSON Schema and validates every reply against
+ * it, so a schema still declaring `userId` as `required` would refuse a payload
+ * that had lost it, and a payload still carrying one would break the closed
+ * objects that publish `additionalProperties: false`. The server's own check is
+ * the Zod schema, which is not strict and would quietly strip a stray key
+ * rather than fail, so it cannot be relied on to notice either.
+ *
+ * Audit `before`/`after` snapshots lose the same constant, which is display
+ * only: the stored row and the HTTP surface are untouched.
+ *
+ * Here rather than in `src/server/mcp.ts`, where it began, because a Simple
+ * Balance file's activity history is the second reader. That history leaves
+ * the deployment altogether, and the id it would carry names a person on a
+ * copy the file is about to stop belonging to; one walk for both is what keeps
+ * the file and the tool from disagreeing about which keys are somebody's data.
+ */
+export const withoutUserId = (node: unknown): unknown => {
+  if (Array.isArray(node)) return node.map(withoutUserId);
+  if (node === null || typeof node !== "object") return node;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    if (key === "userId") continue;
+    out[key] = OWNER_ID_OPAQUE_KEYS.has(key) ? value : withoutUserId(value);
+  }
+  return out;
+};

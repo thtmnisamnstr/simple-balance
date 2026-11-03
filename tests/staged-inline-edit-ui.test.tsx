@@ -82,7 +82,15 @@ const splitRow: StagedTransaction = {
   },
 } as unknown as StagedTransaction;
 
-function stubQueue() {
+/**
+ * The queue at the wire. `rows` replaces the two-row page for a case that needs
+ * another, and each path in `failing` answers 500 with the server's envelope.
+ */
+function stubQueue({
+  rows = [plainRow, splitRow],
+  failing = [],
+  outage,
+}: { rows?: StagedTransaction[]; failing?: string[]; outage?: string } = {}) {
   const puts: { path: string; body: Record<string, unknown> }[] = [];
   vi.stubGlobal(
     "fetch",
@@ -93,6 +101,17 @@ function stubQueue() {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
+      if (failing.includes(url.pathname)) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              code: "INTERNAL_ERROR",
+              message: outage ?? `${url.pathname} could not be read.`,
+            },
+          }),
+          { status: 500, headers: { "Content-Type": "application/json" } },
+        );
+      }
       if (init?.method === "PUT") {
         puts.push({ path: url.pathname, body: JSON.parse(String(init.body)) });
         return json({});
@@ -113,11 +132,11 @@ function stubQueue() {
       }
       if (url.pathname === "/api/v1/staged-transactions") {
         return json({
-          items: [plainRow, splitRow],
+          items: rows,
           nextCursor: null,
           page: 1,
           pageSize: 50,
-          totalCount: 2,
+          totalCount: rows.length,
           cursorAvailable: false,
           totalPages: 1,
         } satisfies PaginatedPage<StagedTransaction>);
@@ -201,6 +220,43 @@ describe("editing staged fields in place", () => {
     fireEvent.blur(editor);
     await waitFor(() => expect(puts).toHaveLength(1));
     expect(puts[0]!.body).toMatchObject({ draft: { amount: "12.50" }, expectedVersion: 4 });
+  });
+
+  /**
+   * `web.md` 10.1 and 8.10 rule 6. The queue has no Type column, so on a row
+   * with a description the sign is the only thing saying which way the money
+   * went, and the name used to be built from the bare figure: a deposit and a
+   * withdrawal of the same amount were one name apart only by their payee. The
+   * minus is U+2212, the one `movementSign` writes.
+   */
+  it("names the amount with the sign it shows", async () => {
+    stubQueue();
+    renderStaging();
+    const trigger = await screen.findByRole("button", {
+      name: "−$10.00, edit the amount of Corner shop",
+    });
+    expect(trigger).toHaveTextContent(/^−\$10\.00$/);
+  });
+
+  it("names a deposit's amount with its plus", async () => {
+    stubQueue({
+      rows: [
+        {
+          ...plainRow,
+          draft: {
+            ...(plainRow.draft as object),
+            type: "deposit",
+            description: "Refund for the returned kettle",
+            fromAccountId: null,
+            toAccountId: checkingAccount.id,
+          },
+        } as unknown as StagedTransaction,
+      ],
+    });
+    renderStaging();
+    const trigger = await screen.findByRole("button", { name: /edit the amount of Corner shop$/ });
+    expect(trigger).toHaveAccessibleName("+$10.00, edit the amount of Corner shop");
+    expect(trigger).toHaveTextContent(/^\+\$10\.00$/);
   });
 
   it("edits the category to an existing one by id, clearing the name", async () => {
@@ -299,5 +355,53 @@ describe("the type under a staged payee", () => {
     const trigger = await screen.findByRole("button", { name: /edit the payee of Corner shop$/i });
     const subtitle = trigger.closest("th, td")!.querySelector(".table-subtitle");
     expect(subtitle).toHaveTextContent(/^Withdrawal$/);
+  });
+});
+
+/**
+ * `web.md` 12.1: the rows are read through the accounts and the categories as
+ * well as the queue itself. With either unread, every row said "Unknown
+ * account", "—" for its amount or "Uncategorized", and nothing on the page said
+ * the read had failed — the queue stating that something was absent when it
+ * only had not loaded. The register shows an alert for exactly these two.
+ */
+describe("a lookup the queue could not read", () => {
+  it.each([
+    ["/api/v1/accounts", "accounts"],
+    ["/api/v1/categories", "categories"],
+  ])("says %s failed, and keeps the rows that did load", async (path, subject) => {
+    stubQueue({ failing: [path] });
+    renderStaging();
+    // Opening with what failed, which is the half the server's sentence
+    // cannot carry and what explains the rows' "Unknown account".
+    expect(
+      await screen.findByText(`Your ${subject} did not load. ${path} could not be read.`),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /edit the payee of Corner shop$/i }),
+    ).toBeInTheDocument();
+  });
+
+  /**
+   * An outage answers every read with one sentence, and the queue stacked four
+   * identical red boxes of it — four `role="alert"` regions reading the same
+   * words, none saying what had failed. Said once now, naming all four.
+   */
+  it("says an outage once, naming every read it took", async () => {
+    const outage = "This could not be finished because of a problem on the server.";
+    stubQueue({
+      failing: [
+        "/api/v1/staged-transactions",
+        "/api/v1/import-batches",
+        "/api/v1/accounts",
+        "/api/v1/categories",
+      ],
+      outage,
+    });
+    renderStaging();
+    const said = await screen.findByText(
+      `Your staged rows, import batches, accounts, and categories did not load. ${outage}`,
+    );
+    expect(screen.getAllByRole("alert")).toEqual([said.closest("[role=alert]")]);
   });
 });

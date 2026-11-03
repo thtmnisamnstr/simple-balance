@@ -15,10 +15,12 @@ import {
   Button,
   compareForSort,
   ConfirmDialog,
+  DuplicateGroups,
   EmptyState,
   formatCount,
   MergePanel,
   PageHeader,
+  ReadFailures,
   SearchBox,
   Select,
   Skeleton,
@@ -28,6 +30,7 @@ import {
 } from "../components.js";
 import { newIdempotencyKey } from "../idempotency.js";
 import { emptyScreen, waysOut } from "../list-filters.js";
+import { nameSearch } from "../../shared/names.js";
 
 const payeeSortFields = [
   { field: "name", label: "Name" },
@@ -118,10 +121,11 @@ export default function PayeesPage() {
   });
 
   const filtered = useMemo(() => {
-    const value = search.trim().toLocaleLowerCase();
-    const matching = value
-      ? (payees.data ?? []).filter((payee) => payee.name.toLocaleLowerCase().includes(value))
-      : (payees.data ?? []);
+    // Narrowed here as somebody types rather than sent as `search`, and with
+    // `list_payees`' own predicate: the list is every spelling there is, so a
+    // round trip per keystroke would fetch the answer this already holds.
+    const matches = nameSearch(search);
+    const matching = (payees.data ?? []).filter((payee) => matches(payee.normalizedName));
     return [...matching].sort((left, right) => {
       const of = (payee: PayeeSummary) => {
         switch (sort.field) {
@@ -160,27 +164,14 @@ export default function PayeesPage() {
         description="People and businesses you pay or get paid by. Spot near-duplicates and merge them."
       />
 
-      {duplicates.data?.length ? (
-        <section className="duplicate-groups" aria-label="Duplicate payees">
-          <div className="section-title">
-            <span>
-              <Combine size={19} />
-            </span>
-            <div>
-              <h2>Possible duplicates</h2>
-              <p>Names are compared without case or extra spacing.</p>
-            </div>
-          </div>
-          {duplicates.data.map((group) => (
-            <Alert kind="info" key={group.normalizedName}>
-              <span>{group.payees.map((payee) => payee.name).join(", ")}</span>
-              <Button type="button" variant="secondary" onClick={() => chooseDuplicateGroup(group)}>
-                Review merge
-              </Button>
-            </Alert>
-          ))}
-        </section>
-      ) : null}
+      <DuplicateGroups
+        label="Duplicate payees"
+        groups={(duplicates.data ?? []).map((group) => ({
+          key: group.normalizedName,
+          names: group.payees.map((payee) => payee.name),
+          onReview: () => chooseDuplicateGroup(group),
+        }))}
+      />
 
       <div className="filter-bar">
         <SearchBox
@@ -241,8 +232,12 @@ export default function PayeesPage() {
         </Alert>
       ) : null}
 
-      {payees.error ? <Alert>{payees.error.message}</Alert> : null}
-      {duplicates.error ? <Alert>{duplicates.error.message}</Alert> : null}
+      <ReadFailures
+        reads={[
+          ["payees", payees.error],
+          ["possible duplicates", duplicates.error],
+        ]}
+      />
       {filtered.length ? (
         <div className="record-list record-list-card">
           {filtered.map((payee, index) => (
@@ -332,7 +327,7 @@ export default function PayeesPage() {
         title="Merge these payees?"
         description={
           merge.value
-            ? `Every transaction and staged row naming the others is rewritten to “${merge.value}”. The change is recorded in the activity log but cannot be undone in one step.`
+            ? `Every transaction, staged row, recurring transaction and template naming the others is rewritten to “${merge.value}”. The change is recorded in the activity log but cannot be undone in one step.`
             : undefined
         }
         confirmLabel="Merge payees"

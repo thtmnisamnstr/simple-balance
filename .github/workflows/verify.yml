@@ -62,7 +62,7 @@ jobs:
       # the checkout then runs code from that ref with write access to a cache the
       # default branch reads — which is the whole of the cache-poisoning problem.
       # A pull request has no such input, so it keeps the cache and the speed.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node }}
           cache: ${{ inputs.ref == '' && 'npm' || '' }}
@@ -112,7 +112,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
           cache: ${{ inputs.ref == '' && 'npm' || '' }}
@@ -121,6 +121,14 @@ jobs:
       # carries the system libraries, and installing them again is a minute per
       # run for nothing.
       - run: npx playwright install chromium
+      # Inter, because the stylesheet names it first and every layout the
+      # browser specs measure was drawn on a machine that has it. Without it
+      # the runner falls back to DejaVu Sans, about a sixth wider, and the
+      # house ad's title took four lines at 320px where it takes three. That
+      # failed here on every push while passing on every laptop, and hid the
+      # specs after it. The face users get is web.md §5's open question; this
+      # only makes the runner render what the developers render.
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-inter
       # `list` rather than the HTML report: a failure prints the assertion and
       # the trace path in the log, and uploading the report would mean pinning
       # another action by digest for something the log already says.
@@ -338,6 +346,108 @@ jobs:
             exit 1
           fi
           echo "the off-position warning shows for loopback alone and not for a named range"
+          # The metrics collector, off at default values and so reached by none
+          # of the renders above. Rendered with the policies on, because the
+          # collector's own policy and the two it is added to are half of what
+          # it changes. What is asserted is each thing that would leave a
+          # collector running and wrong rather than refusing: more than one
+          # replica, which sends every series twice; a rolling update, which is
+          # two for as long as the surge lasts; an image a tag can move; the
+          # pods it scrapes still serving no /metrics; and the backend's
+          # credential in the Secret every application pod reads.
+          helm template release /charts/simple-balance \
+            --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+            --set secret.authSecret=0123456789012345678901234567890123456789 \
+            --set config.appBaseUrl=https://books.example.org \
+            --set networkPolicy.enabled=true \
+            --set collector.enabled=true \
+            --set collector.export.endpoint=https://otlp.nr-data.net \
+            --set collector.export.headers.api-key=license > /tmp/rendered-collector.yaml
+          # One document of a render, by kind and name, split on text rather
+          # than parsed: no YAML library is on the runner, and awk's record
+          # separators differ between the awks a runner might have.
+          doc() {
+            python3 -c 'import sys
+          for d in open(sys.argv[1]).read().split("\n---\n"):
+              if ("\nkind: " + sys.argv[2] + "\n") in d and ("\n  name: " + sys.argv[3] + "\n") in d:
+                  print(d)' "$@"
+          }
+          collector=$(doc /tmp/rendered-collector.yaml Deployment release-simple-balance-collector)
+          test -n "$collector"
+          printf '%s\n' "$collector" | grep -qx '  replicas: 1'
+          printf '%s\n' "$collector" | grep -qx '    type: Recreate'
+          printf '%s\n' "$collector" | grep -qE 'image: "[^"]+:[0-9.]+@sha256:[0-9a-f]{64}"'
+          test "$(grep -c 'METRICS_ENABLED: "true"' /tmp/rendered-collector.yaml)" = 1
+          test -n "$(doc /tmp/rendered-collector.yaml NetworkPolicy release-simple-balance-collector)"
+          if doc /tmp/rendered-collector.yaml Secret release-simple-balance-env | grep -q SB_METRICS_EXPORT_HEADERS; then
+            echo "::error::the export headers are in the Secret the API and the scheduler read"
+            exit 1
+          fi
+          echo "rendered the collector: one replica, recreated, pinned, policed, /metrics on"
+          # And its warning that any pod can read /metrics, from the dry run the
+          # off-position warning is read from. It shows wherever nothing asks
+          # for a token and the scheduler's port is open to the cluster: the
+          # policies off, or on with no scheduler peers named, which admits
+          # every source. Not once a peer is named, nor once a token is set.
+          open_metrics='can read /metrics on the'
+          collector_notes() {
+            notes --set collector.enabled=true \
+              --set collector.export.endpoint=https://otlp.nr-data.net "$@"
+          }
+          collector_notes
+          grep -qF "$open_metrics API and scheduler pods" /tmp/rendered-notes.txt \
+            || { echo "::error::a collector with no policy and no token installs without the open /metrics warning"; exit 1; }
+          collector_notes --set networkPolicy.enabled=true
+          grep -qF "$open_metrics scheduler pods" /tmp/rendered-notes.txt \
+            || { echo "::error::a policy naming no scheduler peers installs without the open /metrics warning"; exit 1; }
+          collector_notes --set networkPolicy.enabled=true \
+            --set 'networkPolicy.probeSourceCidrs={10.0.0.0/8}'
+          if grep -qF "$open_metrics" /tmp/rendered-notes.txt; then
+            echo "::error::a policy naming the scheduler's peers still prints the open /metrics warning"
+            exit 1
+          fi
+          collector_notes --set secret.metricsToken=0123456789abcdef0123456789abcdef
+          if grep -qF "$open_metrics" /tmp/rendered-notes.txt; then
+            echo "::error::a release with a metrics token still prints the open /metrics warning"
+            exit 1
+          fi
+          echo "the open /metrics warning shows until a scheduler peer or a token closes it"
+          # The configuration that render produced, through the binary that
+          # will run it, once for each protocol. A text check cannot see a
+          # pipeline naming a component it never defines; this can.
+          python3 - /tmp/rendered-collector.yaml /tmp/collector-config.yaml <<'PY'
+          import sys
+          for doc in open(sys.argv[1]).read().split("\n---\n"):
+              if "kind: ConfigMap" in doc and "name: release-simple-balance-collector\n" in doc:
+                  lines = doc.split("\n")
+                  body = lines[lines.index("  config.yaml: |") + 1:]
+                  open(sys.argv[2], "w").write("\n".join(line[4:] for line in body) + "\n")
+          PY
+          image=$(printf '%s\n' "$collector" | sed -nE 's/^ +image: "([^"]+)"$/\1/p')
+          for protocol in otlp prometheus_remote_write; do
+            docker run --rm -v /tmp/collector-config.yaml:/c.yaml:ro \
+              -e SB_METRICS_EXPORT_ENDPOINT=https://otlp.nr-data.net \
+              -e SB_METRICS_EXPORT_PROTOCOL="$protocol" \
+              -e SB_METRICS_SCRAPE_INTERVAL=30s \
+              -e SB_METRICS_ENVIRONMENT=production \
+              -e 'SB_METRICS_EXPORT_HEADERS={"api-key":"license"}' \
+              "$image" validate --config=/c.yaml
+            echo "the rendered collector configuration validates with $protocol"
+          done
+          # Removing the block renders what the defaults render, because the
+          # ConfigMap every pod reads now asks whether the collector is on and
+          # rendered before there was a collector to ask about.
+          helm template release /charts/simple-balance \
+            --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+            --set secret.authSecret=0123456789012345678901234567890123456789 \
+            --set config.appBaseUrl=https://books.example.org \
+            --set collector=null > /tmp/rendered-null-collector.yaml
+          if ! cmp -s /tmp/rendered-defaults.yaml /tmp/rendered-null-collector.yaml; then
+            echo "::error::a null collector renders differently from the defaults"
+            diff /tmp/rendered-defaults.yaml /tmp/rendered-null-collector.yaml || true
+            exit 1
+          fi
+          echo "rendered a null collector as the defaults"
 
       # The guards are the reason a misconfigured install fails at render rather
       # than as a crashlooping pod, so a release must not be able to lose them
@@ -423,6 +533,47 @@ jobs:
             --set config.appBaseUrl=https://books.example.org \
             --set 'frontend.trustedProxyCidr={10.0.0.0/8,0.0.0.0/0}' \
             --set frontend.realIpRecursive=true
+          # The collector's. Each of these renders a pod that starts and is
+          # wrong, or one that crashloops with the reason in its own log: no
+          # endpoint is a collector that refuses to start, an interval of five
+          # minutes loses every rate New Relic computes, headers in two places
+          # leave which one is sent to chance, and a token in two Secrets
+          # leaves the collector sending one the pods may not check.
+          refuses "a collector with nowhere to send" "collector.enabled needs collector.export.endpoint" \
+            --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+            --set secret.authSecret=0123456789012345678901234567890123456789 \
+            --set config.appBaseUrl=https://books.example.org \
+            --set collector.enabled=true
+          refuses "a scrape interval New Relic forgets" "under 5m" \
+            --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+            --set secret.authSecret=0123456789012345678901234567890123456789 \
+            --set config.appBaseUrl=https://books.example.org \
+            --set collector.enabled=true \
+            --set collector.export.endpoint=https://otlp.nr-data.net \
+            --set collector.scrapeInterval=5m
+          refuses "export headers in two places" "Put the headers in one place" \
+            --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+            --set secret.authSecret=0123456789012345678901234567890123456789 \
+            --set config.appBaseUrl=https://books.example.org \
+            --set collector.enabled=true \
+            --set collector.export.endpoint=https://otlp.nr-data.net \
+            --set collector.export.headers.api-key=license \
+            --set collector.export.existingSecret=mine
+          refuses "a metrics token in two Secrets" "Put METRICS_TOKEN in mine" \
+            --set secret.authSecret=0123456789012345678901234567890123456789 \
+            --set config.appBaseUrl=https://books.example.org \
+            --set database.enabled=true \
+            --set secret.existingSecret=mine \
+            --set secret.metricsToken=token \
+            --set collector.enabled=true \
+            --set collector.export.endpoint=https://otlp.nr-data.net
+          refuses "a protocol the pipeline does not have" "/collector/export/protocol" \
+            --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+            --set secret.authSecret=0123456789012345678901234567890123456789 \
+            --set config.appBaseUrl=https://books.example.org \
+            --set collector.enabled=true \
+            --set collector.export.endpoint=https://otlp.nr-data.net \
+            --set collector.export.protocol=otlphttp
 
       # The `single` profile's material, which no unit test can run: a compose
       # file is only known to interpolate once Compose has interpolated it, a
@@ -432,7 +583,7 @@ jobs:
       # everywhere else — the frontend image's nginx template shipped a fatal
       # error for exactly this reason, because every check read it as text.
       # Same reasoning as the verify job above.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: ${{ inputs.ref == '' && 'npm' || '' }}
@@ -521,7 +672,8 @@ jobs:
             "x-download-options" \
             "x-permitted-cross-domain-policies" \
             "x-xss-protection" \
-            "strict-transport-security"; do
+            "strict-transport-security" \
+            "x-robots-tag"; do
             # Both, because the include is repeated per static location and
             # nginx drops inherited add_header from any level with one of its
             # own. Losing it from the assets location alone would be silent.
@@ -530,7 +682,17 @@ jobs:
             printf '%s' "$asset_headers" | grep -qi "^$header:" \
               || { echo "::error::a hashed asset is missing $header"; exit 1; }
           done
-          echo "the shell and a hashed asset both carry all twelve headers"
+          echo "the shell and a hashed asset both carry all thirteen headers"
+
+          # The robots header by value as well, and on the robots file, which
+          # lets every crawler in on the strength of it: a header that arrived
+          # saying anything else would let the page into an index.
+          robots_headers=$(curl -fsS -D - -o /dev/null http://127.0.0.1:8099/robots.txt)
+          for served in "$shell_headers" "$asset_headers" "$robots_headers"; do
+            printf '%s' "$served" | grep -qiE '^x-robots-tag: noindex[[:space:]]*$' \
+              || { echo "::error::a file nginx serves does not say x-robots-tag: noindex"; exit 1; }
+          done
+          echo "the shell, a hashed asset and the robots file all say noindex"
 
           # And the one page whose policy differs. Rendering it is the part a
           # test cannot do: nginx takes a static response's Content-Type from
@@ -547,6 +709,9 @@ jobs:
             # back under exactly the policy every other page gets.
             printf '%s' "$plan" | grep -qi "js.stripe.com" \
               && { echo "::error::$path carries the Stripe policy with no Stripe configured"; exit 1; }
+            # Its own copy of the header list, so its own robots header.
+            printf '%s' "$plan" | grep -qiE '^x-robots-tag: noindex[[:space:]]*$' \
+              || { echo "::error::$path does not say x-robots-tag: noindex"; exit 1; }
           done
           echo "the plan page renders under the strict policy in both spellings"
 
@@ -565,6 +730,8 @@ jobs:
             plan=$(curl -fsS -D - -o /dev/null "http://127.0.0.1:8099$path")
             printf '%s' "$plan" | grep -qi "^content-security-policy:.*js.stripe.com" \
               || { echo "::error::$path does not carry the Stripe policy"; exit 1; }
+            printf '%s' "$plan" | grep -qiE '^x-robots-tag: noindex[[:space:]]*$' \
+              || { echo "::error::$path does not say x-robots-tag: noindex"; exit 1; }
           done
           # And every other page keeps the strict one, which is the promise the
           # whole surface split rests on.

@@ -1,7 +1,10 @@
 # Simple Balance
 
-Personal finance that's simple. Every account on one page, and any figure you
-doubt opens into the entries that produced it.
+Simple Balance is a free budget app and spending tracker. Every account is on
+one page, and any figure you doubt opens into the entries that produced it. Use
+it in your browser at [app.smpl.money](https://app.smpl.money), or run your own
+copy. Its website and docs are at [smpl.money](https://smpl.money). There is no
+bank connection today: you download a CSV from your bank and import it.
 
 - **Numbers you can follow back.** Every account has a register: each posting
   with the balance before and after it, so a total that looks wrong has a row
@@ -119,15 +122,18 @@ Everything is configured through environment variables. Copy the example and fil
 it in:
 
 ```sh
-cp .env.example .env
+install -m 0600 .env.example .env
 ```
 
-`DATABASE_URL` and `AUTH_SECRET` are required, and `APP_BASE_URL` must be your
-public HTTPS origin in production. Point `DATABASE_URL` at a PostgreSQL 15 or
-newer server and Simple Balance handles the rest on startup: it creates the
-database if the server does not have it, builds the schema if the database is
-empty, and does nothing if it is already current. Generate the secret with
-`openssl rand -base64 32` and keep it — changing it signs everyone out.
+`install -m 0600` rather than `cp`, because the file will hold the database
+password and the signing secret, and a copy would be readable by every user on
+the machine. `DATABASE_URL` and `AUTH_SECRET` are required, and `APP_BASE_URL`
+must be your public HTTPS origin in production. Point `DATABASE_URL` at a
+PostgreSQL 15 or newer server and Simple Balance handles the rest on startup: it
+creates the database if the server does not have it, builds the schema if the
+database is empty, and does nothing if it is already current. Generate the
+secret with `openssl rand -base64 32` and keep it — changing it signs everyone
+out.
 
 ```sh
 docker run -d --name simple-balance --restart unless-stopped \
@@ -173,6 +179,10 @@ their own. They cannot see yours and you cannot see theirs.
 the connection pool, and the schedule's own ticks and mail. It is off until you
 ask, no label names a person or an amount, and `METRICS_TOKEN` puts a bearer
 token in front of it where the port is reachable by anything you do not control.
+The deployment profiles in `deploy/` can also run a collector that reads it,
+and the machines it runs on, and sends both to New Relic or any backend that
+takes OTLP or Prometheus remote write — which backend is two settings, and
+"Metrics" in [deployment](docs/deployment.md) has them.
 
 To move to a newer image, pull it, stop and remove the container, and start it
 again with the same command. Your database is untouched, and migrations run at
@@ -238,12 +248,44 @@ how the source is written; read the one for the surface you are touching. Every
 rule in both says how it is checked, so a rule you have not broken is one you
 can prove you have not.
 
-Six procedures that repeat are written down in [`.claude/skills/`](.claude/skills):
-bringing the documents back to true after work lands, sweeping the product
-against the guides, reviewing the browser app, rebuilding the product kit in
-`docs/product/` that the marketing site reads, preparing a release, and cutting
-one. They hold the order the steps go in and the traps in them, and they cite
-the guides rather than restating them, so the rules still live in one place.
+Six procedures that repeat are written down in [`.claude/skills/`](.claude/skills),
+each holding the order its steps go in and the traps in them. They cite the
+guides rather than restating them, so the rules still live in one place.
+
+### Before a pull request merges
+
+Run **`release-prep`**. It is the one step, because it runs the others itself,
+in an order that matters — a later phase can change what an earlier one
+checked. It reads what the branch changed and what that change reaches, not
+the whole product, and reads each part once:
+
+1. It audits the branch for anything that would break an upgrade, and fixes
+   a break that redesigns something before going further.
+2. **`guides-update`** brings the guides, `AGENTS.md`, `CHANGELOG.md` and
+   `docs/upgrades.md` true for the branch, so the sweep after it holds the code
+   to rules that describe it.
+3. **`guides-comply`** sweeps what the branch changed and reached against those
+   guides, hunting for defects in the same reading, and fixes each finding it
+   can reproduce, with a test, recording the ones it cannot.
+4. **`design-review`** photographs the pages the branch changed and compares
+   them with every other page in `docs/product/screenshots/`. It is skipped, and
+   the report says so, only when the branch changed no page.
+5. It removes dead code, then **`product-kit`** rebuilds the screenshots and
+   feature list in `docs/product/` that the marketing site reads.
+6. The guides' measured numbers are recounted, all three test tiers run, and
+   it commits, pushes, and waits for every check to go green.
+
+It never merges and never cuts a version. Merge the pull request yourself once
+every check is green.
+
+Each can also be run alone, and alone `guides-comply` and `design-review` cover
+the whole product: run them so every few releases, or after changing something
+every page or service uses. None needs to be run beside `release-prep`.
+
+`cut-release` comes after the merge, from `main`, and only when you decide to
+ship a version and name it. It settles open Dependabot pull requests, sets the
+version everywhere, dates the changelog, freezes the release's migrations, then
+tags and publishes.
 
 `npm run verify` is typecheck, lint, format, tests and build, and it has to pass.
 Add a test for the behavior you changed: this repository tests heavily and a

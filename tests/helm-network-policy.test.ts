@@ -126,3 +126,73 @@ describe("the tiers in front of it", () => {
     expect(frontend).not.toContain('"component" "database"');
   });
 });
+
+describe("the collector's policy, and the two it is added to", () => {
+  const collector = policyFor("collector");
+  const head = documents[0]!;
+  /** The policy with its comments out, which argue about restrictEgress at length. */
+  const collectorCode = collector
+    .replace(/\{\{-? ?\/\*[\s\S]*?\*\/ ?-?\}\}/g, "")
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith("#"))
+    .join("\n");
+
+  it("exists only when the release runs a collector", () => {
+    // The same placement as the database's, and for the same reason: a `---`
+    // emitted on its own is a parse error.
+    expect(template).toContain('{{- if include "simple-balance.collectorEnabled" . }}\n---\n');
+  });
+
+  it("closes both directions whatever restrictEgress says", () => {
+    // Everywhere it goes is known to the render, and it is the one pod holding
+    // a credential for somewhere on the internet.
+    expect(collector).toMatch(/policyTypes:\n\s*- Ingress\n\s*- Egress/);
+    expect(collectorCode).not.toContain("restrictEgress");
+    expect(collectorCode).not.toMatch(/- \{\}/);
+  });
+
+  it("admits the probes and nothing else", () => {
+    const ingress = collector.slice(
+      collector.indexOf("{{- with $probes }}"),
+      collector.indexOf("  egress:"),
+    );
+    expect(ingress).toContain("port: 13133");
+    expect(ingress).toContain("ingress: []");
+    expect(ingress).not.toContain("podSelector");
+  });
+
+  it("reaches DNS, the two tiers it scrapes, the export port and the API server, and nothing else", () => {
+    const egress = collector.slice(collector.indexOf("  egress:"));
+    expect(egress).toMatch(/protocol: UDP\n\s+port: 53/);
+    for (const component of ["server", "scheduler"]) {
+      expect(egress, component).toContain(
+        `"simple-balance.componentSelectorLabels" (dict "root" . "component" "${component}")`,
+      );
+    }
+    expect(egress).not.toContain('"component" "database"');
+    expect(egress).not.toContain('"component" "frontend"');
+    expect(collector).toContain(
+      '$exportPort := include "simple-balance.collectorExportPort" . | int',
+    );
+    expect(collector).toContain("$np.apiServerPorts");
+    expect(egress).not.toContain("ipBlock");
+  });
+
+  it("is admitted to the API without being named", () => {
+    expect(head).toContain("{{- $serverPeers = append $serverPeers $collectorPeer }}");
+  });
+
+  it("is added to the scheduler only once that list has been narrowed", () => {
+    // While it is empty the rule admits every source in the cluster, the
+    // collector included; one peer added there would shut the probes and every
+    // other scraper out.
+    expect(head).toMatch(
+      /\{\{- if \$schedulerPeers \}\}\n\{\{- \$schedulerPeers = append \$schedulerPeers \$collectorPeer \}\}\n\{\{- end \}\}/,
+    );
+    expect(policyFor("scheduler")).toContain("{{- with $schedulerPeers }}");
+  });
+
+  it("is never admitted to the database", () => {
+    expect(policyFor("database")).not.toContain("collector");
+  });
+});

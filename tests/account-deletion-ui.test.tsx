@@ -2,10 +2,12 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Session } from "../src/client/api.js";
-import { DeleteAccount } from "../src/client/pages/SettingsPage.js";
+import SettingsPage, { DeleteAccount } from "../src/client/pages/SettingsPage.js";
+import { BrowserRouter } from "../src/client/router.js";
+import { TimezoneProvider } from "../src/client/timezone.js";
 import "./support/dialog.js";
 
 /**
@@ -94,5 +96,66 @@ describe("deleting an account that has a subscription", () => {
     expect(note).not.toHaveTextContent("subscription");
     expect(within(dialog).getByText(/There is no copy and no undo\./)).toBeInTheDocument();
     expect(within(dialog).queryByText(/subscription/)).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * The rest of the settings page's account panel, rendered whole. `web.md`
+ * 12.1: a failure is shown rather than read as there being nothing. The note
+ * under the password form read `authOptions.data?.passwordResetAvailable`, so a
+ * read in flight, or one that failed, told somebody their deployment had no
+ * mail server — a fact about the server stated from the absence of an answer.
+ */
+describe("the note under the password form", () => {
+  const signedIn = {
+    ...session,
+    preferences: { ...session.preferences, theme: "system" },
+    auth: {
+      localEnabled: true,
+      googleEnabled: false,
+      localPasswordConfigured: true,
+      googleLinked: false,
+    },
+  } as unknown as Session;
+
+  const renderSettings = (methods: () => Promise<Response>) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        new URL(String(input), window.location.origin).pathname === "/api/auth/methods"
+          ? methods()
+          : Response.json([]),
+      ),
+    );
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <TimezoneProvider timezone="UTC">
+          <BrowserRouter>
+            <SettingsPage session={signedIn} />
+          </BrowserRouter>
+        </TimezoneProvider>
+      </QueryClientProvider>,
+    );
+    return client;
+  };
+
+  it("says nothing about mail when the deployment's answer did not arrive", async () => {
+    const client = renderSettings(async () =>
+      Response.json({ error: { code: "INTERNAL_ERROR", message: "No." } }, { status: 500 }),
+    );
+    await screen.findByRole("heading", { name: "Preferences" });
+    // The read has failed and the page has rendered with the failure.
+    await waitFor(() => expect(client.getQueryState(["auth-methods"])?.status).toBe("error"));
+    expect(screen.queryByText(/has no mail server/)).toBeNull();
+    expect(screen.queryByText(/Forgot this password/)).toBeNull();
+  });
+
+  it("says each of the two things once the deployment has said", async () => {
+    renderSettings(async () => Response.json({ passwordResetAvailable: false }));
+    expect(await screen.findByText(/has no mail server/)).toBeInTheDocument();
+    cleanup();
+    renderSettings(async () => Response.json({ passwordResetAvailable: true }));
+    expect(await screen.findByText(/Forgot this password/)).toBeInTheDocument();
   });
 });

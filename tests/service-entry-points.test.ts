@@ -33,6 +33,18 @@ const NO_ACTOR_TO_TAKE = new Map([
     "A repair of somebody's postings, run at startup rather than by a request",
   ],
   ["pruneAbandonedClients", "A scheduled sweep of OAuth clients nobody completed"],
+  [
+    "markClientAuthorized",
+    "Reached from the OAuth consent and token endpoints, where what is being stamped is a client registration rather than anybody's ledger",
+  ],
+  [
+    "clientIdForAccessToken",
+    "The token endpoint has a token in hand and no session: the token is what names the client",
+  ],
+  [
+    "retireRefreshToken",
+    "The token endpoint authenticates a client, not a person; the grant's owner is read off the replacement row and named in the delete",
+  ],
   ["pruneIdempotencyRecords", "The retention sweep, on the scheduler's tick"],
   ["runDueNotifications", "The reminder sweep, on the scheduler's tick"],
   ["runDueRecurrences", "The proposal sweep, on the scheduler's tick"],

@@ -60,8 +60,16 @@ export class AppError extends Error {
   }
 }
 
-export const notFound = (message: string, details?: unknown) =>
-  new AppError("NOT_FOUND", message, 404, details);
+/**
+ * `agentMessage` widens this constructor as it widens `conflict` below, and for
+ * the half of the reason that differs. "Not found" is read the same way by a
+ * person and a program, so the diagnosis stays one sentence; what a bulk call
+ * advises does not. "Reload the list" is a person's move, and an agent has no
+ * list on screen — it is told which call reads the ids again, and which ids
+ * missed, which the refusal carries in its details.
+ */
+export const notFound = (message: string, details?: unknown, agentMessage?: string) =>
+  new AppError("NOT_FOUND", message, 404, details, agentMessage);
 
 /**
  * `agentMessage` is optional and widens this constructor rather than adding a
@@ -136,6 +144,32 @@ export const INTERNAL_ERROR_MESSAGE =
  */
 export const validationError = (message: string, details?: unknown, agentMessage?: string) =>
   new AppError("VALIDATION_ERROR", message, 422, details, agentMessage);
+
+/**
+ * A refusal a service raised, said again about something larger than the call
+ * that raised it: both sentences retold the same way, the code and the status
+ * kept, and the details the caller's.
+ *
+ * A move writes a whole part's transactions through the services, and a
+ * service turning one down can only say what is wrong with its draft, which
+ * nobody can find; the move knows the transaction by its type, amount, day and
+ * payee. It names no situation of its own — a 422 stays a 422 and a 409 a 409
+ * — so it is not a sixth constructor, and it lives here because the agent's
+ * sentence is read nowhere but here and in the MCP transport.
+ */
+export function retold(
+  error: AppError,
+  retell: (sentence: string) => string,
+  details: unknown,
+): AppError {
+  return new AppError(
+    error.code,
+    retell(error.message),
+    error.status,
+    details,
+    error.agentMessage === undefined ? undefined : retell(error.agentMessage),
+  );
+}
 
 /**
  * What to say about a field a draft left out, by the name it has in every

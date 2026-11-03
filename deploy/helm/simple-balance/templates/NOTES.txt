@@ -129,6 +129,22 @@ WARNING: {{ $peakConnections }} is past that. Scaled all the way out, replicas w
 to connect rather than queue. Raise max_connections to suit, or lower
 config.databasePoolSize, or lower the replica ceilings.
 {{- end }}
+{{- $ledgerFileBytes := include "simple-balance.ledgerFileBodyBytes" . | int64 }}
+{{- $proxyLimits := list (list "frontend.maxUploadSize" .Values.frontend.maxUploadSize) }}
+{{- $ingressBody := get (.Values.ingress.annotations | default dict) "nginx.ingress.kubernetes.io/proxy-body-size" }}
+{{- if and .Values.ingress.enabled $ingressBody }}
+{{- $proxyLimits = append $proxyLimits (list "the ingress's proxy-body-size" $ingressBody) }}
+{{- end }}
+{{- range $proxyLimits }}
+{{- $limit := index . 1 | toString }}
+{{- if and (regexMatch "^[0-9]+[kKmMgG]?$" $limit) (lt (include "simple-balance.nginxBytes" $limit | int64) $ledgerFileBytes) }}
+
+WARNING: {{ index . 0 }} ({{ $limit }}) is below the {{ $ledgerFileBytes }} bytes
+the API accepts for one part of a Simple Balance file. Adding or moving a file
+whose part is larger is refused at the proxy with a bare 413 the API never sees,
+and so is an agent's /mcp call carrying one. Raise it to at least 52m.
+{{- end }}
+{{- end }}
 {{- if .Values.secret.existingSecret }}
 
 Credentials come from the existing Secret {{ .Values.secret.existingSecret }}. Every key in it
@@ -144,6 +160,36 @@ is derived from the password it generated and put in {{ include "simple-balance.
 which the pods read first; a DATABASE_URL in {{ .Values.secret.existingSecret }} would be read
 second and would win, pointing the application at a database this cluster is not
 the one running.
+{{- end }}
+{{- end }}
+{{- if include "simple-balance.collectorEnabled" . }}
+
+Metrics. {{ include "simple-balance.collectorName" . }} scrapes every API and scheduler pod of this
+release every {{ .Values.collector.scrapeInterval }} and sends what it reads to {{ .Values.collector.export.endpoint }}
+over {{ .Values.collector.export.protocol }}, as deployment.environment.name={{ .Values.collector.environment }}. /metrics
+is on in both tiers because the collector is.
+
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "simple-balance.collectorName" . }}
+
+A backend that refuses the credential, or cannot be reached, shows there and in
+the collector's own otelcol_exporter_send_failed_metric_points, never as a
+restart: restarting would fix neither.
+{{- /* The policy closes /metrics only where it names the scheduler's peers: with
+none named it admits every pod in the cluster to the scheduler's one port,
+/metrics included. A token in an existing Secret is invisible to this render,
+so that case is warned about with the condition named rather than not at all. */}}
+{{- $np := .Values.networkPolicy }}
+{{- $schedulerClosed := and $np.enabled (or $np.probeSourceCidrs $np.schedulerIngressFrom) }}
+{{- if not (or $schedulerClosed .Values.secret.metricsToken) }}
+
+NOTE: {{ if .Values.secret.existingSecret }}unless {{ .Values.secret.existingSecret }} carries METRICS_TOKEN,
+{{ end -}}
+nothing asks for a token, and {{ if $np.enabled }}the scheduler's NetworkPolicy names no peers{{ else }}networkPolicy.enabled is off{{ end }},
+so any pod in the cluster can read /metrics on the {{ if $np.enabled }}scheduler pods{{ else }}API and scheduler pods{{ end }}.
+Nothing in it names a person, but it says how busy this deployment is: set
+METRICS_TOKEN {{ if .Values.secret.existingSecret }}in {{ .Values.secret.existingSecret }}{{ else }}with secret.metricsToken{{ end }}, and the collector sends it
+{{- if $np.enabled }}, or name
+networkPolicy.schedulerIngressFrom or probeSourceCidrs{{ end }}.
 {{- end }}
 {{- end }}
 {{- if .Values.database.enabled }}
