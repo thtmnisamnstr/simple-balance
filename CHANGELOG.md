@@ -2,6 +2,26 @@
 
 Notable changes, newest first.
 
+## Unreleased
+
+### Changed
+
+**One demo ledger, saved as a Simple Balance file, is what everything synthetic
+is made of.** The product kit used to build its ledger from a description of
+one, posting every account, entry, budget and template through the API on each
+run, and design reviews and smoke tests made up data of their own.
+`scripts/demo-ledger/demo-ledger.json` is now an export from this application,
+committed, and `scripts/demo-ledger/load.mjs` — or the kit's build, which does
+the same thing — moves it into a new sign-up's books, with its dates brought
+forward by whole months so its last month is the current one. It holds what the
+old seed did, plus a category group, a split, a conversion between its two
+currencies and a deleted entry. `save.mjs` writes a changed copy back with only
+the change in the diff. `tests/integration/demo-ledger.integration.test.ts`
+moves it into a database, so a change to the format or to a move's rules that
+the file no longer meets fails there instead of halfway through a screenshot
+run. The kit's `seed.json` and its per-entry keys are gone with the seeding they
+served.
+
 ## 0.2.2 - 2026-11-03
 
 ### Added

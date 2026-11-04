@@ -109,9 +109,13 @@ where a keyboard or responsive assertion belongs.
 
 **If none were provided, take them.** Do not ask, and do not review the layout
 from source — the whole point of the previous paragraph is that source cannot
-answer. A throwaway spec under `tests/browser/` that signs up, seeds a ledger
-through the forms and photographs every route is about forty lines and runs in
-under a minute; `budgets.spec.ts` has the sign-up and the seeding to copy, and
+answer. A throwaway spec under `tests/browser/` that signs up, loads the demo ledger
+and photographs every route is about forty lines and runs in under a minute.
+`budgets.spec.ts` has the sign-up to copy; the ledger is
+`demoLedgerMove({ today })` from `scripts/demo-ledger/rebase.mjs`, posted to
+`/api/v1/ledger-file:move` from the page, and `scripts/demo-ledger/README.md`
+says what it holds. Do not seed a ledger of your own: a populated screen is
+that file's job, and a gap in it is fixed there, for every later review too.
 `playwright.config.ts` starts PostgreSQL, the API and Vite on its own. Point
 `BROWSER_DATABASE_URL` at a throwaway database, write the files somewhere
 outside the repository, **and delete the spec when the review is over** —
@@ -133,8 +137,9 @@ showing, a button busy mid-request, a row with an error under it. The staged
 queue's selection bar overflowed at 1440px once a duplicate disabled Commit —
 and `reflow.spec.ts`, which walks every route at every width, never saw it,
 because at rest there is no selection bar. So for each section that changes
-with its contents, list its states, seed the data that reaches each one through
-the real API, and photograph each at the widths below. A transient state is
+with its contents, list its states, start from the demo ledger and add only the data
+that reaches each one, through the real API, and photograph each at the widths
+below. A transient state is
 made to last with `page.route`: hold the request, measure, then abort it, so a
 fast machine cannot outrun the screenshot and the seeded data survives.
 `tests/browser/selection-bar.spec.ts` has the seeding and the hold to copy.

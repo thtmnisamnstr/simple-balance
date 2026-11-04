@@ -297,8 +297,8 @@ describe("1.3 and 1.4, the two declined flags with a measurement in them", () =>
       "scripts/capacity/measure.d.mts",
       "scripts/capacity/schedule.d.mts",
       "scripts/capacity/verify.d.mts",
+      "scripts/demo-ledger/rebase.d.mts",
       "scripts/lib/learn-sync.d.mts",
-      "scripts/product-kit/entry-key.d.mts",
     ]);
   });
 });

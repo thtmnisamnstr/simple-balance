@@ -72,11 +72,15 @@ is a claim about who uses this and what goes wrong for them. One sentence.
 
 ## 2. The screenshots
 
-They need this application running against a seeded database, and the block
-below is the whole runbook; no guide holds a longer one.
-`scripts/product-kit/seed.json` is the fixture, committed rather than
-generated: a screenshot of random data cannot be reproduced, so two captures
-a month apart cannot be compared and a layout regression hides in the noise.
+They need this application running against a fresh database, and the block
+below is the whole runbook; no guide holds a longer one. What they photograph
+is the demo ledger, `scripts/demo-ledger/demo-ledger.json`: an export from
+this application, committed rather than generated, because a screenshot of
+random data cannot be reproduced, so two captures a month apart cannot be
+compared and a layout regression hides in the noise. The build signs the demo
+person up and moves the file into their books. **A screen that photographs
+empty is a gap in that file** — add to it through the loop in
+`scripts/demo-ledger/README.md`, never by seeding something here.
 
 ```sh
 # 1. a throwaway database — not your development one, and not on 5432
@@ -97,49 +101,42 @@ npx tsx scripts/product-kit/build.mjs
 docker rm -f sb-kit-pg
 ```
 
-### Six traps, all paid for already
+### The traps, all paid for already
 
 - **Do not pipe the output through `head`.** SIGPIPE kills it mid-capture and
   leaves a partial set that looks complete. Redirect to a file.
-- **The seed's dates are relative on purpose.** Every page defaults to a
-  this-month range, so a fixed calendar renders an empty dashboard the moment
-  the month turns.
+- **The demo ledger's dates move on the way in.** Every page defaults to a
+  this-month range, so the file's dates are moved by whole months until its
+  last month is the current one, and an entry that lands past today is dated
+  today (`scripts/demo-ledger/rebase.mjs`). Early in a month the current one
+  is thin for that reason, as it always was.
 - **Both currencies need budgets.** The overview renders a block per
-  currency; seeding one leaves the other reporting "no budget set" beside a
-  populated one, which reads as a broken feature.
+  currency; a file with budgets in one leaves the other reporting "no budget
+  set" beside a populated one, which reads as a broken feature.
+  `tests/demo-ledger.test.ts` holds the file to having both.
 - **The identity is fixed and visible** in the sidebar of every shot, so a
   re-run meets an account that already exists. The script signs in instead of
-  failing, and the seed replays rather than duplicating.
-- **A re-run against the kit's own database replays, on any day.** Each
-  entry's idempotency key is `kit-<YYYY-MM>-<its place in seed.entries>`: the
-  calendar month it belongs to, before any clamping, and never its date
-  (`scripts/product-kit/entry-key.mjs` says why). An entry still ahead of today
-  is clamped to today, so its date moves between runs; the replay of one whose
-  date has moved meets its own key with a different body, is refused with a
-  409, and keeps the date it was first posted with. The build counts those as
-  "already posted under an earlier date" rather than as problems. Once the
-  month turns, the new month's entries are posted and the oldest month stays,
-  so the history grows by a month. Two cases still need a clean start. A
-  database seeded by a build from before these keys (`kit-<n>-<date>`) shares
-  none of them, so the next run posts the whole history a second time: drop it
-  once. And any other database already holds rows the pictures would show.
-  Either way the dashboard, budgets and reports come out inflated with nothing
-  on screen to say so. Drop it and start clean whenever anything looks off —
-  step 4 of the block above already puts it away.
-- **The seed needs four accounts and the free plan keeps three.** This is the
-  trap that costs the most time, because each wrong answer looks like a
+  failing.
+- **Start from a fresh database every time.** A re-run on the same day
+  replays the move under the same idempotency key and changes nothing. A re-run
+  on a later day passes over every entry already there by its origin, so they
+  keep the dates they were first given and the current month comes out wrong
+  with nothing on screen to say so. Step 4 of the block above puts the
+  database away; do it.
+- **The demo ledger has four accounts and the free plan keeps three.** This
+  is the trap that costs the most time, because each wrong answer looks like a
   different problem. With `SB_BILLING_ENABLED=true` and no entitlement, the
-  build dies partway through seeding on a `409` from `POST /api/v1/accounts`:
-  *"A free plan keeps 3 accounts active, and this one has 3."* The seed has
-  four on purpose — two currencies, and the overview renders a block per
-  currency — so this is not a seed that grew carelessly.
+  build stops at the move, which is refused because four accounts are coming
+  and there are three places, and writes nothing. The file has four on purpose
+  — two currencies, and the overview renders a block per currency — so this is
+  not a ledger that grew carelessly.
 
   Turning billing off clears it and produces something worse: the plan tab
   photographs as *"This deployment is not selling subscriptions at the
   moment"*, which is exactly the picture §4 says not to publish.
 
-  So give the kit's account a subscription before capturing, after the sign-up
-  has happened and before the run that keeps the pictures. `price_id` has to be
+  So give the kit's account a subscription before capturing: run the build
+  once to sign up, let the move be refused, insert the row, and run it again. `price_id` has to be
   the id in `STRIPE_PRICE_YEARLY_ID`, or the tab cannot tell which interval the
   row is for and shows the plan as one it no longer sells:
 
@@ -167,15 +164,17 @@ docker rm -f sb-kit-pg
   renders, because the new account is stuck at an unconfirmed address. Pass
   `SMTP_HOST=` and the rest empty alongside it.
 
-- **One clock, or the current month comes out short.** The seed's dates and
-  the browser's "today" have to be the same day. They were not: the dates
+- **One clock, or the current month comes out short.** The demo ledger's
+  rebased dates and the browser's "today" have to be the same day. They were not: the dates
   were computed in UTC and the browser used the machine's zone, so a capture
   run in the evening in California dated the month's last entries into
   tomorrow — and this application correctly declines to count money that has
   not moved, so the dashboard, the budgets and the reports were all quietly
   a hundred and seventy dollars light with nothing on screen to say so — two
   entries, and no sign of them anywhere. The script now asks
-  `calendarDayIn` and hands the browser the same zone. If `capturedAt` in
+  `calendarDayIn` for the day it rebases to and hands the browser the same
+  zone. The file carries no settings for the same reason: a timezone in it
+  would be the server's "today" for the demo person. If `capturedAt` in
   `screenshots.json` disagrees with the "As of" date in the pictures, this is
   what has come apart again.
 

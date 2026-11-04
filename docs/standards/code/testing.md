@@ -7,7 +7,7 @@ keeping.
 | --- | --- | --- | --- |
 | Unit (node) | 234 | `npm test` | nothing |
 | Unit (jsdom) | 66 | `npm test` | nothing |
-| Integration | 97 | `npm test` **or** `npm run test:integration` | PostgreSQL |
+| Integration | 98 | `npm test` **or** `npm run test:integration` | PostgreSQL |
 | Browser | 12 | `npm run test:browser` | PostgreSQL, Chromium |
 
 **`npm test` collects the integration tier too**, which surprises people and is
@@ -23,15 +23,15 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 302 pass, 95 skip | **3,809 pass, 1,053 skip** |
-| `npm test`, database set | 397 pass | **4,862 pass** |
-| `npm run test:integration` | 97 pass | 1,056 pass |
+| `npm test`, no database | 302 pass, 96 skip | **3,823 pass, 1,055 skip** |
+| `npm test`, database set | 398 pass | **4,878 pass** |
+| `npm run test:integration` | 98 pass | 1,058 pass |
 
-The integration tier reports 1,056 tests on its own and 1,053 skips inside a
+The integration tier reports 1,058 tests on its own and 1,055 skips inside a
 database-less `npm test`, and the three-test difference is not an error: three
 cases in that tier need no database and so run either way. They are counted
-among the 3,809 rather than among the skips, which is why the two rows add up
-to 4,862 both times.
+among the 3,823 rather than among the skips, which is why the two rows add up
+to 4,878 both times.
 
 The third row is three tests larger than the first row's skip count, and the
 odd ones out are worth knowing. `bulk-transactions-mcp.integration.test.ts` has
@@ -577,7 +577,7 @@ it, drop it in `afterAll`. Files then do not race, which matters because
 
 The sequence has a helper, and a new file should take it rather than re-roll
 it: `scratchDatabase()` in `tests/integration/support/scratch-database.ts`
-creates, migrates and registers the drop in one call, and 65 of the 97 files
+creates, migrates and registers the drop in one call, and 66 of the 98 files
 use it. The files that predate it manage their own admin client, and their
 teardowns had drifted to an unguarded four-step sequence where the first step
 throwing strands the database and the connection both — the exact failure the

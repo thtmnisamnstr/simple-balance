@@ -292,9 +292,9 @@ hash of its bytes — so there is nothing for a formatter to keep tidy.
 what this repository is. `npm run lint` is bare `oxlint` (`package.json:26`),
 which walks everything outside `.oxlintrc.json`'s five ignore patterns.
 `npm run format` is `oxfmt src tests *.ts` (`package.json:28`), and
-`format:check` the same three paths (`package.json:29`). Thirty tracked
-TypeScript and JavaScript files sit outside them — thirteen Pulumi modules under
-`deploy/pulumi`, sixteen scripts under `scripts/`, and
+`format:check` the same three paths (`package.json:29`). In all, 32
+tracked TypeScript and JavaScript files sit outside them — thirteen Pulumi
+modules under `deploy/pulumi`, eighteen scripts under `scripts/`, and
 `public/theme-boot.js`, which `.oxfmtrc.json` ignores anyway — and the linter
 reads all of them while the formatter has never been pointed at one. The two
 `*Checked by:*` footers above say `npm run lint` and `npm run format:check`

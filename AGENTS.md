@@ -605,10 +605,21 @@ the order and the traps do not have to be rediscovered:
 - `cut-release` — the procedure in `docs/upgrades.md`, and only on an explicit
   go-ahead.
 - `product-kit` — rebuild `docs/product/`: the tiered feature list, and a
-  screenshot of every screen against a committed seed.
+  screenshot of every screen of the demo ledger.
 
 Each points at the guides rather than restating them, because a copied rule
 drifts.
+
+**Synthetic data is the demo ledger, and nothing else.** Screenshots, a design
+review, a smoke test or a look at the app with something in it all load
+`scripts/demo-ledger/demo-ledger.json`, a Simple Balance file exported from
+this application, with `scripts/demo-ledger/load.mjs` or `demoLedgerMove` —
+never a generator, and never a ledger typed in through the forms or the API for
+the occasion. A screen or record it does not reach is added to the file and
+saved back with `save.mjs`, so the next use has it too; its README has the
+loop. A browser or integration test that needs one exact shape still builds
+that shape itself, because a test that depends on a fixture's figures breaks
+whenever the fixture grows.
 
 ## Definition of done
 
