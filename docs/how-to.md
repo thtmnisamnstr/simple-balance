@@ -159,7 +159,7 @@ category side to divide.
 ## Import a bank file
 
 1. Download a CSV statement from your bank.
-2. Open **Import and export** and, under **Import a CSV**, choose the file and
+2. Open **Import/Export** and, under **Import a CSV**, choose the file and
    match the columns: which one is the date, the amount (or debit/credit
    pair), the payee. Press **Dry run** to see how each row will be read before
    anything is saved.
@@ -204,7 +204,7 @@ A Simple Balance file is one file holding everything you have written in this
 ledger, for keeping or for moving to another copy of Simple Balance: our cloud
 app, or a copy you run yourself.
 
-1. Open **Import and export**. The export is the last section, **Export a
+1. Open **Import/Export**. The export is the last section, **Export a
    Simple Balance file**.
 2. Under **What to export**, choose **Everything** for the whole ledger, or
    **Some accounts** for the ones you pick.
@@ -242,7 +242,7 @@ This adds the file to the ledger you are signed in to, whether it is empty or
 already has accounts and transactions of its own. Nothing is written until you
 press the button at the end.
 
-1. Open **Import and export**. The middle section is **Import a Simple Balance
+1. Open **Import/Export**. The middle section is **Import a Simple Balance
    file**.
 2. Choose the file. The page reads it first, and a file it cannot read is
    refused with each problem beside the place in the file it points at. Then it
@@ -308,11 +308,11 @@ checked against the file before the move is finished.
    this release or a later one, and so does a copy you are moving away from.
    Do not enter a transaction or import a CSV there first: a move is offered
    only while everything in the ledger came from a Simple Balance file.
-2. **Export the ledger you are leaving.** Open **Import and export** there,
+2. **Export the ledger you are leaving.** Open **Import/Export** there,
    choose **Everything** under **What to export**, and press **Export file**
    (see [Take your ledger with you](#take-your-ledger-with-you)). Leave
    **Include deleted transactions** ticked if you want them to come too.
-3. **On the new side**, open **Import and export** and choose the file under
+3. **On the new side**, open **Import/Export** and choose the file under
    **Import a Simple Balance file**.
 4. Under **How should this file come in?**, choose **Move it into this
    ledger**. Nothing is chosen for you, and the button stays disabled until

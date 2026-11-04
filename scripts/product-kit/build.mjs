@@ -1,18 +1,19 @@
 /**
- * Seed a throwaway instance and photograph every screen in it.
+ * Load the demo ledger into a throwaway instance and photograph every screen in it.
  *
  * The output in `docs/product/` is the marketing site's only source of
  * pictures. That site is a separate repository and cannot run this
  * application, so if the kit is not built here it is not built anywhere, and
  * the site falls back to describing screens nobody has looked at.
  *
- * **Why the seed is committed.** `seed.json` is a fixture rather than a
- * generator. A screenshot of randomly generated data is a screenshot nobody
- * can reproduce, so two captures a month apart cannot be compared and a
- * layout regression hides in the noise. The dates inside it are relative —
- * a day within a month, and a count of months back — because every page in
- * this app defaults to a this-month range, and a fixed calendar would render
- * an empty dashboard the moment the month turned.
+ * **What it photographs.** The demo ledger, `scripts/demo-ledger/demo-ledger.json`:
+ * an export from this application, committed, and moved into a new sign-up's
+ * books through the route a person moving their own file uses. Committed
+ * rather than generated, because a screenshot of randomly generated data is a
+ * screenshot nobody can reproduce, so two captures a month apart cannot be
+ * compared and a layout regression hides in the noise. Its dates move to this
+ * month on the way in, because every page in this app defaults to a
+ * this-month range; `scripts/demo-ledger/rebase.mjs` says how.
  *
  * WHAT THIS NEEDS, and why it is not in `npm run verify`: a throwaway
  * PostgreSQL, this application on :3000, Vite on :5173, and about a minute.
@@ -27,13 +28,12 @@ import { join } from "node:path";
 // Run under `tsx`, because this is the one question that may not be answered
 // twice. `AGENTS.md`: whether it is a given day where somebody lives is
 // answered in one place, and a second implementation here is what put the
-// seed a day ahead of the browser reading it.
+// demo ledger a day ahead of the browser reading it.
 import { calendarDayIn } from "../../src/shared/recurrence-dates.js";
-import { entryKey } from "./entry-key.mjs";
+import { DEMO_PERSON, demoLedgerMove } from "../demo-ledger/rebase.mjs";
 
 const BASE = process.env.APP_URL ?? "http://localhost:5173";
 const OUT = process.env.OUT_DIR ?? "docs/product/screenshots";
-const seed = JSON.parse(readFileSync("scripts/product-kit/seed.json", "utf8"));
 const features = JSON.parse(readFileSync("docs/product/features.json", "utf8"));
 /* The release these pictures are of. The marketing site records it so that
    "which version is the site describing" has an answer, and so that a
@@ -43,7 +43,7 @@ const { version: appVersion } = JSON.parse(readFileSync("package.json", "utf8"))
 /**
  * The zone both halves of this script agree on.
  *
- * The seed's dates are worked out here and read back by a browser, and those
+ * The demo ledger's dates are worked out here and read back by a browser, and those
  * two used to be different clocks: the dates were UTC and the browser was on
  * whatever the machine was set to. Run in the evening in California that put
  * every clamped date a day into the future, and this application correctly
@@ -56,23 +56,6 @@ const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 const today = new Date();
 const iso = (d) => calendarDayIn(d, zone);
 
-/** Day `day` of the month `monthsAgo` back, never dated into the future. */
-function dayOfMonth(monthsAgo, day) {
-  const start = new Date(today.getFullYear(), today.getMonth() - monthsAgo, 1);
-  const last = new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate();
-  const candidate = new Date(start.getFullYear(), start.getMonth(), Math.min(day, last));
-  // Money dated ahead has not moved, and this application correctly declines
-  // to count it — which would render a screenshot of an empty month.
-  return iso(candidate > today ? today : candidate);
-}
-
-/** Day `day` of next month, which is always ahead of today; see the anchors below. */
-function dayOfNextMonth(day) {
-  const start = new Date(today.getFullYear(), today.getMonth() + 1, 1);
-  const last = new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate();
-  return iso(new Date(start.getFullYear(), start.getMonth(), Math.min(day, last)));
-}
-
 async function main() {
   mkdirSync(OUT, { recursive: true });
   const browser = await chromium.launch();
@@ -84,7 +67,7 @@ async function main() {
     // reads the browser's own language tag to choose the new account's
     // currency, so an unpinned locale means a laptop set to en-GB captures a
     // marketing set denominated in pounds. And `zone` is the same one the
-    // seed's dates were built in, which is what makes "today" mean one day
+    // demo ledger's dates were rebased in, which is what makes "today" mean one day
     // on both sides of the wire.
     locale: "en-US",
     timezoneId: zone,
@@ -98,10 +81,10 @@ async function main() {
   await signUp.or(toggle).waitFor();
   if (await toggle.isVisible()) await toggle.click();
   await signUp.waitFor();
-  await page.getByLabel("Your name").fill(seed.person.name);
-  await page.getByLabel("Email address").fill(seed.person.email);
-  await page.getByLabel(/^Password/).fill(seed.person.password);
-  await page.getByLabel(/^Confirm password/).fill(seed.person.password);
+  await page.getByLabel("Your name").fill(DEMO_PERSON.name);
+  await page.getByLabel("Email address").fill(DEMO_PERSON.email);
+  await page.getByLabel(/^Password/).fill(DEMO_PERSON.password);
+  await page.getByLabel(/^Confirm password/).fill(DEMO_PERSON.password);
   await page.getByRole("button", { name: "Create account" }).click();
 
   const nav = page.getByRole("navigation", { name: "Main navigation" });
@@ -115,272 +98,40 @@ async function main() {
       .getByRole("button", { name: /Sign in/i })
       .first()
       .waitFor();
-    await page.getByLabel("Email address").fill(seed.person.email);
-    await page.getByLabel(/^Password/).fill(seed.person.password);
+    await page.getByLabel("Email address").fill(DEMO_PERSON.email);
+    await page.getByLabel(/^Password/).fill(DEMO_PERSON.password);
     await page.getByRole("button", { name: /^Sign in$/i }).click();
     await nav.waitFor({ timeout: 30_000 });
   }
 
-  // ---- seed, idempotently ------------------------------------------------
-  const ids = await page.evaluate(
-    async ({ accounts, categories, openingDate }) => {
-      const post = async (url, body) => {
-        const res = await fetch(url, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        if (!res.ok) throw new Error(`${url} -> ${res.status} ${await res.text()}`);
-        return res.json();
-      };
-      const list = async (url, key) => {
-        const res = await fetch(url);
-        if (!res.ok) return [];
-        const body = await res.json();
-        return Array.isArray(body) ? body : (body[key] ?? body.items ?? []);
-      };
-      const byName = (rows) => new Map(rows.map((r) => [r.name, r.id]));
-      const haveAccounts = byName(await list("/api/v1/accounts", "accounts"));
-      const haveCategories = byName(await list("/api/v1/categories", "categories"));
-
-      const out = { accounts: {}, categories: {} };
-      for (const a of accounts) {
-        out.accounts[a.name] =
-          haveAccounts.get(a.name) ?? (await post("/api/v1/accounts", { ...a, openingDate })).id;
-      }
-      for (const c of categories) {
-        out.categories[c.name] =
-          haveCategories.get(c.name) ?? (await post("/api/v1/categories", c)).id;
-      }
-      return out;
-    },
-    {
-      accounts: seed.accounts,
-      categories: seed.categories,
-      openingDate: dayOfMonth(seed.openingMonthsAgo, 1),
-    },
-  );
-
-  const drafts = [];
-  for (let month = 0; month < seed.monthsOfHistory; month += 1) {
-    for (const [entryIndex, entry] of seed.entries.entries()) {
-      const key = entryKey(today, month, entryIndex);
-      const date = dayOfMonth(month, entry.day);
-      const common = {
-        date,
-        payee: entry.payee,
-        description: entry.description,
-        ...(entry.category ? { categoryId: ids.categories[entry.category] } : {}),
-      };
-      if (entry.type === "transfer") {
-        drafts.push({
-          key,
-          draft: {
-            ...common,
-            type: "transfer",
-            fromAccountId: ids.accounts[entry.from],
-            toAccountId: ids.accounts[entry.to],
-            sourceAmount: entry.amount,
-            destinationAmount: entry.amount,
-          },
-        });
-      } else if (entry.type === "deposit") {
-        drafts.push({
-          key,
-          draft: {
-            ...common,
-            type: "deposit",
-            toAccountId: ids.accounts[entry.to],
-            amount: entry.amount,
-          },
-        });
-      } else {
-        drafts.push({
-          key,
-          draft: {
-            ...common,
-            type: "withdrawal",
-            fromAccountId: ids.accounts[entry.from],
-            amount: entry.amount,
-          },
-        });
-      }
-    }
-  }
-
-  const written = await page.evaluate(async (list) => {
-    let ok = 0;
-    let kept = 0;
-    const problems = [];
-    for (const { key, draft } of list) {
-      const res = await fetch("/api/v1/transactions", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        // Stable across runs and days, so a re-run replays rather than
-        // duplicating: `entry-key.mjs` says why it is not the date.
-        body: JSON.stringify({ draft, idempotencyKey: key }),
-      });
-      if (res.ok) {
-        ok += 1;
-        continue;
-      }
-      const text = await res.text();
-      // The entry is already there under the date it had when it was first
-      // posted; its clamped date has moved since, so the replay differs.
-      if (res.status === 409 && /idempotency key/i.test(text)) kept += 1;
-      else if (problems.length < 3) problems.push(`${res.status} ${text.slice(0, 180)}`);
-    }
-    return { ok, kept, problems };
-  }, drafts);
-  console.log(
-    `transactions: ${written.ok}/${drafts.length}` +
-      (written.kept ? `, ${written.kept} already posted under an earlier date` : ""),
-  );
-  if (written.problems.length) console.log("problems:", written.problems);
-
-  const budgets = await page.evaluate(
-    async ({ plans, categories, activeFrom }) => {
-      let ok = 0;
-      let kept = 0;
-      const problems = [];
-      for (const plan of plans) {
-        const res = await fetch("/api/v1/budget-plans", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            categoryId: categories[plan.category],
-            currency: plan.currency,
-            periodUnit: "month",
-            amount: plan.amount,
-            activeFrom,
-          }),
-        });
-        if (res.ok) {
-          ok += 1;
-          continue;
-        }
-        // A budget has no name and no idempotency key, so a re-run's second
-        // create is refused as overlapping the window the first one wrote, and
-        // the refusal names the plan already there. Counting only `res.ok` read
-        // "budgets: 0/9" on every re-run, which looked exactly like budgets
-        // failing to land; a refusal that names no plan is printed instead.
-        const text = await res.text();
-        if (/conflictingPlanId/.test(text)) kept += 1;
-        else if (problems.length < 3) problems.push(`${res.status} ${text.slice(0, 180)}`);
-      }
-      return { ok, kept, problems };
-    },
-    {
-      plans: seed.budgets,
-      categories: ids.categories,
-      activeFrom: dayOfMonth(seed.monthsOfHistory, 1),
-    },
-  );
-  console.log(
-    `budgets: ${budgets.ok}/${seed.budgets.length}` +
-      (budgets.kept ? `, ${budgets.kept} already there from an earlier run` : ""),
-  );
-  if (budgets.problems.length) console.log("problems:", budgets.problems);
-
-  // A few rows waiting in the review queue, as an import leaves them. Without
-  // them the queue photographed as its empty state, and the marketing site
-  // published a picture of the screen with nothing on it. This month's only,
-  // keyed like the entries so a re-run replays them, and one is a refund into a
-  // spending category, which is what the queue's inline category handles.
-  const staged = await page.evaluate(
-    async (list) => {
-      let ok = 0;
-      for (const { key, draft } of list) {
-        const res = await fetch("/api/v1/staged-transactions", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ draft, idempotencyKey: key }),
-        });
-        if (res.ok || res.status === 409) ok += 1;
-      }
-      return ok;
-    },
-    (seed.staged ?? []).map((row, index) => ({
-      key: `staged-${entryKey(today, 0, index)}`,
-      draft: {
-        date: dayOfMonth(0, row.day),
-        payee: row.payee,
-        description: row.description,
-        ...(row.category ? { categoryId: ids.categories[row.category] } : {}),
-        ...(row.type === "deposit"
-          ? { type: "deposit", toAccountId: ids.accounts[row.to], amount: row.amount }
-          : { type: "withdrawal", fromAccountId: ids.accounts[row.from], amount: row.amount }),
-      },
-    })),
-  );
-  console.log(`staged: ${staged}/${(seed.staged ?? []).length}`);
-
-  // Templates and recurring transactions, for the reason the staged rows are
-  // here: without them both screens photographed as their empty states, and
-  // two entries in `features.json` sent the marketing site to a picture of
-  // nothing. Both are named records, and a name is unique per ledger, so a
-  // re-run's second create is refused as a duplicate rather than written
-  // twice, and counts as already there.
-  //
-  // Each recurrence is anchored on its day *next* month. The kit's server runs
-  // with RECURRENCE_SCHEDULER=false, so one anchored on a day already gone sits
-  // past due with nothing proposed, and the page photographs the warning that
-  // says so. The same rule is why a database kept past the turn of the month
-  // shows that warning on its next run: one more reason to start clean.
-  const shape = (row) => ({
-    payee: row.payee,
-    ...(row.description ? { description: row.description } : {}),
-    ...(row.category ? { categoryId: ids.categories[row.category] } : {}),
-    // Left out on purpose where the seed has none: the electricity bill
-    // differs every month, and a template's usual blank is its amount.
-    ...(row.amount ? { amount: row.amount } : {}),
-    ...(row.type === "transfer"
-      ? {
-          type: "transfer",
-          fromAccountId: ids.accounts[row.from],
-          toAccountId: ids.accounts[row.to],
-        }
-      : row.type === "deposit"
-        ? { type: "deposit", toAccountId: ids.accounts[row.to] }
-        : { type: "withdrawal", fromAccountId: ids.accounts[row.from] }),
-  });
-  const named = [
-    ...(seed.templates ?? []).map((row) => ({
-      url: "/api/v1/transaction-templates",
-      body: { name: row.name, draft: shape(row) },
-    })),
-    ...(seed.recurrences ?? []).map((row) => ({
-      url: "/api/v1/recurrences",
-      body: {
-        name: row.name,
-        shape: shape(row),
-        schedule: { frequency: "monthly", interval: 1, anchorDate: dayOfNextMonth(row.day) },
-      },
-    })),
-  ];
-  const kept = await page.evaluate(async (list) => {
-    let ok = 0;
-    const problems = [];
-    for (const { url, body } of list) {
-      const res = await fetch(url, {
+  // ---- the demo ledger -------------------------------------------------
+  // One move, from the page so it carries the session. A second run on the
+  // same day replays the first under the same idempotency key; a run on a
+  // later day passes over every entry already there by its origin and leaves
+  // them on their old dates, which is why the skill's runbook starts from a
+  // fresh database every time.
+  const moved = await page.evaluate(
+    async (body) => {
+      const res = await fetch("/api/v1/ledger-file:move", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (res.ok) {
-        ok += 1;
-        continue;
-      }
-      const text = await res.text();
-      // Only the name taken by an earlier run of this script. Any other
-      // refusal, another 409 among them, is printed rather than counted.
-      if (res.status === 409 && /"DUPLICATE"/.test(text)) ok += 1;
-      else if (problems.length < 3) problems.push(`${url} -> ${res.status} ${text.slice(0, 180)}`);
-    }
-    return { ok, problems };
-  }, named);
-  console.log(`templates and recurring: ${kept.ok}/${named.length}`);
-  if (kept.problems.length) console.log("problems:", kept.problems);
+      return { ok: res.ok, status: res.status, text: await res.text() };
+    },
+    demoLedgerMove({ today: iso(today) }),
+  );
+  if (!moved.ok) {
+    // On a deployment that sells a plan, the usual one is the free plan's
+    // three places against the ledger's four accounts; the skill has the fix.
+    throw new Error(`The demo ledger was refused (${moved.status}): ${moved.text}`);
+  }
+  const result = JSON.parse(moved.text);
+  console.log(
+    `demo ledger: ${result.written.entries} transactions, ${result.written.deleted} deleted, ` +
+      `${result.skipped.entries} already there, ${result.staged} staged, ` +
+      `${result.balances.checked} balances checked`,
+  );
 
   // ---- photograph every screen ------------------------------------------
   await page.goto(BASE);

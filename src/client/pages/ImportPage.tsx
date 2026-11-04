@@ -923,11 +923,10 @@ export default function ImportPage() {
           <div>
             <h2 id={fileHeading}>Import a Simple Balance file</h2>
             <p>
-              Add a file exported from Simple Balance to this ledger. Accounts, categories,
-              templates, recurring transactions and budgets that are new here are created as they
-              are, one already here under the same name is yours to decide, and transactions go to
-              Staged for review. Into a new ledger, the file can be moved instead, with every
-              transaction going straight into the books.
+              Import a file exported from Simple Balance into this ledger. Accounts, categories,
+              templates, recurring transactions and budgets are created and transactions go to
+              Staged for review. In an empty ledger, every transaction can optionally go straight
+              into the books.
             </p>
           </div>
         </div>

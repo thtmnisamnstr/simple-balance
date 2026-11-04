@@ -854,7 +854,7 @@ between our cloud app and a copy you run
 yourself](#moving-a-ledger-between-our-cloud-app-and-a-copy-you-run-yourself)
 puts the four together.
 
-It takes the same selection the export section of **Import and export** builds.
+It takes the same selection the export section of **Import/Export** builds.
 `kinds` says which kinds of record travel whole, and a record of a kind left out
 still travels as a reference — a name, and what is needed to find it — wherever
 something in the file names it. `accountIds` narrows the file to those accounts,

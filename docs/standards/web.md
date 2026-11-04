@@ -1678,7 +1678,7 @@ next submit — clearing it as somebody types would be judging a field while the
 type in it, which the timing rule above refuses — with one exception a form with
 a mode switch needs: a switch that changes which fields are on the form takes
 the refusal with it. The export's scope, its range, its account detail and the
-two boxes the range depends on each do (`src/client/pages/ImportPage.tsx:1135`).
+two boxes the range depends on each do (`src/client/pages/ImportPage.tsx:1134`).
 Left up, the refusal named a date field that was no longer there — a summary
 link focusing nothing — or sat beside a form whose own button now said
 something else was wrong.
@@ -4196,7 +4196,8 @@ screen adds:
 
 **House.** Sentence case everywhere: page titles, headings, buttons, options,
 badges, empty states, alerts, table headers, navigation. An eyebrow is authored
-in sentence case and uppercased by CSS, never by the string.
+in sentence case and uppercased by CSS, never by the string. One named
+exception: the sidebar's Import/Export, below.
 
 **House.** A button leads with a verb, in the verb-plus-noun form, with articles
 dropped: "Add menu item", not "Add a menu item". Bare verbs are allowed for four
@@ -4254,16 +4255,22 @@ Banned outright: "please", "sorry", "valid", "invalid", "oops", "forbidden",
 sentence, word for word.
 
 **House. A page's name can change and its path does not.** The sidebar's
-Import CSV became Import and export when the page gained an export, and its path
+Import CSV became Import/Export when the page gained an export, and its path
 stayed `/import`. A path is what a bookmark, a link in somebody's notes and the
 product kit's screenshot list hold, and the router sends a path it does not know
 to the overview without a word (`src/client/App.tsx:1119`), so a renamed path
 turns every old link into the wrong page silently. A redirect would answer that
-and is one more route to carry for a word nobody reads in the address bar. The
-label itself is words, "Import and export" rather than "Import/Export", for the
-sentence-case rule above. *Checked by:* `tests/nav-order.test.ts` for the
-label and that it names a route the app serves; that a rename kept its path is
-review, since a renamed path would pass that check too.
+and is one more route to carry for a word nobody reads in the address bar.
+
+The label is "Import/Export", the one navigation label that capitalizes a second
+word, and the page it opens is headed "Import and export". It was "Import and
+export" in the sidebar too, for the sentence-case rule above, and was changed by
+decision before 0.2.2 shipped; every other item in the sidebar is one word. The
+heading keeps the sentence-case form. A link elsewhere still names the page by
+its sidebar label (below), so it says Import/Export. *Checked by:*
+`tests/nav-order.test.ts` for the label and that it names a route the app
+serves; that a rename kept its path is review, since a renamed path would pass
+that check too.
 
 **House.** The `PageHeader` eyebrow names a section, never repeats the title,
 and is dropped where there is nothing to say. It repeated the title on Accounts

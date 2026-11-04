@@ -78,9 +78,11 @@ const SCANNED: Scanned[] = [
   ...sourceFiles("src"),
   read("src/client/styles.css"),
   read("index.html"),
-  read("scripts/product-kit/seed.json"),
   read("scripts/product-kit/build.mjs"),
-  read("scripts/product-kit/entry-key.mjs"),
+  read("scripts/demo-ledger/demo-ledger.json"),
+  read("scripts/demo-ledger/rebase.mjs"),
+  read("scripts/demo-ledger/load.mjs"),
+  read("scripts/demo-ledger/save.mjs"),
 ];
 
 function hits(files: Scanned[]) {

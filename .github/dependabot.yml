@@ -93,6 +93,12 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      # The same rule as the root's, for the same reason: types for a newer
+      # Node than the one running the program let it typecheck against APIs
+      # that are not there. Without this Dependabot offered 22 to 26 (#120).
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: docker
     directories:

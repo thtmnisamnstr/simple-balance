@@ -368,7 +368,7 @@ describe("the map from each guide's steps to the tools that do them", () => {
         ...readFileSync("src/client/App.tsx", "utf8").matchAll(/\{ to: "[^"]*", label: "([^"]+)"/g),
       ].map((match) => match[1]!),
     );
-    expect([...navigation]).toEqual(expect.arrayContaining(["Accounts", "Import and export"]));
+    expect([...navigation]).toEqual(expect.arrayContaining(["Accounts", "Import/Export"]));
     const note = /The page the guide calls (.+?) is (.+?) now\./g;
     let pages = 0;
     for (const article of LEARN_PACK.articles) {

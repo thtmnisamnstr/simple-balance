@@ -81,7 +81,7 @@ const nav = [
   { to: "/recurrences", label: "Recurring", icon: Repeat },
   { to: "/budgets", label: "Budgets", icon: Target },
   { to: "/reports", label: "Reports", icon: ChartColumn },
-  { to: "/import", label: "Import and export", icon: FileUp },
+  { to: "/import", label: "Import/Export", icon: FileUp },
   { to: "/activity", label: "Activity", icon: History },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
