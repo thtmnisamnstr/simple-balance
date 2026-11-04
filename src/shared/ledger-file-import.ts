@@ -476,7 +476,7 @@ export function ledgerFileMoveStagedBlocked(n: number): string {
  * off everything the ledger-file tools return. Constants, so the browser's
  * sentence and the strip cannot drift apart.
  */
-export const LEDGER_FILE_UPGRADE_AFTER_DASH = " — or upgrade under Settings.";
+const LEDGER_FILE_UPGRADE_AFTER_DASH = " — or upgrade under Settings.";
 export const LEDGER_FILE_UPGRADE_AFTER_COMMA = ", or upgrade under Settings.";
 
 /**

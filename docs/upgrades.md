@@ -222,26 +222,26 @@ matching it means a new endpoint at endive and its new `whsec_…` in
 reshaped is the switch from monthly to annual on the spot; try it, and a
 3-D Secure payment, in a sandbox before you rely on either.
 
-**Import CSV is now Import and export, at the same address.** The sidebar
-label and the page's heading changed; the path is still `/import`, so a bookmark
-or a link in somebody's notes still lands there. The CSV import is first on the
-page and behaves exactly as it did, and the CSV export on Transactions, its
-route, its columns and every file it ever wrote are untouched. Below the import
-is a new section, **Import a Simple Balance file**, and after it the new
-export, a Simple Balance file of the whole ledger or of chosen accounts. Adding
-a file creates the accounts, categories, templates, recurring transactions and
-budgets nothing here is like straight away, asks in its preview about every one
-that collides with a record of the same name, and stages the file's
-transactions for review like any import. Moving a file, offered only into a
-ledger where everything came from a Simple Balance file — a new sign-up, a
-fresh install — writes its transactions straight into the books instead,
-deleted ones and the days accounts were archived included, and checks every
-account's balance against the file before the last part commits. A ledger
+**Import CSV is now Import/Export, at the same address.** The sidebar label
+reads Import/Export and the page is headed Import and export; the path is still
+`/import`, so a bookmark or a link in somebody's notes still lands there. The
+CSV import is first on the page and behaves exactly as it did, and the CSV
+export on Transactions, its route, its columns and every file it ever wrote are
+untouched. Below the import is a new section, **Import a Simple Balance file**,
+and after it the new export, a Simple Balance file of the whole ledger or of
+chosen accounts. Adding a file creates the accounts, categories, templates,
+recurring transactions and budgets nothing here is like straight away, asks in
+its preview about every one that collides with a record of the same name, and
+stages the file's transactions for review like any import. Moving a file,
+offered only into a ledger where everything came from a Simple Balance file — a
+new sign-up, a fresh install — writes its transactions straight into the books
+instead, deleted ones and the days accounts were archived included, and checks
+every account's balance against the file before the last part commits. A ledger
 that already holds transactions typed into it, which is every ledger in use
-before this upgrade, is offered adding alone. **Both copies need this
-release**: a 0.2.1 copy has nothing that reads a file, so a ledger moving from
-one — to our cloud app, say — has to upgrade first to make the file, and one
-moving to one has to upgrade first to take it in.
+before this upgrade, is offered adding alone. **Both copies need this release**:
+a 0.2.1 copy has nothing that reads a file, so a ledger moving from one — to our
+cloud app, say — has to upgrade first to make the file, and one moving to one
+has to upgrade first to take it in.
 
 **Four new routes and four new tools.** `GET /api/v1/ledger-file`
 (`ledger:read`) answers with the file as `application/json`, an attachment named
@@ -277,9 +277,9 @@ tool list against 0.2.1's, measured on 2026-11-03:
 
 | Token holds | 0.2.1 | 0.2.2 | Longer by |
 | --- | --- | --- | --- |
-| `ledger:read` | 173,131 | 220,496 | 47,365, 27% |
-| `ledger:stage` | 213,653 | 261,511 | 47,858, 22% |
-| `ledger:write` | 497,153 | 595,032 | 97,879, 20% |
+| `ledger:read` | 173,131 | 220,484 | 47,353, 27% |
+| `ledger:stage` | 213,653 | 261,499 | 47,846, 22% |
+| `ledger:write` | 497,153 | 595,020 | 97,867, 20% |
 
 At about four characters to a token that is some 55,000 tokens for a
 read-only connection and 149,000 for a writing one. A client that loads every
@@ -690,7 +690,7 @@ published value, not a secret, so it has no `_FILE` form.
 Where the challenge is set,
 `curl -sS https://your-host/.well-known/openai-apps-challenge` prints the token
 and nothing else; unset, it answers 404. Signed in,
-**Import and export** shows the CSV import, then **Import a Simple Balance
+**Import/Export** shows the CSV import, then **Import a Simple Balance
 file**, then **Export a Simple Balance file**; **Export file** saves
 `simple-balance-` and today's date as a `.json` file, and choosing that file
 under **Import a Simple Balance file** in the same ledger says everything in it

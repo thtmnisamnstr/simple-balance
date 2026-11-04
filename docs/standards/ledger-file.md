@@ -27,7 +27,7 @@ holds nothing else. `GET /api/v1/ledger-file`,
 `POST /api/v1/ledger-file:move` (`src/server/api.ts:2380-2431`), and the
 `export_ledger_file`, `preview_ledger_file`, `add_ledger_file` and
 `move_ledger_file` tools, are the ways in, and the Import a Simple Balance file
-and Export sections of **Import and export** are the page that uses them. A
+and Export sections of **Import/Export** are the page that uses them. A
 file is read back two ways: added to a ledger that may already hold records
 like its own, its transactions going to Staged (sections 12 to 16), or moved
 straight into the books of a ledger that holds nothing else (section 17).

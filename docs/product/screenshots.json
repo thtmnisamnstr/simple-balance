@@ -1,6 +1,6 @@
 {
   "$comment": "Written by scripts/product-kit/build.mjs. Every screen in the application, in both themes, at 1600px.",
-  "capturedAt": "2026-10-27",
+  "capturedAt": "2026-11-04",
   "appVersion": "0.2.2",
   "appUrl": "http://localhost:5173",
   "viewport": "1440x900 at 2x, shipped at 1600px",
@@ -37,13 +37,13 @@
       "file": "activity-dark.webp",
       "route": "/activity",
       "theme": "dark",
-      "kb": 53
+      "kb": 66
     },
     {
       "file": "activity-light.webp",
       "route": "/activity",
       "theme": "light",
-      "kb": 53
+      "kb": 66
     },
     {
       "file": "budgets-dark.webp",
@@ -55,19 +55,19 @@
       "file": "budgets-light.webp",
       "route": "/budgets",
       "theme": "light",
-      "kb": 62
+      "kb": 61
     },
     {
       "file": "categories-dark.webp",
       "route": "/categories",
       "theme": "dark",
-      "kb": 51
+      "kb": 55
     },
     {
       "file": "categories-light.webp",
       "route": "/categories",
       "theme": "light",
-      "kb": 51
+      "kb": 56
     },
     {
       "file": "dashboard-dark.webp",
@@ -79,25 +79,25 @@
       "file": "dashboard-light.webp",
       "route": "/",
       "theme": "light",
-      "kb": 46
+      "kb": 45
     },
     {
       "file": "import-dark.webp",
       "route": "/import",
       "theme": "dark",
-      "kb": 68
+      "kb": 65
     },
     {
       "file": "import-light.webp",
       "route": "/import",
       "theme": "light",
-      "kb": 67
+      "kb": 65
     },
     {
       "file": "payees-dark.webp",
       "route": "/payees",
       "theme": "dark",
-      "kb": 52
+      "kb": 51
     },
     {
       "file": "payees-light.webp",
@@ -121,13 +121,13 @@
       "file": "reports-dark.webp",
       "route": "/reports",
       "theme": "dark",
-      "kb": 48
+      "kb": 47
     },
     {
       "file": "reports-light.webp",
       "route": "/reports",
       "theme": "light",
-      "kb": 48
+      "kb": 47
     },
     {
       "file": "settings-dark.webp",
@@ -145,13 +145,13 @@
       "file": "settings-plan-dark.webp",
       "route": "/settings/plan",
       "theme": "dark",
-      "kb": 72
+      "kb": 71
     },
     {
       "file": "settings-plan-light.webp",
       "route": "/settings/plan",
       "theme": "light",
-      "kb": 71
+      "kb": 72
     },
     {
       "file": "staged-dark.webp",
@@ -163,7 +163,7 @@
       "file": "staged-light.webp",
       "route": "/staged",
       "theme": "light",
-      "kb": 52
+      "kb": 51
     },
     {
       "file": "templates-dark.webp",
@@ -187,7 +187,7 @@
       "file": "transactions-light.webp",
       "route": "/transactions",
       "theme": "light",
-      "kb": 64
+      "kb": 63
     }
   ]
 }

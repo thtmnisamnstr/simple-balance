@@ -107,7 +107,7 @@ so those rows arrive in the queue asking for it.
 
 A CSV carries transactions and nothing else — no accounts, budgets, templates or
 recurring transactions — so it was never a way to move a ledger, only its
-entries. **Import and export** also makes a **Simple Balance file**: one file
+entries. **Import/Export** also makes a **Simple Balance file**: one file
 holding everything you wrote, accounts and their opening balances, categories
 and groups, every transaction with its splits and both sides of every
 transfer, templates with their reminders, recurring transactions, budgets, rows
@@ -555,5 +555,5 @@ an agent can and cannot do is in [MCP](mcp.md).
 
 Leaving is yours to do. Settings deletes the account and everything in it, after
 counting what that is and asking you to type your address. Nothing is kept, and
-no agent can do it for you. A Simple Balance file from **Import and export**
+no agent can do it for you. A Simple Balance file from **Import/Export**
 taken first is the copy of it you keep.

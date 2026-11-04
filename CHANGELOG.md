@@ -2,29 +2,6 @@
 
 Notable changes, newest first.
 
-## Unreleased
-
-### Changed
-
-**The menu calls Import and export Import/Export.** Shorter in a sidebar where
-every other item is one or two words; the page and its address are unchanged.
-
-**One demo ledger, saved as a Simple Balance file, is what everything synthetic
-is made of.** The product kit used to build its ledger from a description of
-one, posting every account, entry, budget and template through the API on each
-run, and design reviews and smoke tests made up data of their own.
-`scripts/demo-ledger/demo-ledger.json` is now an export from this application,
-committed, and `scripts/demo-ledger/load.mjs` — or the kit's build, which does
-the same thing — moves it into a new sign-up's books, with its dates brought
-forward by whole months so its last month is the current one. It holds what the
-old seed did, plus a category group, a split, a conversion between its two
-currencies and a deleted entry. `save.mjs` writes a changed copy back with only
-the change in the diff. `tests/integration/demo-ledger.integration.test.ts`
-moves it into a database, so a change to the format or to a move's rules that
-the file no longer meets fails there instead of halfway through a screenshot
-run. The kit's `seed.json` and its per-entry keys are gone with the seeding they
-served.
-
 ## 0.2.2 - 2026-11-03
 
 ### Added
@@ -48,22 +25,23 @@ whoever started the connection.
 file.** A CSV carries transactions and nothing else, so moving between our cloud
 app and a copy you run yourself meant rebuilding every account, budget, template
 and recurring transaction by hand, and picking the other account of every
-transfer again. The menu's Import CSV is now **Import and export**, at the same
-address, and below the CSV import it makes one JSON file in the
-`simple-balance-ledger-1` format: accounts with their opening balances and the
-day each was archived, categories and groups, every transaction with its splits
-and both sides of every transfer, deleted ones too unless you untick them,
-templates with their reminders, recurring transactions, budgets, rows still
-waiting in Staged transactions, and your regional defaults and theme once you
-have chosen them. Records name each other by name rather than by id, so the file
-means the same thing in another copy, and a kind you leave out still travels by
-name wherever something refers to it, so unticking one breaks nothing. **Some
-accounts** takes up to a hundred of them, with their details alone, all their
-transactions, or a date range, and a transfer between two of them is in the file
-once. A ranged file carries what each account held the day before it starts, and
-a file with transactions gives every account a balance check worked out from its
-postings. The activity history can come along, unticked to begin with, with
-the owner's id taken out of it, and is never read back.
+transfer again. The menu's Import CSV is now **Import/Export**, a page headed
+Import and export at the same address, and below the CSV import it makes one
+JSON file in the `simple-balance-ledger-1` format: accounts with their opening
+balances and the day each was archived, categories and groups, every transaction
+with its splits and both sides of every transfer, deleted ones too unless you
+untick them, templates with their reminders, recurring transactions, budgets,
+rows still waiting in Staged transactions, and your regional defaults and theme
+once you have chosen them. Records name each other by name rather than by id, so
+the file means the same thing in another copy, and a kind you leave out still
+travels by name wherever something refers to it, so unticking one breaks
+nothing. **Some accounts** takes up to a hundred of them, with their details
+alone, all their transactions, or a date range, and a transfer between two of
+them is in the file once. A ranged file carries what each account held the day
+before it starts, and a file with transactions gives every account a balance
+check worked out from its postings. The activity history can come along,
+unticked to begin with, with the owner's id taken out of it, and is never read
+back.
 
 Agents get the same file from `export_ledger_file`, and
 `GET /api/v1/ledger-file` serves it as a download. One download holds up to
@@ -284,6 +262,22 @@ archived accounts counted. The Budget panel counts archived spending either
 way, as the Budgets page always has.
 
 ### Changed
+
+**One demo ledger, saved as a Simple Balance file, is what everything synthetic
+is made of.** The product kit used to build its ledger from a description of
+one, posting every account, entry, budget and template through the API on each
+run, and design reviews and smoke tests made up data of their own.
+`scripts/demo-ledger/demo-ledger.json` is now an export from this application,
+committed, and `scripts/demo-ledger/load.mjs` — or the kit's build, which does
+the same thing — moves it into a new sign-up's books, with its dates brought
+forward by whole months so its last month is the current one. It holds what the
+old seed did, plus a category group, a split, a conversion between its two
+currencies and a deleted entry. `save.mjs` writes a changed copy back with only
+the change in the diff. `tests/integration/demo-ledger.integration.test.ts`
+moves it into a database, so a change to the format or to a move's rules that
+the file no longer meets fails there instead of halfway through a screenshot
+run. The kit's `seed.json` and its per-entry keys are gone with the seeding they
+served.
 
 **Tool text says plainly that Simple Balance records bookkeeping entries and
 moves no money.** `create_transaction`, `archive_account` and
