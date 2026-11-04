@@ -48,7 +48,7 @@ export const IN_SIMPLE_BALANCE: Readonly<Record<string, readonly LearnStep[]>> =
       // sync brings the site's own correction, and `tests/learn-pack.test.ts`
       // holds both ends: a label the navigation lacks needs the sentence, and a
       // sentence the guide no longer needs fails too.
-      how: "`preview_csv` reads the columns and returns a `suggestedMapping`. Send a `mapping` and `defaultAccountId` to `stage_csv`, first with `dryRun` (the browser's Dry run) and then without, which puts the rows in Staged where nothing counts yet; `dateFormat` MDY is a US bank that writes the month first. The page the guide calls Import CSV is Import and export now.",
+      how: "`preview_csv` reads the columns and returns a `suggestedMapping`. Send a `mapping` and `defaultAccountId` to `stage_csv`, first with `dryRun` (the browser's Dry run) and then without, which puts the rows in Staged where nothing counts yet; `dateFormat` MDY is a US bank that writes the month first. The page the guide calls Import CSV is Import/Export now.",
     },
     {
       step: "Sort the rows as you check them",
@@ -246,7 +246,7 @@ export const IN_SIMPLE_BALANCE: Readonly<Record<string, readonly LearnStep[]>> =
         "delete_staged_transactions",
         "commit_staged_transactions",
       ],
-      how: "`stage_csv`, then `list_staged_transactions` with `validity` duplicate finds the flagged rows, and `get_staged_duplicate` shows each beside the entry it looks like. Drop the copy rather than the entry with `delete_staged_transactions`, which cannot be undone, so confirm it first; then `commit_staged_transactions` the rest. The page the guide calls Import CSV is Import and export now.",
+      how: "`stage_csv`, then `list_staged_transactions` with `validity` duplicate finds the flagged rows, and `get_staged_duplicate` shows each beside the entry it looks like. Drop the copy rather than the entry with `delete_staged_transactions`, which cannot be undone, so confirm it first; then `commit_staged_transactions` the rest. The page the guide calls Import CSV is Import/Export now.",
     },
     {
       step: "Open the register",

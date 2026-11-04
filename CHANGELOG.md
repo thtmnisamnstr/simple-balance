@@ -6,6 +6,9 @@ Notable changes, newest first.
 
 ### Changed
 
+**The menu calls Import and export Import/Export.** Shorter in a sidebar where
+every other item is one or two words; the page and its address are unchanged.
+
 **One demo ledger, saved as a Simple Balance file, is what everything synthetic
 is made of.** The product kit used to build its ledger from a description of
 one, posting every account, entry, budget and template through the API on each
