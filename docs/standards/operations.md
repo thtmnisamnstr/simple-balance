@@ -1983,16 +1983,18 @@ would have failed the gates" is worth more than the finding, and this keeps
 both.
 
 The npm cache stays off whenever a ref is passed
-(`.github/workflows/verify.yml:68`, `:118` and `:581`), which was the earlier
+(`.github/workflows/verify.yml:68`, `:118` and `:589`), which was the earlier
 guard and is still right, but it was never sufficient on its own: the token
 exists for the job whether or not this workflow chooses to cache with it.
 
 *Checked by:* `human`, and by the refusal itself the first time somebody tries
 to publish an unmerged commit. Nothing in the suite runs a workflow file, and a
 test that asserted the shell string would pin the spelling rather than the
-behavior. The four alerts CodeQL raised for this on the default branch, and the
-two the browser job added, are dismissed against this paragraph rather than left
-open to be rediscovered.
+behavior. Every alert CodeQL has raised for this on the default branch — nine,
+the last of them on the Pulumi typecheck that reads `deploy/pulumi`'s lockfile —
+is dismissed against this paragraph rather than left open to be rediscovered,
+and a new one is dismissed the same way once it is checked to be the same
+shape: a step after a checkout of `inputs.ref`, in a job `release.yml` calls.
 
 ### A deployment profile is a shape, not a setting
 
