@@ -46,7 +46,7 @@
     "@stripe/react-stripe-js": "^7.0.1",
     "@stripe/stripe-js": "^10.2.0",
     "@tanstack/react-query": "^5.105.1",
-    "better-auth": "1.6.34",
+    "better-auth": "1.7.22",
     "decimal.js": "^10.6.0",
     "drizzle-orm": "^0.45.4",
     "hono": "^4.13.16",
