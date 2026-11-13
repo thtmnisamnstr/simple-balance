@@ -8,7 +8,7 @@
     "node": ">=22"
   },
   "dependencies": {
-    "@hono/node-server": "^2.1.5",
+    "@hono/node-server": "^2.1.8",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "better-auth": "1.6.34",
     "decimal.js": "^10.6.0",
